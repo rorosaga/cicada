@@ -1,0 +1,129 @@
+import SwiftUI
+
+struct NudgeCardView: View {
+    let nudge: Nudge
+    let onResolve: () -> Void
+    @State private var isExpanded = false
+    @State private var clarificationText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Collapsed header — always visible
+            Button {
+                withAnimation(.spring(duration: 0.25)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: CicadaTheme.spacingMD) {
+                    Image(systemName: nudge.type.icon)
+                        .font(.system(size: 16))
+                        .foregroundStyle(Color(hex: nudge.type.color))
+                        .frame(width: 24)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(nudge.entityName)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(CicadaTheme.textPrimary)
+
+                        Text(nudge.shortDescription)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .padding(CicadaTheme.spacingLG)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Divider().background(CicadaTheme.border)
+
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                    Text(nudge.fullContext)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    actionButtons
+                }
+                .padding(CicadaTheme.spacingLG)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .glassCard()
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        switch nudge.type {
+        case .decay:
+            HStack(spacing: CicadaTheme.spacingSM) {
+                ActionButton(title: "Still Active", icon: "checkmark", color: 0x22C55E, action: onResolve)
+                ActionButton(title: "Archive", icon: "archivebox", color: 0x6B7280, action: onResolve)
+                ActionButton(title: "Remind Later", icon: "clock", color: 0xF59E0B, action: onResolve)
+            }
+
+        case .conflict:
+            VStack(spacing: CicadaTheme.spacingSM) {
+                if let options = nudge.options {
+                    ForEach(options, id: \.self) { option in
+                        ActionButton(title: option, icon: "arrow.right.circle", color: 0x7C8FFF, action: onResolve, fullWidth: true)
+                    }
+                }
+            }
+
+        case .clarification:
+            VStack(spacing: CicadaTheme.spacingSM) {
+                TextField("Type your answer...", text: $clarificationText)
+                    .textFieldStyle(.plain)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .padding(CicadaTheme.spacingMD)
+                    .background(CicadaTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                            .stroke(CicadaTheme.border, lineWidth: 1)
+                    )
+
+                HStack {
+                    Spacer()
+                    ActionButton(title: "Submit", icon: "paperplane", color: 0x22C55E, action: onResolve)
+                }
+            }
+        }
+    }
+}
+
+struct ActionButton: View {
+    let title: String
+    let icon: String
+    let color: UInt32
+    let action: () -> Void
+    var fullWidth: Bool = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Image(systemName: icon)
+                    .font(.system(size: 11))
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(Color(hex: color))
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .padding(.vertical, CicadaTheme.spacingSM)
+            .frame(maxWidth: fullWidth ? .infinity : nil)
+            .background(Color(hex: color).opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        }
+        .buttonStyle(.plain)
+    }
+}

@@ -1,0 +1,169 @@
+const typeColors = {
+    person:   "#4A9EFF",
+    project:  "#A855F7",
+    company:  "#F97316",
+    concept:  "#22C55E",
+    tool:     "#14B8A6",
+    deadline: "#EF4444",
+    skill:    "#EAB308",
+    location: "#9CA3AF"
+};
+
+let simulation, svg, g, linkGroup, nodeGroup, labelGroup;
+let width, height;
+
+function init() {
+    svg = d3.select("#graph");
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    // Glow filter
+    const defs = svg.append("defs");
+    const filter = defs.append("filter").attr("id", "glow");
+    filter.append("feGaussianBlur").attr("stdDeviation", "4").attr("result", "blur");
+    const merge = filter.append("feMerge");
+    merge.append("feMergeNode").attr("in", "blur");
+    merge.append("feMergeNode").attr("in", "SourceGraphic");
+
+    g = svg.append("g");
+    linkGroup = g.append("g").attr("class", "links");
+    nodeGroup = g.append("g").attr("class", "nodes");
+    labelGroup = g.append("g").attr("class", "labels");
+
+    // Zoom
+    const zoom = d3.zoom()
+        .scaleExtent([0.3, 4])
+        .on("zoom", (event) => g.attr("transform", event.transform));
+    svg.call(zoom);
+
+    // Initial center
+    svg.call(zoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.9));
+
+    // Signal ready
+    try {
+        window.webkit.messageHandlers.cicada.postMessage(JSON.stringify({ type: "graphReady" }));
+    } catch(e) {
+        console.log("graphReady (no handler):", e);
+    }
+}
+
+function updateGraph(dataStr) {
+    const data = typeof dataStr === "string" ? JSON.parse(dataStr) : dataStr;
+    const nodes = data.nodes;
+    const links = data.links;
+
+    // Force simulation
+    simulation = d3.forceSimulation(nodes)
+        .force("link", d3.forceLink(links).id(d => d.id).distance(120))
+        .force("charge", d3.forceManyBody().strength(-250))
+        .force("center", d3.forceCenter(0, 0))
+        .force("collision", d3.forceCollide().radius(d => nodeRadius(d) + 8));
+
+    // Links
+    const link = linkGroup.selectAll("line")
+        .data(links)
+        .join("line")
+        .attr("class", "link")
+        .attr("stroke-width", 1);
+
+    // Link labels
+    const linkLabel = linkGroup.selectAll("text")
+        .data(links)
+        .join("text")
+        .attr("class", "link-label")
+        .text(d => d.label);
+
+    // Nodes
+    const node = nodeGroup.selectAll("circle")
+        .data(nodes)
+        .join("circle")
+        .attr("r", d => nodeRadius(d))
+        .attr("fill", d => typeColors[d.type] || "#999")
+        .attr("stroke", d => d.status === "decaying" ? typeColors[d.type] : "transparent")
+        .attr("stroke-width", d => d.status === "decaying" ? 2 : 0)
+        .attr("stroke-dasharray", d => d.status === "decaying" ? "4 3" : "none")
+        .attr("opacity", d => d.status === "decaying" ? 0.5 : 0.9)
+        .attr("filter", "url(#glow)")
+        .attr("cursor", "pointer")
+        .on("click", (event, d) => {
+            event.stopPropagation();
+            try {
+                window.webkit.messageHandlers.cicada.postMessage(
+                    JSON.stringify({ type: "nodeClicked", id: d.id })
+                );
+            } catch(e) { console.log("click:", d.id); }
+        })
+        .on("mouseenter", function(event, d) {
+            d3.select(this)
+                .transition().duration(150)
+                .attr("r", nodeRadius(d) * 1.2)
+                .attr("opacity", 1);
+        })
+        .on("mouseleave", function(event, d) {
+            d3.select(this)
+                .transition().duration(150)
+                .attr("r", nodeRadius(d))
+                .attr("opacity", d.status === "decaying" ? 0.5 : 0.9);
+        })
+        .call(d3.drag()
+            .on("start", dragStarted)
+            .on("drag", dragged)
+            .on("end", dragEnded));
+
+    // Labels
+    const label = labelGroup.selectAll("text")
+        .data(nodes)
+        .join("text")
+        .attr("class", "node-label")
+        .attr("dy", d => nodeRadius(d) + 14)
+        .text(d => d.name);
+
+    // Tick
+    simulation.on("tick", () => {
+        link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+        linkLabel
+            .attr("x", d => (d.source.x + d.target.x) / 2)
+            .attr("y", d => (d.source.y + d.target.y) / 2);
+
+        node
+            .attr("cx", d => d.x)
+            .attr("cy", d => d.y);
+
+        label
+            .attr("x", d => d.x)
+            .attr("y", d => d.y);
+    });
+}
+
+function nodeRadius(d) {
+    return d.confidence * 18 + 8;
+}
+
+function dragStarted(event, d) {
+    if (!event.active) simulation.alphaTarget(0.3).restart();
+    d.fx = d.x;
+    d.fy = d.y;
+}
+
+function dragged(event, d) {
+    d.fx = event.x;
+    d.fy = event.y;
+}
+
+function dragEnded(event, d) {
+    if (!event.active) simulation.alphaTarget(0);
+    d.fx = null;
+    d.fy = null;
+}
+
+window.addEventListener("resize", () => {
+    width = window.innerWidth;
+    height = window.innerHeight;
+});
+
+document.addEventListener("DOMContentLoaded", init);
