@@ -4,43 +4,44 @@ struct NudgeCardView: View {
     let nudge: Nudge
     let onResolve: () -> Void
     @State private var isExpanded = false
+    @State private var isHovered = false
     @State private var clarificationText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Collapsed header — always visible
-            Button {
-                withAnimation(.spring(duration: 0.25)) {
+            // Collapsed header — entire area is tappable
+            HStack(spacing: CicadaTheme.spacingMD) {
+                Image(systemName: nudge.type.icon)
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color(hex: nudge.type.color))
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(nudge.entityName)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+
+                    Text(nudge.shortDescription)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(.spring(duration: 0.2), value: isExpanded)
+            }
+            .padding(CicadaTheme.spacingLG)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.spring(duration: 0.3, bounce: 0.15)) {
                     isExpanded.toggle()
                 }
-            } label: {
-                HStack(spacing: CicadaTheme.spacingMD) {
-                    Image(systemName: nudge.type.icon)
-                        .font(.system(size: 16))
-                        .foregroundStyle(Color(hex: nudge.type.color))
-                        .frame(width: 24)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(nudge.entityName)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(CicadaTheme.textPrimary)
-
-                        Text(nudge.shortDescription)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                }
-                .padding(CicadaTheme.spacingLG)
             }
-            .buttonStyle(.plain)
 
             if isExpanded {
                 Divider().background(CicadaTheme.border)
@@ -54,10 +55,16 @@ struct NudgeCardView: View {
                     actionButtons
                 }
                 .padding(CicadaTheme.spacingLG)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95, anchor: .top)).combined(with: .move(edge: .top)),
+                    removal: .opacity.combined(with: .scale(scale: 0.95, anchor: .top))
+                ))
             }
         }
         .glassCard()
+        .scaleEffect(isHovered ? 1.01 : 1.0)
+        .animation(.spring(duration: 0.2), value: isHovered)
+        .onHover { isHovered = $0 }
     }
 
     @ViewBuilder
@@ -108,6 +115,7 @@ struct ActionButton: View {
     let color: UInt32
     let action: () -> Void
     var fullWidth: Bool = false
+    @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
@@ -121,9 +129,12 @@ struct ActionButton: View {
             .padding(.horizontal, CicadaTheme.spacingMD)
             .padding(.vertical, CicadaTheme.spacingSM)
             .frame(maxWidth: fullWidth ? .infinity : nil)
-            .background(Color(hex: color).opacity(0.12))
+            .background(Color(hex: color).opacity(isHovered ? 0.2 : 0.12))
             .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+            .scaleEffect(isHovered ? 1.03 : 1.0)
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.spring(duration: 0.15), value: isHovered)
     }
 }

@@ -11,6 +11,9 @@ const typeColors = {
 
 let simulation, svg, g, linkGroup, nodeGroup, labelGroup;
 let width, height;
+let currentZoom;
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 3.0;
 
 function init() {
     svg = d3.select("#graph");
@@ -30,14 +33,15 @@ function init() {
     nodeGroup = g.append("g").attr("class", "nodes");
     labelGroup = g.append("g").attr("class", "labels");
 
-    // Zoom
-    const zoom = d3.zoom()
-        .scaleExtent([0.3, 4])
+    // Zoom with limits
+    currentZoom = d3.zoom()
+        .scaleExtent([MIN_ZOOM, MAX_ZOOM])
+        .translateExtent([[-2000, -2000], [2000, 2000]])
         .on("zoom", (event) => g.attr("transform", event.transform));
-    svg.call(zoom);
+    svg.call(currentZoom);
 
     // Initial center
-    svg.call(zoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.9));
+    svg.call(currentZoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.9));
 
     // Signal ready
     try {
@@ -45,6 +49,22 @@ function init() {
     } catch(e) {
         console.log("graphReady (no handler):", e);
     }
+}
+
+// Called from Swift for zoom buttons
+function zoomIn() {
+    svg.transition().duration(300).call(currentZoom.scaleBy, 1.3);
+}
+
+function zoomOut() {
+    svg.transition().duration(300).call(currentZoom.scaleBy, 0.7);
+}
+
+function zoomReset() {
+    svg.transition().duration(500).call(
+        currentZoom.transform,
+        d3.zoomIdentity.translate(width / 2, height / 2).scale(0.9)
+    );
 }
 
 function updateGraph(dataStr) {

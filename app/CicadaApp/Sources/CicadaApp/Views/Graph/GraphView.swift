@@ -23,11 +23,17 @@ struct GraphView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        // Push data only after JS signals ready
-        if context.coordinator.isGraphReady {
-            let json = viewModel.graphDataJSON
-            webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
-                if let error { print("JS error: \(error)") }
+        // Handle zoom actions from Swift UI
+        if let action = viewModel.zoomAction {
+            let jsCall: String
+            switch action {
+            case .zoomIn: jsCall = "zoomIn()"
+            case .out: jsCall = "zoomOut()"
+            case .reset: jsCall = "zoomReset()"
+            }
+            webView.evaluateJavaScript(jsCall, completionHandler: nil)
+            DispatchQueue.main.async {
+                self.viewModel.zoomAction = nil
             }
         }
     }

@@ -1,11 +1,16 @@
 import Foundation
 import SwiftUI
 
+enum ZoomAction {
+    case zoomIn, out, reset
+}
+
 @Observable
 final class GraphViewModel {
     var entities: [Entity] = MockData.entities
     var selectedEntity: Entity?
     var isGraphReady = false
+    var zoomAction: ZoomAction?
 
     var graphDataJSON: String {
         let nodes = entities.map { entity -> [String: Any] in

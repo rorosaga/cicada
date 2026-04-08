@@ -26,6 +26,10 @@ struct EntityDetailCard: View {
         }
         .frame(maxHeight: .infinity)
         .glassCard()
+        .onKeyPress(.escape) {
+            graphVM.clearSelection()
+            return .handled
+        }
     }
 
     // MARK: - Header
