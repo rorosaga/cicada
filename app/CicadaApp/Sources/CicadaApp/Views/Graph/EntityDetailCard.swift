@@ -107,6 +107,7 @@ struct EntityDetailCard: View {
 
     private var tabSwitcher: some View {
         HStack(spacing: CicadaTheme.spacingXL) {
+            Spacer()
             TabButton(title: "Content", isSelected: selectedTab == .content) {
                 selectedTab = .content
             }
@@ -124,13 +125,32 @@ struct EntityDetailCard: View {
     private var contentTab: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             // Markdown toggle + copy
-            HStack {
-                Picker("", selection: $showRawMarkdown) {
-                    Text("Rendered").tag(false)
-                    Text("Raw").tag(true)
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Button {
+                    showRawMarkdown = false
+                } label: {
+                    Image(systemName: "eye")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(!showRawMarkdown ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+                        .frame(width: 28, height: 24)
+                        .background(!showRawMarkdown ? CicadaTheme.surfaceHover : .clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 180)
+                .buttonStyle(.plain)
+                .help("Rendered view")
+
+                Button {
+                    showRawMarkdown = true
+                } label: {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(showRawMarkdown ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+                        .frame(width: 28, height: 24)
+                        .background(showRawMarkdown ? CicadaTheme.surfaceHover : .clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+                .buttonStyle(.plain)
+                .help("Raw markdown")
 
                 Spacer()
 
@@ -243,12 +263,14 @@ struct EntityDetailCard: View {
 
     private var historyTab: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(entity.history.enumerated()), id: \.element.id) { index, entry in
+            ForEach(Array(entity.history.reversed().enumerated()), id: \.element.id) { index, entry in
                 HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                     // Timeline
                     VStack(spacing: 0) {
                         Circle()
-                            .fill(Color(hex: UInt32(entry.changeType.color, radix: 16) ?? 0x999999))
+                            .fill(index == 0
+                                  ? Color(hex: 0x22C55E)
+                                  : Color(hex: UInt32(entry.changeType.color, radix: 16) ?? 0x999999))
                             .frame(width: 10, height: 10)
 
                         if index < entity.history.count - 1 {

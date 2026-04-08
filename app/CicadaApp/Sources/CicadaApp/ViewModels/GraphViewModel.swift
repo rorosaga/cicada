@@ -11,6 +11,23 @@ final class GraphViewModel {
     var selectedEntity: Entity?
     var isGraphReady = false
     var zoomAction: ZoomAction?
+    var enabledTypes: Set<EntityType> = Set(EntityType.allCases)
+    var showTopicsList = false
+    var showFilterPopover = false
+    var pendingFilterUpdate = false
+
+    var filteredEntities: [Entity] {
+        entities.filter { enabledTypes.contains($0.type) }
+    }
+
+    func toggleType(_ type: EntityType) {
+        if enabledTypes.contains(type) {
+            enabledTypes.remove(type)
+        } else {
+            enabledTypes.insert(type)
+        }
+        pendingFilterUpdate = true
+    }
 
     var graphDataJSON: String {
         let nodes = entities.map { entity -> [String: Any] in

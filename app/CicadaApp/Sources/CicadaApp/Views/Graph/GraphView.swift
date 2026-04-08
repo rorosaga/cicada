@@ -36,6 +36,20 @@ struct GraphView: NSViewRepresentable {
                 self.viewModel.zoomAction = nil
             }
         }
+
+        // Handle filter updates
+        if viewModel.pendingFilterUpdate {
+            let types = viewModel.enabledTypes.map { $0.rawValue }
+            if let data = try? JSONSerialization.data(withJSONObject: types),
+               let json = String(data: data, encoding: .utf8) {
+                webView.evaluateJavaScript("filterTypes('\(json)')") { _, error in
+                    if let error { print("Filter error: \(error)") }
+                }
+            }
+            DispatchQueue.main.async {
+                self.viewModel.pendingFilterUpdate = false
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator {

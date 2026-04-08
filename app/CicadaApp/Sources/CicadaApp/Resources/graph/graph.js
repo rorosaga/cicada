@@ -43,6 +43,12 @@ function init() {
     // Initial center
     svg.call(currentZoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.9));
 
+    // Double-click on background resets zoom
+    svg.on("dblclick.zoom", null); // remove d3's default double-click zoom
+    svg.on("dblclick", () => {
+        zoomReset();
+    });
+
     // Signal ready
     try {
         window.webkit.messageHandlers.cicada.postMessage(JSON.stringify({ type: "graphReady" }));
@@ -179,6 +185,36 @@ function dragEnded(event, d) {
     if (!event.active) simulation.alphaTarget(0);
     d.fx = null;
     d.fy = null;
+}
+
+function filterTypes(enabledTypesStr) {
+    const enabledTypes = JSON.parse(enabledTypesStr);
+    const enabledSet = new Set(enabledTypes);
+
+    nodeGroup.selectAll("circle")
+        .transition().duration(300)
+        .attr("opacity", d => enabledSet.has(d.type) ? (d.status === "decaying" ? 0.5 : 0.9) : 0.06)
+        .attr("filter", d => enabledSet.has(d.type) ? "url(#glow)" : "none");
+
+    labelGroup.selectAll("text")
+        .transition().duration(300)
+        .attr("opacity", d => enabledSet.has(d.type) ? 1 : 0.06);
+
+    linkGroup.selectAll("line")
+        .transition().duration(300)
+        .attr("stroke-opacity", d => {
+            const srcType = typeof d.source === "object" ? d.source.type : null;
+            const tgtType = typeof d.target === "object" ? d.target.type : null;
+            return (srcType && enabledSet.has(srcType)) && (tgtType && enabledSet.has(tgtType)) ? 0.4 : 0.03;
+        });
+
+    linkGroup.selectAll("text")
+        .transition().duration(300)
+        .attr("opacity", d => {
+            const srcType = typeof d.source === "object" ? d.source.type : null;
+            const tgtType = typeof d.target === "object" ? d.target.type : null;
+            return (srcType && enabledSet.has(srcType)) && (tgtType && enabledSet.has(tgtType)) ? 1 : 0.03;
+        });
 }
 
 window.addEventListener("resize", () => {
