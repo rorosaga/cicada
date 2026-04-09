@@ -1,8 +1,9 @@
 import asyncio
-import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+from loguru import logger
 
 from api.config import Settings
 from api.services import git_service, markdown_parser
@@ -34,51 +35,73 @@ async def run(settings: Settings, cycle_id: str) -> None:
     _state.progress = "Starting..."
 
     memory_path = settings.memory_path
+    logger.info(f"Sleep cycle {cycle_id} started — model: {settings.litellm_model}")
 
     try:
         # Collect unprocessed episodes
         episodes = _get_unprocessed_episodes(memory_path)
         if not episodes:
-            _state.progress = "No unprocessed episodes found"
-            await _finalize(memory_path, cycle_id, [])
+            logger.info("No unprocessed episodes found — skipping")
+            _state.progress = "No unprocessed episodes"
+            _state.status = "idle"
             return
 
+        logger.info(f"Found {len(episodes)} unprocessed episodes")
+
         # Stage 1: Entity & Relationship Extraction
-        _state.progress = "Stage 1/5: Extracting entities..."
+        _state.progress = f"Stage 1/5: Extracting entities from {len(episodes)} episodes..."
+        logger.info(f"Stage 1: Extracting entities from {len(episodes)} episodes")
         from api.services.entity_extractor import extract
         extracted = await extract(episodes, settings)
+        total_entities = sum(len(e.get("entities", [])) for e in extracted)
+        total_rels = sum(len(e.get("relationships", [])) for e in extracted)
+        logger.info(f"Stage 1 complete: {total_entities} entities, {total_rels} relationships extracted")
 
         # Stage 2: Entity Resolution & Deduplication
         _state.progress = "Stage 2/5: Resolving entities..."
+        logger.info("Stage 2: Resolving entities against existing graph")
         existing = _load_existing_entities(memory_path)
         from api.services.entity_resolver import resolve
-        resolved = await resolve(extracted, existing, settings)
+        resolved_result = await resolve(extracted, existing, settings)
+        resolved_changes = resolved_result["changes"]
+        resolved_edges = resolved_result["relationships"]
+        creates = sum(1 for r in resolved_changes if r.get("action") == "create")
+        updates = sum(1 for r in resolved_changes if r.get("action") == "update")
+        logger.info(f"Stage 2 complete: {creates} new entities, {updates} updates, {len(resolved_edges)} relationships")
 
         # Stage 3: Conflict Resolution & Pruning
         _state.progress = "Stage 3/5: Resolving conflicts..."
+        logger.info("Stage 3: Conflict resolution & temporal decay")
         from api.services.conflict_resolver import resolve_and_prune
-        changes = await resolve_and_prune(resolved, existing, settings)
+        changes = await resolve_and_prune(resolved_changes, existing, settings)
+        logger.info(f"Stage 3 complete: {len(changes)} total changes")
 
         # Stage 4: Pattern Detection & Skill Extraction
         _state.progress = "Stage 4/5: Extracting skills..."
+        logger.info("Stage 4: Pattern detection & skill extraction")
         from api.services.skill_extractor import detect_patterns
         skills = await detect_patterns(changes, existing, settings)
+        logger.info(f"Stage 4 complete: {len(skills)} skills detected")
 
         # Stage 5: Nudge Generation & Versioning
-        _state.progress = "Stage 5/5: Generating nudges..."
+        _state.progress = "Stage 5/5: Writing changes..."
+        logger.info("Stage 5: Writing entities, nudges, clarifications, and relationships")
         from api.services.nudge_generator import generate
-        await generate(changes, skills, memory_path)
+        await generate(changes, skills, memory_path, relationships=resolved_edges)
 
         # Mark episodes as processed
         _mark_episodes_processed(episodes)
+        logger.info(f"Marked {len(episodes)} episodes as processed")
 
         # Commit
         await _finalize(memory_path, cycle_id, changes)
         _state.progress = "Completed"
+        logger.success(f"Sleep cycle {cycle_id} completed — {len(changes)} changes committed")
 
     except Exception as e:
         _state.progress = f"Failed: {e}"
-        traceback.print_exc()
+        logger.error(f"Sleep cycle failed: {e}")
+        logger.exception("Full traceback:")
     finally:
         _state.status = "idle"
 

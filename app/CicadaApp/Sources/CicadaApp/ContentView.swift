@@ -27,6 +27,9 @@ struct ContentView: View {
                 columnVisibility = newValue != nil ? .detailOnly : .doubleColumn
             }
         }
+        .task {
+            await graphVM.loadGraph()
+        }
     }
 
     @ViewBuilder
@@ -34,12 +37,12 @@ struct ContentView: View {
         switch selectedTab {
         case .memory:
             GraphContainerView()
+        case .topics:
+            TopicsView()
         case .nudges:
             NudgeListView()
         case .clarifications:
             ClarificationListView()
-        case .upload:
-            ConversationUploadView()
         }
     }
 }
@@ -48,6 +51,7 @@ struct ContentView: View {
 
 struct GraphContainerView: View {
     @Environment(GraphViewModel.self) private var graphVM
+    @State private var showUploadOverlay = false
 
     var body: some View {
         ZStack {
@@ -65,32 +69,37 @@ struct GraphContainerView: View {
                 }
             }
 
-            // Topics list (right side)
-            HStack {
-                Spacer()
-                if graphVM.showTopicsList {
-                    TopicsListPanel()
-                        .frame(width: 260)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+            // Top-right: Sleep + Upload + Help buttons
+            VStack {
+                HStack {
+                    Spacer()
+                    TopBarControls(showUploadOverlay: $showUploadOverlay)
+                        .padding(CicadaTheme.spacingLG)
                 }
+                Spacer()
             }
 
-            // Zoom controls + filter + topics toggle (bottom-right)
+            // Bottom-right: Filter + Zoom controls
             VStack {
                 Spacer()
                 HStack {
                     Spacer()
                     HStack(spacing: CicadaTheme.spacingSM) {
                         FilterButton()
-                        TopicsListToggle()
                         ZoomControls()
                     }
                     .padding(CicadaTheme.spacingLG)
                 }
             }
+
+            // Upload overlay
+            if showUploadOverlay {
+                UploadOverlay(isPresented: $showUploadOverlay)
+                    .transition(.opacity)
+            }
         }
         .animation(.spring(duration: 0.3), value: graphVM.selectedEntity?.id)
-        .animation(.spring(duration: 0.3), value: graphVM.showTopicsList)
+        .animation(.spring(duration: 0.3), value: showUploadOverlay)
     }
 }
 
@@ -162,108 +171,6 @@ struct FilterPopoverContent: View {
     }
 }
 
-// MARK: - Topics List Toggle
-
-struct TopicsListToggle: View {
-    @Environment(GraphViewModel.self) private var graphVM
-    @State private var isHovered = false
-
-    var body: some View {
-        Button {
-            graphVM.showTopicsList.toggle()
-        } label: {
-            Image(systemName: "list.bullet")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(graphVM.showTopicsList ? CicadaTheme.accent : (isHovered ? CicadaTheme.textPrimary : CicadaTheme.textSecondary))
-                .frame(width: 36, height: 32)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
-    }
-}
-
-// MARK: - Topics List Panel
-
-struct TopicsListPanel: View {
-    @Environment(GraphViewModel.self) private var graphVM
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
-                Image(systemName: "circle.grid.2x2.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                Text("TOPICS")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .tracking(1.2)
-                Spacer()
-                Button {
-                    graphVM.showTopicsList = false
-                } label: {
-                    Image(systemName: "sidebar.right")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, CicadaTheme.spacingMD)
-            .padding(.vertical, CicadaTheme.spacingSM)
-
-            Divider().background(CicadaTheme.border)
-
-            // Nodes list
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(graphVM.filteredEntities.sorted(by: { $0.name < $1.name })) { entity in
-                        TopicRow(entity: entity)
-                    }
-                }
-                .padding(.vertical, CicadaTheme.spacingXS)
-            }
-        }
-        .frame(maxHeight: .infinity)
-        .padding(.top, CicadaTheme.spacingLG)
-        .padding(.bottom, 60) // leave room for bottom controls
-        .glassCard()
-    }
-}
-
-private struct TopicRow: View {
-    let entity: Entity
-    @Environment(GraphViewModel.self) private var graphVM
-    @State private var isHovered = false
-
-    var body: some View {
-        Button {
-            graphVM.selectEntity(id: entity.id)
-        } label: {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: entity.type.icon)
-                    .font(.system(size: 11))
-                    .foregroundStyle(CicadaTheme.entityColor(for: entity.type))
-                    .frame(width: 16)
-
-                Text(entity.name)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .lineLimit(1)
-
-                Spacer()
-            }
-            .padding(.horizontal, CicadaTheme.spacingMD)
-            .padding(.vertical, CicadaTheme.spacingXS + 2)
-            .background(isHovered || graphVM.selectedEntity?.id == entity.id ? CicadaTheme.surfaceHover : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .padding(.horizontal, CicadaTheme.spacingXS)
-    }
-}
-
 // MARK: - Zoom Controls
 
 struct ZoomControls: View {
@@ -295,101 +202,5 @@ private struct ZoomButton: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
-    }
-}
-
-// MARK: - Conversation Upload View
-
-struct ConversationUploadView: View {
-    @State private var isDragOver = false
-    @State private var uploadedFiles: [String] = []
-
-    var body: some View {
-        VStack(spacing: CicadaTheme.spacingXL) {
-            Spacer()
-
-            // Drop zone
-            VStack(spacing: CicadaTheme.spacingLG) {
-                Image(systemName: "arrow.up.doc")
-                    .font(.system(size: 40))
-                    .foregroundStyle(isDragOver ? CicadaTheme.accent : CicadaTheme.textTertiary)
-
-                Text("Upload Conversation Export")
-                    .font(CicadaTheme.headingFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-
-                Text("Drop a ChatGPT or Claude export file here\n(JSON or HTML)")
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .multilineTextAlignment(.center)
-
-                Button {
-                    pickFile()
-                } label: {
-                    HStack(spacing: CicadaTheme.spacingSM) {
-                        Image(systemName: "folder")
-                        Text("Choose File")
-                    }
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(CicadaTheme.accent)
-                    .padding(.horizontal, CicadaTheme.spacingXL)
-                    .padding(.vertical, CicadaTheme.spacingMD)
-                    .background(CicadaTheme.accent.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-                }
-                .buttonStyle(.plain)
-            }
-            .frame(maxWidth: 400)
-            .padding(CicadaTheme.spacingXXL)
-            .glassCard()
-            .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
-                    .stroke(isDragOver ? CicadaTheme.accent : .clear, lineWidth: 2)
-                    .animation(.easeInOut(duration: 0.2), value: isDragOver)
-            )
-
-            // Uploaded files list
-            if !uploadedFiles.isEmpty {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    Text("Queued for next Sleep cycle")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-
-                    ForEach(uploadedFiles, id: \.self) { file in
-                        HStack {
-                            Image(systemName: "doc.text")
-                                .foregroundStyle(CicadaTheme.accent)
-                            Text(file)
-                                .font(CicadaTheme.bodyFont)
-                                .foregroundStyle(CicadaTheme.textSecondary)
-                            Spacer()
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(Color(hex: 0x22C55E))
-                        }
-                        .padding(CicadaTheme.spacingMD)
-                        .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                    }
-                }
-                .frame(maxWidth: 400)
-            }
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CicadaTheme.background)
-    }
-
-    private func pickFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json, .html]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.message = "Select a ChatGPT or Claude conversation export"
-
-        if panel.runModal() == .OK, let url = panel.url {
-            withAnimation(.spring(duration: 0.3)) {
-                uploadedFiles.append(url.lastPathComponent)
-            }
-        }
     }
 }

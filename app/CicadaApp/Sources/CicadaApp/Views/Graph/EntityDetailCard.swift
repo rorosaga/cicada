@@ -192,8 +192,8 @@ struct EntityDetailCard: View {
         type: \(entity.type.rawValue)
         status: \(entity.status.rawValue)
         confidence: \(entity.confidence)
-        created: \(formatDate(entity.created))
-        last_referenced: \(formatDate(entity.lastReferenced))
+        created: \(entity.created)
+        last_referenced: \(entity.lastReferenced)
         decay_rate: \(entity.decayRate)
         version: \(entity.version)
         tags: [\(entity.tags.joined(separator: ", "))]
@@ -248,11 +248,11 @@ struct EntityDetailCard: View {
             }
 
             HStack(spacing: CicadaTheme.spacingLG) {
-                Label(formatDate(entity.created), systemImage: "calendar")
+                Label(entity.created, systemImage: "calendar")
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
 
-                Label(formatDate(entity.lastReferenced), systemImage: "clock")
+                Label(entity.lastReferenced, systemImage: "clock")
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
@@ -283,7 +283,7 @@ struct EntityDetailCard: View {
                     .frame(width: 10)
 
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        Text(formatDate(entry.date))
+                        Text(entry.date)
                             .font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textTertiary)
 
@@ -302,20 +302,14 @@ struct EntityDetailCard: View {
 
     // MARK: - Helpers
 
-    private func formatDate(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d, yyyy"
-        return f.string(from: date)
-    }
-
     private func buildFullMarkdown() -> String {
         """
         ---
         type: \(entity.type.rawValue)
         status: \(entity.status.rawValue)
         confidence: \(entity.confidence)
-        created: \(formatDate(entity.created))
-        last_referenced: \(formatDate(entity.lastReferenced))
+        created: \(entity.created)
+        last_referenced: \(entity.lastReferenced)
         decay_rate: \(entity.decayRate)
         version: \(entity.version)
         tags: [\(entity.tags.joined(separator: ", "))]

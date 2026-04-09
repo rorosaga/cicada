@@ -3,20 +3,33 @@
 from datetime import date
 from pathlib import Path
 
+import yaml
+
 from api.services import markdown_parser
 from api.services.conflict_resolver import apply_changes
 
 
 async def generate(
-    changes: list[dict], skills: list[dict], memory_path: Path
+    changes: list[dict],
+    skills: list[dict],
+    memory_path: Path,
+    relationships: list[dict] | None = None,
 ) -> None:
-    """Generate nudge/clarification files and apply entity changes."""
+    """Generate nudge/clarification files, apply entity changes, persist relationships."""
     nudges_dir = memory_path / "nudges"
     entities_dir = memory_path / "entities"
     nudges_dir.mkdir(parents=True, exist_ok=True)
 
     # Apply entity file changes (create, update, archive, decay)
     apply_changes(changes, memory_path)
+
+    # Persist relationships to graph_edges.yaml (merge with existing)
+    if relationships:
+        _write_graph_edges(memory_path, relationships)
+
+    # Also update each entity's `related` field based on new relationships
+    if relationships:
+        _update_related_fields(entities_dir, relationships)
 
     # Generate nudge files for decay and conflict items
     nudge_count = _count_existing_nudges(nudges_dir)
@@ -84,6 +97,59 @@ async def generate(
                 "version": 1,
             }
             markdown_parser.write(skill_path, frontmatter, skill.get("description", ""))
+
+
+def _write_graph_edges(memory_path: Path, new_edges: list[dict]) -> None:
+    """Merge new edges into graph_edges.yaml (dedup by source+target+label)."""
+    edges_file = memory_path / "graph_edges.yaml"
+
+    existing_edges: list[dict] = []
+    if edges_file.exists():
+        try:
+            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+            existing_edges = data.get("edges", [])
+        except Exception:
+            existing_edges = []
+
+    # Dedup by (source, target, label)
+    seen: set[tuple[str, str, str]] = set()
+    merged: list[dict] = []
+    for edge in existing_edges + new_edges:
+        key = (edge.get("source", ""), edge.get("target", ""), edge.get("label", "").lower())
+        if key not in seen:
+            seen.add(key)
+            merged.append({
+                "source": edge.get("source", ""),
+                "target": edge.get("target", ""),
+                "label": edge.get("label", "related to"),
+            })
+
+    edges_file.write_text(
+        yaml.dump({"edges": merged}, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
+def _update_related_fields(entities_dir: Path, relationships: list[dict]) -> None:
+    """Update each entity's `related` frontmatter field based on new relationships."""
+    # Build map of entity_id -> set of related IDs
+    related_map: dict[str, set[str]] = {}
+    for rel in relationships:
+        src = rel.get("source", "")
+        tgt = rel.get("target", "")
+        if src and tgt:
+            related_map.setdefault(src, set()).add(tgt)
+            related_map.setdefault(tgt, set()).add(src)
+
+    for entity_id, related_ids in related_map.items():
+        filepath = entities_dir / f"{entity_id}.md"
+        if not filepath.exists():
+            continue
+        parsed = markdown_parser.parse(filepath)
+        existing_related = set(parsed.frontmatter.get("related", []) or [])
+        updated = sorted(existing_related | related_ids)
+        parsed.frontmatter["related"] = updated
+        markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
 
 
 def _count_existing_nudges(nudges_dir: Path) -> int:

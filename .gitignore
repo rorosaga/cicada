@@ -1,0 +1,5 @@
+# Personal conversation exports — never commit
+data/
+
+# Memory runtime data is a separate git repo
+memory/

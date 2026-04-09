@@ -1,16 +1,43 @@
+import logging
 import subprocess
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 
 from api.config import get_settings
 from api.routers import clarifications, conversations, entities, graph, nudges, sleep
+
+# --- Logging setup ---
+# Remove loguru default handler and add our own format
+logger.remove()
+logger.add(
+    sys.stderr,
+    format="<green>{time:HH:mm:ss}</green> | <level>{level: <7}</level> | <cyan>{name}</cyan> — <level>{message}</level>",
+    level="INFO",
+)
+
+# Suppress litellm's verbose output and "Provider List" spam
+logging.getLogger("LiteLLM").setLevel(logging.ERROR)
+logging.getLogger("LiteLLM Proxy").setLevel(logging.ERROR)
+logging.getLogger("LiteLLM Router").setLevel(logging.ERROR)
+logging.getLogger("litellm").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
+
+# Suppress litellm's print() calls by redirecting verbose mode
+import litellm
+litellm.suppress_debug_info = True
+litellm.set_verbose = False
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    logger.info(f"Memory path: {settings.memory_path}")
+    logger.info(f"LLM model: {settings.litellm_model}")
 
     # Ensure memory directories exist
     for subdir in ("entities", "nudges", "clarifications", "episodes"):
@@ -20,6 +47,11 @@ async def lifespan(app: FastAPI):
     git_dir = settings.memory_path / ".git"
     if not git_dir.exists():
         subprocess.run(["git", "init"], cwd=str(settings.memory_path), check=True)
+        logger.info("Initialized git repo in memory directory")
+
+    entities_count = len(list((settings.memory_path / "entities").glob("*.md")))
+    episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))
+    logger.info(f"Loaded {entities_count} entities, {episodes_count} unprocessed episodes")
 
     yield
 

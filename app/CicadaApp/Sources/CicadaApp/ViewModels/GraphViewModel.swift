@@ -7,14 +7,17 @@ enum ZoomAction {
 
 @Observable
 final class GraphViewModel {
-    var entities: [Entity] = MockData.entities
+    var entities: [Entity] = []
+    var edges: [GraphEdge] = []
     var selectedEntity: Entity?
     var isGraphReady = false
     var zoomAction: ZoomAction?
     var enabledTypes: Set<EntityType> = Set(EntityType.allCases)
-    var showTopicsList = false
     var showFilterPopover = false
     var pendingFilterUpdate = false
+    var pendingGraphUpdate = false
+    var isLoading = false
+    var errorMessage: String?
 
     var filteredEntities: [Entity] {
         entities.filter { enabledTypes.contains($0.type) }
@@ -30,7 +33,7 @@ final class GraphViewModel {
     }
 
     var graphDataJSON: String {
-        let nodes = entities.map { entity -> [String: Any] in
+        let nodes = filteredEntities.map { entity -> [String: Any] in
             [
                 "id": entity.id,
                 "name": entity.name,
@@ -40,13 +43,16 @@ final class GraphViewModel {
             ]
         }
 
-        let links = MockData.edges.map { edge -> [String: String] in
-            [
-                "source": edge.source,
-                "target": edge.target,
-                "label": edge.label,
-            ]
-        }
+        let filteredIds = Set(filteredEntities.map(\.id))
+        let links = edges
+            .filter { filteredIds.contains($0.source) && filteredIds.contains($0.target) }
+            .map { edge -> [String: String] in
+                [
+                    "source": edge.source,
+                    "target": edge.target,
+                    "label": edge.label,
+                ]
+            }
 
         let data: [String: Any] = ["nodes": nodes, "links": links]
 
@@ -59,10 +65,62 @@ final class GraphViewModel {
     }
 
     func selectEntity(id: String) {
-        selectedEntity = entities.first { $0.id == id }
+        // Set a placeholder immediately for responsive UI
+        if let existing = entities.first(where: { $0.id == id }) {
+            selectedEntity = existing
+        }
+        // Then fetch full entity data from API
+        Task {
+            await loadFullEntity(id: id)
+        }
     }
 
     func clearSelection() {
         selectedEntity = nil
+    }
+
+    func loadGraph() async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            let response = try await APIClient.shared.fetchGraph()
+            entities = response.nodes.map { node in
+                Entity(
+                    id: node.id,
+                    name: node.name,
+                    type: node.type,
+                    status: node.status,
+                    confidence: node.confidence,
+                    created: "",
+                    lastReferenced: "",
+                    decayRate: 0,
+                    sourceEpisodes: [],
+                    tags: [],
+                    related: [],
+                    version: 0,
+                    markdownContent: "",
+                    history: []
+                )
+            }
+            edges = response.links
+            pendingGraphUpdate = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+
+    private func loadFullEntity(id: String) async {
+        do {
+            let fullEntity = try await APIClient.shared.fetchEntity(id: id)
+            if let idx = entities.firstIndex(where: { $0.id == id }) {
+                entities[idx] = fullEntity
+            }
+            if selectedEntity?.id == id {
+                selectedEntity = fullEntity
+            }
+        } catch {
+            print("Failed to load entity \(id): \(error)")
+        }
     }
 }

@@ -157,3 +157,4 @@ class ConversationUploadResponse(CamelModel):
     episodes_created: int
     duplicates_skipped: int
     message: str
+    source: str = "unknown"

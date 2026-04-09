@@ -37,6 +37,17 @@ struct GraphView: NSViewRepresentable {
             }
         }
 
+        // Handle graph data refresh (after sleep cycle or initial load)
+        if viewModel.pendingGraphUpdate {
+            let json = viewModel.graphDataJSON
+            webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
+                if let error { print("Graph update error: \(error)") }
+            }
+            DispatchQueue.main.async {
+                self.viewModel.pendingGraphUpdate = false
+            }
+        }
+
         // Handle filter updates
         if viewModel.pendingFilterUpdate {
             let types = viewModel.enabledTypes.map { $0.rawValue }

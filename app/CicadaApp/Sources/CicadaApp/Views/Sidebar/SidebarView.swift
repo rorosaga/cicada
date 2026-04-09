@@ -2,16 +2,16 @@ import SwiftUI
 
 enum AppTab: String, CaseIterable {
     case memory = "Memory"
+    case topics = "Topics"
     case nudges = "Nudges"
     case clarifications = "Clarifications"
-    case upload = "Upload"
 
     var icon: String {
         switch self {
         case .memory: "brain.head.profile"
+        case .topics: "list.bullet"
         case .nudges: "bell.badge"
         case .clarifications: "questionmark.circle"
-        case .upload: "arrow.up.doc"
         }
     }
 }
@@ -20,8 +20,6 @@ struct SidebarView: View {
     @Binding var selectedTab: AppTab
     var nudgeCount: Int
     var clarificationCount: Int
-    @State private var isSleepRunning = false
-    @State private var sleepButtonHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -40,41 +38,6 @@ struct SidebarView: View {
 
             Spacer()
 
-            // Manual Sleep trigger
-            Divider().background(CicadaTheme.border).padding(.horizontal, CicadaTheme.spacingLG)
-
-            Button {
-                triggerSleep()
-            } label: {
-                HStack(spacing: CicadaTheme.spacingMD) {
-                    if isSleepRunning {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 16, height: 16)
-                    } else {
-                        Image(systemName: "moon.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(CicadaTheme.accent)
-                    }
-
-                    Text(isSleepRunning ? "Sleeping..." : "Run Sleep Cycle")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(isSleepRunning ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, CicadaTheme.spacingLG)
-                .padding(.vertical, CicadaTheme.spacingMD)
-                .background(
-                    RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                        .fill(sleepButtonHovered ? CicadaTheme.accent.opacity(0.08) : .clear)
-                )
-                .padding(.horizontal, CicadaTheme.spacingSM)
-            }
-            .buttonStyle(.plain)
-            .disabled(isSleepRunning)
-            .onHover { sleepButtonHovered = $0 }
-            .animation(.easeInOut(duration: 0.15), value: sleepButtonHovered)
-
             Text("Cicada")
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
@@ -88,20 +51,9 @@ struct SidebarView: View {
 
     private func badgeCount(for tab: AppTab) -> Int {
         switch tab {
-        case .memory: 0
+        case .memory, .topics: 0
         case .nudges: nudgeCount
         case .clarifications: clarificationCount
-        case .upload: 0
-        }
-    }
-
-    private func triggerSleep() {
-        isSleepRunning = true
-        // Mock: simulate sleep cycle for 3 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            withAnimation(.spring(duration: 0.3)) {
-                isSleepRunning = false
-            }
         }
     }
 }

@@ -81,11 +81,11 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "last_referenced": str(date.today()),
                 "decay_rate": 0.05,
                 "source_episodes": [change.get("source_episode", "")],
-                "tags": [],
+                "tags": entity.get("tags", []) or [],
                 "related": [],
                 "version": 1,
             }
-            body = entity.get("description", "")
+            body = entity.get("description", "") or ""
             markdown_parser.write(filepath, frontmatter, body)
 
         elif action == "update" and filepath.exists():
@@ -97,7 +97,22 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             if source_ep and source_ep not in episodes:
                 episodes.append(source_ep)
             parsed.frontmatter["source_episodes"] = episodes
-            markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
+
+            # Merge new tags and append new description info to body
+            new_entity = change.get("entity", {})
+            new_tags = new_entity.get("tags", []) or []
+            if new_tags:
+                existing_tags = set(parsed.frontmatter.get("tags", []) or [])
+                parsed.frontmatter["tags"] = sorted(existing_tags | set(new_tags))
+
+            # Append new description content if it's substantive and different
+            new_desc = new_entity.get("description", "") or ""
+            if new_desc and len(new_desc) > 50 and new_desc not in parsed.body:
+                updated_body = parsed.body.rstrip() + f"\n\n{new_desc}"
+            else:
+                updated_body = parsed.body
+
+            markdown_parser.write(filepath, parsed.frontmatter, updated_body)
 
         elif action in ("decay", "decay_nudge", "archive") and filepath.exists():
             parsed = markdown_parser.parse(filepath)

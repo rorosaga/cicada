@@ -11,8 +11,8 @@ struct ClarificationListView: View {
                 LazyVStack(spacing: CicadaTheme.spacingSM) {
                     ForEach(viewModel.clarifications) { clarification in
                         ClarificationCardView(clarification: clarification) {
-                            withAnimation(.spring(duration: 0.3)) {
-                                viewModel.resolveClarification(id: clarification.id)
+                            Task {
+                                await viewModel.resolveClarification(id: clarification.id, action: "dismiss")
                             }
                         }
                     }
@@ -22,6 +22,7 @@ struct ClarificationListView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CicadaTheme.background)
+        .task { await viewModel.loadClarifications() }
     }
 
     private var emptyState: some View {

@@ -155,12 +155,11 @@ async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:
 async def commit_changes(memory_path: Path, message: str) -> None:
     """Stage all changes and commit."""
     await _run_git(memory_path, "add", "-A")
-    try:
-        await _run_git(memory_path, "commit", "-m", message)
-    except GitError as e:
-        # Ignore "nothing to commit"
-        if "nothing to commit" not in str(e):
-            raise
+    # Check if there's anything to commit first
+    status = await _run_git(memory_path, "status", "--porcelain")
+    if not status.strip():
+        return  # Nothing to commit
+    await _run_git(memory_path, "commit", "-m", message)
 
 
 async def commit_resolution(memory_path: Path, entity_id: str, trigger: str) -> None:

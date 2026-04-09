@@ -24,7 +24,7 @@ enum NudgeType: String, Codable {
     }
 }
 
-struct Nudge: Identifiable {
+struct Nudge: Identifiable, Codable {
     let id: String
     var entityName: String
     var entityId: String
@@ -32,5 +32,11 @@ struct Nudge: Identifiable {
     var shortDescription: String
     var fullContext: String
     var options: [String]?
-    var createdDate: Date
+    var createdDate: String
+
+    var createdDateValue: Date {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.date(from: createdDate) ?? .now
+    }
 }

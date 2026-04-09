@@ -6,6 +6,7 @@ struct CicadaApp: App {
     @State private var nudgeVM = NudgeViewModel()
     @State private var clarificationVM = ClarificationViewModel()
     @State private var menuBarManager = MenuBarManager()
+    @State private var backend = BackendProcess()
 
     var body: some Scene {
         WindowGroup {
@@ -15,8 +16,8 @@ struct CicadaApp: App {
                 .environment(clarificationVM)
                 .preferredColorScheme(.dark)
                 .onAppear {
+                    backend.start()
                     menuBarManager.setup {
-                        // Bring app window to front
                         NSApplication.shared.activate(ignoringOtherApps: true)
                         if let window = NSApplication.shared.windows.first {
                             window.makeKeyAndOrderFront(nil)

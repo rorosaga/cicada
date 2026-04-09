@@ -47,8 +47,6 @@ async def detect_patterns(
                 {"role": "user", "content": context},
             ],
             response_format={"type": "json_object"},
-            api_key=settings.litellm_api_key,
-            api_base=settings.litellm_api_base,
         )
 
         content = response.choices[0].message.content
@@ -56,7 +54,8 @@ async def detect_patterns(
         return parsed.get("skills", [])
 
     except Exception as e:
-        print(f"Skill extraction failed: {e}")
+        from loguru import logger
+        logger.error(f"Skill extraction failed: {type(e).__name__}: {e}")
         return []
 
 

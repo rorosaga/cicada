@@ -36,7 +36,7 @@ function init() {
     // Zoom with limits
     currentZoom = d3.zoom()
         .scaleExtent([MIN_ZOOM, MAX_ZOOM])
-        .translateExtent([[-2000, -2000], [2000, 2000]])
+        .translateExtent([[-5000, -5000], [5000, 5000]])
         .on("zoom", (event) => g.attr("transform", event.transform));
     svg.call(currentZoom);
 
@@ -78,12 +78,30 @@ function updateGraph(dataStr) {
     const nodes = data.nodes;
     const links = data.links;
 
-    // Force simulation
+    // Compute a radius that scales with the number of nodes so larger graphs fit
+    const radius = Math.max(400, Math.min(1800, Math.sqrt(nodes.length) * 140));
+
+    // Force simulation with bounded area
     simulation = d3.forceSimulation(nodes)
-        .force("link", d3.forceLink(links).id(d => d.id).distance(120))
-        .force("charge", d3.forceManyBody().strength(-250))
-        .force("center", d3.forceCenter(0, 0))
-        .force("collision", d3.forceCollide().radius(d => nodeRadius(d) + 8));
+        .force("link", d3.forceLink(links).id(d => d.id).distance(120).strength(0.8))
+        .force("charge", d3.forceManyBody().strength(-180).distanceMax(600))
+        .force("center", d3.forceCenter(0, 0).strength(0.08))
+        .force("collision", d3.forceCollide().radius(d => nodeRadius(d) + 10))
+        .force("x", d3.forceX(0).strength(0.05))
+        .force("y", d3.forceY(0).strength(0.05))
+        .force("radial", d3.forceRadial(d => 0, 0, 0).strength(0.005));
+
+    // Bound nodes to a circle area on each tick so nothing escapes to infinity
+    function boundNodes() {
+        nodes.forEach(d => {
+            const dist = Math.sqrt(d.x * d.x + d.y * d.y);
+            if (dist > radius) {
+                const factor = radius / dist;
+                d.x *= factor;
+                d.y *= factor;
+            }
+        });
+    }
 
     // Links
     const link = linkGroup.selectAll("line")
@@ -146,6 +164,8 @@ function updateGraph(dataStr) {
 
     // Tick
     simulation.on("tick", () => {
+        boundNodes();
+
         link
             .attr("x1", d => d.source.x)
             .attr("y1", d => d.source.y)

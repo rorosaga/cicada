@@ -31,14 +31,7 @@ enum EntityStatus: String, Codable, CaseIterable {
     }
 }
 
-struct EntityHistoryEntry: Identifiable {
-    let id = UUID()
-    let date: Date
-    let changeType: HistoryChangeType
-    let description: String
-}
-
-enum HistoryChangeType {
+enum HistoryChangeType: String, Codable {
     case created, updated, statusChange, confidenceChange, relationAdded
 
     var color: String {
@@ -60,14 +53,53 @@ enum HistoryChangeType {
     }
 }
 
-struct Entity: Identifiable {
+struct EntityHistoryEntry: Identifiable, Codable {
+    var id = UUID()
+    let date: String
+    let changeType: HistoryChangeType
+    let description: String
+
+    var dateValue: Date {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.date(from: date) ?? .now
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case date, changeType, description
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        date = try c.decode(String.self, forKey: .date)
+        changeType = try c.decode(HistoryChangeType.self, forKey: .changeType)
+        description = try c.decode(String.self, forKey: .description)
+    }
+
+    init(date: Date, changeType: HistoryChangeType, description: String) {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        self.date = f.string(from: date)
+        self.changeType = changeType
+        self.description = description
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(date, forKey: .date)
+        try c.encode(changeType, forKey: .changeType)
+        try c.encode(description, forKey: .description)
+    }
+}
+
+struct Entity: Identifiable, Codable {
     let id: String
     var name: String
     var type: EntityType
     var status: EntityStatus
     var confidence: Double
-    var created: Date
-    var lastReferenced: Date
+    var created: String
+    var lastReferenced: String
     var decayRate: Double
     var sourceEpisodes: [String]
     var tags: [String]
@@ -75,4 +107,35 @@ struct Entity: Identifiable {
     var version: Int
     var markdownContent: String
     var history: [EntityHistoryEntry]
+
+    var createdDate: Date {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.date(from: created) ?? .now
+    }
+
+    var lastReferencedDate: Date {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.date(from: lastReferenced) ?? .now
+    }
+}
+
+struct GraphEdge: Codable {
+    let source: String
+    let target: String
+    let label: String
+}
+
+struct GraphResponse: Codable {
+    let nodes: [GraphNode]
+    let links: [GraphEdge]
+}
+
+struct GraphNode: Codable {
+    let id: String
+    let name: String
+    let type: EntityType
+    let status: EntityStatus
+    let confidence: Double
 }

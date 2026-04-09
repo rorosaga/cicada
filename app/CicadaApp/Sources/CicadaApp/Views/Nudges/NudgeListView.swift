@@ -11,8 +11,8 @@ struct NudgeListView: View {
                 LazyVStack(spacing: CicadaTheme.spacingSM) {
                     ForEach(viewModel.nudges) { nudge in
                         NudgeCardView(nudge: nudge) {
-                            withAnimation(.spring(duration: 0.3)) {
-                                viewModel.resolveNudge(id: nudge.id)
+                            Task {
+                                await viewModel.resolveNudge(id: nudge.id, action: "archive")
                             }
                         }
                     }
@@ -22,6 +22,7 @@ struct NudgeListView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CicadaTheme.background)
+        .task { await viewModel.loadNudges() }
     }
 
     private var emptyState: some View {
