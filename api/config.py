@@ -9,9 +9,9 @@ class Settings(BaseSettings):
     memory_path: Path = Path.home() / "cicada" / "memory"
 
     # LiteLLM model (format: provider/model-name)
-    # Examples: openai/gpt-4o-mini, anthropic/claude-sonnet-4-20250514, gemini/gemini-2.0-flash
+    # Examples: gpt-5.4-mini, anthropic/claude-sonnet-4-20250514, gemini/gemini-2.0-flash
     # LiteLLM reads OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY from env automatically
-    litellm_model: str = "openai/gpt-4o-mini"
+    litellm_model: str = "gpt-5.4-mini"
 
     # Dedicated model for Stage 2 same/different/unsure disambiguation judge.
     # This call fires once per token-overlap candidate pair and does not need
