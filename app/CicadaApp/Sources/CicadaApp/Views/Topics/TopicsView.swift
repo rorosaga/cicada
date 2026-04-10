@@ -1,10 +1,13 @@
 import SwiftUI
 
 struct TopicsView: View {
+    @Binding var selectedTab: AppTab
     @Environment(GraphViewModel.self) private var graphVM
     @State private var searchText = ""
     @State private var showFilterPopover = false
     @State private var enabledTypes: Set<EntityType> = Set(EntityType.allCases)
+    @State private var selectedLabels: Set<String> = []
+    @State private var showLabelPopover = false
     @State private var selectedEntity: Entity?
     @State private var showUploadOverlay = false
 
@@ -29,6 +32,8 @@ struct TopicsView: View {
                     searchText: $searchText,
                     enabledTypes: $enabledTypes,
                     showFilterPopover: $showFilterPopover,
+                    selectedLabels: $selectedLabels,
+                    showLabelPopover: $showLabelPopover,
                     onSelect: { entity in
                         withAnimation(.spring(duration: 0.3)) {
                             selectedEntity = entity
@@ -45,8 +50,11 @@ struct TopicsView: View {
             VStack {
                 HStack {
                     Spacer()
-                    TopBarControls(showUploadOverlay: $showUploadOverlay)
-                        .padding(CicadaTheme.spacingLG)
+                    TopBarControls(
+                        selectedTab: $selectedTab,
+                        showUploadOverlay: $showUploadOverlay
+                    )
+                    .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
             }
@@ -67,16 +75,23 @@ private struct TopicsListView: View {
     @Binding var searchText: String
     @Binding var enabledTypes: Set<EntityType>
     @Binding var showFilterPopover: Bool
+    @Binding var selectedLabels: Set<String>
+    @Binding var showLabelPopover: Bool
     let onSelect: (Entity) -> Void
 
     private var filteredEntities: [Entity] {
-        let typeFiltered = graphVM.entities.filter { enabledTypes.contains($0.type) }
+        var list = graphVM.entities.filter { enabledTypes.contains($0.type) }
+        if !selectedLabels.isEmpty {
+            list = list.filter { entity in
+                !selectedLabels.isDisjoint(with: Set(entity.tags))
+            }
+        }
         if searchText.isEmpty {
-            return typeFiltered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            return list.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
         let query = searchText.lowercased()
         // Rank by match quality: exact > starts-with > contains > tag match
-        return typeFiltered
+        return list
             .compactMap { entity -> (Entity, Int)? in
                 let name = entity.name.lowercased()
                 let tags = entity.tags.map { $0.lowercased() }
@@ -90,6 +105,18 @@ private struct TopicsListView: View {
             }
             .sorted { $0.1 > $1.1 }
             .map { $0.0 }
+    }
+
+    private var allLabels: [(String, Int)] {
+        var counts: [String: Int] = [:]
+        for entity in graphVM.entities {
+            for tag in entity.tags where !tag.isEmpty {
+                counts[tag, default: 0] += 1
+            }
+        }
+        return counts
+            .map { ($0.key, $0.value) }
+            .sorted { $0.0.localizedCaseInsensitiveCompare($1.0) == .orderedAscending }
     }
 
     var body: some View {
@@ -150,6 +177,28 @@ private struct TopicsListView: View {
                 .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
                 .popover(isPresented: $showFilterPopover, arrowEdge: .top) {
                     TopicsFilterPopover(enabledTypes: $enabledTypes)
+                }
+
+                Button {
+                    showLabelPopover.toggle()
+                } label: {
+                    HStack(spacing: CicadaTheme.spacingXS) {
+                        Image(systemName: "tag")
+                            .font(.system(size: 12))
+                        Text(selectedLabels.isEmpty ? "Labels" : "\(selectedLabels.count)")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(selectedLabels.isEmpty ? CicadaTheme.textSecondary : CicadaTheme.accent)
+                    .padding(.horizontal, CicadaTheme.spacingMD)
+                    .padding(.vertical, CicadaTheme.spacingSM)
+                }
+                .buttonStyle(.plain)
+                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .popover(isPresented: $showLabelPopover, arrowEdge: .top) {
+                    TopicsLabelPopover(
+                        allLabels: allLabels,
+                        selectedLabels: $selectedLabels
+                    )
                 }
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
@@ -217,6 +266,104 @@ private struct TopicsFilterPopover: View {
         }
         .padding(CicadaTheme.spacingMD)
         .frame(width: 200)
+        .background(CicadaTheme.surface)
+    }
+}
+
+private struct TopicsLabelPopover: View {
+    let allLabels: [(String, Int)]
+    @Binding var selectedLabels: Set<String>
+    @State private var labelSearch: String = ""
+
+    private var visibleLabels: [(String, Int)] {
+        let query = labelSearch.trimmingCharacters(in: .whitespaces).lowercased()
+        if query.isEmpty { return allLabels }
+        return allLabels.filter { $0.0.lowercased().contains(query) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            Text("FILTER BY LABEL")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.2)
+                .padding(.bottom, CicadaTheme.spacingXS)
+
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                TextField("Search labels…", text: $labelSearch)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+            }
+            .padding(.horizontal, CicadaTheme.spacingSM)
+            .padding(.vertical, 6)
+            .background(CicadaTheme.surfaceHover)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            if allLabels.isEmpty {
+                Text("No labels yet")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .padding(.vertical, CicadaTheme.spacingSM)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(visibleLabels, id: \.0) { label, count in
+                            Button {
+                                if selectedLabels.contains(label) {
+                                    selectedLabels.remove(label)
+                                } else {
+                                    selectedLabels.insert(label)
+                                }
+                            } label: {
+                                HStack(spacing: CicadaTheme.spacingSM) {
+                                    Image(systemName: selectedLabels.contains(label) ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(selectedLabels.contains(label) ? CicadaTheme.accent : CicadaTheme.textTertiary)
+
+                                    Text(label)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(selectedLabels.contains(label) ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                                        .lineLimit(1)
+
+                                    Spacer()
+
+                                    Text("\(count)")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(CicadaTheme.textTertiary)
+                                }
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 3)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 260)
+            }
+
+            if !selectedLabels.isEmpty {
+                Divider().background(CicadaTheme.border)
+                Button {
+                    selectedLabels.removeAll()
+                } label: {
+                    HStack(spacing: CicadaTheme.spacingXS) {
+                        Image(systemName: "xmark.circle")
+                            .font(.system(size: 11))
+                        Text("Clear all")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(CicadaTheme.spacingMD)
+        .frame(width: 240)
         .background(CicadaTheme.surface)
     }
 }
@@ -308,13 +455,13 @@ private struct TopicDetailView: View {
             .padding(.horizontal, CicadaTheme.spacingXL)
             .padding(.top, CicadaTheme.spacingXL)
 
-            // Detail card
-            ScrollView {
-                EntityDetailCard(entity: displayEntity)
-                    .frame(maxWidth: 640)
-                    .padding(CicadaTheme.spacingXL)
-                    .frame(maxWidth: .infinity)
-            }
+            // Detail card — EntityDetailCard already has its own internal
+            // ScrollView, so wrapping it in a second one broke the width
+            // proposal chain for long markdown bodies (the "zoomed in" bug).
+            EntityDetailCard(entity: displayEntity)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(CicadaTheme.spacingXL)
         }
         .task(id: entity.id) {
             do {

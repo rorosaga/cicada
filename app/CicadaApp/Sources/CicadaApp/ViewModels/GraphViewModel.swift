@@ -69,8 +69,11 @@ final class GraphViewModel {
         if let existing = entities.first(where: { $0.id == id }) {
             selectedEntity = existing
         }
-        // Then fetch full entity data from API
-        Task {
+        // Then fetch full entity data from API. Pin the follow-up to the
+        // main actor — @Observable writes from a background thread don't
+        // reliably trigger SwiftUI re-renders, which is why the detail
+        // card was stuck showing the placeholder with empty markdown.
+        Task { @MainActor in
             await loadFullEntity(id: id)
         }
     }
@@ -95,7 +98,7 @@ final class GraphViewModel {
                     lastReferenced: "",
                     decayRate: 0,
                     sourceEpisodes: [],
-                    tags: [],
+                    tags: node.tags,
                     related: [],
                     version: 0,
                     markdownContent: "",
@@ -110,6 +113,7 @@ final class GraphViewModel {
         isLoading = false
     }
 
+    @MainActor
     private func loadFullEntity(id: String) async {
         do {
             let fullEntity = try await APIClient.shared.fetchEntity(id: id)

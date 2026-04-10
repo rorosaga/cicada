@@ -3,6 +3,7 @@ import SwiftUI
 enum AppTab: String, CaseIterable {
     case memory = "Memory"
     case topics = "Topics"
+    case sleep = "Sleep"
     case nudges = "Nudges"
     case clarifications = "Clarifications"
 
@@ -10,6 +11,7 @@ enum AppTab: String, CaseIterable {
         switch self {
         case .memory: "brain.head.profile"
         case .topics: "list.bullet"
+        case .sleep: "moon.fill"
         case .nudges: "bell.badge"
         case .clarifications: "questionmark.circle"
         }
@@ -51,7 +53,7 @@ struct SidebarView: View {
 
     private func badgeCount(for tab: AppTab) -> Int {
         switch tab {
-        case .memory, .topics: 0
+        case .memory, .topics, .sleep: 0
         case .nudges: nudgeCount
         case .clarifications: clarificationCount
         }

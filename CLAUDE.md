@@ -363,3 +363,61 @@ After onboarding, the user never interacts with the backend directly. The compan
 | SwiftUI + FastAPI | Native macOS feel. Python backend for LLM/ML ecosystem access. |
 | d3-force in WKWebView | Best graph visualization ecosystem. Sufficient for personal scale. |
 | Filesystem as single source of truth | No separate database. API reads/writes same files as Sleep cycle. |
+
+---
+
+## Thesis Benchmarks (`benchmarks/` package)
+
+Benchmark tooling for the thesis `Results` section lives in `benchmarks/`. Four runnable scripts plus a shared fresh-workspace scaffold, all at repo root. Runbook is `benchmarks/README.md`.
+
+### Scripts
+
+- `benchmarks.rebuild_leann` — one-shot helper to rebuild the LEANN indexes in place. **Required prerequisite before `run_table1`** if `memory/leann/episodes.*` is incomplete (the episodes-only baseline can't retrieve anything without it). Costs a few cents of `text-embedding-3-small`.
+- `benchmarks.run_table1` — three-condition recall eval (Cicada full vs Cicada no-Sleep episode-LEANN-only vs manual commercial baseline). Writes JSONL + scoring-sheet CSV. Scoring is manual per the four-dimensional rubric in `sections/experiments.tex`.
+- `benchmarks.run_table3` — operational measurements. Static counts, disk sizes, recall latency (median/p95/etc.), and optional `--sleep-cycle-time` for fresh-workspace wall-clock.
+- `benchmarks.run_ablation` — Table 2 threshold sweep. Runs one fresh sleep cycle per config (default + promotion 1/3 + decay 0.3/0.5) in throwaway `/tmp/cicada_bench_table2_*` workspaces.
+
+### Safety rails
+
+- None of the runners mutate the live `memory/` directory. Any sleep cycle runs happen inside `/tmp/cicada_bench_*` workspaces seeded from `memory/episodes`.
+- `workspace.destroy_workspace` refuses to delete any path whose name doesn't contain `cicada_bench_`.
+- `api/.env` is auto-loaded into `os.environ` by `benchmarks/_bootstrap.py` — shell exports still win.
+
+### CRITICAL: Personal-data privacy pattern
+
+**`benchmarks/questions.example.yaml` and `benchmarks/queries.example.txt` are TEMPLATE files with placeholder content only. Never commit real personal questions or queries to them.**
+
+The repo's `.gitignore` automatically excludes three paths:
+
+```
+benchmarks/*.local.*
+benchmarks/questions.yaml
+benchmarks/queries.txt
+```
+
+The recommended workflow is the `.local.` copy pattern:
+
+```sh
+cp benchmarks/questions.example.yaml benchmarks/questions.local.yaml
+cp benchmarks/queries.example.txt     benchmarks/queries.local.txt
+# Fill the .local files with real content grounded in personal memory.
+# They are gitignored; they will never end up in a commit.
+
+api/.venv/bin/python -m benchmarks.run_table1 \
+    --questions benchmarks/questions.local.yaml \
+    --memory memory \
+    --out benchmark_results/table1
+
+api/.venv/bin/python -m benchmarks.run_table3 \
+    --memory memory \
+    --queries benchmarks/queries.local.txt \
+    --out benchmark_results/table3
+```
+
+Rules for any future Claude session that touches the benchmark tooling:
+
+1. **Never paste real personal names, projects, or organizations into `benchmarks/questions.example.yaml` or `benchmarks/queries.example.txt`.** These are committed templates. Neutral but plausible thesis-shaped examples are fine (a generic capstone, "the supervisor", "the university", an unnamed internship, the thesis deadline) — anything that could be true of any final-year project. No real names, no real companies, no real episode IDs, no anything you would not want a stranger reading.
+2. **Never add new files under `benchmarks/` that contain real personal content** unless they use the `*.local.*` suffix (or are under `benchmark_results/`, which is also gitignored).
+3. **`benchmark_results/` is gitignored** — raw retrieval dumps, scoring sheets, and workspace metadata live there. Safe to write to, never safe to commit.
+4. **If you are drafting a new question or query for demonstration purposes in a commit message, PR description, or README**, use generic placeholders (`<placeholder fact question>`, `placeholder query one`), never real entities from `memory/`.
+5. **The `run_table1` scoring sheet contains the retrieved context and final answer verbatim** — that content will include personal data from real queries. It is written to `benchmark_results/` by default. Never move it out of that directory into a committed path.

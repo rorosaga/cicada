@@ -13,12 +13,59 @@ struct SleepStatusResponse: Codable {
     let cycleId: String?
     let startedAt: String?
     let progress: String?
+    let error: String?
+    let indexWarning: String?
+    let stage: Int
+    let totalStages: Int
+    let episodesTotal: Int
+    let entitiesCreated: Int
+    let entitiesUpdated: Int
+    let relationshipsCreated: Int
+    let skillsDetected: Int
+
+    enum CodingKeys: String, CodingKey {
+        case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
+        case episodesTotal, entitiesCreated, entitiesUpdated
+        case relationshipsCreated, skillsDetected
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = try c.decode(String.self, forKey: .status)
+        cycleId = try c.decodeIfPresent(String.self, forKey: .cycleId)
+        startedAt = try c.decodeIfPresent(String.self, forKey: .startedAt)
+        progress = try c.decodeIfPresent(String.self, forKey: .progress)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        indexWarning = try c.decodeIfPresent(String.self, forKey: .indexWarning)
+        stage = try c.decodeIfPresent(Int.self, forKey: .stage) ?? 0
+        totalStages = try c.decodeIfPresent(Int.self, forKey: .totalStages) ?? 5
+        episodesTotal = try c.decodeIfPresent(Int.self, forKey: .episodesTotal) ?? 0
+        entitiesCreated = try c.decodeIfPresent(Int.self, forKey: .entitiesCreated) ?? 0
+        entitiesUpdated = try c.decodeIfPresent(Int.self, forKey: .entitiesUpdated) ?? 0
+        relationshipsCreated = try c.decodeIfPresent(Int.self, forKey: .relationshipsCreated) ?? 0
+        skillsDetected = try c.decodeIfPresent(Int.self, forKey: .skillsDetected) ?? 0
+    }
 }
 
 struct SleepTriggerResponse: Codable {
     let status: String
     let message: String
     let cycleId: String?
+}
+
+struct EpisodeQueueItem: Codable, Identifiable {
+    let id: String
+    let timestamp: String
+    let source: String
+    let title: String?
+    let preview: String
+    let processed: Bool
+}
+
+struct ScheduleConfig: Codable, Equatable {
+    var enabled: Bool
+    var hour: Int
+    var minute: Int
 }
 
 enum APIError: Error, LocalizedError {
@@ -96,6 +143,22 @@ actor APIClient {
 
     func triggerSleep() async throws -> SleepTriggerResponse {
         return try await post("/sleep/trigger")
+    }
+
+    func fetchEpisodeQueue() async throws -> [EpisodeQueueItem] {
+        return try await get("/sleep/episodes")
+    }
+
+    func fetchSchedule() async throws -> ScheduleConfig {
+        return try await get("/sleep/schedule")
+    }
+
+    func updateSchedule(_ cfg: ScheduleConfig) async throws -> ScheduleConfig {
+        return try await put("/sleep/schedule", body: [
+            "enabled": cfg.enabled,
+            "hour": cfg.hour,
+            "minute": cfg.minute,
+        ])
     }
 
     // MARK: - Upload
@@ -191,5 +254,29 @@ actor APIClient {
             throw APIError.httpError(http.statusCode, msg)
         }
         return data
+    }
+
+    private func put<T: Decodable>(_ path: String, body: [String: Any]? = nil) async throws -> T {
+        let url = URL(string: "\(baseURL)\(path)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let body {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverUnreachable
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.httpError(http.statusCode, msg)
+        }
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw APIError.decodingError("\(error)")
+        }
     }
 }

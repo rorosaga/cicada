@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 
@@ -75,6 +75,7 @@ class GraphNode(CamelModel):
     type: EntityType
     status: EntityStatus
     confidence: float
+    tags: list[str] = []
 
 
 class GraphLink(CamelModel):
@@ -140,6 +141,19 @@ class SleepStatusResponse(CamelModel):
     cycle_id: Optional[str] = None
     started_at: Optional[str] = None
     progress: Optional[str] = None
+    error: Optional[str] = None
+    # Non-fatal warnings raised during the cycle (e.g. LEANN episode index
+    # rebuild failed). The cycle still committed the main entity writes —
+    # this is for "completed with warnings" state the Sleep page can surface
+    # so stale indexes don't masquerade as success.
+    index_warning: Optional[str] = None
+    stage: int = 0
+    total_stages: int = 5
+    episodes_total: int = 0
+    entities_created: int = 0
+    entities_updated: int = 0
+    relationships_created: int = 0
+    skills_detected: int = 0
 
 
 class SleepHistoryEntry(CamelModel):
@@ -147,6 +161,24 @@ class SleepHistoryEntry(CamelModel):
     date: str
     message: str
     files_changed: list[str]
+
+
+class EpisodeQueueItem(CamelModel):
+    id: str
+    timestamp: str
+    source: str
+    title: Optional[str] = None
+    preview: str
+    processed: bool
+
+
+class ScheduleConfig(CamelModel):
+    enabled: bool
+    # 24-hour clock, local time. Constrained so garbage input (e.g. hour=99)
+    # is rejected at the API boundary instead of persisting to
+    # memory/sleep_schedule.yaml or blowing up CronTrigger downstream.
+    hour: int = Field(ge=0, le=23)
+    minute: int = Field(ge=0, le=59)
 
 
 # --- Conversation Upload ---

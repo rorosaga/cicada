@@ -37,8 +37,12 @@ struct GraphView: NSViewRepresentable {
             }
         }
 
-        // Handle graph data refresh (after sleep cycle or initial load)
-        if viewModel.pendingGraphUpdate {
+        // Handle graph data refresh (after sleep cycle or initial load).
+        // Gate on isGraphReady — if graph.js hasn't loaded yet, the Coordinator
+        // will push the pending data when it receives the "graphReady" message
+        // from init(). Calling updateGraph() before DOMContentLoaded raises
+        // "TypeError: undefined is not a function".
+        if viewModel.pendingGraphUpdate && viewModel.isGraphReady {
             let json = viewModel.graphDataJSON
             webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
                 if let error { print("Graph update error: \(error)") }
@@ -48,8 +52,8 @@ struct GraphView: NSViewRepresentable {
             }
         }
 
-        // Handle filter updates
-        if viewModel.pendingFilterUpdate {
+        // Handle filter updates (also requires graph.js to be loaded)
+        if viewModel.pendingFilterUpdate && viewModel.isGraphReady {
             let types = viewModel.enabledTypes.map { $0.rawValue }
             if let data = try? JSONSerialization.data(withJSONObject: types),
                let json = String(data: data, encoding: .utf8) {

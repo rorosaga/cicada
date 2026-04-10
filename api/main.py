@@ -7,8 +7,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
 from api.config import get_settings
 from api.routers import clarifications, conversations, entities, graph, nudges, sleep
+from api.services import sleep_scheduler
 
 # --- Logging setup ---
 # Remove loguru default handler and add our own format
@@ -53,7 +56,19 @@ async def lifespan(app: FastAPI):
     episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))
     logger.info(f"Loaded {entities_count} entities, {episodes_count} unprocessed episodes")
 
-    yield
+    # Start the in-process scheduler and register the persisted sleep job if
+    # the user has enabled one. The scheduler is stashed on app.state so the
+    # /sleep/schedule endpoint can re-register when the user updates it.
+    scheduler = AsyncIOScheduler()
+    scheduler.start()
+    cfg = sleep_scheduler.load_schedule(settings.memory_path)
+    sleep_scheduler.register_job(scheduler, settings, cfg)
+    app.state.scheduler = scheduler
+
+    try:
+        yield
+    finally:
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="Cicada API", version="0.1.0", lifespan=lifespan)

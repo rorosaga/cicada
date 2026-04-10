@@ -138,4 +138,21 @@ struct GraphNode: Codable {
     let type: EntityType
     let status: EntityStatus
     let confidence: Double
+    let tags: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, type, status, confidence, tags
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        type = try c.decode(EntityType.self, forKey: .type)
+        status = try c.decode(EntityStatus.self, forKey: .status)
+        confidence = try c.decode(Double.self, forKey: .confidence)
+        // Back-compat: the backend only started emitting `tags` on GraphNode
+        // recently. Decode defensively so older API builds still work.
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+    }
 }

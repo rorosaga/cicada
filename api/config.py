@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     # LiteLLM reads OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY from env automatically
     litellm_model: str = "openai/gpt-4o-mini"
 
+    # Dedicated model for Stage 2 same/different/unsure disambiguation judge.
+    # This call fires once per token-overlap candidate pair and does not need
+    # the full reasoning depth of the main sleep-cycle model, so by default we
+    # point it at a cheaper/faster model. Set CICADA_LITELLM_DISAMBIGUATION_MODEL
+    # to override. An empty value falls back to ``litellm_model``.
+    litellm_disambiguation_model: str = "gpt-5.4-nano"
+
     # Server
     host: str = "127.0.0.1"
     port: int = 8000

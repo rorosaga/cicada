@@ -1,5 +1,19 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
 # Personal conversation exports — never commit
 data/
 
 # Memory runtime data is a separate git repo
 memory/
+memory_backup/
+
+# Thesis benchmark outputs (raw answers, scoring sheets, workspace metadata)
+benchmark_results/
+
+# Benchmark inputs that contain personal content
+benchmarks/*.local.*
+benchmarks/questions.yaml
+benchmarks/queries.txt
+benchmarks/

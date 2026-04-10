@@ -162,6 +162,14 @@ async def commit_changes(memory_path: Path, message: str) -> None:
     await _run_git(memory_path, "commit", "-m", message)
 
 
+async def porcelain_status(memory_path: Path) -> str:
+    """Return ``git status --porcelain`` output (or empty on error)."""
+    try:
+        return await _run_git(memory_path, "status", "--porcelain")
+    except GitError:
+        return ""
+
+
 async def commit_resolution(memory_path: Path, entity_id: str, trigger: str) -> None:
     """Commit after a nudge/clarification resolution."""
     await commit_changes(

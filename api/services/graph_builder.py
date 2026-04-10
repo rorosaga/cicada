@@ -22,6 +22,7 @@ def build_graph(memory_path: Path) -> GraphResponse:
                 type=fm.get("type", "concept"),
                 status=fm.get("status", "active"),
                 confidence=fm.get("confidence", 0.5),
+                tags=fm.get("tags", []) or [],
             )
         )
 

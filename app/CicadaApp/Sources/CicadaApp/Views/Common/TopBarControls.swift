@@ -3,23 +3,29 @@ import SwiftUI
 // MARK: - Top Bar Controls (Sleep + Upload + Help)
 
 struct TopBarControls: View {
-    @Environment(GraphViewModel.self) private var graphVM
-    @Environment(NudgeViewModel.self) private var nudgeVM
-    @Environment(ClarificationViewModel.self) private var clarificationVM
+    @Environment(SleepViewModel.self) private var sleepVM
 
+    @Binding var selectedTab: AppTab
     @Binding var showUploadOverlay: Bool
     @State private var showHelpOverlay = false
-    @State private var isSleepRunning = false
-    @State private var sleepProgress: String = ""
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            // Sleep button
+            // Sleep button — switches to the Sleep tab and (if idle) kicks
+            // off a cycle. All polling / progress state lives in
+            // SleepViewModel so there's exactly one loop app-wide.
             Button {
-                triggerSleep()
+                Task { @MainActor in
+                    withAnimation(.spring(duration: 0.25)) {
+                        selectedTab = .sleep
+                    }
+                    if !sleepVM.isRunning {
+                        await sleepVM.triggerManually()
+                    }
+                }
             } label: {
                 HStack(spacing: CicadaTheme.spacingXS) {
-                    if isSleepRunning {
+                    if sleepVM.isRunning {
                         ProgressView()
                             .controlSize(.small)
                             .frame(width: 14, height: 14)
@@ -27,17 +33,16 @@ struct TopBarControls: View {
                         Image(systemName: "moon.fill")
                             .font(.system(size: 12))
                     }
-                    Text(isSleepRunning ? "Sleeping..." : "Sleep")
+                    Text(sleepVM.isRunning ? "Sleeping..." : "Sleep")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundStyle(isSleepRunning ? CicadaTheme.textTertiary : CicadaTheme.accent)
+                .foregroundStyle(sleepVM.isRunning ? CicadaTheme.textTertiary : CicadaTheme.accent)
                 .padding(.horizontal, CicadaTheme.spacingMD)
                 .padding(.vertical, CicadaTheme.spacingSM)
             }
             .buttonStyle(.plain)
-            .disabled(isSleepRunning)
             .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
-            .help(sleepProgress.isEmpty ? "Run memory consolidation" : sleepProgress)
+            .help(sleepVM.status?.progress ?? "Run memory consolidation")
 
             // Upload button
             Button {
@@ -77,34 +82,6 @@ struct TopBarControls: View {
         }
     }
 
-    private func triggerSleep() {
-        isSleepRunning = true
-        sleepProgress = "Starting..."
-        Task {
-            do {
-                let _ = try await APIClient.shared.triggerSleep()
-                while true {
-                    try await Task.sleep(for: .seconds(2))
-                    let status = try await APIClient.shared.fetchSleepStatus()
-                    await MainActor.run {
-                        sleepProgress = status.progress ?? "Running..."
-                    }
-                    if status.status == "idle" { break }
-                }
-                await graphVM.loadGraph()
-                await nudgeVM.loadNudges()
-                await clarificationVM.loadClarifications()
-            } catch {
-                print("Sleep cycle error: \(error)")
-            }
-            await MainActor.run {
-                withAnimation(.spring(duration: 0.3)) {
-                    isSleepRunning = false
-                    sleepProgress = ""
-                }
-            }
-        }
-    }
 }
 
 // MARK: - Help Popover Content

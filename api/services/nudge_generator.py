@@ -7,6 +7,7 @@ import yaml
 
 from api.services import markdown_parser
 from api.services.conflict_resolver import apply_changes
+from api.services.id_utils import sanitize_id
 
 
 async def generate(
@@ -78,9 +79,11 @@ async def generate(
             body = change.get("conflict_context", f"New information conflicts with existing data for {entity_name}.")
             markdown_parser.write(nudges_dir / f"{nudge_id}.md", frontmatter, body)
 
-    # Create skill entities
+    # Create skill entities — sanitize_id keeps skills in lockstep with the
+    # entity path so names like "AI/ML project framing" don't try to write to
+    # a non-existent `ai/` subdirectory and crash Stage 5.
     for skill in skills:
-        skill_id = skill["name"].lower().replace(" ", "-")
+        skill_id = sanitize_id(skill["name"])
         skill_path = entities_dir / f"{skill_id}.md"
         if not skill_path.exists():
             frontmatter = {

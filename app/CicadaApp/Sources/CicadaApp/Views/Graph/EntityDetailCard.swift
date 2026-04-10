@@ -180,10 +180,10 @@ struct EntityDetailCard: View {
     }
 
     private var renderedMarkdownView: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            let parts = parseWikilinks(entity.markdownContent)
-            FlowText(parts: parts)
-        }
+        Text(renderedMarkdownAttributed(entity.markdownContent))
+            .font(CicadaTheme.bodyFont)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var rawMarkdownView: some View {
@@ -207,6 +207,7 @@ struct EntityDetailCard: View {
             .font(CicadaTheme.monoFont)
             .foregroundStyle(CicadaTheme.textSecondary)
             .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var metadataSection: some View {
@@ -344,19 +345,18 @@ private struct TabButton: View {
     }
 }
 
-// MARK: - Wikilink Parsing
+// MARK: - Wikilink Rendering
 
-private struct TextPart: Identifiable {
-    let id = UUID()
-    let text: String
-    let isWikilink: Bool
-}
+/// Parse `[[Wikilinks]]` into an `AttributedString` where the link text is
+/// highlighted in the accent color and the surrounding body uses the
+/// secondary text color.
+private func renderedMarkdownAttributed(_ text: String) -> AttributedString {
+    var result = AttributedString()
 
-private func parseWikilinks(_ text: String) -> [TextPart] {
-    var parts: [TextPart] = []
-    let pattern = "\\[\\[(.+?)\\]\\]"
-    guard let regex = try? NSRegularExpression(pattern: pattern) else {
-        return [TextPart(text: text, isWikilink: false)]
+    guard let regex = try? NSRegularExpression(pattern: "\\[\\[(.+?)\\]\\]") else {
+        var plain = AttributedString(text)
+        plain.foregroundColor = CicadaTheme.textSecondary
+        return plain
     }
 
     let nsText = text as NSString
@@ -366,34 +366,25 @@ private func parseWikilinks(_ text: String) -> [TextPart] {
     for match in matches {
         let beforeRange = NSRange(location: lastEnd, length: match.range.location - lastEnd)
         if beforeRange.length > 0 {
-            parts.append(TextPart(text: nsText.substring(with: beforeRange), isWikilink: false))
+            var plain = AttributedString(nsText.substring(with: beforeRange))
+            plain.foregroundColor = CicadaTheme.textSecondary
+            result.append(plain)
         }
+
         let linkRange = match.range(at: 1)
-        parts.append(TextPart(text: nsText.substring(with: linkRange), isWikilink: true))
+        var link = AttributedString(nsText.substring(with: linkRange))
+        link.foregroundColor = CicadaTheme.accent
+        link.font = CicadaTheme.bodyFont.weight(.medium)
+        result.append(link)
+
         lastEnd = match.range.location + match.range.length
     }
 
     if lastEnd < nsText.length {
-        parts.append(TextPart(text: nsText.substring(from: lastEnd), isWikilink: false))
+        var plain = AttributedString(nsText.substring(from: lastEnd))
+        plain.foregroundColor = CicadaTheme.textSecondary
+        result.append(plain)
     }
 
-    return parts
-}
-
-private struct FlowText: View {
-    let parts: [TextPart]
-
-    var body: some View {
-        parts.reduce(Text("")) { result, part in
-            if part.isWikilink {
-                return result + Text(part.text)
-                    .foregroundColor(CicadaTheme.accent)
-                    .fontWeight(.medium)
-            } else {
-                return result + Text(part.text)
-                    .foregroundColor(CicadaTheme.textSecondary)
-            }
-        }
-        .font(CicadaTheme.bodyFont)
-    }
+    return result
 }

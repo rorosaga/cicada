@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import sys
 
 import litellm
 from loguru import logger
+from tqdm import tqdm
 
 from api.config import Settings
 
@@ -17,7 +19,10 @@ Output valid JSON with this exact structure:
     {
       "name": "Entity Name",
       "type": "person|project|company|concept|tool|deadline|skill|location",
-      "description": "Rich 3-6 sentence description with concrete details from the conversation: what it is, why it matters to the user, specific facts, decisions, or context discussed. Use wikilinks [[like this]] when referencing other entities.",
+      "description": "See DESCRIPTION LENGTH BY ENTITY TYPE below",
+      "history_entries": [
+        {"date": "YYYY-MM-DD", "event": "What happened"}
+      ],
       "tags": ["relevant", "tags"],
       "confidence": 0.7
     }
@@ -31,14 +36,30 @@ Output valid JSON with this exact structure:
   ]
 }
 
-Rules:
-- **Descriptions must be rich and contextual (3-6 sentences)** — include specific facts, decisions, quotes, or technical details actually mentioned. Don't write generic summaries.
-- Use wikilinks `[[Entity Name]]` inside descriptions to reference other entities
-- Only extract entities that are substantively discussed, not passing mentions
-- Entity types must be exactly one of: person, project, company, concept, tool, deadline, skill, location
-- **Relationships are critical** — capture every meaningful connection between entities with a specific verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against", "replaced by")
-- Relationship labels should be short verb phrases, not full sentences
-- Confidence 0.5-0.9 based on how substantive the discussion was"""
+DESCRIPTION LENGTH BY ENTITY TYPE:
+- deadline: 1-2 sentences. What is due, when, current status.
+- skill: 1-2 sentences. Procedural rule or preference, written as an instruction.
+- location: 2-3 sentences. Where it is, why it's relevant to the user.
+- person: 2-4 sentences. Who they are, relationship to user, key context.
+- tool: 3-5 sentences. What it is, how the user uses it, why it matters.
+- concept: 3-6 sentences. Definition, relevance to user's work, connections.
+- project: 4-8 sentences. What it is, user's role, current status, goals, key technical details.
+- company: 4-8 sentences. What they do, user's relationship, relevance to user's goals.
+
+HISTORY ENTRIES:
+- Include dated events extracted from the conversation.
+- For project and company entities, always include history entries if timeline information is available.
+- For person entities, include key interaction dates when present.
+- For deadline, skill, location, tool, concept: only include history entries when the conversation contains specific dated events. Otherwise omit `history_entries` or leave it as an empty array.
+- Each entry should be one sentence describing what happened on that date.
+
+EXTRACTION GUIDELINES:
+- Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
+- Confidence reflects how certain you are about the entity's attributes, not how important it is.
+- If an entity is mentioned but you lack context to classify it confidently (e.g., a bare name with no role), still extract it but set confidence below 0.5.
+- Use wikilinks `[[Entity Name]]` inside descriptions to reference other entities.
+- Entity types must be exactly one of: person, project, company, concept, tool, deadline, skill, location.
+- Relationships are critical — capture every meaningful connection between entities with a specific verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against", "replaced by"). Use short verb phrases, not full sentences or generic "related to"."""
 
 # Max concurrent LLM calls — stay under rate limits
 MAX_CONCURRENCY = 10
@@ -92,8 +113,18 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
     failed = 0
     total = len(episodes)
 
-    async def process_one(i: int, episode: dict):
-        nonlocal success, failed
+    progress = tqdm(
+        total=total,
+        desc="Stage 1: extract",
+        unit="ep",
+        file=sys.stderr,
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
+        leave=True,
+    )
+    entities_so_far = 0
+
+    async def _do_process(i: int, episode: dict) -> None:
+        nonlocal success, failed, entities_so_far
         ep_id = episode["id"]
         content = episode["content"]
 
@@ -104,11 +135,6 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
 
         async with semaphore:
             try:
-                if len(chunks) > 1:
-                    logger.info(f"  [{i+1}/{total}] {ep_id} — {len(content)} chars, split into {len(chunks)} chunks")
-                else:
-                    logger.info(f"  [{i+1}/{total}] {ep_id} — extracting ({len(content)} chars)")
-
                 # Extract from all chunks and merge results
                 all_entities = []
                 all_relationships = []
@@ -119,19 +145,24 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
 
                 for entity in all_entities:
                     entity["source_episode"] = ep_id
+                    entity["source_episode_timestamp"] = episode.get("timestamp")
                 for rel in all_relationships:
                     rel["source_episode"] = ep_id
+                    rel["source_episode_timestamp"] = episode.get("timestamp")
 
                 results[i] = {
                     "episode_id": ep_id,
+                    "episode_timestamp": episode.get("timestamp"),
                     "entities": all_entities,
                     "relationships": all_relationships,
                 }
 
                 success += 1
-                if all_entities:
-                    names = [e["name"] for e in all_entities[:5]]
-                    logger.info(f"    → {len(all_entities)} entities: {', '.join(names)}")
+                entities_so_far += len(all_entities)
+                progress.set_postfix_str(
+                    f"ok={success} fail={failed} entities={entities_so_far}",
+                    refresh=False,
+                )
 
             except litellm.exceptions.RateLimitError:
                 logger.warning(f"  [{i+1}/{total}] {ep_id} — rate limited, retrying in 10s...")
@@ -152,10 +183,13 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
                     relationships = parsed.get("relationships", [])
                     for entity in entities:
                         entity["source_episode"] = ep_id
+                        entity["source_episode_timestamp"] = episode.get("timestamp")
                     for rel in relationships:
                         rel["source_episode"] = ep_id
+                        rel["source_episode_timestamp"] = episode.get("timestamp")
                     results[i] = {
                         "episode_id": ep_id,
+                        "episode_timestamp": episode.get("timestamp"),
                         "entities": entities,
                         "relationships": relationships,
                     }
@@ -174,9 +208,18 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
                 failed += 1
                 logger.error(f"  [{i+1}/{total}] {ep_id} — {type(e).__name__}: {e}")
 
+    async def process_one(i: int, episode: dict) -> None:
+        try:
+            await _do_process(i, episode)
+        finally:
+            progress.update(1)
+
     # Fire all tasks with semaphore-controlled concurrency
-    tasks = [process_one(i, ep) for i, ep in enumerate(episodes)]
-    await asyncio.gather(*tasks)
+    try:
+        tasks = [process_one(i, ep) for i, ep in enumerate(episodes)]
+        await asyncio.gather(*tasks)
+    finally:
+        progress.close()
 
     all_extracted = [r for r in results if r is not None]
     logger.info(f"Extraction done: {success} succeeded, {failed} failed out of {total}")

@@ -36,9 +36,11 @@ struct ContentView: View {
     private var detailContent: some View {
         switch selectedTab {
         case .memory:
-            GraphContainerView()
+            GraphContainerView(selectedTab: $selectedTab)
         case .topics:
-            TopicsView()
+            TopicsView(selectedTab: $selectedTab)
+        case .sleep:
+            SleepView(selectedTab: $selectedTab)
         case .nudges:
             NudgeListView()
         case .clarifications:
@@ -50,6 +52,7 @@ struct ContentView: View {
 // MARK: - Graph Container with Zoom Controls
 
 struct GraphContainerView: View {
+    @Binding var selectedTab: AppTab
     @Environment(GraphViewModel.self) private var graphVM
     @State private var showUploadOverlay = false
 
@@ -73,8 +76,11 @@ struct GraphContainerView: View {
             VStack {
                 HStack {
                     Spacer()
-                    TopBarControls(showUploadOverlay: $showUploadOverlay)
-                        .padding(CicadaTheme.spacingLG)
+                    TopBarControls(
+                        selectedTab: $selectedTab,
+                        showUploadOverlay: $showUploadOverlay
+                    )
+                    .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
             }
