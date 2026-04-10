@@ -1,0 +1,16 @@
+# Recall-latency query set for benchmarks/run_table3.py.
+# One query per line. Lines starting with # are comments.
+#
+# Replace these placeholders with 10-20 queries from your own workload.
+# This file is a TEMPLATE — do not commit any real personal content here.
+
+placeholder query one
+placeholder query two
+placeholder query three
+placeholder query four
+placeholder query five
+placeholder query six
+placeholder query seven
+placeholder query eight
+placeholder query nine
+placeholder query ten

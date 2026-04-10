@@ -213,37 +213,43 @@ struct EntityDetailCard: View {
     private var metadataSection: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             if !entity.tags.isEmpty {
-                HStack(spacing: CicadaTheme.spacingXS) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     Text("Tags")
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
 
-                    ForEach(entity.tags, id: \.self) { tag in
-                        Text(tag)
-                            .font(.system(size: 11))
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(CicadaTheme.surfaceHover)
-                            .clipShape(Capsule())
+                    FlowLayout(spacing: 6) {
+                        ForEach(entity.tags, id: \.self) { tag in
+                            Text(tag)
+                                .font(.system(size: 11))
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                                .lineLimit(1)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(CicadaTheme.surfaceHover)
+                                .clipShape(Capsule())
+                        }
                     }
                 }
             }
 
             if !entity.related.isEmpty {
-                HStack(spacing: CicadaTheme.spacingXS) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     Text("Related")
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
 
-                    ForEach(entity.related, id: \.self) { rel in
-                        Text(rel)
-                            .font(.system(size: 11))
-                            .foregroundStyle(CicadaTheme.accent)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(CicadaTheme.accent.opacity(0.1))
-                            .clipShape(Capsule())
+                    FlowLayout(spacing: 6) {
+                        ForEach(entity.related, id: \.self) { rel in
+                            Text(rel)
+                                .font(.system(size: 11))
+                                .foregroundStyle(CicadaTheme.accent)
+                                .lineLimit(1)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(CicadaTheme.accent.opacity(0.1))
+                                .clipShape(Capsule())
+                        }
                     }
                 }
             }
@@ -342,6 +348,50 @@ private struct TabButton: View {
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Flow Layout
+
+/// A simple wrapping horizontal layout: items flow left-to-right and wrap to
+/// the next line when the available width is exhausted. Used for tag/related
+/// pills so large sets wrap naturally instead of overflowing the card.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = layout(subviews: subviews, in: proposal.width ?? .infinity)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let positions = layout(subviews: subviews, in: bounds.width)
+        for (index, subview) in subviews.enumerated() {
+            let pt = positions.points[index]
+            subview.place(at: CGPoint(x: bounds.minX + pt.x, y: bounds.minY + pt.y), proposal: .unspecified)
+        }
+    }
+
+    private func layout(subviews: Subviews, in maxWidth: CGFloat) -> (size: CGSize, points: [CGPoint]) {
+        var points: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            points.append(CGPoint(x: x, y: y))
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+            totalWidth = max(totalWidth, x - spacing)
+        }
+        return (CGSize(width: totalWidth, height: y + rowHeight), points)
     }
 }
 

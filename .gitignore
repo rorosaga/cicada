@@ -16,4 +16,3 @@ benchmark_results/
 benchmarks/*.local.*
 benchmarks/questions.yaml
 benchmarks/queries.txt
-benchmarks/
