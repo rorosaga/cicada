@@ -16,3 +16,6 @@ benchmark_results/
 benchmarks/*.local.*
 benchmarks/questions.yaml
 benchmarks/queries.txt
+
+# macOS Finder
+.DS_Store
