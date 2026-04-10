@@ -155,8 +155,8 @@ Every Sleep cycle commits with **structured commit messages** for machine-parsea
 ```
 Sleep cycle 2026-03-20
 
-entities/recruiting-thread.md: updated (source: ep_2026-03-20_001, trigger: sleep/extraction)
-entities/recruiter-contact.md: created (source: ep_2026-03-20_001, trigger: clarification/resolved)
+entities/recruiting-thread.md: updated (source: ep_2026-03-20_002, trigger: sleep/extraction)
+entities/recruiter-contact.md: created (source: ep_2026-03-20_002, trigger: clarification/resolved)
 nudges/nudge_005.md: resolved (trigger: user/companion_app)
 ```
 
