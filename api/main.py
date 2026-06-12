@@ -17,6 +17,7 @@ from api.routers import (
     graph,
     inbox,
     nudges,
+    search,
     sleep,
     status,
 )
@@ -53,8 +54,9 @@ async def lifespan(app: FastAPI):
     logger.info(f"LLM model: {settings.litellm_model}")
 
     # Ensure memory directories exist. ``nudges``/``clarifications`` are still
-    # mkdir'd for the shim/migration read path; ``inbox`` is the write target.
-    for subdir in ("entities", "nudges", "clarifications", "inbox", "episodes"):
+    # mkdir'd for the shim/migration read path; ``inbox`` is the write target;
+    # ``hubs`` holds the regenerated hub tier (Stage 5.6).
+    for subdir in ("entities", "nudges", "clarifications", "inbox", "episodes", "hubs"):
         (settings.memory_path / subdir).mkdir(parents=True, exist_ok=True)
 
     # Ensure memory dir is a git repo
@@ -99,6 +101,7 @@ app.add_middleware(
 )
 
 app.include_router(graph.router, tags=["graph"])
+app.include_router(search.router, tags=["search"])
 app.include_router(inbox.router, tags=["inbox"])
 app.include_router(status.router, tags=["status"])
 app.include_router(nudges.router, tags=["nudges"])

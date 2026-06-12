@@ -79,6 +79,14 @@ class GraphNode(CamelModel):
     status: EntityStatus
     confidence: float
     tags: list[str] = []
+    # Server-computed render flags (camelCase on the wire via to_camel). All
+    # additive + defaulted so old clients ignore them.
+    degree: int = 0
+    is_hub: bool = False
+    has_pending: bool = False
+    member_count: int = 0
+    hub_kind: Optional[str] = None  # "type" | "tag" | None
+    hub_id: Optional[str] = None    # member node -> its hub id, enables hub gravity
 
 
 class GraphLink(CamelModel):
@@ -90,6 +98,55 @@ class GraphLink(CamelModel):
 class GraphResponse(CamelModel):
     nodes: list[GraphNode]
     links: list[GraphLink]
+
+
+# --- Search ---
+
+
+class SearchHit(CamelModel):
+    id: str
+    name: str
+    type: str
+    status: str
+    confidence: float
+    score: float = 0.0
+    snippet: str = ""
+
+
+class SearchResponse(CamelModel):
+    results: list[SearchHit]
+
+
+# --- Entity context (progressive disclosure) ---
+
+
+class ContextNeighbor(CamelModel):
+    id: str
+    name: str
+    type: str
+    confidence: float
+    summary: str
+    via: str  # "leann" | "related" | "wikilink"
+    score: Optional[float] = None
+
+
+class ContextEpisodeExcerpt(CamelModel):
+    episode_id: str
+    timestamp: str
+    excerpt: str
+
+
+class EntityContextResponse(CamelModel):
+    id: str
+    name: str
+    type: str
+    status: str
+    confidence: float
+    markdown_content: str
+    hubs: list[str] = []
+    neighbors: list[ContextNeighbor] = []
+    episodes: list[ContextEpisodeExcerpt] = []
+    next_hops: list[str] = []
 
 
 # --- Nudge ---

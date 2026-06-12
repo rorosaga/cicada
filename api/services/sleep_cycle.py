@@ -135,6 +135,25 @@ async def run(settings: Settings, cycle_id: str) -> None:
         from api.services.inbox_generator import generate
         await generate(changes, skills, memory_path, relationships=resolved_edges)
 
+        # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
+        # graph stops ignoring them. Runs after relationships are written so the
+        # `mentions` wave merges into the same graph_edges.yaml. Idempotent.
+        try:
+            from api.services.wikilink_resolver import materialize_wikilink_edges
+            n_mentions = materialize_wikilink_edges(memory_path)
+            logger.info(f"Stage 5.5: materialized {n_mentions} wikilink `mentions` edges")
+        except Exception as e:
+            logger.warning(f"Stage 5.5 wikilink materialization failed: {type(e).__name__}: {e}")
+
+        # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
+        # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
+        try:
+            from api.services.hub_builder import regenerate_hubs_and_index
+            hub_result = regenerate_hubs_and_index(memory_path, settings)
+            logger.info(f"Stage 5.6: regenerated {hub_result['hub_count']} hubs + _index.md")
+        except Exception as e:
+            logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
+
         # Mark episodes as processed
         _mark_episodes_processed(episodes)
         logger.info(f"Marked {len(episodes)} episodes as processed")
@@ -342,6 +361,8 @@ def _infer_trigger_for_path(path: str) -> str:
         return "sleep/extraction"
     if path.startswith("leann/"):
         return "sleep/index_rebuild"
+    if path.startswith("hubs/") or path == "_index.md":
+        return "sleep/hub_generation"
     if path == "graph_edges.yaml":
         return "sleep/extraction"
     return "sleep/extraction"

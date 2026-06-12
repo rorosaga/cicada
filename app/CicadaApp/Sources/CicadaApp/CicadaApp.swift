@@ -4,8 +4,7 @@ import AppKit
 @main
 struct CicadaApp: App {
     @State private var graphVM = GraphViewModel()
-    @State private var nudgeVM = NudgeViewModel()
-    @State private var clarificationVM = ClarificationViewModel()
+    @State private var inboxVM = InboxViewModel()
     @State private var sleepVM = SleepViewModel()
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
@@ -25,8 +24,7 @@ struct CicadaApp: App {
         WindowGroup {
             ContentView()
                 .environment(graphVM)
-                .environment(nudgeVM)
-                .environment(clarificationVM)
+                .environment(inboxVM)
                 .environment(sleepVM)
                 .preferredColorScheme(.dark)
                 .onAppear {
@@ -36,8 +34,14 @@ struct CicadaApp: App {
                     // place. Without this, Sleep finishes successfully but
                     // Topics/Graph stay frozen on the pre-cycle snapshot
                     // until the user restarts the app.
-                    sleepVM.onCycleCompleted = { [graphVM] in
+                    sleepVM.onCycleCompleted = { [graphVM, inboxVM] in
                         await graphVM.loadGraph()
+                        await inboxVM.loadInbox()
+                    }
+                    // Resolving an inbox item drops the menu-bar badge instantly
+                    // instead of waiting for the next 30s status poll.
+                    inboxVM.onResolved = { [menuBarManager] in
+                        await menuBarManager.refreshAfterAction()
                     }
                     // Ensure the main window is key so TextFields can accept input.
                     if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {

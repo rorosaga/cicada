@@ -5,7 +5,6 @@ struct TopicsView: View {
     @Environment(GraphViewModel.self) private var graphVM
     @State private var searchText = ""
     @State private var showFilterPopover = false
-    @State private var enabledTypes: Set<EntityType> = Set(EntityType.allCases)
     @State private var selectedLabels: Set<String> = []
     @State private var showLabelPopover = false
     @State private var selectedEntity: Entity?
@@ -30,7 +29,11 @@ struct TopicsView: View {
                 // List view
                 TopicsListView(
                     searchText: $searchText,
-                    enabledTypes: $enabledTypes,
+                    // Shared with the Graph tab — one filter, two surfaces.
+                    enabledTypes: Binding(
+                        get: { graphVM.filter.types },
+                        set: { graphVM.filter.types = $0 }
+                    ),
                     showFilterPopover: $showFilterPopover,
                     selectedLabels: $selectedLabels,
                     showLabelPopover: $showLabelPopover,
@@ -166,10 +169,10 @@ private struct TopicsListView: View {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Image(systemName: "line.3.horizontal.decrease.circle")
                             .font(.system(size: 12))
-                        Text("\(enabledTypes.count)/\(EntityType.allCases.count)")
+                        Text("\(enabledTypes.count)/\(EntityType.selectableCases.count)")
                             .font(.system(size: 11, weight: .medium))
                     }
-                    .foregroundStyle(enabledTypes.count == EntityType.allCases.count ? CicadaTheme.textSecondary : CicadaTheme.accent)
+                    .foregroundStyle(enabledTypes.count == EntityType.selectableCases.count ? CicadaTheme.textSecondary : CicadaTheme.accent)
                     .padding(.horizontal, CicadaTheme.spacingMD)
                     .padding(.vertical, CicadaTheme.spacingSM)
                 }
@@ -236,7 +239,7 @@ private struct TopicsFilterPopover: View {
                 .tracking(1.2)
                 .padding(.bottom, CicadaTheme.spacingXS)
 
-            ForEach(EntityType.allCases) { type in
+            ForEach(EntityType.selectableCases) { type in
                 Button {
                     if enabledTypes.contains(type) {
                         enabledTypes.remove(type)

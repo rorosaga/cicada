@@ -24,12 +24,19 @@ struct UploadHistoryEntry: Identifiable, Codable {
 
 // MARK: - Upload Overlay
 
+enum UploadMode: String, CaseIterable {
+    case conversations = "Conversations"
+    case sources = "Saved media"
+}
+
 struct UploadOverlay: View {
     @Binding var isPresented: Bool
     @State private var isDragOver = false
     @State private var isUploading = false
     @State private var uploadResult: String?
     @State private var errorMessage: String?
+    @State private var mode: UploadMode = .conversations
+    @State private var urlText = ""
 
     var body: some View {
         ZStack {
@@ -46,12 +53,26 @@ struct UploadOverlay: View {
 
             // Upload box
             VStack(spacing: CicadaTheme.spacingLG) {
-                Image(systemName: isUploading ? "arrow.up.circle" : "arrow.up.doc.fill")
+                Picker("", selection: $mode) {
+                    ForEach(UploadMode.allCases, id: \.self) { m in
+                        Text(m.rawValue).tag(m)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 280)
+                .disabled(isUploading)
+                .onChange(of: mode) { _, _ in
+                    uploadResult = nil
+                    errorMessage = nil
+                }
+
+                Image(systemName: iconName)
                     .font(.system(size: 44))
                     .foregroundStyle(isDragOver ? CicadaTheme.accent : CicadaTheme.textTertiary)
                     .symbolEffect(.pulse, isActive: isUploading)
 
-                Text(isUploading ? "Uploading..." : "Upload Conversations")
+                Text(isUploading ? "Uploading..." : (mode == .conversations ? "Upload Conversations" : "Save Bookmarks & Links"))
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
 
@@ -65,11 +86,39 @@ struct UploadOverlay: View {
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(Color(hex: 0xEF4444))
                         .multilineTextAlignment(.center)
-                } else {
+                } else if mode == .conversations {
                     Text("Drag and drop the folder here\nor click to select")
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .multilineTextAlignment(.center)
+                } else {
+                    Text("Drop a browser bookmarks export (HTML/JSON),\na Takeout watch-later file, or paste a URL below")
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                if mode == .sources {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Image(systemName: "link")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                        TextField("https://…", text: $urlText)
+                            .textFieldStyle(.plain)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .onSubmit { saveURL() }
+                        Button("Save") { saveURL() }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(urlText.isEmpty ? CicadaTheme.textTertiary : CicadaTheme.accent)
+                            .disabled(urlText.isEmpty || isUploading)
+                    }
+                    .padding(.horizontal, CicadaTheme.spacingMD)
+                    .padding(.vertical, CicadaTheme.spacingSM)
+                    .background(CicadaTheme.surfaceHover)
+                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+                    .frame(width: 340)
                 }
 
                 Button {
@@ -108,12 +157,52 @@ struct UploadOverlay: View {
         }
     }
 
+    private var iconName: String {
+        if isUploading { return "arrow.up.circle" }
+        return mode == .conversations ? "arrow.up.doc.fill" : "bookmark.fill"
+    }
+
+    /// Friendly message when the sources backend hasn't shipped yet (404).
+    private static func friendlyError(_ error: Error) -> String {
+        if case APIError.httpError(404, _) = error {
+            return "Media ingestion isn't available yet — update the Cicada backend."
+        }
+        return error.localizedDescription
+    }
+
+    private func saveURL() {
+        let url = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else { return }
+        isUploading = true
+        errorMessage = nil
+        uploadResult = nil
+        Task {
+            do {
+                try await APIClient.shared.saveSource(url: url)
+                await MainActor.run {
+                    isUploading = false
+                    urlText = ""
+                    uploadResult = "Saved — it joins the graph after the next Sleep cycle"
+                }
+            } catch {
+                await MainActor.run {
+                    isUploading = false
+                    errorMessage = Self.friendlyError(error)
+                }
+            }
+        }
+    }
+
     private func pickFilesOrFolder() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json, .html]
+        panel.allowedContentTypes = mode == .conversations
+            ? [.json, .html]
+            : [.json, .html, .commaSeparatedText, .plainText]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
-        panel.message = "Select export files or a folder containing them"
+        panel.message = mode == .conversations
+            ? "Select export files or a folder containing them"
+            : "Select bookmark exports, Takeout files, or URL lists"
 
         guard panel.runModal() == .OK else { return }
         uploadURLs(panel.urls)
@@ -137,6 +226,9 @@ struct UploadOverlay: View {
     }
 
     private func uploadURLs(_ urls: [URL]) {
+        let allowedExts = mode == .conversations
+            ? Set(["json", "html"])
+            : Set(["json", "html", "csv", "txt"])
         var filesToUpload: [URL] = []
         let fm = FileManager.default
         for url in urls {
@@ -145,7 +237,7 @@ struct UploadOverlay: View {
                 if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: nil) {
                     for case let fileURL as URL in enumerator {
                         let ext = fileURL.pathExtension.lowercased()
-                        if ext == "json" || ext == "html" {
+                        if allowedExts.contains(ext) {
                             if fileURL.lastPathComponent.lowercased() == "users.json" { continue }
                             filesToUpload.append(fileURL)
                         }
@@ -153,14 +245,16 @@ struct UploadOverlay: View {
                 }
             } else {
                 let ext = url.pathExtension.lowercased()
-                if ext == "json" || ext == "html" {
+                if allowedExts.contains(ext) {
                     filesToUpload.append(url)
                 }
             }
         }
 
         guard !filesToUpload.isEmpty else {
-            errorMessage = "No JSON or HTML files found"
+            errorMessage = mode == .conversations
+                ? "No JSON or HTML files found"
+                : "No bookmark, Takeout, or URL-list files found"
             return
         }
 
@@ -168,6 +262,7 @@ struct UploadOverlay: View {
         errorMessage = nil
         uploadResult = nil
 
+        let uploadMode = mode
         Task {
             var totalCreated = 0
             var totalSkipped = 0
@@ -175,7 +270,9 @@ struct UploadOverlay: View {
 
             for url in filesToUpload {
                 do {
-                    let response = try await APIClient.shared.uploadFile(fileURL: url)
+                    let response = uploadMode == .conversations
+                        ? try await APIClient.shared.uploadFile(fileURL: url)
+                        : try await APIClient.shared.uploadSource(fileURL: url)
                     totalCreated += response.episodesCreated
                     totalSkipped += response.duplicatesSkipped
                     // Save to persistent history
@@ -190,7 +287,7 @@ struct UploadOverlay: View {
                     )
                 } catch {
                     if firstError == nil {
-                        firstError = error.localizedDescription
+                        firstError = Self.friendlyError(error)
                     }
                 }
             }

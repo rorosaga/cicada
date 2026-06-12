@@ -4,24 +4,21 @@ enum AppTab: String, CaseIterable {
     case memory = "Memory"
     case topics = "Topics"
     case sleep = "Sleep"
-    case nudges = "Nudges"
-    case clarifications = "Clarifications"
+    case inbox = "Inbox"
 
     var icon: String {
         switch self {
         case .memory: "brain.head.profile"
         case .topics: "list.bullet"
         case .sleep: "moon.fill"
-        case .nudges: "bell.badge"
-        case .clarifications: "questionmark.circle"
+        case .inbox: "tray.full"
         }
     }
 }
 
 struct SidebarView: View {
     @Binding var selectedTab: AppTab
-    var nudgeCount: Int
-    var clarificationCount: Int
+    var inboxCount: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -54,8 +51,7 @@ struct SidebarView: View {
     private func badgeCount(for tab: AppTab) -> Int {
         switch tab {
         case .memory, .topics, .sleep: 0
-        case .nudges: nudgeCount
-        case .clarifications: clarificationCount
+        case .inbox: inboxCount
         }
     }
 }

@@ -120,156 +120,119 @@ actor APIClient {
         return try await get("/entities/\(id)/history")
     }
 
-    // MARK: - Nudges
+    // MARK: - Inbox
 
-    func fetchNudges() async throws -> [Nudge] {
-        return try await get("/nudges")
+    /// Fetch the unified inbox (`GET /inbox`). Optionally filter by kinds —
+    /// comma-separated on the wire.
+    func fetchInbox(kinds: [InboxKind]? = nil) async throws -> [InboxItem] {
+        if let kinds, !kinds.isEmpty {
+            let q = kinds.map(\.rawValue).joined(separator: ",")
+            return try await get("/inbox?kind=\(q)")
+        }
+        return try await get("/inbox")
     }
 
-    func resolveNudge(id: String, action: String, answer: String? = nil) async throws {
-        var body: [String: Any] = ["action": action]
-        if let answer { body["answer"] = answer }
-        try await post("/nudges/\(id)/resolve", body: body)
-    }
-
-    // MARK: - Clarifications
-
-    func fetchClarifications() async throws -> [Clarification] {
-        return try await get("/clarifications")
-    }
-
-    func resolveClarification(id: String, action: String, answer: String? = nil, mergeTarget: String? = nil) async throws {
+    /// Resolve an inbox item. Dispatches server-side on the item's `kind`. The
+    /// freetext clarification path sends `{action:"answer", answer:text}` — the
+    /// resolution body shape from `api/routers/inbox.py`.
+    func resolveInboxItem(
+        id: String,
+        action: String,
+        answer: String? = nil,
+        mergeTarget: String? = nil
+    ) async throws {
         var body: [String: Any] = ["action": action]
         if let answer { body["answer"] = answer }
         if let mergeTarget { body["mergeTarget"] = mergeTarget }
-        try await post("/clarifications/\(id)", body: body)
+        try await post("/inbox/\(id)/resolve", body: body)
     }
 
     // MARK: - Status (menu-bar tamagotchi)
 
-    /// Fetch the aggregate status snapshot for the menu-bar bookworm. Tries the
-    /// unified `GET /status` endpoint (owned by the inbox axis); if that endpoint
-    /// is not yet merged (404) it composes the same struct client-side from the
-    /// legacy endpoints that exist today. Flipping fully to `/status` later means
-    /// deleting the fallback branch — nothing else changes.
+    /// Fetch the aggregate status snapshot (`GET /status`). The endpoint is live
+    /// (wave 1); a `StatusSnapshot` decodes straight from the nested
+    /// sleep/inbox/episodes wire shape.
     func fetchStatus() async throws -> StatusSnapshot {
-        do {
-            return try await get("/status")
-        } catch let APIError.httpError(code, _) where code == 404 {
-            return try await composeStatus()
-        }
+        return try await get("/status")
     }
 
-    /// Client-side compose fallback: assemble a ``StatusSnapshot`` from the
-    /// endpoints that ship today. Issues the calls concurrently and degrades
-    /// gracefully if any individual call fails (missing pieces fall back to
-    /// neutral values rather than failing the whole snapshot).
-    private func composeStatus() async throws -> StatusSnapshot {
-        async let sleepTask = tryFetch { try await self.fetchSleepStatus() }
-        async let nudgesTask = tryFetch { try await self.fetchNudges() }
-        async let clarTask = tryFetch { try await self.fetchClarifications() }
-        async let episodesTask = tryFetch { try await self.fetchEpisodeQueue() }
-        async let scheduleTask = tryFetch { try await self.fetchSchedule() }
-        async let historyTask = tryFetch { try await self.fetchSleepHistory() }
+    // MARK: - Sources (media / bookmark ingestion — ships in a later wave)
 
-        let sleep = await sleepTask
-        let nudges = await nudgesTask ?? []
-        let clarifications = await clarTask ?? []
-        let episodes = await episodesTask ?? []
-        let schedule = await scheduleTask
-        let history = await historyTask ?? []
-
-        let byKind = Self.inboxByKind(nudges: nudges, clarifications: clarifications)
-        let total = byKind.values.reduce(0, +)
-
-        let unprocessed = episodes.filter { !$0.processed }.count
-        let lastIngestedAt = episodes
-            .map(\.timestamp)
-            .max()   // ISO8601 strings sort lexicographically by time
-
-        let lastSleepAt = Self.lastSleepISO(from: history)
-        let nextSleepAt = Self.nextSleepISO(from: schedule)
-
-        return StatusSnapshot(
-            sleep: StatusSnapshot.Sleep(
-                status: sleep?.status ?? "idle",
-                stage: sleep?.stage ?? 0,
-                totalStages: sleep?.totalStages ?? 5,
-                cycleId: sleep?.cycleId,
-                error: sleep?.error
-            ),
-            inbox: StatusSnapshot.Inbox(total: total, byKind: byKind),
-            episodes: StatusSnapshot.Episodes(unprocessed: unprocessed, lastIngestedAt: lastIngestedAt),
-            lastSleepAt: lastSleepAt,
-            nextSleepAt: nextSleepAt
-        )
-    }
-
-    /// Post a clipboard URL to the media/sources ingest endpoint. The endpoint
-    /// ships in a later wave; callers handle a 404 as "coming soon".
+    /// Post a single URL to the sources ingest endpoint. A 404 means the wave-3
+    /// endpoint isn't merged yet; callers surface a friendly "coming soon".
     func saveSource(url: String) async throws {
         try await post("/sources/save", body: ["url": url])
     }
 
-    private func fetchSleepHistory() async throws -> [SleepHistoryEntry] {
-        return try await get("/sleep/history")
+    /// Upload a single source file (bookmarks HTML/JSON, Takeout) to
+    /// `POST /sources/upload`. Multipart, same envelope as conversation upload.
+    func uploadSource(fileURL: URL) async throws -> UploadResponse {
+        return try await uploadMultipart(path: "/sources/upload", fileURL: fileURL)
     }
 
-    /// Run an async fetch and swallow errors into `nil` so a single missing
-    /// legacy endpoint never sinks the whole composed snapshot.
-    private func tryFetch<T>(_ op: () async throws -> T) async -> T? {
-        try? await op()
-    }
+    /// Shared multipart POST for file ingestion endpoints. Mirrors `uploadFile`
+    /// but takes the target path so both `/conversations/upload` and
+    /// `/sources/upload` reuse it.
+    private func uploadMultipart(path: String, fileURL: URL) async throws -> UploadResponse {
+        let url = URL(string: "\(baseURL)\(path)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
 
-    private static func inboxByKind(nudges: [Nudge], clarifications: [Clarification]) -> [String: Int] {
-        var byKind: [String: Int] = [:]
-        for n in nudges {
-            byKind[n.type.rawValue, default: 0] += 1
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        let fileData = try Data(contentsOf: fileURL)
+        let filename = fileURL.lastPathComponent
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverUnreachable
         }
-        if !clarifications.isEmpty {
-            byKind["clarification", default: 0] += clarifications.count
+        guard (200...299).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.httpError(http.statusCode, msg)
         }
-        return byKind
+        return try decoder.decode(UploadResponse.self, from: data)
     }
 
-    /// Most-recent "Sleep cycle" commit date from `/sleep/history` (the endpoint
-    /// already filters to sleep commits). History is newest-first, so the first
-    /// entry's date is the last sleep.
-    private static func lastSleepISO(from history: [SleepHistoryEntry]) -> String? {
-        guard let first = history.first else { return nil }
-        return normalizeToISO(first.date)
-    }
-
-    private static func normalizeToISO(_ raw: String) -> String? {
-        // git dates arrive as ISO already in this codebase; pass through if it
-        // parses, else hand back the raw string (the menu still renders a
-        // best-effort relative time, and parse failures degrade to "never").
-        if StatusSnapshot.parseDate(raw) != nil { return raw }
-        // Try a common git format: "2026-06-12 03:01:55 +0000".
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
-        if let d = fmt.date(from: raw) {
-            let iso = ISO8601DateFormatter()
-            return iso.string(from: d)
+    /// Convenience: upload several source files, aggregating the counts.
+    func uploadSources(fileURLs: [URL]) async throws -> UploadResponse {
+        var created = 0, skipped = 0
+        var lastMessage = ""
+        var source = "sources"
+        for url in fileURLs {
+            let r = try await uploadSource(fileURL: url)
+            created += r.episodesCreated
+            skipped += r.duplicatesSkipped
+            lastMessage = r.message
+            source = r.source
         }
-        return raw
+        return UploadResponse(
+            status: "ok",
+            episodesCreated: created,
+            duplicatesSkipped: skipped,
+            message: lastMessage,
+            source: source
+        )
     }
 
-    /// Next occurrence of the scheduled hour:minute, or nil if scheduling is
-    /// disabled. Computed in local time to match the schedule's clock.
-    private static func nextSleepISO(from schedule: ScheduleConfig?) -> String? {
-        guard let schedule, schedule.enabled else { return nil }
-        var comps = DateComponents()
-        comps.hour = schedule.hour
-        comps.minute = schedule.minute
-        comps.second = 0
-        guard let next = Calendar.current.nextDate(
-            after: Date(),
-            matching: comps,
-            matchingPolicy: .nextTime
-        ) else { return nil }
-        let iso = ISO8601DateFormatter()
-        return iso.string(from: next)
+    // MARK: - Search (graph toolbar)
+
+    /// Search entities for the graph toolbar (`GET /search`). Returns `[]` on a
+    /// 404 so the caller can fall back to a local substring match before the
+    /// LEANN endpoint lands.
+    func search(q: String, topK: Int = 8) async throws -> [GraphSearchHit] {
+        let encoded = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q
+        let resp: GraphSearchResponse = try await get("/search?q=\(encoded)&top_k=\(topK)&indexes=entities")
+        return resp.results
     }
 
     // MARK: - Sleep

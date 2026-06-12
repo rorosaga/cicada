@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     decay_nudge_threshold: float = 0.4
     archive_threshold: float = 0.2
 
+    # Hub tier (small-LLM traversal)
+    hub_tag_min_members: int = 5     # min entities sharing a tag to spawn a topic hub
+    hub_tag_max_hubs: int = 30       # cap on tag-cluster hubs
+    hub_member_cap: int = 150        # max members listed per hub file
+
     model_config = {"env_prefix": "CICADA_", "env_file": ".env", "extra": "ignore"}
 
 

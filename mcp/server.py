@@ -83,6 +83,15 @@ def main():
                 },
             },
         },
+        {
+            "name": "cicada_open_hub",
+            "description": "Open a Cicada hub page (a topic or type index) and list its member entities with one-line summaries. Use after cicada_recall returns a relevant_hub, or to browse a topic. Pass a hub id like 'people', 'tools', or 'topic-robotics'.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"hub": {"type": "string"}},
+                "required": ["hub"],
+            },
+        },
     ]
 
     for line in sys.stdin:
@@ -177,6 +186,8 @@ def handle_tool(name: str, arguments: dict) -> str:
         )
     elif name == "cicada_check_nudges":
         return handle_check_nudges(arguments.get("topic"))
+    elif name == "cicada_open_hub":
+        return handle_open_hub(arguments.get("hub", ""))
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -245,6 +256,12 @@ def handle_recall(query: str) -> str:
 
     output_parts: list[str] = []
 
+    # === Hub-first cold-start check ===
+    # Match the query against hub names/tags/types up front. Gives a reliable
+    # answer even when LEANN is cold (fresh install, pre-rebuild) and seeds the
+    # structured hints block with a relevant hub + its members.
+    relevant_hub, hub_member_ids = _match_hub(memory_path, query)
+
     # === Proactive: pending inbox items related to the query ===
     inbox_blurbs = _relevant_inbox(memory_path, query)
     if inbox_blurbs:
@@ -269,8 +286,30 @@ def handle_recall(query: str) -> str:
         seen_ids.add(eid)
         merged.append(hit)
 
-    if not merged and not inbox_blurbs:
+    # === Structured hints block (machine-parseable, emitted first) ===
+    # A small model that ignores prose can json.loads this fenced block to get
+    # an explicit action list of entity ids and the best-matching hub.
+    suggested = [
+        (h.get("entity_id") or h.get("id")) for h in merged[:7]
+        if (h.get("entity_id") or h.get("id"))
+    ]
+    if not suggested and hub_member_ids:
+        suggested = hub_member_ids[:7]
+    hints_block = _hints_block(suggested, relevant_hub, hub_member_ids)
+    if hints_block:
+        output_parts.append(hints_block)
+
+    if not merged and not inbox_blurbs and not relevant_hub:
         return f"No entities found matching '{query}'."
+
+    # Surface the matched hub's member list when LEANN/keyword found nothing
+    # (cold-start path) so the user still gets a navigable answer.
+    if relevant_hub and not merged:
+        hub_body = _read_hub_body(memory_path, relevant_hub)
+        if hub_body:
+            output_parts.append(
+                f"**Relevant hub — `{relevant_hub}`:**\n{hub_body}"
+            )
 
     # === Render type-aware entity summaries ===
     entity_blocks: list[str] = []
@@ -323,6 +362,139 @@ def handle_recall(query: str) -> str:
         output_parts.append("\n".join(ep_lines))
 
     return "\n\n".join(output_parts).strip() or f"No entities found matching '{query}'."
+
+
+def _hub_files(memory_path: Path):
+    hubs_dir = memory_path / "hubs"
+    if not hubs_dir.exists():
+        return
+    for filepath in sorted(hubs_dir.glob("*.md")):
+        yield filepath
+
+
+def _parse_hub_header(content: str) -> dict:
+    """Read only the scalar hub-identity keys, stopping at ``members:``.
+
+    The hub frontmatter's ``members:`` is a nested YAML list of dicts that the
+    flat ``parse_frontmatter`` cannot read (it would clobber the hub's real
+    ``type``/``name`` with the last member's values). All scalar identity keys
+    (``type``, ``name``, ``hub_kind``, ``source_tag``, ``source_type``) are
+    written before ``members:``, so reading the header up to that line yields
+    the correct hub identity without parsing nested YAML.
+    """
+    if not content.startswith("---"):
+        return {}
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    fm: dict = {}
+    for line in parts[1].strip().splitlines():
+        stripped = line.strip()
+        if stripped == "members:" or stripped.startswith("members:"):
+            break
+        if not stripped or stripped.startswith("#") or stripped.startswith("- "):
+            continue
+        if ":" in stripped:
+            key, _, value = stripped.partition(":")
+            fm[key.strip()] = value.strip().strip("'\"")
+    return fm
+
+
+def _match_hub(memory_path: Path, query: str) -> tuple[str | None, list[str]]:
+    """Find the hub whose name/source_tag/source_type best overlaps the query.
+
+    Returns ``(relative_hub_path | None, member_ids)``. ``member_ids`` are read
+    from the hub BODY's wikilinks via the entity name index — the flat
+    pyyaml-free parser cannot read the nested ``members:`` frontmatter list, so
+    the body is the authoritative member source on the MCP side.
+    """
+    q_tokens = _content_tokens(query)
+    if not q_tokens:
+        return None, []
+    entities_dir = memory_path / "entities"
+    best: tuple[int, Path | None] = (0, None)
+    for filepath in _hub_files(memory_path):
+        content = filepath.read_text(encoding="utf-8")
+        fm = _parse_hub_header(content)
+        if fm.get("type") != "hub":
+            continue
+        label = " ".join(
+            str(fm.get(k, "") or "") for k in ("name", "source_tag", "source_type")
+        )
+        overlap = len(q_tokens & _content_tokens(label))
+        if overlap > best[0]:
+            best = (overlap, filepath)
+    if not best[1]:
+        return None, []
+    hub_path = best[1]
+    rel = f"hubs/{hub_path.name}"
+    _, body = parse_frontmatter(hub_path.read_text(encoding="utf-8"))
+    member_ids: list[str] = []
+    import re as _re
+
+    for raw in _re.findall(r"\[\[([^\]]+)\]\]", body or ""):
+        display = raw.split("|", 1)[0].strip()
+        eid = _entity_id_for_name(entities_dir, display)
+        if eid and eid not in member_ids:
+            member_ids.append(eid)
+    return rel, member_ids
+
+
+def _read_hub_body(memory_path: Path, rel_hub_path: str) -> str:
+    """Return a hub file's body verbatim (member list with wikilinks)."""
+    filepath = memory_path / rel_hub_path
+    if not filepath.exists():
+        return ""
+    _, body = parse_frontmatter(filepath.read_text(encoding="utf-8"))
+    return body
+
+
+def _hints_block(
+    suggested_entities: list[str], relevant_hub: str | None, hub_members: list[str]
+) -> str:
+    """Render the machine-parseable ``cicada-hints`` fenced JSON block.
+
+    Fenced with the literal info-string ``cicada-hints`` so a small model can
+    locate it and ``json.loads`` deterministically.
+    """
+    if not suggested_entities and not relevant_hub:
+        return ""
+    payload = {
+        "suggested_entities": suggested_entities,
+        "relevant_hub": relevant_hub,
+        "hub_members_preview": hub_members[:8],
+        "next_tool": "cicada_recall_detail",
+        "note": "Call cicada_recall_detail with each suggested_entity id for full pages, or cicada_open_hub with relevant_hub for a topic index.",
+    }
+    return "```cicada-hints\n" + json.dumps(payload, indent=2) + "\n```"
+
+
+def handle_open_hub(hub: str) -> str:
+    """Open a hub page and return its body verbatim (member list).
+
+    Tries ``hubs/<hub>.md`` then ``hubs/topic-<sanitize_id(hub)>.md``. Returns
+    the body verbatim — the MCP flat parser never parses the nested members
+    frontmatter, so the wikilinked body bullet list is the member source.
+    """
+    if not hub:
+        return "hub is required."
+    memory_path = get_memory_path()
+    hubs_dir = memory_path / "hubs"
+    raw = hub.strip()
+    if raw.endswith(".md"):
+        raw = raw[:-3]
+    if raw.startswith("hubs/"):
+        raw = raw[len("hubs/"):]
+    if raw.startswith("hub:"):
+        raw = raw[len("hub:"):]
+
+    candidates = [raw, f"topic-{_mcp_sanitize_id(raw)}", _mcp_sanitize_id(raw)]
+    for cand in candidates:
+        path = hubs_dir / f"{cand}.md"
+        if path.exists():
+            _, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+            return body or path.read_text(encoding="utf-8")
+    return f"Hub '{hub}' not found."
 
 
 def handle_recall_detail(entity_id: str) -> str:
@@ -473,20 +645,50 @@ def _truncate_to_desc_and_recent_history(body: str, max_history: int = 10) -> st
     return f"{description}\n\n## History\n" + "\n".join(recent)
 
 
+def _mcp_sanitize_id(name: str) -> str:
+    """pyyaml-free mirror of api.services.id_utils.sanitize_id.
+
+    The MCP server can't reliably import api.* in every install, so the
+    legacy-filename resolution logic is inlined. Keeps lookups tolerant of the
+    181 live files whose stem != sanitize_id(name) (e.g. atlético-de-madrid).
+    """
+    import re
+
+    safe = (name or "").lower()
+    safe = re.sub(r"[/\\:*?\"<>|.]+", "-", safe)
+    safe = safe.replace(" ", "-")
+    safe = re.sub(r"-+", "-", safe)
+    safe = safe.strip("-")
+    return safe or "unnamed"
+
+
 def _entity_id_for_name(entities_dir: Path, name: str) -> str | None:
-    target = str(name).strip().lower()
-    if not target:
+    """Resolve a name-or-id ref to a real filepath.stem, multi-strategy.
+
+    Tries, in order: exact file <ref>.md, file <sanitize_id(ref)>.md,
+    file <ref.replace(' ','-')>.md, then a frontmatter-name / stem scan.
+    Mirrors api.services.id_utils.resolve_entity_id without importing it.
+    """
+    raw = str(name).strip()
+    if not raw:
         return None
-    # Direct id match
-    direct = entities_dir / f"{target.replace(' ', '-')}.md"
-    if direct.exists():
-        return direct.stem
-    # Scan frontmatter names
+    if not entities_dir.exists():
+        return None
+
+    target = raw.lower()
+    sanitized_target = _mcp_sanitize_id(raw)
+    slug_target = target.replace(" ", "-")
+
+    # Scan glob stems first — they are the authoritative on-disk ids. A bare
+    # Path.exists() check would lie on case-insensitive filesystems (macOS),
+    # echoing the requested casing instead of the real stem.
     for filepath in entities_dir.glob("*.md"):
+        stem = filepath.stem.lower()
+        if stem in (target, sanitized_target, slug_target):
+            return filepath.stem
         content = filepath.read_text(encoding="utf-8")
         fm, _ = parse_frontmatter(content)
-        fm_name = str(fm.get("name", "")).lower()
-        if fm_name == target or filepath.stem.lower() == target:
+        if str(fm.get("name", "")).lower() == target:
             return filepath.stem
     return None
 
