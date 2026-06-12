@@ -321,3 +321,53 @@ class ConversationUploadResponse(CamelModel):
     duplicates_skipped: int
     message: str
     source: str = "unknown"
+
+
+# --- Sources (media ingestion) ---
+
+
+class SourceSaveRequest(CamelModel):
+    url: str
+    note: Optional[str] = None
+    tags: list[str] = []
+
+
+class SourceSaveResponse(CamelModel):
+    status: str
+    media_entity_id: str
+    episode_id: str
+    title: str
+    media_type: str
+    thumbnail: Optional[str] = None
+    message: str
+
+
+class SourceUploadResponse(CamelModel):
+    # Mirrors ConversationUploadResponse on the wire (status/episodesCreated/
+    # duplicatesSkipped/message/source) so the shipped Swift client can decode
+    # one shape for both upload flows. ``episodes_created`` is the count queued
+    # after dedup; enrichment + writes finish in the background.
+    status: str
+    episodes_created: int
+    duplicates_skipped: int
+    message: str
+    source: str = "unknown"
+
+
+class MediaSourceItem(CamelModel):
+    media_entity_id: str
+    url: str
+    title: str
+    media_type: str
+    site: Optional[str] = None
+    channel: Optional[str] = None
+    thumbnail: Optional[str] = None
+    saved_at: str
+    tags: list[str] = []
+    status: str = "active"
+    related_count: int = 0
+
+
+class SourceListResponse(CamelModel):
+    items: list[MediaSourceItem]
+    total: int

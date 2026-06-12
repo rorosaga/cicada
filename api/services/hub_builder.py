@@ -42,9 +42,18 @@ _ARCHIVED_STATUSES = {"archived", "dropped"}
 def _one_line_summary(body: str, limit: int = 140) -> str:
     """Derive a one-line blurb from an entity body without an LLM call.
 
-    Unwraps wikilinks, strips markdown noise, collapses whitespace, takes the
-    first sentence, and truncates to ``limit`` chars.
+    Prefers the ``## Summary`` section of a v2-layout page; otherwise unwraps
+    wikilinks, strips markdown noise, collapses whitespace, takes the first
+    sentence, and truncates to ``limit`` chars.
     """
+    if body and "## Summary" in body:
+        try:
+            from api.services.entity_body import parse_sections
+            summary = (parse_sections(body).get("Summary") or "").strip()
+            if summary:
+                body = summary
+        except Exception:
+            pass
     text = re.sub(r"\[\[([^\]|]+)(\|[^\]]+)?\]\]", r"\1", body or "")
     text = re.sub(r"[#>*`_-]", " ", text)
     text = " ".join(text.split())

@@ -145,6 +145,17 @@ async def run(settings: Settings, cycle_id: str) -> None:
         except Exception as e:
             logger.warning(f"Stage 5.5 wikilink materialization failed: {type(e).__name__}: {e}")
 
+        # Stage 5.55: Wire media entities to the entities resolved this cycle by
+        # joining on shared source episodes. Bypasses the promotion gate — a
+        # saved bookmark connects to existing entities even when the concepts
+        # it mentions never cross the 2-conversation threshold.
+        try:
+            from api.services.media_ingestor import inject_media_edges
+            n_media = inject_media_edges(memory_path, changes)
+            logger.info(f"Stage 5.55: injected {n_media} media `about` edges")
+        except Exception as e:
+            logger.warning(f"Stage 5.55 media edge injection failed: {type(e).__name__}: {e}")
+
         # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
         # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
         try:

@@ -233,8 +233,20 @@ class LeannIndexer:
             except Exception:
                 continue
             fm = parsed.frontmatter or {}
+            # Embed type/tags/aliases alongside name+body so semantic queries
+            # like "Python tools" surface tool-type entities whose body never
+            # says "tool". Metadata fields are filterable but not embedded.
+            header_bits = [str(fm.get("name", filepath.stem))]
+            if fm.get("type"):
+                header_bits.append(f"({fm['type']})")
+            tags = fm.get("tags") or []
+            if tags:
+                header_bits.append("tags: " + ", ".join(str(t) for t in tags))
+            aliases = fm.get("aliases") or []
+            if aliases:
+                header_bits.append("aka: " + ", ".join(str(a) for a in aliases))
             text_parts = [
-                fm.get("name", filepath.stem),
+                " ".join(header_bits),
                 parsed.body,
             ]
             text = "\n".join(str(p) for p in text_parts if p).strip()

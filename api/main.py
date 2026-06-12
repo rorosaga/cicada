@@ -19,6 +19,7 @@ from api.routers import (
     nudges,
     search,
     sleep,
+    sources,
     status,
 )
 from api.services import sleep_scheduler
@@ -55,8 +56,9 @@ async def lifespan(app: FastAPI):
 
     # Ensure memory directories exist. ``nudges``/``clarifications`` are still
     # mkdir'd for the shim/migration read path; ``inbox`` is the write target;
-    # ``hubs`` holds the regenerated hub tier (Stage 5.6).
-    for subdir in ("entities", "nudges", "clarifications", "inbox", "episodes", "hubs"):
+    # ``hubs`` holds the regenerated hub tier (Stage 5.6); ``sources`` holds the
+    # media URL dedup index.
+    for subdir in ("entities", "nudges", "clarifications", "inbox", "episodes", "hubs", "sources"):
         (settings.memory_path / subdir).mkdir(parents=True, exist_ok=True)
 
     # Ensure memory dir is a git repo
@@ -109,3 +111,4 @@ app.include_router(clarifications.router, tags=["clarifications"])
 app.include_router(entities.router, tags=["entities"])
 app.include_router(sleep.router, tags=["sleep"])
 app.include_router(conversations.router, tags=["conversations"])
+app.include_router(sources.router, tags=["sources"])

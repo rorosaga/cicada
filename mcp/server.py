@@ -92,6 +92,21 @@ def main():
                 "required": ["hub"],
             },
         },
+        {
+            "name": "cicada_save_url",
+            "description": "Save a URL (article, video, bookmark) into Cicada's memory as saved media. The link becomes a graph entity and connects to related topics after the next Sleep cycle. Use when the user shares a link worth remembering or says 'save this'.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The URL to save"},
+                    "note": {
+                        "type": "string",
+                        "description": "Optional note about why this was saved",
+                    },
+                },
+                "required": ["url"],
+            },
+        },
     ]
 
     for line in sys.stdin:
@@ -188,8 +203,69 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_check_nudges(arguments.get("topic"))
     elif name == "cicada_open_hub":
         return handle_open_hub(arguments.get("hub", ""))
+    elif name == "cicada_save_url":
+        return handle_save_url(arguments.get("url", ""), arguments.get("note"))
     else:
         raise ValueError(f"Unknown tool: {name}")
+
+
+def handle_save_url(url: str, note: str | None) -> str:
+    """Save a URL as media. Prefers the running backend (shared dedup index,
+    background enrichment); falls back to direct ingestion via the api package."""
+    url = (url or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return "Error: URL must start with http:// or https://"
+
+    # Path 1: the FastAPI backend, if it's up.
+    try:
+        import urllib.request
+
+        payload = json.dumps({"url": url, "note": note}).encode("utf-8")
+        req = urllib.request.Request(
+            "http://127.0.0.1:8000/sources/save",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return (
+            f"Saved \"{data.get('title', url)}\" as {data.get('mediaType', 'url')} media "
+            f"(entity {data.get('mediaEntityId', '?')}). {data.get('message', '')}"
+        )
+    except Exception:
+        pass
+
+    # Path 2: direct ingestion (backend down). Enrichment degrades offline.
+    try:
+        import asyncio
+
+        import httpx
+
+        from api.services import media_ingestor
+
+        memory_path = get_memory_path()
+        (memory_path / "sources").mkdir(parents=True, exist_ok=True)
+        (memory_path / "episodes").mkdir(parents=True, exist_ok=True)
+        (memory_path / "entities").mkdir(parents=True, exist_ok=True)
+
+        async def _save():
+            item = media_ingestor.RawItem(url=url, note=note)
+            idx = media_ingestor.load_url_index(memory_path)
+            async with httpx.AsyncClient() as client:
+                result = await media_ingestor.ingest_one(item, memory_path, client, idx)
+            media_ingestor.save_url_index(memory_path, idx)
+            return result
+
+        result = asyncio.run(_save())
+        if result.status == "duplicate":
+            return f"Already saved: \"{result.title}\""
+        return (
+            f"Saved \"{result.title}\" as {result.media_type} media "
+            f"(entity {result.media_entity_id}). It joins the graph after the next Sleep cycle."
+        )
+    except Exception as e:
+        return f"Error: could not save URL ({type(e).__name__}: {e})"
 
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:
