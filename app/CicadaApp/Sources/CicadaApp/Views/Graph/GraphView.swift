@@ -46,6 +46,7 @@ struct GraphView: NSViewRepresentable {
         if viewModel.pendingGraphUpdate && viewModel.isGraphReady {
             let json = viewModel.graphDataJSON
             let filterJSON = viewModel.filterJSON
+            print("Graph push: \(json.count) bytes, \(viewModel.nodes.count) nodes")
             webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
                 if let error { print("Graph update error: \(error)") }
                 // Re-assert the current filter so a fresh payload respects it
@@ -95,6 +96,7 @@ struct GraphView: NSViewRepresentable {
             DispatchQueue.main.async { [self] in
                 switch type {
                 case "graphReady":
+                    print("Graph bridge: graphReady received")
                     isGraphReady = true
                     viewModel.isGraphReady = true
                     pushGraphData()
@@ -115,6 +117,9 @@ struct GraphView: NSViewRepresentable {
                     // Informational — focus state lives in JS.
                     break
 
+                case "jsError":
+                    print("Graph JS error: \(json["message"] as? String ?? "?") @ \(json["source"] as? String ?? "?"):\(json["line"] as? Int ?? 0)")
+
                 default:
                     break
                 }
@@ -125,6 +130,7 @@ struct GraphView: NSViewRepresentable {
             guard !hasPushedInitialData, let webView else { return }
             hasPushedInitialData = true
             let json = viewModel.graphDataJSON
+            print("Graph initial push: \(json.count) bytes, \(viewModel.nodes.count) nodes")
             webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
                 if let error { print("Initial graph push error: \(error)") }
             }

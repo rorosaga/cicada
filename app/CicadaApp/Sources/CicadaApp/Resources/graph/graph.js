@@ -68,6 +68,16 @@ const STATUS_ALPHA = { active: 0.92, decaying: 0.5, archived: 0.28, dropped: 0.0
 const HUB_RING_FLOOR = 22;          // minimum radius for a hub node
 const PULSE_COLOR = "#F5C04E";      // amber attention color for pending pulse
 
+// Surface uncaught JS errors to the Swift side — a silent exception here
+// renders as an inexplicably blank canvas otherwise.
+window.onerror = (message, source, line) => {
+    try {
+        window.webkit.messageHandlers.cicada.postMessage(
+            JSON.stringify({ type: "jsError", message: String(message), source: String(source || ""), line: line || 0 })
+        );
+    } catch (e) { /* no handler (standalone browser) */ }
+};
+
 // ---------- Module-level state ----------
 
 let canvas, ctx;
@@ -151,6 +161,18 @@ function nodeDegree(n) {
 
 // ---------- Init ----------
 
+// Apply the initial centering transform exactly once, the first time the
+// canvas has real dimensions. Manual zoom/pan afterwards is never overridden.
+let hasCentered = false;
+function centerOnce() {
+    if (hasCentered || width <= 0 || height <= 0 || !currentZoom) return;
+    hasCentered = true;
+    d3.select(canvas).call(
+        currentZoom.transform,
+        d3.zoomIdentity.translate(width / 2, height / 2).scale(0.6),
+    );
+}
+
 function init() {
     canvas = document.getElementById("graph");
     ctx = canvas.getContext("2d");
@@ -158,6 +180,11 @@ function init() {
     resizeCanvas();
     window.addEventListener("resize", () => {
         resizeCanvas();
+        // The WKWebView is created with a zero frame and only gets its real
+        // size from the SwiftUI layout pass AFTER this script ran — without
+        // this re-center the origin stays at the top-left corner and the
+        // whole graph renders off-canvas (the "blank graph" bug).
+        centerOnce();
         scheduleRedraw();
     });
 
@@ -175,10 +202,8 @@ function init() {
 
     // Initial centering transform — put origin in the middle of the canvas
     // at a slightly-zoomed-out starting scale so the whole graph is visible.
-    d3.select(canvas).call(
-        currentZoom.transform,
-        d3.zoomIdentity.translate(width / 2, height / 2).scale(0.6),
-    );
+    // No-op while the canvas is still 0x0; the resize listener retries.
+    centerOnce();
 
     // Suppress d3's default double-click zoom; double-click is our focus
     // gesture now (handled in onMouseUp, not here).
@@ -280,6 +305,9 @@ function transformForNodes(nodeList, pad) {
 // the fix for "post-sleep layout explodes."
 function updateGraph(dataStr) {
     const data = typeof dataStr === "string" ? JSON.parse(dataStr) : dataStr;
+
+    resizeCanvas();
+    centerOnce();
 
     // 1. snapshot positions of the current sim before we replace anything.
     for (const n of nodes) {
