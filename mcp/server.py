@@ -26,7 +26,7 @@ def main():
     tools = [
         {
             "name": "cicada_recall",
-            "description": "Search Cicada's knowledge graph for entities related to a topic. Returns concise summaries (Pass 1). Pending nudges and clarifications are surfaced first when relevant. Use this at the start of conversations to check what Cicada already knows about the topic being discussed.",
+            "description": "Search Cicada's knowledge graph for entities related to a topic. Returns concise summaries (Pass 1). Pending inbox items are surfaced first when relevant. Use this at the start of conversations to check what Cicada already knows about the topic being discussed.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -72,13 +72,13 @@ def main():
         },
         {
             "name": "cicada_check_nudges",
-            "description": "Check if there are pending nudges or clarifications in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, or ambiguous mentions. Use this proactively when a conversation touches topics that might have pending items.",
+            "description": "Check for pending inbox items in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, ambiguous mentions, or possible duplicates. Use this proactively when a conversation touches topics that might have pending items.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "topic": {
                         "type": "string",
-                        "description": "Optional topic to filter nudges/clarifications by relevance",
+                        "description": "Optional topic to filter inbox items by relevance",
                     }
                 },
             },
@@ -245,18 +245,12 @@ def handle_recall(query: str) -> str:
 
     output_parts: list[str] = []
 
-    # === Proactive: pending nudges & clarifications related to the query ===
-    nudge_blurbs = _relevant_nudges(memory_path, query)
-    if nudge_blurbs:
+    # === Proactive: pending inbox items related to the query ===
+    inbox_blurbs = _relevant_inbox(memory_path, query)
+    if inbox_blurbs:
         output_parts.append(
-            "**Pending nudges relevant to this query:**\n" + "\n".join(nudge_blurbs)
-        )
-
-    clar_blurbs = _relevant_clarifications(memory_path, query)
-    if clar_blurbs:
-        output_parts.append(
-            "**Pending clarifications — you may be able to resolve these:**\n"
-            + "\n".join(clar_blurbs)
+            "**Pending inbox items relevant to this query:**\n"
+            + "\n".join(inbox_blurbs)
         )
 
     # === Source 1: LEANN semantic search over entities ===
@@ -275,7 +269,7 @@ def handle_recall(query: str) -> str:
         seen_ids.add(eid)
         merged.append(hit)
 
-    if not merged and not nudge_blurbs and not clar_blurbs:
+    if not merged and not inbox_blurbs:
         return f"No entities found matching '{query}'."
 
     # === Render type-aware entity summaries ===
@@ -497,49 +491,58 @@ def _entity_id_for_name(entities_dir: Path, name: str) -> str | None:
     return None
 
 
-def _relevant_nudges(memory_path: Path, query: str) -> list[str]:
-    nudges_dir = memory_path / "nudges"
-    if not nudges_dir.exists():
-        return []
+def _inbox_dirs(memory_path: Path) -> list[Path]:
+    """Return the unified inbox dir, falling back to the legacy dirs.
+
+    Keeps the MCP server correct before the API has run migration once (a stale
+    checkout may still have nudges/ + clarifications/ but no inbox/).
+    """
+    inbox = memory_path / "inbox"
+    if inbox.exists():
+        return [inbox]
+    legacy = [memory_path / "nudges", memory_path / "clarifications"]
+    return [d for d in legacy if d.exists()]
+
+
+def _inbox_files(memory_path: Path):
+    for d in _inbox_dirs(memory_path):
+        for filepath in sorted(d.glob("*.md")):
+            yield filepath
+
+
+def _format_inbox_blurb(fm: dict, body: str) -> str:
+    kind = str(fm.get("kind", fm.get("type", "")) or "")
+    ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
+    if kind in ("clarification", "merge_suggestion"):
+        utype = fm.get("uncertainty_type", "unknown")
+        suggestion = fm.get("suggested_classification", "unknown")
+        return f"- **{ename}** (uncertain: {utype}, suggested: {suggestion})"
+    # decay/conflict (and legacy nudges where kind lived in "type")
+    if not kind and fm.get("uncertainty_type"):
+        utype = fm.get("uncertainty_type", "unknown")
+        suggestion = fm.get("suggested_classification", "unknown")
+        return f"- **{ename}** (uncertain: {utype}, suggested: {suggestion})"
+    title = fm.get("title", fm.get("short_description", ""))
+    label = kind or "item"
+    return f"- [{label}] **{ename}** — {title}"
+
+
+def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
     q = query.lower()
     blurbs: list[str] = []
-    for filepath in sorted(nudges_dir.glob("*.md")):
+    for filepath in _inbox_files(memory_path):
         content = filepath.read_text(encoding="utf-8")
         fm, body = parse_frontmatter(content)
         haystack = (
             f"{fm.get('entity_name', '')} "
+            f"{fm.get('entity_mention', '')} "
+            f"{fm.get('title', '')} "
             f"{fm.get('short_description', '')} "
             f"{body}"
         ).lower()
         if not _topic_matches(q, haystack):
             continue
-        ntype = fm.get("type", "unknown")
-        ename = fm.get("entity_name", "Unknown")
-        desc = fm.get("short_description", "")
-        blurbs.append(f"- [{ntype}] **{ename}** — {desc}")
-    return blurbs
-
-
-def _relevant_clarifications(memory_path: Path, query: str) -> list[str]:
-    clar_dir = memory_path / "clarifications"
-    if not clar_dir.exists():
-        return []
-    q = query.lower()
-    blurbs: list[str] = []
-    for filepath in sorted(clar_dir.glob("*.md")):
-        content = filepath.read_text(encoding="utf-8")
-        fm, body = parse_frontmatter(content)
-        haystack = (
-            f"{fm.get('entity_mention', '')} {body}"
-        ).lower()
-        if not _topic_matches(q, haystack):
-            continue
-        mention = fm.get("entity_mention", "Unknown")
-        utype = fm.get("uncertainty_type", "unknown")
-        suggestion = fm.get("suggested_classification", "unknown")
-        blurbs.append(
-            f"- **{mention}** (uncertain: {utype}, suggested: {suggestion})"
-        )
+        blurbs.append(_format_inbox_blurb(fm, body))
     return blurbs
 
 
@@ -580,47 +583,44 @@ content_hash: {content_hash}
 
 
 def handle_check_nudges(topic: str | None) -> str:
-    """Check for pending nudges and clarifications."""
+    """Check for pending inbox items (decay/conflict/clarification/merge)."""
     memory_path = get_memory_path()
     results = []
 
-    # Check nudges
-    nudges_dir = memory_path / "nudges"
-    if nudges_dir.exists():
-        for filepath in sorted(nudges_dir.glob("*.md")):
-            content = filepath.read_text(encoding="utf-8")
-            fm, body = parse_frontmatter(content)
+    for filepath in _inbox_files(memory_path):
+        content = filepath.read_text(encoding="utf-8")
+        fm, body = parse_frontmatter(content)
 
-            if topic:
-                # Filter by relevance to topic
-                combined = f"{fm.get('entity_name', '')} {fm.get('short_description', '')} {body}".lower()
-                if not _topic_matches(topic.lower(), combined):
-                    continue
+        if topic:
+            combined = (
+                f"{fm.get('entity_name', '')} "
+                f"{fm.get('entity_mention', '')} "
+                f"{fm.get('title', '')} "
+                f"{fm.get('short_description', '')} "
+                f"{fm.get('uncertainty_type', '')} "
+                f"{body}"
+            ).lower()
+            if not _topic_matches(topic.lower(), combined):
+                continue
 
+        kind = str(fm.get("kind", fm.get("type", "")) or "")
+        ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
+        if kind in ("clarification", "merge_suggestion") or (
+            not kind and fm.get("uncertainty_type")
+        ):
             results.append(
-                f"**Nudge ({fm.get('type', 'unknown')})**: {fm.get('entity_name', 'Unknown')} — {fm.get('short_description', '')}\n  {body[:200]}"
+                f"**Clarification**: {ename} — {fm.get('uncertainty_type', '')}\n  {body[:200]}"
             )
-
-    # Check clarifications
-    clar_dir = memory_path / "clarifications"
-    if clar_dir.exists():
-        for filepath in sorted(clar_dir.glob("*.md")):
-            content = filepath.read_text(encoding="utf-8")
-            fm, body = parse_frontmatter(content)
-
-            if topic:
-                combined = f"{fm.get('entity_mention', '')} {body}".lower()
-                if not _topic_matches(topic.lower(), combined):
-                    continue
-
+        else:
+            title = fm.get("title", fm.get("short_description", ""))
             results.append(
-                f"**Clarification**: {fm.get('entity_mention', 'Unknown')} — {fm.get('uncertainty_type', '')}\n  {body[:200]}"
+                f"**{kind or 'Item'}**: {ename} — {title}\n  {body[:200]}"
             )
 
     if not results:
-        return "No pending nudges or clarifications" + (f" related to '{topic}'" if topic else "") + "."
+        return "No pending inbox items" + (f" related to '{topic}'" if topic else "") + "."
 
-    return f"Found {len(results)} pending items:\n\n" + "\n\n".join(results)
+    return f"Found {len(results)} pending inbox items:\n\n" + "\n\n".join(results)
 
 
 def _topic_matches(query: str, haystack: str) -> bool:

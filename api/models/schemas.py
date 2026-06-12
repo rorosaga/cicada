@@ -25,6 +25,7 @@ class EntityType(str, Enum):
     deadline = "deadline"
     skill = "skill"
     location = "location"
+    media = "media"
 
 
 class EntityStatus(str, Enum):
@@ -72,7 +73,9 @@ class EntityResponse(CamelModel):
 class GraphNode(CamelModel):
     id: str
     name: str
-    type: EntityType
+    # Plain str (not EntityType) so later waves can emit node types beyond the
+    # closed entity set (e.g. hub markers) without a schema break.
+    type: str
     status: EntityStatus
     confidence: float
     tags: list[str] = []
@@ -125,6 +128,77 @@ class ClarificationResolveRequest(CamelModel):
     action: str
     answer: Optional[str] = None
     merge_target: Optional[str] = None
+
+
+# --- Unified Inbox ---
+
+
+class InboxKind(str, Enum):
+    decay = "decay"
+    conflict = "conflict"
+    clarification = "clarification"
+    merge_suggestion = "merge_suggestion"
+
+
+class RequiredInput(str, Enum):
+    none = "none"
+    choice = "choice"
+    freetext = "freetext"
+    merge = "merge"
+
+
+class InboxItem(CamelModel):
+    id: str
+    kind: InboxKind
+    required_input: RequiredInput
+    status: str = "pending"
+    priority: float = 0.0
+    entity_id: str = ""
+    entity_name: str = ""
+    title: str
+    body: str
+    options: Optional[list[str]] = None
+    created_date: str = ""
+    # clarification/merge extras (only populated for those kinds)
+    uncertainty_type: Optional[str] = None
+    suggested_classification: Optional[str] = None
+    suggested_confidence: Optional[float] = None
+    merge_target_hint: Optional[str] = None
+
+
+class InboxResolveRequest(CamelModel):
+    action: str
+    answer: Optional[str] = None
+    merge_target: Optional[str] = None
+
+
+# --- Status aggregate (menu-bar / tamagotchi) ---
+
+
+class StatusSleep(CamelModel):
+    status: str
+    stage: int = 0
+    total_stages: int = 5
+    cycle_id: Optional[str] = None
+    error: Optional[str] = None
+
+
+class StatusInbox(CamelModel):
+    total: int = 0
+    by_kind: dict[str, int] = {}
+
+
+class StatusEpisodes(CamelModel):
+    unprocessed: int = 0
+    last_ingested_at: Optional[str] = None
+
+
+class StatusResponse(CamelModel):
+    sleep: StatusSleep
+    inbox: StatusInbox
+    episodes: StatusEpisodes
+    last_sleep_at: Optional[str] = None
+    next_sleep_at: Optional[str] = None
 
 
 # --- Sleep ---

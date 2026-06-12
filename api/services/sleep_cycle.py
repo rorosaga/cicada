@@ -132,7 +132,7 @@ async def run(settings: Settings, cycle_id: str) -> None:
         # Stage 5: Nudge Generation & Versioning
         _state.progress = "Stage 5/5: Writing changes..."
         logger.info("Stage 5: Writing entities, nudges, clarifications, and relationships")
-        from api.services.nudge_generator import generate
+        from api.services.inbox_generator import generate
         await generate(changes, skills, memory_path, relationships=resolved_edges)
 
         # Mark episodes as processed
@@ -332,6 +332,8 @@ def _porcelain_action(status_code: str) -> str:
 
 def _infer_trigger_for_path(path: str) -> str:
     """Infer a trigger type for a non-entity file based on its directory."""
+    if path.startswith("inbox/"):
+        return "sleep/inbox_generation"
     if path.startswith("nudges/"):
         return "sleep/nudge_generation"
     if path.startswith("clarifications/"):

@@ -10,8 +10,18 @@ from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from api.config import get_settings
-from api.routers import clarifications, conversations, entities, graph, nudges, sleep
+from api.routers import (
+    clarifications,
+    conversations,
+    entities,
+    graph,
+    inbox,
+    nudges,
+    sleep,
+    status,
+)
 from api.services import sleep_scheduler
+from api.services.inbox_migration import migrate_to_inbox
 
 # --- Logging setup ---
 # Remove loguru default handler and add our own format
@@ -42,8 +52,9 @@ async def lifespan(app: FastAPI):
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")
 
-    # Ensure memory directories exist
-    for subdir in ("entities", "nudges", "clarifications", "episodes"):
+    # Ensure memory directories exist. ``nudges``/``clarifications`` are still
+    # mkdir'd for the shim/migration read path; ``inbox`` is the write target.
+    for subdir in ("entities", "nudges", "clarifications", "inbox", "episodes"):
         (settings.memory_path / subdir).mkdir(parents=True, exist_ok=True)
 
     # Ensure memory dir is a git repo
@@ -51,6 +62,12 @@ async def lifespan(app: FastAPI):
     if not git_dir.exists():
         subprocess.run(["git", "init"], cwd=str(settings.memory_path), check=True)
         logger.info("Initialized git repo in memory directory")
+
+    # One-time idempotent migration of legacy nudges/clarifications into inbox/.
+    # Never crashes boot — a failure logs loudly and leaves legacy dirs intact.
+    moved = migrate_to_inbox(settings.memory_path)
+    if moved:
+        logger.info(f"Migrated {moved} legacy items into inbox/")
 
     entities_count = len(list((settings.memory_path / "entities").glob("*.md")))
     episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))
@@ -82,6 +99,8 @@ app.add_middleware(
 )
 
 app.include_router(graph.router, tags=["graph"])
+app.include_router(inbox.router, tags=["inbox"])
+app.include_router(status.router, tags=["status"])
 app.include_router(nudges.router, tags=["nudges"])
 app.include_router(clarifications.router, tags=["clarifications"])
 app.include_router(entities.router, tags=["entities"])

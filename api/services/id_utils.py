@@ -12,6 +12,7 @@ must go through :func:`sanitize_id` so the filesystem layout stays flat.
 """
 
 import re
+from pathlib import Path
 
 
 def sanitize_id(name: str) -> str:
@@ -29,3 +30,40 @@ def sanitize_id(name: str) -> str:
     safe = re.sub(r"-+", "-", safe)
     safe = safe.strip("-")
     return safe or "unnamed"
+
+
+def resolve_entity_file(memory_path: Path, name_or_slug: str) -> Path | None:
+    """Map an entity slug or display name to its markdown file, tolerantly.
+
+    Merge targets and ``related`` references are sometimes stored as display
+    names ("AI-powered data migration service") rather than slugs. This walks a
+    few strategies so a slug *or* a name resolves to the same file:
+
+    1. exact slug — ``entities/<name_or_slug>.md`` as given;
+    2. sanitized — ``entities/<sanitize_id(name_or_slug)>.md``;
+    3. case-insensitive stem scan over ``entities/*.md``.
+
+    Returns the resolved ``Path`` or ``None`` when nothing matches.
+    """
+    raw = (name_or_slug or "").strip()
+    if not raw:
+        return None
+    entities_dir = Path(memory_path) / "entities"
+
+    direct = entities_dir / f"{raw}.md"
+    if direct.exists():
+        return direct
+
+    sanitized = entities_dir / f"{sanitize_id(raw)}.md"
+    if sanitized.exists():
+        return sanitized
+
+    if not entities_dir.exists():
+        return None
+    target = raw.lower()
+    sanitized_target = sanitize_id(raw)
+    for filepath in entities_dir.glob("*.md"):
+        stem = filepath.stem.lower()
+        if stem == target or stem == sanitized_target:
+            return filepath
+    return None

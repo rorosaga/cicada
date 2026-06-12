@@ -68,6 +68,16 @@ struct ScheduleConfig: Codable, Equatable {
     var minute: Int
 }
 
+/// Minimal mirror of the API's `SleepHistoryEntry` (camelCase on the wire). Only
+/// `date` is consumed by the status compose fallback; the rest are decoded for
+/// completeness so a future caller can reuse the model.
+struct SleepHistoryEntry: Codable {
+    let commitHash: String
+    let date: String
+    let message: String
+    let filesChanged: [String]
+}
+
 enum APIError: Error, LocalizedError {
     case serverUnreachable
     case httpError(Int, String)
@@ -133,6 +143,133 @@ actor APIClient {
         if let answer { body["answer"] = answer }
         if let mergeTarget { body["mergeTarget"] = mergeTarget }
         try await post("/clarifications/\(id)", body: body)
+    }
+
+    // MARK: - Status (menu-bar tamagotchi)
+
+    /// Fetch the aggregate status snapshot for the menu-bar bookworm. Tries the
+    /// unified `GET /status` endpoint (owned by the inbox axis); if that endpoint
+    /// is not yet merged (404) it composes the same struct client-side from the
+    /// legacy endpoints that exist today. Flipping fully to `/status` later means
+    /// deleting the fallback branch — nothing else changes.
+    func fetchStatus() async throws -> StatusSnapshot {
+        do {
+            return try await get("/status")
+        } catch let APIError.httpError(code, _) where code == 404 {
+            return try await composeStatus()
+        }
+    }
+
+    /// Client-side compose fallback: assemble a ``StatusSnapshot`` from the
+    /// endpoints that ship today. Issues the calls concurrently and degrades
+    /// gracefully if any individual call fails (missing pieces fall back to
+    /// neutral values rather than failing the whole snapshot).
+    private func composeStatus() async throws -> StatusSnapshot {
+        async let sleepTask = tryFetch { try await self.fetchSleepStatus() }
+        async let nudgesTask = tryFetch { try await self.fetchNudges() }
+        async let clarTask = tryFetch { try await self.fetchClarifications() }
+        async let episodesTask = tryFetch { try await self.fetchEpisodeQueue() }
+        async let scheduleTask = tryFetch { try await self.fetchSchedule() }
+        async let historyTask = tryFetch { try await self.fetchSleepHistory() }
+
+        let sleep = await sleepTask
+        let nudges = await nudgesTask ?? []
+        let clarifications = await clarTask ?? []
+        let episodes = await episodesTask ?? []
+        let schedule = await scheduleTask
+        let history = await historyTask ?? []
+
+        let byKind = Self.inboxByKind(nudges: nudges, clarifications: clarifications)
+        let total = byKind.values.reduce(0, +)
+
+        let unprocessed = episodes.filter { !$0.processed }.count
+        let lastIngestedAt = episodes
+            .map(\.timestamp)
+            .max()   // ISO8601 strings sort lexicographically by time
+
+        let lastSleepAt = Self.lastSleepISO(from: history)
+        let nextSleepAt = Self.nextSleepISO(from: schedule)
+
+        return StatusSnapshot(
+            sleep: StatusSnapshot.Sleep(
+                status: sleep?.status ?? "idle",
+                stage: sleep?.stage ?? 0,
+                totalStages: sleep?.totalStages ?? 5,
+                cycleId: sleep?.cycleId,
+                error: sleep?.error
+            ),
+            inbox: StatusSnapshot.Inbox(total: total, byKind: byKind),
+            episodes: StatusSnapshot.Episodes(unprocessed: unprocessed, lastIngestedAt: lastIngestedAt),
+            lastSleepAt: lastSleepAt,
+            nextSleepAt: nextSleepAt
+        )
+    }
+
+    /// Post a clipboard URL to the media/sources ingest endpoint. The endpoint
+    /// ships in a later wave; callers handle a 404 as "coming soon".
+    func saveSource(url: String) async throws {
+        try await post("/sources/save", body: ["url": url])
+    }
+
+    private func fetchSleepHistory() async throws -> [SleepHistoryEntry] {
+        return try await get("/sleep/history")
+    }
+
+    /// Run an async fetch and swallow errors into `nil` so a single missing
+    /// legacy endpoint never sinks the whole composed snapshot.
+    private func tryFetch<T>(_ op: () async throws -> T) async -> T? {
+        try? await op()
+    }
+
+    private static func inboxByKind(nudges: [Nudge], clarifications: [Clarification]) -> [String: Int] {
+        var byKind: [String: Int] = [:]
+        for n in nudges {
+            byKind[n.type.rawValue, default: 0] += 1
+        }
+        if !clarifications.isEmpty {
+            byKind["clarification", default: 0] += clarifications.count
+        }
+        return byKind
+    }
+
+    /// Most-recent "Sleep cycle" commit date from `/sleep/history` (the endpoint
+    /// already filters to sleep commits). History is newest-first, so the first
+    /// entry's date is the last sleep.
+    private static func lastSleepISO(from history: [SleepHistoryEntry]) -> String? {
+        guard let first = history.first else { return nil }
+        return normalizeToISO(first.date)
+    }
+
+    private static func normalizeToISO(_ raw: String) -> String? {
+        // git dates arrive as ISO already in this codebase; pass through if it
+        // parses, else hand back the raw string (the menu still renders a
+        // best-effort relative time, and parse failures degrade to "never").
+        if StatusSnapshot.parseDate(raw) != nil { return raw }
+        // Try a common git format: "2026-06-12 03:01:55 +0000".
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
+        if let d = fmt.date(from: raw) {
+            let iso = ISO8601DateFormatter()
+            return iso.string(from: d)
+        }
+        return raw
+    }
+
+    /// Next occurrence of the scheduled hour:minute, or nil if scheduling is
+    /// disabled. Computed in local time to match the schedule's clock.
+    private static func nextSleepISO(from schedule: ScheduleConfig?) -> String? {
+        guard let schedule, schedule.enabled else { return nil }
+        var comps = DateComponents()
+        comps.hour = schedule.hour
+        comps.minute = schedule.minute
+        comps.second = 0
+        guard let next = Calendar.current.nextDate(
+            after: Date(),
+            matching: comps,
+            matchingPolicy: .nextTime
+        ) else { return nil }
+        let iso = ISO8601DateFormatter()
+        return iso.string(from: next)
     }
 
     // MARK: - Sleep
