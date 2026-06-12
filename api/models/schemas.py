@@ -258,6 +258,22 @@ class StatusResponse(CamelModel):
     next_sleep_at: Optional[str] = None
 
 
+# --- Health (liveness probe for installer / doctor) ---
+
+
+class HealthResponse(CamelModel):
+    status: str = "ok"
+    version: str
+    entity_count: int
+    episode_count: int
+    # The *resolved* embedding mode after openai->local auto-degrade, so the
+    # installer/doctor can confirm the offline path is actually active.
+    embedding_mode: str
+    memory_path: str
+    # True when any LEANN index sidecar (<name>.meta.json) exists on disk.
+    leann_present: bool
+
+
 # --- Sleep ---
 
 

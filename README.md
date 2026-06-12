@@ -34,6 +34,16 @@ That leads to a simple loop:
 
 This repository accompanies the Cicada capstone thesis and contains the full reference implementation: backend, MCP server, native companion app, and evaluation harness.
 
+### What's new in v2
+
+The v2 revamp turns Cicada from a thesis prototype into a plug-and-play second brain. The two separate nudge and clarification queues collapse into a **single unified inbox**; a **hub tier** with a top-level `_index.md` gives both small LLMs and the d3 graph a navigable entry point (traverse `_index.md` → `hubs/` → `entities/`); links, videos, and PDFs ingest as **media sources**; a **menu-bar bookworm** companion reflects live backend state; and a key-less install now works thanks to an **on-device embedding fallback**. Best of all, setup is **one command**:
+
+```sh
+./install.sh        # then: make doctor   to verify
+```
+
+It provisions the memory tree, syncs the venv, scaffolds `api/.env`, registers the `cicada` MCP server, and runs the backend as a launchd agent. See [`docs/V2-ROADMAP.md`](docs/V2-ROADMAP.md) for the full picture.
+
 ## Why it is interesting
 
 - **Markdown is the source of truth.** Memory lives in plain files, not in a hidden vendor store.

@@ -1,12 +1,27 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 
+from loguru import logger
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     # Memory storage
     memory_path: Path = Path.home() / "cicada" / "memory"
+
+    # Embedding backend for the LEANN indexes.
+    #   "openai" -> text-embedding-3-small via OpenAI (needs OPENAI_API_KEY)
+    #   "local"  -> sentence-transformers on-device (no API key, ~250MB install
+    #               incl. torch, ~90MB model download on first build, offline)
+    # The mode requested here is the *configured* mode; the *resolved* mode
+    # (see ``resolved_embedding_mode``) auto-degrades openai -> local when no
+    # OPENAI_API_KEY is present so a key-less install still gets semantic
+    # search instead of silently going stale.
+    embedding_mode: str = "openai"            # CICADA_EMBEDDING_MODE
+    embedding_model: str = "text-embedding-3-small"  # CICADA_EMBEDDING_MODEL
+    # Local-mode model name (only used when the resolved mode is "local").
+    embedding_model_local: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     # LiteLLM model (format: provider/model-name)
     # Examples: gpt-5.4-mini, anthropic/claude-sonnet-4-20250514, gemini/gemini-2.0-flash
@@ -35,6 +50,38 @@ class Settings(BaseSettings):
     hub_member_cap: int = 150        # max members listed per hub file
 
     model_config = {"env_prefix": "CICADA_", "env_file": ".env", "extra": "ignore"}
+
+    @property
+    def resolved_embedding_mode(self) -> str:
+        """Effective embedding mode after auto-degrade.
+
+        If ``embedding_mode == "openai"`` but no ``OPENAI_API_KEY`` is present
+        in the environment, fall back to ``"local"`` so a key-less install
+        still produces a usable (offline) index instead of silently going
+        stale. Any explicit ``"local"`` is returned unchanged.
+        """
+        mode = (self.embedding_mode or "openai").strip().lower()
+        if mode == "openai" and not (os.environ.get("OPENAI_API_KEY") or "").strip():
+            return "local"
+        return mode
+
+    @property
+    def resolved_embedding_model(self) -> str:
+        """Embedding model name matching the resolved mode."""
+        if self.resolved_embedding_mode == "openai":
+            return self.embedding_model
+        return self.embedding_model_local
+
+    def warn_if_degraded(self) -> None:
+        """Log a one-line warning when openai mode silently degraded to local."""
+        configured = (self.embedding_mode or "openai").strip().lower()
+        if configured == "openai" and self.resolved_embedding_mode == "local":
+            logger.warning(
+                "CICADA_EMBEDDING_MODE=openai but OPENAI_API_KEY is unset/empty — "
+                "falling back to local sentence-transformers embeddings. Set "
+                "OPENAI_API_KEY to use OpenAI, or set CICADA_EMBEDDING_MODE=local "
+                "to silence this warning."
+            )
 
 
 @lru_cache
