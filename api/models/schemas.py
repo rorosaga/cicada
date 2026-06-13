@@ -64,6 +64,9 @@ class EntityResponse(CamelModel):
     related: list[str]
     version: int
     markdown_content: str
+    # Verbatim file content (frontmatter + body) for the Source view in the
+    # companion app — transparency over reconstruction.
+    raw_markdown: str = ""
     history: list[EntityHistoryEntry]
 
 

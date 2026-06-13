@@ -121,6 +121,9 @@ struct Entity: Identifiable, Codable {
     var related: [String]
     var version: Int
     var markdownContent: String
+    /// Verbatim file content (frontmatter + body) from the API; empty when
+    /// only the placeholder graph node has loaded.
+    var rawMarkdown: String = ""
     var history: [EntityHistoryEntry]
 
     init(
@@ -149,7 +152,7 @@ struct Entity: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
         case decayRate, sourceEpisodes, tags, related, version
-        case markdownContent, history
+        case markdownContent, rawMarkdown, history
     }
 
     init(from decoder: Decoder) throws {
@@ -169,6 +172,7 @@ struct Entity: Identifiable, Codable {
         related = try c.decodeIfPresent([String].self, forKey: .related) ?? []
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
         markdownContent = try c.decodeIfPresent(String.self, forKey: .markdownContent) ?? ""
+        rawMarkdown = try c.decodeIfPresent(String.self, forKey: .rawMarkdown) ?? ""
         history = try c.decodeIfPresent([EntityHistoryEntry].self, forKey: .history) ?? []
     }
 

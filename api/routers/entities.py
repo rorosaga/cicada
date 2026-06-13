@@ -46,6 +46,7 @@ async def get_entity(
         related=fm.get("related", []),
         version=fm.get("version", 1),
         markdown_content=parsed.body,
+        raw_markdown=entity_path.read_text(encoding="utf-8"),
         history=history,
     )
 

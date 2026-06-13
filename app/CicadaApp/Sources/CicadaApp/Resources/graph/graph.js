@@ -823,37 +823,50 @@ function draw() {
     ctx.restore();
 }
 
-// Select which node labels to draw for the current zoom tier, then render at
-// most LABEL_BUDGET of them (largest first) to prevent text blowup on dense
-// regions. When focus is active, every node in the neighborhood is labeled
-// regardless of zoom.
+// Select which node labels to draw for the current zoom tier. Three rules
+// keep dense graphs readable where a flat radius cutoff produced word soup:
+// 1. the budget scales with zoom — a handful of anchor labels zoomed out,
+//    more as the user commits to a region;
+// 2. candidates are ranked by importance (hubs, then connectivity, then
+//    confidence) so the budget keeps the labels that orient the user;
+// 3. greedy screen-space collision culling — a label only draws into space
+//    no more-important label already claimed, so labels never overlap.
 function drawNodeLabels(hoverActive, neighbors, focusActive) {
     const k = transform.k;
-    const candidates = [];
 
-    for (const n of visibleNodes) {
-        if (focusActive && !focusSet.has(n.id)) continue;
-        const r = nodeRadius(n);
-        const isHub = nodeIsHub(n);
-
-        let show = false;
-        if (focusActive && focusSet.has(n.id)) {
-            show = true;                       // focus: read everything in scope
-        } else if (k < ZOOM_HUBS_ONLY) {
-            show = isHub;                      // zoomed out: only hub labels
-        } else if (k < ZOOM_NODE_LABELS) {
-            show = isHub || (r * k >= LABEL_MIN_SCREEN_RADIUS);
-        } else {
-            show = (r * k >= LABEL_MIN_SCREEN_RADIUS);
-        }
-        if (!show) continue;
-        candidates.push(n);
+    let budget;
+    if (focusActive) {
+        budget = 120;                          // focus scope is small; label it all
+    } else if (k < ZOOM_HUBS_ONLY) {
+        budget = 24;                           // hubs only — there are few
+    } else if (k < ZOOM_NODE_LABELS) {
+        const t = (k - ZOOM_HUBS_ONLY) / (ZOOM_NODE_LABELS - ZOOM_HUBS_ONLY);
+        budget = Math.round(10 + t * 30);      // 10 -> 40
+    } else {
+        const t = Math.min(1, (k - ZOOM_NODE_LABELS) / (ZOOM_EDGE_LABELS - ZOOM_NODE_LABELS));
+        budget = Math.round(40 + t * (LABEL_BUDGET - 40)); // 40 -> 200
     }
 
-    // Largest on-screen radius first, then cap to the budget.
-    candidates.sort((a, b) => nodeRadius(b) - nodeRadius(a));
-    const shown = candidates.length > LABEL_BUDGET ? candidates.slice(0, LABEL_BUDGET) : candidates;
-    if (!shown.length) return;
+    const candidates = [];
+    for (const n of visibleNodes) {
+        if (focusActive) {
+            if (!focusSet.has(n.id)) continue;
+        } else if (k < ZOOM_HUBS_ONLY) {
+            if (!nodeIsHub(n)) continue;
+        } else if (k < ZOOM_NODE_LABELS) {
+            if (!nodeIsHub(n) && nodeRadius(n) * k < LABEL_MIN_SCREEN_RADIUS) continue;
+        } else {
+            if (nodeRadius(n) * k < LABEL_MIN_SCREEN_RADIUS) continue;
+        }
+        candidates.push(n);
+    }
+    if (!candidates.length) return;
+
+    candidates.sort((a, b) =>
+        (Number(nodeIsHub(b)) - Number(nodeIsHub(a))) ||
+        (nodeDegree(b) - nodeDegree(a)) ||
+        ((b.confidence || 0) - (a.confidence || 0))
+    );
 
     const fontSize = 11 / k;
     ctx.font = `${fontSize}px -apple-system, 'SF Pro Text', system-ui, sans-serif`;
@@ -862,14 +875,30 @@ function drawNodeLabels(hoverActive, neighbors, focusActive) {
     ctx.shadowColor = "rgba(0,0,0,0.85)";
     ctx.shadowBlur = 3 / k;
 
-    for (const n of shown) {
+    const placed = [];
+    const lineH = 14;                          // screen px: 11px font + leading
+    let drawn = 0;
+    for (const n of candidates) {
+        if (drawn >= budget) break;
         const r = nodeRadius(n);
+        const w = ctx.measureText(n.name).width * k;  // world units -> screen px
+        const sx = n.x * k + transform.x;
+        const sy = (n.y + r + 4 / k) * k + transform.y;
+        const rect = { x: sx - w / 2 - 3, y: sy - 2, w: w + 6, h: lineH + 4 };
+        let collides = false;
+        for (const p of placed) {
+            if (rect.x < p.x + p.w && rect.x + rect.w > p.x &&
+                rect.y < p.y + p.h && rect.y + rect.h > p.y) { collides = true; break; }
+        }
+        if (collides) continue;
+        placed.push(rect);
+        drawn++;
+
         let alpha = 0.95;
-        if (focusActive && !focusSet.has(n.id)) alpha = 0.06;
         if (hoverActive) {
             const isHover = n.id === hoveredNode.id;
             const isNeighbor = neighbors.has(n.id);
-            if (!isHover && !isNeighbor) alpha = Math.min(alpha, 0.15);
+            if (!isHover && !isNeighbor) alpha = 0.15;
         }
         ctx.globalAlpha = alpha;
         ctx.fillStyle = "#F5F5F5";
