@@ -69,6 +69,7 @@ memory/
 
 ## Deferred (post-v2)
 
+- **Cicada-wing design language.** Make the visual design resemble a cicada's wing: graph edges styled as wing venation (thin, translucent, slightly curved veins), the cells between them as faint membrane fills, iridescent/amber accents (the hub gold already leans this way), and translucent layered surfaces in the app chrome. The graph is the natural canvas — edge rendering, background texture, and the focus-mode vignette are the touchpoints.
 - Temporal graph playback (scrub git history; uniquely enabled by git-as-database).
 - Instagram authenticated ingestion (no standard export; URL-list path ships in v2).
 - Inbox `media_suggestion` items ("I connected your saved video to project X — confirm?").
