@@ -112,12 +112,21 @@ actor APIClient {
 
     // MARK: - Entities
 
+    /// Legacy entity ids can contain `#`, `$`, parens, etc. — `#` silently
+    /// truncates the URL into a fragment and other characters nil out
+    /// `URL(string:)`, so the id must be percent-encoded as a path component.
+    private func encodedID(_ id: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "#$&+,/:;=?@")
+        return id.addingPercentEncoding(withAllowedCharacters: allowed) ?? id
+    }
+
     func fetchEntity(id: String) async throws -> Entity {
-        return try await get("/entities/\(id)")
+        return try await get("/entities/\(encodedID(id))")
     }
 
     func fetchEntityHistory(id: String) async throws -> [EntityHistoryEntry] {
-        return try await get("/entities/\(id)/history")
+        return try await get("/entities/\(encodedID(id))/history")
     }
 
     // MARK: - Inbox
