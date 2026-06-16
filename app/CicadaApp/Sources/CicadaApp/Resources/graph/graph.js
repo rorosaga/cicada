@@ -805,17 +805,25 @@ function draw() {
 
     ctx.globalAlpha = 1;
 
-    // ---- Node labels (three semantic-zoom tiers) ----
-    drawNodeLabels(hoverActive, neighbors, focusActive);
+    // ---- Node labels ----
+    // Labels are off by default — a dense graph with ambient labels is
+    // unreadable (see the word-soup screenshots). They appear only when the
+    // user expresses intent: hovering a node (label it + its neighbors) or
+    // entering focus mode (label the drilled-in neighborhood).
+    if (hoverActive || focusActive) {
+        drawNodeLabels(hoverActive, neighbors, focusActive);
+    }
 
-    // ---- Edge labels (highest zoom tier or focus neighborhood) ----
-    if (transform.k >= ZOOM_EDGE_LABELS || focusActive) {
+    // ---- Edge labels (focus neighborhood, or zoomed in past the tier) ----
+    // NOT gated on hover: a high-degree node has hundreds of incident edges and
+    // labeling them all floods the canvas. Hovering still brightens the edges
+    // themselves; their verbs read once you zoom in or enter focus mode.
+    if (focusActive || transform.k >= ZOOM_EDGE_LABELS) {
         drawEdgeLabels(focusActive);
     }
 
-    // Hover label override — always show the hovered node's name with a
-    // small background plate, regardless of zoom level. This is the
-    // "I want to read just this one label without zooming" affordance.
+    // Hover label override — show the hovered node's name with a prominent
+    // background plate so the node under the cursor always reads clearly.
     if (hoverActive) {
         drawHoverLabel(hoveredNode);
     }
@@ -823,40 +831,28 @@ function draw() {
     ctx.restore();
 }
 
-// Select which node labels to draw for the current zoom tier. Three rules
-// keep dense graphs readable where a flat radius cutoff produced word soup:
-// 1. the budget scales with zoom — a handful of anchor labels zoomed out,
-//    more as the user commits to a region;
-// 2. candidates are ranked by importance (hubs, then connectivity, then
-//    confidence) so the budget keeps the labels that orient the user;
-// 3. greedy screen-space collision culling — a label only draws into space
-//    no more-important label already claimed, so labels never overlap.
+// Render the labels for whichever small set is in scope: the focus-mode
+// neighborhood, or (on hover) the hovered node's direct neighbors. There are
+// no ambient labels — scope is always small here, so the work is to rank by
+// importance and greedily cull screen-space collisions so nothing overlaps.
+// The hovered node itself gets its prominent plate from drawHoverLabel; this
+// pass labels everything ELSE in scope.
 function drawNodeLabels(hoverActive, neighbors, focusActive) {
     const k = transform.k;
-
-    let budget;
-    if (focusActive) {
-        budget = 120;                          // focus scope is small; label it all
-    } else if (k < ZOOM_HUBS_ONLY) {
-        budget = 24;                           // hubs only — there are few
-    } else if (k < ZOOM_NODE_LABELS) {
-        const t = (k - ZOOM_HUBS_ONLY) / (ZOOM_NODE_LABELS - ZOOM_HUBS_ONLY);
-        budget = Math.round(10 + t * 30);      // 10 -> 40
-    } else {
-        const t = Math.min(1, (k - ZOOM_NODE_LABELS) / (ZOOM_EDGE_LABELS - ZOOM_NODE_LABELS));
-        budget = Math.round(40 + t * (LABEL_BUDGET - 40)); // 40 -> 200
-    }
+    // A hovered hub can have hundreds of neighbors; cap to the top handful so
+    // hover stays a glance, not a wall. Focus mode is a deliberate drill-in and
+    // gets a larger budget.
+    const budget = focusActive ? 120 : 12;
 
     const candidates = [];
     for (const n of visibleNodes) {
         if (focusActive) {
             if (!focusSet.has(n.id)) continue;
-        } else if (k < ZOOM_HUBS_ONLY) {
-            if (!nodeIsHub(n)) continue;
-        } else if (k < ZOOM_NODE_LABELS) {
-            if (!nodeIsHub(n) && nodeRadius(n) * k < LABEL_MIN_SCREEN_RADIUS) continue;
+        } else if (hoverActive) {
+            // hovered node is drawn by drawHoverLabel; label its neighbors here
+            if (n.id === hoveredNode.id || !neighbors.has(n.id)) continue;
         } else {
-            if (nodeRadius(n) * k < LABEL_MIN_SCREEN_RADIUS) continue;
+            continue;
         }
         candidates.push(n);
     }
@@ -894,13 +890,10 @@ function drawNodeLabels(hoverActive, neighbors, focusActive) {
         placed.push(rect);
         drawn++;
 
-        let alpha = 0.95;
-        if (hoverActive) {
-            const isHover = n.id === hoveredNode.id;
-            const isNeighbor = neighbors.has(n.id);
-            if (!isHover && !isNeighbor) alpha = 0.15;
-        }
-        ctx.globalAlpha = alpha;
+        // Everything in scope (focus set, or hovered node's neighbors) is
+        // intentional — neighbor labels read slightly softer than the hovered
+        // node's own plate so the focal point stays dominant.
+        ctx.globalAlpha = hoverActive ? 0.8 : 0.95;
         ctx.fillStyle = "#F5F5F5";
         ctx.fillText(n.name, n.x, n.y + r + (4 / k));
     }

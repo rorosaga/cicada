@@ -20,11 +20,6 @@ struct ContentView: View {
                 .background(CicadaTheme.background)
         }
         .navigationSplitViewStyle(.prominentDetail)
-        .onChange(of: graphVM.selectedEntity?.id) { _, newValue in
-            withAnimation(.spring(duration: 0.3)) {
-                columnVisibility = newValue != nil ? .detailOnly : .doubleColumn
-            }
-        }
         .task {
             await graphVM.loadGraph()
             await inboxVM.loadInbox()
@@ -58,17 +53,6 @@ struct GraphContainerView: View {
             GraphView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Entity detail card overlay (left)
-            if let entity = graphVM.selectedEntity {
-                HStack {
-                    EntityDetailCard(entity: entity)
-                        .frame(width: 380)
-                        .padding(CicadaTheme.spacingLG)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                    Spacer()
-                }
-            }
-
             // Top-right: Sleep + Upload + Help buttons
             VStack {
                 HStack {
@@ -93,6 +77,22 @@ struct GraphContainerView: View {
                     }
                     .padding(CicadaTheme.spacingLG)
                 }
+            }
+
+            // Node click → floating markdown-preview window over the graph.
+            // Dimmed backdrop dismisses on tap; the card itself opens on the
+            // raw Source view (what the user asked to see on click).
+            if let entity = graphVM.selectedEntity {
+                Color.black.opacity(0.45)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { graphVM.clearSelection() }
+                    .transition(.opacity)
+
+                EntityDetailCard(entity: entity, defaultRaw: true)
+                    .frame(maxWidth: 620, maxHeight: 680)
+                    .padding(CicadaTheme.spacingXL)
+                    .transition(.scale(scale: 0.97).combined(with: .opacity))
             }
 
             // Upload overlay

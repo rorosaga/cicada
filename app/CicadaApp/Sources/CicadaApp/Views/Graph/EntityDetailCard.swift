@@ -4,10 +4,17 @@ struct EntityDetailCard: View {
     let entity: Entity
     @Environment(GraphViewModel.self) private var graphVM
     @State private var selectedTab: DetailTab = .content
-    @State private var showRawMarkdown = false
+    @State private var showRawMarkdown: Bool
 
     enum DetailTab {
         case content, history
+    }
+
+    /// `defaultRaw` opens the card on the verbatim Source view — used by the
+    /// graph's click-to-preview overlay so a node tap shows raw markdown first.
+    init(entity: Entity, defaultRaw: Bool = false) {
+        self.entity = entity
+        _showRawMarkdown = State(initialValue: defaultRaw)
     }
 
     var body: some View {
