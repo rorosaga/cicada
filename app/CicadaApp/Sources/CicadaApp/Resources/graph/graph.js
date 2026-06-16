@@ -979,9 +979,13 @@ function drawHoverLabel(n) {
 // ---------- Mouse / interaction ----------
 
 function wireMouseEvents() {
-    canvas.addEventListener("mousedown", onMouseDown);
-    canvas.addEventListener("mousemove", onMouseMove);
-    canvas.addEventListener("mouseup", onMouseUp);
+    // Capture phase (3rd arg = true): in WebKit, capture listeners on the
+    // target fire before bubble listeners, so these run before d3-zoom's
+    // bubble-phase mousedown handler — which calls stopImmediatePropagation to
+    // claim pan gestures and would otherwise prevent node selection entirely.
+    canvas.addEventListener("mousedown", onMouseDown, true);
+    canvas.addEventListener("mousemove", onMouseMove, true);
+    canvas.addEventListener("mouseup", onMouseUp, true);
     canvas.addEventListener("mouseleave", onMouseLeave);
 }
 
@@ -1017,8 +1021,13 @@ function onMouseDown(event) {
         picked.fy = picked.y;
         if (simulation) simulation.alphaTarget(0.3).restart();
         canvas.classList.add("dragging");
-        // Swallow the event so d3.zoom's drag-pan doesn't also fire.
-        event.stopPropagation();
+        // Claim this gesture: d3-zoom's own mousedown listener (registered on
+        // the same canvas) calls stopImmediatePropagation to start a pan, which
+        // would otherwise eat our node-drag/click. We run in the capture phase
+        // (see wireMouseEvents) so we get here first; stopImmediatePropagation
+        // then prevents d3-zoom from firing. On empty space we do NOT stop, so
+        // d3-zoom still pans.
+        event.stopImmediatePropagation();
     }
 }
 
