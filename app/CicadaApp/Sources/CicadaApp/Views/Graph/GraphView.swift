@@ -118,7 +118,8 @@ struct GraphView: NSViewRepresentable {
                     break
 
                 case "jsError":
-                    print("Graph JS error: \(json["message"] as? String ?? "?") @ \(json["source"] as? String ?? "?"):\(json["line"] as? Int ?? 0)")
+                    let stack = json["stack"] as? String ?? ""
+                    print("Graph JS error: \(json["message"] as? String ?? "?") @ \(json["source"] as? String ?? "?"):\(json["line"] as? Int ?? 0):\(json["col"] as? Int ?? 0)\(stack.isEmpty ? "" : "\n\(stack)")")
 
                 default:
                     break

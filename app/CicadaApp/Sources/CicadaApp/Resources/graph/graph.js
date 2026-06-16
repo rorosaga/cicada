@@ -70,10 +70,17 @@ const PULSE_COLOR = "#F5C04E";      // amber attention color for pending pulse
 
 // Surface uncaught JS errors to the Swift side — a silent exception here
 // renders as an inexplicably blank canvas otherwise.
-window.onerror = (message, source, line) => {
+window.onerror = (message, source, line, col, error) => {
     try {
         window.webkit.messageHandlers.cicada.postMessage(
-            JSON.stringify({ type: "jsError", message: String(message), source: String(source || ""), line: line || 0 })
+            JSON.stringify({
+                type: "jsError",
+                message: String(message),
+                source: String(source || ""),
+                line: line || 0,
+                col: col || 0,
+                stack: error && error.stack ? String(error.stack) : "",
+            })
         );
     } catch (e) { /* no handler (standalone browser) */ }
 };
