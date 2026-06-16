@@ -2,59 +2,75 @@ import Foundation
 import SwiftUI
 
 enum ZoomAction {
-    case zoomIn, out, reset
+    case zoomIn, out, reset, fit
 }
 
 @Observable
 final class GraphViewModel {
     var entities: [Entity] = []
+    var nodes: [GraphNode] = []
     var edges: [GraphEdge] = []
     var selectedEntity: Entity?
     var isGraphReady = false
     var zoomAction: ZoomAction?
-    var enabledTypes: Set<EntityType> = Set(EntityType.allCases)
     var showFilterPopover = false
     var pendingFilterUpdate = false
     var pendingGraphUpdate = false
     var isLoading = false
     var errorMessage: String?
 
+    /// Shared filter state for the Graph and Topics tabs. Any mutation pushes
+    /// `applyFilters` to graph.js on the next update pass — filtering happens
+    /// in JS so node positions survive filter toggles.
+    var filter = GraphFilter() {
+        didSet { if filter != oldValue { pendingFilterUpdate = true } }
+    }
+
     var filteredEntities: [Entity] {
-        entities.filter { enabledTypes.contains($0.type) }
+        entities.filter { filter.matches($0) }
     }
 
     func toggleType(_ type: EntityType) {
-        if enabledTypes.contains(type) {
-            enabledTypes.remove(type)
-        } else {
-            enabledTypes.insert(type)
-        }
-        pendingFilterUpdate = true
+        filter.toggleType(type)
     }
 
+    /// JSON string for graph.js `applyFilters`.
+    var filterJSON: String {
+        guard let data = try? JSONSerialization.data(withJSONObject: filter.jsPayload),
+              let json = String(data: data, encoding: .utf8)
+        else { return "{}" }
+        return json
+    }
+
+    /// Full unfiltered payload for graph.js `updateGraph` — includes the v2
+    /// encoding fields (degree, isHub, hasPending, memberCount, hubId, tags).
     var graphDataJSON: String {
-        let nodes = filteredEntities.map { entity -> [String: Any] in
+        let nodeDicts = nodes.map { node -> [String: Any] in
+            var d: [String: Any] = [
+                "id": node.id,
+                "name": node.name,
+                "type": node.type == .unknown ? "unknown" : node.type.rawValue,
+                "status": node.status.rawValue,
+                "confidence": node.confidence,
+                "tags": node.tags,
+                "degree": node.degree,
+                "isHub": node.isHub,
+                "hasPending": node.hasPending,
+                "memberCount": node.memberCount,
+            ]
+            if let hubId = node.hubId { d["hubId"] = hubId }
+            return d
+        }
+
+        let links = edges.map { edge -> [String: String] in
             [
-                "id": entity.id,
-                "name": entity.name,
-                "type": entity.type.rawValue,
-                "status": entity.status.rawValue,
-                "confidence": entity.confidence,
+                "source": edge.source,
+                "target": edge.target,
+                "label": edge.label,
             ]
         }
 
-        let filteredIds = Set(filteredEntities.map(\.id))
-        let links = edges
-            .filter { filteredIds.contains($0.source) && filteredIds.contains($0.target) }
-            .map { edge -> [String: String] in
-                [
-                    "source": edge.source,
-                    "target": edge.target,
-                    "label": edge.label,
-                ]
-            }
-
-        let data: [String: Any] = ["nodes": nodes, "links": links]
+        let data: [String: Any] = ["nodes": nodeDicts, "links": links]
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
               let jsonString = String(data: jsonData, encoding: .utf8)
@@ -87,6 +103,7 @@ final class GraphViewModel {
         errorMessage = nil
         do {
             let response = try await APIClient.shared.fetchGraph()
+            nodes = response.nodes
             entities = response.nodes.map { node in
                 Entity(
                     id: node.id,

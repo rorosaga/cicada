@@ -5,15 +5,13 @@ struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
 
     @Environment(GraphViewModel.self) private var graphVM
-    @Environment(NudgeViewModel.self) private var nudgeVM
-    @Environment(ClarificationViewModel.self) private var clarificationVM
+    @Environment(InboxViewModel.self) private var inboxVM
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 selectedTab: $selectedTab,
-                nudgeCount: nudgeVM.pendingCount,
-                clarificationCount: clarificationVM.pendingCount
+                inboxCount: inboxVM.pendingCount
             )
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
         } detail: {
@@ -22,13 +20,9 @@ struct ContentView: View {
                 .background(CicadaTheme.background)
         }
         .navigationSplitViewStyle(.prominentDetail)
-        .onChange(of: graphVM.selectedEntity?.id) { _, newValue in
-            withAnimation(.spring(duration: 0.3)) {
-                columnVisibility = newValue != nil ? .detailOnly : .doubleColumn
-            }
-        }
         .task {
             await graphVM.loadGraph()
+            await inboxVM.loadInbox()
         }
     }
 
@@ -41,10 +35,8 @@ struct ContentView: View {
             TopicsView(selectedTab: $selectedTab)
         case .sleep:
             SleepView(selectedTab: $selectedTab)
-        case .nudges:
-            NudgeListView()
-        case .clarifications:
-            ClarificationListView()
+        case .inbox:
+            InboxListView()
         }
     }
 }
@@ -60,17 +52,6 @@ struct GraphContainerView: View {
         ZStack {
             GraphView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            // Entity detail card overlay (left)
-            if let entity = graphVM.selectedEntity {
-                HStack {
-                    EntityDetailCard(entity: entity)
-                        .frame(width: 380)
-                        .padding(CicadaTheme.spacingLG)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                    Spacer()
-                }
-            }
 
             // Top-right: Sleep + Upload + Help buttons
             VStack {
@@ -96,6 +77,22 @@ struct GraphContainerView: View {
                     }
                     .padding(CicadaTheme.spacingLG)
                 }
+            }
+
+            // Node click → floating markdown-preview window over the graph.
+            // Dimmed backdrop dismisses on tap; the card itself opens on the
+            // raw Source view (what the user asked to see on click).
+            if let entity = graphVM.selectedEntity {
+                Color.black.opacity(0.45)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { graphVM.clearSelection() }
+                    .transition(.opacity)
+
+                EntityDetailCard(entity: entity, defaultRaw: true)
+                    .frame(maxWidth: 620, maxHeight: 680)
+                    .padding(CicadaTheme.spacingXL)
+                    .transition(.scale(scale: 0.97).combined(with: .opacity))
             }
 
             // Upload overlay
@@ -136,7 +133,7 @@ struct FilterButton: View {
     }
 
     private var allEnabled: Bool {
-        graphVM.enabledTypes.count == EntityType.allCases.count
+        graphVM.filter.allTypesSelected
     }
 }
 
@@ -151,18 +148,18 @@ struct FilterPopoverContent: View {
                 .tracking(1.2)
                 .padding(.bottom, CicadaTheme.spacingXS)
 
-            ForEach(EntityType.allCases) { type in
+            ForEach(EntityType.selectableCases) { type in
                 Button {
                     graphVM.toggleType(type)
                 } label: {
                     HStack(spacing: CicadaTheme.spacingSM) {
-                        Image(systemName: graphVM.enabledTypes.contains(type) ? "checkmark.circle.fill" : "circle")
+                        Image(systemName: graphVM.filter.types.contains(type) ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 14))
-                            .foregroundStyle(graphVM.enabledTypes.contains(type) ? CicadaTheme.entityColor(for: type) : CicadaTheme.textTertiary)
+                            .foregroundStyle(graphVM.filter.types.contains(type) ? CicadaTheme.entityColor(for: type) : CicadaTheme.textTertiary)
 
                         Text(type.label)
                             .font(CicadaTheme.bodyFont)
-                            .foregroundStyle(graphVM.enabledTypes.contains(type) ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+                            .foregroundStyle(graphVM.filter.types.contains(type) ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
 
                         Spacer()
                     }
@@ -170,9 +167,63 @@ struct FilterPopoverContent: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            Divider()
+                .background(CicadaTheme.border)
+                .padding(.vertical, CicadaTheme.spacingXS)
+
+            Text("STATUS")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.2)
+                .padding(.bottom, CicadaTheme.spacingXS)
+
+            ForEach(EntityStatus.allCases, id: \.self) { status in
+                Button {
+                    graphVM.filter.toggleStatus(status)
+                } label: {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Image(systemName: graphVM.filter.statuses.contains(status) ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 14))
+                            .foregroundStyle(graphVM.filter.statuses.contains(status) ? CicadaTheme.accent : CicadaTheme.textTertiary)
+
+                        Text(status.label)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(graphVM.filter.statuses.contains(status) ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+
+                        Spacer()
+                    }
+                    .padding(.vertical, 3)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Divider()
+                .background(CicadaTheme.border)
+                .padding(.vertical, CicadaTheme.spacingXS)
+
+            HStack {
+                Text("MIN CONFIDENCE")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .tracking(1.2)
+                Spacer()
+                Text(String(format: "%.0f%%", graphVM.filter.minConfidence * 100))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+
+            Slider(
+                value: Binding(
+                    get: { graphVM.filter.minConfidence },
+                    set: { graphVM.filter.minConfidence = $0 }
+                ),
+                in: 0...1
+            )
+            .controlSize(.small)
         }
         .padding(CicadaTheme.spacingMD)
-        .frame(width: 200)
+        .frame(width: 220)
         .background(CicadaTheme.surface)
     }
 }
@@ -187,6 +238,8 @@ struct ZoomControls: View {
             ZoomButton(icon: "minus", action: { graphVM.zoomAction = .out })
             Divider().frame(height: 20).background(CicadaTheme.border)
             ZoomButton(icon: "plus", action: { graphVM.zoomAction = .zoomIn })
+            Divider().frame(height: 20).background(CicadaTheme.border)
+            ZoomButton(icon: "arrow.down.left.and.arrow.up.right", action: { graphVM.zoomAction = .fit })
         }
         .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
     }

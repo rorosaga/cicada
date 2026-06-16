@@ -1,4 +1,4 @@
-"""Stage 5: Nudge Generation, Clarification Queue & Versioning."""
+"""Stage 5: Inbox Generation, Clarification Queue & Versioning."""
 
 from datetime import date
 from pathlib import Path
@@ -16,10 +16,10 @@ async def generate(
     memory_path: Path,
     relationships: list[dict] | None = None,
 ) -> None:
-    """Generate nudge/clarification files, apply entity changes, persist relationships."""
-    nudges_dir = memory_path / "nudges"
+    """Generate inbox items, apply entity changes, persist relationships."""
+    inbox_dir = memory_path / "inbox"
     entities_dir = memory_path / "entities"
-    nudges_dir.mkdir(parents=True, exist_ok=True)
+    inbox_dir.mkdir(parents=True, exist_ok=True)
 
     # Apply entity file changes (create, update, archive, decay)
     apply_changes(changes, memory_path)
@@ -32,14 +32,15 @@ async def generate(
     if relationships:
         _update_related_fields(entities_dir, relationships)
 
-    # Generate nudge files for decay and conflict items
-    nudge_count = _count_existing_nudges(nudges_dir)
+    # Generate inbox items for decay and conflict changes. Seed from max-id+1
+    # so deletions (resolved items) never cause an id collision — the old bug
+    # used len(glob), which reset after files were removed.
+    next_num = _next_inbox_num(inbox_dir)
 
     for change in changes:
         action = change.get("action", "")
 
         if action == "decay_nudge":
-            nudge_count += 1
             entity_id = change["id"]
             entity_path = entities_dir / f"{entity_id}.md"
             entity_name = entity_id.replace("-", " ").title()
@@ -47,37 +48,45 @@ async def generate(
                 parsed = markdown_parser.parse(entity_path)
                 entity_name = parsed.frontmatter.get("name", entity_name)
 
-            nudge_id = f"nudge-{nudge_count:03d}"
+            item_id = f"inbox-{next_num:03d}"
+            next_num += 1
+            new_confidence = float(change.get("new_confidence", 0) or 0)
             frontmatter = {
-                "entity_name": entity_name,
+                "kind": "decay",
+                "required_input": "choice",
+                "status": "pending",
+                "priority": new_confidence,
                 "entity_id": entity_id,
-                "type": "decay",
-                "short_description": f"No recent mentions of {entity_name}",
+                "entity_name": entity_name,
+                "title": f"No recent mentions of {entity_name}",
                 "created_date": str(date.today()),
                 "options": None,
             }
             body = (
                 f"{entity_name} hasn't been mentioned recently and its confidence "
-                f"has dropped to {change.get('new_confidence', 0):.2f}. "
+                f"has dropped to {new_confidence:.2f}. "
                 f"Should we keep tracking it or archive it?"
             )
-            markdown_parser.write(nudges_dir / f"{nudge_id}.md", frontmatter, body)
+            markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
 
         elif action == "conflict_nudge":
-            nudge_count += 1
             entity_id = change["id"]
-            nudge_id = f"nudge-{nudge_count:03d}"
+            item_id = f"inbox-{next_num:03d}"
+            next_num += 1
             entity_name = change.get("entity", {}).get("name", entity_id.replace("-", " ").title())
             frontmatter = {
-                "entity_name": entity_name,
+                "kind": "conflict",
+                "required_input": "choice",
+                "status": "pending",
+                "priority": 0.8,
                 "entity_id": entity_id,
-                "type": "conflict",
-                "short_description": f"Conflicting information about {entity_name}",
+                "entity_name": entity_name,
+                "title": f"Conflicting information about {entity_name}",
                 "created_date": str(date.today()),
                 "options": change.get("options", []),
             }
             body = change.get("conflict_context", f"New information conflicts with existing data for {entity_name}.")
-            markdown_parser.write(nudges_dir / f"{nudge_id}.md", frontmatter, body)
+            markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
 
     # Create skill entities — sanitize_id keeps skills in lockstep with the
     # entity path so names like "AI/ML project framing" don't try to write to
@@ -155,6 +164,12 @@ def _update_related_fields(entities_dir: Path, relationships: list[dict]) -> Non
         markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
 
 
-def _count_existing_nudges(nudges_dir: Path) -> int:
-    """Count existing nudge files to determine next nudge number."""
-    return len(list(nudges_dir.glob("*.md")))
+def _next_inbox_num(inbox_dir: Path) -> int:
+    """Next inbox number = max existing number + 1 (never count-based)."""
+    max_num = 0
+    for filepath in inbox_dir.glob("inbox-*.md"):
+        try:
+            max_num = max(max_num, int(filepath.stem.split("-")[-1]))
+        except ValueError:
+            continue
+    return max_num + 1

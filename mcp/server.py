@@ -26,7 +26,7 @@ def main():
     tools = [
         {
             "name": "cicada_recall",
-            "description": "Search Cicada's knowledge graph for entities related to a topic. Returns concise summaries (Pass 1). Pending nudges and clarifications are surfaced first when relevant. Use this at the start of conversations to check what Cicada already knows about the topic being discussed.",
+            "description": "Search Cicada's knowledge graph for entities related to a topic. Returns concise summaries (Pass 1). Pending inbox items are surfaced first when relevant. Use this at the start of conversations to check what Cicada already knows about the topic being discussed.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -72,15 +72,39 @@ def main():
         },
         {
             "name": "cicada_check_nudges",
-            "description": "Check if there are pending nudges or clarifications in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, or ambiguous mentions. Use this proactively when a conversation touches topics that might have pending items.",
+            "description": "Check for pending inbox items in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, ambiguous mentions, or possible duplicates. Use this proactively when a conversation touches topics that might have pending items.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "topic": {
                         "type": "string",
-                        "description": "Optional topic to filter nudges/clarifications by relevance",
+                        "description": "Optional topic to filter inbox items by relevance",
                     }
                 },
+            },
+        },
+        {
+            "name": "cicada_open_hub",
+            "description": "Open a Cicada hub page (a topic or type index) and list its member entities with one-line summaries. Use after cicada_recall returns a relevant_hub, or to browse a topic. Pass a hub id like 'people', 'tools', or 'topic-robotics'.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"hub": {"type": "string"}},
+                "required": ["hub"],
+            },
+        },
+        {
+            "name": "cicada_save_url",
+            "description": "Save a URL (article, video, bookmark) into Cicada's memory as saved media. The link becomes a graph entity and connects to related topics after the next Sleep cycle. Use when the user shares a link worth remembering or says 'save this'.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The URL to save"},
+                    "note": {
+                        "type": "string",
+                        "description": "Optional note about why this was saved",
+                    },
+                },
+                "required": ["url"],
             },
         },
     ]
@@ -177,8 +201,71 @@ def handle_tool(name: str, arguments: dict) -> str:
         )
     elif name == "cicada_check_nudges":
         return handle_check_nudges(arguments.get("topic"))
+    elif name == "cicada_open_hub":
+        return handle_open_hub(arguments.get("hub", ""))
+    elif name == "cicada_save_url":
+        return handle_save_url(arguments.get("url", ""), arguments.get("note"))
     else:
         raise ValueError(f"Unknown tool: {name}")
+
+
+def handle_save_url(url: str, note: str | None) -> str:
+    """Save a URL as media. Prefers the running backend (shared dedup index,
+    background enrichment); falls back to direct ingestion via the api package."""
+    url = (url or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return "Error: URL must start with http:// or https://"
+
+    # Path 1: the FastAPI backend, if it's up.
+    try:
+        import urllib.request
+
+        payload = json.dumps({"url": url, "note": note}).encode("utf-8")
+        req = urllib.request.Request(
+            "http://127.0.0.1:8000/sources/save",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return (
+            f"Saved \"{data.get('title', url)}\" as {data.get('mediaType', 'url')} media "
+            f"(entity {data.get('mediaEntityId', '?')}). {data.get('message', '')}"
+        )
+    except Exception:
+        pass
+
+    # Path 2: direct ingestion (backend down). Enrichment degrades offline.
+    try:
+        import asyncio
+
+        import httpx
+
+        from api.services import media_ingestor
+
+        memory_path = get_memory_path()
+        (memory_path / "sources").mkdir(parents=True, exist_ok=True)
+        (memory_path / "episodes").mkdir(parents=True, exist_ok=True)
+        (memory_path / "entities").mkdir(parents=True, exist_ok=True)
+
+        async def _save():
+            item = media_ingestor.RawItem(url=url, note=note)
+            idx = media_ingestor.load_url_index(memory_path)
+            async with httpx.AsyncClient() as client:
+                result = await media_ingestor.ingest_one(item, memory_path, client, idx)
+            media_ingestor.save_url_index(memory_path, idx)
+            return result
+
+        result = asyncio.run(_save())
+        if result.status == "duplicate":
+            return f"Already saved: \"{result.title}\""
+        return (
+            f"Saved \"{result.title}\" as {result.media_type} media "
+            f"(entity {result.media_entity_id}). It joins the graph after the next Sleep cycle."
+        )
+    except Exception as e:
+        return f"Error: could not save URL ({type(e).__name__}: {e})"
 
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:
@@ -245,18 +332,18 @@ def handle_recall(query: str) -> str:
 
     output_parts: list[str] = []
 
-    # === Proactive: pending nudges & clarifications related to the query ===
-    nudge_blurbs = _relevant_nudges(memory_path, query)
-    if nudge_blurbs:
-        output_parts.append(
-            "**Pending nudges relevant to this query:**\n" + "\n".join(nudge_blurbs)
-        )
+    # === Hub-first cold-start check ===
+    # Match the query against hub names/tags/types up front. Gives a reliable
+    # answer even when LEANN is cold (fresh install, pre-rebuild) and seeds the
+    # structured hints block with a relevant hub + its members.
+    relevant_hub, hub_member_ids = _match_hub(memory_path, query)
 
-    clar_blurbs = _relevant_clarifications(memory_path, query)
-    if clar_blurbs:
+    # === Proactive: pending inbox items related to the query ===
+    inbox_blurbs = _relevant_inbox(memory_path, query)
+    if inbox_blurbs:
         output_parts.append(
-            "**Pending clarifications — you may be able to resolve these:**\n"
-            + "\n".join(clar_blurbs)
+            "**Pending inbox items relevant to this query:**\n"
+            + "\n".join(inbox_blurbs)
         )
 
     # === Source 1: LEANN semantic search over entities ===
@@ -275,8 +362,30 @@ def handle_recall(query: str) -> str:
         seen_ids.add(eid)
         merged.append(hit)
 
-    if not merged and not nudge_blurbs and not clar_blurbs:
+    # === Structured hints block (machine-parseable, emitted first) ===
+    # A small model that ignores prose can json.loads this fenced block to get
+    # an explicit action list of entity ids and the best-matching hub.
+    suggested = [
+        (h.get("entity_id") or h.get("id")) for h in merged[:7]
+        if (h.get("entity_id") or h.get("id"))
+    ]
+    if not suggested and hub_member_ids:
+        suggested = hub_member_ids[:7]
+    hints_block = _hints_block(suggested, relevant_hub, hub_member_ids)
+    if hints_block:
+        output_parts.append(hints_block)
+
+    if not merged and not inbox_blurbs and not relevant_hub:
         return f"No entities found matching '{query}'."
+
+    # Surface the matched hub's member list when LEANN/keyword found nothing
+    # (cold-start path) so the user still gets a navigable answer.
+    if relevant_hub and not merged:
+        hub_body = _read_hub_body(memory_path, relevant_hub)
+        if hub_body:
+            output_parts.append(
+                f"**Relevant hub — `{relevant_hub}`:**\n{hub_body}"
+            )
 
     # === Render type-aware entity summaries ===
     entity_blocks: list[str] = []
@@ -329,6 +438,139 @@ def handle_recall(query: str) -> str:
         output_parts.append("\n".join(ep_lines))
 
     return "\n\n".join(output_parts).strip() or f"No entities found matching '{query}'."
+
+
+def _hub_files(memory_path: Path):
+    hubs_dir = memory_path / "hubs"
+    if not hubs_dir.exists():
+        return
+    for filepath in sorted(hubs_dir.glob("*.md")):
+        yield filepath
+
+
+def _parse_hub_header(content: str) -> dict:
+    """Read only the scalar hub-identity keys, stopping at ``members:``.
+
+    The hub frontmatter's ``members:`` is a nested YAML list of dicts that the
+    flat ``parse_frontmatter`` cannot read (it would clobber the hub's real
+    ``type``/``name`` with the last member's values). All scalar identity keys
+    (``type``, ``name``, ``hub_kind``, ``source_tag``, ``source_type``) are
+    written before ``members:``, so reading the header up to that line yields
+    the correct hub identity without parsing nested YAML.
+    """
+    if not content.startswith("---"):
+        return {}
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    fm: dict = {}
+    for line in parts[1].strip().splitlines():
+        stripped = line.strip()
+        if stripped == "members:" or stripped.startswith("members:"):
+            break
+        if not stripped or stripped.startswith("#") or stripped.startswith("- "):
+            continue
+        if ":" in stripped:
+            key, _, value = stripped.partition(":")
+            fm[key.strip()] = value.strip().strip("'\"")
+    return fm
+
+
+def _match_hub(memory_path: Path, query: str) -> tuple[str | None, list[str]]:
+    """Find the hub whose name/source_tag/source_type best overlaps the query.
+
+    Returns ``(relative_hub_path | None, member_ids)``. ``member_ids`` are read
+    from the hub BODY's wikilinks via the entity name index — the flat
+    pyyaml-free parser cannot read the nested ``members:`` frontmatter list, so
+    the body is the authoritative member source on the MCP side.
+    """
+    q_tokens = _content_tokens(query)
+    if not q_tokens:
+        return None, []
+    entities_dir = memory_path / "entities"
+    best: tuple[int, Path | None] = (0, None)
+    for filepath in _hub_files(memory_path):
+        content = filepath.read_text(encoding="utf-8")
+        fm = _parse_hub_header(content)
+        if fm.get("type") != "hub":
+            continue
+        label = " ".join(
+            str(fm.get(k, "") or "") for k in ("name", "source_tag", "source_type")
+        )
+        overlap = len(q_tokens & _content_tokens(label))
+        if overlap > best[0]:
+            best = (overlap, filepath)
+    if not best[1]:
+        return None, []
+    hub_path = best[1]
+    rel = f"hubs/{hub_path.name}"
+    _, body = parse_frontmatter(hub_path.read_text(encoding="utf-8"))
+    member_ids: list[str] = []
+    import re as _re
+
+    for raw in _re.findall(r"\[\[([^\]]+)\]\]", body or ""):
+        display = raw.split("|", 1)[0].strip()
+        eid = _entity_id_for_name(entities_dir, display)
+        if eid and eid not in member_ids:
+            member_ids.append(eid)
+    return rel, member_ids
+
+
+def _read_hub_body(memory_path: Path, rel_hub_path: str) -> str:
+    """Return a hub file's body verbatim (member list with wikilinks)."""
+    filepath = memory_path / rel_hub_path
+    if not filepath.exists():
+        return ""
+    _, body = parse_frontmatter(filepath.read_text(encoding="utf-8"))
+    return body
+
+
+def _hints_block(
+    suggested_entities: list[str], relevant_hub: str | None, hub_members: list[str]
+) -> str:
+    """Render the machine-parseable ``cicada-hints`` fenced JSON block.
+
+    Fenced with the literal info-string ``cicada-hints`` so a small model can
+    locate it and ``json.loads`` deterministically.
+    """
+    if not suggested_entities and not relevant_hub:
+        return ""
+    payload = {
+        "suggested_entities": suggested_entities,
+        "relevant_hub": relevant_hub,
+        "hub_members_preview": hub_members[:8],
+        "next_tool": "cicada_recall_detail",
+        "note": "Call cicada_recall_detail with each suggested_entity id for full pages, or cicada_open_hub with relevant_hub for a topic index.",
+    }
+    return "```cicada-hints\n" + json.dumps(payload, indent=2) + "\n```"
+
+
+def handle_open_hub(hub: str) -> str:
+    """Open a hub page and return its body verbatim (member list).
+
+    Tries ``hubs/<hub>.md`` then ``hubs/topic-<sanitize_id(hub)>.md``. Returns
+    the body verbatim — the MCP flat parser never parses the nested members
+    frontmatter, so the wikilinked body bullet list is the member source.
+    """
+    if not hub:
+        return "hub is required."
+    memory_path = get_memory_path()
+    hubs_dir = memory_path / "hubs"
+    raw = hub.strip()
+    if raw.endswith(".md"):
+        raw = raw[:-3]
+    if raw.startswith("hubs/"):
+        raw = raw[len("hubs/"):]
+    if raw.startswith("hub:"):
+        raw = raw[len("hub:"):]
+
+    candidates = [raw, f"topic-{_mcp_sanitize_id(raw)}", _mcp_sanitize_id(raw)]
+    for cand in candidates:
+        path = hubs_dir / f"{cand}.md"
+        if path.exists():
+            _, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+            return body or path.read_text(encoding="utf-8")
+    return f"Hub '{hub}' not found."
 
 
 def handle_recall_detail(entity_id: str) -> str:
@@ -479,67 +721,106 @@ def _truncate_to_desc_and_recent_history(body: str, max_history: int = 10) -> st
     return f"{description}\n\n## History\n" + "\n".join(recent)
 
 
+def _mcp_sanitize_id(name: str) -> str:
+    """pyyaml-free mirror of api.services.id_utils.sanitize_id.
+
+    The MCP server can't reliably import api.* in every install, so the
+    legacy-filename resolution logic is inlined. Keeps lookups tolerant of the
+    181 live files whose stem != sanitize_id(name) (e.g. atlético-de-madrid).
+    """
+    import re
+
+    safe = (name or "").lower()
+    safe = re.sub(r"[/\\:*?\"<>|.]+", "-", safe)
+    safe = safe.replace(" ", "-")
+    safe = re.sub(r"-+", "-", safe)
+    safe = safe.strip("-")
+    return safe or "unnamed"
+
+
 def _entity_id_for_name(entities_dir: Path, name: str) -> str | None:
-    target = str(name).strip().lower()
-    if not target:
+    """Resolve a name-or-id ref to a real filepath.stem, multi-strategy.
+
+    Tries, in order: exact file <ref>.md, file <sanitize_id(ref)>.md,
+    file <ref.replace(' ','-')>.md, then a frontmatter-name / stem scan.
+    Mirrors api.services.id_utils.resolve_entity_id without importing it.
+    """
+    raw = str(name).strip()
+    if not raw:
         return None
-    # Direct id match
-    direct = entities_dir / f"{target.replace(' ', '-')}.md"
-    if direct.exists():
-        return direct.stem
-    # Scan frontmatter names
+    if not entities_dir.exists():
+        return None
+
+    target = raw.lower()
+    sanitized_target = _mcp_sanitize_id(raw)
+    slug_target = target.replace(" ", "-")
+
+    # Scan glob stems first — they are the authoritative on-disk ids. A bare
+    # Path.exists() check would lie on case-insensitive filesystems (macOS),
+    # echoing the requested casing instead of the real stem.
     for filepath in entities_dir.glob("*.md"):
+        stem = filepath.stem.lower()
+        if stem in (target, sanitized_target, slug_target):
+            return filepath.stem
         content = filepath.read_text(encoding="utf-8")
         fm, _ = parse_frontmatter(content)
-        fm_name = str(fm.get("name", "")).lower()
-        if fm_name == target or filepath.stem.lower() == target:
+        if str(fm.get("name", "")).lower() == target:
             return filepath.stem
     return None
 
 
-def _relevant_nudges(memory_path: Path, query: str) -> list[str]:
-    nudges_dir = memory_path / "nudges"
-    if not nudges_dir.exists():
-        return []
+def _inbox_dirs(memory_path: Path) -> list[Path]:
+    """Return the unified inbox dir, falling back to the legacy dirs.
+
+    Keeps the MCP server correct before the API has run migration once (a stale
+    checkout may still have nudges/ + clarifications/ but no inbox/).
+    """
+    inbox = memory_path / "inbox"
+    if inbox.exists():
+        return [inbox]
+    legacy = [memory_path / "nudges", memory_path / "clarifications"]
+    return [d for d in legacy if d.exists()]
+
+
+def _inbox_files(memory_path: Path):
+    for d in _inbox_dirs(memory_path):
+        for filepath in sorted(d.glob("*.md")):
+            yield filepath
+
+
+def _format_inbox_blurb(fm: dict, body: str) -> str:
+    kind = str(fm.get("kind", fm.get("type", "")) or "")
+    ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
+    if kind in ("clarification", "merge_suggestion"):
+        utype = fm.get("uncertainty_type", "unknown")
+        suggestion = fm.get("suggested_classification", "unknown")
+        return f"- **{ename}** (uncertain: {utype}, suggested: {suggestion})"
+    # decay/conflict (and legacy nudges where kind lived in "type")
+    if not kind and fm.get("uncertainty_type"):
+        utype = fm.get("uncertainty_type", "unknown")
+        suggestion = fm.get("suggested_classification", "unknown")
+        return f"- **{ename}** (uncertain: {utype}, suggested: {suggestion})"
+    title = fm.get("title", fm.get("short_description", ""))
+    label = kind or "item"
+    return f"- [{label}] **{ename}** — {title}"
+
+
+def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
     q = query.lower()
     blurbs: list[str] = []
-    for filepath in sorted(nudges_dir.glob("*.md")):
+    for filepath in _inbox_files(memory_path):
         content = filepath.read_text(encoding="utf-8")
         fm, body = parse_frontmatter(content)
         haystack = (
             f"{fm.get('entity_name', '')} "
+            f"{fm.get('entity_mention', '')} "
+            f"{fm.get('title', '')} "
             f"{fm.get('short_description', '')} "
             f"{body}"
         ).lower()
         if not _topic_matches(q, haystack):
             continue
-        ntype = fm.get("type", "unknown")
-        ename = fm.get("entity_name", "Unknown")
-        desc = fm.get("short_description", "")
-        blurbs.append(f"- [{ntype}] **{ename}** — {desc}")
-    return blurbs
-
-
-def _relevant_clarifications(memory_path: Path, query: str) -> list[str]:
-    clar_dir = memory_path / "clarifications"
-    if not clar_dir.exists():
-        return []
-    q = query.lower()
-    blurbs: list[str] = []
-    for filepath in sorted(clar_dir.glob("*.md")):
-        content = filepath.read_text(encoding="utf-8")
-        fm, body = parse_frontmatter(content)
-        haystack = (
-            f"{fm.get('entity_mention', '')} {body}"
-        ).lower()
-        if not _topic_matches(q, haystack):
-            continue
-        mention = fm.get("entity_mention", "Unknown")
-        utype = fm.get("uncertainty_type", "unknown")
-        suggestion = fm.get("suggested_classification", "unknown")
-        blurbs.append(
-            f"- **{mention}** (uncertain: {utype}, suggested: {suggestion})"
-        )
+        blurbs.append(_format_inbox_blurb(fm, body))
     return blurbs
 
 
@@ -580,47 +861,44 @@ content_hash: {content_hash}
 
 
 def handle_check_nudges(topic: str | None) -> str:
-    """Check for pending nudges and clarifications."""
+    """Check for pending inbox items (decay/conflict/clarification/merge)."""
     memory_path = get_memory_path()
     results = []
 
-    # Check nudges
-    nudges_dir = memory_path / "nudges"
-    if nudges_dir.exists():
-        for filepath in sorted(nudges_dir.glob("*.md")):
-            content = filepath.read_text(encoding="utf-8")
-            fm, body = parse_frontmatter(content)
+    for filepath in _inbox_files(memory_path):
+        content = filepath.read_text(encoding="utf-8")
+        fm, body = parse_frontmatter(content)
 
-            if topic:
-                # Filter by relevance to topic
-                combined = f"{fm.get('entity_name', '')} {fm.get('short_description', '')} {body}".lower()
-                if not _topic_matches(topic.lower(), combined):
-                    continue
+        if topic:
+            combined = (
+                f"{fm.get('entity_name', '')} "
+                f"{fm.get('entity_mention', '')} "
+                f"{fm.get('title', '')} "
+                f"{fm.get('short_description', '')} "
+                f"{fm.get('uncertainty_type', '')} "
+                f"{body}"
+            ).lower()
+            if not _topic_matches(topic.lower(), combined):
+                continue
 
+        kind = str(fm.get("kind", fm.get("type", "")) or "")
+        ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
+        if kind in ("clarification", "merge_suggestion") or (
+            not kind and fm.get("uncertainty_type")
+        ):
             results.append(
-                f"**Nudge ({fm.get('type', 'unknown')})**: {fm.get('entity_name', 'Unknown')} — {fm.get('short_description', '')}\n  {body[:200]}"
+                f"**Clarification**: {ename} — {fm.get('uncertainty_type', '')}\n  {body[:200]}"
             )
-
-    # Check clarifications
-    clar_dir = memory_path / "clarifications"
-    if clar_dir.exists():
-        for filepath in sorted(clar_dir.glob("*.md")):
-            content = filepath.read_text(encoding="utf-8")
-            fm, body = parse_frontmatter(content)
-
-            if topic:
-                combined = f"{fm.get('entity_mention', '')} {body}".lower()
-                if not _topic_matches(topic.lower(), combined):
-                    continue
-
+        else:
+            title = fm.get("title", fm.get("short_description", ""))
             results.append(
-                f"**Clarification**: {fm.get('entity_mention', 'Unknown')} — {fm.get('uncertainty_type', '')}\n  {body[:200]}"
+                f"**{kind or 'Item'}**: {ename} — {title}\n  {body[:200]}"
             )
 
     if not results:
-        return "No pending nudges or clarifications" + (f" related to '{topic}'" if topic else "") + "."
+        return "No pending inbox items" + (f" related to '{topic}'" if topic else "") + "."
 
-    return f"Found {len(results)} pending items:\n\n" + "\n\n".join(results)
+    return f"Found {len(results)} pending inbox items:\n\n" + "\n\n".join(results)
 
 
 def _topic_matches(query: str, haystack: str) -> bool:

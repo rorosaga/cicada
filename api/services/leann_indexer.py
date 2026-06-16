@@ -8,8 +8,16 @@ Three indexes live under ``memory_path``:
 3. ``leann/pending`` — sub-threshold entities that have not yet been promoted
    to full pages (first mentions waiting for a second mention).
 
-All indexes use OpenAI ``text-embedding-3-small`` as the embedding backend.
-``OPENAI_API_KEY`` must be set in the environment.
+The embedding backend is selected per :class:`api.config.Settings`:
+
+- ``openai`` (default) — ``text-embedding-3-small`` via OpenAI; needs
+  ``OPENAI_API_KEY``. Uses the batched build path (see ``_safe_build``).
+- ``local`` — ``sentence-transformers/all-MiniLM-L6-v2`` on-device, no API
+  key, fully offline. Flows through LEANN's standard single-call build.
+
+When ``openai`` is requested but no key is present the mode auto-degrades to
+``local`` (see ``Settings.resolved_embedding_mode``) so a key-less install
+still gets semantic search.
 """
 
 from __future__ import annotations
@@ -30,9 +38,11 @@ EPISODE_INDEX_SUBDIR = "leann/episodes"
 PENDING_INDEX_SUBDIR = "leann/pending"
 PENDING_STORE_FILE = "leann/pending_entities.jsonl"
 
-EMBEDDING_MODE = "openai"
-EMBEDDING_MODEL = "text-embedding-3-small"
 BACKEND = "hnsw"
+
+# LEANN's non-OpenAI embedding mode token. sentence-transformers models are
+# loaded through this branch of LeannBuilder.
+_LOCAL_EMBEDDING_MODE = "sentence-transformers"
 
 # Episode-body chunking caps. LEANN's Python API does not chunk — the CLI
 # does, but `builder.add_text(text, metadata)` embeds `text` as a single
@@ -100,7 +110,13 @@ class PendingEntity:
 class LeannIndexer:
     """Thin wrapper around LeannBuilder / LeannSearcher."""
 
-    def __init__(self, memory_path: Path):
+    def __init__(
+        self,
+        memory_path: Path,
+        *,
+        embedding_mode: str | None = None,
+        embedding_model: str | None = None,
+    ):
         self.memory_path = Path(memory_path)
         self.entities_dir = self.memory_path / "entities"
         self.episodes_dir = self.memory_path / "episodes"
@@ -110,15 +126,69 @@ class LeannIndexer:
         self.pending_store = self.memory_path / PENDING_STORE_FILE
         self.pending_store.parent.mkdir(parents=True, exist_ok=True)
 
+        # Resolve the embedding backend from Settings unless explicit args are
+        # passed (benchmarks override without touching env). Reading the
+        # *resolved* mode applies the openai->local auto-degrade, and we log
+        # the degrade warning here at construction time so a key-less install
+        # gets a clear, one-time signal that it switched to local embeddings.
+        from api.config import get_settings
+
+        settings = get_settings()
+        if embedding_mode is None:
+            settings.warn_if_degraded()
+            self.embedding_mode = settings.resolved_embedding_mode
+        else:
+            self.embedding_mode = embedding_mode.strip().lower()
+
+        if embedding_model is not None:
+            self.embedding_model = embedding_model
+        elif embedding_mode is None:
+            self.embedding_model = settings.resolved_embedding_model
+        else:
+            # Explicit mode but no explicit model: pick the matching default.
+            self.embedding_model = (
+                settings.embedding_model
+                if self.embedding_mode == "openai"
+                else settings.embedding_model_local
+            )
+
     # ---------- Builder ----------
 
     def _make_builder(self):
         from leann.api import LeannBuilder
+
+        if self.embedding_mode == "openai":
+            return LeannBuilder(
+                backend_name=BACKEND,
+                embedding_mode="openai",
+                embedding_model=self.embedding_model,
+            )
+
+        # Local mode: route through LEANN's sentence-transformers branch.
+        # sentence-transformers is an optional extra (it pulls torch, ~250MB);
+        # surface a clear, actionable error at index time rather than letting
+        # an opaque ImportError bubble up from deep inside LEANN.
+        self._require_sentence_transformers()
         return LeannBuilder(
             backend_name=BACKEND,
-            embedding_mode=EMBEDDING_MODE,
-            embedding_model=EMBEDDING_MODEL,
+            embedding_mode=_LOCAL_EMBEDDING_MODE,
+            embedding_model=self.embedding_model,
         )
+
+    @staticmethod
+    def _require_sentence_transformers() -> None:
+        try:
+            import sentence_transformers  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "Local embedding mode (CICADA_EMBEDDING_MODE=local) needs the "
+                "optional 'sentence-transformers' dependency, which is not "
+                "installed. Install it with:\n"
+                "    uv sync --extra local --directory api\n"
+                "(downloads ~250MB incl. torch; the all-MiniLM-L6-v2 model is "
+                "fetched on first build). Or set CICADA_EMBEDDING_MODE=openai "
+                "and provide OPENAI_API_KEY."
+            ) from exc
 
     def _safe_build(self, builder, target: Path, label: str) -> bool:
         """Build a LEANN index, batching embedding requests for the OpenAI path.
@@ -132,9 +202,12 @@ class LeannIndexer:
         """
         target.parent.mkdir(parents=True, exist_ok=True)
         try:
-            if EMBEDDING_MODE == "openai":
+            if self.embedding_mode == "openai":
                 self._build_with_batched_embeddings(builder, target, label)
             else:
+                # Local (sentence-transformers) runs in-process with no
+                # per-request token cap, so the standard single-call build is
+                # both correct and simpler than batching.
                 builder.build_index(str(target))
             return True
         except Exception as e:
@@ -189,7 +262,7 @@ class LeannIndexer:
             batch_texts = texts[lo:hi]
             batch_emb = compute_embeddings_openai(
                 batch_texts,
-                EMBEDDING_MODEL,
+                self.embedding_model,
                 provider_options=builder.embedding_options or {},
             )
             pieces.append(np.asarray(batch_emb, dtype=np.float32))
@@ -233,8 +306,20 @@ class LeannIndexer:
             except Exception:
                 continue
             fm = parsed.frontmatter or {}
+            # Embed type/tags/aliases alongside name+body so semantic queries
+            # like "Python tools" surface tool-type entities whose body never
+            # says "tool". Metadata fields are filterable but not embedded.
+            header_bits = [str(fm.get("name", filepath.stem))]
+            if fm.get("type"):
+                header_bits.append(f"({fm['type']})")
+            tags = fm.get("tags") or []
+            if tags:
+                header_bits.append("tags: " + ", ".join(str(t) for t in tags))
+            aliases = fm.get("aliases") or []
+            if aliases:
+                header_bits.append("aka: " + ", ".join(str(a) for a in aliases))
             text_parts = [
-                fm.get("name", filepath.stem),
+                " ".join(header_bits),
                 parsed.body,
             ]
             text = "\n".join(str(p) for p in text_parts if p).strip()

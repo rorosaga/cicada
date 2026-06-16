@@ -18,6 +18,8 @@ enum CicadaTheme {
     static let accent = Color(hex: 0x7C8FFF)
 
     // MARK: - Entity Type Colors
+    // Mirrors the `typeColors` map in graph.js so the SwiftUI chrome and the d3
+    // canvas agree on hue per type.
     static func entityColor(for type: EntityType) -> Color {
         switch type {
         case .person: Color(hex: 0x4A9EFF)
@@ -28,8 +30,16 @@ enum CicadaTheme {
         case .deadline: Color(hex: 0xEF4444)
         case .skill: Color(hex: 0xEAB308)
         case .location: Color(hex: 0x9CA3AF)
+        case .media: mediaPink
+        case .hub: hubGold
+        case .unknown: Color(hex: 0x999999)
         }
     }
+
+    // MARK: - Graph-specific accents
+    static let mediaPink = Color(hex: 0xEC4899)   // media entity hue
+    static let hubGold = Color(hex: 0xE6B450)     // hub ring / hub node hue
+    static let pendingPulse = Color(hex: 0xF5C04E) // amber "needs you" pulse
 
     // MARK: - Status Colors
     static func statusColor(for status: EntityStatus) -> Color {
@@ -59,6 +69,19 @@ enum CicadaTheme {
     // MARK: - Corner Radius
     static let cornerRadius: CGFloat = 12
     static let cornerRadiusSmall: CGFloat = 8
+
+    // MARK: - Inbox Kind Colors
+    // Leading-icon hue per inbox card kind. Decay amber, conflict red,
+    // clarification indigo, merge yellow. Used by InboxCardView and the
+    // sidebar/filter chrome.
+    static func inboxColor(for kind: InboxKind) -> Color {
+        switch kind {
+        case .decay: Color(hex: 0xF59E0B)
+        case .conflict: Color(hex: 0xEF4444)
+        case .clarification: Color(hex: 0x7C8FFF)
+        case .mergeSuggestion: Color(hex: 0xEAB308)
+        }
+    }
 }
 
 // MARK: - Glass Card Modifier

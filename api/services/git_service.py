@@ -1,5 +1,6 @@
 import asyncio
 import re
+from datetime import date
 from pathlib import Path
 
 from api.models.schemas import EntityHistoryEntry, SleepHistoryEntry
@@ -131,7 +132,8 @@ async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:
         if len(parts) < 3:
             continue
         commit_hash, date, subject = parts
-        if subject.lower().startswith("sleep cycle"):
+        subj = subject.lower()
+        if subj.startswith("sleep cycle") or subj.startswith("inbox resolution"):
             # Get changed files for this commit
             try:
                 diff_output = await _run_git(
@@ -171,8 +173,25 @@ async def porcelain_status(memory_path: Path) -> str:
 
 
 async def commit_resolution(memory_path: Path, entity_id: str, trigger: str) -> None:
-    """Commit after a nudge/clarification resolution."""
-    await commit_changes(
-        memory_path,
-        f"entities/{entity_id}.md: updated (trigger: {trigger})",
+    """Commit after an inbox (nudge/clarification/conflict) resolution.
+
+    Emits a structured "Inbox resolution <date>" subject so the resolution
+    surfaces in ``get_sleep_history`` (the Sleep dashboard) — the old
+    single-line subject was never matched by the history filter.
+    """
+    date_str = date.today().isoformat()
+    # trigger is "inbox/<kind>/resolved" — tag the kind into the subject so the
+    # dashboard can distinguish a conflict adjudication from a decay archive.
+    kind = ""
+    parts = trigger.split("/")
+    if len(parts) >= 2 and parts[0] == "inbox":
+        kind = parts[1]
+    subject = (
+        f"Inbox resolution ({kind}) {date_str}" if kind
+        else f"Inbox resolution {date_str}"
     )
+    message = (
+        f"{subject}\n\n"
+        f"entities/{entity_id}.md: updated (trigger: {trigger})"
+    )
+    await commit_changes(memory_path, message)

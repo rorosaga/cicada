@@ -19,12 +19,19 @@ Output valid JSON with this exact structure:
     {
       "name": "Entity Name",
       "type": "person|project|company|concept|tool|deadline|skill|location",
-      "description": "See DESCRIPTION LENGTH BY ENTITY TYPE below",
+      "aliases": ["Mongo", "the db"],
+      "summary": "1-3 sentence orientation. See SUMMARY LENGTH BY TYPE below.",
+      "key_facts": ["atomic fact", "another atomic fact"],
       "history_entries": [
         {"date": "YYYY-MM-DD", "event": "What happened"}
       ],
+      "links": [
+        {"url": "https://...", "title": "Human title", "note": "what it is / why it came up"}
+      ],
+      "open_questions": ["unresolved point about this entity"],
       "tags": ["relevant", "tags"],
-      "confidence": 0.7
+      "confidence": 0.7,
+      "description": "Optional. Same content as summary; kept only for backward compatibility."
     }
   ],
   "relationships": [
@@ -36,30 +43,60 @@ Output valid JSON with this exact structure:
   ]
 }
 
-DESCRIPTION LENGTH BY ENTITY TYPE:
+The entity body is rendered as ordered markdown sections: ## Summary, ## Key Facts,
+## History, ## Links, ## Open Questions. The fields above map directly onto those
+sections. ## Related is generated from `relationships` — do NOT emit a related field.
+
+SUMMARY (## Summary) — the orientation line, "what is this and why does the user care":
 - deadline: 1-2 sentences. What is due, when, current status.
 - skill: 1-2 sentences. Procedural rule or preference, written as an instruction.
 - location: 2-3 sentences. Where it is, why it's relevant to the user.
 - person: 2-4 sentences. Who they are, relationship to user, key context.
-- tool: 3-5 sentences. What it is, how the user uses it, why it matters.
-- concept: 3-6 sentences. Definition, relevance to user's work, connections.
-- project: 4-8 sentences. What it is, user's role, current status, goals, key technical details.
-- company: 4-8 sentences. What they do, user's relationship, relevance to user's goals.
+- tool: 2-4 sentences. What it is, how the user uses it, why it matters.
+- concept: 3-4 sentences. Definition, relevance to user's work.
+- project: 3-5 sentences. What it is, user's role, current status, goal.
+- company: 3-5 sentences. What they do, user's relationship, relevance.
+Do NOT cram every fact into the summary — atomic facts belong in key_facts.
 
-HISTORY ENTRIES:
-- Include dated events extracted from the conversation.
-- For project and company entities, always include history entries if timeline information is available.
+KEY FACTS (## Key Facts) — this is where density lives:
+- Emit every concrete, atomic fact stated about the entity: roles, stack components,
+  dates-as-facts, identifiers, quantities, prices, versions, capacities, locations,
+  affiliations, contact handles.
+- One fact per bullet. Do NOT re-narrate the summary.
+- Prefer 3-8 facts for project/company/tool; 2-5 for person/concept; 1-3 for
+  deadline/location. key_facts may be empty ONLY for skill.
+- key_facts is REQUIRED (emit when any relevant content exists) for project, company, tool.
+
+HISTORY ENTRIES (## History):
+- Include dated events extracted from the conversation, one sentence each.
+- Always emit history_entries for project, company, and deadline when any dated event
+  is present. Never silently drop a date you saw.
 - For person entities, include key interaction dates when present.
-- For deadline, skill, location, tool, concept: only include history entries when the conversation contains specific dated events. Otherwise omit `history_entries` or leave it as an empty array.
-- Each entry should be one sentence describing what happened on that date.
+- For concept/tool/skill/location: only when the conversation contains specific dated
+  events. Otherwise leave history_entries as an empty array.
+
+LINKS (## Links):
+- Extract EVERY URL mentioned in connection with this entity into links[] with a human
+  title and a one-line note (what it is / why it came up). Never drop a URL into prose only.
+- For tool entities, links is REQUIRED when any URL (docs, repo, homepage) appears.
+
+OPEN QUESTIONS (## Open Questions):
+- Capture unresolved points the user or system still needs to settle about this entity
+  (an unconfirmed identity, an undecided choice, a missing date). Leave empty if none.
 
 EXTRACTION GUIDELINES:
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
 - Confidence reflects how certain you are about the entity's attributes, not how important it is.
-- If an entity is mentioned but you lack context to classify it confidently (e.g., a bare name with no role), still extract it but set confidence below 0.5.
-- Use wikilinks `[[Entity Name]]` inside descriptions to reference other entities.
+- If an entity is mentioned but you lack context to classify it confidently (e.g., a bare name
+  with no role), still extract it but set confidence below 0.5.
+- aliases: list any alternate surface forms used for the entity ("Mongo" for MongoDB,
+  "the database", a nickname). Leave empty if there is only one name.
+- Use wikilinks `[[Entity Name]]` inside summary and key_facts to reference other entities.
+  Do NOT fabricate links bullets — those come only from real URLs in the source.
 - Entity types must be exactly one of: person, project, company, concept, tool, deadline, skill, location.
-- Relationships are critical — capture every meaningful connection between entities with a specific verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against", "replaced by"). Use short verb phrases, not full sentences or generic "related to"."""
+- Relationships are critical — capture every meaningful connection between entities with a specific
+  verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against",
+  "replaced by"). Use short verb phrases, not full sentences or generic "related to"."""
 
 # Max concurrent LLM calls — stay under rate limits
 MAX_CONCURRENCY = 10

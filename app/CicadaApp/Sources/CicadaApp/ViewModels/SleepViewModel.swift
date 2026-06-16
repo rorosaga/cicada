@@ -19,6 +19,11 @@ final class SleepViewModel {
     /// graph itself was committed successfully.
     var onCycleCompleted: (@MainActor () async -> Void)?
 
+    /// Fired on every poll tick during a running cycle (after ``status`` is
+    /// updated) so the menu-bar bookworm advances its 1..5 stage dots within
+    /// ~1s instead of waiting for the App's coarse 30s status poll.
+    var onStatusChanged: (@MainActor (SleepStatusResponse) -> Void)?
+
     private var pollTask: Task<Void, Never>?
 
     var isRunning: Bool { status?.status == "running" }
@@ -109,6 +114,9 @@ final class SleepViewModel {
                 do {
                     let next = try await APIClient.shared.fetchSleepStatus()
                     self.status = next
+                    // Feed live sleep progress to the menu-bar bookworm so its
+                    // stage dots advance at the 1s poll cadence.
+                    self.onStatusChanged?(next)
                     if next.status == "idle" {
                         // Refresh the queue once the cycle finishes so the
                         // UI shows the post-cycle state.

@@ -3,13 +3,14 @@
 import json
 import sys
 from datetime import date, datetime
+from pathlib import Path
 
 import litellm
 from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import markdown_parser
+from api.services import entity_body, markdown_parser
 
 
 async def resolve_and_prune(
@@ -196,12 +197,19 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "decay_rate": 0.05,
                 "source_episodes": _change_source_episodes(change),
                 "tags": entity.get("tags", []) or [],
+                "aliases": entity.get("aliases", []) or [],
                 "related": [],
                 "version": 1,
+                "layout_version": 2,
             }
-            description = entity.get("description", "") or ""
-            history_entries = entity.get("history_entries", []) or []
-            body = _compose_entity_body(description, history_entries)
+            body = entity_body.compose_body_v2(
+                summary=_entity_summary(entity),
+                key_facts=entity.get("key_facts", []) or [],
+                history_entries=entity.get("history_entries", []) or [],
+                related=[],
+                links=entity.get("links", []) or [],
+                open_questions=entity.get("open_questions", []) or [],
+            )
             markdown_parser.write(filepath, frontmatter, body)
 
         elif action == "update" and filepath.exists():
@@ -224,16 +232,52 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 existing_tags = set(parsed.frontmatter.get("tags", []) or [])
                 parsed.frontmatter["tags"] = sorted(existing_tags | set(new_tags))
 
-            # LLM-synthesized merge of existing body with new information.
-            # Falls back to a simple merge if the synthesizer is unavailable.
+            # Merge new aliases
+            new_aliases = new_entity.get("aliases", []) or []
+            if new_aliases or parsed.frontmatter.get("aliases"):
+                existing_aliases = parsed.frontmatter.get("aliases", []) or []
+                merged_aliases = list(existing_aliases)
+                seen = {a.lower() for a in merged_aliases}
+                for alias in new_aliases:
+                    if alias and alias.lower() not in seen:
+                        merged_aliases.append(alias)
+                        seen.add(alias.lower())
+                parsed.frontmatter["aliases"] = merged_aliases
+
+            # Lazy v1 -> v2 lift, then section-aware merge. Prefer the LLM
+            # synthesized body; fall back to a deterministic section merge.
+            sections = entity_body.upgrade_legacy_to_v2(
+                parsed.body, str(parsed.frontmatter.get("type", "concept"))
+            )
             synthesized_body = change.get("synthesized_body")
-            if synthesized_body is None:
-                synthesized_body = _fallback_merge_body(
-                    existing_body=parsed.body,
-                    new_description=new_entity.get("description", "") or "",
-                    new_history_entries=new_entity.get("history_entries", []) or [],
+            if synthesized_body:
+                # The synthesis call returns a full v2 body; re-parse so the
+                # Related reconciler runs against the canonical section dict.
+                sections = entity_body.parse_sections(synthesized_body)
+            else:
+                sections = entity_body.merge_sections_fallback(
+                    sections,
+                    {
+                        "summary": _entity_summary(new_entity),
+                        "key_facts": new_entity.get("key_facts", []) or [],
+                        "history_entries": new_entity.get("history_entries", []) or [],
+                        "links": new_entity.get("links", []) or [],
+                        "open_questions": new_entity.get("open_questions", []) or [],
+                    },
                 )
-            markdown_parser.write(filepath, parsed.frontmatter, synthesized_body)
+            parsed.frontmatter["layout_version"] = 2
+
+            # Related reconciler — rebuild the ## Related block from the
+            # related slug list + graph_edges.yaml so wikilinks stay in sync.
+            related_block = _reconcile_related(entity_id, parsed.frontmatter, memory_path)
+            if related_block:
+                sections["Related"] = related_block
+            else:
+                sections.pop("Related", None)
+
+            markdown_parser.write(
+                filepath, parsed.frontmatter, entity_body.render_sections(sections)
+            )
 
         elif action in ("decay", "decay_nudge", "archive") and filepath.exists():
             parsed = markdown_parser.parse(filepath)
@@ -246,6 +290,62 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
 
 # ---------- Helpers ----------
+
+
+def _entity_summary(entity: dict) -> str:
+    """The extractor's v2 output uses `summary`; older payloads use `description`."""
+    return str(entity.get("summary") or entity.get("description") or "").strip()
+
+
+def _reconcile_related(entity_id: str, frontmatter: dict, memory_path) -> str:
+    """Rebuild the ``## Related`` block from `related` slugs + graph_edges.yaml.
+
+    Related is a derived view — graph_edges.yaml is canonical. Display names
+    are read only for the ids actually referenced, so per-entity cost stays
+    proportional to its degree.
+    """
+    import yaml
+
+    memory_path = Path(memory_path)
+    related_slugs = frontmatter.get("related", []) or []
+
+    edges: list[dict] = []
+    edges_file = memory_path / "graph_edges.yaml"
+    if edges_file.exists():
+        try:
+            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+            for edge in data.get("edges", []) or []:
+                if edge.get("source") == entity_id:
+                    edges.append(edge)
+                elif edge.get("target") == entity_id:
+                    # Mirror inbound edges so the block reads naturally.
+                    edges.append({
+                        "source": entity_id,
+                        "target": edge.get("source", ""),
+                        "label": edge.get("label", ""),
+                    })
+        except Exception:
+            edges = []
+
+    referenced = {str(e.get("target", "")) for e in edges} | {str(s) for s in related_slugs}
+    id_to_name: dict[str, str] = {}
+    entities_dir = memory_path / "entities"
+    for ref in referenced:
+        if not ref:
+            continue
+        filepath = entities_dir / f"{ref}.md"
+        if not filepath.exists():
+            continue
+        try:
+            fm = markdown_parser.parse(filepath).frontmatter or {}
+            id_to_name[ref] = str(fm.get("name", ref.replace("-", " ").title()))
+        except Exception:
+            continue
+
+    # Drop dangling references — an edge to a deleted entity shouldn't render.
+    edges = [e for e in edges if str(e.get("target", "")) in id_to_name]
+    related_slugs = [s for s in related_slugs if str(s) in id_to_name]
+    return entity_body.render_related(related_slugs, edges, id_to_name)
 
 
 def _compose_entity_body(description: str, history_entries: list[dict]) -> str:

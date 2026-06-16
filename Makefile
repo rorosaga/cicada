@@ -6,11 +6,16 @@ OUT ?= benchmark_results
 EPISODE_LIMIT ?=
 ABLATIONS ?= default promotion_1 promotion_3 decay_aggressive decay_loose
 
-.PHONY: help rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke all-safe all-full
+INSTALL_FLAGS ?=
+
+.PHONY: help install doctor app run-app backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke all-safe all-full
 
 help:
 	@printf '%s\n' \
 	  'Targets:' \
+	  '  make install               # plug-and-play install (install.sh)' \
+	  '  make doctor                # health checks (scripts/doctor.sh)' \
+	  '  make backfill-structural MEMORY=/path/to/memory  # structural entity backfill' \
 	  '  make rebuild-episodes      # rebuild episode LEANN index in live memory' \
 	  '  make table1                # run Table 1 using QUESTIONS=$(QUESTIONS)' \
 	  '  make table3                # static metrics + recall latency using QUERIES=$(QUERIES)' \
@@ -27,6 +32,31 @@ help:
 	  '  MEMORY=memory' \
 	  '  OUT=benchmark_results' \
 	  '  EPISODE_LIMIT=5'
+
+install:
+	bash install.sh $(INSTALL_FLAGS)
+
+doctor:
+	bash scripts/doctor.sh
+
+# Build the macOS app as a proper .app bundle (NOT `swift run`, which produces
+# a bundle-less executable whose window never becomes key — that breaks graph
+# node clicks and text-field focus). `make run-app` also launches it.
+app:
+	cd app/CicadaApp && ./bundle.sh
+
+run-app:
+	cd app/CicadaApp && ./bundle.sh --run
+
+# Structural (free, no-LLM) entity-page backfill. MEMORY must be passed
+# explicitly on the command line; we refuse the bare default to avoid silently
+# rewriting the live memory dir. e.g. make backfill-structural MEMORY=/tmp/m
+backfill-structural:
+	@if [ "$(origin MEMORY)" != "command line" ]; then \
+		echo "MEMORY must be passed explicitly: make backfill-structural MEMORY=/path/to/memory"; \
+		exit 2; \
+	fi
+	$(PYTHON) -m scripts.backfill_entity_pages --memory $(MEMORY) --structural
 
 rebuild-episodes:
 	$(PYTHON) -m benchmarks.rebuild_leann --only episodes --memory $(MEMORY)

@@ -2,8 +2,20 @@ import Foundation
 
 enum EntityType: String, Codable, CaseIterable, Identifiable {
     case person, project, company, concept, tool, deadline, skill, location
+    case media, hub
+    // Catch-all for any type the backend emits that this build doesn't know
+    // yet (forward compat). Excluded from `selectableCases` so it never appears
+    // as a filter checkbox, but it keeps unknown nodes on the graph instead of
+    // dropping them when decoding fails.
+    case unknown
 
     var id: String { rawValue }
+
+    /// Types a user can filter by in the UI. `unknown` is intentionally omitted —
+    /// it's an internal forward-compat bucket, not a real category.
+    static var selectableCases: [EntityType] {
+        allCases.filter { $0 != .unknown }
+    }
 
     var label: String {
         rawValue.capitalized
@@ -19,6 +31,9 @@ enum EntityType: String, Codable, CaseIterable, Identifiable {
         case .deadline: "calendar.badge.clock"
         case .skill: "star.fill"
         case .location: "mappin.circle.fill"
+        case .media: "photo.on.rectangle.angled"
+        case .hub: "circle.hexagongrid.fill"
+        case .unknown: "questionmark.circle"
         }
     }
 }
@@ -106,7 +121,60 @@ struct Entity: Identifiable, Codable {
     var related: [String]
     var version: Int
     var markdownContent: String
+    /// Verbatim file content (frontmatter + body) from the API; empty when
+    /// only the placeholder graph node has loaded.
+    var rawMarkdown: String = ""
     var history: [EntityHistoryEntry]
+
+    init(
+        id: String, name: String, type: EntityType, status: EntityStatus,
+        confidence: Double, created: String, lastReferenced: String,
+        decayRate: Double, sourceEpisodes: [String], tags: [String],
+        related: [String], version: Int, markdownContent: String,
+        history: [EntityHistoryEntry]
+    ) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.status = status
+        self.confidence = confidence
+        self.created = created
+        self.lastReferenced = lastReferenced
+        self.decayRate = decayRate
+        self.sourceEpisodes = sourceEpisodes
+        self.tags = tags
+        self.related = related
+        self.version = version
+        self.markdownContent = markdownContent
+        self.history = history
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, type, status, confidence, created, lastReferenced
+        case decayRate, sourceEpisodes, tags, related, version
+        case markdownContent, rawMarkdown, history
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        // Tolerant type/status decode — a future entity type must not blank the
+        // detail card or drop the entity.
+        type = (try? c.decode(EntityType.self, forKey: .type)) ?? .unknown
+        status = (try? c.decode(EntityStatus.self, forKey: .status)) ?? .active
+        confidence = try c.decode(Double.self, forKey: .confidence)
+        created = try c.decode(String.self, forKey: .created)
+        lastReferenced = try c.decode(String.self, forKey: .lastReferenced)
+        decayRate = try c.decode(Double.self, forKey: .decayRate)
+        sourceEpisodes = try c.decodeIfPresent([String].self, forKey: .sourceEpisodes) ?? []
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        related = try c.decodeIfPresent([String].self, forKey: .related) ?? []
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
+        markdownContent = try c.decodeIfPresent(String.self, forKey: .markdownContent) ?? ""
+        rawMarkdown = try c.decodeIfPresent(String.self, forKey: .rawMarkdown) ?? ""
+        history = try c.decodeIfPresent([EntityHistoryEntry].self, forKey: .history) ?? []
+    }
 
     var createdDate: Date {
         let f = DateFormatter()
@@ -139,20 +207,36 @@ struct GraphNode: Codable {
     let status: EntityStatus
     let confidence: Double
     let tags: [String]
+    // v2 graph fields (server is the source of truth). All optional/defaulted so
+    // an old API that doesn't emit them still decodes cleanly.
+    let degree: Int
+    let isHub: Bool
+    let hasPending: Bool
+    let memberCount: Int
+    let hubId: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, tags
+        case degree, isHub, hasPending, memberCount, hubId
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
-        type = try c.decode(EntityType.self, forKey: .type)
-        status = try c.decode(EntityStatus.self, forKey: .status)
+        // Decode type tolerantly: a node type this build doesn't know (e.g. a
+        // future entity type) must NOT drop the node off the graph. Fall back
+        // to .unknown rather than throwing.
+        type = (try? c.decode(EntityType.self, forKey: .type)) ?? .unknown
+        status = (try? c.decode(EntityStatus.self, forKey: .status)) ?? .active
         confidence = try c.decode(Double.self, forKey: .confidence)
         // Back-compat: the backend only started emitting `tags` on GraphNode
         // recently. Decode defensively so older API builds still work.
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        degree = try c.decodeIfPresent(Int.self, forKey: .degree) ?? 0
+        isHub = try c.decodeIfPresent(Bool.self, forKey: .isHub) ?? false
+        hasPending = try c.decodeIfPresent(Bool.self, forKey: .hasPending) ?? false
+        memberCount = try c.decodeIfPresent(Int.self, forKey: .memberCount) ?? 0
+        hubId = try c.decodeIfPresent(String.self, forKey: .hubId)
     }
 }

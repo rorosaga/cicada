@@ -4,10 +4,17 @@ struct EntityDetailCard: View {
     let entity: Entity
     @Environment(GraphViewModel.self) private var graphVM
     @State private var selectedTab: DetailTab = .content
-    @State private var showRawMarkdown = false
+    @State private var showRawMarkdown: Bool
 
     enum DetailTab {
         case content, history
+    }
+
+    /// `defaultRaw` opens the card on the verbatim Source view — used by the
+    /// graph's click-to-preview overlay so a node tap shows raw markdown first.
+    init(entity: Entity, defaultRaw: Bool = false) {
+        self.entity = entity
+        _showRawMarkdown = State(initialValue: defaultRaw)
     }
 
     var body: some View {
@@ -124,33 +131,14 @@ struct EntityDetailCard: View {
 
     private var contentTab: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            // Markdown toggle + copy
+            // Rendered/Source toggle + copy
             HStack(spacing: CicadaTheme.spacingXS) {
-                Button {
+                ViewModeButton(title: "Rendered", icon: "eye", isSelected: !showRawMarkdown) {
                     showRawMarkdown = false
-                } label: {
-                    Image(systemName: "eye")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(!showRawMarkdown ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
-                        .frame(width: 28, height: 24)
-                        .background(!showRawMarkdown ? CicadaTheme.surfaceHover : .clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
-                .buttonStyle(.plain)
-                .help("Rendered view")
-
-                Button {
+                ViewModeButton(title: "Source", icon: "chevron.left.forwardslash.chevron.right", isSelected: showRawMarkdown) {
                     showRawMarkdown = true
-                } label: {
-                    Image(systemName: "chevron.left.forwardslash.chevron.right")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(showRawMarkdown ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
-                        .frame(width: 28, height: 24)
-                        .background(showRawMarkdown ? CicadaTheme.surfaceHover : .clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
-                .buttonStyle(.plain)
-                .help("Raw markdown")
 
                 Spacer()
 
@@ -187,27 +175,19 @@ struct EntityDetailCard: View {
     }
 
     private var rawMarkdownView: some View {
-        let yaml = """
-        ---
-        type: \(entity.type.rawValue)
-        status: \(entity.status.rawValue)
-        confidence: \(entity.confidence)
-        created: \(entity.created)
-        last_referenced: \(entity.lastReferenced)
-        decay_rate: \(entity.decayRate)
-        version: \(entity.version)
-        tags: [\(entity.tags.joined(separator: ", "))]
-        related: [\(entity.related.joined(separator: ", "))]
-        ---
+        // Prefer the verbatim file from the API (transparency: this is the
+        // exact markdown on disk, frontmatter included). The reconstruction
+        // below only covers placeholder entities that haven't fully loaded.
+        let source = entity.rawMarkdown.isEmpty ? buildFullMarkdown() : entity.rawMarkdown
 
-        \(entity.markdownContent)
-        """
-
-        return Text(yaml)
+        return Text(source)
             .font(CicadaTheme.monoFont)
             .foregroundStyle(CicadaTheme.textSecondary)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(CicadaTheme.spacingMD)
+            .background(CicadaTheme.surfaceHover.opacity(0.5))
+            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
     }
 
     private var metadataSection: some View {
@@ -310,7 +290,10 @@ struct EntityDetailCard: View {
     // MARK: - Helpers
 
     private func buildFullMarkdown() -> String {
-        """
+        // The API's verbatim file wins; the reconstruction is a fallback for
+        // placeholder entities that haven't fully loaded yet.
+        if !entity.rawMarkdown.isEmpty { return entity.rawMarkdown }
+        return """
         ---
         type: \(entity.type.rawValue)
         status: \(entity.status.rawValue)
@@ -325,6 +308,33 @@ struct EntityDetailCard: View {
 
         \(entity.markdownContent)
         """
+    }
+}
+
+// MARK: - View Mode Button (Rendered / Source)
+
+private struct ViewModeButton: View {
+    let title: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .medium))
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(isSelected ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(isSelected ? CicadaTheme.surfaceHover : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .buttonStyle(.plain)
+        .help("\(title) view")
     }
 }
 

@@ -132,8 +132,38 @@ async def run(settings: Settings, cycle_id: str) -> None:
         # Stage 5: Nudge Generation & Versioning
         _state.progress = "Stage 5/5: Writing changes..."
         logger.info("Stage 5: Writing entities, nudges, clarifications, and relationships")
-        from api.services.nudge_generator import generate
+        from api.services.inbox_generator import generate
         await generate(changes, skills, memory_path, relationships=resolved_edges)
+
+        # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
+        # graph stops ignoring them. Runs after relationships are written so the
+        # `mentions` wave merges into the same graph_edges.yaml. Idempotent.
+        try:
+            from api.services.wikilink_resolver import materialize_wikilink_edges
+            n_mentions = materialize_wikilink_edges(memory_path)
+            logger.info(f"Stage 5.5: materialized {n_mentions} wikilink `mentions` edges")
+        except Exception as e:
+            logger.warning(f"Stage 5.5 wikilink materialization failed: {type(e).__name__}: {e}")
+
+        # Stage 5.55: Wire media entities to the entities resolved this cycle by
+        # joining on shared source episodes. Bypasses the promotion gate — a
+        # saved bookmark connects to existing entities even when the concepts
+        # it mentions never cross the 2-conversation threshold.
+        try:
+            from api.services.media_ingestor import inject_media_edges
+            n_media = inject_media_edges(memory_path, changes)
+            logger.info(f"Stage 5.55: injected {n_media} media `about` edges")
+        except Exception as e:
+            logger.warning(f"Stage 5.55 media edge injection failed: {type(e).__name__}: {e}")
+
+        # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
+        # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
+        try:
+            from api.services.hub_builder import regenerate_hubs_and_index
+            hub_result = regenerate_hubs_and_index(memory_path, settings)
+            logger.info(f"Stage 5.6: regenerated {hub_result['hub_count']} hubs + _index.md")
+        except Exception as e:
+            logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
 
         # Mark episodes as processed
         _mark_episodes_processed(episodes)
@@ -332,6 +362,8 @@ def _porcelain_action(status_code: str) -> str:
 
 def _infer_trigger_for_path(path: str) -> str:
     """Infer a trigger type for a non-entity file based on its directory."""
+    if path.startswith("inbox/"):
+        return "sleep/inbox_generation"
     if path.startswith("nudges/"):
         return "sleep/nudge_generation"
     if path.startswith("clarifications/"):
@@ -340,6 +372,8 @@ def _infer_trigger_for_path(path: str) -> str:
         return "sleep/extraction"
     if path.startswith("leann/"):
         return "sleep/index_rebuild"
+    if path.startswith("hubs/") or path == "_index.md":
+        return "sleep/hub_generation"
     if path == "graph_edges.yaml":
         return "sleep/extraction"
     return "sleep/extraction"

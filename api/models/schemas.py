@@ -25,6 +25,7 @@ class EntityType(str, Enum):
     deadline = "deadline"
     skill = "skill"
     location = "location"
+    media = "media"
 
 
 class EntityStatus(str, Enum):
@@ -63,6 +64,9 @@ class EntityResponse(CamelModel):
     related: list[str]
     version: int
     markdown_content: str
+    # Verbatim file content (frontmatter + body) for the Source view in the
+    # companion app — transparency over reconstruction.
+    raw_markdown: str = ""
     history: list[EntityHistoryEntry]
 
 
@@ -72,10 +76,20 @@ class EntityResponse(CamelModel):
 class GraphNode(CamelModel):
     id: str
     name: str
-    type: EntityType
+    # Plain str (not EntityType) so later waves can emit node types beyond the
+    # closed entity set (e.g. hub markers) without a schema break.
+    type: str
     status: EntityStatus
     confidence: float
     tags: list[str] = []
+    # Server-computed render flags (camelCase on the wire via to_camel). All
+    # additive + defaulted so old clients ignore them.
+    degree: int = 0
+    is_hub: bool = False
+    has_pending: bool = False
+    member_count: int = 0
+    hub_kind: Optional[str] = None  # "type" | "tag" | None
+    hub_id: Optional[str] = None    # member node -> its hub id, enables hub gravity
 
 
 class GraphLink(CamelModel):
@@ -87,6 +101,55 @@ class GraphLink(CamelModel):
 class GraphResponse(CamelModel):
     nodes: list[GraphNode]
     links: list[GraphLink]
+
+
+# --- Search ---
+
+
+class SearchHit(CamelModel):
+    id: str
+    name: str
+    type: str
+    status: str
+    confidence: float
+    score: float = 0.0
+    snippet: str = ""
+
+
+class SearchResponse(CamelModel):
+    results: list[SearchHit]
+
+
+# --- Entity context (progressive disclosure) ---
+
+
+class ContextNeighbor(CamelModel):
+    id: str
+    name: str
+    type: str
+    confidence: float
+    summary: str
+    via: str  # "leann" | "related" | "wikilink"
+    score: Optional[float] = None
+
+
+class ContextEpisodeExcerpt(CamelModel):
+    episode_id: str
+    timestamp: str
+    excerpt: str
+
+
+class EntityContextResponse(CamelModel):
+    id: str
+    name: str
+    type: str
+    status: str
+    confidence: float
+    markdown_content: str
+    hubs: list[str] = []
+    neighbors: list[ContextNeighbor] = []
+    episodes: list[ContextEpisodeExcerpt] = []
+    next_hops: list[str] = []
 
 
 # --- Nudge ---
@@ -125,6 +188,93 @@ class ClarificationResolveRequest(CamelModel):
     action: str
     answer: Optional[str] = None
     merge_target: Optional[str] = None
+
+
+# --- Unified Inbox ---
+
+
+class InboxKind(str, Enum):
+    decay = "decay"
+    conflict = "conflict"
+    clarification = "clarification"
+    merge_suggestion = "merge_suggestion"
+
+
+class RequiredInput(str, Enum):
+    none = "none"
+    choice = "choice"
+    freetext = "freetext"
+    merge = "merge"
+
+
+class InboxItem(CamelModel):
+    id: str
+    kind: InboxKind
+    required_input: RequiredInput
+    status: str = "pending"
+    priority: float = 0.0
+    entity_id: str = ""
+    entity_name: str = ""
+    title: str
+    body: str
+    options: Optional[list[str]] = None
+    created_date: str = ""
+    # clarification/merge extras (only populated for those kinds)
+    uncertainty_type: Optional[str] = None
+    suggested_classification: Optional[str] = None
+    suggested_confidence: Optional[float] = None
+    merge_target_hint: Optional[str] = None
+
+
+class InboxResolveRequest(CamelModel):
+    action: str
+    answer: Optional[str] = None
+    merge_target: Optional[str] = None
+
+
+# --- Status aggregate (menu-bar / tamagotchi) ---
+
+
+class StatusSleep(CamelModel):
+    status: str
+    stage: int = 0
+    total_stages: int = 5
+    cycle_id: Optional[str] = None
+    error: Optional[str] = None
+
+
+class StatusInbox(CamelModel):
+    total: int = 0
+    by_kind: dict[str, int] = {}
+
+
+class StatusEpisodes(CamelModel):
+    unprocessed: int = 0
+    last_ingested_at: Optional[str] = None
+
+
+class StatusResponse(CamelModel):
+    sleep: StatusSleep
+    inbox: StatusInbox
+    episodes: StatusEpisodes
+    last_sleep_at: Optional[str] = None
+    next_sleep_at: Optional[str] = None
+
+
+# --- Health (liveness probe for installer / doctor) ---
+
+
+class HealthResponse(CamelModel):
+    status: str = "ok"
+    version: str
+    entity_count: int
+    episode_count: int
+    # The *resolved* embedding mode after openai->local auto-degrade, so the
+    # installer/doctor can confirm the offline path is actually active.
+    embedding_mode: str
+    memory_path: str
+    # True when any LEANN index sidecar (<name>.meta.json) exists on disk.
+    leann_present: bool
 
 
 # --- Sleep ---
@@ -190,3 +340,53 @@ class ConversationUploadResponse(CamelModel):
     duplicates_skipped: int
     message: str
     source: str = "unknown"
+
+
+# --- Sources (media ingestion) ---
+
+
+class SourceSaveRequest(CamelModel):
+    url: str
+    note: Optional[str] = None
+    tags: list[str] = []
+
+
+class SourceSaveResponse(CamelModel):
+    status: str
+    media_entity_id: str
+    episode_id: str
+    title: str
+    media_type: str
+    thumbnail: Optional[str] = None
+    message: str
+
+
+class SourceUploadResponse(CamelModel):
+    # Mirrors ConversationUploadResponse on the wire (status/episodesCreated/
+    # duplicatesSkipped/message/source) so the shipped Swift client can decode
+    # one shape for both upload flows. ``episodes_created`` is the count queued
+    # after dedup; enrichment + writes finish in the background.
+    status: str
+    episodes_created: int
+    duplicates_skipped: int
+    message: str
+    source: str = "unknown"
+
+
+class MediaSourceItem(CamelModel):
+    media_entity_id: str
+    url: str
+    title: str
+    media_type: str
+    site: Optional[str] = None
+    channel: Optional[str] = None
+    thumbnail: Optional[str] = None
+    saved_at: str
+    tags: list[str] = []
+    status: str = "active"
+    related_count: int = 0
+
+
+class SourceListResponse(CamelModel):
+    items: list[MediaSourceItem]
+    total: int

@@ -1,6 +1,18 @@
 import SwiftUI
 import WebKit
 
+/// WKWebView that accepts a click even when its window isn't already key.
+/// This app is a bundle-less SwiftPM executable launched from a terminal, so
+/// the Cicada window is rarely the active window when the user reaches over to
+/// click a graph node — and a plain WKWebView swallows that first click as a
+/// mere window-activation (mousemove/hover still works, which is why the graph
+/// reacts to hover but not to clicks). Accepting first mouse routes the click
+/// straight through to the canvas as a real DOM mousedown.
+final class ClickableWebView: WKWebView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+}
+
 struct GraphView: NSViewRepresentable {
     @Environment(GraphViewModel.self) private var viewModel
 
@@ -8,7 +20,7 @@ struct GraphView: NSViewRepresentable {
         let config = WKWebViewConfiguration()
         config.userContentController.add(context.coordinator, name: "cicada")
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = ClickableWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
         webView.underPageBackgroundColor = .clear
         webView.layer?.backgroundColor = .clear
@@ -30,6 +42,7 @@ struct GraphView: NSViewRepresentable {
             case .zoomIn: jsCall = "zoomIn()"
             case .out: jsCall = "zoomOut()"
             case .reset: jsCall = "zoomReset()"
+            case .fit: jsCall = "fitGraph()"
             }
             webView.evaluateJavaScript(jsCall, completionHandler: nil)
             DispatchQueue.main.async {
@@ -44,8 +57,12 @@ struct GraphView: NSViewRepresentable {
         // "TypeError: undefined is not a function".
         if viewModel.pendingGraphUpdate && viewModel.isGraphReady {
             let json = viewModel.graphDataJSON
+            let filterJSON = viewModel.filterJSON
             webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
                 if let error { print("Graph update error: \(error)") }
+                // Re-assert the current filter so a fresh payload respects it
+                // (status/confidence defaults hide archived nodes from first paint).
+                webView.evaluateJavaScript("applyFilters(\(filterJSON))", completionHandler: nil)
             }
             DispatchQueue.main.async {
                 self.viewModel.pendingGraphUpdate = false
@@ -54,12 +71,8 @@ struct GraphView: NSViewRepresentable {
 
         // Handle filter updates (also requires graph.js to be loaded)
         if viewModel.pendingFilterUpdate && viewModel.isGraphReady {
-            let types = viewModel.enabledTypes.map { $0.rawValue }
-            if let data = try? JSONSerialization.data(withJSONObject: types),
-               let json = String(data: data, encoding: .utf8) {
-                webView.evaluateJavaScript("filterTypes('\(json)')") { _, error in
-                    if let error { print("Filter error: \(error)") }
-                }
+            webView.evaluateJavaScript("applyFilters(\(viewModel.filterJSON))") { _, error in
+                if let error { print("Filter error: \(error)") }
             }
             DispatchQueue.main.async {
                 self.viewModel.pendingFilterUpdate = false
@@ -102,6 +115,21 @@ struct GraphView: NSViewRepresentable {
                     if let id = json["id"] as? String {
                         viewModel.selectEntity(id: id)
                     }
+
+                case "hubExpanded":
+                    // Hub tapped while in hubs-only paint: zoom into its
+                    // 1-hop neighborhood instead of opening a detail card.
+                    if let id = json["id"] as? String {
+                        webView?.evaluateJavaScript("setFocus('\(id)', 1)", completionHandler: nil)
+                    }
+
+                case "nodeFocused", "focusCleared":
+                    // Informational — focus state lives in JS.
+                    break
+
+                case "jsError":
+                    let stack = json["stack"] as? String ?? ""
+                    print("Graph JS error: \(json["message"] as? String ?? "?") @ \(json["source"] as? String ?? "?"):\(json["line"] as? Int ?? 0):\(json["col"] as? Int ?? 0)\(stack.isEmpty ? "" : "\n\(stack)")")
 
                 default:
                     break
