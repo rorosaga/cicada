@@ -15,6 +15,7 @@ dependencies = [
     "pydantic-settings>=2.13.1",
     "python-multipart>=0.0.24",
     "pyyaml>=6.0.3",
+    "sqlite-vec>=0.1.9",
     "thefuzz[speedup]>=0.22.1",
     "tqdm>=4.66.0",
     "uvicorn[standard]>=0.44.0",
@@ -26,3 +27,8 @@ dependencies = [
 # index build. Not a hard dependency — only OpenAI users who want offline
 # embeddings need it. Install with: uv sync --extra local --directory api
 local = ["sentence-transformers>=2.2"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.0",
+]
