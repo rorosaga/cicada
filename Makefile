@@ -8,7 +8,7 @@ ABLATIONS ?= default promotion_1 promotion_3 decay_aggressive decay_loose
 
 INSTALL_FLAGS ?=
 
-.PHONY: help install doctor backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke all-safe all-full
+.PHONY: help install doctor app run-app backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke all-safe all-full
 
 help:
 	@printf '%s\n' \
@@ -38,6 +38,15 @@ install:
 
 doctor:
 	bash scripts/doctor.sh
+
+# Build the macOS app as a proper .app bundle (NOT `swift run`, which produces
+# a bundle-less executable whose window never becomes key — that breaks graph
+# node clicks and text-field focus). `make run-app` also launches it.
+app:
+	cd app/CicadaApp && ./bundle.sh
+
+run-app:
+	cd app/CicadaApp && ./bundle.sh --run
 
 # Structural (free, no-LLM) entity-page backfill. MEMORY must be passed
 # explicitly on the command line; we refuse the bare default to avoid silently

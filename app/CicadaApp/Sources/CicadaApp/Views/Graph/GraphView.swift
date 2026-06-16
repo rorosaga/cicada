@@ -1,6 +1,18 @@
 import SwiftUI
 import WebKit
 
+/// WKWebView that accepts a click even when its window isn't already key.
+/// This app is a bundle-less SwiftPM executable launched from a terminal, so
+/// the Cicada window is rarely the active window when the user reaches over to
+/// click a graph node — and a plain WKWebView swallows that first click as a
+/// mere window-activation (mousemove/hover still works, which is why the graph
+/// reacts to hover but not to clicks). Accepting first mouse routes the click
+/// straight through to the canvas as a real DOM mousedown.
+final class ClickableWebView: WKWebView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+}
+
 struct GraphView: NSViewRepresentable {
     @Environment(GraphViewModel.self) private var viewModel
 
@@ -8,7 +20,7 @@ struct GraphView: NSViewRepresentable {
         let config = WKWebViewConfiguration()
         config.userContentController.add(context.coordinator, name: "cicada")
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = ClickableWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
         webView.underPageBackgroundColor = .clear
         webView.layer?.backgroundColor = .clear
@@ -46,7 +58,6 @@ struct GraphView: NSViewRepresentable {
         if viewModel.pendingGraphUpdate && viewModel.isGraphReady {
             let json = viewModel.graphDataJSON
             let filterJSON = viewModel.filterJSON
-            print("Graph push: \(json.count) bytes, \(viewModel.nodes.count) nodes")
             webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
                 if let error { print("Graph update error: \(error)") }
                 // Re-assert the current filter so a fresh payload respects it
@@ -96,7 +107,6 @@ struct GraphView: NSViewRepresentable {
             DispatchQueue.main.async { [self] in
                 switch type {
                 case "graphReady":
-                    print("Graph bridge: graphReady received")
                     isGraphReady = true
                     viewModel.isGraphReady = true
                     pushGraphData()
@@ -131,7 +141,6 @@ struct GraphView: NSViewRepresentable {
             guard !hasPushedInitialData, let webView else { return }
             hasPushedInitialData = true
             let json = viewModel.graphDataJSON
-            print("Graph initial push: \(json.count) bytes, \(viewModel.nodes.count) nodes")
             webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
                 if let error { print("Initial graph push error: \(error)") }
             }
