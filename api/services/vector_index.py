@@ -27,7 +27,9 @@ from loguru import logger
 
 from api.services import markdown_parser
 
-EmbedFn = Callable[[list[str]], np.ndarray]
+# An embed function takes texts and a query/document flag (EmbeddingGemma and
+# other instruction-aware models embed queries and documents differently).
+EmbedFn = Callable[..., np.ndarray]
 
 INDEX_DB_FILE = "vector_index.db"
 
@@ -40,6 +42,7 @@ class SqliteVecIndexer:
         memory_path: Path,
         *,
         embed_fn: EmbedFn | None = None,
+        model_name: str | None = None,
         db_path: Path | None = None,
     ):
         self.memory_path = Path(memory_path)
@@ -47,13 +50,21 @@ class SqliteVecIndexer:
         self.episodes_dir = self.memory_path / "episodes"
         self.db_path = Path(db_path) if db_path else self.memory_path / INDEX_DB_FILE
         self._embed_fn = embed_fn
+        # Recorded next to the vectors so a reindex knows what it built and can
+        # detect a model swap (different model => different dim => full rebuild).
+        self.model_name = model_name or ("unknown" if embed_fn else None)
 
     # ---------- embedding ----------
 
-    def _embed(self, texts: list[str]) -> np.ndarray:
+    def _ensure_embed_fn(self) -> None:
         if self._embed_fn is None:
-            self._embed_fn = _resolve_embed_fn()
-        vectors = np.asarray(self._embed_fn(texts), dtype=np.float32)
+            self._embed_fn, resolved_model = _resolve_embed_fn()
+            if self.model_name is None:
+                self.model_name = resolved_model
+
+    def _embed(self, texts: list[str], *, is_query: bool = False) -> np.ndarray:
+        self._ensure_embed_fn()
+        vectors = np.asarray(self._embed_fn(texts, is_query=is_query), dtype=np.float32)
         if vectors.ndim != 2 or vectors.shape[0] != len(texts):
             raise ValueError(
                 f"embed_fn returned shape {vectors.shape} for {len(texts)} texts"
@@ -103,7 +114,38 @@ class SqliteVecIndexer:
                 f"INSERT INTO {meta_table}(rowid, text, metadata) VALUES (?, ?, ?)",
                 (i, text, json.dumps(metadata)),
             )
+        self._write_index_meta(conn, model=self.model_name or "unknown", dim=dim)
         conn.commit()
+
+    def _write_index_meta(self, conn: sqlite3.Connection, *, model: str, dim: int) -> None:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO index_meta(key, value) VALUES ('model', ?)", (model,)
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO index_meta(key, value) VALUES ('dim', ?)", (str(dim),)
+        )
+
+    def index_info(self) -> dict:
+        """Return ``{model, dim}`` recorded at build time, or ``{}`` if unbuilt."""
+        if not self.db_path.exists():
+            return {}
+        conn = self._connect()
+        try:
+            cur = conn.execute("SELECT key, value FROM index_meta")
+            kv = dict(cur.fetchall())
+        except sqlite3.OperationalError:
+            return {}
+        finally:
+            conn.close()
+        info: dict = {}
+        if "model" in kv:
+            info["model"] = kv["model"]
+        if "dim" in kv:
+            info["dim"] = int(kv["dim"])
+        return info
 
     def _knn(
         self, conn: sqlite3.Connection, kind: str, query: str, top_k: int
@@ -113,7 +155,7 @@ class SqliteVecIndexer:
         vec_table = f"vec_{kind}"
         meta_table = f"meta_{kind}"
         try:
-            qvec = self._embed([query])[0]
+            qvec = self._embed([query], is_query=True)[0]
         except Exception as exc:  # noqa: BLE001
             logger.debug(f"vector search embed failed ({kind}): {exc}")
             return []
@@ -149,18 +191,7 @@ class SqliteVecIndexer:
             except Exception:
                 continue
             fm = parsed.frontmatter or {}
-            header_bits = [str(fm.get("name", filepath.stem))]
-            if fm.get("type"):
-                header_bits.append(f"({fm['type']})")
-            tags = fm.get("tags") or []
-            if tags:
-                header_bits.append("tags: " + ", ".join(str(t) for t in tags))
-            aliases = fm.get("aliases") or []
-            if aliases:
-                header_bits.append("aka: " + ", ".join(str(a) for a in aliases))
-            text = "\n".join(
-                str(p) for p in [" ".join(header_bits), parsed.body] if p
-            ).strip()
+            text = _entity_embed_text(fm, parsed.body, filepath.stem)
             if not text:
                 continue
             texts.append(text)
@@ -211,11 +242,35 @@ class SqliteVecIndexer:
         return results[:top_k]
 
 
-def _resolve_embed_fn() -> EmbedFn:
-    """Build the production embedding function from Settings (openai | local).
+def _entity_embed_text(fm: dict, body: str, stem: str) -> str:
+    """Compose the text embedded for an entity.
 
-    Not exercised by unit tests (needs a key or a model download); the unit
-    tests inject ``embed_fn`` directly. Covered by integration runs.
+    We embed **name + type + aliases + body** but deliberately exclude the
+    free-form ``tags``: tags are highly repetitive across the graph (many
+    nodes share ``career``/``robotics``/…), so embedding them injects a shared
+    direction that dilutes discrimination between otherwise-distinct nodes.
+    Tags remain available as filterable metadata. ``type`` is low-cardinality
+    and genuinely informative ("FastAPI is a tool"), so it stays. This choice
+    is a tunable knob — the index is derived, so changing it is just a reindex.
+    """
+    header = [str(fm.get("name", stem))]
+    if fm.get("type"):
+        header.append(f"({fm['type']})")
+    aliases = fm.get("aliases") or []
+    if aliases:
+        header.append("aka: " + ", ".join(str(a) for a in aliases))
+    return "\n".join(str(p) for p in [" ".join(header), body] if p).strip()
+
+
+def _resolve_embed_fn() -> tuple[EmbedFn, str]:
+    """Build the production embedding fn + its model name from Settings.
+
+    Returns ``(embed_fn, model_name)``. ``embed_fn(texts, is_query=bool)``
+    routes through EmbeddingGemma's asymmetric query/document prompts via
+    sentence-transformers' ``encode_query`` / ``encode_document``.
+
+    Not exercised by unit tests (needs a key or a gated model download); the
+    unit tests inject ``embed_fn`` directly. Covered by integration runs.
     """
     from api.config import get_settings
 
@@ -229,8 +284,9 @@ def _resolve_embed_fn() -> EmbedFn:
 
         client = OpenAI()
 
-        def _openai_embed(texts: list[str]) -> np.ndarray:
-            # OpenAI caps ~300k tokens/request; chunk conservatively by count.
+        def _openai_embed(texts: list[str], *, is_query: bool = False) -> np.ndarray:
+            # OpenAI's embeddings are symmetric (no query/doc prompts), so
+            # is_query is accepted-and-ignored to satisfy the contract.
             out: list[list[float]] = []
             for start in range(0, len(texts), 100):
                 batch = texts[start : start + 100]
@@ -238,15 +294,15 @@ def _resolve_embed_fn() -> EmbedFn:
                 out.extend(d.embedding for d in resp.data)
             return np.asarray(out, dtype=np.float32)
 
-        return _openai_embed
+        return _openai_embed, model
 
+    # Local sentence-transformers (default: google/embeddinggemma-300m).
     from sentence_transformers import SentenceTransformer
 
     st_model = SentenceTransformer(model)
 
-    def _local_embed(texts: list[str]) -> np.ndarray:
-        return np.asarray(
-            st_model.encode(texts, normalize_embeddings=True), dtype=np.float32
-        )
+    def _local_embed(texts: list[str], *, is_query: bool = False) -> np.ndarray:
+        encode = st_model.encode_query if is_query else st_model.encode_document
+        return np.asarray(encode(texts), dtype=np.float32)
 
-    return _local_embed
+    return _local_embed, model

@@ -17,8 +17,13 @@ from api.services.vector_index import SqliteVecIndexer
 _VOCAB = ["python", "web", "framework", "api", "database", "music", "guitar", "acoustic"]
 
 
-def fake_embed(texts: list[str]) -> np.ndarray:
-    """Deterministic normalized bag-of-words embedding over ``_VOCAB``."""
+def fake_embed(texts: list[str], *, is_query: bool = False) -> np.ndarray:
+    """Deterministic normalized bag-of-words embedding over ``_VOCAB``.
+
+    Accepts ``is_query`` (ignored here) to match the asymmetric embedding
+    contract: production routes documents and queries through different
+    EmbeddingGemma prompts via ``encode_document`` / ``encode_query``.
+    """
     rows = []
     for text in texts:
         low = text.lower()
@@ -95,3 +100,37 @@ def test_archived_entities_excluded_by_default(tmp_path):
         "python web framework api", top_k=5, include_archived=True
     )
     assert "old-api" in {h["metadata"]["entity_id"] for h in all_hits}
+
+
+def test_index_info_records_model_and_dim(tmp_path):
+    """Reindex must know what it built: model name + vector dim are persisted."""
+    entities_dir = tmp_path / "entities"
+    entities_dir.mkdir()
+    _make_entity(entities_dir, "fastapi", "FastAPI", "tool", "python web framework api.")
+
+    indexer = SqliteVecIndexer(tmp_path, embed_fn=fake_embed, model_name="fake-test-v1")
+    indexer.index_entities()
+
+    info = indexer.index_info()
+    assert info["model"] == "fake-test-v1"
+    assert info["dim"] == len(_VOCAB)
+
+
+def test_documents_indexed_as_document_queries_searched_as_query(tmp_path):
+    """Asymmetric embedding: index path is_query=False, search path is_query=True."""
+    calls: list[bool] = []
+
+    def recording_embed(texts, *, is_query=False):
+        calls.append(is_query)
+        return fake_embed(texts, is_query=is_query)
+
+    entities_dir = tmp_path / "entities"
+    entities_dir.mkdir()
+    _make_entity(entities_dir, "fastapi", "FastAPI", "tool", "python web framework api.")
+
+    indexer = SqliteVecIndexer(tmp_path, embed_fn=recording_embed)
+    indexer.index_entities()
+    assert calls == [False], "indexing must embed documents (is_query=False)"
+
+    indexer.search_entities("python web framework", top_k=1)
+    assert calls[-1] is True, "search must embed the query (is_query=True)"

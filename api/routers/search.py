@@ -41,14 +41,19 @@ def _hit_from_file(filepath: Path, score: float) -> SearchHit | None:
     )
 
 
-def _leann_search(memory_path: Path, query: str, top_k: int) -> list[SearchHit] | None:
-    """Return LEANN entity hits, or None if LEANN is unavailable (caller degrades)."""
+def _vector_search(memory_path: Path, query: str, top_k: int) -> list[SearchHit] | None:
+    """Return sqlite-vec entity hits, or None if unavailable (caller degrades).
+
+    Degrades to None on any failure (cold index, missing embedding model, etc.)
+    so ``search`` falls back to substring matching — same graceful pattern the
+    MCP server uses.
+    """
     try:
-        from api.services.leann_indexer import LeannIndexer
+        from api.services.vector_index import SqliteVecIndexer
     except Exception:
         return None
     try:
-        indexer = LeannIndexer(memory_path)
+        indexer = SqliteVecIndexer(memory_path)
         raw = indexer.search_entities(query, top_k=top_k)
     except Exception:
         return None
@@ -110,7 +115,7 @@ async def search(
     settings: Settings = Depends(get_settings),
 ):
     memory_path = settings.memory_path
-    hits = _leann_search(memory_path, q, top_k)
+    hits = _vector_search(memory_path, q, top_k)
     if hits is None:
         hits = _substring_search(memory_path, q, top_k)
     return SearchResponse(results=hits[:top_k])

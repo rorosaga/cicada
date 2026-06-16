@@ -10,18 +10,22 @@ class Settings(BaseSettings):
     # Memory storage
     memory_path: Path = Path.home() / "cicada" / "memory"
 
-    # Embedding backend for the LEANN indexes.
+    # Embedding backend for the vector index.
+    #   "local"  -> sentence-transformers on-device (no API key, offline). Default.
+    #               EmbeddingGemma-300M (768-dim) — Google DeepMind, gated on HF
+    #               (accept the license + set HF_TOKEN to download).
     #   "openai" -> text-embedding-3-small via OpenAI (needs OPENAI_API_KEY)
-    #   "local"  -> sentence-transformers on-device (no API key, ~250MB install
-    #               incl. torch, ~90MB model download on first build, offline)
     # The mode requested here is the *configured* mode; the *resolved* mode
     # (see ``resolved_embedding_mode``) auto-degrades openai -> local when no
-    # OPENAI_API_KEY is present so a key-less install still gets semantic
-    # search instead of silently going stale.
-    embedding_mode: str = "openai"            # CICADA_EMBEDDING_MODE
-    embedding_model: str = "text-embedding-3-small"  # CICADA_EMBEDDING_MODEL
-    # Local-mode model name (only used when the resolved mode is "local").
-    embedding_model_local: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # OPENAI_API_KEY is present so a key-less install still gets semantic search.
+    # Default is "local" so Cicada runs fully on-device with no API/quota
+    # dependency (the thesis's zero-infra goal); set CICADA_EMBEDDING_MODE=openai
+    # to use OpenAI. Note: local and openai produce different-dimension vectors,
+    # so switching modes requires a full index rebuild.
+    embedding_mode: str = "local"             # CICADA_EMBEDDING_MODE
+    embedding_model: str = "text-embedding-3-small"  # CICADA_EMBEDDING_MODEL (openai)
+    # Local-mode model name (used when the resolved mode is "local").
+    embedding_model_local: str = "google/embeddinggemma-300m"
 
     # LiteLLM model (format: provider/model-name)
     # Examples: gpt-5.4-mini, anthropic/claude-sonnet-4-20250514, gemini/gemini-2.0-flash
