@@ -97,6 +97,27 @@ class ContributorsResponse(CamelModel):
     contributors: list[Contributor] = []
 
 
+class EntityMedia(CamelModel):
+    """Structured media metadata for a ``type: media`` entity (G11).
+
+    Mirrors the nested ``media:`` frontmatter block written by
+    ``media_ingestor.write_media_entity`` so the companion app's media-preview UI
+    (EntityDetailCard / Feed) can render an image / video player / OG link card
+    without re-parsing ``raw_markdown`` client-side. ``description`` is lifted
+    from the entity body's ``## Summary`` section (not stored in frontmatter).
+    Everything except ``url``/``mediaType`` is optional — a bare bookmark may
+    carry no OG metadata. This block is ``None`` for every non-media entity, so
+    the wire stays backward-compatible (additive + defaulted).
+    """
+
+    url: str
+    media_type: str
+    site: Optional[str] = None
+    channel: Optional[str] = None
+    thumbnail: Optional[str] = None
+    description: Optional[str] = None
+
+
 class EntityResponse(CamelModel):
     id: str
     name: str
@@ -115,6 +136,9 @@ class EntityResponse(CamelModel):
     # companion app — transparency over reconstruction.
     raw_markdown: str = ""
     history: list[EntityHistoryEntry]
+    # Structured media metadata for ``type: media`` entities (G11); ``None`` for
+    # every other entity. Populated from the nested ``media:`` frontmatter block.
+    media: Optional[EntityMedia] = None
 
 
 # --- Location listing (#7 — show a location entity's directory contents) ---

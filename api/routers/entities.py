@@ -11,6 +11,7 @@ from api.models.schemas import (
     EntityContextResponse,
     EntityDiff,
     EntityHistoryEntry,
+    EntityMedia,
     EntityResponse,
     LocationEntry,
     LocationListing,
@@ -53,6 +54,49 @@ async def get_entity(
         markdown_content=parsed.body,
         raw_markdown=entity_path.read_text(encoding="utf-8"),
         history=history,
+        media=_build_media_block(fm, parsed.body),
+    )
+
+
+# Body section whose prose becomes EntityMedia.description (M4 media entities
+# write a ``## Summary`` block; ``## Description``/``## Notes`` are secondary).
+_SUMMARY_RE = re.compile(
+    r"^##\s+Summary\s*$(.*?)(?=^##\s|\Z)", re.IGNORECASE | re.MULTILINE | re.DOTALL
+)
+
+
+def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
+    """Build the structured ``media`` block for a ``type: media`` entity.
+
+    Reads the nested ``media:`` frontmatter block written by
+    ``media_ingestor.write_media_entity``; returns ``None`` for any entity that
+    lacks a usable block (every non-media entity, plus a defensive guard for a
+    ``type: media`` entity missing its block). ``description`` is lifted from the
+    body's ``## Summary`` section when present. No key is invented — missing
+    optionals stay ``None``.
+    """
+    media = frontmatter.get("media")
+    if not isinstance(media, dict):
+        return None
+    url = media.get("url")
+    media_type = media.get("media_type")
+    if not url or not media_type:
+        return None
+
+    description = None
+    match = _SUMMARY_RE.search(body or "")
+    if match:
+        text = match.group(1).strip()
+        if text:
+            description = text
+
+    return EntityMedia(
+        url=str(url),
+        media_type=str(media_type),
+        site=media.get("site") or None,
+        channel=media.get("channel") or None,
+        thumbnail=media.get("thumbnail") or None,
+        description=description,
     )
 
 
