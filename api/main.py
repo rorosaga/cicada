@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from api.config import get_settings
 from api.routers import (
+    ask,
     clarifications,
     conversations,
     entities,
@@ -104,6 +105,7 @@ app.add_middleware(
 
 app.include_router(graph.router, tags=["graph"])
 app.include_router(search.router, tags=["search"])
+app.include_router(ask.router, tags=["ask"])
 app.include_router(inbox.router, tags=["inbox"])
 app.include_router(status.router, tags=["status"])
 app.include_router(nudges.router, tags=["nudges"])

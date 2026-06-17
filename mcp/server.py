@@ -93,6 +93,24 @@ def main():
             },
         },
         {
+            "name": "cicada_ask",
+            "description": "Ask Cicada's memory a natural-language question and get a synthesized answer that CITES the entities it used and explicitly states what it could NOT answer (gaps). Grounded only in stored memory — it says 'I don't know' rather than guessing. Use when you want a direct answer rather than a list of entities to read yourself.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The natural-language question to ask of memory.",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "How many entities to retrieve as grounding context (default 6).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+        {
             "name": "cicada_save_url",
             "description": "Save a URL (article, video, bookmark) into Cicada's memory as saved media. The link becomes a graph entity and connects to related topics after the next Sleep cycle. Use when the user shares a link worth remembering or says 'save this'.",
             "inputSchema": {
@@ -203,10 +221,100 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_check_nudges(arguments.get("topic"))
     elif name == "cicada_open_hub":
         return handle_open_hub(arguments.get("hub", ""))
+    elif name == "cicada_ask":
+        return handle_ask(arguments.get("query", ""), arguments.get("top_k", 6))
     elif name == "cicada_save_url":
         return handle_save_url(arguments.get("url", ""), arguments.get("note"))
     else:
         raise ValueError(f"Unknown tool: {name}")
+
+
+def handle_ask(query: str, top_k: int = 6) -> str:
+    """Answer a NL question over memory with citations + explicit gaps.
+
+    Prefers the running FastAPI backend (POST /ask) so the synthesis uses the
+    configured litellm model + sqlite-vec index. Falls back to calling the
+    ask_service directly when the backend is down (degrades like cicada_save_url).
+    The rendered text always shows the answer, what it could NOT answer (gaps),
+    and the entity citations — the auditable-synthesis contract.
+    """
+    query = (query or "").strip()
+    if not query:
+        return "query is required."
+    try:
+        top_k = int(top_k)
+    except (TypeError, ValueError):
+        top_k = 6
+
+    result: dict | None = None
+
+    # Path 1: the FastAPI backend, if it's up (has the LLM wired).
+    try:
+        import urllib.request
+
+        payload = json.dumps({"query": query, "topK": top_k}).encode("utf-8")
+        req = urllib.request.Request(
+            "http://127.0.0.1:8000/ask",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        # API serializes camelCase; normalize back to the service dict shape.
+        result = {
+            "answer": data.get("answer", ""),
+            "confidence": data.get("confidence", 0.0),
+            "citations": [
+                {
+                    "entity_id": c.get("entityId", c.get("entity_id", "")),
+                    "entity_name": c.get("entityName", c.get("entity_name", "")),
+                    "source_episodes": c.get("sourceEpisodes", c.get("source_episodes", [])),
+                }
+                for c in data.get("citations", []) or []
+            ],
+            "gaps": data.get("gaps", []) or [],
+            "used_entities": data.get("usedEntities", data.get("used_entities", [])) or [],
+        }
+    except Exception:
+        result = None
+
+    # Path 2: direct service call (backend down). Uses the configured litellm
+    # model + local sqlite-vec index via the service defaults.
+    if result is None:
+        try:
+            from api.services import ask_service
+
+            result = ask_service.answer_query(get_memory_path(), query, top_k=top_k)
+        except Exception as e:
+            return f"Error: could not answer ({type(e).__name__}: {e})"
+
+    return _render_ask(result)
+
+
+def _render_ask(result: dict) -> str:
+    lines = [result.get("answer", "").strip()]
+    confidence = result.get("confidence", 0.0)
+    try:
+        lines.append(f"\n_Confidence: {float(confidence):.2f}_")
+    except (TypeError, ValueError):
+        pass
+
+    gaps = result.get("gaps", []) or []
+    if gaps:
+        lines.append("\n**Could not answer / missing from memory:**")
+        lines.extend(f"- {g}" for g in gaps)
+
+    citations = result.get("citations", []) or []
+    if citations:
+        lines.append("\n**Citations:**")
+        for c in citations:
+            name = c.get("entity_name", c.get("entity_id", "?"))
+            eps = c.get("source_episodes", []) or []
+            ep_note = f" (episodes: {', '.join(eps)})" if eps else ""
+            lines.append(f"- [[{name}]]{ep_note}")
+
+    return "\n".join(lines).strip()
 
 
 def handle_save_url(url: str, note: str | None) -> str:

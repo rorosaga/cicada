@@ -120,6 +120,31 @@ class SearchResponse(CamelModel):
     results: list[SearchHit]
 
 
+# --- Ask (auditable NL synthesis over memory) ---
+
+
+class AskRequest(CamelModel):
+    query: str
+    top_k: int = 6
+
+
+class AskCitation(CamelModel):
+    entity_id: str
+    entity_name: str
+    file_path: str
+    snippet: str
+    source_episodes: list[str] = []
+
+
+class AskResponse(CamelModel):
+    answer: str
+    confidence: float
+    citations: list[AskCitation] = []
+    # The flagship gap-analysis field: explicit "what I could not answer".
+    gaps: list[str] = []
+    used_entities: list[str] = []
+
+
 # --- Entity context (progressive disclosure) ---
 
 

@@ -21,7 +21,17 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
   on real `memory/` (e.g. *"company I interned at"* → amazon). 7 tests green.
   - *Remaining cleanup:* remove `leann` dependency + delete `leann_indexer.py`; consider
     a one-off full reindex of the live 1,882-entity graph (~10–15 min CPU).
-- ⏭️ **M2 — `ask_memory` endpoint (D3=BOTH):** next.
+- ✅ **M2 — `ask_memory` endpoint (D3=BOTH):** `POST /ask` + `api/services/ask_service.py`
+  (`answer_query(memory_path, query, top_k, *, retrieve_fn=None, llm_fn=None)`). Auditable
+  synthesis: a grounded NL answer with **entity-level citations** (id, name, file_path,
+  snippet, source_episodes) and explicit **gap analysis** (honest "I don't have information
+  about X" — folds in A5). Empty/low retrieval => honest gap answer, low confidence, **no
+  LLM call, no hallucination**. Retrieval defaults to `SqliteVecIndexer.search_entities`,
+  synthesis to litellm JSON-mode per `Settings`; both injectable for hermetic tests.
+  `cicada_ask` MCP tool wraps it (prefers running backend, degrades to the service direct).
+  6 new TDD tests (`api/tests/test_ask_service.py`); full suite 13 green.
+  - *Follow-up (nice-to-have):* line-level git-blame citations (entity-level shipped);
+    request-time top_k tuning + answer caching.
 
 ## APPLY — buildable now (low architecture risk)
 
