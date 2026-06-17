@@ -98,7 +98,7 @@ struct UploadOverlay: View {
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .multilineTextAlignment(.center)
                 } else {
-                    Text("Drop a browser bookmarks export (HTML/JSON),\na Takeout watch-later file, or paste a URL below")
+                    Text("Drop a browser bookmarks export (HTML/JSON),\na Takeout file, an RSS/Atom feed (XML), or paste a URL below")
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .multilineTextAlignment(.center)
@@ -202,16 +202,27 @@ struct UploadOverlay: View {
         }
     }
 
+    /// Feed-file UTTypes for the "Saved media" picker. `.xml` is a system type;
+    /// `.rss`/`.atom` aren't, so derive them from the extension (nil-safe). These
+    /// route through `/sources/upload` -> `parse_upload` -> `parse_rss`.
+    private static let feedContentTypes: [UTType] = {
+        var types: [UTType] = [.xml]
+        for ext in ["rss", "atom"] {
+            if let t = UTType(filenameExtension: ext) { types.append(t) }
+        }
+        return types
+    }()
+
     private func pickFilesOrFolder() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = mode == .conversations
             ? [.json, .html]
-            : [.json, .html, .commaSeparatedText, .plainText]
+            : [.json, .html, .commaSeparatedText, .plainText] + Self.feedContentTypes
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.message = mode == .conversations
             ? "Select export files or a folder containing them"
-            : "Select bookmark exports, Takeout files, or URL lists"
+            : "Select bookmark exports, Takeout files, RSS/Atom feeds, or URL lists"
 
         guard panel.runModal() == .OK else { return }
         uploadURLs(panel.urls)
@@ -237,7 +248,7 @@ struct UploadOverlay: View {
     private func uploadURLs(_ urls: [URL]) {
         let allowedExts = mode == .conversations
             ? Set(["json", "html"])
-            : Set(["json", "html", "csv", "txt"])
+            : Set(["json", "html", "csv", "txt", "xml", "rss", "atom"])
         var filesToUpload: [URL] = []
         let fm = FileManager.default
         for url in urls {
@@ -263,7 +274,7 @@ struct UploadOverlay: View {
         guard !filesToUpload.isEmpty else {
             errorMessage = mode == .conversations
                 ? "No JSON or HTML files found"
-                : "No bookmark, Takeout, or URL-list files found"
+                : "No bookmark, Takeout, feed (XML/RSS/Atom), or URL-list files found"
             return
         }
 

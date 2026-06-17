@@ -326,6 +326,21 @@ def test_post_rss_requires_input(tmp_path, monkeypatch):
     assert resp.status_code == 422
 
 
+def test_post_rss_rejects_oversized_feed(tmp_path, monkeypatch):
+    """A feed past MAX_BATCH must 413 (parity with /sources/upload) rather than
+    ingesting unbounded inline. Build a feed with MAX_BATCH+1 unique items."""
+    client, _ = _make_client(tmp_path, monkeypatch)
+    n = media_ingestor.MAX_BATCH + 1
+    items = "".join(
+        f"<item><title>P{i}</title><link>https://big.example.com/{i}</link></item>"
+        for i in range(n)
+    )
+    feed = f'<rss version="2.0"><channel><title>Big</title>{items}</channel></rss>'
+    resp = client.post("/sources/rss", json={"feedXml": feed})
+    assert resp.status_code == 413, resp.text
+    assert str(media_ingestor.MAX_BATCH) in resp.json()["detail"]
+
+
 def test_get_sources_relevance_sort(tmp_path, monkeypatch):
     client, memory = _make_client(tmp_path, monkeypatch)
     client.post("/sources/rss", json={"feedXml": RSS_FEED})
@@ -344,6 +359,29 @@ def test_get_sources_relevance_sort(tmp_path, monkeypatch):
     assert rels == sorted(rels, reverse=True)
     # The knocked-down entity is last.
     assert items[-1]["mediaEntityId"] == entities[0].stem
+
+
+def test_get_sources_populates_site_from_frontmatter(tmp_path, monkeypatch):
+    """`site`/`channel` live in entity frontmatter (media.site/media.channel) but
+    were never read back into the /sources response, leaving the Swift FeedRow
+    site line and the site search filter permanently inert."""
+    client, memory = _make_client(tmp_path, monkeypatch)
+    client.post("/sources/rss", json={"feedXml": RSS_FEED})
+
+    # Stamp a known site + channel onto one entity's frontmatter.
+    entities = sorted((memory / "entities").glob("media-*.md"))
+    parsed = markdown_parser.parse(entities[0])
+    media = parsed.frontmatter.setdefault("media", {})
+    media["site"] = "blog.example.com"
+    media["channel"] = "Example Channel"
+    markdown_parser.write(entities[0], parsed.frontmatter, parsed.body)
+
+    resp = client.get("/sources")
+    assert resp.status_code == 200
+    by_id = {i["mediaEntityId"]: i for i in resp.json()["items"]}
+    item = by_id[entities[0].stem]
+    assert item["site"] == "blog.example.com"
+    assert item["channel"] == "Example Channel"
 
 
 # --- backfill: previously-untested primitives ------------------------------

@@ -169,6 +169,15 @@ async def ingest_rss(
     if not items:
         raise HTTPException(status_code=422, detail="No feed items found — not a valid RSS/Atom feed?")
 
+    # Bound the batch the same way /sources/upload does (sources.py:84-88): a
+    # large or malicious feed must not trigger N enrichment fetches + 2N file
+    # writes + a commit inline.
+    if len(items) > MAX_BATCH:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{len(items)} feed items exceeds the {MAX_BATCH}-item batch cap",
+        )
+
     # Carry request-level tags onto every item.
     if request.tags:
         for it in items:
@@ -219,6 +228,8 @@ async def list_sources(
         tags: list[str] = []
         relevance = 0.0
         personal_relevance = None
+        site = None
+        channel = None
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
@@ -231,6 +242,15 @@ async def list_sources(
                 relevance = media_ingestor.compute_relevance(fm)
                 pr = fm.get("personal_relevance")
                 personal_relevance = pr if isinstance(pr, str) and pr else None
+                # site/channel live in the entity frontmatter (media.site /
+                # media.channel), not the url_index — read them back so the
+                # FeedRow site line and site search filter actually work.
+                media = fm.get("media") or {}
+                if isinstance(media, dict):
+                    s = media.get("site")
+                    site = s if isinstance(s, str) and s else None
+                    c = media.get("channel")
+                    channel = c if isinstance(c, str) and c else None
             except Exception:
                 pass
         items.append(
@@ -239,6 +259,8 @@ async def list_sources(
                 url=entry.get("url", ""),
                 title=entry.get("title", ""),
                 media_type=entry.get("media_type", "url"),
+                site=site,
+                channel=channel,
                 thumbnail=entry.get("thumbnail"),
                 saved_at=entry.get("saved_at", ""),
                 tags=tags,

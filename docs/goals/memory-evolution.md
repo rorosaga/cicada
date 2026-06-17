@@ -129,10 +129,27 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
     `POST /sources/rss` + `GET /sources?sort=` via `TestClient`, plus backfill for
     `normalize_url`/`url_hash`/`parse_netscape_bookmarks`.
     Full suite **65 green** (was 41). `swift build` → `Build complete!` exit 0.
+  - **Post-review hardening (2 MUST-FIX + 1 wiring gap):** two independent adversarial reviews
+    converged on the same blockers, all now fixed TDD-first:
+    - **Unbounded RSS batch (robustness MUST-FIX):** `POST /sources/rss` now enforces the same
+      `MAX_BATCH` (2000) 413 guard `/sources/upload` has, so a large/malicious feed can't trigger
+      N enrichment fetches + 2N writes + a commit inline (`test_post_rss_rejects_oversized_feed`).
+    - **`site`/`channel` always `null` on the wire (correctness MUST-FIX):** `list_sources` now
+      reads `media.site`/`media.channel` back out of the entity frontmatter (they live there, not
+      in `url_index.json`), so the Swift `FeedRow` site line and the site-search filter — previously
+      permanently inert — actually receive data (`test_get_sources_populates_site_from_frontmatter`).
+    - **RSS connector unreachable from the app (UX MUST-FIX):** the "Saved media" upload overlay's
+      file picker (`allowedContentTypes`) and drag-drop filter (`allowedExts`) now accept
+      `.xml`/`.rss`/`.atom`, which `parse_upload` already routes to `parse_rss`. Dropping/choosing a
+      feed file now ingests through the existing upload path, making the `FeedView` "…or add an RSS
+      feed" empty-state copy truthful. (Swift `swift build` re-verified, exit 0.)
+    Full suite now **67 green**.
   - **Deferred:** **G2** (full media-type taxonomy expansion — research-paper/recipe/song/etc.)
     stays gated by D2 — left as a labeled TODO. Live `feedUrl` network fetch is implemented but
     flag-gated and untested (offline-by-design). Setting `personal_relevance`/`_weight` from the
-    app (the §3.2 write path) is read-only for now.
+    app (the §3.2 write path) is read-only for now. A dedicated **paste-feed-XML field** (vs.
+    the file-drop path now wired) and routing the `/sources/rss` endpoint through `ingest_feed`
+    to retire the test-only wrapper (review optional #4) are left as small follow-ups.
 
 ## APPLY — buildable now (low architecture risk)
 
