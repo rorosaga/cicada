@@ -4,6 +4,8 @@ from pathlib import Path
 import yaml
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
+from api.services import predicates
+from api.services.claims import parse_claims
 from api.services.markdown_parser import parse
 
 # Module-level mtime cache. The full (unfiltered) graph is expensive to build
@@ -61,13 +63,37 @@ def _build_full(memory_path: Path) -> GraphResponse:
 
     nodes: list[GraphNode] = []
     entity_ids: set[str] = set()
+    # M5b claim overlay (additive): per-subject observers/contexts from valid
+    # claims, plus a (subject, predicate, object) -> claim-id/context lookup that
+    # tags graph edges with their backing claim. Empty when no page has claims,
+    # so a claimless graph behaves exactly as before.
+    subject_observers: dict[str, set[str]] = {}
+    subject_contexts: dict[str, set[str]] = {}
+    edge_claim_index: dict[tuple[str, str, str], tuple[str, str]] = {}
+    all_observers: set[str] = set()
     for filepath in sorted(entities_dir.glob("*.md")):
         try:
-            fm = parse(filepath).frontmatter
+            parsed = parse(filepath)
+            fm = parsed.frontmatter
         except Exception:
             continue
         eid = filepath.stem
         entity_ids.add(eid)
+        try:
+            for claim in parse_claims(parsed.body):
+                if claim.valid_to is not None or claim.superseded_by:
+                    continue  # overlay reflects currently-valid beliefs only
+                if claim.observer:
+                    subject_observers.setdefault(eid, set()).add(claim.observer)
+                    all_observers.add(claim.observer)
+                if claim.context:
+                    subject_contexts.setdefault(eid, set()).add(claim.context)
+                if claim.predicate and claim.object:
+                    edge_claim_index.setdefault(
+                        (eid, claim.predicate, claim.object), (claim.id, claim.context)
+                    )
+        except Exception:
+            pass
         nodes.append(
             GraphNode(
                 id=eid,
@@ -78,6 +104,8 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 tags=fm.get("tags", []) or [],
                 degree=degree.get(eid, 0),
                 has_pending=eid in pending_ids,
+                observers=sorted(subject_observers.get(eid, set())),
+                contexts=sorted(subject_contexts.get(eid, set())),
             )
         )
 
@@ -124,9 +152,55 @@ def _build_full(memory_path: Path) -> GraphResponse:
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).
     valid_ids = entity_ids | {n.id for n in nodes if n.is_hub}
     links = [l for l in raw_links if l.source in valid_ids and l.target in valid_ids]
+
+    # M5b: tag each edge with the backing claim's id + context when a valid claim
+    # matches (subject, normalized-label, object). Additive — leaves context/
+    # claim_id None when no claim backs the edge. The claim index is keyed on the
+    # NORMALIZED predicate the seeder writes (e.g. "depends-on"), but raw edge
+    # labels are free-form ("depends on"), so normalize the label through the same
+    # predicate map before the lookup — otherwise every multi-word edge misses.
+    if edge_claim_index:
+        normalize = predicates.load_normalizer(memory_path)
+        for link in links:
+            hit = edge_claim_index.get(
+                (link.source, normalize(link.label), link.target)
+            )
+            if hit:
+                link.claim_id, link.context = hit[0], hit[1]
+
     links.extend(hub_links)
 
-    resp = GraphResponse(nodes=nodes, links=links)
+    # M5b: facet sub-nodes for subjects with claims in >=2 contexts (d2 §2c).
+    # Each satellite is `id: "<subject>#<context>"`, parentId=<subject>, joined
+    # to the parent by a short `facetOf` edge routed through the existing
+    # node-click channel.
+    facet_nodes: list[GraphNode] = []
+    facet_links: list[GraphLink] = []
+    node_by_id = {n.id: n for n in nodes}
+    for subject, contexts in subject_contexts.items():
+        if len(contexts) < 2 or subject not in node_by_id:
+            continue
+        parent = node_by_id[subject]
+        for ctx in sorted(contexts):
+            facet_nodes.append(
+                GraphNode(
+                    id=f"{subject}#{ctx}",
+                    name=ctx,
+                    type=parent.type,
+                    status=parent.status,
+                    confidence=parent.confidence,
+                    is_facet=True,
+                    parent_id=subject,
+                    context=ctx,
+                )
+            )
+            facet_links.append(
+                GraphLink(source=f"{subject}#{ctx}", target=subject, label="facetOf", context=ctx)
+            )
+    nodes.extend(facet_nodes)
+    links.extend(facet_links)
+
+    resp = GraphResponse(nodes=nodes, links=links, observers=sorted(all_observers))
     _CACHE.update(key=key, value=resp)
     return resp
 
@@ -164,7 +238,7 @@ def _apply_filters(
         kept_links = [
             l for l in full.links if l.source in kept_ids and l.target in kept_ids
         ]
-        return GraphResponse(nodes=kept_nodes, links=kept_links)
+        return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers)
 
     def keep(n: GraphNode) -> bool:
         if n.is_hub:
@@ -182,7 +256,7 @@ def _apply_filters(
     kept_nodes = [n for n in nodes if keep(n)]
     kept_ids = {n.id for n in kept_nodes}
     kept_links = [l for l in full.links if l.source in kept_ids and l.target in kept_ids]
-    return GraphResponse(nodes=kept_nodes, links=kept_links)
+    return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers)
 
 
 def _load_edges(memory_path: Path) -> list[GraphLink]:

@@ -106,6 +106,75 @@ class EntityResponse(CamelModel):
     history: list[EntityHistoryEntry]
 
 
+# --- Claims (M5b — the CPCG belief atom on the wire) ---
+
+
+class ClaimModel(CamelModel):
+    """One perspectival, bi-temporal claim, camelCase on the wire.
+
+    Mirrors :class:`api.services.claims.Claim` (the in-page YAML dataclass) and
+    the Swift ``Claim`` model in ``d2-companion-showcase.md`` §0 exactly — every
+    field that doc's ``Claim`` decodes is emitted here so the macOS app decodes
+    one shape across the claims / timeline / transclude surfaces. ``observer`` is
+    a plain wire string (``agent`` | ``rodrigo`` | ``external:<name>``); the app
+    parses it into its closed-core-plus-open-tail ``Observer`` enum.
+    """
+
+    id: str
+    text: str
+    subject: str = ""
+    predicate: str = ""
+    object: str = ""
+    object_kind: str = "node"
+    observer: str = "agent"
+    context: str = "general"
+    epistemic: str = "explicit"
+    source_trust: str = "agent_extracted"
+    confidence: float = 0.0
+    valid_from: str = ""
+    valid_to: Optional[str] = None
+    superseded_by: Optional[str] = None
+    supersedes: Optional[str] = None
+    source_episodes: list[str] = []
+    premises: list[str] = []
+    authored_by: str = "unknown"
+    origin: Optional[str] = None
+
+
+class ClaimListResponse(CamelModel):
+    claims: list[ClaimModel] = []
+
+
+class ClaimTimeline(CamelModel):
+    """One ``(subject, predicate, context)`` key's claims, newest first.
+
+    Includes superseded claims (this is the historical/contradiction view), so
+    the companion ``BeliefTimelineView`` can draw the ``superseded_by`` chain and
+    the validity-bar strip.
+    """
+
+    subject: str
+    predicate: str
+    context: str
+    claims: list[ClaimModel] = []
+
+
+class TransclusionPayload(CamelModel):
+    """Resolved ``![[…]]`` embed. ``resolved=False`` → render a soft "not found".
+
+    ``kind`` is ``entity`` | ``facet`` | ``claim``. For an entity/facet, ``summary``
+    is the generated one-liner; ``claims`` carries the facet/claim slice (``[]``
+    for a bare entity).
+    """
+
+    kind: str = "entity"
+    ref: str = ""
+    title: str = ""
+    summary: str = ""
+    claims: list[ClaimModel] = []
+    resolved: bool = False
+
+
 # --- Graph ---
 
 
@@ -126,17 +195,33 @@ class GraphNode(CamelModel):
     member_count: int = 0
     hub_kind: Optional[str] = None  # "type" | "tag" | None
     hub_id: Optional[str] = None    # member node -> its hub id, enables hub gravity
+    # M5b claim-layer overlay fields (all additive/optional — old graph
+    # consumers ignore them; the d3 graph lights up only when present). See
+    # d2-companion-showcase.md §2: observer badges, context-colored facet
+    # sub-nodes (isFacet/parentId/context). ``observers``/``contexts`` are the
+    # distinct wire-strings asserting claims about this subject.
+    observers: list[str] = []
+    contexts: list[str] = []
+    is_facet: bool = False
+    parent_id: Optional[str] = None
+    context: Optional[str] = None
 
 
 class GraphLink(CamelModel):
     source: str
     target: str
     label: str
+    # M5b: context-colored edges + click-through to a claim (additive/optional).
+    context: Optional[str] = None
+    claim_id: Optional[str] = None
 
 
 class GraphResponse(CamelModel):
     nodes: list[GraphNode]
     links: list[GraphLink]
+    # M5b: distinct observer roster across the graph, so the observer filter bar
+    # can populate its segments without a second call. Additive/optional.
+    observers: list[str] = []
 
 
 # --- Search ---
