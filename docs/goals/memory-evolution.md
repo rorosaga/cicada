@@ -11,6 +11,18 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
 
 ---
 
+## Implementation progress (branch `feat/memory-evolution`)
+
+- ✅ **M1 — storage spine (D1):** LEANN replaced by `SqliteVecIndexer` (sqlite-vec,
+  stored embeddings, derived/rebuildable). Entities + episodes + pending all ported;
+  all consumers rewired (sleep_cycle, entity_resolver, routers, mcp). **EmbeddingGemma-300M**
+  (768-dim, gated — HF auth done) is the default on-device backend, off the OpenAI API;
+  asymmetric query/document prompts; model+dim recorded in the index. Verified end-to-end
+  on real `memory/` (e.g. *"company I interned at"* → amazon). 7 tests green.
+  - *Remaining cleanup:* remove `leann` dependency + delete `leann_indexer.py`; consider
+    a one-off full reindex of the live 1,882-entity graph (~10–15 min CPU).
+- ⏭️ **M2 — `ask_memory` endpoint (D3=BOTH):** next.
+
 ## APPLY — buildable now (low architecture risk)
 
 | ID | Item | Notes | Status |
