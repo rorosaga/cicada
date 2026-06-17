@@ -3,12 +3,38 @@ from functools import lru_cache
 from pathlib import Path
 
 from loguru import logger
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
+
+from api.services.bank_registry import resolve_active_bank_path
 
 
 class Settings(BaseSettings):
-    # Memory storage
-    memory_path: Path = Path.home() / "cicada" / "memory"
+    # Memory storage.
+    #
+    # ``memory_root`` is the *container* for the whole memory system: the legacy
+    # in-place files (``<root>/entities``, ``<root>/episodes``, ``<root>/.git``)
+    # that are the synthetic ``default`` bank, the ``<root>/banks.yaml`` registry,
+    # and ``<root>/banks/<name>/`` for every non-legacy bank.
+    #
+    # ``memory_path`` (below) is the *resolved active bank* — a computed property
+    # so a bank switch (which mutates ``banks.yaml``, not this object) takes effect
+    # without a restart even though ``get_settings()`` is ``@lru_cache``d.
+    #
+    # The raw field accepts both ``CICADA_MEMORY_ROOT`` and the legacy
+    # ``CICADA_MEMORY_PATH`` env var (via ``validation_alias``) so existing
+    # installs + the test suite (which set ``CICADA_MEMORY_PATH``) keep working
+    # verbatim. With no ``banks.yaml`` on disk, ``memory_path`` returns the root
+    # unchanged — identical to pre-banks behavior.
+    memory_root: Path = Field(
+        default=Path.home() / "cicada" / "memory",
+        validation_alias=AliasChoices("CICADA_MEMORY_PATH", "CICADA_MEMORY_ROOT"),
+    )
+
+    @property
+    def memory_path(self) -> Path:
+        """The active memory bank's on-disk dir (resolved per-access)."""
+        return resolve_active_bank_path(self.memory_root)
 
     # Embedding backend for the vector index.
     #   "local"  -> sentence-transformers on-device (no API key, offline). Default.

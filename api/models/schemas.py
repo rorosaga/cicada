@@ -488,6 +488,49 @@ class ConversationUploadResponse(CamelModel):
     source: str = "unknown"
 
 
+# --- Memory Banks (M6) ---
+
+
+class BankInfo(CamelModel):
+    name: str
+    active: bool = False
+    entity_count: int = 0
+    episode_count: int = 0
+    created_at: str = ""
+    description: str = ""
+
+
+class BankListResponse(CamelModel):
+    banks: list[BankInfo] = []
+    active: str = ""
+
+
+class BankCreateRequest(CamelModel):
+    name: str
+    description: Optional[str] = None
+
+
+class BankDuplicateRequest(CamelModel):
+    new_name: str
+
+
+# --- Chat-history import (M7) ---
+
+
+class BankImportDateRange(CamelModel):
+    # Min / max original conversation date (YYYY-MM-DD) across staged episodes.
+    # Both ``None`` when nothing dated was staged (e.g. memories-only import).
+    from_: Optional[str] = Field(default=None, alias="from")
+    to: Optional[str] = None
+
+
+class BankImportResponse(CamelModel):
+    episodes_staged: int = 0
+    duplicates_skipped: int = 0
+    date_range: BankImportDateRange = Field(default_factory=BankImportDateRange)
+    format: str = "unknown"
+
+
 # --- Sources (media ingestion) ---
 
 
