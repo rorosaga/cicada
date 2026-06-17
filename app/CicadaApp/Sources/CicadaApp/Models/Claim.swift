@@ -185,8 +185,17 @@ struct TransclusionPayload: Codable {
     let summary: String       // generated card line, for entity/facet
     let claims: [Claim]       // Claim[] for facet/claim kinds; [] otherwise
     let resolved: Bool
+    // G11: when the transcluded ref resolves to a media entity, the backend MAY
+    // surface the image/thumbnail url here so the card renders the image inline
+    // instead of a text summary. Optional + decode-tolerant: nil against a
+    // backend that doesn't send it, in which case the card degrades to the
+    // existing text summary. (Frontend stream: inert until the backend emits it.)
+    let mediaURL: String?
+    let mediaType: String?
 
-    enum CodingKeys: String, CodingKey { case kind, ref, title, summary, claims, resolved }
+    enum CodingKeys: String, CodingKey {
+        case kind, ref, title, summary, claims, resolved, mediaURL, mediaType
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -196,14 +205,22 @@ struct TransclusionPayload: Codable {
         summary = try c.decodeIfPresent(String.self, forKey: .summary) ?? ""
         claims = try c.decodeIfPresent([Claim].self, forKey: .claims) ?? []
         resolved = try c.decodeIfPresent(Bool.self, forKey: .resolved) ?? false
+        mediaURL = try c.decodeIfPresent(String.self, forKey: .mediaURL)
+        mediaType = try c.decodeIfPresent(String.self, forKey: .mediaType)
     }
 
-    init(kind: String, ref: String, title: String, summary: String, claims: [Claim], resolved: Bool) {
+    init(
+        kind: String, ref: String, title: String, summary: String,
+        claims: [Claim], resolved: Bool,
+        mediaURL: String? = nil, mediaType: String? = nil
+    ) {
         self.kind = kind
         self.ref = ref
         self.title = title
         self.summary = summary
         self.claims = claims
         self.resolved = resolved
+        self.mediaURL = mediaURL
+        self.mediaType = mediaType
     }
 }

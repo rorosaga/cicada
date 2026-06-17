@@ -243,6 +243,58 @@ struct LocationListing: Codable {
     }
 }
 
+/// The nested `media:` block on a `media`-type entity (G11). Authoritative
+/// shape: `api/services/media_ingestor.py::write_media_entity`. Every field is
+/// optional/decode-tolerant — the backend may not surface this block yet (it
+/// gets reconstructed from `rawMarkdown` frontmatter as a fallback, see
+/// `Entity.init`), and individual keys (thumbnail/channel/site) are frequently
+/// null (Instagram is login-walled, generic URLs may lack og:image).
+struct MediaBlock: Codable, Equatable {
+    /// The original saved URL. The ONLY url ever loaded in a `WebView` — never
+    /// arbitrary request input (G11 security rule).
+    var url: String
+    /// `bookmark | youtube | instagram | url`. Drives `MediaPreview` dispatch.
+    var mediaType: String
+    var site: String?
+    var channel: String?
+    var thumbnail: String?
+    var savedAt: String?
+    var urlHash: String?
+
+    enum CodingKeys: String, CodingKey {
+        case url, mediaType, site, channel, thumbnail, savedAt, urlHash
+    }
+
+    init(
+        url: String, mediaType: String, site: String? = nil,
+        channel: String? = nil, thumbnail: String? = nil,
+        savedAt: String? = nil, urlHash: String? = nil
+    ) {
+        self.url = url
+        self.mediaType = mediaType
+        self.site = site
+        self.channel = channel
+        self.thumbnail = thumbnail
+        self.savedAt = savedAt
+        self.urlHash = urlHash
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        mediaType = try c.decodeIfPresent(String.self, forKey: .mediaType) ?? "url"
+        site = try c.decodeIfPresent(String.self, forKey: .site)
+        channel = try c.decodeIfPresent(String.self, forKey: .channel)
+        thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail)
+        savedAt = try c.decodeIfPresent(String.self, forKey: .savedAt)
+        urlHash = try c.decodeIfPresent(String.self, forKey: .urlHash)
+    }
+
+    /// True when there's a real url to preview. A media entity whose frontmatter
+    /// couldn't be parsed (empty url) shouldn't render a broken preview.
+    var hasURL: Bool { !url.isEmpty }
+}
+
 struct Entity: Identifiable, Codable {
     let id: String
     var name: String
@@ -265,6 +317,11 @@ struct Entity: Identifiable, Codable {
     /// EntityResponse; nil for non-location entities and for locations that
     /// don't (yet) carry a path.
     var path: String? = nil
+    /// G11 — the nested `media:` block, surfaced by the backend on `media`-type
+    /// entities. Decode-tolerant: nil for non-media entities and for an older
+    /// backend that doesn't surface it (in which case it's reconstructed from
+    /// `rawMarkdown` frontmatter, see `init`).
+    var media: MediaBlock? = nil
     var history: [EntityHistoryEntry]
 
     init(
@@ -293,7 +350,7 @@ struct Entity: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
         case decayRate, sourceEpisodes, tags, related, version
-        case markdownContent, rawMarkdown, path, history
+        case markdownContent, rawMarkdown, path, media, history
     }
 
     init(from decoder: Decoder) throws {
@@ -315,7 +372,73 @@ struct Entity: Identifiable, Codable {
         markdownContent = try c.decodeIfPresent(String.self, forKey: .markdownContent) ?? ""
         rawMarkdown = try c.decodeIfPresent(String.self, forKey: .rawMarkdown) ?? ""
         path = try c.decodeIfPresent(String.self, forKey: .path)
+        // Prefer the backend-surfaced `media` block; if absent (older backend
+        // that drops the nested block), reconstruct it from the `media:` YAML
+        // in `rawMarkdown` so previews still work. Skip for non-media entities.
+        if let decoded = try c.decodeIfPresent(MediaBlock.self, forKey: .media), decoded.hasURL {
+            media = decoded
+        } else if type == .media {
+            media = Entity.parseMediaFrontmatter(rawMarkdown)
+        } else {
+            media = nil
+        }
         history = try c.decodeIfPresent([EntityHistoryEntry].self, forKey: .history) ?? []
+    }
+
+    /// Fallback parser for the nested `media:` block when the backend hasn't
+    /// surfaced it on the response. Reads the indented `media:` sub-keys out of
+    /// the YAML frontmatter at the top of `rawMarkdown`. Tolerant and minimal:
+    /// it only needs `url`/`media_type` to drive a preview; anything missing
+    /// stays nil. Returns nil when there's no usable url.
+    static func parseMediaFrontmatter(_ raw: String) -> MediaBlock? {
+        guard !raw.isEmpty else { return nil }
+        // Isolate the leading `--- ... ---` frontmatter block.
+        let lines = raw.components(separatedBy: "\n")
+        guard let firstFence = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" })
+        else { return nil }
+        var fmLines: [String] = []
+        var inBlock = false
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "---" {
+                if inBlock { break }   // closing fence
+                inBlock = true
+                continue
+            }
+            if inBlock { fmLines.append(line) }
+        }
+        _ = firstFence
+        guard !fmLines.isEmpty else { return nil }
+        // Find the `media:` key, then read its indented child lines.
+        guard let mediaIdx = fmLines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("media:")
+        }) else { return nil }
+        var fields: [String: String] = [:]
+        for line in fmLines[(mediaIdx + 1)...] {
+            // Child lines are indented; a non-indented line ends the block.
+            guard line.first == " " || line.first == "\t" else { break }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let colon = trimmed.firstIndex(of: ":") else { continue }
+            let key = String(trimmed[..<colon]).trimmingCharacters(in: .whitespaces)
+            var value = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            // Strip surrounding quotes if present.
+            if value.count >= 2, value.first == "\"", value.last == "\"" {
+                value = String(value.dropFirst().dropLast())
+            }
+            if value == "null" || value == "~" { value = "" }
+            if !value.isEmpty { fields[key] = value }
+        }
+        let url = fields["url"] ?? ""
+        guard !url.isEmpty else { return nil }
+        return MediaBlock(
+            url: url,
+            mediaType: fields["media_type"] ?? "url",
+            site: fields["site"],
+            channel: fields["channel"],
+            thumbnail: fields["thumbnail"],
+            savedAt: fields["saved_at"],
+            urlHash: fields["url_hash"]
+        )
     }
 
     var createdDate: Date {

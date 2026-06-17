@@ -13,6 +13,9 @@ import SwiftUI
 enum MarkdownSegment {
     case text(AttributedString)
     case embed(ref: String)
+    // G11: an inline markdown image `![alt](url)`. Rendered as an
+    // `ImageThumbnail` (tap → lightbox), reusing the media preview machinery.
+    case image(url: String, alt: String)
 }
 
 struct TranscludingMarkdownView: View {
@@ -44,15 +47,35 @@ struct TranscludingMarkdownView: View {
                     } else {
                         TransclusionCard(ref: ref, depth: depth + 1, visited: visited.union([ref]))
                     }
+                case .image(let url, let alt):
+                    if let u = URL(string: url) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ImageThumbnail(url: u, width: 320, height: 180)
+                            if !alt.isEmpty {
+                                Text(alt)
+                                    .font(CicadaTheme.captionFont)
+                                    .foregroundStyle(CicadaTheme.textTertiary)
+                            }
+                        }
+                    } else {
+                        Text(alt.isEmpty ? url : alt)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    }
                 }
             }
         }
     }
 
-    /// Tokenize `body0` into text/embed segments. Embeds match `![[ref]]`; the
-    /// residual text is rendered with the shared wikilink highlighter.
+    /// Tokenize `body0` into text/embed/image segments. A single regex pass
+    /// matches BOTH `![[ref]]` wikilink embeds AND `![alt](url)` markdown images
+    /// (alternation; whichever group matched decides the segment kind — the
+    /// embed alternative is tried first so `![[x]]` never mis-parses as an
+    /// image). Residual text is rendered with the shared wikilink highlighter.
     private var segments: [MarkdownSegment] {
-        guard let regex = try? NSRegularExpression(pattern: "!\\[\\[(.+?)\\]\\]") else {
+        // Group 1: embed ref (`![[ref]]`). Groups 2/3: image alt + url (`![alt](url)`).
+        let pattern = "!\\[\\[(.+?)\\]\\]|!\\[([^\\]]*)\\]\\(([^)]+)\\)"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
             return [.text(renderWikilinks(body0))]
         }
         let nsText = body0 as NSString
@@ -64,8 +87,16 @@ struct TranscludingMarkdownView: View {
             if beforeRange.length > 0 {
                 out.append(.text(renderWikilinks(nsText.substring(with: beforeRange))))
             }
-            let ref = nsText.substring(with: match.range(at: 1))
-            out.append(.embed(ref: ref))
+            if match.range(at: 1).location != NSNotFound {
+                // `![[ref]]` embed.
+                out.append(.embed(ref: nsText.substring(with: match.range(at: 1))))
+            } else if match.range(at: 3).location != NSNotFound {
+                // `![alt](url)` markdown image.
+                let alt = match.range(at: 2).location != NSNotFound
+                    ? nsText.substring(with: match.range(at: 2)) : ""
+                let url = nsText.substring(with: match.range(at: 3))
+                out.append(.image(url: url, alt: alt))
+            }
             lastEnd = match.range.location + match.range.length
         }
         if lastEnd < nsText.length {
@@ -172,6 +203,20 @@ struct TransclusionCard: View {
         } else if let p = payload {
             if !p.resolved {
                 missingStub
+            } else if let media = p.mediaURL, let u = URL(string: media),
+                      MediaURLHelpers.isImageURL(media) {
+                // G11: a media entity that surfaced an image url → render the
+                // image inline (tap → lightbox) instead of a text summary.
+                // Degrades to the summary branches below when no image url is
+                // present (the common case until the backend emits it).
+                VStack(alignment: .leading, spacing: 4) {
+                    ImageThumbnail(url: u, width: 300, height: 170)
+                    if !p.summary.isEmpty {
+                        Text(p.summary)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                    }
+                }
             } else if p.kind == "claim" || p.kind == "facet" {
                 if p.claims.isEmpty {
                     Text(p.summary.isEmpty ? "No current claims." : p.summary)

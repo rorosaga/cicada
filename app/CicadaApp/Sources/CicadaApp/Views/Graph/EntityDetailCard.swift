@@ -195,6 +195,16 @@ struct EntityDetailCard: View {
                 .help("Copy markdown")
             }
 
+            // G11: rich media preview above the body for `media`-type entities.
+            if entity.type == .media, let media = entity.media, media.hasURL {
+                MediaPreview(model: MediaPreviewModel(
+                    block: media,
+                    title: entity.name,
+                    description: mediaDescription
+                ))
+                Divider().background(CicadaTheme.border)
+            }
+
             if showRawMarkdown {
                 rawMarkdownView
             } else {
@@ -337,6 +347,33 @@ struct EntityDetailCard: View {
         return unit == 0
             ? "\(bytes) \(units[unit])"
             : String(format: "%.1f %@", value, units[unit])
+    }
+
+    /// The `## Description` body section of a media entity, used as the website
+    /// preview card's description line. Falls back to `## Summary`. Returns nil
+    /// when neither is present.
+    private var mediaDescription: String? {
+        for header in ["## Description", "## Summary"] {
+            if let text = section(named: header, in: entity.markdownContent), !text.isEmpty {
+                return text
+            }
+        }
+        return nil
+    }
+
+    /// Extract the text under a `## Header` up to the next `## ` header (or EOF).
+    private func section(named header: String, in markdown: String) -> String? {
+        let lines = markdown.components(separatedBy: "\n")
+        guard let start = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces) == header
+        }) else { return nil }
+        var body: [String] = []
+        for line in lines[(start + 1)...] {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("## ") { break }
+            body.append(line)
+        }
+        let text = body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     private var renderedMarkdownView: some View {

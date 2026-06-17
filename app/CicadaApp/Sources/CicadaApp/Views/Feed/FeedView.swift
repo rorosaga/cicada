@@ -171,12 +171,14 @@ struct FeedView: View {
 private struct FeedRow: View {
     let item: MediaFeedItem
     @State private var isHovered = false
+    @State private var showPreview = false
 
     var body: some View {
         Button {
-            if let url = URL(string: item.url) {
-                NSWorkspace.shared.open(url)
-            }
+            // G11: tap opens an in-app rich preview (image lightbox, youtube
+            // player, or site card + WebView) instead of going straight to the
+            // browser. "Open externally" is still available inside the preview.
+            showPreview = true
         } label: {
             HStack(spacing: CicadaTheme.spacingMD) {
                 thumbnail
@@ -219,6 +221,9 @@ private struct FeedRow: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .sheet(isPresented: $showPreview) {
+            FeedItemPreviewSheet(item: item)
+        }
     }
 
     @ViewBuilder
@@ -257,5 +262,83 @@ private struct FeedRow: View {
                 .font(.system(size: 8))
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
+    }
+}
+
+// MARK: - Feed item preview (G11)
+//
+// In-app preview overlay for a tapped Feed row. Renders `MediaPreview` from the
+// row's `MediaFeedItem`, and best-effort enriches the website card's description
+// by fetching the backing media entity on open (the Feed payload has no
+// description). Degrades quietly: if the fetch fails, the preview still renders
+// without a description.
+private struct FeedItemPreviewSheet: View {
+    let item: MediaFeedItem
+    @Environment(\.dismiss) private var dismiss
+    @State private var enrichedDescription: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(item.title.isEmpty ? item.url : item.title)
+                    .font(CicadaTheme.headingFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(1)
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .background(CicadaTheme.surfaceHover)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(CicadaTheme.spacingLG)
+
+            Divider().background(CicadaTheme.border)
+
+            ScrollView {
+                MediaPreview(model: previewModel)
+                    .padding(CicadaTheme.spacingLG)
+            }
+        }
+        .frame(width: 480, height: 520)
+        .background(CicadaTheme.background)
+        .task {
+            // Enrich the description (only useful for website/bookmark cards).
+            guard enrichedDescription == nil else { return }
+            if let entity = try? await APIClient.shared.fetchEntity(id: item.mediaEntityId) {
+                enrichedDescription = Self.firstSection(
+                    ["## Description", "## Summary"],
+                    in: entity.markdownContent
+                )
+            }
+        }
+    }
+
+    private var previewModel: MediaPreviewModel {
+        var model = MediaPreviewModel(item: item)
+        model.description = enrichedDescription
+        return model
+    }
+
+    /// Extract the first present section body under one of the given headers.
+    private static func firstSection(_ headers: [String], in markdown: String) -> String? {
+        let lines = markdown.components(separatedBy: "\n")
+        for header in headers {
+            guard let start = lines.firstIndex(where: {
+                $0.trimmingCharacters(in: .whitespaces) == header
+            }) else { continue }
+            var body: [String] = []
+            for line in lines[(start + 1)...] {
+                if line.trimmingCharacters(in: .whitespaces).hasPrefix("## ") { break }
+                body.append(line)
+            }
+            let text = body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { return text }
+        }
+        return nil
     }
 }
