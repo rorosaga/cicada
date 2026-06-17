@@ -50,6 +50,7 @@ struct ContentView: View {
 struct GraphContainerView: View {
     @Binding var selectedTab: AppTab
     @Environment(GraphViewModel.self) private var graphVM
+    @Environment(BanksViewModel.self) private var banksVM
     @State private var showUploadOverlay = false
 
     var body: some View {
@@ -70,12 +71,16 @@ struct GraphContainerView: View {
                 Spacer()
             }
 
-            // Top-left: observer "who believes what" filter (§3a). Only renders
-            // once the graph carries observer data, otherwise EmptyView.
+            // Top-left: memory-bank ("Projects") switcher (M6) above the observer
+            // "who believes what" filter (§3a). The filter bar only renders once
+            // the graph carries observer data, otherwise EmptyView.
             VStack {
-                HStack {
-                    ObserverFilterBar()
-                        .padding(CicadaTheme.spacingLG)
+                HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                        BankSwitcher(banksVM: banksVM)
+                        ObserverFilterBar()
+                    }
+                    .padding(CicadaTheme.spacingLG)
                     Spacer()
                 }
                 Spacer()

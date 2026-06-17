@@ -6,6 +6,7 @@ struct CicadaApp: App {
     @State private var graphVM = GraphViewModel()
     @State private var inboxVM = InboxViewModel()
     @State private var sleepVM = SleepViewModel()
+    @State private var banksVM = BanksViewModel()
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
     @State private var menuPollTask: Task<Void, Never>?
@@ -26,6 +27,7 @@ struct CicadaApp: App {
                 .environment(graphVM)
                 .environment(inboxVM)
                 .environment(sleepVM)
+                .environment(banksVM)
                 .preferredColorScheme(.dark)
                 .onAppear {
                     backend.start()

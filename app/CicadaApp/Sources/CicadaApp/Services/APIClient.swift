@@ -8,6 +8,109 @@ struct UploadResponse: Codable {
     let source: String
 }
 
+// MARK: - Memory banks (M6/M7)
+
+/// One memory bank from `GET /banks`. Decode-tolerant — a legacy backend that
+/// omits the count/date fields still decodes (they default to 0 / "").
+struct MemoryBank: Codable, Identifiable {
+    let name: String
+    let active: Bool
+    let entityCount: Int
+    let episodeCount: Int
+    let createdAt: String
+    let description: String?
+
+    var id: String { name }
+
+    enum CodingKeys: String, CodingKey {
+        case name, active, entityCount, episodeCount, createdAt, description
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        active = (try? c.decode(Bool.self, forKey: .active)) ?? false
+        entityCount = (try? c.decode(Int.self, forKey: .entityCount)) ?? 0
+        episodeCount = (try? c.decode(Int.self, forKey: .episodeCount)) ?? 0
+        createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+    }
+}
+
+struct BanksResponse: Codable {
+    let banks: [MemoryBank]
+    let active: String?
+
+    enum CodingKeys: String, CodingKey { case banks, active }
+
+    init(banks: [MemoryBank], active: String?) {
+        self.banks = banks
+        // The backend's `active` defaults to "" (never null) when nothing is
+        // active; normalize that to nil so callers can treat "no active bank"
+        // uniformly and don't try to activate/duplicate the empty string.
+        self.active = (active?.isEmpty == true) ? nil : active
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        banks = (try? c.decode([MemoryBank].self, forKey: .banks)) ?? []
+        let rawActive = try c.decodeIfPresent(String.self, forKey: .active)
+        active = (rawActive?.isEmpty == true) ? nil : rawActive
+    }
+}
+
+/// Mirror of the backend's `sanitize_id` (`api/services/id_utils.py`): banks are
+/// keyed on disk by this slug, and `POST /banks/{name}/import` looks the bank up
+/// by the *exact* slug — it does NOT re-sanitize. So a name like "My Project" is
+/// created as `my-project`, and the import call must target `my-project`, not the
+/// raw typed string, or it 404s. Lowercases, replaces filesystem-unsafe chars and
+/// whitespace with hyphens, collapses runs, trims, falls back to "unnamed".
+func sanitizeBankSlug(_ name: String) -> String {
+    var s = name.lowercased()
+    // Filesystem-unsafe characters: / \ : * ? " < > | .
+    let unsafe = CharacterSet(charactersIn: "/\\:*?\"<>|.")
+    s = String(s.unicodeScalars.map { unsafe.contains($0) ? "-" : Character($0) })
+    s = s.replacingOccurrences(of: " ", with: "-")
+    // Collapse runs of hyphens.
+    while s.contains("--") { s = s.replacingOccurrences(of: "--", with: "-") }
+    s = s.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    return s.isEmpty ? "unnamed" : s
+}
+
+/// `POST /banks/{name}/import` result. The date range may be absent (empty
+/// import), so both ends are optional.
+struct BankImportResponse: Codable {
+    let episodesStaged: Int
+    let duplicatesSkipped: Int
+    let format: String?
+    let dateRange: BankImportDateRange?
+
+    enum CodingKeys: String, CodingKey {
+        case episodesStaged, duplicatesSkipped, format, dateRange
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        episodesStaged = (try? c.decode(Int.self, forKey: .episodesStaged)) ?? 0
+        duplicatesSkipped = (try? c.decode(Int.self, forKey: .duplicatesSkipped)) ?? 0
+        format = try c.decodeIfPresent(String.self, forKey: .format)
+        dateRange = try c.decodeIfPresent(BankImportDateRange.self, forKey: .dateRange)
+    }
+}
+
+struct BankImportDateRange: Codable {
+    let from: String?
+    let to: String?
+
+    enum CodingKeys: String, CodingKey { case from, to }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        from = try c.decodeIfPresent(String.self, forKey: .from)
+        to = try c.decodeIfPresent(String.self, forKey: .to)
+    }
+}
+
 // MARK: - Media feed (sources)
 
 /// One saved media item from `GET /sources` (camelCase decodes 1:1).
@@ -156,6 +259,95 @@ actor APIClient {
 
     func fetchGraph() async throws -> GraphResponse {
         return try await get("/graph")
+    }
+
+    // MARK: - Memory banks (M6/M7)
+
+    /// Bank names are user-supplied slugs; percent-encode as a path component
+    /// in case a name carries a space or stray character.
+    private func encodedBank(_ name: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "#$&+,/:;=?@")
+        return name.addingPercentEncoding(withAllowedCharacters: allowed) ?? name
+    }
+
+    /// `GET /banks` → all banks plus the active one. Returns an empty roster on
+    /// a 404 so the dropdown degrades gracefully on a pre-M6 backend.
+    func fetchBanks() async throws -> BanksResponse {
+        do {
+            return try await get("/banks")
+        } catch APIError.httpError(404, _) {
+            return BanksResponse(banks: [], active: nil)
+        }
+    }
+
+    /// `POST /banks` `{name, description?}` → create a NEW EMPTY bank. Returns
+    /// the on-disk **slug** the backend keyed the bank under (e.g. "My Project"
+    /// → "my-project"), which is what `activate`/`import` must target. The
+    /// backend echoes the full roster (`BankListResponse`); we prefer the
+    /// matching slug found in that roster, falling back to the locally-mirrored
+    /// `sanitizeBankSlug` if the roster decode is unusable.
+    @discardableResult
+    func createBank(name: String, description: String? = nil) async throws -> String {
+        var body: [String: Any] = ["name": name]
+        if let description, !description.isEmpty { body["description"] = description }
+        let expectedSlug = sanitizeBankSlug(name)
+        // The backend echoes the full roster; decode it (and ignore the value).
+        // The just-created bank is keyed under `sanitizeBankSlug(name)`, which
+        // deterministically matches the backend's `sanitize_id`, so that slug is
+        // authoritative whether or not the roster decode is usable.
+        let resp: BanksResponse = try await post("/banks", body: body)
+        if let landed = resp.banks.first(where: { $0.name == expectedSlug })?.name {
+            return landed
+        }
+        return expectedSlug
+    }
+
+    /// `POST /banks/{name}/activate` → switch the active bank.
+    func activateBank(name: String) async throws {
+        try await post("/banks/\(encodedBank(name))/activate")
+    }
+
+    /// `POST /banks/{name}/duplicate` `{newName}` → "save current under a name".
+    @discardableResult
+    func duplicateBank(name: String, newName: String) async throws -> Data {
+        return try await post("/banks/\(encodedBank(name))/duplicate", body: ["newName": newName])
+    }
+
+    /// `POST /banks/{name}/import` (multipart file) → stage parsed conversations
+    /// into bank `name` as dated episodes. Format is auto-detected server-side.
+    func importToBank(name: String, fileURL: URL) async throws -> BankImportResponse {
+        let url = URL(string: "\(baseURL)/banks/\(encodedBank(name))/import")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        let fileData = try Data(contentsOf: fileURL)
+        let filename = fileURL.lastPathComponent
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverUnreachable
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.httpError(http.statusCode, msg)
+        }
+        do {
+            return try decoder.decode(BankImportResponse.self, from: data)
+        } catch {
+            throw APIError.decodingError("\(error)")
+        }
     }
 
     // MARK: - Entities
