@@ -91,11 +91,19 @@ USER_AUTHOR = "user"
 # Model-id -> provider classification. We key on stable id substrings/prefixes
 # (provider level, not per-model). LiteLLM-style "provider/model" ids are
 # handled because the substring still appears (e.g. "anthropic/claude-...").
+#
+# These markers are distinctive enough to be safe as bare substring matches.
 _PROVIDER_SUBSTRINGS = (
-    ("openai", ("gpt", "o1", "o3", "text-embedding")),
+    ("openai", ("gpt", "text-embedding")),
     ("anthropic", ("claude",)),
     ("google", ("gemini", "gemma")),
 )
+
+# OpenAI o-series markers are too short to match as bare substrings (they would
+# false-positive on ids like "macro1"/"retro3"). They must match only as an
+# anchored token: the whole id, a prefix ("o1-..."), or a hyphen-/slash-delimited
+# token ("openai/o1-pro").
+_OPENAI_O_SERIES = ("o1", "o3")
 
 
 def _classify_author_kind(author: str) -> str:
@@ -119,6 +127,10 @@ def _provider_for_model(author: str) -> str | None:
     for provider, markers in _PROVIDER_SUBSTRINGS:
         if any(marker in a for marker in markers):
             return provider
+    # o-series: anchored token match only (whole id / prefix / delimited token),
+    # so "macro1"/"retro3" do not misclassify as OpenAI.
+    if any(re.search(rf"(?:^|[/-]){re.escape(m)}(?:$|[/-])", a) for m in _OPENAI_O_SERIES):
+        return "openai"
     return "other"
 
 

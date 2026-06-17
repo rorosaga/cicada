@@ -311,14 +311,16 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
 
 - ✅ **G15 — contributor avatars / visual identity (TDD backend + build-verified Swift, additive,
   backward-compatible):** each contributor on M3's `/contributors` view gets a GitHub-repo-contributors-style
-  identity. Built on `feat/memory-evolution`; **+11 backend tests, full suite 232 green** (no network/model
+  identity. Built on `feat/memory-evolution`; **+12 backend tests, full suite 233 green** (no network/model
   in tests); `swift build` exit 0.
   - **Schema (`Contributor`, camelCase wire):** three additive, defaulted fields so the wire stays
     backward-compatible — `kind` ("user" | "model" | "unknown"), `provider` ("openai" | "anthropic" |
     "google" | "other" | null), `avatar_url` (string | null).
   - **Derivation (`git_service`):** `_classify_author_kind` (`user`→user, `unknown`→unknown, else model);
-    `_provider_for_model` (lower-cased substring/prefix: `gpt`/`o1`/`o3`/`text-embedding`→openai,
-    `claude`→anthropic, `gemini`/`gemma`→google, else `other`; null for user/unknown); `avatar_url` for the
+    `_provider_for_model` (lower-cased: distinctive markers `gpt`/`text-embedding`→openai,
+    `claude`→anthropic, `gemini`/`gemma`→google as substrings; the short OpenAI o-series `o1`/`o3` match
+    only as an **anchored token** — whole id / prefix / `[/-]`-delimited — so ids like `macro1`/`retro3`
+    don't false-positive as openai; else `other`; null for user/unknown); `avatar_url` for the
     `user` author = `https://github.com/<handle>.png` where `<handle>` comes from the new optional
     `Settings.github_user` (`CICADA_GITHUB_USER`), else the repo's `git remote get-url origin` GitHub path
     (`_github_handle_from_remote_url` handles both https + `git@` ssh forms), else null — derived safely

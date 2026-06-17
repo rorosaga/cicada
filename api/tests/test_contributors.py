@@ -167,6 +167,15 @@ def test_classify_author_kind_user_model_unknown():
 def test_provider_for_model_openai():
     for mid in ["gpt-5.4-mini", "gpt-4o", "o1-preview", "o3-mini", "text-embedding-3-small"]:
         assert git_service._provider_for_model(mid) == "openai", mid
+    # o-series anchored forms: bare id, hyphen-prefixed token, provider-prefixed.
+    for mid in ["o1", "o3", "openai/o1-pro", "o3-2025-04-16"]:
+        assert git_service._provider_for_model(mid) == "openai", mid
+
+
+def test_provider_for_model_o_series_not_unanchored_substring():
+    # "o1"/"o3" must NOT match as bare substrings of unrelated ids.
+    for mid in ["macro1", "no1se", "retro3-model", "calico1"]:
+        assert git_service._provider_for_model(mid) == "other", mid
 
 
 def test_provider_for_model_anthropic():
