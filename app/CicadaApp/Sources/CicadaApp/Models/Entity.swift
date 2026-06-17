@@ -73,9 +73,26 @@ enum HistoryChangeType: String, Codable {
 struct EntityDiff: Codable, Equatable {
     let added: String
     let removed: String
+    // True when the backend clipped the diff at DIFF_MAX_LINES (a truncation
+    // marker line is appended to the affected side). decodeIfPresent so an older
+    // backend that doesn't send this field still decodes (defaults to false).
+    let truncated: Bool
 
     enum CodingKeys: String, CodingKey {
-        case added, removed
+        case added, removed, truncated
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        added = try c.decodeIfPresent(String.self, forKey: .added) ?? ""
+        removed = try c.decodeIfPresent(String.self, forKey: .removed) ?? ""
+        truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+    }
+
+    init(added: String, removed: String, truncated: Bool = false) {
+        self.added = added
+        self.removed = removed
+        self.truncated = truncated
     }
 }
 

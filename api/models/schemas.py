@@ -46,9 +46,12 @@ class NudgeType(str, Enum):
 
 class EntityDiff(CamelModel):
     # Added / removed line blocks for one entity file at one commit, newline-joined.
-    # Bounded by the caller so the response can't explode on a huge rewrite.
+    # git_service caps each side at DIFF_MAX_LINES so the response can't explode on
+    # a huge rewrite; when the cap is hit a truncation marker is appended to the
+    # affected side and ``truncated`` is set so the client can show "diff clipped".
     added: str = ""
     removed: str = ""
+    truncated: bool = False
 
 
 class EntityHistoryEntry(CamelModel):

@@ -25,6 +25,19 @@ AUTHOR_TRAILER = "Cicada-Author"
 _AUTHOR_RE = re.compile(rf"^{AUTHOR_TRAILER}:\s*(.+?)\s*$")
 UNKNOWN_AUTHOR = "unknown"
 
+# A git object name is 7-40 hex chars. We validate any *caller-supplied* commit
+# hash against this before handing it to git so a flag-like value (e.g.
+# "--output=/tmp/x") can never be parsed by git as an option (arg injection ->
+# arbitrary file write). Matches the blame-hash regex used internally below.
+_COMMIT_HASH_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+# Hard cap on diff lines returned per side so one giant rewrite can't produce an
+# unbounded response (the per-commit diff is also inlined once per commit when
+# history is fetched with include_diff=True). A truncation marker is appended
+# and ``EntityDiff.truncated`` is set when the cap is hit.
+DIFF_MAX_LINES = 400
+_DIFF_TRUNCATION_MARKER = "... [diff truncated]"
+
 
 def build_commit_message(
     subject: str,
@@ -80,8 +93,10 @@ async def _run_git(memory_path: Path, *args: str) -> str:
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        raise GitError(f"git {' '.join(args)} failed: {stderr.decode()}")
-    return stdout.decode()
+        raise GitError(f"git {' '.join(args)} failed: {stderr.decode(errors='replace')}")
+    # ``errors="replace"`` so a non-UTF-8 entity file (porcelain blame embeds the
+    # raw file bytes) degrades gracefully instead of raising a 500.
+    return stdout.decode(errors="replace")
 
 
 async def get_entity_history(
@@ -201,7 +216,16 @@ async def get_entity_commit_diff(
 
     Returns an empty diff (not an error) when the commit is missing or the file
     didn't change in it — callers render "no diff" rather than failing.
+
+    ``commit_hash`` is validated against ``_COMMIT_HASH_RE`` before reaching git:
+    a non-hex / flag-like value (e.g. ``--output=/tmp/x``) is rejected here, so it
+    can never be parsed by ``git show`` as an option (arg-injection guard). The
+    ``--end-of-options`` token is also passed so a future hex-only edge can't be
+    treated as a flag. Output is bounded by ``DIFF_MAX_LINES`` per side.
     """
+    if not _COMMIT_HASH_RE.match(commit_hash):
+        return EntityDiff(added="", removed="", truncated=False)
+
     entity_file = f"entities/{entity_id}.md"
     try:
         out = await _run_git(
@@ -210,25 +234,43 @@ async def get_entity_commit_diff(
             "--format=",
             "--no-color",
             "--unified=0",
+            "--end-of-options",
             commit_hash,
             "--",
             entity_file,
         )
     except GitError:
-        return EntityDiff(added="", removed="")
+        return EntityDiff(added="", removed="", truncated=False)
 
     added: list[str] = []
     removed: list[str] = []
+    truncated = False
     for line in out.splitlines():
         # Skip diff headers (+++/---) and hunk markers (@@).
         if line.startswith("+++") or line.startswith("---") or line.startswith("@@"):
             continue
         if line.startswith("+"):
+            if len(added) >= DIFF_MAX_LINES:
+                truncated = True
+                continue
             added.append(line[1:])
         elif line.startswith("-"):
+            if len(removed) >= DIFF_MAX_LINES:
+                truncated = True
+                continue
             removed.append(line[1:])
 
-    return EntityDiff(added="\n".join(added), removed="\n".join(removed))
+    if truncated:
+        if added:
+            added.append(_DIFF_TRUNCATION_MARKER)
+        if removed:
+            removed.append(_DIFF_TRUNCATION_MARKER)
+
+    return EntityDiff(
+        added="\n".join(added),
+        removed="\n".join(removed),
+        truncated=truncated,
+    )
 
 
 async def get_contributors(memory_path: Path) -> list[Contributor]:
@@ -337,7 +379,9 @@ async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:
             try:
                 diff_output = await _run_git(
                     memory_path,
-                    "diff-tree", "--no-commit-id", "--name-only", "-r", commit_hash,
+                    "diff-tree", "--no-commit-id", "--name-only", "-r",
+                    "--root",  # so the initial (parentless) commit lists its files
+                    commit_hash,
                 )
                 files = [f for f in diff_output.strip().splitlines() if f]
             except GitError:

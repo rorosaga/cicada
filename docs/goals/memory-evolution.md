@@ -64,15 +64,27 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
     dedicated `GET /entities/{id}/history/{commit}/diff`. Each history entry now also carries
     `author` + `commit_hash` (per-entity attribution, A2). Schema: `EntityDiff`; extended
     `EntityHistoryEntry`.
-  - **Tests:** 14 new hermetic TDD tests in `api/tests/test_contributors.py` (throwaway git repo
+  - **Security/robustness hardening (post-review):** the public diff endpoint validates
+    `commit_hash` against `^[0-9a-fA-F]{7,40}$` (`_COMMIT_HASH_RE`) and passes `--end-of-options`
+    before handing it to `git show`, closing an arg-injection / arbitrary-file-write vector
+    (a flag-like `--output=...` hash). The diff is **actually bounded** now: `DIFF_MAX_LINES`
+    (400/side) cap + a truncation marker + an `EntityDiff.truncated` flag — the schema comment
+    no longer claims an unenforced bound. `_run_git` decodes with `errors="replace"` so a
+    non-UTF-8 entity file degrades instead of 500ing; `get_sleep_history` gained `--root` so the
+    initial commit lists its files (parity with `get_contributors`).
+  - **Tests:** 20 hermetic TDD tests in `api/tests/test_contributors.py` (throwaway git repo
     with hand-crafted trailers; never touches live `memory/`): contributor aggregation
     (model vs `user` vs `unknown`), per-entity authoring model, per-commit diff content,
-    non-git-dir + missing-commit graceful empties, and router wiring. Full suite **35 green**.
+    non-git-dir + missing-commit graceful empties, router wiring, plus the post-review cases
+    (flag-like/non-hex hash rejection with no file write, diff bounding/truncation,
+    non-UTF-8 graceful path, root-commit file listing). Full suite **41 green**.
   - **SwiftUI (NOT build-verified — needs Xcode):** `APIClient` methods (`fetchContributors`,
     `fetchEntityHistory(includeDiff:)`, `fetchEntityCommitDiff`); models (`EntityDiff`,
     `Contributor`, `ContributorsResponse`, extended `EntityHistoryEntry`); a new
     `ContributorsView` + `ContributorsViewModel`; author badge + inline diff in the
     `EntityDetailCard` history tab. The `ContributorsView` is **not wired into sidebar nav** yet.
+    `EntityDiff` gained a `truncated` flag (decoded with `decodeIfPresent`, robust to old
+    backends) and `fetchEntityCommitDiff` now percent-encodes the commit hash for consistency.
 
 ## APPLY — buildable now (low architecture risk)
 

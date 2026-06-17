@@ -153,6 +153,26 @@ def test_contributors_on_non_git_dir_returns_empty(tmp_path):
     assert run(git_service.get_contributors(tmp_path / "nope")) == []
 
 
+# --- OPTIONAL #2: sleep history lists files for the root commit --------------
+
+
+def test_sleep_history_root_commit_lists_files(repo):
+    """The initial (parentless) sleep-cycle commit must still report its files."""
+    _write_entity(repo, "alpha", "v1")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle 2026-06-15",
+            body_lines=["entities/alpha.md: created (trigger: sleep/extraction)"],
+            authors=["gpt-5.4-mini"],
+        ),
+    )
+    history = run(git_service.get_sleep_history(repo))
+    assert history
+    root = history[-1]  # log is newest-first; the root commit is last
+    assert "entities/alpha.md" in root.files_changed
+
+
 # --- per-entity authoring ---------------------------------------------------
 
 
@@ -224,6 +244,114 @@ def test_entity_commit_diff_missing_commit_returns_empty(repo):
     )
     diff = run(git_service.get_entity_commit_diff("alpha", "deadbeef" * 5, repo))
     assert diff.added == "" and diff.removed == ""
+
+
+# --- MUST-FIX #1: argument injection via commit_hash ------------------------
+
+
+def test_entity_commit_diff_rejects_flag_like_commit_hash_no_file_write(repo, tmp_path):
+    """A commit_hash beginning with '-' must NOT be parsed by git as a flag.
+
+    Reproduces the reported arg-injection: `git show --output=<path>` would write
+    an arbitrary file. A malformed/hostile hash must yield an empty diff and write
+    nothing.
+    """
+    _write_entity(repo, "alpha", "alpha v1\n")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    pwned = tmp_path / "PWNED"
+    assert not pwned.exists()
+
+    diff = run(git_service.get_entity_commit_diff("alpha", f"--output={pwned}", repo))
+
+    # No file written, and the call degrades to an empty diff rather than 500ing.
+    assert not pwned.exists()
+    assert diff.added == "" and diff.removed == ""
+
+
+def test_entity_commit_diff_rejects_non_hex_commit_hash(repo):
+    """Anything that isn't a 7-40 char hex sha is rejected -> empty diff."""
+    _write_entity(repo, "alpha", "alpha v1\n")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    for bad in ["HEAD", "main..HEAD", "../etc", "zzzzzzz", "a" * 41, "abc"]:
+        diff = run(git_service.get_entity_commit_diff("alpha", bad, repo))
+        assert diff.added == "" and diff.removed == "", bad
+
+
+# --- MUST-FIX #2: diff output must be bounded -------------------------------
+
+
+def test_entity_commit_diff_is_bounded(repo):
+    """A huge rewrite must not produce an unbounded payload; output is capped
+    and flagged truncated."""
+    _write_entity(repo, "alpha", "seed\n")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    big = "\n".join(f"line {i}" for i in range(5000)) + "\n"
+    _write_entity(repo, "alpha", big)
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+
+    diff = run(git_service.get_entity_commit_diff("alpha", sha, repo))
+    added_lines = diff.added.splitlines()
+    # Capped well below the 5000 added lines.
+    assert len(added_lines) <= git_service.DIFF_MAX_LINES + 1
+    assert diff.truncated is True
+    assert any("truncat" in ln.lower() for ln in added_lines[-2:])
+
+
+def test_entity_commit_diff_small_diff_not_truncated(repo):
+    _write_entity(repo, "alpha", "alpha v1\n")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    _write_entity(repo, "alpha", "alpha v2\n")
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    diff = run(git_service.get_entity_commit_diff("alpha", sha, repo))
+    assert diff.truncated is False
+
+
+# --- OPTIONAL #3: non-UTF-8 file degrades gracefully (no 500) ----------------
+
+
+def test_entity_history_non_utf8_file_does_not_raise(repo):
+    """A non-UTF-8 entity file must not blow up blame parsing with a 500."""
+    (repo / "entities" / "bin.md").write_bytes(b"valid line\n\xff\xfe binary\n")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/bin.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    # Must not raise UnicodeDecodeError.
+    history = run(git_service.get_entity_history("bin", repo))
+    assert isinstance(history, list)
+    assert history and history[0].author == "gpt-5.4-mini"
 
 
 def test_entity_history_include_diff_populates_diff_field(repo):

@@ -133,8 +133,11 @@ actor APIClient {
     }
 
     /// Per-commit add/remove diff for one entity file (backlog A1). NOT BUILD-VERIFIED.
+    /// The backend validates commitHash against ^[0-9a-fA-F]{7,40}$ and rejects
+    /// anything else, but we still percent-encode it (like the id) for consistency
+    /// and defense-in-depth against a malformed value in the path.
     func fetchEntityCommitDiff(id: String, commitHash: String) async throws -> EntityDiff {
-        return try await get("/entities/\(encodedID(id))/history/\(commitHash)/diff")
+        return try await get("/entities/\(encodedID(id))/history/\(encodedID(commitHash))/diff")
     }
 
     // MARK: - Contributors
