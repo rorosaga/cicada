@@ -67,10 +67,16 @@ struct UploadOverlay: View {
                     errorMessage = nil
                 }
 
-                Image(systemName: iconName)
-                    .font(.system(size: 44))
-                    .foregroundStyle(isDragOver ? CicadaTheme.accent : CicadaTheme.textTertiary)
-                    .symbolEffect(.pulse, isActive: isUploading)
+                // The same bookworm mascot as the menu bar: it chews
+                // (`.digesting`) while ingesting, beams (`.happy`) on success,
+                // and idles (`.awake`) otherwise. Reuses deriveBookwormState
+                // semantics by passing the state directly.
+                BookwormView(
+                    state: mascotState,
+                    pointSize: 72,
+                    tint: isDragOver ? CicadaTheme.accent : CicadaTheme.textSecondary
+                )
+                .frame(height: 72)
 
                 Text(isUploading ? "Uploading..." : (mode == .conversations ? "Upload Conversations" : "Save Bookmarks & Links"))
                     .font(.system(size: 18, weight: .semibold))
@@ -157,9 +163,12 @@ struct UploadOverlay: View {
         }
     }
 
-    private var iconName: String {
-        if isUploading { return "arrow.up.circle" }
-        return mode == .conversations ? "arrow.up.doc.fill" : "bookmark.fill"
+    /// Mascot mood for the ingestion overlay: chewing while ingesting, happy on
+    /// a successful result, idle otherwise.
+    private var mascotState: BookwormState {
+        if isUploading { return .digesting }
+        if uploadResult != nil { return .happy }
+        return .awake
     }
 
     /// Friendly message when the sources backend hasn't shipped yet (404).

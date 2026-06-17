@@ -86,6 +86,54 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
     `EntityDiff` gained a `truncated` flag (decoded with `decodeIfPresent`, robust to old
     backends) and `fetchEntityCommitDiff` now percent-encodes the commit hash for consistency.
 
+- ✅ **M4 — media feed + RSS connector + ingestion bookworm (R6 RSS half + G3 + §3.1/§3.4):**
+  three pieces built on the existing media-ingestion engine — no new consolidation code.
+  - **RSS/Atom connector (R6):** `media_ingestor.parse_rss(xml)` (stdlib `xml.etree`,
+    namespace-tolerant, handles RSS `channel/item` + Atom `entry`, prefers Atom
+    `rel="alternate"` links, `category`→tags, `content:encoded`/`description`/`summary`→note,
+    skips link-less entries, returns `[]` on malformed XML). A feed is just another producer
+    of `RawItem`s — it flows through the **existing** `_dedup_items` → `ingest_batch` →
+    url_index/episode/entity path; Sleep Stage 5.55 (`inject_media_edges`) wires the resulting
+    `media` entities unchanged. Thin `ingest_feed(xml, …)` convenience. `parse_upload` now also
+    dispatches `.xml`/`.rss`/`.atom` (source label "RSS Feed") so dropping a feed file in the
+    upload UI just works. **No new `rss` media_type** — reuses `url`/`youtube` via `_classify`
+    so graph colors/filters are untouched. New `POST /sources/rss` (body
+    `SourceRssRequest{feedXml?, feedUrl?, tags}`): `feedXml` ingests inline (keyless, offline);
+    `feedUrl` is gated behind `CICADA_ALLOW_FEED_FETCH=1` (network off by default, never hit in
+    tests). Reuses the `SourceUploadResponse` envelope.
+  - **Relevance-sorted feed (§3.4 / G3):** `media_ingestor.compute_relevance(fm)` =
+    `confidence × recency_decay × personal_weight`, clamped to `[0,1]`, where
+    `recency_decay = exp(-decay_rate × weeks_since_last_referenced)` (mirrors the graph's
+    temporal-decay model) and `personal_weight = personal_relevance_weight` (new **optional**
+    frontmatter field, default 1.0; a `personal_relevance` note string is also read-if-present).
+    `GET /sources` now computes `relevance` per item and takes `?sort=relevance|recent`
+    (default `recent` for back-compat). `MediaSourceItem` gained `relevance` + `personalRelevance`.
+    No second `/feed` endpoint — the existing `list_sources` body was reused.
+  - **Ingestion bookworm (§3.1 / A3):** new reusable `Views/Common/BookwormView.swift` — a pure
+    SwiftUI view that animates `BookwormSprites.frames(for:)` via a `Timer` (torn down on
+    `onDisappear`), rendered through the proven `BookwormRenderer.image(grid:…)` primitive
+    (the same one `InboxListView`'s empty state uses statically). Dropped into
+    `UploadOverlay` replacing the static SF-symbol: it chews (`.digesting`) while ingesting,
+    beams (`.happy`) on success, idles (`.awake`) otherwise — the **same** mascot as the menu bar.
+  - **SwiftUI feed view (build-verified):** new `Views/Feed/FeedView.swift` +
+    `ViewModels/FeedViewModel.swift` (`@Observable`, `fetchSources(sort:)`), a `Feed` sidebar tab
+    (`AppTab.feed`, icon `photo.stack`) + `ContentView` branch. Rows show thumbnail (`AsyncImage`),
+    title, media-type chip (`mediaPink`), site, and a relevance %; click opens the URL.
+    `APIClient` gained `fetchSources(sort:)` (404→`[]`) + `ingestRSS(feedXml:)`; new
+    `MediaFeedItem`/`SourceListResponse` Codable models.
+  - **Tests:** 24 hermetic TDD tests in `api/tests/test_sources.py` (tmp dirs, inline fixture
+    XML, enrichment monkeypatched to the offline fallback so **no network**): `parse_rss`
+    (RSS/Atom/fields/YouTube-canonicalization/dedup/malformed), `parse_upload` feed dispatch,
+    end-to-end `ingest_feed` create + idx-dedup + in-batch-dedup, `compute_relevance`
+    (freshness/age/personal-weight/clamp/missing-fields),
+    `POST /sources/rss` + `GET /sources?sort=` via `TestClient`, plus backfill for
+    `normalize_url`/`url_hash`/`parse_netscape_bookmarks`.
+    Full suite **65 green** (was 41). `swift build` → `Build complete!` exit 0.
+  - **Deferred:** **G2** (full media-type taxonomy expansion — research-paper/recipe/song/etc.)
+    stays gated by D2 — left as a labeled TODO. Live `feedUrl` network fetch is implemented but
+    flag-gated and untested (offline-by-design). Setting `personal_relevance`/`_weight` from the
+    app (the §3.2 write path) is read-only for now.
+
 ## APPLY — buildable now (low architecture risk)
 
 | ID | Item | Notes | Status |
@@ -121,7 +169,7 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
 |----|------|-------|--------|
 | G1 | **Multiple memory banks / "memory projects"** | Several versioned memory banks for re-consolidating past conversations (another model, or parallel ongoing banks for testing). Banks cross-reference. → ties to D2/D4. | ❓ |
 | G2 | **Extend entity taxonomy** | New types: website/bookmark, research paper, idea, project-note, recipe, song/media, … Reference e.g. a song on another entity's wiki page with a personal-relevance note. → gated by D2. | ❓ |
-| G3 | **Bookworm "feed" knowledge page** | Sync-driven feed (bookmarks first), each item an entity with summary + *personal* relevance. Filterable view across articles/bookmarks/songs by a **relevance metric**. | ❓ |
+| G3 | **Bookworm "feed" knowledge page** | Sync-driven feed (bookmarks first), each item an entity with summary + *personal* relevance. Filterable view across articles/bookmarks/songs by a **relevance metric**. | ✅ (M4 — RSS connector + `GET /sources?sort=relevance` + `FeedView`; `personal_relevance` frontmatter added, read-only for now) |
 | G4 | **Problem-log entity sections** | "We solved this problem by doing X" + open-ended "we discussed this — how did it end up going?" Likely sections under project/concept entities. | 🔲 |
 | G5 | **"Project improvements" sections** | Things discussed to improve on a given project. Probably a section grammar under `project` entities. | 🔲 |
 | G6 | **Entity-type audit interface** | A way to easily audit which entity types exist and structure info per type (section grammar per type). Meta-tooling over the taxonomy. | 🔲 |

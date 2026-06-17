@@ -33,6 +33,8 @@ struct ContentView: View {
             GraphContainerView(selectedTab: $selectedTab)
         case .topics:
             TopicsView(selectedTab: $selectedTab)
+        case .feed:
+            FeedView(selectedTab: $selectedTab)
         case .sleep:
             SleepView(selectedTab: $selectedTab)
         case .inbox:

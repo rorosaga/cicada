@@ -372,12 +372,118 @@ def parse_csv_url_list(text: str) -> list[RawItem]:
     return items
 
 
+def parse_rss(xml: str) -> list[RawItem]:
+    """Parse an RSS 2.0 or Atom feed into ``RawItem``s (stdlib, namespace-tolerant).
+
+    A feed is just another producer of ``RawItem``s; it flows through the exact
+    same ``_dedup_items`` -> ``ingest_batch`` -> url_index/episode/entity path as
+    bookmarks. No new consolidation code. We deliberately avoid ``feedparser`` to
+    stay dependency-free and offline.
+
+    Handles both shapes:
+    - RSS:  ``channel/item`` with ``<link>``, ``<title>``, ``<description>`` or
+      ``content:encoded`` (-> ``note``), ``<category>`` (-> ``tags``).
+    - Atom: ``<entry>`` with ``<link href=... rel="alternate">`` (alternate
+      preferred, else first link), ``<title>``, ``<summary>``, ``<category term>``.
+
+    Tags are namespace-stripped (``{ns}tag`` -> ``tag``). Entries with no usable
+    link are skipped. A malformed document yields ``[]`` (never raises) so a bad
+    paste degrades gracefully.
+    """
+    import xml.etree.ElementTree as ET
+
+    text = (xml or "").strip()
+    if not text:
+        return []
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return []
+
+    def local(tag: str) -> str:
+        # Strip a leading ``{namespace}`` from an element/attr tag.
+        return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+    def first_child_text(node, name: str) -> str | None:
+        for child in node:
+            if local(child.tag) == name and (child.text or "").strip():
+                return child.text.strip()
+        return None
+
+    def atom_link(node) -> str | None:
+        # Prefer rel="alternate" (or no rel); fall back to the first href.
+        fallback = None
+        for child in node:
+            if local(child.tag) != "link":
+                continue
+            href = child.get("href")
+            if not href:
+                continue
+            rel = child.get("rel")
+            if rel in (None, "", "alternate"):
+                return href.strip()
+            if fallback is None:
+                fallback = href.strip()
+        return fallback
+
+    items: list[RawItem] = []
+    # An <item> is RSS, an <entry> is Atom — search the whole tree so a
+    # namespaced or nested channel still matches.
+    entries = [el for el in root.iter() if local(el.tag) in ("item", "entry")]
+    for entry in entries:
+        is_atom = local(entry.tag) == "entry"
+        link = atom_link(entry) if is_atom else first_child_text(entry, "link")
+        if not link:
+            continue
+        title = first_child_text(entry, "title")
+        # Body: content:encoded (RSS) > description (RSS) > summary (Atom).
+        note = (
+            first_child_text(entry, "encoded")
+            or first_child_text(entry, "description")
+            or first_child_text(entry, "summary")
+        )
+        tags: list[str] = []
+        for child in entry:
+            if local(child.tag) == "category":
+                term = child.get("term") or (child.text or "").strip()
+                if term:
+                    tags.append(term.strip())
+        items.append(RawItem(
+            url=link.strip(),
+            title=title or None,
+            tags=tags,
+            note=note or None,
+        ))
+    return items
+
+
+async def ingest_feed(
+    xml: str,
+    memory_path: Path,
+    *,
+    commit: bool = True,
+) -> tuple[int, int]:
+    """Parse a feed and push its items through the standard ingest path.
+
+    Thin convenience over ``parse_rss`` + ``ingest_batch``; returns the same
+    ``(created, duplicates)`` envelope. ``from_bookmark_file=False`` so the
+    ``_classify`` fallback keeps youtube/url media types (no ``rss`` type — that
+    would ripple into graph colors).
+    """
+    items = parse_rss(xml)
+    if not items:
+        return 0, 0
+    return await ingest_batch(items, memory_path, from_bookmark_file=False, commit=commit)
+
+
 def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, bool]:
     """Route an uploaded file to the right parser by extension + sniff.
 
     Returns ``(items, source_label, from_bookmark_file)``.
     """
     name = (filename or "").lower()
+    if name.endswith(".xml") or name.endswith(".rss") or name.endswith(".atom"):
+        return parse_rss(content.decode("utf-8", errors="replace")), "RSS Feed", False
     if name.endswith(".html") or name.endswith(".htm"):
         return parse_netscape_bookmarks(content.decode("utf-8", errors="replace")), "Bookmarks", True
     if name.endswith(".json"):
@@ -405,7 +511,67 @@ def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, boo
         return parse_csv_url_list(text), "URL List", False
     if name.endswith(".txt"):
         return parse_url_list(content.decode("utf-8", errors="replace")), "URL List", False
-    raise ValueError("Unsupported file format. Use .html, .json, .csv, or .txt")
+    raise ValueError("Unsupported file format. Use .html, .json, .csv, .txt, or .xml/.rss/.atom")
+
+
+# --- Relevance metric (§3.4, feed sorting) ---------------------------------
+
+
+def compute_relevance(fm: dict, *, now: datetime | None = None) -> float:
+    """Compose a [0,1] relevance score for a saved media item from its frontmatter.
+
+    ``relevance = confidence x recency_decay x personal_weight`` then clamped to
+    [0,1]. Mirrors the temporal-decay model used elsewhere in the graph:
+
+    - ``confidence`` (default 0.7) — the save-time/Sleep-adjusted confidence;
+    - ``recency_decay = exp(-decay_rate * weeks_since_last_referenced)`` — fresh
+      items score near 1.0, stale items fade; ``decay_rate`` defaults to 0.03/wk;
+    - ``personal_relevance_weight`` (default 1.0) — an optional manual boost
+      surfaced by §3.2 (read-if-present, neutral otherwise).
+
+    Pure + side-effect-free so it is directly unit-testable. Any malformed field
+    degrades to its default rather than raising.
+    """
+    import math
+
+    now = now or datetime.now()
+
+    try:
+        confidence = float(fm.get("confidence", 0.7))
+    except (TypeError, ValueError):
+        confidence = 0.7
+    confidence = max(0.0, min(1.0, confidence))
+
+    try:
+        decay_rate = float(fm.get("decay_rate", 0.03))
+    except (TypeError, ValueError):
+        decay_rate = 0.03
+    decay_rate = max(0.0, decay_rate)
+
+    # Age in weeks since last reference (or save). Default: treat as fresh.
+    weeks = 0.0
+    ref = fm.get("last_referenced")
+    ref_dt = None
+    if isinstance(ref, str) and ref:
+        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                ref_dt = datetime.strptime(ref[: len(fmt) + 2], fmt)
+                break
+            except ValueError:
+                continue
+    if ref_dt is not None:
+        weeks = max(0.0, (now - ref_dt).total_seconds() / (7 * 86400))
+
+    recency_decay = math.exp(-decay_rate * weeks)
+
+    try:
+        weight = float(fm.get("personal_relevance_weight", 1.0))
+    except (TypeError, ValueError):
+        weight = 1.0
+    weight = max(0.0, weight)
+
+    score = confidence * recency_decay * weight
+    return max(0.0, min(1.0, score))
 
 
 # --- Episode ID generation (shared, collision-safe) ---

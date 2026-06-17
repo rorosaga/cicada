@@ -8,6 +8,54 @@ struct UploadResponse: Codable {
     let source: String
 }
 
+// MARK: - Media feed (sources)
+
+/// One saved media item from `GET /sources` (camelCase decodes 1:1).
+struct MediaFeedItem: Codable, Identifiable {
+    let mediaEntityId: String
+    let url: String
+    let title: String
+    let mediaType: String
+    let site: String?
+    let channel: String?
+    let thumbnail: String?
+    let savedAt: String
+    let tags: [String]
+    let status: String
+    let relatedCount: Int
+    let relevance: Double
+    let personalRelevance: String?
+
+    var id: String { mediaEntityId }
+
+    enum CodingKeys: String, CodingKey {
+        case mediaEntityId, url, title, mediaType, site, channel, thumbnail
+        case savedAt, tags, status, relatedCount, relevance, personalRelevance
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mediaEntityId = try c.decode(String.self, forKey: .mediaEntityId)
+        url = try c.decode(String.self, forKey: .url)
+        title = try c.decode(String.self, forKey: .title)
+        mediaType = try c.decode(String.self, forKey: .mediaType)
+        site = try c.decodeIfPresent(String.self, forKey: .site)
+        channel = try c.decodeIfPresent(String.self, forKey: .channel)
+        thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail)
+        savedAt = (try? c.decode(String.self, forKey: .savedAt)) ?? ""
+        tags = (try? c.decode([String].self, forKey: .tags)) ?? []
+        status = (try? c.decode(String.self, forKey: .status)) ?? "active"
+        relatedCount = (try? c.decode(Int.self, forKey: .relatedCount)) ?? 0
+        relevance = (try? c.decode(Double.self, forKey: .relevance)) ?? 0
+        personalRelevance = try c.decodeIfPresent(String.self, forKey: .personalRelevance)
+    }
+}
+
+struct SourceListResponse: Codable {
+    let items: [MediaFeedItem]
+    let total: Int
+}
+
 struct SleepStatusResponse: Codable {
     let status: String
     let cycleId: String?
@@ -196,6 +244,24 @@ actor APIClient {
     /// `POST /sources/upload`. Multipart, same envelope as conversation upload.
     func uploadSource(fileURL: URL) async throws -> UploadResponse {
         return try await uploadMultipart(path: "/sources/upload", fileURL: fileURL)
+    }
+
+    /// Fetch the saved-media feed (`GET /sources`). `sort` is `relevance` (the
+    /// §3.4 metric) or `recent` (newest-first). Returns `[]` on a 404 so the
+    /// feed view degrades gracefully on an older backend.
+    func fetchSources(sort: String = "relevance") async throws -> [MediaFeedItem] {
+        do {
+            let resp: SourceListResponse = try await get("/sources?sort=\(sort)")
+            return resp.items
+        } catch APIError.httpError(404, _) {
+            return []
+        }
+    }
+
+    /// Ingest an RSS/Atom feed by pasted XML (`POST /sources/rss`).
+    @discardableResult
+    func ingestRSS(feedXml: String, tags: [String] = []) async throws -> UploadResponse {
+        return try await post("/sources/rss", body: ["feedXml": feedXml, "tags": tags])
     }
 
     /// Shared multipart POST for file ingestion endpoints. Mirrors `uploadFile`

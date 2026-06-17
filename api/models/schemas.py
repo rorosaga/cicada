@@ -434,6 +434,15 @@ class SourceUploadResponse(CamelModel):
     source: str = "unknown"
 
 
+class SourceRssRequest(CamelModel):
+    # Exactly one of feed_xml / feed_url is required. ``feed_xml`` is the
+    # keyless/offline path (paste or fetched-elsewhere XML); ``feed_url`` only
+    # works when the network-fetch flag is enabled server-side.
+    feed_xml: Optional[str] = None
+    feed_url: Optional[str] = None
+    tags: list[str] = []
+
+
 class MediaSourceItem(CamelModel):
     media_entity_id: str
     url: str
@@ -446,6 +455,9 @@ class MediaSourceItem(CamelModel):
     tags: list[str] = []
     status: str = "active"
     related_count: int = 0
+    # §3.4 relevance: confidence x recency-decay x personal weight, in [0,1].
+    relevance: float = 0.0
+    personal_relevance: Optional[str] = None
 
 
 class SourceListResponse(CamelModel):

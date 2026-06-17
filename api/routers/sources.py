@@ -1,12 +1,13 @@
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile
 from loguru import logger
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
     MediaSourceItem,
     SourceListResponse,
+    SourceRssRequest,
     SourceSaveRequest,
     SourceSaveResponse,
     SourceUploadResponse,
@@ -126,9 +127,87 @@ async def upload_sources(
     )
 
 
+@router.post("/sources/rss", response_model=SourceUploadResponse)
+async def ingest_rss(
+    request: SourceRssRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """Ingest an RSS/Atom feed (Substack + most blogs) as media items.
+
+    Keyless and offline-safe: pass ``feedXml`` (the parsed feed body) and it is
+    ingested inline through the same dedup/episode/entity path as bookmarks — the
+    Sleep pipeline absorbs the results with zero new consolidation code.
+    ``feedUrl`` is only honored when ``CICADA_ALLOW_FEED_FETCH=1`` (network fetch
+    is off by default; tests never hit it).
+    """
+    import os
+
+    xml = (request.feed_xml or "").strip()
+
+    if not xml and request.feed_url:
+        if os.environ.get("CICADA_ALLOW_FEED_FETCH") != "1":
+            raise HTTPException(
+                status_code=422,
+                detail="Live feed fetch is disabled. Set CICADA_ALLOW_FEED_FETCH=1 "
+                "or pass feedXml directly.",
+            )
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp = await client.get(request.feed_url, timeout=10.0)
+                resp.raise_for_status()
+                xml = resp.text
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Could not fetch feed: {e}")
+
+    if not xml:
+        raise HTTPException(status_code=422, detail="Provide feedXml or feedUrl")
+
+    memory_path = settings.memory_path
+    items = media_ingestor.parse_rss(xml)
+    if not items:
+        raise HTTPException(status_code=422, detail="No feed items found — not a valid RSS/Atom feed?")
+
+    # Carry request-level tags onto every item.
+    if request.tags:
+        for it in items:
+            it.tags = sorted(set((it.tags or []) + request.tags))
+
+    idx = media_ingestor.load_url_index(memory_path)
+    fresh, duplicates = media_ingestor._dedup_items(items, idx)
+    if not fresh:
+        return SourceUploadResponse(
+            status="ok",
+            episodes_created=0,
+            duplicates_skipped=duplicates,
+            message="Nothing new — every feed item was already saved",
+            source="RSS Feed",
+        )
+
+    created, _ = await media_ingestor.ingest_batch(
+        fresh, memory_path, from_bookmark_file=False
+    )
+    return SourceUploadResponse(
+        status="ok",
+        episodes_created=created,
+        duplicates_skipped=duplicates,
+        message=f"Saved {created} item(s) from the feed",
+        source="RSS Feed",
+    )
+
+
 @router.get("/sources", response_model=SourceListResponse)
-async def list_sources(settings: Settings = Depends(get_settings)):
-    """List saved media, newest first, straight from the URL index."""
+async def list_sources(
+    sort: str = Query("recent", pattern="^(recent|relevance)$"),
+    settings: Settings = Depends(get_settings),
+):
+    """List saved media items with a relevance score.
+
+    ``sort=recent`` (default, back-compat) orders newest-first; ``sort=relevance``
+    orders by the §3.4 metric (``confidence x recency-decay x personal weight``)
+    computed from each entity's frontmatter.
+    """
     memory_path = settings.memory_path
     idx = media_ingestor.load_url_index(memory_path)
 
@@ -138,6 +217,8 @@ async def list_sources(settings: Settings = Depends(get_settings)):
         related_count = 0
         status = "active"
         tags: list[str] = []
+        relevance = 0.0
+        personal_relevance = None
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
@@ -147,6 +228,9 @@ async def list_sources(settings: Settings = Depends(get_settings)):
                 related_count = len(fm.get("related") or [])
                 status = fm.get("status", "active")
                 tags = fm.get("tags") or []
+                relevance = media_ingestor.compute_relevance(fm)
+                pr = fm.get("personal_relevance")
+                personal_relevance = pr if isinstance(pr, str) and pr else None
             except Exception:
                 pass
         items.append(
@@ -160,8 +244,13 @@ async def list_sources(settings: Settings = Depends(get_settings)):
                 tags=tags,
                 status=status,
                 related_count=related_count,
+                relevance=round(relevance, 4),
+                personal_relevance=personal_relevance,
             )
         )
 
-    items.sort(key=lambda i: i.saved_at, reverse=True)
+    if sort == "relevance":
+        items.sort(key=lambda i: (i.relevance, i.saved_at), reverse=True)
+    else:
+        items.sort(key=lambda i: i.saved_at, reverse=True)
     return SourceListResponse(items=items, total=len(items))
