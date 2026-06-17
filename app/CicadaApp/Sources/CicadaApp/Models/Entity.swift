@@ -158,7 +158,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
     }
 }
 
-// Repo-wide model/user attribution (backlog A2). NOT BUILD-VERIFIED.
+// Repo-wide model/user attribution (backlog A2 + G15 visual identity).
 struct Contributor: Identifiable, Codable {
     var id: String { author }
     let author: String
@@ -167,9 +167,30 @@ struct Contributor: Identifiable, Codable {
     let entityCount: Int
     let files: [String]
     let lastActive: String
+    // G15 — all optional + decodeIfPresent, so this still decodes against an
+    // older backend that doesn't send them. `kind` is "user" | "model" |
+    // "unknown"; `provider` is "openai"|"anthropic"|"google"|"other"|nil;
+    // `avatarUrl` is the user's GitHub profile picture (user-kind only).
+    let kind: String?
+    let provider: String?
+    let avatarUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case author, commitCount, fileCount, entityCount, files, lastActive
+        case kind, provider, avatarUrl
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        author = try c.decode(String.self, forKey: .author)
+        commitCount = try c.decodeIfPresent(Int.self, forKey: .commitCount) ?? 0
+        fileCount = try c.decodeIfPresent(Int.self, forKey: .fileCount) ?? 0
+        entityCount = try c.decodeIfPresent(Int.self, forKey: .entityCount) ?? 0
+        files = try c.decodeIfPresent([String].self, forKey: .files) ?? []
+        lastActive = try c.decodeIfPresent(String.self, forKey: .lastActive) ?? ""
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        avatarUrl = try c.decodeIfPresent(String.self, forKey: .avatarUrl)
     }
 }
 

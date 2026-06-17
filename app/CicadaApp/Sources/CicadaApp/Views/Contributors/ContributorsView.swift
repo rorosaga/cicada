@@ -56,10 +56,21 @@ private struct ContributorRow: View {
     let contributor: Contributor
     let totalCommits: Int
 
-    private var isUser: Bool { contributor.author == "user" }
+    // Prefer the backend-derived `kind`; fall back to the author string so the
+    // row still classifies correctly against an older backend (no `kind`).
+    private var kind: String {
+        if let k = contributor.kind, !k.isEmpty { return k }
+        if contributor.author == "user" { return "user" }
+        if contributor.author == "unknown" { return "unknown" }
+        return "model"
+    }
 
     private var accent: Color {
-        isUser ? Color(hex: 0x3B82F6) : Color(hex: 0x8B5CF6)
+        switch kind {
+        case "user": Color(hex: 0x3B82F6)
+        case "unknown": CicadaTheme.textTertiary
+        default: ContributorAvatar.providerColor(contributor.provider)
+        }
     }
 
     private var share: Double {
@@ -70,8 +81,7 @@ private struct ContributorRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             HStack {
-                Image(systemName: isUser ? "person.fill" : "cpu")
-                    .foregroundStyle(accent)
+                ContributorAvatar(contributor: contributor, kind: kind)
                 Text(contributor.author)
                     .font(CicadaTheme.headingFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -106,5 +116,91 @@ private struct ContributorRow: View {
         .padding(CicadaTheme.spacingMD)
         .background(CicadaTheme.surfaceHover.opacity(0.4))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+    }
+}
+
+// G15 — a per-contributor avatar (GitHub-repo-contributors style).
+//   user    -> the user's GitHub profile picture (rounded), falling back to a
+//              person glyph if there's no URL or the image fails to load.
+//   model   -> a provider badge: a colored circle with a 1-letter monogram
+//              (provider brand-ish colors; "other" neutral). Real logo assets
+//              are a follow-up; the monogram badge is the v1.
+//   unknown -> a muted question-mark glyph.
+private struct ContributorAvatar: View {
+    let contributor: Contributor
+    let kind: String
+
+    private static let size: CGFloat = 22
+
+    var body: some View {
+        switch kind {
+        case "user":
+            userAvatar
+        case "unknown":
+            Image(systemName: "questionmark.circle.fill")
+                .font(.system(size: Self.size))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .frame(width: Self.size, height: Self.size)
+        default:
+            providerBadge
+        }
+    }
+
+    @ViewBuilder
+    private var userAvatar: some View {
+        if let urlStr = contributor.avatarUrl, let url = URL(string: urlStr) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                case .empty:
+                    ProgressView().scaleEffect(0.5)
+                default:
+                    userFallback
+                }
+            }
+            .frame(width: Self.size, height: Self.size)
+            .clipShape(Circle())
+        } else {
+            userFallback
+        }
+    }
+
+    private var userFallback: some View {
+        Image(systemName: "person.crop.circle.fill")
+            .font(.system(size: Self.size))
+            .foregroundStyle(Color(hex: 0x3B82F6))
+            .frame(width: Self.size, height: Self.size)
+    }
+
+    private var providerBadge: some View {
+        Circle()
+            .fill(Self.providerColor(contributor.provider))
+            .frame(width: Self.size, height: Self.size)
+            .overlay(
+                Text(Self.monogram(contributor.provider))
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+            )
+    }
+
+    /// Brand-ish color per provider; "other"/unknown -> a neutral tone.
+    static func providerColor(_ provider: String?) -> Color {
+        switch provider {
+        case "anthropic": Color(hex: 0xD97757)  // Anthropic clay/terracotta
+        case "openai": Color(hex: 0x10A37F)      // OpenAI teal-green
+        case "google": Color(hex: 0x4285F4)      // Google blue
+        default: CicadaTheme.textTertiary        // "other" / unknown — neutral
+        }
+    }
+
+    /// 1-letter monogram per provider.
+    static func monogram(_ provider: String?) -> String {
+        switch provider {
+        case "anthropic": "A"
+        case "openai": "O"
+        case "google": "G"
+        default: "?"
+        }
     }
 }

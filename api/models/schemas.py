@@ -80,6 +80,17 @@ class Contributor(CamelModel):
     entity_count: int = 0
     files: list[str] = []
     last_active: str = ""  # ISO date (YYYY-MM-DD) of the author's most recent commit
+    # G15 — visual identity (all additive + defaulted, so the wire stays
+    # backward-compatible with older clients that don't decode them).
+    # ``kind``: "user" for the literal `user` author, "unknown" for legacy
+    # untrailered commits, "model" for every model id. ``provider`` is the
+    # model's company (openai/anthropic/google/other) derived from the id, or
+    # None for user/unknown. ``avatar_url`` is the user's GitHub profile picture
+    # (https://github.com/<handle>.png) for the `user` author when a handle is
+    # known; None for model/unknown (their identity is rendered client-side).
+    kind: str = "unknown"  # "user" | "model" | "unknown"
+    provider: Optional[str] = None  # "openai" | "anthropic" | "google" | "other" | None
+    avatar_url: Optional[str] = None
 
 
 class ContributorsResponse(CamelModel):

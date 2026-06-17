@@ -153,6 +153,139 @@ def test_contributors_on_non_git_dir_returns_empty(tmp_path):
     assert run(git_service.get_contributors(tmp_path / "nope")) == []
 
 
+# --- G15: contributor kind / provider / avatar derivation -------------------
+
+
+def test_classify_author_kind_user_model_unknown():
+    assert git_service._classify_author_kind("user") == "user"
+    assert git_service._classify_author_kind("unknown") == "unknown"
+    assert git_service._classify_author_kind("gpt-5.4-mini") == "model"
+    assert git_service._classify_author_kind("claude-sonnet-4") == "model"
+    assert git_service._classify_author_kind("gemini-2.0-flash") == "model"
+
+
+def test_provider_for_model_openai():
+    for mid in ["gpt-5.4-mini", "gpt-4o", "o1-preview", "o3-mini", "text-embedding-3-small"]:
+        assert git_service._provider_for_model(mid) == "openai", mid
+
+
+def test_provider_for_model_anthropic():
+    for mid in ["claude-sonnet-4-20250514", "anthropic/claude-opus-4", "claude-3-5-haiku"]:
+        assert git_service._provider_for_model(mid) == "anthropic", mid
+
+
+def test_provider_for_model_google():
+    for mid in ["gemini-2.0-flash", "gemini/gemini-1.5-pro", "gemma-2-9b", "google/gemma-3"]:
+        assert git_service._provider_for_model(mid) == "google", mid
+
+
+def test_provider_for_model_other_and_non_model():
+    assert git_service._provider_for_model("mistral-large") == "other"
+    assert git_service._provider_for_model("llama-3") == "other"
+    # user / unknown are not models -> no provider
+    assert git_service._provider_for_model("user") is None
+    assert git_service._provider_for_model("unknown") is None
+
+
+def test_github_handle_from_remote_https():
+    assert (
+        git_service._github_handle_from_remote_url(
+            "https://github.com/rorosaga/cicada.git"
+        )
+        == "rorosaga"
+    )
+
+
+def test_github_handle_from_remote_ssh():
+    assert (
+        git_service._github_handle_from_remote_url("git@github.com:rorosaga/cicada.git")
+        == "rorosaga"
+    )
+
+
+def test_github_handle_from_remote_non_github_is_none():
+    assert git_service._github_handle_from_remote_url("https://gitlab.com/x/y.git") is None
+    assert git_service._github_handle_from_remote_url("") is None
+    assert git_service._github_handle_from_remote_url(None) is None
+
+
+def test_contributors_avatar_kind_provider_fields(repo):
+    _write_entity(repo, "alpha", "v1")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle",
+            body_lines=["entities/alpha.md: created (trigger: sleep/extraction)"],
+            authors=["gpt-5.4-mini"],
+        ),
+    )
+    _write_entity(repo, "beta", "v1")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Inbox resolution",
+            body_lines=["entities/beta.md: updated (trigger: user/companion_app)"],
+            authors=["user"],
+        ),
+    )
+    # legacy untrailered commit -> unknown
+    _write_entity(repo, "gamma", "v1")
+    _commit(repo, "Sleep cycle legacy\n\nentities/gamma.md: created")
+
+    contributors = run(git_service.get_contributors(repo, github_user="rorosaga"))
+    by_author = {c.author: c for c in contributors}
+
+    # model: kind=model, provider derived, no avatar
+    gpt = by_author["gpt-5.4-mini"]
+    assert gpt.kind == "model"
+    assert gpt.provider == "openai"
+    assert gpt.avatar_url is None
+
+    # user: kind=user, no provider, avatar from explicit handle
+    user = by_author["user"]
+    assert user.kind == "user"
+    assert user.provider is None
+    assert user.avatar_url == "https://github.com/rorosaga.png"
+
+    # unknown: kind=unknown, no provider, no avatar
+    unk = by_author["unknown"]
+    assert unk.kind == "unknown"
+    assert unk.provider is None
+    assert unk.avatar_url is None
+
+
+def test_contributors_user_avatar_falls_back_to_remote_handle(repo):
+    """No explicit github_user -> derive the handle from `origin` remote."""
+    _git(repo, "remote", "add", "origin", "git@github.com:rorosaga/cicada.git")
+    _write_entity(repo, "alpha", "v1")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Inbox resolution",
+            body_lines=["entities/alpha.md: updated (trigger: user/companion_app)"],
+            authors=["user"],
+        ),
+    )
+    contributors = run(git_service.get_contributors(repo))
+    user = {c.author: c for c in contributors}["user"]
+    assert user.avatar_url == "https://github.com/rorosaga.png"
+
+
+def test_contributors_user_avatar_none_without_handle_or_remote(repo):
+    _write_entity(repo, "alpha", "v1")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Inbox resolution",
+            body_lines=["entities/alpha.md: updated (trigger: user/companion_app)"],
+            authors=["user"],
+        ),
+    )
+    contributors = run(git_service.get_contributors(repo))
+    user = {c.author: c for c in contributors}["user"]
+    assert user.avatar_url is None
+
+
 # --- OPTIONAL #2: sleep history lists files for the root commit --------------
 
 

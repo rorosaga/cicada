@@ -18,5 +18,7 @@ router = APIRouter()
 async def get_contributors(
     settings: Settings = Depends(get_settings),
 ):
-    contributors = await git_service.get_contributors(settings.memory_path)
+    contributors = await git_service.get_contributors(
+        settings.memory_path, github_user=(getattr(settings, "github_user", "") or None)
+    )
     return ContributorsResponse(contributors=contributors)

@@ -83,6 +83,83 @@ def _parse_authors(body: str) -> list[str]:
     return out
 
 
+# --- G15: contributor visual identity (kind / provider / avatar) ------------
+
+# The literal "user" author (manual/companion-app/media-save writes).
+USER_AUTHOR = "user"
+
+# Model-id -> provider classification. We key on stable id substrings/prefixes
+# (provider level, not per-model). LiteLLM-style "provider/model" ids are
+# handled because the substring still appears (e.g. "anthropic/claude-...").
+_PROVIDER_SUBSTRINGS = (
+    ("openai", ("gpt", "o1", "o3", "text-embedding")),
+    ("anthropic", ("claude",)),
+    ("google", ("gemini", "gemma")),
+)
+
+
+def _classify_author_kind(author: str) -> str:
+    """Bucket an author into "user" | "model" | "unknown" for the UI."""
+    if author == USER_AUTHOR:
+        return "user"
+    if author == UNKNOWN_AUTHOR:
+        return "unknown"
+    return "model"
+
+
+def _provider_for_model(author: str) -> str | None:
+    """Derive the provider for a model id; None for user/unknown (not models).
+
+    Matches by lower-cased substring/prefix against the known provider markers;
+    any unmatched model id is "other".
+    """
+    if _classify_author_kind(author) != "model":
+        return None
+    a = author.lower()
+    for provider, markers in _PROVIDER_SUBSTRINGS:
+        if any(marker in a for marker in markers):
+            return provider
+    return "other"
+
+
+def _github_handle_from_remote_url(url: str | None) -> str | None:
+    """Extract the GitHub owner handle from an origin remote URL, else None.
+
+    Handles both ``https://github.com/<owner>/<repo>(.git)`` and
+    ``git@github.com:<owner>/<repo>(.git)``. Returns None for non-GitHub or
+    unparseable URLs — never raises.
+    """
+    if not url:
+        return None
+    text = url.strip()
+    m = re.search(r"github\.com[:/]+([^/]+)/", text)
+    if not m:
+        return None
+    handle = m.group(1).strip()
+    return handle or None
+
+
+async def _origin_github_handle(memory_path: Path) -> str | None:
+    """Best-effort GitHub owner handle from the repo's ``origin`` remote.
+
+    Never raises: a missing remote / non-git dir / non-GitHub origin all yield
+    None so avatar derivation degrades cleanly to "no avatar".
+    """
+    try:
+        url = await _run_git(memory_path, "remote", "get-url", "origin")
+    except GitError:
+        return None
+    return _github_handle_from_remote_url(url.strip())
+
+
+def _user_avatar_url(handle: str | None) -> str | None:
+    """GitHub profile-picture URL for a handle (the user-contributor avatar)."""
+    handle = (handle or "").strip().lstrip("@")
+    if not handle:
+        return None
+    return f"https://github.com/{handle}.png"
+
+
 async def _run_git(memory_path: Path, *args: str) -> str:
     proc = await asyncio.create_subprocess_exec(
         "git",
@@ -273,12 +350,18 @@ async def get_entity_commit_diff(
     )
 
 
-async def get_contributors(memory_path: Path) -> list[Contributor]:
+async def get_contributors(
+    memory_path: Path, *, github_user: str | None = None
+) -> list[Contributor]:
     """Repo-wide attribution summary parsed from ``Cicada-Author:`` trailers.
 
     For each author (model id, "user", or "unknown" for legacy untrailered
     commits) aggregate: commit count, distinct files + entities touched, and the
-    most recent commit date. Returns ``[]`` on a non-git / missing directory.
+    most recent commit date. Each contributor also carries a visual identity
+    (G15): ``kind`` (user/model/unknown), ``provider`` (model company, or None),
+    and ``avatar_url`` (the user's GitHub profile picture, or None). The user
+    avatar handle is ``github_user`` if given, else derived from the repo's
+    ``origin`` remote. Returns ``[]`` on a non-git / missing directory.
     """
     if not (memory_path / ".git").exists():
         return []
@@ -339,17 +422,30 @@ async def get_contributors(memory_path: Path) -> list[Contributor]:
             if date > state["last"]:
                 state["last"] = date
 
-    contributors = [
-        Contributor(
-            author=author,
-            commit_count=s["commits"],
-            file_count=len(s["files"]),
-            entity_count=len(s["entities"]),
-            files=sorted(s["files"]),
-            last_active=s["last"],
+    # Resolve the user-avatar handle once (explicit setting wins; else origin
+    # remote), and only pay the git remote lookup if there's actually a `user`
+    # contributor to show an avatar for.
+    user_handle = (github_user or "").strip() or None
+    if user_handle is None and USER_AUTHOR in agg:
+        user_handle = await _origin_github_handle(memory_path)
+    user_avatar = _user_avatar_url(user_handle)
+
+    contributors = []
+    for author, s in agg.items():
+        kind = _classify_author_kind(author)
+        contributors.append(
+            Contributor(
+                author=author,
+                commit_count=s["commits"],
+                file_count=len(s["files"]),
+                entity_count=len(s["entities"]),
+                files=sorted(s["files"]),
+                last_active=s["last"],
+                kind=kind,
+                provider=_provider_for_model(author),
+                avatar_url=user_avatar if kind == "user" else None,
+            )
         )
-        for author, s in agg.items()
-    ]
     # Most active first; stable tie-break by author name.
     contributors.sort(key=lambda c: (-c.commit_count, c.author))
     return contributors

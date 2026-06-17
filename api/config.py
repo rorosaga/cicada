@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
+    # G15 — the user's GitHub handle, used to render their profile picture
+    # (https://github.com/<handle>.png) as the avatar for `user`-authored
+    # commits on the Contributors page. Optional: set CICADA_GITHUB_USER to
+    # override; otherwise it's derived from the repo's `origin` remote.
+    github_user: str = ""  # CICADA_GITHUB_USER
+
     # Sleep cycle thresholds
     sleep_promotion_threshold: int = 2
     decay_nudge_threshold: float = 0.4
