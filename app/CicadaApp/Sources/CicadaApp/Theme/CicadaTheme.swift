@@ -41,6 +41,42 @@ enum CicadaTheme {
     static let hubGold = Color(hex: 0xE6B450)     // hub ring / hub node hue
     static let pendingPulse = Color(hex: 0xF5C04E) // amber "needs you" pulse
 
+    // MARK: - Context Colors (claim layer)
+    // Contexts are an open set, so we hash unknown ones into a stable hue and
+    // hard-code the known core to keep the demo legible. Mirrored by
+    // CONTEXT_COLORS in graph.js for the d3 canvas.
+    static func contextColor(_ context: String) -> Color {
+        switch context {
+        case "engineering":   return Color(hex: 0x14B8A6)   // teal
+        case "family":        return Color(hex: 0xEC4899)   // pink
+        case "philosophical": return Color(hex: 0xA855F7)   // purple
+        case "career":        return Color(hex: 0xF97316)   // orange
+        case "cross":         return Color(hex: 0xEAB308)   // gold — the cross-context bridge
+        case "general":       return Color(hex: 0x6B7280)   // gray
+        default:
+            // Stable hue for any open-tail context so the graph never flickers.
+            // Mirrors graph.js `hashHue` (h = h*31 + charCode, 32-bit wrap, then
+            // abs % 360) and its `hsl(hue, 55%, 65%)` output EXACTLY so the
+            // SwiftUI chrome and the d3 canvas pick the same color for an
+            // unknown context. NOTE: Swift's String.hashValue is per-process
+            // randomized — never use it for a color that must be stable.
+            let hue = Double(hashHue(context))
+            return Color(hslHue: hue, saturation: 0.55, lightness: 0.65)
+        }
+    }
+
+    /// Deterministic 0–359 hue for an open-tail context string. Byte-for-byte
+    /// match of graph.js `hashHue`: 32-bit signed wraparound on each step.
+    private static func hashHue(_ str: String) -> Int {
+        var h: Int32 = 0
+        for scalar in str.unicodeScalars {
+            // charCodeAt() yields UTF-16 code units; restrict to BMP like JS
+            // does for the demo's ASCII context labels.
+            h = h &* 31 &+ Int32(truncatingIfNeeded: scalar.value)
+        }
+        return Int(abs(Int(h)) % 360)
+    }
+
     // MARK: - Status Colors
     static func statusColor(for status: EntityStatus) -> Color {
         switch status {
@@ -122,5 +158,27 @@ extension Color {
             blue: Double(hex & 0xFF) / 255.0,
             opacity: opacity
         )
+    }
+
+    /// HSL initializer so we can match CSS `hsl()` exactly. SwiftUI's stock
+    /// `Color(hue:saturation:brightness:)` is HSB, which produces a different
+    /// color for the same numbers — graph.js emits `hsl(...)`, so the open-tail
+    /// context color must be computed in HSL to agree with the d3 canvas.
+    init(hslHue: Double, saturation s: Double, lightness l: Double, opacity: Double = 1.0) {
+        let h = (hslHue.truncatingRemainder(dividingBy: 360) + 360)
+            .truncatingRemainder(dividingBy: 360) / 360.0
+        let c = (1 - abs(2 * l - 1)) * s
+        let x = c * (1 - abs((h * 6).truncatingRemainder(dividingBy: 2) - 1))
+        let m = l - c / 2
+        let (r1, g1, b1): (Double, Double, Double)
+        switch h * 6 {
+        case ..<1: (r1, g1, b1) = (c, x, 0)
+        case ..<2: (r1, g1, b1) = (x, c, 0)
+        case ..<3: (r1, g1, b1) = (0, c, x)
+        case ..<4: (r1, g1, b1) = (0, x, c)
+        case ..<5: (r1, g1, b1) = (x, 0, c)
+        default:   (r1, g1, b1) = (c, 0, x)
+        }
+        self.init(.sRGB, red: r1 + m, green: g1 + m, blue: b1 + m, opacity: opacity)
     }
 }

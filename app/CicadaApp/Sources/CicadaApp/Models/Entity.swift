@@ -263,11 +263,50 @@ struct GraphEdge: Codable {
     let source: String
     let target: String
     let label: String
+    // Claim-layer fields (§2a). Optional/decode-tolerant so the existing flat
+    // graph payload still decodes; `context` colors the edge stroke and
+    // `claimId` ties the edge back to the claim that asserts it.
+    let context: String?
+    let claimId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case source, target, label, context, claimId
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        source = try c.decode(String.self, forKey: .source)
+        target = try c.decode(String.self, forKey: .target)
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        context = try c.decodeIfPresent(String.self, forKey: .context)
+        claimId = try c.decodeIfPresent(String.self, forKey: .claimId)
+    }
+
+    init(source: String, target: String, label: String,
+         context: String? = nil, claimId: String? = nil) {
+        self.source = source
+        self.target = target
+        self.label = label
+        self.context = context
+        self.claimId = claimId
+    }
 }
 
 struct GraphResponse: Codable {
     let nodes: [GraphNode]
     let links: [GraphEdge]
+    // §3: distinct-observer roster so the observer filter bar can populate its
+    // segments without a separate call. Optional/decode-tolerant.
+    let observers: [String]
+
+    enum CodingKeys: String, CodingKey { case nodes, links, observers }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        nodes = try c.decodeIfPresent([GraphNode].self, forKey: .nodes) ?? []
+        links = try c.decodeIfPresent([GraphEdge].self, forKey: .links) ?? []
+        observers = try c.decodeIfPresent([String].self, forKey: .observers) ?? []
+    }
 }
 
 struct GraphNode: Codable {
@@ -284,10 +323,20 @@ struct GraphNode: Codable {
     let hasPending: Bool
     let memberCount: Int
     let hubId: String?
+    // Claim-layer fields (§2b/§2c). All optional/decode-tolerant so the
+    // existing graph payload still decodes. `observers`/`contexts` drive the
+    // node badges + filtering; `isFacet`/`parentId`/`context` describe a facet
+    // satellite node (`id: "rodrigo#engineering"`).
+    let observers: [String]
+    let contexts: [String]
+    let isFacet: Bool
+    let parentId: String?
+    let context: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, tags
         case degree, isHub, hasPending, memberCount, hubId
+        case observers, contexts, isFacet, parentId, context
     }
 
     init(from decoder: Decoder) throws {
@@ -308,5 +357,10 @@ struct GraphNode: Codable {
         hasPending = try c.decodeIfPresent(Bool.self, forKey: .hasPending) ?? false
         memberCount = try c.decodeIfPresent(Int.self, forKey: .memberCount) ?? 0
         hubId = try c.decodeIfPresent(String.self, forKey: .hubId)
+        observers = try c.decodeIfPresent([String].self, forKey: .observers) ?? []
+        contexts = try c.decodeIfPresent([String].self, forKey: .contexts) ?? []
+        isFacet = try c.decodeIfPresent(Bool.self, forKey: .isFacet) ?? false
+        parentId = try c.decodeIfPresent(String.self, forKey: .parentId)
+        context = try c.decodeIfPresent(String.self, forKey: .context)
     }
 }

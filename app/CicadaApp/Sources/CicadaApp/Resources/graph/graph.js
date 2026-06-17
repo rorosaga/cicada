@@ -47,6 +47,38 @@ const typeClusterPositions = {
     hub:      [   0,    0],
 };
 
+// Context color mirror of CicadaTheme.contextColor (claim layer §2a). Known
+// core contexts are hard-coded; unknown ones hash to a stable HSL hue so the
+// graph never flickers. Used to color edge strokes + facet node fills.
+const CONTEXT_COLORS = {
+    engineering:   "#14B8A6",
+    family:        "#EC4899",
+    philosophical: "#A855F7",
+    career:        "#F97316",
+    cross:         "#EAB308",
+    general:       "#6B7280",
+};
+const OBSERVER_BADGE_COLORS = {
+    agent:    "#7C8FFF",   // accent
+    rodrigo:  "#4A9EFF",   // blue
+    external: "#EC4899",   // pink
+};
+function hashHue(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+    return Math.abs(h) % 360;
+}
+function contextColor(context) {
+    if (!context) return "#666";
+    if (CONTEXT_COLORS[context]) return CONTEXT_COLORS[context];
+    return `hsl(${hashHue(context)}, 55%, 65%)`;
+}
+function observerBadgeColor(wire) {
+    if (!wire) return OBSERVER_BADGE_COLORS.agent;
+    if (wire.startsWith("external:")) return OBSERVER_BADGE_COLORS.external;
+    return OBSERVER_BADGE_COLORS[wire] || OBSERVER_BADGE_COLORS.external;
+}
+
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 6.0;
 const LABEL_MIN_SCREEN_RADIUS = 6;  // only label nodes whose on-screen radius clears this
@@ -110,6 +142,8 @@ let filters = {
     minConfidence: 0,
     tags: null,         // null/empty = no tag filter; otherwise Set<string>
     minDegree: 1,       // default drops only fully isolated nodes
+    contexts: null,     // null = all contexts; otherwise Set<string> — DROPS non-matching edges/facets
+    observers: null,    // null = all observers; otherwise Set<string> — DIMS non-matching nodes (kept visible)
 };
 
 // Focus / ego mode.
@@ -164,6 +198,54 @@ function nodeHubId(n) {
 // n.degree, so this just reads it.
 function nodeDegree(n) {
     return Number(n.degree || 0);
+}
+
+// ---------- Claim-layer field accessors (§2) ----------
+
+function nodeIsFacet(n) {
+    return Boolean(n.isFacet ?? n.is_facet);
+}
+
+function nodeParentId(n) {
+    return n.parentId ?? n.parent_id ?? null;
+}
+
+function nodeContext(n) {
+    return n.context ?? null;
+}
+
+function nodeObservers(n) {
+    const o = n.observers;
+    return Array.isArray(o) ? o : [];
+}
+
+function nodeContexts(n) {
+    const c = n.contexts;
+    return Array.isArray(c) ? c : [];
+}
+
+// A node "matches" the observer filter if any of its observers is selected.
+// Facet nodes inherit their parent's match via their own (parent-copied)
+// observer list when present; if a node has no observer info it matches (so the
+// legacy graph never dims to nothing).
+function nodeMatchesObservers(n) {
+    if (!filters.observers) return true;
+    const obs = nodeObservers(n);
+    if (!obs.length) return true;
+    return obs.some(o => filters.observers.has(o));
+}
+
+// A node passes the context filter if it has no context info, OR is a facet in
+// a selected context, OR (for a parent node) has at least one selected context.
+function nodeMatchesContexts(n) {
+    if (!filters.contexts) return true;
+    if (nodeIsFacet(n)) {
+        const c = nodeContext(n);
+        return c ? filters.contexts.has(c) : true;
+    }
+    const ctxs = nodeContexts(n);
+    if (!ctxs.length) return true;
+    return ctxs.some(c => filters.contexts.has(c));
 }
 
 // ---------- Init ----------
@@ -418,6 +500,16 @@ function buildHubIndex() {
             if (hs.size === 1) memberToHub.set(nid, [...hs][0]);
         }
     }
+
+    // §2c: facet satellites gravitate toward their parent subject. Route them
+    // through the SAME hubGravity machinery by mapping facet -> parentId. This
+    // is additive: a facet whose parent isn't on the graph is simply left out.
+    const nodeIds = new Set(nodes.map(n => n.id));
+    for (const n of nodes) {
+        if (!nodeIsFacet(n)) continue;
+        const pid = nodeParentId(n);
+        if (pid && nodeIds.has(pid)) memberToHub.set(n.id, pid);
+    }
 }
 
 function seedPositionFor(n) {
@@ -448,7 +540,9 @@ function rebuildVisible() {
     const minDeg = filters.minDegree;
 
     visibleNodes = nodes.filter(n => {
-        if ((n._localDegree || 0) < minDeg) return false;
+        // Facet sub-nodes are exempt from the min-degree cull (they only ever
+        // hold a single facetOf edge to their parent).
+        if (!nodeIsFacet(n) && (n._localDegree || 0) < minDeg) return false;
         if (typeFilter && !typeFilter.has(n.type)) return false;
         if (statusFilter && !statusFilter.has(n.status)) return false;
         if ((n.confidence || 0) < minConf) return false;
@@ -456,6 +550,10 @@ function rebuildVisible() {
             const tags = n.tags || [];
             if (!tags.some(t => tagFilter.has(t))) return false;
         }
+        // Context filter DROPS non-matching facet/context nodes (so "engineering
+        // only" removes other facet satellites). Observer filter only DIMS, so
+        // it is applied in draw(), not here.
+        if (!nodeMatchesContexts(n)) return false;
         return true;
     });
 
@@ -463,7 +561,11 @@ function rebuildVisible() {
     visibleLinks = links.filter(l => {
         const sid = typeof l.source === "object" ? l.source.id : l.source;
         const tid = typeof l.target === "object" ? l.target.id : l.target;
-        return visibleIds.has(sid) && visibleIds.has(tid);
+        if (!visibleIds.has(sid) || !visibleIds.has(tid)) return false;
+        // Context filter drops edges asserted in a non-selected context (an
+        // edge with no context is context-blind and always passes).
+        if (filters.contexts && l.context && !filters.contexts.has(l.context)) return false;
+        return true;
     });
 
     anyPending = visibleNodes.some(nodeHasPending);
@@ -553,6 +655,9 @@ function nodeRadius(d) {
     // Confidence is the primary size channel so "bigger = more confident" is
     // preattentive and not dominated by hub degree. Degree is a secondary
     // bump. Hubs get a size floor + multiplier so they read as the top tier.
+    // §2c: facet satellites are deliberately small — they orbit their parent
+    // and read as context tags, not first-class subjects.
+    if (nodeIsFacet(d)) return 3 + (d.confidence || 0) * 4;
     const base = 4;
     const confTerm = (d.confidence || 0) * 8;       // primary: 0–8 px
     const degreeTerm = Math.sqrt(nodeDegree(d)) * 1.5;  // secondary
@@ -716,7 +821,9 @@ function draw() {
         }
 
         ctx.globalAlpha = alpha;
-        ctx.strokeStyle = "#666";
+        // §2a: context-colored edges. An edge with a context paints in its
+        // context hue; a contextless (legacy) edge keeps the flat gray.
+        ctx.strokeStyle = l.context ? contextColor(l.context) : "#666";
         ctx.lineWidth = 1 / transform.k;
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
@@ -727,12 +834,20 @@ function draw() {
     // ---- Nodes ----
     for (const n of visibleNodes) {
         const r = nodeRadius(n);
-        const color = typeColors[n.type] || typeColors.unknown;
+        const isFacet = nodeIsFacet(n);
+        // §2c: facet sub-nodes fill with their context color instead of the
+        // type color, so the engineering/family satellites read as contexts.
+        const color = isFacet
+            ? contextColor(nodeContext(n))
+            : (typeColors[n.type] || typeColors.unknown);
         const isHub = nodeIsHub(n);
 
         // Status drives base opacity. Focus dimming and hover dimming stack on
         // top: a node outside the focus neighborhood fades to context.
         let alpha = STATUS_ALPHA[n.status] ?? 0.92;
+        // §3a: observer filter DIMS (not deletes) non-matching nodes so the
+        // contrast reads as "this is the slice X asserts." Reuses focus-alpha.
+        if (!nodeMatchesObservers(n)) alpha = Math.min(alpha, 0.1);
         if (focusActive && !focusSet.has(n.id)) alpha = Math.min(alpha, 0.06);
         if (hoverActive) {
             const isHover = n.id === hoveredNode.id;
@@ -807,6 +922,25 @@ function draw() {
             ctx.beginPath();
             ctx.arc(n.x, n.y, r + 6 / transform.k, 0, Math.PI * 2);
             ctx.stroke();
+        }
+
+        // §2b: observer badges — a tiny filled dot per distinct observer at the
+        // node's upper-right. An external:* observer is the "someone else told
+        // me this" signal, visible at a glance. Only at a readable zoom so the
+        // dots don't smear into the node at low scale.
+        const observers = nodeObservers(n);
+        if (observers.length && !isFacet && transform.k >= ZOOM_HUBS_ONLY && alpha > 0.12) {
+            const bs = 2.6 / transform.k;            // badge radius
+            const gap = 1.5 / transform.k;
+            const startX = n.x + r * 0.72;
+            const startY = n.y - r * 0.72;
+            ctx.globalAlpha = alpha;
+            observers.slice(0, 3).forEach((wire, i) => {
+                ctx.fillStyle = observerBadgeColor(wire);
+                ctx.beginPath();
+                ctx.arc(startX + i * (bs * 2 + gap), startY, bs, 0, Math.PI * 2);
+                ctx.fill();
+            });
         }
     }
 
@@ -1154,6 +1288,8 @@ function applyFilters(payload) {
     if ("minConfidence" in f) filters.minConfidence = Number(f.minConfidence) || 0;
     if ("tags" in f) filters.tags = toSet(f.tags);
     if ("minDegree" in f) filters.minDegree = Number(f.minDegree) || 0;
+    if ("contexts" in f) filters.contexts = toSet(f.contexts);
+    if ("observers" in f) filters.observers = toSet(f.observers);
 
     if (nodes.length === 0) { scheduleRedraw(); return; }
 

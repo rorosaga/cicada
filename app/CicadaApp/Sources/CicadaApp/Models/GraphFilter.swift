@@ -11,6 +11,10 @@ struct GraphFilter: Equatable {
     var minDegree: Int = 0          // 0 = show isolated nodes; 1 = hide leaves
     var tags: Set<String> = []
     var searchText: String = ""
+    // Claim-layer filter axes (§2a context legend, §3a observer bar). Empty =
+    // "no filter" (all-pass). graph.js dims/drops non-matching nodes/edges.
+    var contexts: Set<String> = []
+    var observers: Set<String> = []
 
     var allTypesSelected: Bool {
         types.count == EntityType.selectableCases.count
@@ -28,6 +32,10 @@ struct GraphFilter: Equatable {
         let allStatus = statuses.count == EntityStatus.allCases.count
         payload["statuses"] = allStatus ? nil : statuses.map(\.rawValue)
         payload["tags"] = tags.isEmpty ? nil : Array(tags)
+        // Claim-layer axes: send only when an explicit filter is active so the
+        // JS treats absence as all-pass (matching the existing null semantics).
+        payload["contexts"] = contexts.isEmpty ? nil : Array(contexts)
+        payload["observers"] = observers.isEmpty ? nil : Array(observers)
         return payload
     }
 
@@ -46,6 +54,10 @@ struct GraphFilter: Equatable {
 
     mutating func toggleStatus(_ status: EntityStatus) {
         if statuses.contains(status) { statuses.remove(status) } else { statuses.insert(status) }
+    }
+
+    mutating func toggleContext(_ context: String) {
+        if contexts.contains(context) { contexts.remove(context) } else { contexts.insert(context) }
     }
 }
 

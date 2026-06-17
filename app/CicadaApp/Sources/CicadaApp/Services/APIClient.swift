@@ -188,6 +188,46 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))/history/\(encodedID(commitHash))/diff")
     }
 
+    // MARK: - Claims (CPCG claim layer)
+
+    /// `GET /entities/{id}/claims` — the subject's claims. By default only
+    /// currently-valid claims; `includeSuperseded` lifts the filter. Returns
+    /// `[]` on a 404 so the perspective tab / claim chips degrade gracefully
+    /// against a backend that hasn't shipped the endpoint yet.
+    func fetchClaims(subject: String, includeSuperseded: Bool = false) async throws -> [Claim] {
+        let q = includeSuperseded ? "?include_superseded=true" : ""
+        do {
+            let r: ClaimListResponse = try await get("/entities/\(encodedID(subject))/claims\(q)")
+            return r.claims
+        } catch APIError.httpError(404, _) {
+            return []
+        }
+    }
+
+    /// `GET /entities/{id}/timeline?predicate=&context=` — one
+    /// `(subject, predicate, context)` key's bi-temporal supersede chain,
+    /// newest first, including superseded claims. The FastAPI query params use
+    /// the snake_case Python names; `predicate`/`context` here happen to match.
+    func fetchClaimTimeline(subject: String, predicate: String, context: String) async throws -> ClaimTimeline {
+        let p = predicate.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? predicate
+        let c = context.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? context
+        return try await get("/entities/\(encodedID(subject))/timeline?predicate=\(p)&context=\(c)")
+    }
+
+    /// `GET /transclude?ref=<urlencoded>` — resolve one `![[…]]` embed.
+    /// Returns an unresolved soft-stub payload on a 404 so the embed renders a
+    /// "missing embed" stub rather than throwing up the whole card.
+    func resolveTransclusion(_ ref: String) async throws -> TransclusionPayload {
+        let r = ref.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ref
+        do {
+            return try await get("/transclude?ref=\(r)")
+        } catch APIError.httpError(404, _) {
+            return TransclusionPayload(
+                kind: "entity", ref: ref, title: ref, summary: "", claims: [], resolved: false
+            )
+        }
+    }
+
     // MARK: - Contributors
 
     /// Repo-wide model/user attribution (backlog A2). NOT BUILD-VERIFIED.

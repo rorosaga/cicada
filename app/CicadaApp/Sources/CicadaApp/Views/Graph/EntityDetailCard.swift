@@ -6,8 +6,21 @@ struct EntityDetailCard: View {
     @State private var selectedTab: DetailTab = .content
     @State private var showRawMarkdown: Bool
 
+    // Claim-layer state (§3b perspectives, §4 timeline). Loaded lazily on tab
+    // open. Includes superseded claims so the timeline tab can list contested
+    // keys; the perspective tab filters to valid claims itself.
+    @State private var claims: [Claim] = []
+    @State private var claimsLoaded = false
+    @State private var timelineKey: TimelineKey?
+
+    struct TimelineKey: Identifiable, Hashable {
+        let predicate: String
+        let context: String
+        var id: String { "\(predicate)|\(context)" }
+    }
+
     enum DetailTab {
-        case content, history
+        case content, history, perspectives, timeline
     }
 
     /// `defaultRaw` opens the card on the verbatim Source view — used by the
@@ -28,6 +41,8 @@ struct EntityDetailCard: View {
                 switch selectedTab {
                 case .content: contentTab
                 case .history: historyTab
+                case .perspectives: perspectivesTab
+                case .timeline: timelineTab
                 }
             }
         }
@@ -36,6 +51,9 @@ struct EntityDetailCard: View {
         .onKeyPress(.escape) {
             graphVM.clearSelection()
             return .handled
+        }
+        .sheet(item: $timelineKey) { key in
+            beliefTimelineSheet(key)
         }
     }
 
@@ -113,13 +131,21 @@ struct EntityDetailCard: View {
     // MARK: - Tab Switcher
 
     private var tabSwitcher: some View {
-        HStack(spacing: CicadaTheme.spacingXL) {
+        HStack(spacing: CicadaTheme.spacingLG) {
             Spacer()
             TabButton(title: "Content", isSelected: selectedTab == .content) {
                 selectedTab = .content
             }
             TabButton(title: "History", isSelected: selectedTab == .history) {
                 selectedTab = .history
+            }
+            TabButton(title: "Perspectives", isSelected: selectedTab == .perspectives) {
+                selectedTab = .perspectives
+                Task { await loadClaimsIfNeeded() }
+            }
+            TabButton(title: "Timeline", isSelected: selectedTab == .timeline) {
+                selectedTab = .timeline
+                Task { await loadClaimsIfNeeded() }
             }
             Spacer()
         }
@@ -168,9 +194,10 @@ struct EntityDetailCard: View {
     }
 
     private var renderedMarkdownView: some View {
-        Text(renderedMarkdownAttributed(entity.markdownContent))
-            .font(CicadaTheme.bodyFont)
-            .textSelection(.enabled)
+        // Inline transclusion (§1): tokenize the body into text/embed segments
+        // and render `![[…]]` embeds as nested collapsible cards. Falls back to
+        // plain wikilink rendering for bodies with no embeds.
+        TranscludingMarkdownView(body: entity.markdownContent)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -325,6 +352,227 @@ struct EntityDetailCard: View {
             }
         }
         .padding(CicadaTheme.spacingLG)
+    }
+
+    // MARK: - Perspectives Tab (§3b)
+    //
+    // The subject's claims grouped by observer, each group a labeled section
+    // (Observer.label + sfSymbol badge) of claim chips. Where two observers
+    // disagree on the same (predicate, context), a divergence callout names the
+    // "who believes what" contradiction-across-observers.
+
+    private var perspectivesTab: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            if !claimsLoaded {
+                ProgressView().controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else if validClaims.isEmpty {
+                claimsEmptyState
+            } else {
+                ForEach(divergences, id: \.self) { d in
+                    divergenceCallout(d)
+                }
+                ForEach(observerGroups, id: \.0.id) { observer, group in
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                        HStack(spacing: CicadaTheme.spacingXS) {
+                            ObserverBadge(observer)
+                            Text("\(group.count)")
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                        }
+                        ForEach(group) { claim in
+                            ClaimChip(claim: claim, onOpenTimeline: {
+                                timelineKey = TimelineKey(predicate: claim.predicate, context: claim.context)
+                            })
+                        }
+                    }
+                }
+            }
+        }
+        .padding(CicadaTheme.spacingLG)
+    }
+
+    // MARK: - Timeline Tab (§4)
+    //
+    // Lists the subject's CONTESTED keys — any (predicate, context) with ≥2
+    // claims over time — and drills into BeliefTimelineView on tap.
+
+    private var timelineTab: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            if !claimsLoaded {
+                ProgressView().controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else if contestedKeys.isEmpty {
+                VStack(spacing: CicadaTheme.spacingSM) {
+                    Image(systemName: "clock.badge.questionmark")
+                        .font(.system(size: 24))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    Text("No contested beliefs yet.")
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                    Text("A belief becomes contested when a (predicate, context) has changed over time.")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, CicadaTheme.spacingXL)
+            } else {
+                Text("Contested beliefs")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                ForEach(contestedKeys, id: \.id) { key in
+                    Button {
+                        timelineKey = key
+                    } label: {
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 12))
+                                .foregroundStyle(CicadaTheme.accent)
+                            Text(key.predicate)
+                                .font(CicadaTheme.bodyFont)
+                                .foregroundStyle(CicadaTheme.textPrimary)
+                            ContextPill(key.context)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10))
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                        }
+                        .padding(CicadaTheme.spacingMD)
+                        .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(CicadaTheme.spacingLG)
+    }
+
+    private func beliefTimelineSheet(_ key: TimelineKey) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Spacer()
+                Button { timelineKey = nil } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .background(CicadaTheme.surfaceHover)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(CicadaTheme.spacingMD)
+            }
+            ScrollView {
+                BeliefTimelineView(subject: entity.id, predicate: key.predicate, context: key.context)
+            }
+        }
+        .frame(minWidth: 460, minHeight: 420)
+        .background(CicadaTheme.background)
+    }
+
+    private var claimsEmptyState: some View {
+        VStack(spacing: CicadaTheme.spacingSM) {
+            Image(systemName: "person.2.slash")
+                .font(.system(size: 24))
+                .foregroundStyle(CicadaTheme.textTertiary)
+            Text("No claims for this subject yet.")
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, CicadaTheme.spacingXL)
+    }
+
+    private func divergenceCallout(_ d: Divergence) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.bubble.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(hex: 0xF59E0B))
+                Text("Observers disagree on \(d.predicate)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                ContextPill(d.context)
+            }
+            ForEach(Array(d.byObserver.enumerated()), id: \.offset) { _, pair in
+                HStack(spacing: 4) {
+                    ObserverBadge(pair.0)
+                    Text("asserts")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    Text(pair.1)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
+            }
+        }
+        .padding(CicadaTheme.spacingMD)
+        .background(Color(hex: 0xF59E0B).opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .overlay(
+            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .stroke(Color(hex: 0xF59E0B).opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Claim derivations
+
+    private var validClaims: [Claim] { claims.filter { $0.isValid } }
+
+    /// Valid claims grouped by observer, observer order stable (agent, rodrigo,
+    /// then externals).
+    private var observerGroups: [(Observer, [Claim])] {
+        let grouped = Dictionary(grouping: validClaims, by: { $0.observer })
+        return grouped.sorted { observerRank($0.key) < observerRank($1.key) }
+            .map { ($0.key, $0.value) }
+    }
+
+    private func observerRank(_ o: Observer) -> Int {
+        switch o {
+        case .agent: return 0
+        case .rodrigo: return 1
+        case .external: return 2
+        }
+    }
+
+    struct Divergence: Hashable {
+        let predicate: String
+        let context: String
+        let byObserver: [(Observer, String)]
+        static func == (l: Divergence, r: Divergence) -> Bool {
+            l.predicate == r.predicate && l.context == r.context
+        }
+        func hash(into h: inout Hasher) { h.combine(predicate); h.combine(context) }
+    }
+
+    /// (predicate, context) keys where ≥2 distinct observers assert different
+    /// objects among the currently-valid claims.
+    private var divergences: [Divergence] {
+        let byKey = Dictionary(grouping: validClaims, by: { "\($0.predicate)|\($0.context)" })
+        var out: [Divergence] = []
+        for (_, group) in byKey {
+            let distinctObservers = Set(group.map { $0.observer })
+            let distinctObjects = Set(group.map { $0.object })
+            if distinctObservers.count >= 2 && distinctObjects.count >= 2, let first = group.first {
+                let pairs = group.map { ($0.observer, $0.object) }
+                out.append(Divergence(predicate: first.predicate, context: first.context, byObserver: pairs))
+            }
+        }
+        return out
+    }
+
+    /// (predicate, context) keys with ≥2 claims over time (valid + superseded).
+    private var contestedKeys: [TimelineKey] {
+        let byKey = Dictionary(grouping: claims, by: { TimelineKey(predicate: $0.predicate, context: $0.context) })
+        return byKey.filter { $0.value.count >= 2 }.keys.sorted { $0.id < $1.id }
+    }
+
+    private func loadClaimsIfNeeded() async {
+        guard !claimsLoaded else { return }
+        // Include superseded so the timeline tab can detect contested keys.
+        claims = (try? await APIClient.shared.fetchClaims(subject: entity.id, includeSuperseded: true)) ?? []
+        claimsLoaded = true
     }
 
     // MARK: - Helpers

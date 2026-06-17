@@ -70,6 +70,27 @@ struct GraphContainerView: View {
                 Spacer()
             }
 
+            // Top-left: observer "who believes what" filter (§3a). Only renders
+            // once the graph carries observer data, otherwise EmptyView.
+            VStack {
+                HStack {
+                    ObserverFilterBar()
+                        .padding(CicadaTheme.spacingLG)
+                    Spacer()
+                }
+                Spacer()
+            }
+
+            // Bottom-left: context legend (§2a). EmptyView until contexts land.
+            VStack {
+                Spacer()
+                HStack {
+                    ContextLegend()
+                        .padding(CicadaTheme.spacingLG)
+                    Spacer()
+                }
+            }
+
             // Bottom-right: Filter + Zoom controls
             VStack {
                 Spacer()
