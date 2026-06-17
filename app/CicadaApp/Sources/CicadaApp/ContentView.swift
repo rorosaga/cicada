@@ -37,6 +37,8 @@ struct ContentView: View {
             SleepView(selectedTab: $selectedTab)
         case .inbox:
             InboxListView()
+        case .contributors:
+            ContributorsView()
         }
     }
 }

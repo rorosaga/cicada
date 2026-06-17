@@ -5,6 +5,7 @@ enum AppTab: String, CaseIterable {
     case topics = "Topics"
     case sleep = "Sleep"
     case inbox = "Inbox"
+    case contributors = "Contributors"
 
     var icon: String {
         switch self {
@@ -12,6 +13,7 @@ enum AppTab: String, CaseIterable {
         case .topics: "list.bullet"
         case .sleep: "moon.fill"
         case .inbox: "tray.full"
+        case .contributors: "person.2.badge.gearshape"
         }
     }
 }
@@ -50,7 +52,7 @@ struct SidebarView: View {
 
     private func badgeCount(for tab: AppTab) -> Int {
         switch tab {
-        case .memory, .topics, .sleep: 0
+        case .memory, .topics, .sleep, .contributors: 0
         case .inbox: inboxCount
         }
     }
