@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -32,6 +33,48 @@ from api.services import markdown_parser
 EmbedFn = Callable[..., np.ndarray]
 
 INDEX_DB_FILE = "vector_index.db"
+PENDING_STORE_FILE = "pending_entities.jsonl"
+
+# Episode bodies are split into overlapping passages before embedding so a
+# single multi-thousand-token conversation isn't embedded as one vector.
+EPISODE_CHUNK_CHARS = 4000
+EPISODE_CHUNK_OVERLAP = 200
+
+
+@dataclass
+class PendingEntity:
+    """A sub-threshold entity (first mention) awaiting a promotion trigger."""
+
+    name: str
+    type: str
+    description: str
+    source_episode: str
+    confidence: float
+    tags: list[str]
+    history_entries: list[dict]
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "type": self.type,
+            "description": self.description,
+            "source_episode": self.source_episode,
+            "confidence": self.confidence,
+            "tags": self.tags or [],
+            "history_entries": self.history_entries or [],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PendingEntity":
+        return cls(
+            name=data.get("name", ""),
+            type=data.get("type", "concept"),
+            description=data.get("description", ""),
+            source_episode=data.get("source_episode", ""),
+            confidence=float(data.get("confidence", 0.3)),
+            tags=data.get("tags", []) or [],
+            history_entries=data.get("history_entries", []) or [],
+        )
 
 
 class SqliteVecIndexer:
@@ -49,6 +92,7 @@ class SqliteVecIndexer:
         self.entities_dir = self.memory_path / "entities"
         self.episodes_dir = self.memory_path / "episodes"
         self.db_path = Path(db_path) if db_path else self.memory_path / INDEX_DB_FILE
+        self.pending_store = self.memory_path / PENDING_STORE_FILE
         self._embed_fn = embed_fn
         # Recorded next to the vectors so a reindex knows what it built and can
         # detect a model swap (different model => different dim => full rebuild).
@@ -240,6 +284,189 @@ class SqliteVecIndexer:
                 r for r in results if r.get("metadata", {}).get("status") != "archived"
             ]
         return results[:top_k]
+
+    def _search_kind(self, kind: str, query: str, top_k: int) -> list[dict]:
+        """Shared search helper: returns [] for a missing db or missing table."""
+        if not self.db_path.exists():
+            return []
+        conn = self._connect()
+        try:
+            return self._knn(conn, kind, query, top_k)
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            conn.close()
+
+    # ---------- episode index ----------
+
+    def index_episodes(self) -> int:
+        """Rebuild the episode index over all episode files (chunked)."""
+        if not self.episodes_dir.exists():
+            return 0
+        texts: list[str] = []
+        staged: list[tuple[str, dict]] = []
+        episodes_added = 0
+        for filepath in sorted(self.episodes_dir.glob("*.md")):
+            try:
+                parsed = markdown_parser.parse(filepath)
+            except Exception:
+                continue
+            body = parsed.body.strip()
+            if not body:
+                continue
+            fm = parsed.frontmatter or {}
+            base_meta = {
+                "episode_id": str(fm.get("id", filepath.stem)),
+                "source": str(fm.get("source", "unknown")),
+                "timestamp": str(fm.get("timestamp", "")),
+                "title": str(fm.get("title", "")),
+                "file_path": str(filepath),
+            }
+            chunks = _chunk_episode_body(body)
+            for chunk_idx, chunk in enumerate(chunks):
+                meta = dict(base_meta)
+                meta["chunk_index"] = chunk_idx
+                meta["chunk_count"] = len(chunks)
+                texts.append(chunk)
+                staged.append((chunk, meta))
+            episodes_added += 1
+        if not staged:
+            return 0
+        embeddings = self._embed(texts)
+        rows = [(embeddings[i], staged[i][0], staged[i][1]) for i in range(len(staged))]
+        conn = self._connect()
+        try:
+            self._rebuild_table(conn, "episodes", rows)
+        finally:
+            conn.close()
+        logger.info(
+            f"Vector episode index rebuilt: {episodes_added} episodes / {len(rows)} passages"
+        )
+        return episodes_added
+
+    def search_episodes(self, query: str, top_k: int = 3) -> list[dict]:
+        return self._search_kind("episodes", query, top_k)
+
+    # ---------- pending (sub-threshold) index ----------
+
+    def _load_pending(self) -> list[PendingEntity]:
+        if not self.pending_store.exists():
+            return []
+        out: list[PendingEntity] = []
+        for line in self.pending_store.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(PendingEntity.from_dict(json.loads(line)))
+            except Exception:
+                continue
+        return out
+
+    def _save_pending(self, entries: list[PendingEntity]) -> None:
+        self.pending_store.parent.mkdir(parents=True, exist_ok=True)
+        if not entries:
+            self.pending_store.write_text("", encoding="utf-8")
+            return
+        lines = [json.dumps(e.to_dict()) for e in entries]
+        self.pending_store.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def index_pending_entity(self, entity: PendingEntity) -> None:
+        """Append/replace a sub-threshold entity in the store (no vec rebuild).
+
+        Rebuilding the vec table per add would be O(N^2) embedding calls in a
+        single sleep batch; call :meth:`rebuild_pending_index` once afterward.
+        """
+        entries = self._load_pending()
+        name_lower = entity.name.lower()
+        kept = [e for e in entries if e.name.lower() != name_lower]
+        kept.append(entity)
+        self._save_pending(kept)
+
+    def rebuild_pending_index(self) -> int:
+        entries = self._load_pending()
+        if not entries:
+            return 0
+        self._rebuild_pending_index(entries)
+        return len(entries)
+
+    def list_pending(self) -> list[PendingEntity]:
+        return self._load_pending()
+
+    def pending_by_name(self, name: str) -> PendingEntity | None:
+        name_lower = name.lower()
+        for e in self._load_pending():
+            if e.name.lower() == name_lower:
+                return e
+        return None
+
+    def promote_from_pending(self, entity_name: str) -> PendingEntity | None:
+        """Remove and return an entry from the pending store, rebuild the index."""
+        entries = self._load_pending()
+        name_lower = entity_name.lower()
+        kept: list[PendingEntity] = []
+        promoted: PendingEntity | None = None
+        for e in entries:
+            if e.name.lower() == name_lower and promoted is None:
+                promoted = e
+            else:
+                kept.append(e)
+        if promoted is None:
+            return None
+        self._save_pending(kept)
+        self._rebuild_pending_index(kept)
+        return promoted
+
+    def _rebuild_pending_index(self, entries: list[PendingEntity]) -> None:
+        texts = [f"{e.name}: {e.description}".strip() for e in entries]
+        rows_meta = [
+            {
+                "entity_name": e.name,
+                "type": e.type,
+                "source_episode": e.source_episode,
+                "confidence": float(e.confidence),
+            }
+            for e in entries
+        ]
+        keep = [i for i, t in enumerate(texts) if t]
+        if not keep:
+            return
+        texts = [texts[i] for i in keep]
+        rows_meta = [rows_meta[i] for i in keep]
+        embeddings = self._embed(texts)
+        rows = [(embeddings[i], texts[i], rows_meta[i]) for i in range(len(texts))]
+        conn = self._connect()
+        try:
+            self._rebuild_table(conn, "pending", rows)
+        finally:
+            conn.close()
+
+    def search_pending(self, query: str, top_k: int = 5) -> list[dict]:
+        return self._search_kind("pending", query, top_k)
+
+
+def _chunk_episode_body(body: str) -> list[str]:
+    """Split an episode body into overlapping passages for embedding."""
+    body = body.strip()
+    if not body:
+        return []
+    if len(body) <= EPISODE_CHUNK_CHARS:
+        return [body]
+    chunks: list[str] = []
+    start = 0
+    while start < len(body):
+        end = start + EPISODE_CHUNK_CHARS
+        if end < len(body):
+            newline_pos = body.rfind("\n", max(start + 1, end - 300), end)
+            if newline_pos > start:
+                end = newline_pos + 1
+        chunk = body[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= len(body):
+            break
+        start = max(end - EPISODE_CHUNK_OVERLAP, start + 1)
+    return chunks
 
 
 def _entity_embed_text(fm: dict, body: str, stem: str) -> str:

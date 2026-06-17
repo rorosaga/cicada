@@ -14,7 +14,7 @@ from api.services.clarification_manager import (
     ClarificationManager,
 )
 from api.services.id_utils import sanitize_id
-from api.services.leann_indexer import LeannIndexer, PendingEntity
+from api.services.vector_index import PendingEntity, SqliteVecIndexer
 
 
 async def resolve(
@@ -87,7 +87,7 @@ async def resolve(
 
     # Pending store — sub-threshold entities from previous cycles
     try:
-        indexer = LeannIndexer(settings.memory_path)
+        indexer = SqliteVecIndexer(settings.memory_path)
     except Exception as e:
         logger.debug(f"LEANN pending store unavailable: {e}")
         indexer = None

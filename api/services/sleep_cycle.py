@@ -176,11 +176,11 @@ async def run(settings: Settings, cycle_id: str) -> None:
         # *with a warning* — not a silent pass, not a hard failure.
         index_warnings: list[str] = []
         try:
-            from api.services.leann_indexer import LeannIndexer
-            indexer = LeannIndexer(memory_path)
+            from api.services.vector_index import SqliteVecIndexer
+            indexer = SqliteVecIndexer(memory_path)
         except Exception as e:
             indexer = None
-            warning = f"LEANN indexer init failed: {type(e).__name__}: {e}"
+            warning = f"vector indexer init failed: {type(e).__name__}: {e}"
             logger.warning(warning)
             index_warnings.append(warning)
 
@@ -189,13 +189,13 @@ async def run(settings: Settings, cycle_id: str) -> None:
                 indexer.index_entities()
             except Exception as e:
                 warning = f"entity index rebuild failed: {type(e).__name__}: {e}"
-                logger.warning(f"LEANN {warning}")
+                logger.warning(f"vector {warning}")
                 index_warnings.append(warning)
             try:
                 indexer.index_episodes()
             except Exception as e:
                 warning = f"episode index rebuild failed: {type(e).__name__}: {e}"
-                logger.warning(f"LEANN {warning}")
+                logger.warning(f"vector {warning}")
                 index_warnings.append(warning)
 
         if index_warnings:

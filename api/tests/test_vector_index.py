@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 
 from api.services import markdown_parser
-from api.services.vector_index import SqliteVecIndexer
+from api.services.vector_index import PendingEntity, SqliteVecIndexer
 
 # A tiny fixed vocabulary so a hand-rolled embedder produces meaningful
 # cosine geometry: texts sharing words land close together.
@@ -134,3 +134,49 @@ def test_documents_indexed_as_document_queries_searched_as_query(tmp_path):
 
     indexer.search_entities("python web framework", top_k=1)
     assert calls[-1] is True, "search must embed the query (is_query=True)"
+
+
+def _make_episode(episodes_dir, stem, body, **fm):
+    base = {"id": stem, "source": "test", "timestamp": "2026-06-17T00:00:00", "title": stem}
+    base.update(fm)
+    markdown_parser.write(episodes_dir / f"{stem}.md", base, body)
+
+
+def test_index_and_search_episodes(tmp_path):
+    episodes_dir = tmp_path / "episodes"
+    episodes_dir.mkdir()
+    _make_episode(episodes_dir, "ep_001", "We discussed the python web framework api design.")
+    _make_episode(episodes_dir, "ep_002", "Notes about acoustic guitar music practice.")
+
+    indexer = SqliteVecIndexer(tmp_path, embed_fn=fake_embed)
+    count = indexer.index_episodes()
+    assert count == 2
+
+    hits = indexer.search_episodes("python web framework", top_k=2)
+    assert hits
+    assert hits[0]["metadata"]["episode_id"] == "ep_001"
+
+
+def test_pending_roundtrip_and_promote(tmp_path):
+    (tmp_path / "entities").mkdir()
+    indexer = SqliteVecIndexer(tmp_path, embed_fn=fake_embed)
+
+    entity = PendingEntity(
+        name="Mongo",
+        type="tool",
+        description="python database vector store mentioned once.",
+        source_episode="ep_001",
+        confidence=0.3,
+        tags=[],
+        history_entries=[],
+    )
+    indexer.index_pending_entity(entity)
+    indexer.rebuild_pending_index()
+
+    assert indexer.pending_by_name("Mongo") is not None
+    found = indexer.search_pending("python database", top_k=3)
+    assert any(h["metadata"]["entity_name"] == "Mongo" for h in found)
+
+    promoted = indexer.promote_from_pending("Mongo")
+    assert promoted is not None and promoted.name == "Mongo"
+    assert indexer.pending_by_name("Mongo") is None

@@ -47,16 +47,24 @@ def _count_md(directory: Path) -> int:
 
 
 def _leann_present(memory_path: Path) -> bool:
-    """True if any LEANN index sidecar exists.
+    """True if a vector index has been built.
 
-    A built index writes ``<prefix>.meta.json`` (the same marker
-    ``LeannIndexer._search`` checks), so the presence of any such sidecar
-    under ``leann/`` means at least one index has been built.
+    Checks the sqlite-vec index first (``vector_index.db`` with recorded
+    ``index_meta``); falls back to detecting legacy LEANN ``*.meta.json``
+    sidecars so a not-yet-reindexed install still reports an index as present.
+    (Field name kept as ``leann_present`` in the API response for now to avoid
+    a coordinated Swift-side rename.)
     """
+    if (memory_path / "vector_index.db").exists():
+        try:
+            from api.services.vector_index import SqliteVecIndexer
+
+            if SqliteVecIndexer(memory_path).index_info():
+                return True
+        except Exception:
+            pass
     leann_dir = memory_path / "leann"
-    if not leann_dir.exists():
-        return False
-    return any(leann_dir.glob("*.meta.json"))
+    return leann_dir.exists() and any(leann_dir.glob("*.meta.json"))
 
 
 @router.get("/status", response_model=StatusResponse)

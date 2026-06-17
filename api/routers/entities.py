@@ -131,13 +131,13 @@ def _hubs_for_entity(memory_path: Path, entity_id: str) -> list[str]:
 
 
 def _leann_entity_neighbors(memory_path: Path, query: str, top_k: int) -> list[dict]:
-    """LEANN entity hits, or [] when LEANN is unavailable (caller degrades)."""
+    """Vector entity hits, or [] when the index is unavailable (caller degrades)."""
     try:
-        from api.services.leann_indexer import LeannIndexer
+        from api.services.vector_index import SqliteVecIndexer
     except Exception:
         return []
     try:
-        indexer = LeannIndexer(memory_path)
+        indexer = SqliteVecIndexer(memory_path)
         raw = indexer.search_entities(query, top_k=top_k)
     except Exception:
         return []
@@ -243,11 +243,11 @@ def _build_episodes(
             )
         )
 
-    # Top-2 LEANN episode hits not already covered.
+    # Top-2 episode hits not already covered.
     try:
-        from api.services.leann_indexer import LeannIndexer
+        from api.services.vector_index import SqliteVecIndexer
 
-        indexer = LeannIndexer(memory_path)
+        indexer = SqliteVecIndexer(memory_path)
         for r in indexer.search_episodes(name, top_k=2) or []:
             meta = r.get("metadata", {}) or {}
             ep_id = str(meta.get("episode_id", "") or "")

@@ -599,11 +599,11 @@ def handle_recall_detail(entity_id: str) -> str:
 
 def _leann_search_entities(memory_path: Path, query: str, top_k: int) -> list[dict]:
     try:
-        from api.services.leann_indexer import LeannIndexer
+        from api.services.vector_index import SqliteVecIndexer
     except Exception:
         return []
     try:
-        indexer = LeannIndexer(memory_path)
+        indexer = SqliteVecIndexer(memory_path)
         results = indexer.search_entities(query, top_k=top_k)
     except Exception:
         return []
@@ -616,7 +616,7 @@ def _leann_search_entities(memory_path: Path, query: str, top_k: int) -> list[di
             continue
         out.append({
             "entity_id": eid,
-            "source": "leann",
+            "source": "vector",
             "score": r.get("score", 0.0),
             "text": r.get("text", ""),
             "metadata": meta,
@@ -626,11 +626,11 @@ def _leann_search_entities(memory_path: Path, query: str, top_k: int) -> list[di
 
 def _leann_search_episodes(memory_path: Path, query: str, top_k: int) -> list[dict]:
     try:
-        from api.services.leann_indexer import LeannIndexer
+        from api.services.vector_index import SqliteVecIndexer
     except Exception:
         return []
     try:
-        indexer = LeannIndexer(memory_path)
+        indexer = SqliteVecIndexer(memory_path)
         return indexer.search_episodes(query, top_k=top_k)
     except Exception:
         return []
