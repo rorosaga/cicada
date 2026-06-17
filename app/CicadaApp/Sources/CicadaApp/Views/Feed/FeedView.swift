@@ -54,15 +54,10 @@ struct FeedView: View {
     }
 
     private var header: some View {
-        HStack(spacing: CicadaTheme.spacingMD) {
-            Text("Feed")
-                .font(CicadaTheme.titleFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
-            Spacer()
-        }
-        .padding(.horizontal, CicadaTheme.spacingXL)
-        .padding(.top, CicadaTheme.spacingXL)
-        .padding(.bottom, CicadaTheme.spacingMD)
+        PageHeader(
+            title: "Feed",
+            subtitle: "Recently ingested sources and saved resources."
+        )
     }
 
     private var searchAndSortRow: some View {

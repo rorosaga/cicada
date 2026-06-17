@@ -44,10 +44,11 @@ struct ContributorsView: View {
             Text("Contributors")
                 .font(CicadaTheme.titleFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
-            Text("Which model — or you — authored each write to memory.")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
+            Text("Which model — or you — authored each belief.")
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

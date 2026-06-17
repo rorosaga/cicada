@@ -124,17 +124,10 @@ private struct TopicsListView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header with title + search + filter
-            HStack(spacing: CicadaTheme.spacingMD) {
-                Text("Topics")
-                    .font(CicadaTheme.titleFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-
-                Spacer()
-            }
-            .padding(.horizontal, CicadaTheme.spacingXL)
-            .padding(.top, CicadaTheme.spacingXL)
-            .padding(.bottom, CicadaTheme.spacingMD)
+            PageHeader(
+                title: "Clusters",
+                subtitle: "Auto-detected groups of related entities."
+            )
 
             // Search + filter row
             HStack(spacing: CicadaTheme.spacingMD) {
@@ -143,7 +136,7 @@ private struct TopicsListView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(CicadaTheme.textTertiary)
 
-                    TextField("Search topics...", text: $searchText)
+                    TextField("Search clusters...", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
@@ -208,7 +201,7 @@ private struct TopicsListView: View {
             .padding(.bottom, CicadaTheme.spacingMD)
 
             // Count
-            Text("\(filteredEntities.count) topics")
+            Text("\(filteredEntities.count) clusters")
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .padding(.horizontal, CicadaTheme.spacingXL)
@@ -443,7 +436,7 @@ private struct TopicDetailView: View {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 12, weight: .medium))
-                        Text("Topics")
+                        Text("Clusters")
                             .font(.system(size: 12, weight: .medium))
                     }
                     .foregroundStyle(CicadaTheme.textSecondary)

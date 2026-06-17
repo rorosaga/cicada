@@ -1,8 +1,8 @@
 import SwiftUI
 
 enum AppTab: String, CaseIterable {
-    case memory = "Memory"
-    case topics = "Topics"
+    case graph = "Graph"
+    case clusters = "Clusters"
     case feed = "Feed"
     case sleep = "Sleep"
     case inbox = "Inbox"
@@ -10,12 +10,28 @@ enum AppTab: String, CaseIterable {
 
     var icon: String {
         switch self {
-        case .memory: "brain.head.profile"
-        case .topics: "list.bullet"
+        case .graph: "point.3.connected.trianglepath.dotted"
+        case .clusters: "circle.grid.2x2"
         case .feed: "photo.stack"
         case .sleep: "moon.fill"
         case .inbox: "tray.full"
         case .contributors: "person.2.badge.gearshape"
+        }
+    }
+}
+
+/// Linear/Notion-style sidebar sections. Quiet uppercase labels group the flat
+/// tab list by mental model without adding any new theme tokens.
+private enum SidebarSection: String, CaseIterable {
+    case workspace = "Workspace"
+    case maintenance = "Maintenance"
+    case provenance = "Provenance"
+
+    var tabs: [AppTab] {
+        switch self {
+        case .workspace: [.graph, .clusters, .feed]
+        case .maintenance: [.sleep, .inbox]
+        case .provenance: [.contributors]
         }
     }
 }
@@ -25,16 +41,27 @@ struct SidebarView: View {
     var inboxCount: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            ForEach(AppTab.allCases, id: \.self) { tab in
-                SidebarRow(
-                    tab: tab,
-                    isSelected: selectedTab == tab,
-                    badgeCount: badgeCount(for: tab)
-                )
-                .onTapGesture {
-                    withAnimation(.spring(duration: 0.25)) {
-                        selectedTab = tab
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            ForEach(SidebarSection.allCases, id: \.self) { section in
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    Text(section.rawValue.uppercased())
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .tracking(1.2)
+                        .padding(.horizontal, CicadaTheme.spacingLG)
+                        .padding(.leading, CicadaTheme.spacingSM)
+
+                    ForEach(section.tabs, id: \.self) { tab in
+                        SidebarRow(
+                            tab: tab,
+                            isSelected: selectedTab == tab,
+                            badgeCount: badgeCount(for: tab)
+                        )
+                        .onTapGesture {
+                            withAnimation(.spring(duration: 0.25)) {
+                                selectedTab = tab
+                            }
+                        }
                     }
                 }
             }
@@ -54,7 +81,7 @@ struct SidebarView: View {
 
     private func badgeCount(for tab: AppTab) -> Int {
         switch tab {
-        case .memory, .topics, .feed, .sleep, .contributors: 0
+        case .graph, .clusters, .feed, .sleep, .contributors: 0
         case .inbox: inboxCount
         }
     }

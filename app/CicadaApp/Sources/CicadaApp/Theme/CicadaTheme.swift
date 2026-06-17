@@ -2,44 +2,54 @@ import SwiftUI
 
 enum CicadaTheme {
     // MARK: - Background & Surface
-    static let background = Color(hex: 0x1A1A1A)
-    static let surface = Color(hex: 0x222222)
-    static let surfaceHover = Color(hex: 0x2A2A2A)
-    static let surfaceElevated = Color(hex: 0x2E2E2E)
-    static let border = Color(hex: 0x333333)
-    static let borderLight = Color(hex: 0x444444)
+    // Radix-style 4-step elevation ramp on a Catppuccin/Tokyo-Night cool
+    // near-black base with a faint violet cast. Darkening the canvas is the
+    // single biggest "pop" lever since the d3 graph is transparent and every
+    // node sits directly on `background`.
+    static let background = Color(hex: 0x0E0F14)
+    static let surface = Color(hex: 0x16171D)
+    static let surfaceHover = Color(hex: 0x1D1F26)
+    static let surfaceElevated = Color(hex: 0x23252E)
+    static let border = Color(hex: 0x262A33)
+    static let borderLight = Color(hex: 0x363B47)
 
     // MARK: - Text
-    static let textPrimary = Color(hex: 0xF5F5F5)
-    static let textSecondary = Color(hex: 0x999999)
-    static let textTertiary = Color(hex: 0x666666)
+    // AA-checked against the darkest surface (#0E0F14). Primary ~16.5:1 (AAA),
+    // secondary ~6.9:1 (AA), tertiary ~3.6:1 (decorative/large only).
+    static let textPrimary = Color(hex: 0xECEDF2)
+    static let textSecondary = Color(hex: 0x9BA1AE)
+    static let textTertiary = Color(hex: 0x6B7180)
 
     // MARK: - Accent
-    static let accent = Color(hex: 0x7C8FFF)
+    // Periwinkle, nudged one notch brighter so it pops on the darker base.
+    static let accent = Color(hex: 0x8896FF)
 
     // MARK: - Entity Type Colors
     // Mirrors the `typeColors` map in graph.js so the SwiftUI chrome and the d3
     // canvas agree on hue per type.
     static func entityColor(for type: EntityType) -> Color {
+        // Tailwind-400-band hues: each keeps its type identity but is pushed
+        // brighter/more saturated so all 8 clear ~4.5:1+ on the darker base and
+        // stay >15° apart in hue. MUST stay in sync with graph.js `typeColors`.
         switch type {
-        case .person: Color(hex: 0x4A9EFF)
-        case .project: Color(hex: 0xA855F7)
-        case .company: Color(hex: 0xF97316)
-        case .concept: Color(hex: 0x22C55E)
-        case .tool: Color(hex: 0x14B8A6)
-        case .deadline: Color(hex: 0xEF4444)
-        case .skill: Color(hex: 0xEAB308)
-        case .location: Color(hex: 0x9CA3AF)
+        case .person: Color(hex: 0x5AA8FF)
+        case .project: Color(hex: 0xB57BFF)
+        case .company: Color(hex: 0xFF8A3D)
+        case .concept: Color(hex: 0x3BD97A)
+        case .tool: Color(hex: 0x2DD4BF)
+        case .deadline: Color(hex: 0xFF5C5C)
+        case .skill: Color(hex: 0xF2C744)
+        case .location: Color(hex: 0xAEB6C4)
         case .media: mediaPink
         case .hub: hubGold
-        case .unknown: Color(hex: 0x999999)
+        case .unknown: Color(hex: 0x9BA1AE)
         }
     }
 
     // MARK: - Graph-specific accents
-    static let mediaPink = Color(hex: 0xEC4899)   // media entity hue
-    static let hubGold = Color(hex: 0xE6B450)     // hub ring / hub node hue
-    static let pendingPulse = Color(hex: 0xF5C04E) // amber "needs you" pulse
+    static let mediaPink = Color(hex: 0xF65BA6)   // media entity hue
+    static let hubGold = Color(hex: 0xE0A93A)     // hub ring / hub node hue (deeper amber, distinct from skill gold)
+    static let pendingPulse = Color(hex: 0xFFCB57) // amber "needs you" pulse
 
     // MARK: - Context Colors (claim layer)
     // Contexts are an open set, so we hash unknown ones into a stable hue and
@@ -47,21 +57,21 @@ enum CicadaTheme {
     // CONTEXT_COLORS in graph.js for the d3 canvas.
     static func contextColor(_ context: String) -> Color {
         switch context {
-        case "engineering":   return Color(hex: 0x14B8A6)   // teal
-        case "family":        return Color(hex: 0xEC4899)   // pink
-        case "philosophical": return Color(hex: 0xA855F7)   // purple
-        case "career":        return Color(hex: 0xF97316)   // orange
-        case "cross":         return Color(hex: 0xEAB308)   // gold — the cross-context bridge
-        case "general":       return Color(hex: 0x6B7280)   // gray
+        case "engineering":   return Color(hex: 0x2DD4BF)   // teal  = tool
+        case "family":        return Color(hex: 0xF65BA6)   // pink  = media
+        case "philosophical": return Color(hex: 0xB57BFF)   // purple = project
+        case "career":        return Color(hex: 0xFF8A3D)   // orange = company
+        case "cross":         return Color(hex: 0xF2C744)   // gold — the cross-context bridge (= skill)
+        case "general":       return Color(hex: 0x7A8290)   // neutral, lifted to stay visible on the dark base
         default:
             // Stable hue for any open-tail context so the graph never flickers.
             // Mirrors graph.js `hashHue` (h = h*31 + charCode, 32-bit wrap, then
-            // abs % 360) and its `hsl(hue, 55%, 65%)` output EXACTLY so the
+            // abs % 360) and its `hsl(hue, 55%, 68%)` output EXACTLY so the
             // SwiftUI chrome and the d3 canvas pick the same color for an
             // unknown context. NOTE: Swift's String.hashValue is per-process
             // randomized — never use it for a color that must be stable.
             let hue = Double(hashHue(context))
-            return Color(hslHue: hue, saturation: 0.55, lightness: 0.65)
+            return Color(hslHue: hue, saturation: 0.55, lightness: 0.68)
         }
     }
 
@@ -81,9 +91,9 @@ enum CicadaTheme {
     static func statusColor(for status: EntityStatus) -> Color {
         switch status {
         case .active: accent
-        case .decaying: Color(hex: 0xF59E0B)
-        case .archived: Color(hex: 0x6B7280)
-        case .dropped: Color(hex: 0xEF4444).opacity(0.6)
+        case .decaying: Color(hex: 0xF5A93B)
+        case .archived: Color(hex: 0x7A8290)
+        case .dropped: Color(hex: 0xFF5C5C).opacity(0.6)
         }
     }
 
@@ -112,10 +122,10 @@ enum CicadaTheme {
     // sidebar/filter chrome.
     static func inboxColor(for kind: InboxKind) -> Color {
         switch kind {
-        case .decay: Color(hex: 0xF59E0B)
-        case .conflict: Color(hex: 0xEF4444)
-        case .clarification: Color(hex: 0x7C8FFF)
-        case .mergeSuggestion: Color(hex: 0xEAB308)
+        case .decay: Color(hex: 0xF5A93B)
+        case .conflict: Color(hex: 0xFF5C5C)
+        case .clarification: Color(hex: 0x8896FF)
+        case .mergeSuggestion: Color(hex: 0xF2C744)
         }
     }
 }
@@ -134,10 +144,13 @@ struct GlassCard: ViewModifier {
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
+                // On the darker base a thin border reads crisper than a heavy
+                // glass blur (Linear/GitHub convention). Use the cool `border`
+                // token instead of a flat white stroke, and a tighter shadow.
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    .stroke(CicadaTheme.border, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+            .shadow(color: .black.opacity(0.3), radius: 14, y: 8)
     }
 }
 

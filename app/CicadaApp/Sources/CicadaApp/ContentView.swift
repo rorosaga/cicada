@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var selectedTab: AppTab = .memory
+    @State private var selectedTab: AppTab = .graph
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
 
     @Environment(GraphViewModel.self) private var graphVM
@@ -29,9 +29,9 @@ struct ContentView: View {
     @ViewBuilder
     private var detailContent: some View {
         switch selectedTab {
-        case .memory:
+        case .graph:
             GraphContainerView(selectedTab: $selectedTab)
-        case .topics:
+        case .clusters:
             TopicsView(selectedTab: $selectedTab)
         case .feed:
             FeedView(selectedTab: $selectedTab)

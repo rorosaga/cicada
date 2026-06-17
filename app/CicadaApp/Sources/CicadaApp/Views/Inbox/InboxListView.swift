@@ -53,18 +53,16 @@ struct InboxListView: View {
     // MARK: - Header (title + kind filter chips)
 
     private var headerBar: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingMD) {
-                Text("Inbox")
-                    .font(CicadaTheme.titleFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-
+        VStack(alignment: .leading, spacing: 0) {
+            PageHeader(
+                title: "Inbox",
+                subtitle: "Nudges and clarifications waiting on you."
+            ) {
                 if !viewModel.items.isEmpty {
                     Text("\(viewModel.items.count) pending")
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
-                Spacer()
             }
 
             if !viewModel.items.isEmpty {
@@ -83,11 +81,10 @@ struct InboxListView: View {
                     }
                     Spacer()
                 }
+                .padding(.horizontal, CicadaTheme.spacingXL)
+                .padding(.bottom, CicadaTheme.spacingMD)
             }
         }
-        .padding(.horizontal, CicadaTheme.spacingXL)
-        .padding(.top, CicadaTheme.spacingXL)
-        .padding(.bottom, CicadaTheme.spacingMD)
     }
 
     /// Kinds present in the current inbox, in a stable display order.

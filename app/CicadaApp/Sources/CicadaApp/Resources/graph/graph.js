@@ -15,18 +15,20 @@
 // updateGraph (position preservation) so post-sleep refreshes settle instead
 // of exploding. The canvas + quadtree pipeline is untouched.
 
+// MUST stay byte-identical to CicadaTheme.entityColor(for:) — Tailwind-400-band
+// hues on the darker #0E0F14 base so all 8 pop and clear ~4.5:1+ contrast.
 const typeColors = {
-    person:   "#4A9EFF",
-    project:  "#A855F7",
-    company:  "#F97316",
-    concept:  "#22C55E",
-    tool:     "#14B8A6",
-    deadline: "#EF4444",
-    skill:    "#EAB308",
-    location: "#9CA3AF",
-    media:    "#EC4899",
-    hub:      "#E6B450",   // neutral gold — distinct from project purple
-    unknown:  "#999999",
+    person:   "#5AA8FF",
+    project:  "#B57BFF",
+    company:  "#FF8A3D",
+    concept:  "#3BD97A",
+    tool:     "#2DD4BF",
+    deadline: "#FF5C5C",
+    skill:    "#F2C744",
+    location: "#AEB6C4",
+    media:    "#F65BA6",
+    hub:      "#E0A93A",   // deeper amber gold — distinct from skill gold + project purple
+    unknown:  "#9BA1AE",
 };
 
 // Soft per-type cluster anchors. These are only used by the xType/yType
@@ -51,17 +53,17 @@ const typeClusterPositions = {
 // core contexts are hard-coded; unknown ones hash to a stable HSL hue so the
 // graph never flickers. Used to color edge strokes + facet node fills.
 const CONTEXT_COLORS = {
-    engineering:   "#14B8A6",
-    family:        "#EC4899",
-    philosophical: "#A855F7",
-    career:        "#F97316",
-    cross:         "#EAB308",
-    general:       "#6B7280",
+    engineering:   "#2DD4BF",   // = tool
+    family:        "#F65BA6",   // = media
+    philosophical: "#B57BFF",   // = project
+    career:        "#FF8A3D",   // = company
+    cross:         "#F2C744",   // = skill (cross-context bridge stays loudest)
+    general:       "#7A8290",
 };
 const OBSERVER_BADGE_COLORS = {
-    agent:    "#7C8FFF",   // accent
-    rodrigo:  "#4A9EFF",   // blue
-    external: "#EC4899",   // pink
+    agent:    "#8896FF",   // accent
+    rodrigo:  "#5AA8FF",   // blue (person)
+    external: "#F65BA6",   // pink (media)
 };
 function hashHue(str) {
     let h = 0;
@@ -69,9 +71,9 @@ function hashHue(str) {
     return Math.abs(h) % 360;
 }
 function contextColor(context) {
-    if (!context) return "#666";
+    if (!context) return "#262A33";   // = CicadaTheme.border (contextless edge)
     if (CONTEXT_COLORS[context]) return CONTEXT_COLORS[context];
-    return `hsl(${hashHue(context)}, 55%, 65%)`;
+    return `hsl(${hashHue(context)}, 55%, 68%)`;
 }
 function observerBadgeColor(wire) {
     if (!wire) return OBSERVER_BADGE_COLORS.agent;
@@ -98,7 +100,7 @@ const LABEL_BUDGET = 200;           // max node labels rendered per frame
 const STATUS_ALPHA = { active: 0.92, decaying: 0.5, archived: 0.28, dropped: 0.0 };
 
 const HUB_RING_FLOOR = 22;          // minimum radius for a hub node
-const PULSE_COLOR = "#F5C04E";      // amber attention color for pending pulse
+const PULSE_COLOR = "#FFCB57";      // amber attention color for pending pulse (= CicadaTheme.pendingPulse)
 
 // Surface uncaught JS errors to the Swift side — a silent exception here
 // renders as an inexplicably blank canvas otherwise.
@@ -823,7 +825,7 @@ function draw() {
         ctx.globalAlpha = alpha;
         // §2a: context-colored edges. An edge with a context paints in its
         // context hue; a contextless (legacy) edge keeps the flat gray.
-        ctx.strokeStyle = l.context ? contextColor(l.context) : "#666";
+        ctx.strokeStyle = l.context ? contextColor(l.context) : "#262A33";
         ctx.lineWidth = 1 / transform.k;
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
@@ -1035,7 +1037,7 @@ function drawNodeLabels(hoverActive, neighbors, focusActive) {
         // intentional — neighbor labels read slightly softer than the hovered
         // node's own plate so the focal point stays dominant.
         ctx.globalAlpha = hoverActive ? 0.8 : 0.95;
-        ctx.fillStyle = "#F5F5F5";
+        ctx.fillStyle = "#ECEDF2";   // = CicadaTheme.textPrimary
         ctx.fillText(n.name, n.x, n.y + r + (4 / k));
     }
     ctx.shadowBlur = 0;
@@ -1077,11 +1079,11 @@ function drawEdgeLabels(focusActive) {
         const boxH = fontSize + padY * 2;
 
         ctx.globalAlpha = alpha * 0.7;
-        ctx.fillStyle = "rgba(18, 18, 22, 0.85)";
+        ctx.fillStyle = "rgba(14, 15, 20, 0.85)";   // = CicadaTheme.background
         ctx.fillRect(mx - boxW / 2, my - boxH / 2, boxW, boxH);
 
         ctx.globalAlpha = alpha;
-        ctx.fillStyle = "#D8D8D8";
+        ctx.fillStyle = "#C7CBD6";
         ctx.fillText(l.label, mx, my);
     }
     ctx.globalAlpha = 1;
@@ -1103,9 +1105,9 @@ function drawHoverLabel(n) {
     const boxX = n.x - boxW / 2;
     const boxY = n.y + r + (6 / k);
     ctx.globalAlpha = 0.92;
-    ctx.fillStyle = "rgba(18, 18, 22, 0.92)";
+    ctx.fillStyle = "rgba(14, 15, 20, 0.92)";   // = CicadaTheme.background
     ctx.fillRect(boxX, boxY, boxW, boxH);
-    ctx.fillStyle = "#F5F5F5";
+    ctx.fillStyle = "#ECEDF2";   // = CicadaTheme.textPrimary
     ctx.fillText(text, n.x, boxY + boxH / 2);
     ctx.globalAlpha = 1;
 }
