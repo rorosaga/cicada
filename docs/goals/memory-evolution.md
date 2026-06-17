@@ -151,6 +151,49 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
     the file-drop path now wired) and routing the `/sources/rss` endpoint through `ingest_feed`
     to retire the test-only wrapper (review optional #4) are left as small follow-ups.
 
+- ✅ **M5a — claim-layer foundation (in-page claims + derived index; $0 LLM, additive, reversible):**
+  the store-format + parser + derived index foundation from the D2 ADDENDUM
+  (`docs/goals/d2-architecture-final.md`) — editable pages are the source of truth, claims live
+  **in** the page, the index is **derived**. Deliberately narrow: **not** wired into `/ask`, MCP, or
+  the Sleep cycle yet (later milestones).
+  - **`Claim` schema (`api/services/claims.py`):** dataclass with the full field set —
+    `id, text, subject, predicate, object, object_kind, observer, context, epistemic, source_trust,
+    confidence, valid_from, valid_to, superseded_by, supersedes, recorded_at, source_episodes,
+    premises, authored_by, origin` (origin = G9 harness provenance, distinct from M3 `authored_by`).
+    Sensible defaults so a minimal `Claim(id=..., text=...)` is valid (`observer=agent`,
+    `context=general`, `epistemic=explicit`, `source_trust=agent_extracted`, `object_kind=node`,
+    `confidence=0.5`, `valid_to=None`). `to_dict`/`from_dict` round-trip; `from_dict` tolerates sparse
+    YAML records (legacy/partial).
+  - **In-page block parser/writer (`api/services/claims.py`):** `parse_claims(body) -> list[Claim]`
+    finds the fenced ` ```claims ` YAML-**list** block, parses each mapping into a `Claim`; returns
+    `[]` for a legacy page (no fence), a malformed block (warn + `[]`, never raises), or a non-list
+    payload. `write_claims(body, claims) -> body` inserts/replaces the block **in place** while
+    preserving **all** surrounding prose verbatim (load-bearing: pages stay editable Wikipedia-like
+    docs; the claims block is the co-located machine layer). Empty list still emits a visible `[]`
+    fence. Round-trip invariant `parse_claims(write_claims(body, claims)) == claims`; exactly one fence
+    after repeated writes.
+  - **Derived `claims` index kind (`api/services/vector_index.py`):** `index_claims()` walks
+    `entities/*.md`, `parse_claims` each, indexes **only currently-valid** claims (`valid_to is None`),
+    embed = `claim.text`, metadata = `{claim_id, subject, predicate, object, observer, context,
+    epistemic, source_trust, confidence, valid_from, superseded_by, origin, file_path}` — via the
+    existing `_rebuild_table`/`_knn` machinery (records model/dim like the other kinds).
+    `search_claims(query, top_k, *, observer=None, context=None, include_superseded=False)`: KNN over
+    the `claims` kind, post-filters on `observer`/`context` when given, excludes `superseded_by`-marked
+    claims by default, graceful `[]` on a missing db/kind (mirrors `search_entities`/`_search_kind`).
+  - **Scaffolded M5 paths (`api/main.py`, no logic yet):** subdir-creation now also makes
+    `candidates/` and `_procedures/`, and seeds `_predicates.yaml` (`{}`) + `_preferences.md` (a
+    human-authored, never-clobbered stub) if missing — matching the existing pattern.
+  - **Tests:** 16 hermetic TDD tests in `api/tests/test_claims.py` (deterministic bag-of-words
+    `embed_fn` injected — no real models/network): Claim defaults + `to_dict`/`from_dict` round-trip +
+    sparse tolerance; parse/write round-trip preserving surrounding prose; legacy page → `[]`; malformed
+    + non-list fence → `[]` graceful; block replace-not-duplicate; `index_claims` valid-only filtering;
+    `search_claims` observer/context post-filter + superseded exclusion; missing-index `[]`; model/dim
+    recorded. Full suite **83 green** (was 67).
+  - **Deferred (later M5 milestones):** wiring claims into `/ask` (claim-first retrieval), MCP
+    `get_perspective`, and the Sleep cycle (Stage-1 claim extraction, Stage-3 mechanical
+    invalidate-and-supersede, Stage-5 card render); deterministic `graph_edges.yaml` → seed-claim
+    backfill (M5b); the app surfaces (M5c) and big-model extraction (M5d/G10).
+
 ## APPLY — buildable now (low architecture risk)
 
 | ID | Item | Notes | Status |

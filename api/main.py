@@ -59,9 +59,35 @@ async def lifespan(app: FastAPI):
     # Ensure memory directories exist. ``nudges``/``clarifications`` are still
     # mkdir'd for the shim/migration read path; ``inbox`` is the write target;
     # ``hubs`` holds the regenerated hub tier (Stage 5.6); ``sources`` holds the
-    # media URL dedup index.
-    for subdir in ("entities", "nudges", "clarifications", "inbox", "episodes", "hubs", "sources"):
+    # media URL dedup index. ``candidates``/``_procedures`` are scaffolded for the
+    # M5 claim-layer milestones (no logic yet — see docs/goals/d2-architecture-final.md).
+    for subdir in (
+        "entities",
+        "nudges",
+        "clarifications",
+        "inbox",
+        "episodes",
+        "hubs",
+        "sources",
+        "candidates",
+        "_procedures",
+    ):
         (settings.memory_path / subdir).mkdir(parents=True, exist_ok=True)
+
+    # Scaffold the M5 claim-layer files (created empty/seed if missing; no logic
+    # yet). ``_predicates.yaml`` is the canonical predicate-synonym map (Stage-2
+    # normalization, later milestone); ``_preferences.md`` is the always-injected
+    # behavioral block. Both are human-authored surfaces — never clobbered here.
+    predicates_path = settings.memory_path / "_predicates.yaml"
+    if not predicates_path.exists():
+        predicates_path.write_text("{}\n", encoding="utf-8")
+    preferences_path = settings.memory_path / "_preferences.md"
+    if not preferences_path.exists():
+        preferences_path.write_text(
+            "# Preferences\n\n<!-- Always-injected behavioral block. "
+            "Human-authored; never overwritten by Sleep. -->\n",
+            encoding="utf-8",
+        )
 
     # Ensure memory dir is a git repo
     git_dir = settings.memory_path / ".git"

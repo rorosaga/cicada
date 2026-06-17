@@ -444,6 +444,112 @@ class SqliteVecIndexer:
     def search_pending(self, query: str, top_k: int = 5) -> list[dict]:
         return self._search_kind("pending", query, top_k)
 
+    # ---------- claims index (derived from in-page ```claims blocks) ----------
+
+    def index_claims(self) -> int:
+        """Rebuild the claims index from the ` ```claims ` blocks in entity pages.
+
+        Source of truth is the editable markdown page; this index is derived and
+        disposable (D2 ADDENDUM). Only **currently-valid** claims are indexed
+        (``valid_to is None``) — invalidated/closed claims live on in the page
+        and in git for audit, but are excluded from retrieval. The embedded
+        string is ``claim.text``; ``observer``/``context`` are stored as
+        post-filter/pivot axes (mirrors the ``claims``-kind metadata in the D2
+        index spec).
+        """
+        from api.services.claims import parse_claims
+
+        if not self.entities_dir.exists():
+            return 0
+        texts: list[str] = []
+        staged: list[tuple[str, dict]] = []
+        for filepath in sorted(self.entities_dir.glob("*.md")):
+            try:
+                parsed = markdown_parser.parse(filepath)
+            except Exception:
+                continue
+            for claim in parse_claims(parsed.body):
+                if claim.valid_to is not None:
+                    continue  # only currently-valid claims are indexed
+                text = (claim.text or "").strip()
+                if not text:
+                    continue
+                texts.append(text)
+                staged.append(
+                    (
+                        text,
+                        {
+                            "claim_id": claim.id,
+                            "subject": claim.subject,
+                            "predicate": claim.predicate,
+                            "object": claim.object,
+                            "observer": claim.observer,
+                            "context": claim.context,
+                            "epistemic": claim.epistemic,
+                            "source_trust": claim.source_trust,
+                            "confidence": float(claim.confidence),
+                            "valid_from": claim.valid_from,
+                            "superseded_by": claim.superseded_by,
+                            "origin": claim.origin,
+                            "file_path": str(filepath),
+                        },
+                    )
+                )
+        if not staged:
+            return 0
+        embeddings = self._embed(texts)
+        rows = [(embeddings[i], staged[i][0], staged[i][1]) for i in range(len(staged))]
+        conn = self._connect()
+        try:
+            self._rebuild_table(conn, "claims", rows)
+        finally:
+            conn.close()
+        logger.info(f"Vector claims index rebuilt with {len(rows)} valid claims")
+        return len(rows)
+
+    def search_claims(
+        self,
+        query: str,
+        top_k: int = 5,
+        *,
+        observer: str | None = None,
+        context: str | None = None,
+        include_superseded: bool = False,
+    ) -> list[dict]:
+        """KNN over currently-valid claims, with optional perspective filters.
+
+        ``observer`` / ``context`` are SQL-free post-filters applied to the
+        ``claims``-kind metadata. By default, claims carrying a
+        ``superseded_by`` marker are excluded; ``include_superseded=True`` lifts
+        that. Returns ``[]`` gracefully on a missing db or missing ``claims``
+        table (mirrors :meth:`search_entities` / :meth:`_search_kind`).
+        """
+        if not self.db_path.exists():
+            return []
+        conn = self._connect()
+        try:
+            # over-fetch so post-filtering doesn't starve the result set
+            needs_postfilter = (
+                observer is not None or context is not None or not include_superseded
+            )
+            fetch_k = top_k * 3 if needs_postfilter else top_k
+            results = self._knn(conn, "claims", query, fetch_k)
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            conn.close()
+        filtered: list[dict] = []
+        for r in results:
+            meta = r.get("metadata", {})
+            if observer is not None and meta.get("observer") != observer:
+                continue
+            if context is not None and meta.get("context") != context:
+                continue
+            if not include_superseded and meta.get("superseded_by"):
+                continue
+            filtered.append(r)
+        return filtered[:top_k]
+
 
 def _chunk_episode_body(body: str) -> list[str]:
     """Split an episode body into overlapping passages for embedding."""
