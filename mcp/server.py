@@ -12,7 +12,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Allow importing sibling packages (api.services.leann_indexer) when run as a script
+# Allow importing sibling packages (api.services.vector_index) when run as a script
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))

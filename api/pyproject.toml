@@ -8,7 +8,6 @@ dependencies = [
     "apscheduler>=3.10",
     "beautifulsoup4>=4.14.3",
     "fastapi>=0.135.3",
-    "leann>=0.1.0",
     "litellm>=1.83.4",
     "loguru>=0.7.3",
     "pydantic>=2.12.5",
