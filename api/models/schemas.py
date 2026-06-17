@@ -125,7 +125,7 @@ class SearchResponse(CamelModel):
 
 class AskRequest(CamelModel):
     query: str
-    top_k: int = 6
+    top_k: int = Field(default=6, ge=1, le=50)
 
 
 class AskCitation(CamelModel):

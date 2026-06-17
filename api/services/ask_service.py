@@ -93,6 +93,83 @@ def _load_entity(memory_path: Path, entity_id: str) -> dict | None:
     }
 
 
+def _coerce_str_list(value) -> list[str]:
+    """Normalize an LLM field that should be a list of strings.
+
+    Guards against the common JSON-mode slip where the model returns a bare
+    string (``"gaps": "no info"``) instead of a list — iterating that directly
+    would shred it into one entry per character. A bare string becomes a
+    one-element list; non-string scalars are coerced; non-iterables are dropped.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        v = value.strip()
+        return [v] if v else []
+    if isinstance(value, (list, tuple)):
+        out: list[str] = []
+        for item in value:
+            s = str(item).strip()
+            if s:
+                out.append(s)
+        return out
+    # Some other scalar (number/bool) — treat as a single value.
+    s = str(value).strip()
+    return [s] if s else []
+
+
+def _substring_match(memory_path: Path, query: str, top_k: int) -> list[dict]:
+    """Disk-backed substring fallback for a cold/empty vector index.
+
+    Mirrors the graceful-degrade pattern in ``routers/search.py``: when the
+    vector index returns nothing on a populated graph (fresh install before the
+    index is built), fall back to a name/tag/body substring scan so ``ask`` can
+    still ground an answer instead of falsely claiming ignorance. Returns hits in
+    the ``search_entities`` shape so the rest of the pipeline is unchanged.
+    """
+    q = (query or "").lower().strip()
+    entities_dir = memory_path / "entities"
+    if not q or not entities_dir.exists():
+        return []
+    scored: list[tuple[int, dict]] = []
+    for filepath in sorted(entities_dir.glob("*.md")):
+        try:
+            parsed = markdown_parser.parse(filepath)
+        except Exception:
+            continue
+        fm = parsed.frontmatter or {}
+        name = str(fm.get("name", filepath.stem.replace("-", " "))).lower()
+        tags = [str(t).lower() for t in (fm.get("tags", []) or [])]
+        relevance = 0
+        if q in name:
+            relevance += 10
+        if any(q in t for t in tags):
+            relevance += 5
+        if q in (parsed.body or "").lower():
+            relevance += 2
+        if relevance <= 0:
+            continue
+        scored.append(
+            (
+                relevance,
+                {
+                    "score": float(relevance),
+                    "text": parsed.body or "",
+                    "metadata": {
+                        "entity_id": filepath.stem,
+                        "entity_name": str(fm.get("name", filepath.stem)),
+                        "type": str(fm.get("type", "concept") or "concept"),
+                        "status": str(fm.get("status", "active") or "active"),
+                        "confidence": float(fm.get("confidence", 0.5) or 0.0),
+                        "file_path": str(filepath),
+                    },
+                },
+            )
+        )
+    scored.sort(key=lambda x: -x[0])
+    return [hit for _, hit in scored[:top_k]]
+
+
 def _retrieved_entities(memory_path: Path, hits: list[dict]) -> list[dict]:
     """Map retrieval hits to loaded entity records, de-duped, order preserved."""
     out: list[dict] = []
@@ -213,6 +290,11 @@ def answer_query(
     memory_path = Path(memory_path)
     query = (query or "").strip()
 
+    # Empty/whitespace query: nothing to ground on — short-circuit before
+    # spending a retrieval + LLM round-trip on garbage.
+    if not query:
+        return _gap_response(query)
+
     retrieve = retrieve_fn or _default_retrieve_fn(memory_path)
     try:
         hits = retrieve(query, top_k) or []
@@ -221,6 +303,14 @@ def answer_query(
         hits = []
 
     entities = _retrieved_entities(memory_path, hits)
+
+    # Cold-index degrade: the vector index found nothing, but entities may exist
+    # on disk (fresh install before the index is built). Fall back to a
+    # substring scan so we don't falsely claim ignorance on a populated graph —
+    # same graceful pattern as routers/search.py.
+    if not entities:
+        fallback_hits = _substring_match(memory_path, query, top_k)
+        entities = _retrieved_entities(memory_path, fallback_hits)
 
     # Honest-gap fast path: nothing to ground on => do NOT call the LLM, do NOT
     # hallucinate. This is the key auditable-synthesis behaviour.
@@ -257,12 +347,41 @@ def answer_query(
         }
 
     answer = str(parsed.get("answer", "")).strip()
-    gaps = [str(g).strip() for g in (parsed.get("gaps") or []) if str(g).strip()]
+    # Coerce list-shaped fields defensively: a model may return a bare string,
+    # which must not be iterated character-by-character into the flagship fields.
+    gaps = _coerce_str_list(parsed.get("gaps"))
+    cited_raw = _coerce_str_list(parsed.get("used_entities"))
     # Only entities that were actually retrieved may be cited — drop any id the
     # model invented (anti-hallucination guard on the citation set).
-    used = [eid for eid in (parsed.get("used_entities") or []) if eid in retrieved_ids]
+    used = [eid for eid in cited_raw if eid in retrieved_ids]
+    # Distinguish "model omitted used_entities" (benign: fall back to retrieved)
+    # from "model cited only hallucinated ids" (a grounding failure: do NOT
+    # silently attribute the answer to entities the model said it did not use).
+    model_named_sources = bool(cited_raw)
+    all_cited_invalid = model_named_sources and not used
+
     # Default confidence is conservative; an empty answer is itself a gap.
     confidence = _clamp_confidence(parsed.get("confidence"), default=0.5)
+
+    if all_cited_invalid:
+        # The answer claims grounding in entities that were never retrieved.
+        # Treat as an ungrounded gap rather than fabricating provenance.
+        if not gaps:
+            gaps = [
+                "The answer could not be grounded in any retrieved entity "
+                f"for: {query}"
+            ]
+        return {
+            "answer": (
+                "I don't have grounded information in memory to answer that "
+                "reliably."
+            ),
+            "confidence": min(confidence, 0.15),
+            "citations": [],
+            "gaps": gaps,
+            "used_entities": [],
+        }
+
     if not answer:
         answer = (
             "I don't have enough grounded information in memory to answer that."
@@ -271,12 +390,16 @@ def answer_query(
             gaps = [f"Memory did not yield a usable answer for: {query}"]
         confidence = min(confidence, 0.2)
 
+    # used_entities reflects the model's actual selection where it named valid
+    # sources; only when it omitted the field do we fall back to the retrieved
+    # set. citations and used_entities therefore agree.
+    cite_ids = used if used else retrieved_ids
     return {
         "answer": answer,
         "confidence": confidence,
-        "citations": _citations_for(entities, used or retrieved_ids),
+        "citations": _citations_for(entities, cite_ids),
         "gaps": gaps,
-        "used_entities": retrieved_ids,
+        "used_entities": cite_ids,
     }
 
 

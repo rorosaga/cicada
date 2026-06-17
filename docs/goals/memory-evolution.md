@@ -29,9 +29,17 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
   LLM call, no hallucination**. Retrieval defaults to `SqliteVecIndexer.search_entities`,
   synthesis to litellm JSON-mode per `Settings`; both injectable for hermetic tests.
   `cicada_ask` MCP tool wraps it (prefers running backend, degrades to the service direct).
-  6 new TDD tests (`api/tests/test_ask_service.py`); full suite 13 green.
+  Hardened after adversarial review: `used_entities`/`citations` now agree (report the
+  model's actual selection, not the full retrieved set); an answer citing only hallucinated
+  ids degrades to a gap (no fabricated provenance); list-shaped LLM fields coerced so a bare
+  string is not shredded into per-character gaps; empty/whitespace query short-circuits
+  before any retrieval/LLM call; cold-index-on-populated-graph falls back to a disk substring
+  scan (mirrors `routers/search.py`) instead of a false "I don't know"; `top_k` bounded
+  `[1,50]` at the schema. 14 TDD tests (`api/tests/test_ask_service.py`); full suite 21 green.
+  - *Known limitation:* `confidence` is the model's self-report (prompt-instructed to lower
+    it on thin evidence); it is clamped to `[0,1]` but not coupled to a retrieval-score floor.
   - *Follow-up (nice-to-have):* line-level git-blame citations (entity-level shipped);
-    request-time top_k tuning + answer caching.
+    retrieval-score-coupled confidence ceiling; request-time top_k tuning + answer caching.
 
 ## APPLY — buildable now (low architecture risk)
 
