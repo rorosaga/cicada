@@ -76,13 +76,12 @@ struct BankSwitcher: View {
                 isPresented: $showCreateSheet
             ) { name, description in
                 Task {
-                    let before = banksVM.activeName
                     if await banksVM.create(name: name, description: description) != nil {
-                        // Creating a bank does not auto-activate it, so only
-                        // reload the graph if the active bank actually changed.
-                        if banksVM.activeName != before {
-                            await graphVM.loadGraph()
-                        }
+                        // Always repaint after the sheet dismisses: presenting the
+                        // sheet tears down the graph's WKWebView, so even though
+                        // create doesn't switch the active bank, the canvas must be
+                        // re-pushed or it stays blank.
+                        await graphVM.loadGraph()
                     }
                 }
             }
@@ -96,7 +95,11 @@ struct BankSwitcher: View {
                 isPresented: $showDuplicateSheet
             ) { name, _ in
                 guard let source = banksVM.activeName else { return }
-                Task { await banksVM.duplicate(from: source, newName: name) }
+                Task {
+                    await banksVM.duplicate(from: source, newName: name)
+                    // Same sheet-teardown repaint as create.
+                    await graphVM.loadGraph()
+                }
             }
         }
     }
