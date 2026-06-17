@@ -1,3 +1,5 @@
+import os
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +12,8 @@ from api.models.schemas import (
     EntityDiff,
     EntityHistoryEntry,
     EntityResponse,
+    LocationEntry,
+    LocationListing,
 )
 from api.services import git_service, markdown_parser
 from api.services.hub_builder import _one_line_summary
@@ -85,6 +89,111 @@ async def get_entity_commit_diff(
 
     return await git_service.get_entity_commit_diff(
         entity_id, commit_hash, settings.memory_path
+    )
+
+
+# Bound on the number of immediate children returned, so a huge directory can
+# never produce an unbounded payload.
+LOCATION_MAX_ENTRIES = 200
+
+# Detect an absolute filesystem path inside a location entity's body when no
+# ``path:`` frontmatter key is present (TODO: Sleep should extract this into
+# frontmatter — see ``get_entity_location``). POSIX-only, anchored at a slash
+# or ``~/``; intentionally conservative.
+_BODY_PATH_RE = re.compile(r"(?<!\S)(~?/[^\s`'\"()]+)")
+
+
+def _detect_location_path(frontmatter: dict, body: str) -> str | None:
+    """Resolve a location's declared path from the ENTITY only (never a request).
+
+    Prefers an explicit ``path:`` frontmatter key; falls back to the first
+    absolute/``~`` path found in the body. Returns the raw declared string
+    (un-expanded) or ``None`` when nothing is declared.
+    """
+    declared = frontmatter.get("path")
+    if declared:
+        text = str(declared).strip()
+        if text:
+            return text
+    match = _BODY_PATH_RE.search(body or "")
+    return match.group(1) if match else None
+
+
+@router.get("/entities/{entity_id}/location", response_model=LocationListing)
+async def get_entity_location(
+    entity_id: str,
+    settings: Settings = Depends(get_settings),
+):
+    """Safe immediate-children listing for a ``type: location`` entity.
+
+    Security model: the only path ever used is the one the ENTITY ITSELF declares
+    (frontmatter ``path:`` if present, else a path detected in the body) — never a
+    path supplied by the request — so there is no arbitrary-path traversal. Lists
+    immediate children only (``os.scandir``, depth 1), reports name/isDir/size
+    (stat metadata only, never file contents), bounds the count at
+    ``LOCATION_MAX_ENTRIES``, and degrades gracefully: missing path →
+    ``exists=False``; permission error → ``accessible=False``; both still 200.
+
+    TODO (Sleep): the entity extractor should write a ``path:`` key into
+    ``type: location`` frontmatter when a description names a directory, so this
+    endpoint doesn't have to body-scan. Out of scope for this UI/UX pass.
+    """
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+
+    parsed = markdown_parser.parse(entity_path)
+    fm = parsed.frontmatter or {}
+    if str(fm.get("type", "")).lower() != "location":
+        raise HTTPException(400, f"Entity {entity_id} is not a location")
+
+    declared = _detect_location_path(fm, parsed.body)
+    if not declared:
+        return LocationListing(path=None, exists=False, entries=[])
+
+    resolved = Path(os.path.expanduser(declared)).resolve()
+    if not resolved.is_dir():
+        # Missing, or points at a file rather than a listable directory.
+        return LocationListing(path=declared, exists=False, entries=[])
+
+    entries: list[LocationEntry] = []
+    truncated = False
+    try:
+        with os.scandir(resolved) as it:
+            raw = list(it)
+    except PermissionError:
+        return LocationListing(path=declared, exists=True, accessible=False, entries=[])
+    except OSError:
+        return LocationListing(path=declared, exists=True, accessible=False, entries=[])
+
+    # Sort dirs-first, then by name (case-insensitive) for stable display.
+    def _sort_key(d: os.DirEntry) -> tuple:
+        try:
+            is_dir = d.is_dir(follow_symlinks=False)
+        except OSError:
+            is_dir = False
+        return (0 if is_dir else 1, d.name.lower())
+
+    raw.sort(key=_sort_key)
+    if len(raw) > LOCATION_MAX_ENTRIES:
+        truncated = True
+        raw = raw[:LOCATION_MAX_ENTRIES]
+
+    for d in raw:
+        try:
+            is_dir = d.is_dir(follow_symlinks=False)
+        except OSError:
+            is_dir = False
+        size = 0
+        if not is_dir:
+            try:
+                size = d.stat(follow_symlinks=False).st_size
+            except OSError:
+                size = 0
+        entries.append(LocationEntry(name=d.name, is_dir=is_dir, size=size))
+
+    return LocationListing(
+        path=declared, exists=True, accessible=True, truncated=truncated, entries=entries
     )
 
 

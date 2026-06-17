@@ -123,6 +123,38 @@ def _max_date(*candidates: str | None) -> str | None:
     return max(values) if values else None
 
 
+# ---------- Git move/remove helpers (merge-direction renames) ----------
+
+
+async def _git_move(memory_path: Path, src: Path, dst: Path) -> None:
+    """Rename ``src`` -> ``dst`` via ``git mv`` so history follows the file.
+
+    Falls back to a filesystem rename when git refuses (e.g. the file is
+    untracked). The trailing ``commit_resolution`` runs ``git add -A`` either
+    way, so the move is captured in the commit regardless of path taken.
+    """
+    from api.services import git_service
+
+    try:
+        await git_service._run_git(
+            memory_path, "mv", "-f", str(src), str(dst)
+        )
+    except Exception:
+        if src.exists():
+            src.replace(dst)
+
+
+async def _git_remove(memory_path: Path, target: Path) -> None:
+    """Remove ``target`` via ``git rm`` (filesystem fallback when untracked)."""
+    from api.services import git_service
+
+    try:
+        await git_service._run_git(memory_path, "rm", "-f", str(target))
+    except Exception:
+        if target.exists():
+            target.unlink()
+
+
 # ---------- Resolution dispatch ----------
 
 
@@ -315,6 +347,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
 
     elif request.action == "merge" and request.merge_target:
         # Tolerant lookup: merge_target may arrive as a slug or a display name.
+        # ``merge_target`` is always the existing entity that holds the real data
+        # (frontmatter/body/history); it is the merge data SOURCE regardless of
+        # direction.
         target_path = resolve_entity_file(settings.memory_path, request.merge_target)
         if target_path is None:
             raise HTTPException(
@@ -330,6 +365,21 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             ).strip()
             or entity_mention
         )
+
+        # #1 merge direction. The survivor is the id/name the user wants to KEEP.
+        # Default (absent) -> the existing target survives (legacy behavior). When
+        # it names the cleaner mention instead, the surviving file is renamed to
+        # the survivor's cleaner slug.
+        survivor = (request.merge_survivor or "").strip() or request.merge_target
+        survivor_slug = sanitize_id(survivor)
+        # Decide rename by resolved *file identity*, not raw-slug strings. Live
+        # entity stems don't all round-trip through ``sanitize_id`` (e.g.
+        # ``atlético-de-madrid``), so a survivor naming the existing target by
+        # its display name would otherwise spuriously take the rename branch and
+        # orphan the on-disk file's blame/history. If the survivor resolves to
+        # the target's own file, it's a "keep existing" merge — never a rename.
+        survivor_file = resolve_entity_file(settings.memory_path, survivor)
+        rename = survivor_file is None or survivor_file != target_path
 
         if source_episode:
             episodes = list(target.frontmatter.get("source_episodes", []) or [])
@@ -347,13 +397,55 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             int(target.frontmatter.get("version", 1) or 1) + 1
         )
 
-        note = f"\n\n_Resolved ambiguous mention '{mention}' into this entity._"
-        new_body = (target.body or "").rstrip() + note
-        markdown_parser.write(target_path, target.frontmatter, new_body)
-        path.unlink()
+        if not rename:
+            # Survivor == existing target: absorb the mention into the target.
+            note = f"\n\n_Resolved ambiguous mention '{mention}' into this entity._"
+            new_body = (target.body or "").rstrip() + note
+            markdown_parser.write(target_path, target.frontmatter, new_body)
+            path.unlink()
+            entity_id = target_path.stem
+        else:
+            # Survivor == the cleaner mention: keep the cleaner name/id.
+            survivor_path = target_path.parent / f"{survivor_slug}.md"
+            target.frontmatter["name"] = survivor
+            note = (
+                f"\n\n_Merged '{target_path.stem}' into this entity "
+                f"(kept the cleaner name '{survivor}')._"
+            )
 
-        # Point the commit trail at the absorbing entity.
-        entity_id = target_path.stem
+            if survivor_path.exists() and survivor_path != target_path:
+                # A file already lives at the survivor slug — append into it,
+                # never overwrite. Carry the source target's episodes forward.
+                existing = markdown_parser.parse(survivor_path)
+                eps = list(existing.frontmatter.get("source_episodes", []) or [])
+                for ep in target.frontmatter.get("source_episodes", []) or []:
+                    if ep not in eps:
+                        eps.append(ep)
+                existing.frontmatter["source_episodes"] = eps
+                ex_last = str(
+                    existing.frontmatter.get("last_referenced", "") or ""
+                ).strip()
+                existing.frontmatter["last_referenced"] = (
+                    _max_date(ex_last, target.frontmatter.get("last_referenced"))
+                    or today
+                )
+                existing.frontmatter["version"] = (
+                    int(existing.frontmatter.get("version", 1) or 1) + 1
+                )
+                merged_body = (existing.body or "").rstrip() + note
+                markdown_parser.write(
+                    survivor_path, existing.frontmatter, merged_body
+                )
+                # Remove the now-absorbed source target via git so history follows.
+                await _git_remove(settings.memory_path, target_path)
+            else:
+                # Rename the source target file to the survivor's cleaner slug.
+                new_body = (target.body or "").rstrip() + note
+                markdown_parser.write(target_path, target.frontmatter, new_body)
+                await _git_move(settings.memory_path, target_path, survivor_path)
+
+            path.unlink()
+            entity_id = survivor_slug
 
     elif request.action == "skip":
         return entity_id, True

@@ -106,6 +106,39 @@ class EntityResponse(CamelModel):
     history: list[EntityHistoryEntry]
 
 
+# --- Location listing (#7 — show a location entity's directory contents) ---
+
+
+class LocationEntry(CamelModel):
+    """One immediate child of a location entity's declared directory.
+
+    ``size`` is ``st_size`` in bytes for files, ``0`` for directories. File
+    contents are NEVER read — only stat metadata.
+    """
+
+    name: str
+    is_dir: bool = False
+    size: int = 0
+
+
+class LocationListing(CamelModel):
+    """Safe immediate-children listing for a ``type: location`` entity.
+
+    The ``path`` is read from the entity itself (frontmatter ``path:`` if present,
+    else a path detected in the body) — never from the request — so there is no
+    arbitrary-path traversal. ``exists``/``accessible`` degrade gracefully:
+    a missing path → ``exists=False``; a permission error → ``accessible=False``;
+    both still 200 with empty ``entries``. ``truncated`` is set when the child
+    count exceeds the bound and the list was clipped.
+    """
+
+    path: Optional[str] = None
+    exists: bool = False
+    accessible: bool = True
+    truncated: bool = False
+    entries: list[LocationEntry] = []
+
+
 # --- Claims (M5b — the CPCG belief atom on the wire) ---
 
 
@@ -376,6 +409,12 @@ class InboxResolveRequest(CamelModel):
     action: str
     answer: Optional[str] = None
     merge_target: Optional[str] = None
+    # #1 merge direction: the id/name the user wants to KEEP as the canonical
+    # survivor. When absent (or equal to ``merge_target``), the legacy behavior
+    # holds — the clarified mention is absorbed INTO the existing ``merge_target``.
+    # When it names the cleaner mention instead, the surviving file is renamed to
+    # the survivor's slug so a merge can go either direction.
+    merge_survivor: Optional[str] = None
 
 
 # --- Status aggregate (menu-bar / tamagotchi) ---
