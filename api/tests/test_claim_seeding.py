@@ -128,6 +128,26 @@ def test_normalize_without_runtime_file_falls_back_gracefully(tmp_path):
     assert norm("Some Raw Label") == "some-raw-label"
 
 
+def test_cardinality_fn_reads_single_and_multi_lists(tmp_path):
+    predicates.install_predicate_map(tmp_path)
+    card = predicates.build_cardinality_fn(tmp_path)
+    # from the seed's single_valued list
+    assert card("works-at") is True
+    assert card("located-in") is True
+    # from the seed's multi_valued list
+    assert card("relates-to") is False
+    assert card("includes") is False
+    # unseen predicate => conservative coexist (never auto-close)
+    assert card("some-unseen-predicate") is False
+
+
+def test_is_single_valued_convenience_and_no_map(tmp_path):
+    predicates.install_predicate_map(tmp_path)
+    assert predicates.is_single_valued(tmp_path, "works-at") is True
+    # with no map at all, default to multi-valued (safe coexist)
+    assert predicates.is_single_valued(tmp_path / "nope", "anything") is False
+
+
 # --------------------------------------------------------------------------- #
 # 2. seed_claims_from_edges
 # --------------------------------------------------------------------------- #

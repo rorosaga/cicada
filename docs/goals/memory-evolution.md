@@ -205,6 +205,45 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
     `get_perspective`, and the Sleep cycle (Stage-1 claim extraction, Stage-3 mechanical
     invalidate-and-supersede, Stage-5 card render); deterministic `graph_edges.yaml` → seed-claim
     backfill (M5b); the app surfaces (M5c) and big-model extraction (M5d/G10).
+- ✅ **M5e — claim/trust/retrieval core wired into Sleep + retrieval (TDD, $0 LLM, hermetic, additive):**
+  the claim layer is now load-bearing in consolidation and retrieval. Built on `feat/memory-evolution`,
+  41 new tests, full suite **185 green** (no real embed/LLM in tests — fake `embed_fn`, injected `llm_fn`).
+  - **Predicate normalization + cardinality:** `predicates.build_cardinality_fn` / `is_single_valued`
+    read the seed's `single_valued` / `multi_valued` lists from `<memory>/_predicates.yaml`; unseen
+    predicate ⇒ **conservative multi-valued (coexist)** so Stage 3 never auto-closes on an uncertain
+    cardinality. The runtime map is installed (idempotent, non-clobbering) at the top of `sleep_cycle.run`.
+  - **Stage 1 — claim emission + origin:** `entity_extractor.entities_to_claims` deterministically projects
+    the existing entity/relationship extraction shape (the back-compatible `observer=agent · context=general
+    · epistemic=explicit · source_trust=agent_extracted` special case) into perspectival `Claim`s, with
+    `origin` propagated episode→claim (`_derive_origin` maps legacy `source` → G9 harness id) and the raw
+    predicate label carried on `predicate_raw` for the audit nudge.
+  - **Stage 3 — trust-reconciliation (THE CORE), `claim_reconciler.reconcile_stage3`:** collides only on the
+    mechanical key `K = (subject, predicate, context, observer)`; trust-gated, never recency-alone. The
+    `trust_decision` table encodes `sleep-trust-reconciliation.md` §3 exactly — **no `agent_extracted` /
+    `agent_reflected` / `external` claim can ever `SUPERSEDE` a human (`is_human` = `user_stated` **and**
+    origin ∈ {manual_edit, clarification}, §6 origin-gated)**: it `COEXIST_FLAG`s (records the agent belief,
+    keeps the human claim open + authoritative, emits a soft `divergence_nudge`) or `CONFLICT_NUDGE`s. Only
+    **human-over-human with newer `valid_from`** closes a human claim; **agent-over-agent** on a single-valued
+    key is mechanical invalidate-and-supersede (`valid_to`/`superseded_by`/`supersedes`, nothing deleted);
+    multi-valued predicates coexist; `agent_reflected` may not close `agent_extracted` (`REJECT`, audited).
+    Per-epistemic × source_trust **decay** runs here (lowers `confidence` only; never closes; `user_stated`
+    fades 0.3×). Mandatory `normalization_audit` nudge on every auto-folded predicate.
+  - **Stage 5 — section-aware merge + valid-only edges + index:** `entity_body.merge_sections_human_safe`
+    is additive-only on human-edited pages (non-canonical / `human_edited` sections preserved verbatim — the
+    prose mirror of rule 3a); `graph_builder.regenerate_edges_from_claims` rewrites `graph_edges.yaml` as a
+    valid-only projection tagged with observer/context/claim_id (no-op when a bank has no claims, so seeded
+    edge graphs aren't wiped); the derived `claims` index is rebuilt in the Stage-5 index pass.
+  - **Retrieval swap:** `ask_service.build_claim_first_retrieve_fn` is the new default `retrieve_fn` —
+    KNN over the `claims` index, claim→subject-entity mapping (citations point at `claim_id` + valid-window
+    + observer), 1-hop object-neighbour expansion — with a **graceful `search_entities` fallback when the
+    bank has no claims**, so `/ask` never regresses on un-consolidated banks. Contract
+    (`answer/confidence/citations/gaps`) unchanged.
+  - **MCP `cicada_get_perspective(subject, observer?, context?)`:** returns a subject's currently-valid
+    (open, non-superseded) claims filtered by perspective, each rendered with its provenance — the D2
+    Bookworm "who-believes-what" tool.
+  - **Deferred to M5f (clear TODO in `sleep_cycle`, Stage 5.57):** the link-enrichment subagent
+    (John → recommended websites: fetch + summarize a link with no conversational description). M5e is the
+    claim/trust/retrieval core only.
 
 ## APPLY — buildable now (low architecture risk)
 

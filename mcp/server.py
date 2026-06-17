@@ -111,6 +111,28 @@ def main():
             },
         },
         {
+            "name": "cicada_get_perspective",
+            "description": "Return a subject's currently-valid claims from a specific PERSPECTIVE — optionally filtered by observer (who holds the belief: 'agent', 'rodrigo', or 'external:<name>') and/or context (e.g. 'engineering', 'family', 'career'). Use when you need to know who believes what about a subject, or want only one facet of a subject (e.g. engineer-Rodrigo vs family-Rodrigo). Each claim carries its observer, context, source_trust, confidence, and valid-from date so you can attribute beliefs honestly.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "subject": {
+                        "type": "string",
+                        "description": "The subject entity id or name (e.g. 'rodrigo', 'cicada').",
+                    },
+                    "observer": {
+                        "type": "string",
+                        "description": "Optional. Filter to one observer: 'agent', 'rodrigo', or 'external:<name>'.",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Optional. Filter to one context facet (e.g. 'engineering', 'family', 'career').",
+                    },
+                },
+                "required": ["subject"],
+            },
+        },
+        {
             "name": "cicada_save_url",
             "description": "Save a URL (article, video, bookmark) into Cicada's memory as saved media. The link becomes a graph entity and connects to related topics after the next Sleep cycle. Use when the user shares a link worth remembering or says 'save this'.",
             "inputSchema": {
@@ -223,6 +245,12 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_open_hub(arguments.get("hub", ""))
     elif name == "cicada_ask":
         return handle_ask(arguments.get("query", ""), arguments.get("top_k", 6))
+    elif name == "cicada_get_perspective":
+        return handle_get_perspective(
+            arguments.get("subject", ""),
+            arguments.get("observer"),
+            arguments.get("context"),
+        )
     elif name == "cicada_save_url":
         return handle_save_url(arguments.get("url", ""), arguments.get("note"))
     else:
@@ -700,6 +728,68 @@ def handle_recall_detail(entity_id: str) -> str:
             return path.read_text(encoding="utf-8")
 
     return f"Entity '{entity_id}' not found."
+
+
+def handle_get_perspective(
+    subject: str, observer: str | None = None, context: str | None = None
+) -> str:
+    """Return a subject's currently-valid claims, optionally filtered by perspective.
+
+    The D2 ``get_perspective(subject, observer?, context?)`` Bookworm tool: reads
+    the in-page ``claims`` block (the source of truth) for the resolved subject,
+    keeps only currently-valid (open, non-superseded) claims, applies the optional
+    ``observer`` / ``context`` post-filters, and renders each with its provenance
+    so the agent can attribute "who believes what" honestly.
+    """
+    from api.services import markdown_parser
+    from api.services.claims import parse_claims
+    from api.services.id_utils import resolve_entity_file
+
+    if not subject:
+        return "subject is required."
+
+    memory_path = get_memory_path()
+    page = resolve_entity_file(memory_path, subject)
+    if page is None or not page.exists():
+        return f"No subject '{subject}' found in memory."
+
+    try:
+        parsed = markdown_parser.parse(page)
+    except Exception as e:
+        return f"Could not read '{subject}': {e}"
+
+    claims = [
+        c
+        for c in parse_claims(parsed.body)
+        if c.valid_to is None and not c.superseded_by
+    ]
+    if observer:
+        claims = [c for c in claims if c.observer == observer]
+    if context:
+        claims = [c for c in claims if c.context == context]
+
+    fm = parsed.frontmatter or {}
+    title = str(fm.get("name", page.stem.replace("-", " ").title()))
+    perspective = []
+    if observer:
+        perspective.append(f"observer={observer}")
+    if context:
+        perspective.append(f"context={context}")
+    header = f"Perspective on {title}"
+    if perspective:
+        header += f" ({', '.join(perspective)})"
+
+    if not claims:
+        return f"{header}: no currently-valid claims match."
+
+    lines = [f"{header} — {len(claims)} valid claim(s):", ""]
+    for c in claims:
+        prov = (
+            f"{c.observer} · {c.context} · {c.source_trust} · "
+            f"conf {c.confidence:.2f} · since {c.valid_from or 'undated'}"
+        )
+        lines.append(f"- {c.text}\n  _({prov})_")
+    return "\n".join(lines)
 
 
 # ---------- Helpers: search sources ----------

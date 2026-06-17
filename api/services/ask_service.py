@@ -194,6 +194,15 @@ def _retrieved_entities(memory_path: Path, hits: list[dict]) -> list[dict]:
                 "body": str(hit.get("text", "")),
             }
         loaded["score"] = float(hit.get("score", 0.0) or 0.0)
+        # Carry claim provenance from a claim-first hit so the citation can point
+        # at claim_id + valid-window + observer (M5e). Absent for entity-only hits.
+        claim_prov = {
+            k: meta.get(k)
+            for k in ("claim_id", "observer", "context", "valid_from", "source_trust")
+            if meta.get(k) is not None
+        }
+        if claim_prov:
+            loaded["claim_provenance"] = claim_prov
         out.append(loaded)
     return out
 
@@ -262,12 +271,118 @@ def _default_llm_fn() -> LlmFn:
 
 
 def _default_retrieve_fn(memory_path: Path) -> RetrieveFn:
+    """The default retrieve seam — **claim-first** with an entity fallback (M5e)."""
+    return build_claim_first_retrieve_fn(memory_path)
+
+
+def build_claim_first_retrieve_fn(memory_path, *, embed_fn=None) -> RetrieveFn:
+    """Claim-first retrieval that degrades to entity search on un-consolidated banks.
+
+    Strategy (D2 "Retrieval / /ask", reduced to what the ask pipeline consumes):
+
+    1. **KNN over the derived ``claims`` index** (``search_claims`` — only
+       currently-valid, non-superseded claims). Each claim hit is mapped back to
+       its **subject entity** so the rest of the ask pipeline (citations, prompt
+       building) is unchanged; the claim's provenance (``claim_id``, ``observer``,
+       ``context``, ``valid_from``, ``source_trust``) rides along in the hit
+       metadata so a citation can point at the claim + its valid-window + observer.
+    2. **1-hop graph expansion:** the claim's ``object`` (when it is a node) is
+       added as a low-weight neighbour subject so relational depth is retrievable.
+    3. **Entity fallback:** when the bank has **no claims yet** (legacy /
+       un-consolidated), fall back to ``search_entities`` so ``/ask`` never
+       regresses on a graph that was indexed before M5 consolidation.
+
+    ``embed_fn`` is injected by hermetic tests; ``None`` resolves the production
+    embedder inside the indexer.
+    """
+    from api.services.id_utils import resolve_entity_file
     from api.services.vector_index import SqliteVecIndexer
 
-    indexer = SqliteVecIndexer(memory_path)
+    memory_path = Path(memory_path)
+    indexer = SqliteVecIndexer(memory_path, embed_fn=embed_fn)
+
+    def _subject_to_entity_id(subject: str) -> str | None:
+        page = resolve_entity_file(memory_path, subject)
+        return page.stem if page is not None else None
+
+    def _claim_hit_to_entity_hit(hit: dict) -> dict | None:
+        meta = hit.get("metadata", {}) or {}
+        subject = str(meta.get("subject", "") or "")
+        entity_id = _subject_to_entity_id(subject) or subject
+        if not entity_id:
+            return None
+        return {
+            "score": float(hit.get("score", 0.0) or 0.0),
+            "text": hit.get("text", "") or "",
+            "metadata": {
+                "entity_id": entity_id,
+                "entity_name": entity_id.replace("-", " ").title(),
+                "type": "concept",
+                "status": "active",
+                "confidence": float(meta.get("confidence", 0.5) or 0.5),
+                "file_path": str(meta.get("file_path", "")),
+                # claim provenance carried into the citation (M5e contract):
+                "claim_id": meta.get("claim_id"),
+                "observer": meta.get("observer"),
+                "context": meta.get("context"),
+                "valid_from": meta.get("valid_from"),
+                "source_trust": meta.get("source_trust"),
+                "predicate": meta.get("predicate"),
+                "object": meta.get("object"),
+            },
+        }
 
     def _retrieve(query: str, top_k: int) -> list[dict]:
-        return indexer.search_entities(query, top_k=top_k)
+        try:
+            claim_hits = indexer.search_claims(query, top_k=top_k) or []
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"claim search failed, falling back to entities: {exc}")
+            claim_hits = []
+
+        if not claim_hits:
+            # No claims in this bank (un-consolidated) — graceful entity fallback.
+            return indexer.search_entities(query, top_k=top_k)
+
+        # Map claim hits → subject-entity hits, preserving order + de-duping by
+        # entity (keep the strongest-scoring claim per subject).
+        out: list[dict] = []
+        seen: set[str] = set()
+        neighbours: list[str] = []
+        for hit in claim_hits:
+            mapped = _claim_hit_to_entity_hit(hit)
+            if mapped is None:
+                continue
+            eid = mapped["metadata"]["entity_id"]
+            if eid not in seen:
+                seen.add(eid)
+                out.append(mapped)
+            # 1-hop expansion: the claim's object node becomes a neighbour subject.
+            obj = str(hit.get("metadata", {}).get("object", "") or "")
+            if obj and obj not in neighbours:
+                neighbours.append(obj)
+
+        # Add object-neighbours (1-hop) as low-weight grounding if room remains.
+        for obj in neighbours:
+            if len(out) >= top_k:
+                break
+            eid = _subject_to_entity_id(obj)
+            if not eid or eid in seen:
+                continue
+            seen.add(eid)
+            out.append({
+                "score": 0.1,
+                "text": "",
+                "metadata": {
+                    "entity_id": eid,
+                    "entity_name": eid.replace("-", " ").title(),
+                    "type": "concept",
+                    "status": "active",
+                    "confidence": 0.5,
+                    "file_path": "",
+                },
+            })
+
+        return out[:top_k]
 
     return _retrieve
 
@@ -413,15 +528,19 @@ def _citations_for(entities: list[dict], cite_ids: list[str]) -> list[dict]:
         if ent is None or eid in seen:
             continue
         seen.add(eid)
-        citations.append(
-            {
-                "entity_id": ent["entity_id"],
-                "entity_name": ent["entity_name"],
-                "file_path": ent["file_path"],
-                "snippet": ent["snippet"],
-                "source_episodes": ent["source_episodes"],
-            }
-        )
+        citation = {
+            "entity_id": ent["entity_id"],
+            "entity_name": ent["entity_name"],
+            "file_path": ent["file_path"],
+            "snippet": ent["snippet"],
+            "source_episodes": ent["source_episodes"],
+        }
+        # When the grounding came from a claim, the citation points at the claim
+        # id + its valid-window + observer (M5e), not just the entity page.
+        prov = ent.get("claim_provenance")
+        if prov:
+            citation["claim_provenance"] = prov
+        citations.append(citation)
     return citations
 
 

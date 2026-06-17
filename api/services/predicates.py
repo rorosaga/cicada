@@ -153,6 +153,46 @@ def inverse_pairs(memory_path: Path) -> dict[str, str]:
     }
 
 
+CardinalityFn = Callable[[str], bool]
+
+
+def build_cardinality_fn(memory_path: Path | None) -> CardinalityFn:
+    """Build a ``predicate -> is_single_valued`` oracle for Stage-3 reconciliation.
+
+    Reads the seed's ``single_valued`` / ``multi_valued`` lists from
+    ``<memory>/_predicates.yaml`` (the controlled vocabulary's contradiction
+    semantics, ``predicates-seed.yaml``). The mechanical key needs to know whether
+    a second valid object on the same key is a contradiction (single-valued) or
+    normal coexistence (multi-valued).
+
+    Resolution order (cheapest first, $0):
+    1. canonical is in ``single_valued`` -> True;
+    2. canonical is in ``multi_valued`` -> False;
+    3. **unseen predicate => default to multi-valued (coexist).** This is the safe
+       default per §5/§9 — never auto-close on an uncertain cardinality. (The
+       LLM-cardinality fallback for genuinely-new conflicting predicates is a
+       documented, cached future extension; coexisting is correct in the meantime.)
+    """
+    data = _read_runtime_map(memory_path) if memory_path is not None else {}
+    single = {str(p).strip().lower() for p in (data.get("single_valued") or [])}
+    multi = {str(p).strip().lower() for p in (data.get("multi_valued") or [])}
+
+    def is_single_valued(predicate: str) -> bool:
+        p = (predicate or "").strip().lower()
+        if p in single:
+            return True
+        if p in multi:
+            return False
+        return False  # conservative: unseen => coexist, never auto-close
+
+    return is_single_valued
+
+
+def is_single_valued(memory_path: Path | None, predicate: str) -> bool:
+    """One-shot convenience wrapper around :func:`build_cardinality_fn`."""
+    return build_cardinality_fn(memory_path)(predicate)
+
+
 def normalize_predicate(memory_path: Path, label: str) -> str:
     """One-shot convenience: build the normalizer and apply it to ``label``."""
     return load_normalizer(memory_path)(label)

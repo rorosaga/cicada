@@ -69,6 +69,15 @@ async def run(settings: Settings, cycle_id: str) -> None:
     logger.info(f"Sleep cycle {cycle_id} started — model: {settings.litellm_model}")
 
     try:
+        # M5e: ensure the runtime predicate-normalization map exists (idempotent,
+        # non-clobbering) so Stage 2 predicate folding + Stage 3 cardinality keying
+        # have a controlled vocabulary to key on.
+        try:
+            from api.services import predicates
+            predicates.install_predicate_map(memory_path)
+        except Exception as e:
+            logger.warning(f"predicate map install skipped: {type(e).__name__}: {e}")
+
         # Collect unprocessed episodes
         episodes = _get_unprocessed_episodes(memory_path)
         if not episodes:
@@ -165,6 +174,23 @@ async def run(settings: Settings, cycle_id: str) -> None:
         except Exception as e:
             logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
 
+        # TODO(M5f / Stage 5.57): link-enrichment subagent — when a saved link
+        # (e.g. a website Prof. John recommended) has no description from the
+        # conversation, fetch the URL, summarize it, and write a description
+        # claim/summary so the link is retrievable later (D2 ADDENDUM (6)). NOT
+        # built in M5e — this milestone owns the claim/trust/retrieval core only.
+
+        # Stage 5.7: Regenerate graph_edges.yaml as a valid-only projection of the
+        # claims layer (tagged with observer/context/claim_id). No-op on banks
+        # with no claims yet, so seeded/legacy edge graphs are not wiped (M5e).
+        try:
+            from api.services.graph_builder import regenerate_edges_from_claims
+            n_edges = regenerate_edges_from_claims(memory_path)
+            if n_edges:
+                logger.info(f"Stage 5.7: regenerated {n_edges} valid-only claim edges")
+        except Exception as e:
+            logger.warning(f"Stage 5.7 claim-edge regeneration failed: {type(e).__name__}: {e}")
+
         # Mark episodes as processed
         _mark_episodes_processed(episodes)
         logger.info(f"Marked {len(episodes)} episodes as processed")
@@ -195,6 +221,15 @@ async def run(settings: Settings, cycle_id: str) -> None:
                 indexer.index_episodes()
             except Exception as e:
                 warning = f"episode index rebuild failed: {type(e).__name__}: {e}"
+                logger.warning(f"vector {warning}")
+                index_warnings.append(warning)
+            # M5e: rebuild the derived claims index from the in-page ```claims
+            # blocks so claim-first /ask + get_perspective reflect the post-Sleep
+            # belief state. Only currently-valid claims are indexed.
+            try:
+                indexer.index_claims()
+            except Exception as e:
+                warning = f"claims index rebuild failed: {type(e).__name__}: {e}"
                 logger.warning(f"vector {warning}")
                 index_warnings.append(warning)
 
@@ -238,10 +273,15 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
     for filepath in episodes_dir.glob("*.md"):
         parsed = markdown_parser.parse(filepath)
         if not parsed.frontmatter.get("processed", False):
+            source = parsed.frontmatter.get("source", "unknown")
             results.append({
                 "id": parsed.frontmatter.get("id", filepath.stem),
                 "content": parsed.body,
-                "source": parsed.frontmatter.get("source", "unknown"),
+                "source": source,
+                # G9 origin: explicit field if present, else derived from the
+                # legacy `source` (origin-and-harness-sync.md §1b). Propagated into
+                # extracted claims so each belief records which harness it came from.
+                "origin": parsed.frontmatter.get("origin") or _derive_origin(source),
                 "timestamp": str(parsed.frontmatter.get("timestamp", "") or ""),
                 "filepath": filepath,
             })
@@ -249,6 +289,31 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
     # timestamp so the sort is stable regardless of filesystem order.
     results.sort(key=lambda r: (r.get("timestamp") or "", r["id"]))
     return results
+
+
+# Legacy `source` -> G9 `origin` derivation (origin-and-harness-sync.md §1b).
+_SOURCE_TO_ORIGIN = {
+    "claude": "claude-code",
+    "claude_memory": "claude-code",
+    "claude_project": "claude-code",
+    "mcp": "claude-code",
+    "chatgpt-export": "chatgpt-export",
+    "claude-export": "claude-export",
+    "telegram": "telegram",
+    "rss": "rss",
+    "bookmark": "bookmark",
+}
+
+
+def _derive_origin(source: str | None) -> str:
+    """Map a legacy episode ``source`` to a G9 ``origin`` harness id, else ``unknown``."""
+    s = str(source or "").strip().lower()
+    if not s:
+        return "unknown"
+    if s in _SOURCE_TO_ORIGIN:
+        return _SOURCE_TO_ORIGIN[s]
+    # Already an origin-shaped value (e.g. codex, cursor) passes through.
+    return s
 
 
 def list_all_episodes(memory_path: Path) -> list[dict]:

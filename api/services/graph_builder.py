@@ -259,6 +259,69 @@ def _apply_filters(
     return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers)
 
 
+def regenerate_edges_from_claims(memory_path: Path) -> int:
+    """Regenerate ``graph_edges.yaml`` from currently-valid claims (M5e Stage 5).
+
+    Per D2 Stage 5: ``graph_edges.yaml`` becomes a **derived, valid-only**
+    projection of the claims layer — each edge tagged with the backing claim's
+    ``observer`` / ``context`` / ``claim_id`` / ``valid_from``. Only claims with a
+    node object (``object_kind == 'node'``), an open window, and no
+    ``superseded_by`` produce an edge; closed/superseded beliefs are excluded
+    (they live on in the page + git for the timeline).
+
+    Idempotent and non-destructive when there are NO claims: a bank that has not
+    been consolidated yet (no ``claims`` blocks on any page) leaves the existing
+    ``graph_edges.yaml`` untouched, so legacy/seeded edge graphs do not get wiped.
+    Returns the number of edges written (0 = left as-is).
+    """
+    entities_dir = memory_path / "entities"
+    if not entities_dir.exists():
+        return 0
+
+    edges: list[dict] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    any_claims = False
+    for filepath in sorted(entities_dir.glob("*.md")):
+        try:
+            parsed = parse(filepath)
+        except Exception:
+            continue
+        for claim in parse_claims(parsed.body):
+            any_claims = True
+            if claim.valid_to is not None or claim.superseded_by:
+                continue
+            if claim.object_kind not in ("", "node"):
+                continue
+            source = (claim.subject or filepath.stem).strip()
+            target = (claim.object or "").strip()
+            label = (claim.predicate or "relates-to").strip()
+            if not source or not target or source == target:
+                continue
+            key = (source, target, label, claim.observer or "", claim.context or "")
+            if key in seen:
+                continue
+            seen.add(key)
+            edges.append({
+                "source": source,
+                "target": target,
+                "label": label,
+                "observer": claim.observer or "agent",
+                "context": claim.context or "general",
+                "claim_id": claim.id,
+                "valid_from": claim.valid_from,
+            })
+
+    # No claims anywhere => don't clobber a legacy/seeded edge graph.
+    if not any_claims:
+        return 0
+
+    (memory_path / "graph_edges.yaml").write_text(
+        yaml.dump({"edges": edges}, default_flow_style=False, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return len(edges)
+
+
 def _load_edges(memory_path: Path) -> list[GraphLink]:
     """Load labeled edges from graph_edges.yaml — the sole canonical edge source."""
     edges_file = memory_path / "graph_edges.yaml"

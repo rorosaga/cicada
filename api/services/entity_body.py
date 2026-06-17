@@ -302,6 +302,43 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict) -> dict[
     return merged
 
 
+def merge_sections_human_safe(
+    existing: dict[str, str], new_fields: dict, *, human_edited: bool
+) -> dict[str, str]:
+    """Section-aware merge that NEVER rewrites or removes human prose (rule 3c).
+
+    On an agent-only page (``human_edited=False``) this is the normal
+    :func:`merge_sections_fallback` (union Key Facts / Links / Open Questions,
+    additive Summary, dedupe History).
+
+    On a **human-edited** page (``human_edited=True`` — the frontmatter carries
+    ``human_edited: true``, or the page has non-canonical hand-added headings) the
+    merge is **additive only**: every existing section (canonical or not) is
+    preserved verbatim, and the agent may only ADD a deduped bullet / append a
+    follow-on Summary sentence — it may never replace or drop an existing line.
+    This is the prose-level mirror of the Stage-3 ``COEXIST_FLAG`` rule (an agent
+    may not regenerate-away human prose any more than it may close a human claim).
+    """
+    if not human_edited:
+        return merge_sections_fallback(existing, new_fields)
+
+    existing = dict(existing or {})
+    # Snapshot every human-authored (non-canonical) section so the additive merge
+    # below cannot touch it.
+    human_sections = {
+        title: content
+        for title, content in existing.items()
+        if title not in CANONICAL_SECTIONS and title != ""
+    }
+
+    merged = merge_sections_fallback(existing, new_fields)
+
+    # Re-assert the human sections verbatim — they are never rewritten.
+    for title, content in human_sections.items():
+        merged[title] = content
+    return merged
+
+
 def upgrade_legacy_to_v2(body: str, entity_type: str) -> dict[str, str]:
     """Lift a v1 flat body into a v2 section dict (pure string transform).
 

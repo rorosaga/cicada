@@ -1,8 +1,10 @@
 """Stage 1: Entity & Relationship Extraction via litellm."""
 
 import asyncio
+import hashlib
 import json
 import sys
+from pathlib import Path
 
 import litellm
 from loguru import logger
@@ -180,16 +182,20 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
                     all_entities.extend(parsed.get("entities", []))
                     all_relationships.extend(parsed.get("relationships", []))
 
+                ep_origin = episode.get("origin", "unknown")
                 for entity in all_entities:
                     entity["source_episode"] = ep_id
                     entity["source_episode_timestamp"] = episode.get("timestamp")
+                    entity["origin"] = ep_origin
                 for rel in all_relationships:
                     rel["source_episode"] = ep_id
                     rel["source_episode_timestamp"] = episode.get("timestamp")
+                    rel["origin"] = ep_origin
 
                 results[i] = {
                     "episode_id": ep_id,
                     "episode_timestamp": episode.get("timestamp"),
+                    "origin": ep_origin,
                     "entities": all_entities,
                     "relationships": all_relationships,
                 }
@@ -261,3 +267,113 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
     all_extracted = [r for r in results if r is not None]
     logger.info(f"Extraction done: {success} succeeded, {failed} failed out of {total}")
     return all_extracted
+
+
+# --------------------------------------------------------------------------- #
+# M5e Stage-1: claim emission (back-compatible projection of the extract shape)
+# --------------------------------------------------------------------------- #
+#
+# The existing entity/relationship extraction shape is the
+# ``observer=agent, context=general, epistemic=explicit, source_trust=
+# agent_extracted`` special case (D2 ADDENDUM (4) + sleep-trust §1). Rather than
+# rewrite the prompt, we deterministically project the already-extracted
+# relationship dicts into perspectival ``Claim`` objects, with ``origin``
+# propagated from the episode (origin-and-harness-sync.md). Routine extraction
+# defaults to ``observer=agent``; manual-edit / clarification paths set
+# ``source_trust=user_stated, origin=manual_edit|clarification`` upstream.
+
+
+def _claim_date(timestamp: str | None, episode_id: str) -> str:
+    """A YYYY-MM-DD date from the episode timestamp, falling back to its id."""
+    ts = str(timestamp or "").strip()
+    if len(ts) >= 10 and ts[4:5] == "-" and ts[7:8] == "-":
+        return ts[:10]
+    # episode ids are ep_YYYY-MM-DD_NNN — recover the date head if present.
+    import re
+
+    m = re.search(r"(\d{4}-\d{2}-\d{2})", episode_id or "")
+    return m.group(1) if m else ""
+
+
+def _emit_claim_id(subject: str, predicate: str, obj: str, valid_from: str) -> str:
+    digest = hashlib.sha1(
+        f"{subject}\x00{predicate}\x00{obj}\x00{valid_from}".encode("utf-8")
+    ).hexdigest()[:8]
+    base = valid_from or "undated"
+    return f"clm_{base}_{digest}"
+
+
+def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
+    """Project Stage-1 extraction output into perspectival ``Claim`` objects.
+
+    Each relationship ``{source, target, label}`` becomes one claim
+    ``(subject=slug(source), predicate=normalize(label), object=slug(target))``
+    with the agent/general/explicit/agent_extracted defaults and the episode's
+    ``origin``. The raw label is carried on ``claim.predicate_raw`` so Stage 3 can
+    emit the mandatory ``normalization-audit`` nudge when a fold happened.
+
+    ``memory_path`` resolves the predicate normalizer; ``None`` slugifies labels
+    deterministically (used by hermetic tests). Deterministic claim ids keep the
+    projection idempotent across Sleep cycles.
+    """
+    from api.services import predicates
+    from api.services.claims import Claim
+    from api.services.id_utils import sanitize_id
+
+    normalize = predicates.load_normalizer(memory_path) if memory_path is not None else None
+
+    claims: list = []
+    seen_ids: set[str] = set()
+    for extraction in extracted:
+        episode_id = str(extraction.get("episode_id", "") or "")
+        origin = str(extraction.get("origin") or "unknown")
+        for rel in extraction.get("relationships", []) or []:
+            source = str(rel.get("source", "") or "").strip()
+            target = str(rel.get("target", "") or "").strip()
+            raw_label = str(rel.get("label", "") or "").strip() or "relates to"
+            if not source or not target:
+                continue
+            subject = sanitize_id(source)
+            obj = sanitize_id(target)
+            if subject == obj:
+                continue
+            if normalize is not None:
+                predicate = normalize(raw_label) or "relates-to"
+            else:
+                predicate = _slug_label(raw_label)
+            ep = str(rel.get("source_episode", "") or episode_id)
+            valid_from = _claim_date(rel.get("source_episode_timestamp"), ep)
+            cid = _emit_claim_id(subject, predicate, obj, valid_from)
+            if cid in seen_ids:
+                continue
+            seen_ids.add(cid)
+            claim = Claim(
+                id=cid,
+                text=f"{source} {raw_label} {target}",
+                subject=subject,
+                predicate=predicate,
+                object=obj,
+                object_kind="node",
+                observer="agent",
+                context="general",
+                epistemic="explicit",
+                source_trust="agent_extracted",
+                confidence=float(rel.get("confidence", 0.6) or 0.6),
+                valid_from=valid_from or None,
+                source_episodes=[ep] if ep else [],
+                origin=origin,
+            )
+            # The pre-normalization label (for the Stage-3 normalization audit).
+            setattr(claim, "predicate_raw", raw_label)
+            claims.append(claim)
+    return claims
+
+
+def _slug_label(label: str) -> str:
+    import re
+
+    s = (label or "").strip().lower()
+    s = re.sub(r"\s+", "-", s)
+    s = re.sub(r"[^a-z0-9\-]+", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s or "relates-to"
