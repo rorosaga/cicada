@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     decay_nudge_threshold: float = 0.4
     archive_threshold: float = 0.2
 
+    # Stage 5.57 link-enrichment (M5f) — bounded, offline-safe media-link
+    # description enrichment into CPCG `describes`/`recommends` claims.
+    link_enrich_enabled: bool = True          # CICADA_LINK_ENRICH_ENABLED kill switch
+    link_enrich_max_per_cycle: int = 20       # hard cap on LLM summarize calls/cycle
+    link_enrich_min_desc_len: int = 120       # chars; shorter OG desc => trigger summarize
+    link_enrich_excerpt_chars: int = 2000     # chars of visible body text fed to the LLM
+
     # Hub tier (small-LLM traversal)
     hub_tag_min_members: int = 5     # min entities sharing a tag to spawn a topic hub
     hub_tag_max_hubs: int = 30       # cap on tag-cluster hubs

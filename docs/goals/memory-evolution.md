@@ -241,9 +241,8 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
   - **MCP `cicada_get_perspective(subject, observer?, context?)`:** returns a subject's currently-valid
     (open, non-superseded) claims filtered by perspective, each rendered with its provenance — the D2
     Bookworm "who-believes-what" tool.
-  - **Deferred to M5f (clear TODO in `sleep_cycle`, Stage 5.57):** the link-enrichment subagent
-    (John → recommended websites: fetch + summarize a link with no conversational description). M5e is the
-    claim/trust/retrieval core only.
+  - ✅ **Done in M5f (Stage 5.57):** the link-enrichment subagent (John → recommended websites). See
+    the M5f entry below.
   - **M5e adversarial-review MUST-FIX pass (TDD, hermetic, +6 tests, full suite 191 green):** two real
     data-loss bugs found by review were fixed failing-test-first; the over-stated framing was corrected.
     - **(1) Live Stage-5 could overwrite human prose.** `conflict_resolver.apply_changes` ran the LLM
@@ -263,14 +262,52 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
       memory. Fixed: the regen now **merges** — it preserves every non-claim edge (rows without a
       `claim_id`, the only rows this function owns) and replaces only the claim-derived rows. Covered by
       `test_claim_edge_regen.py` mixed-state + stale-claim-edge cases.
-    - **Scope correction.** The M5e commit subject ("wire claim layer into Sleep") over-stated the
-      consolidation half: `reconcile_stage3` / `entities_to_claims` are implemented, fully tested, and
-      load-bearing in **retrieval**, but the live Stage-3 still runs the legacy `resolve_and_prune` and
-      live Stage-5 still emits claims only via the M5b seeder, not the reconciler. Replacing the legacy
-      Stage-3 body with `reconcile_stage3` end-to-end is **deferred to M5f** (tracked, not assumed done) —
-      a larger pipeline swap kept out of this review-fix pass to avoid regressing the entity-extraction
-      path. The human-protection invariant is now enforced in the live path at the **prose** level (fix 1);
-      the **claim** level lands when Stage-3 is swapped in M5f.
+    - **Scope correction (resolved in M5f).** The M5e commit subject ("wire claim layer into Sleep")
+      over-stated the consolidation half: `reconcile_stage3` / `entities_to_claims` were load-bearing in
+      **retrieval** but not yet in the **live consolidation** Stage-3/5 (which still ran the legacy
+      `resolve_and_prune` + M5b seeder). **M5f closes this** (below): the claim pipeline now runs inside
+      the live cycle alongside the legacy entity path, so the human-protection invariant holds at the
+      **claim** level in consolidation too — not just at the prose level (M5e fix 1).
+
+- ✅ **M5f — claim layer made LOAD-BEARING in the live Sleep cycle (TDD, hermetic, $0 LLM, ADDITIVE):**
+  the M5e claim core (`entities_to_claims` / `reconcile_stage3` / `write_claims` / `merge_sections_human_safe`
+  / `regenerate_edges_from_claims`) now runs *inside* `sleep_cycle.run` on every cycle, layered **on top of**
+  the unchanged legacy entity-extraction + `conflict_resolver` path (baseline never regressed). Built on
+  `feat/memory-evolution`; **+18 tests, full suite 221 green** (LLM/embedding/git boundaries faked; no
+  network, no real model in any test).
+  - **New seam — `api/services/claim_pipeline.py` :: `run_claim_pipeline(extracted, existing, memory_path,
+    settings, *, now_date=None, extra_claims=None)`:** one additive call that (Stage 1) projects the
+    extraction output into agent-extracted `Claim`s via `entities_to_claims`, (Stage 3) reconciles them
+    against the existing in-page ` ```claims ` blocks via `reconcile_stage3` (trust-gated, mechanical), and
+    (Stage 5) writes the reconciled claims back into each entity page via `write_claims` — **preserving all
+    surrounding human prose verbatim**. Subjects without a page yet are skipped (the promotion model owns
+    page creation; never raises). `extra_claims` is the manual-edit/clarification injection seam
+    (`user_stated` + human origin).
+  - **Wired as Stage 5.56 in `sleep_cycle.run`** — *after* the entity path's Stage-5 page writes (so
+    create-pages exist to host the claims block) and 5.55 media edges, *before* 5.6/5.7/index (so the hub,
+    claim-edge and claims-index steps project the freshly-written claims). The whole stage is in a
+    `try/except` so it can never hard-block the cycle.
+  - **Trust invariant enforced END-TO-END in the live cycle**, proven by a real `sleep_cycle.run`
+    integration test (`test_sleep_cycle_claims_wired.py`): a pre-existing human `works-at` claim on a page
+    is **not** closed by a contradicting agent extraction in the wired cycle — it stays open + authoritative
+    and a soft `divergence_nudge` lands in the inbox. (Plus `test_claim_pipeline.py`: agent-can't-supersede,
+    human-over-human supersede, human prose survival, additive frontmatter, merged claim edges.)
+  - **Claim nudges fold into the inbox — `inbox_generator.write_claim_nudges`:** turns the Stage-3
+    `conflict_nudge` / `divergence_nudge` / `normalization_audit` / `decay_nudge` records into companion-app
+    inbox items, reusing the same `inbox-NNN` allocator so they never collide with the legacy entity-path
+    nudges written earlier in Stage 5.
+  - **Stage 5.57 — link-enrichment (`api/services/link_enrichment.py`) shipped (the John→websites design):**
+    `enrich_media_links(memory_path, changes, settings, *, summarize_fn=...)` scans `media` entities for
+    thin/absent descriptions and records a `describes` claim, plus a `recommends` claim on any **person who
+    shares the media's source episode**, with **bidirectional `![[…]]` transclusion** (John's page embeds the
+    site, the site embeds John). Two paths: **§2a reuse (zero-LLM, default)** promotes a substantive on-page
+    `## Description` straight into a claim; **§2b scour+summarize** is a single bounded mini-model call behind
+    the injectable `summarize_fn` seam (`default_summarize` does the live fetch+LLM via `media_ingestor`'s
+    HTTP helpers — offline-safe, capped at `link_enrich_max_per_cycle`). Idempotent via
+    `enrichment_attempted`; YouTube/Instagram excluded; `link_enrich_enabled=False` is a clean kill switch.
+    New `Settings`: `link_enrich_enabled` / `link_enrich_max_per_cycle` / `link_enrich_min_desc_len` /
+    `link_enrich_excerpt_chars`. Covered hermetically by `test_link_enrichment.py` (reuse path, recommends +
+    transclusion, idempotency, kill switch, injected summarizer, no-media no-op).
 
 ## APPLY — buildable now (low architecture risk)
 

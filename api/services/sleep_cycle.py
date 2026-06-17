@@ -165,6 +165,28 @@ async def run(settings: Settings, cycle_id: str) -> None:
         except Exception as e:
             logger.warning(f"Stage 5.55 media edge injection failed: {type(e).__name__}: {e}")
 
+        # Stage 5.56 (M5f): CLAIM LAYER — load-bearing in the live cycle now.
+        # Runs AFTER the entity path's Stage-5 page writes (so create-pages exist
+        # to host the ```claims block) and 5.55 media edges, but BEFORE the hub /
+        # edge-regen / index steps (so they project the freshly-written claims).
+        # This is ADDITIVE: the legacy entity extraction + conflict_resolver path
+        # above keeps working untouched; claims are emitted (Stage 1 projection),
+        # trust-reconciled (Stage 3 — no agent claim can close a human claim), and
+        # written into the same editable pages (Stage 5 — human prose preserved).
+        try:
+            from api.services.claim_pipeline import run_claim_pipeline
+            from api.services.inbox_generator import write_claim_nudges
+            claim_result = run_claim_pipeline(extracted, existing, memory_path, settings)
+            n_nudges = write_claim_nudges(claim_result.get("nudges", []), memory_path)
+            logger.info(
+                f"Stage 5.56: claim layer wrote {claim_result.get('claims_written', 0)} "
+                f"claims across {claim_result.get('subjects_written', 0)} pages "
+                f"({claim_result.get('subjects_skipped', 0)} page-less), "
+                f"{n_nudges} claim nudges"
+            )
+        except Exception as e:
+            logger.warning(f"Stage 5.56 claim pipeline failed: {type(e).__name__}: {e}")
+
         # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
         # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
         try:
@@ -174,11 +196,21 @@ async def run(settings: Settings, cycle_id: str) -> None:
         except Exception as e:
             logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
 
-        # TODO(M5f / Stage 5.57): link-enrichment subagent — when a saved link
-        # (e.g. a website Prof. John recommended) has no description from the
-        # conversation, fetch the URL, summarize it, and write a description
-        # claim/summary so the link is retrievable later (D2 ADDENDUM (6)). NOT
-        # built in M5e — this milestone owns the claim/trust/retrieval core only.
+        # Stage 5.57 (M5f): link-enrichment subagent — when a saved media link
+        # (e.g. a website Prof. John recommended) lacks a meaningful description,
+        # a bounded subagent fetches + summarizes it and records a `describes`
+        # claim + `recommends` claims, with bidirectional ![[…]] transclusion
+        # (m5-prep/link-enrichment.md). Offline-safe, LLM-call-capped; any failure
+        # logs a warning and continues — the cycle is never hard-blocked.
+        try:
+            from api.services.link_enrichment import default_summarize, enrich_media_links
+            n_enriched = await enrich_media_links(
+                memory_path, changes, settings, summarize_fn=default_summarize
+            )
+            if n_enriched:
+                logger.info(f"Stage 5.57: enriched {n_enriched} media link(s)")
+        except Exception as e:
+            logger.warning(f"Stage 5.57 link enrichment failed: {type(e).__name__}: {e}")
 
         # Stage 5.7: Regenerate graph_edges.yaml as a valid-only projection of the
         # claims layer (tagged with observer/context/claim_id). No-op on banks
