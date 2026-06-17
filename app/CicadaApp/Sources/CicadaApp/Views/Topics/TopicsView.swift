@@ -12,7 +12,10 @@ struct TopicsView: View {
 
     var body: some View {
         ZStack {
-            CicadaTheme.background.ignoresSafeArea()
+            // No .ignoresSafeArea(): the title bar is darkened at the window level
+            // (CicadaApp). Ignoring the safe area here pushed content under the menu
+            // bar and stretched the window to full screen height.
+            CicadaTheme.background
 
             if let entity = selectedEntity {
                 // Detail view
