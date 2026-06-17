@@ -189,6 +189,18 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
     + non-list fence → `[]` graceful; block replace-not-duplicate; `index_claims` valid-only filtering;
     `search_claims` observer/context post-filter + superseded exclusion; missing-index `[]`; model/dim
     recorded. Full suite **83 green** (was 67).
+  - **M5a review fixes (TDD, $0 LLM):** two robustness MUST-FIX bugs on the first-class human-edit
+    path closed, each with a failing-test-first regression. (1) **CRLF closing fence** — the closing
+    `` ``` `` fence regex didn't tolerate `\r`, so a page saved/synced with CRLF line endings (Windows /
+    `git autocrlf` / cross-harness sync per the ADDENDUM) parsed to `[]` and silently vanished from the
+    derived index; fixed by allowing `\r?` before the close, with a CRLF round-trip test. (2) **Stale
+    orphan fence** — `write_claims` on a page that already had two ` ```claims ` blocks rewrote only the
+    first and left the second behind; now it replaces the first in place and strips any remaining
+    fences, guaranteeing exactly one fence regardless of input. Also closed a test gap: added an explicit
+    missing-`claims`-**table** (vs missing-db) `search_claims` → `[]` test. Full suite **86 green**.
+    Deferred (non-blocking, agreed by both reviewers): `search_claims` `top_k*3` over-fetch starvation
+    (pre-existing parity with `search_entities`, acceptable at personal scale); doc-example fence
+    collision (inherent to in-page fenced blocks, flagged for M5b when real pages author format docs).
   - **Deferred (later M5 milestones):** wiring claims into `/ask` (claim-first retrieval), MCP
     `get_perspective`, and the Sleep cycle (Stage-1 claim extraction, Stage-3 mechanical
     invalidate-and-supersede, Stage-5 card render); deterministic `graph_edges.yaml` → seed-claim

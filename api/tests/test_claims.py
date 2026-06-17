@@ -195,6 +195,42 @@ def test_claims_block_with_non_list_yaml_degrades_to_empty():
     assert parse_claims(body) == []
 
 
+def test_crlf_page_round_trips_claims():
+    """A page saved with CRLF line endings (Windows / git autocrlf, or a
+    cross-harness sync per the D2 ADDENDUM) must still parse its claims block
+    and round-trip — the closing fence sits on a `\\r\\n` line."""
+    claims = [
+        Claim(id="clm_a", text="Cicada uses sqlite-vec.", subject="cicada"),
+        Claim(id="clm_b", text="Cicada relates to fastapi.", subject="cicada"),
+    ]
+    lf_body = write_claims(_PROSE_BEFORE + _PROSE_AFTER, claims)
+    crlf_body = lf_body.replace("\n", "\r\n")
+    assert parse_claims(crlf_body) == claims
+    # prose survives too
+    assert "## facet: engineering" in crlf_body
+
+
+def test_write_claims_collapses_multiple_existing_fences_to_one():
+    """A hand-edited / double-appended page with two ```claims fences must end
+    with exactly one fence after a write — no stale orphan block left behind
+    (which would be dead weight and is never the source of truth)."""
+    body = (
+        _PROSE_BEFORE
+        + "\n```claims\n- id: clm_old1\n  text: old one\n```\n"
+        + "\nmiddle prose\n"
+        + "\n```claims\n- id: clm_old2\n  text: old two\n```\n"
+        + _PROSE_AFTER
+    )
+    assert body.count("```claims") == 2  # precondition
+    new_body = write_claims(body, [Claim(id="clm_new", text="new")])
+    assert new_body.count("```claims") == 1
+    parsed = parse_claims(new_body)
+    assert [c.id for c in parsed] == ["clm_new"]
+    # surrounding prose is preserved
+    assert "## facet: engineering" in new_body
+    assert "middle prose" in new_body
+
+
 # --------------------------------------------------------------------------- #
 # 3. Derived `claims` index kind
 # --------------------------------------------------------------------------- #
@@ -262,6 +298,23 @@ def test_search_claims_missing_index_returns_empty(tmp_path):
 def test_index_claims_no_entities_dir_returns_zero(tmp_path):
     indexer = SqliteVecIndexer(tmp_path, embed_fn=fake_embed)
     assert indexer.index_claims() == 0
+
+
+def test_search_claims_missing_table_returns_empty(tmp_path):
+    """db exists (another kind was indexed) but the `claims` table was never
+    built — search must degrade to [] via the OperationalError guard, not the
+    missing-db guard."""
+    episodes_dir = tmp_path / "episodes"
+    episodes_dir.mkdir()
+    markdown_parser.write(
+        episodes_dir / "ep_2026-06-17_001.md",
+        {"id": "ep_2026-06-17_001", "timestamp": "2026-06-17T00:00:00"},
+        "A python web framework conversation.",
+    )
+    indexer = SqliteVecIndexer(tmp_path, embed_fn=fake_embed)
+    indexer.index_episodes()  # creates the db, but no `claims` table
+    assert indexer.db_path.exists()
+    assert indexer.search_claims("python web framework", top_k=5) == []
 
 
 def test_search_claims_observer_and_context_postfilter(tmp_path):

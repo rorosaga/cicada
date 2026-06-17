@@ -45,7 +45,7 @@ CLAIMS_FENCE_LANG = "claims"
 # fence, then everything up to the closing fence). DOTALL so the body spans
 # lines; non-greedy so we stop at the first closing fence.
 _CLAIMS_BLOCK_RE = re.compile(
-    r"^```claims[ \t]*\r?\n(?P<payload>.*?)^```[ \t]*$\r?\n?",
+    r"^```claims[ \t]*\r?\n(?P<payload>.*?)^```[ \t]*\r?$\r?\n?",
     re.DOTALL | re.MULTILINE,
 )
 
@@ -180,9 +180,22 @@ def write_claims(body: str, claims: list[Claim]) -> str:
     body = body or ""
 
     if _CLAIMS_BLOCK_RE.search(body):
-        # Replace the existing block in place; lambda avoids backreference
+        # Replace the FIRST block in place (preserving its position in the
+        # prose), then strip any further stale ```claims fences so the page
+        # ends with exactly one — a hand-edited / double-appended page must not
+        # leave an orphan block behind. lambda avoids backreference
         # interpretation of the replacement string.
-        return _CLAIMS_BLOCK_RE.sub(lambda _m: block + "\n", body, count=1)
+        replaced = _CLAIMS_BLOCK_RE.sub(lambda _m: block + "\n", body, count=1)
+        # `count=1` above already consumed the first block; remove the rest.
+        seen = {"first": False}
+
+        def _strip_extra(_m: "re.Match[str]") -> str:
+            if not seen["first"]:
+                seen["first"] = True
+                return _m.group(0)  # keep the one we just wrote
+            return ""
+
+        return _CLAIMS_BLOCK_RE.sub(_strip_extra, replaced)
 
     # Append, with a clean blank-line separator from existing prose.
     stripped = body.rstrip()
