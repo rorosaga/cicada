@@ -8,6 +8,10 @@ from pydantic_settings import BaseSettings
 
 from api.services.bank_registry import resolve_active_bank_path
 
+# Key-backed embedding modes -> the env var whose presence keeps them from
+# degrading to local. Module-level so pydantic doesn't treat it as a field.
+_EMBEDDING_MODE_KEYS = {"openai": "OPENAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
+
 
 class Settings(BaseSettings):
     # Memory storage.
@@ -48,10 +52,18 @@ class Settings(BaseSettings):
     # dependency (the thesis's zero-infra goal); set CICADA_EMBEDDING_MODE=openai
     # to use OpenAI. Note: local and openai produce different-dimension vectors,
     # so switching modes requires a full index rebuild.
+    #   "openrouter" -> OpenRouter /embeddings (needs OPENROUTER_API_KEY).
+    #                   Default model google/gemini-embedding-2 (~3072-dim, the
+    #                   real dim is recorded live from the first response). Like
+    #                   openai it auto-degrades to local when the key is missing.
     embedding_mode: str = "local"             # CICADA_EMBEDDING_MODE
     embedding_model: str = "text-embedding-3-small"  # CICADA_EMBEDDING_MODEL (openai)
     # Local-mode model name (used when the resolved mode is "local").
     embedding_model_local: str = "google/embeddinggemma-300m"
+    # OpenRouter-mode embedding model (used when the resolved mode is "openrouter").
+    # CICADA_EMBEDDING_MODEL maps to this when mode=openrouter; we keep a separate
+    # field so swapping mode doesn't clobber the openai model name and vice-versa.
+    embedding_model_openrouter: str = "google/gemini-embedding-2"
 
     # LiteLLM model (format: provider/model-name)
     # Examples: gpt-5.4-mini, anthropic/claude-sonnet-4-20250514, gemini/gemini-2.0-flash
@@ -64,6 +76,20 @@ class Settings(BaseSettings):
     # point it at a cheaper/faster model. Set CICADA_LITELLM_DISAMBIGUATION_MODEL
     # to override. An empty value falls back to ``litellm_model``.
     litellm_disambiguation_model: str = "gpt-5.4-nano"
+
+    # Dedicated model for the sleep/consolidation path. Empty (the default)
+    # means "use litellm_model", so an unconfigured install behaves identically
+    # to today. Set CICADA_CONSOLIDATION_MODEL to point consolidation at any
+    # provider litellm can route (e.g. openrouter/z-ai/glm-5.2) without changing
+    # the default litellm_model used everywhere else. Read via
+    # ``effective_consolidation_model``.
+    consolidation_model: str = ""             # CICADA_CONSOLIDATION_MODEL
+
+    # Optional OpenRouter attribution headers, attached by the provider factory
+    # ONLY when the resolved model id starts with "openrouter/". Both empty (the
+    # default) => no headers attached, so the default path is untouched.
+    openrouter_referer: str = ""              # CICADA_OPENROUTER_REFERER (HTTP-Referer)
+    openrouter_title: str = "Cicada"          # CICADA_OPENROUTER_TITLE (X-OpenRouter-Title)
 
     # Server
     host: str = "127.0.0.1"
@@ -95,34 +121,51 @@ class Settings(BaseSettings):
     model_config = {"env_prefix": "CICADA_", "env_file": ".env", "extra": "ignore"}
 
     @property
+    def effective_consolidation_model(self) -> str:
+        """The model id the sleep/consolidation path should use.
+
+        Returns ``consolidation_model`` when set, else ``litellm_model``. Empty
+        default => identical to today's behavior (everything on litellm_model).
+        """
+        return (self.consolidation_model or "").strip() or self.litellm_model
+
+    @property
     def resolved_embedding_mode(self) -> str:
         """Effective embedding mode after auto-degrade.
 
-        If ``embedding_mode == "openai"`` but no ``OPENAI_API_KEY`` is present
-        in the environment, fall back to ``"local"`` so a key-less install
-        still produces a usable (offline) index instead of silently going
-        stale. Any explicit ``"local"`` is returned unchanged.
+        If a key-backed mode (``openai`` / ``openrouter``) is requested but its
+        API key is unset/empty in the environment, fall back to ``"local"`` so a
+        key-less install still produces a usable (offline) index instead of
+        silently going stale. Any explicit ``"local"`` is returned unchanged.
         """
         mode = (self.embedding_mode or "openai").strip().lower()
-        if mode == "openai" and not (os.environ.get("OPENAI_API_KEY") or "").strip():
+        key_env = _EMBEDDING_MODE_KEYS.get(mode)
+        if key_env and not (os.environ.get(key_env) or "").strip():
             return "local"
         return mode
 
     @property
     def resolved_embedding_model(self) -> str:
         """Embedding model name matching the resolved mode."""
-        if self.resolved_embedding_mode == "openai":
+        mode = self.resolved_embedding_mode
+        if mode == "openai":
             return self.embedding_model
+        if mode == "openrouter":
+            return self.embedding_model_openrouter
         return self.embedding_model_local
 
     def warn_if_degraded(self) -> None:
-        """Log a one-line warning when openai mode silently degraded to local."""
+        """Log a one-line warning when a key-backed mode silently degraded to local."""
         configured = (self.embedding_mode or "openai").strip().lower()
-        if configured == "openai" and self.resolved_embedding_mode == "local":
+        if (
+            configured in _EMBEDDING_MODE_KEYS
+            and self.resolved_embedding_mode == "local"
+        ):
+            key_env = _EMBEDDING_MODE_KEYS[configured]
             logger.warning(
-                "CICADA_EMBEDDING_MODE=openai but OPENAI_API_KEY is unset/empty — "
+                f"CICADA_EMBEDDING_MODE={configured} but {key_env} is unset/empty — "
                 "falling back to local sentence-transformers embeddings. Set "
-                "OPENAI_API_KEY to use OpenAI, or set CICADA_EMBEDDING_MODE=local "
+                f"{key_env} to use {configured}, or set CICADA_EMBEDDING_MODE=local "
                 "to silence this warning."
             )
 

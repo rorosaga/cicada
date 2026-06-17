@@ -598,44 +598,16 @@ def _entity_embed_text(fm: dict, body: str, stem: str) -> str:
 def _resolve_embed_fn() -> tuple[EmbedFn, str]:
     """Build the production embedding fn + its model name from Settings.
 
-    Returns ``(embed_fn, model_name)``. ``embed_fn(texts, is_query=bool)``
-    routes through EmbeddingGemma's asymmetric query/document prompts via
-    sentence-transformers' ``encode_query`` / ``encode_document``.
+    Thin shim: the resolution logic now lives in
+    :func:`api.services.providers.resolve_embed_fn` (openai / openrouter / local),
+    which preserves the ``(embed_fn, model_name)`` contract and the
+    ``embed_fn(texts, *, is_query=False) -> np.ndarray`` shape this index relies
+    on. Kept here so callers (``_ensure_embed_fn``) don't have to move.
 
     Not exercised by unit tests (needs a key or a gated model download); the
-    unit tests inject ``embed_fn`` directly. Covered by integration runs.
+    unit tests inject ``embed_fn`` directly. Covered by ``test_providers.py``
+    (hermetic) and integration runs.
     """
-    from api.config import get_settings
+    from api.services.providers import resolve_embed_fn
 
-    settings = get_settings()
-    settings.warn_if_degraded()
-    mode = settings.resolved_embedding_mode
-    model = settings.resolved_embedding_model
-
-    if mode == "openai":
-        from openai import OpenAI
-
-        client = OpenAI()
-
-        def _openai_embed(texts: list[str], *, is_query: bool = False) -> np.ndarray:
-            # OpenAI's embeddings are symmetric (no query/doc prompts), so
-            # is_query is accepted-and-ignored to satisfy the contract.
-            out: list[list[float]] = []
-            for start in range(0, len(texts), 100):
-                batch = texts[start : start + 100]
-                resp = client.embeddings.create(model=model, input=batch)
-                out.extend(d.embedding for d in resp.data)
-            return np.asarray(out, dtype=np.float32)
-
-        return _openai_embed, model
-
-    # Local sentence-transformers (default: google/embeddinggemma-300m).
-    from sentence_transformers import SentenceTransformer
-
-    st_model = SentenceTransformer(model)
-
-    def _local_embed(texts: list[str], *, is_query: bool = False) -> np.ndarray:
-        encode = st_model.encode_query if is_query else st_model.encode_document
-        return np.asarray(encode(texts), dtype=np.float32)
-
-    return _local_embed, model
+    return resolve_embed_fn()

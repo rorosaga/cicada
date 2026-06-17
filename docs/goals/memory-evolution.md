@@ -332,6 +332,28 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
     provider badge (colored circle + 1-letter monogram, brand-ish per-provider colors, neutral for "other");
     `unknown` → `questionmark.circle.fill` muted. Row classifies via the backend `kind` with an
     author-string fallback for old backends.
+- ✅ **M5-prep — provider factory + OpenRouter + model-comparison harness (TDD, hermetic, additive):**
+  groundwork for G10 (big-model bulk re-extraction) so the consolidation model can be pointed at any
+  provider OpenRouter routes. New **`api/services/providers.py`** with two pure factories:
+  `resolve_llm_fn(settings, *, model=None, completion=None)` (resolves a model spec → a callable bound to
+  that model id; litellm already routes `openrouter/<id>`/`openai/…`/`anthropic/…`/`gemini/…` purely from
+  the prefix, so **OpenRouter needs zero special-casing** beyond opt-in `HTTP-Referer`/`X-OpenRouter-Title`
+  attribution headers added only when the model starts with `openrouter/`), and
+  `resolve_embed_fn(settings, *, transport=…)` (folds the old `vector_index._resolve_embed_fn` body —
+  now a one-line shim — and adds a third `CICADA_EMBEDDING_MODE=openrouter` branch: POST
+  `https://openrouter.ai/api/v1/embeddings`, default `google/gemini-embedding-2`, **dim recorded live from
+  the response**, openai-style auto-degrade to local when `OPENROUTER_API_KEY` is missing). Config additions
+  are all defaulted to today's behavior — `consolidation_model=""` (→ `effective_consolidation_model` falls
+  back to `litellm_model`), `embedding_model_openrouter`, `openrouter_referer/title` — so an unconfigured
+  install is byte-identical. TDD'd hermetically in `api/tests/test_providers.py` (16 tests, injected fake
+  `completion`/transport/factories; **no network**); full suite **254 green** (238 prior + 16). Plus the RUN
+  harness **`benchmarks/run_model_comparison.py`** — reuses the real `entity_extractor.extract` Stage-1 path
+  per model on the biggest-N real episodes, writing side-by-side
+  `benchmark_results/model_comparison/<episode>/<model>.json` (entities, relationships, claims via
+  `entities_to_claims`, summaries, `usage{tokens,cost}` from the litellm response) + an `index.md` table,
+  bounded by `--models`/`--n`/`--max-chars`, with `--embed-test` for live dim/cost on the embedding model.
+  `benchmark_results/` is gitignored — never committed. → feeds **G10**; relates to **D2/M5d** (big-model
+  re-consolidation) and **M3** (`Cicada-Author` provider attribution).
 
 ## APPLY — buildable now (low architecture risk)
 
