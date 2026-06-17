@@ -48,9 +48,6 @@ struct FeedView: View {
                     .transition(.opacity)
             }
         }
-        // Claim the full detail column so `.prominentDetail` doesn't let the
-        // content's intrinsic (narrow) width drive the window into a tall shape.
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await viewModel.load() }
         .onChange(of: showUploadOverlay) { _, isShowing in
             // Refresh after the upload overlay closes — newly saved items appear.
