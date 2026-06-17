@@ -47,10 +47,11 @@ struct InboxListView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Extend the dark background into the title-bar safe area so the window
-        // chrome reads the same dark tone as Graph/Feed/Topics (which root in a
-        // ZStack { background.ignoresSafeArea() }), not the default gray material.
-        .background(CicadaTheme.background.ignoresSafeArea())
+        // The title bar is darkened at the window level (titlebarAppearsTransparent
+        // + dark backgroundColor in CicadaApp), so the content background must NOT
+        // ignoreSafeArea here — combined with maxHeight:.infinity that extended the
+        // content under the menu bar and stretched the whole window to full height.
+        .background(CicadaTheme.background)
         .task { await viewModel.loadInbox() }
     }
 

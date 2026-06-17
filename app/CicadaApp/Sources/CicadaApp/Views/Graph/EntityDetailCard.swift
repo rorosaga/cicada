@@ -27,10 +27,17 @@ struct EntityDetailCard: View {
         case content, history, perspectives, timeline
     }
 
+    /// Whether to show the card's own close (✕) button. The Clusters detail
+    /// embeds this card inside a view that already provides a Back button, so
+    /// it passes `false` — the card's ✕ only drives `graphVM.clearSelection()`,
+    /// which is a no-op (dead button) outside the graph's selection context.
+    let showsCloseButton: Bool
+
     /// `defaultRaw` opens the card on the verbatim Source view — used by the
     /// graph's click-to-preview overlay so a node tap shows raw markdown first.
-    init(entity: Entity, defaultRaw: Bool = false) {
+    init(entity: Entity, defaultRaw: Bool = false, showsCloseButton: Bool = true) {
         self.entity = entity
+        self.showsCloseButton = showsCloseButton
         _showRawMarkdown = State(initialValue: defaultRaw)
     }
 
@@ -86,18 +93,21 @@ struct EntityDetailCard: View {
 
                 Spacer()
 
-                // Close button
-                Button {
-                    graphVM.clearSelection()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(CicadaTheme.surfaceHover)
-                        .clipShape(Circle())
+                // Close button — only when this card owns dismissal (graph
+                // overlay). Suppressed in Clusters, which has its own Back button.
+                if showsCloseButton {
+                    Button {
+                        graphVM.clearSelection()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .background(CicadaTheme.surfaceHover)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
 
             Text(entity.name)

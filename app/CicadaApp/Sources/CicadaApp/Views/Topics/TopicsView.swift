@@ -475,7 +475,7 @@ private struct TopicDetailView: View {
             // Detail card — EntityDetailCard already has its own internal
             // ScrollView, so wrapping it in a second one broke the width
             // proposal chain for long markdown bodies (the "zoomed in" bug).
-            EntityDetailCard(entity: displayEntity)
+            EntityDetailCard(entity: displayEntity, showsCloseButton: false)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(CicadaTheme.spacingXL)

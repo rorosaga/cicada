@@ -47,6 +47,15 @@ struct CicadaApp: App {
                     }
                     // Ensure the main window is key so TextFields can accept input.
                     if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
+                        // Unify the title bar with the dark app background (#0E0F14).
+                        // The default macOS titlebar material reads gray over the
+                        // app's near-black content; a transparent titlebar + a
+                        // matching window background makes the bar consistently dark
+                        // on every page. (A per-page content background can't recolor
+                        // window chrome — that was the failed earlier attempt that
+                        // also stretched the Inbox window.)
+                        window.titlebarAppearsTransparent = true
+                        window.backgroundColor = NSColor(red: 14 / 255, green: 15 / 255, blue: 20 / 255, alpha: 1)
                         window.makeKeyAndOrderFront(nil)
                     }
                     menuBarManager.setup(
