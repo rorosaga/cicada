@@ -13,6 +13,10 @@ struct EntityDetailCard: View {
     @State private var claimsLoaded = false
     @State private var timelineKey: TimelineKey?
 
+    // Location listing (issue #7). Loaded lazily on appear for `.location`
+    // entities; nil while loading or when no path/endpoint is available.
+    @State private var locationListing: LocationListing?
+
     struct TimelineKey: Identifiable, Hashable {
         let predicate: String
         let context: String
@@ -187,10 +191,142 @@ struct EntityDetailCard: View {
                 renderedMarkdownView
             }
 
+            if entity.type == .location {
+                Divider().background(CicadaTheme.border)
+                locationSection
+            }
+
             Divider().background(CicadaTheme.border)
             metadataSection
         }
         .padding(CicadaTheme.spacingLG)
+        .task(id: entity.id) {
+            // Reset before (re)fetching so swapping between entities can't show
+            // a previous location's listing. `.task(id:)` already guarantees this
+            // runs once per id, so no extra "loaded" guard is needed.
+            locationListing = nil
+            // Only location entities have a directory listing to fetch.
+            guard entity.type == .location else { return }
+            locationListing = try? await APIClient.shared.fetchLocationListing(id: entity.id)
+        }
+    }
+
+    // MARK: - Location Section (issue #7)
+    //
+    // For `.location` entities, shows the declared directory path (monospace,
+    // copyable) and a bounded listing of its immediate children. Degrades
+    // quietly: no path / inaccessible / endpoint absent → renders nothing.
+
+    @ViewBuilder
+    private var locationSection: some View {
+        // Prefer the listing's path (authoritative), falling back to the
+        // entity's own `path` field if surfaced on the EntityResponse.
+        let path = locationListing?.path ?? entity.path
+        if let path, !path.isEmpty {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CicadaTheme.entityColor(for: .location))
+                    Text("Path")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    Spacer()
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(path, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy path")
+                }
+
+                Text(path)
+                    .font(CicadaTheme.monoFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(CicadaTheme.spacingSM)
+                    .background(CicadaTheme.surfaceHover.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+
+                locationContents
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var locationContents: some View {
+        if let listing = locationListing {
+            if !listing.exists {
+                locationNote("Directory not found.", icon: "questionmark.folder")
+            } else if !listing.accessible {
+                locationNote("Permission denied — can't list this directory.",
+                             icon: "lock")
+            } else if listing.entries.isEmpty {
+                locationNote("Empty directory.", icon: "tray")
+            } else {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(listing.entries) { entry in
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            Image(systemName: entry.isDir ? "folder.fill" : "doc")
+                                .font(.system(size: 11))
+                                .foregroundStyle(entry.isDir
+                                                 ? CicadaTheme.entityColor(for: .location)
+                                                 : CicadaTheme.textTertiary)
+                                .frame(width: 16)
+                            Text(entry.name)
+                                .font(.system(size: 12))
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                                .lineLimit(1)
+                            Spacer()
+                            if !entry.isDir {
+                                Text(humanSize(entry.size))
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(CicadaTheme.textTertiary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    if listing.truncated {
+                        Text("…listing truncated")
+                            .font(.system(size: 10))
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .padding(.top, 2)
+                    }
+                }
+            }
+        }
+    }
+
+    private func locationNote(_ text: String, icon: String) -> some View {
+        HStack(spacing: CicadaTheme.spacingXS) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundStyle(CicadaTheme.textTertiary)
+            Text(text)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        }
+    }
+
+    /// Human-readable byte size (e.g. "12 KB"). Dirs pass 0 and aren't shown.
+    private func humanSize(_ bytes: Int) -> String {
+        let units = ["B", "KB", "MB", "GB", "TB"]
+        var value = Double(bytes)
+        var unit = 0
+        while value >= 1024, unit < units.count - 1 {
+            value /= 1024
+            unit += 1
+        }
+        return unit == 0
+            ? "\(bytes) \(units[unit])"
+            : String(format: "%.1f %@", value, units[unit])
     }
 
     private var renderedMarkdownView: some View {

@@ -45,6 +45,9 @@ struct FeedView: View {
                     .transition(.opacity)
             }
         }
+        // Claim the full detail column so `.prominentDetail` doesn't let the
+        // content's intrinsic (narrow) width drive the window into a tall shape.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await viewModel.load() }
         .onChange(of: showUploadOverlay) { _, isShowing in
             // Refresh after the upload overlay closes — newly saved items appear.
@@ -112,7 +115,8 @@ struct FeedView: View {
             emptyState(
                 symbol: "tray",
                 title: "Nothing saved yet",
-                subtitle: "Save bookmarks, paste URLs, or add an RSS feed.\nThey appear here sorted by relevance."
+                subtitle: "Save bookmarks, paste URLs, or add an RSS feed.\nThey appear here sorted by relevance.",
+                useBookworm: true
             )
         } else {
             ScrollView {
@@ -127,12 +131,23 @@ struct FeedView: View {
         }
     }
 
-    private func emptyState(symbol: String, title: String, subtitle: String) -> some View {
+    private func emptyState(
+        symbol: String,
+        title: String,
+        subtitle: String,
+        useBookworm: Bool = false
+    ) -> some View {
         VStack(spacing: CicadaTheme.spacingMD) {
             Spacer()
-            Image(systemName: symbol)
-                .font(.system(size: 40))
-                .foregroundStyle(CicadaTheme.textTertiary)
+            if useBookworm {
+                // The animated mascot greets the empty ingestion area, mirroring
+                // the Inbox "all caught up" worm and the upload overlay.
+                BookwormView(state: .awake, pointSize: 72)
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: 40))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
             Text(title)
                 .font(CicadaTheme.headingFont)
                 .foregroundStyle(CicadaTheme.textPrimary)

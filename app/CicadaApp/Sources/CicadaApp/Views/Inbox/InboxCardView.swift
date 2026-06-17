@@ -9,14 +9,21 @@ import SwiftUI
 ///   - `.none`      → simple Dismiss
 struct InboxCardView: View {
     let item: InboxItem
-    /// (action, answer?, mergeTarget?) — forwarded to `InboxViewModel.resolve`.
-    let onResolve: (String, String?, String?) -> Void
+    /// (action, answer?, mergeTarget?, mergeSurvivor?) — forwarded to
+    /// `InboxViewModel.resolve`. `mergeSurvivor` (issue #1) is the id the user
+    /// chose to keep as the canonical entity; nil for non-merge actions.
+    let onResolve: (String, String?, String?, String?) -> Void
 
     @State private var isExpanded = false
     @State private var isHovered = false
     @State private var answerText = ""
     @State private var mergeText = ""
+    /// Which side of a merge survives. `.existing` keeps the existing target
+    /// (legacy default); `.mention` keeps the clarified mention's cleaner name.
+    @State private var mergeSurvivor: MergeSurvivor = .existing
     @State private var resolving = false
+
+    private enum MergeSurvivor { case existing, mention }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -105,8 +112,12 @@ struct InboxCardView: View {
         }
         .padding(CicadaTheme.spacingLG)
         .padding(.leading, CicadaTheme.spacingMD)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Reveal from BELOW the header: the VStack already stacks the body under
+        // the title (spacing 0), so a bottom-edge insertion slides the content
+        // down out from under the header instead of sweeping over it from the top.
         .transition(.asymmetric(
-            insertion: .opacity.combined(with: .move(edge: .top)),
+            insertion: .opacity.combined(with: .move(edge: .bottom)),
             removal: .opacity
         ))
     }
@@ -218,17 +229,28 @@ struct InboxCardView: View {
         }
     }
 
-    /// Merge suggestion → freetext Answer, or Merge into a named entity (hint
-    /// prefilled), plus Dismiss / Skip.
+    /// The two merge candidates: the clarified mention and the existing target.
+    /// The existing target is also the merge DATA SOURCE (it owns the real
+    /// frontmatter/history), edited via `mergeText`; the survivor picker only
+    /// chooses which NAME the merged entity keeps.
+    private var mentionName: String { item.displayName }
+    private var existingName: String {
+        let t = mergeText.trimmed
+        return t.isEmpty ? (item.mergeTargetHint ?? "") : t
+    }
+
+    /// Merge suggestion → freetext Answer, or Merge two candidates with a
+    /// direction picker choosing the canonical survivor, plus Dismiss / Skip.
     private var mergeActions: some View {
         VStack(spacing: CicadaTheme.spacingMD) {
             answerField(prompt: "Describe this entity…")
 
+            // Merge-into target (the existing entity = data source), editable.
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "arrow.triangle.merge")
                     .font(.system(size: 11))
                     .foregroundStyle(CicadaTheme.textTertiary)
-                TextField("Merge into…", text: $mergeText)
+                TextField("Existing entity…", text: $mergeText)
                     .textFieldStyle(.plain)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -241,6 +263,8 @@ struct InboxCardView: View {
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
 
+            survivorPicker
+
             HStack(spacing: CicadaTheme.spacingSM) {
                 InboxActionButton(title: "Answer", icon: "paperplane", color: 0x22C55E,
                                   disabled: answerText.trimmed.isEmpty) {
@@ -248,7 +272,10 @@ struct InboxCardView: View {
                 }
                 InboxActionButton(title: "Merge", icon: "arrow.triangle.merge", color: 0x4A9EFF,
                                   disabled: mergeText.trimmed.isEmpty) {
-                    fire("merge", mergeTarget: mergeText.trimmed)
+                    // Data source is always the existing target; the survivor id
+                    // is whichever name the user chose to keep.
+                    let survivor = mergeSurvivor == .mention ? mentionName : existingName
+                    fire("merge", mergeTarget: mergeText.trimmed, mergeSurvivor: survivor)
                 }
                 Spacer()
                 InboxActionButton(title: "Dismiss", icon: "xmark", color: 0x6B7280) {
@@ -262,6 +289,66 @@ struct InboxCardView: View {
         .onAppear {
             if mergeText.isEmpty, let hint = item.mergeTargetHint { mergeText = hint }
         }
+    }
+
+    /// Two-option survivor picker: which entity name survives the merge. The
+    /// non-survivor is shown as "→ merges into" the chosen canonical name.
+    private var survivorPicker: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            Text("KEEP AS CANONICAL")
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.0)
+
+            HStack(spacing: CicadaTheme.spacingSM) {
+                survivorOption(mentionName, isSelected: mergeSurvivor == .mention) {
+                    mergeSurvivor = .mention
+                }
+                survivorOption(existingName, isSelected: mergeSurvivor == .existing) {
+                    mergeSurvivor = .existing
+                }
+            }
+
+            // Spell out the resulting direction so it's unambiguous.
+            let survivor = mergeSurvivor == .mention ? mentionName : existingName
+            let absorbed = mergeSurvivor == .mention ? existingName : mentionName
+            if !survivor.isEmpty, !absorbed.isEmpty {
+                HStack(spacing: 4) {
+                    Text(absorbed).foregroundStyle(CicadaTheme.textTertiary)
+                    Image(systemName: "arrow.right").font(.system(size: 9))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    Text(survivor).foregroundStyle(CicadaTheme.textSecondary)
+                }
+                .font(.system(size: 10))
+            }
+        }
+    }
+
+    private func survivorOption(_ name: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(isSelected ? CicadaTheme.accent : CicadaTheme.textTertiary)
+                Text(name.isEmpty ? "—" : name)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(isSelected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .padding(.vertical, CicadaTheme.spacingSM)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                    .fill(isSelected ? CicadaTheme.accent.opacity(0.12) : CicadaTheme.surface.opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                    .stroke(isSelected ? CicadaTheme.accent.opacity(0.5) : CicadaTheme.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(name.isEmpty)
     }
 
     private func answerField(prompt: String) -> some View {
@@ -283,11 +370,16 @@ struct InboxCardView: View {
 
     /// Fire a resolution. Skip just forwards (the card stays); everything else
     /// plays a brief confirming fade before the list removes it.
-    private func fire(_ action: String, answer: String? = nil, mergeTarget: String? = nil) {
+    private func fire(
+        _ action: String,
+        answer: String? = nil,
+        mergeTarget: String? = nil,
+        mergeSurvivor: String? = nil
+    ) {
         if action != "skip" {
             withAnimation(.spring(duration: 0.2)) { resolving = true }
         }
-        onResolve(action, answer, mergeTarget)
+        onResolve(action, answer, mergeTarget, mergeSurvivor)
     }
 }
 

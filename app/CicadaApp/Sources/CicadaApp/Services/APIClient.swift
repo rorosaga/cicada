@@ -380,6 +380,19 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))/history/\(encodedID(commitHash))/diff")
     }
 
+    /// `GET /entities/{id}/location` (issue #7) — the directory a location
+    /// entity declares in its frontmatter, plus a bounded listing of immediate
+    /// children. Returns `nil` on a 404 (endpoint not shipped yet) or any other
+    /// error so the detail card degrades quietly to just the description. The
+    /// backend reads ONLY the entity's own declared path — never a request path.
+    func fetchLocationListing(id: String) async throws -> LocationListing? {
+        do {
+            return try await get("/entities/\(encodedID(id))/location")
+        } catch APIError.httpError(404, _) {
+            return nil
+        }
+    }
+
     // MARK: - Claims (CPCG claim layer)
 
     /// `GET /entities/{id}/claims` — the subject's claims. By default only
@@ -443,15 +456,21 @@ actor APIClient {
     /// Resolve an inbox item. Dispatches server-side on the item's `kind`. The
     /// freetext clarification path sends `{action:"answer", answer:text}` — the
     /// resolution body shape from `api/routers/inbox.py`.
+    /// `mergeSurvivor` (issue #1) names the id the user wants to KEEP as the
+    /// canonical entity. When omitted the backend defaults to the legacy
+    /// behavior (survivor = `mergeTarget`, the existing entity), so existing
+    /// callers are unaffected.
     func resolveInboxItem(
         id: String,
         action: String,
         answer: String? = nil,
-        mergeTarget: String? = nil
+        mergeTarget: String? = nil,
+        mergeSurvivor: String? = nil
     ) async throws {
         var body: [String: Any] = ["action": action]
         if let answer { body["answer"] = answer }
         if let mergeTarget { body["mergeTarget"] = mergeTarget }
+        if let mergeSurvivor { body["mergeSurvivor"] = mergeSurvivor }
         try await post("/inbox/\(id)/resolve", body: body)
     }
 

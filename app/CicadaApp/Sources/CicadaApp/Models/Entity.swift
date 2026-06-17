@@ -177,6 +177,51 @@ struct ContributorsResponse: Codable {
     let contributors: [Contributor]
 }
 
+// MARK: - Location listing (issue #7)
+
+/// One immediate child of a location entity's declared directory path. The
+/// backend returns names + is-dir + size ONLY — never file contents.
+struct LocationEntry: Codable, Identifiable, Hashable {
+    let name: String
+    let isDir: Bool
+    let size: Int
+
+    var id: String { name }
+
+    enum CodingKeys: String, CodingKey { case name, isDir, size }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        isDir = (try? c.decode(Bool.self, forKey: .isDir)) ?? false
+        size = (try? c.decode(Int.self, forKey: .size)) ?? 0
+    }
+}
+
+/// `GET /entities/{id}/location` — the directory a location entity references,
+/// plus a bounded listing of its immediate children. `exists`/`accessible`
+/// degrade gracefully (path missing or permission denied → empty entries).
+struct LocationListing: Codable {
+    let path: String?
+    let exists: Bool
+    let accessible: Bool
+    let truncated: Bool
+    let entries: [LocationEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case path, exists, accessible, truncated, entries
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decodeIfPresent(String.self, forKey: .path)
+        exists = (try? c.decode(Bool.self, forKey: .exists)) ?? false
+        accessible = (try? c.decode(Bool.self, forKey: .accessible)) ?? false
+        truncated = (try? c.decode(Bool.self, forKey: .truncated)) ?? false
+        entries = (try? c.decode([LocationEntry].self, forKey: .entries)) ?? []
+    }
+}
+
 struct Entity: Identifiable, Codable {
     let id: String
     var name: String
@@ -194,6 +239,11 @@ struct Entity: Identifiable, Codable {
     /// Verbatim file content (frontmatter + body) from the API; empty when
     /// only the placeholder graph node has loaded.
     var rawMarkdown: String = ""
+    /// Directory path declared in a location entity's frontmatter (issue #7).
+    /// Optional — only present once the backend surfaces `path:` on the
+    /// EntityResponse; nil for non-location entities and for locations that
+    /// don't (yet) carry a path.
+    var path: String? = nil
     var history: [EntityHistoryEntry]
 
     init(
@@ -222,7 +272,7 @@ struct Entity: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
         case decayRate, sourceEpisodes, tags, related, version
-        case markdownContent, rawMarkdown, history
+        case markdownContent, rawMarkdown, path, history
     }
 
     init(from decoder: Decoder) throws {
@@ -243,6 +293,7 @@ struct Entity: Identifiable, Codable {
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
         markdownContent = try c.decodeIfPresent(String.self, forKey: .markdownContent) ?? ""
         rawMarkdown = try c.decodeIfPresent(String.self, forKey: .rawMarkdown) ?? ""
+        path = try c.decodeIfPresent(String.self, forKey: .path)
         history = try c.decodeIfPresent([EntityHistoryEntry].self, forKey: .history) ?? []
     }
 

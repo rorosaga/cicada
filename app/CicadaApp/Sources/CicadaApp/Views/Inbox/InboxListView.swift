@@ -26,11 +26,12 @@ struct InboxListView: View {
                 ScrollView {
                     LazyVStack(spacing: CicadaTheme.spacingSM) {
                         ForEach(visibleItems) { item in
-                            InboxCardView(item: item) { action, answer, mergeTarget in
+                            InboxCardView(item: item) { action, answer, mergeTarget, mergeSurvivor in
                                 Task {
                                     await viewModel.resolve(
                                         id: item.id, action: action,
-                                        answer: answer, mergeTarget: mergeTarget
+                                        answer: answer, mergeTarget: mergeTarget,
+                                        mergeSurvivor: mergeSurvivor
                                     )
                                 }
                             }
@@ -46,7 +47,10 @@ struct InboxListView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CicadaTheme.background)
+        // Extend the dark background into the title-bar safe area so the window
+        // chrome reads the same dark tone as Graph/Feed/Topics (which root in a
+        // ZStack { background.ignoresSafeArea() }), not the default gray material.
+        .background(CicadaTheme.background.ignoresSafeArea())
         .task { await viewModel.loadInbox() }
     }
 

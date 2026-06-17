@@ -41,11 +41,13 @@ final class InboxViewModel {
         id: String,
         action: String,
         answer: String? = nil,
-        mergeTarget: String? = nil
+        mergeTarget: String? = nil,
+        mergeSurvivor: String? = nil
     ) async {
         do {
             try await APIClient.shared.resolveInboxItem(
-                id: id, action: action, answer: answer, mergeTarget: mergeTarget
+                id: id, action: action, answer: answer,
+                mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor
             )
             if action == "skip" {
                 await loadInbox()

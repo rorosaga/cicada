@@ -271,10 +271,23 @@ private struct TopicsLabelPopover: View {
     @Binding var selectedLabels: Set<String>
     @State private var labelSearch: String = ""
 
-    private var visibleLabels: [(String, Int)] {
+    /// Cap on how many label rows are materialized at once. Even with the
+    /// LazyVStack below, bounding the rendered set keeps an empty/short search
+    /// from building thousands of rows when the popover opens (the freeze).
+    private static let renderCap = 100
+
+    private var matchingLabels: [(String, Int)] {
         let query = labelSearch.trimmingCharacters(in: .whitespaces).lowercased()
         if query.isEmpty { return allLabels }
         return allLabels.filter { $0.0.lowercased().contains(query) }
+    }
+
+    private var visibleLabels: [(String, Int)] {
+        Array(matchingLabels.prefix(Self.renderCap))
+    }
+
+    private var hiddenCount: Int {
+        max(0, matchingLabels.count - visibleLabels.count)
     }
 
     var body: some View {
@@ -306,7 +319,7 @@ private struct TopicsLabelPopover: View {
                     .padding(.vertical, CicadaTheme.spacingSM)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
+                    LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(visibleLabels, id: \.0) { label, count in
                             Button {
                                 if selectedLabels.contains(label) {
@@ -335,6 +348,14 @@ private struct TopicsLabelPopover: View {
                                 .padding(.vertical, 3)
                             }
                             .buttonStyle(.plain)
+                        }
+
+                        if hiddenCount > 0 {
+                            Text("+\(hiddenCount) more — refine search")
+                                .font(.system(size: 10))
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 4)
                         }
                     }
                 }
