@@ -125,8 +125,24 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))")
     }
 
-    func fetchEntityHistory(id: String) async throws -> [EntityHistoryEntry] {
-        return try await get("/entities/\(encodedID(id))/history")
+    func fetchEntityHistory(id: String, includeDiff: Bool = false) async throws -> [EntityHistoryEntry] {
+        // FastAPI query params use the snake_case Python name (not the
+        // camelCase body/response alias), so this is include_diff, not includeDiff.
+        let suffix = includeDiff ? "?include_diff=true" : ""
+        return try await get("/entities/\(encodedID(id))/history\(suffix)")
+    }
+
+    /// Per-commit add/remove diff for one entity file (backlog A1). NOT BUILD-VERIFIED.
+    func fetchEntityCommitDiff(id: String, commitHash: String) async throws -> EntityDiff {
+        return try await get("/entities/\(encodedID(id))/history/\(commitHash)/diff")
+    }
+
+    // MARK: - Contributors
+
+    /// Repo-wide model/user attribution (backlog A2). NOT BUILD-VERIFIED.
+    func fetchContributors() async throws -> [Contributor] {
+        let resp: ContributorsResponse = try await get("/contributors")
+        return resp.contributors
     }
 
     // MARK: - Inbox

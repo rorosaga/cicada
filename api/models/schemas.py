@@ -44,10 +44,43 @@ class NudgeType(str, Enum):
 # --- Entity ---
 
 
+class EntityDiff(CamelModel):
+    # Added / removed line blocks for one entity file at one commit, newline-joined.
+    # Bounded by the caller so the response can't explode on a huge rewrite.
+    added: str = ""
+    removed: str = ""
+
+
 class EntityHistoryEntry(CamelModel):
     date: str
     change_type: str
     description: str
+    # Commit-level provenance (M3 / backlog A2). ``author`` is the model id that
+    # wrote this commit (e.g. "gpt-5.4-mini") or "user" for manual/companion-app
+    # writes, parsed from the commit's ``Cicada-Author:`` trailer; "unknown" for
+    # legacy untrailered commits. ``commit_hash`` enables an on-demand per-commit
+    # diff fetch. ``diff`` is populated only when history is requested with
+    # ``include_diff=true`` (kept opt-in so the default response stays small).
+    author: str = "unknown"
+    commit_hash: str = ""
+    diff: Optional[EntityDiff] = None
+
+
+# --- Contributors (git-trailer attribution, backlog A2) ---
+
+
+class Contributor(CamelModel):
+    # An authoring agent: a model id (e.g. "gpt-5.4-mini"), "user", or "unknown".
+    author: str
+    commit_count: int = 0
+    file_count: int = 0
+    entity_count: int = 0
+    files: list[str] = []
+    last_active: str = ""  # ISO date (YYYY-MM-DD) of the author's most recent commit
+
+
+class ContributorsResponse(CamelModel):
+    contributors: list[Contributor] = []
 
 
 class EntityResponse(CamelModel):

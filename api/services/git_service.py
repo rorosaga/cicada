@@ -3,11 +3,71 @@ import re
 from datetime import date
 from pathlib import Path
 
-from api.models.schemas import EntityHistoryEntry, SleepHistoryEntry
+from api.models.schemas import (
+    Contributor,
+    EntityDiff,
+    EntityHistoryEntry,
+    SleepHistoryEntry,
+)
 
 
 class GitError(Exception):
     pass
+
+
+# Commit-author trailer (backlog A2). Every Cicada write records which agent
+# authored it as one or more ``Cicada-Author:`` lines in the commit body — a
+# model id (e.g. "gpt-5.4-mini") for sleep-cycle/agent writes, or "user" for
+# manual/companion-app writes. The trailer is machine-parseable and inert to
+# the existing entity-line parsing (it carries no entity id), so it does not
+# break ``_infer_change_type`` / ``_build_description``.
+AUTHOR_TRAILER = "Cicada-Author"
+_AUTHOR_RE = re.compile(rf"^{AUTHOR_TRAILER}:\s*(.+?)\s*$")
+UNKNOWN_AUTHOR = "unknown"
+
+
+def build_commit_message(
+    subject: str,
+    body_lines: list[str],
+    authors: list[str] | None = None,
+) -> str:
+    """Assemble a structured commit message with optional author trailers.
+
+    ``subject`` is line 1, ``body_lines`` are the per-file manifest, and each
+    distinct, non-empty ``authors`` entry becomes one ``Cicada-Author:`` trailer
+    appended after a blank line (git-trailer convention). Author order is
+    preserved and duplicates are dropped.
+    """
+    parts = [subject]
+    if body_lines:
+        parts.append("\n".join(body_lines))
+
+    seen: set[str] = set()
+    trailers: list[str] = []
+    for a in authors or []:
+        name = (a or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        trailers.append(f"{AUTHOR_TRAILER}: {name}")
+    if trailers:
+        parts.append("\n".join(trailers))
+
+    return "\n\n".join(parts)
+
+
+def _parse_authors(body: str) -> list[str]:
+    """Extract author names from ``Cicada-Author:`` trailer lines in a commit body."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in body.splitlines():
+        m = _AUTHOR_RE.match(line.strip())
+        if m:
+            name = m.group(1).strip()
+            if name and name not in seen:
+                seen.add(name)
+                out.append(name)
+    return out
 
 
 async def _run_git(memory_path: Path, *args: str) -> str:
@@ -24,8 +84,19 @@ async def _run_git(memory_path: Path, *args: str) -> str:
     return stdout.decode()
 
 
-async def get_entity_history(entity_id: str, memory_path: Path) -> list[EntityHistoryEntry]:
-    """Build entity history from git blame — field-level provenance grouped by commit."""
+async def get_entity_history(
+    entity_id: str,
+    memory_path: Path,
+    *,
+    include_diff: bool = False,
+) -> list[EntityHistoryEntry]:
+    """Build entity history from git blame — field-level provenance grouped by commit.
+
+    Each entry carries the authoring agent (from the commit's ``Cicada-Author:``
+    trailer; "unknown" when absent) and the commit hash. When ``include_diff`` is
+    set, each entry also carries the per-commit add/remove diff for this entity
+    file (opt-in so the default response stays small — backlog A1).
+    """
     entity_file = f"entities/{entity_id}.md"
     entity_path = memory_path / entity_file
 
@@ -73,11 +144,20 @@ async def get_entity_history(entity_id: str, memory_path: Path) -> list[EntityHi
 
         change_type = _infer_change_type(subject, body, entity_id)
         description = _build_description(subject, body, entity_id)
+        authors = _parse_authors(body)
+        author = authors[0] if authors else UNKNOWN_AUTHOR
+
+        diff = None
+        if include_diff:
+            diff = await get_entity_commit_diff(entity_id, commit_hash, memory_path)
 
         entries.append(EntityHistoryEntry(
             date=date,
             change_type=change_type,
             description=description,
+            author=author,
+            commit_hash=commit_hash,
+            diff=diff,
         ))
 
     return entries
@@ -112,6 +192,125 @@ def _build_description(subject: str, body: str, entity_id: str) -> str:
         if entity_id in line.lower():
             return line.strip()
     return subject
+
+
+async def get_entity_commit_diff(
+    entity_id: str, commit_hash: str, memory_path: Path
+) -> EntityDiff:
+    """Per-commit add/remove diff for one entity file (backlog A1).
+
+    Returns an empty diff (not an error) when the commit is missing or the file
+    didn't change in it — callers render "no diff" rather than failing.
+    """
+    entity_file = f"entities/{entity_id}.md"
+    try:
+        out = await _run_git(
+            memory_path,
+            "show",
+            "--format=",
+            "--no-color",
+            "--unified=0",
+            commit_hash,
+            "--",
+            entity_file,
+        )
+    except GitError:
+        return EntityDiff(added="", removed="")
+
+    added: list[str] = []
+    removed: list[str] = []
+    for line in out.splitlines():
+        # Skip diff headers (+++/---) and hunk markers (@@).
+        if line.startswith("+++") or line.startswith("---") or line.startswith("@@"):
+            continue
+        if line.startswith("+"):
+            added.append(line[1:])
+        elif line.startswith("-"):
+            removed.append(line[1:])
+
+    return EntityDiff(added="\n".join(added), removed="\n".join(removed))
+
+
+async def get_contributors(memory_path: Path) -> list[Contributor]:
+    """Repo-wide attribution summary parsed from ``Cicada-Author:`` trailers.
+
+    For each author (model id, "user", or "unknown" for legacy untrailered
+    commits) aggregate: commit count, distinct files + entities touched, and the
+    most recent commit date. Returns ``[]`` on a non-git / missing directory.
+    """
+    if not (memory_path / ".git").exists():
+        return []
+
+    # NUL-record-delimited log so multi-line bodies never collide with the
+    # field separator: hash <US> date <US> body <RS-record>.
+    sep = "\x1f"
+    rec = "\x1e"
+    try:
+        out = await _run_git(
+            memory_path,
+            "log",
+            f"--format=%H{sep}%ad{sep}%b{rec}",
+            "--date=short",
+        )
+    except GitError:
+        return []
+
+    # author -> aggregation state
+    agg: dict[str, dict] = {}
+
+    for record in out.split(rec):
+        record = record.strip("\n")
+        if not record.strip():
+            continue
+        fields = record.split(sep, 2)
+        if len(fields) < 3:
+            continue
+        commit_hash, date, body = fields[0].strip(), fields[1].strip(), fields[2]
+
+        authors = _parse_authors(body) or [UNKNOWN_AUTHOR]
+
+        # Files changed in this commit (best-effort).
+        try:
+            names_out = await _run_git(
+                memory_path,
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                "--root",  # so the initial (parentless) commit lists its added files
+                commit_hash,
+            )
+            files = [f for f in names_out.strip().splitlines() if f]
+        except GitError:
+            files = []
+
+        for author in authors:
+            state = agg.setdefault(
+                author,
+                {"commits": 0, "files": set(), "entities": set(), "last": ""},
+            )
+            state["commits"] += 1
+            for f in files:
+                state["files"].add(f)
+                if f.startswith("entities/") and f.endswith(".md"):
+                    state["entities"].add(f)
+            if date > state["last"]:
+                state["last"] = date
+
+    contributors = [
+        Contributor(
+            author=author,
+            commit_count=s["commits"],
+            file_count=len(s["files"]),
+            entity_count=len(s["entities"]),
+            files=sorted(s["files"]),
+            last_active=s["last"],
+        )
+        for author, s in agg.items()
+    ]
+    # Most active first; stable tie-break by author name.
+    contributors.sort(key=lambda c: (-c.commit_count, c.author))
+    return contributors
 
 
 async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:
@@ -190,8 +389,10 @@ async def commit_resolution(memory_path: Path, entity_id: str, trigger: str) -> 
         f"Inbox resolution ({kind}) {date_str}" if kind
         else f"Inbox resolution {date_str}"
     )
-    message = (
-        f"{subject}\n\n"
-        f"entities/{entity_id}.md: updated (trigger: {trigger})"
+    # An inbox resolution is a user/companion-app action -> attribute to "user".
+    message = build_commit_message(
+        subject,
+        [f"entities/{entity_id}.md: updated (trigger: {trigger})"],
+        authors=["user"],
     )
     await commit_changes(memory_path, message)

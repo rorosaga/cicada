@@ -675,10 +675,13 @@ async def _commit_media(memory_path: Path, count: int) -> None:
     from api.services import git_service
 
     date_str = datetime.now().strftime("%Y-%m-%d")
-    message = (
-        f"Sources ingest {date_str}\n\n"
-        f"memory/sources/url_index.json: updated (trigger: user/media_save)\n"
-        f"{count} media item(s) saved (trigger: user/media_save)"
+    message = git_service.build_commit_message(
+        f"Sources ingest {date_str}",
+        [
+            "memory/sources/url_index.json: updated (trigger: user/media_save)",
+            f"{count} media item(s) saved (trigger: user/media_save)",
+        ],
+        authors=["user"],
     )
     await git_service.commit_changes(memory_path, message)
 

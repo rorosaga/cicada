@@ -270,13 +270,53 @@ struct EntityDetailCard: View {
                     .frame(width: 10)
 
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        Text(entry.date)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
+                        HStack(spacing: CicadaTheme.spacingXS) {
+                            Text(entry.date)
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                            // M3 (backlog A2): who authored this commit.
+                            // NOT BUILD-VERIFIED — needs Xcode compile.
+                            if !entry.author.isEmpty {
+                                Text(entry.author)
+                                    .font(CicadaTheme.captionFont)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 1)
+                                    .background(
+                                        (entry.author == "user"
+                                         ? Color(hex: 0x3B82F6)
+                                         : Color(hex: 0x8B5CF6)).opacity(0.18)
+                                    )
+                                    .clipShape(Capsule())
+                                    .foregroundStyle(entry.author == "user"
+                                                     ? Color(hex: 0x3B82F6)
+                                                     : Color(hex: 0x8B5CF6))
+                            }
+                        }
 
                         Text(entry.description)
                             .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textSecondary)
+
+                        // Inline per-commit diff when present (history fetched
+                        // with includeDiff=true). NOT BUILD-VERIFIED.
+                        if let diff = entry.diff,
+                           !(diff.added.isEmpty && diff.removed.isEmpty) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                ForEach(Array(diff.removed.split(separator: "\n").enumerated()), id: \.offset) { _, line in
+                                    Text("- \(line)")
+                                        .font(CicadaTheme.monoFont)
+                                        .foregroundStyle(Color(hex: 0xEF4444))
+                                }
+                                ForEach(Array(diff.added.split(separator: "\n").enumerated()), id: \.offset) { _, line in
+                                    Text("+ \(line)")
+                                        .font(CicadaTheme.monoFont)
+                                        .foregroundStyle(Color(hex: 0x22C55E))
+                                }
+                            }
+                            .padding(CicadaTheme.spacingXS)
+                            .background(CicadaTheme.border.opacity(0.25))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                        }
                     }
                     .padding(.bottom, CicadaTheme.spacingLG)
 

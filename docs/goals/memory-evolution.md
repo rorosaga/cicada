@@ -40,13 +40,46 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
     it on thin evidence); it is clamped to `[0,1]` but not coupled to a retrieval-score floor.
   - *Follow-up (nice-to-have):* line-level git-blame citations (entity-level shipped);
     retrieval-score-coupled confidence ceiling; request-time top_k tuning + answer caching.
+- ✅ **M3 — git-provenance attribution + diffs (A1 + A2):** three cohesive pieces on top
+  of the existing markdown+git provenance spine.
+  - **Part A (M1 cleanup):** deleted dead `api/services/leann_indexer.py` and removed the
+    `leann` dependency (`uv remove leann` → `uv.lock` updated; large transitive tree pruned).
+    Proved zero importers first; the only remaining `leann` strings are intentional naming in
+    `status.py`/`vector_index.py` docstrings, not imports.
+  - **Part B (A2 — contributors / audit):** **commit-author trailer scheme** — every Cicada
+    write appends one or more `Cicada-Author:` git trailers to the commit body. The author is a
+    **model id** (e.g. `gpt-5.4-mini`, plus the disambiguation model when distinct) for
+    sleep-cycle/agent writes, or **`user`** for manual/companion-app/media-save writes; legacy
+    untrailered commits attribute to **`unknown`**. The trailer is appended after a blank line
+    (git-trailer convention), carries no entity id, and is therefore **inert to the existing
+    entity-line parsing** (`_infer_change_type`/`_build_description` round-trip verified).
+    Producers wired: `sleep_cycle._finalize` (main + disambiguation models from `Settings`),
+    `git_service.commit_resolution` (inbox/companion → `user`), `media_ingestor._commit_media`
+    (`user`). Builder + parser live in `git_service` (`build_commit_message`, `_parse_authors`).
+    New `GET /contributors` (`routers/contributors.py`) → per-author commit/file/entity counts
+    + `last_active`, parsed repo-wide from trailers. Schemas: `Contributor`,
+    `ContributorsResponse`.
+  - **Part C (A1 — per-commit diff):** `GET /entities/{id}/history?include_diff=true` inlines a
+    bounded added/removed diff per commit (opt-in so the default response stays small), plus a
+    dedicated `GET /entities/{id}/history/{commit}/diff`. Each history entry now also carries
+    `author` + `commit_hash` (per-entity attribution, A2). Schema: `EntityDiff`; extended
+    `EntityHistoryEntry`.
+  - **Tests:** 14 new hermetic TDD tests in `api/tests/test_contributors.py` (throwaway git repo
+    with hand-crafted trailers; never touches live `memory/`): contributor aggregation
+    (model vs `user` vs `unknown`), per-entity authoring model, per-commit diff content,
+    non-git-dir + missing-commit graceful empties, and router wiring. Full suite **35 green**.
+  - **SwiftUI (NOT build-verified — needs Xcode):** `APIClient` methods (`fetchContributors`,
+    `fetchEntityHistory(includeDiff:)`, `fetchEntityCommitDiff`); models (`EntityDiff`,
+    `Contributor`, `ContributorsResponse`, extended `EntityHistoryEntry`); a new
+    `ContributorsView` + `ContributorsViewModel`; author badge + inline diff in the
+    `EntityDetailCard` history tab. The `ContributorsView` is **not wired into sidebar nav** yet.
 
 ## APPLY — buildable now (low architecture risk)
 
 | ID | Item | Notes | Status |
 |----|------|-------|--------|
-| A1 | **Per-commit diff view in node history** | Expand entity history to show added-vs-removed (git diff per entity per commit). Builds on existing `/entities/{id}/history`. | 🔲 |
-| A2 | **Contributors view** | Which LLM model wrote which contribution to memory. Record model id in Sleep commit metadata/trailers; surface a "contributors" view + per-node attribution. | 🔲 |
+| A1 | **Per-commit diff view in node history** | Expand entity history to show added-vs-removed (git diff per entity per commit). Builds on existing `/entities/{id}/history`. | ✅ |
+| A2 | **Contributors view** | Which LLM model wrote which contribution to memory. Record model id in Sleep commit metadata/trailers; surface a "contributors" view + per-node attribution. | ✅ |
 | A3 | **Animated bookworm on ingestion page** | Reuse the menu-bar tamagotchi sprite/state machine on the conversation-upload/ingestion screen. | 🔲 |
 | A4 | **Enrich `skill` entity capture** | Store "Rodrigo usually asks to do X a certain way" (e.g. FastAPI project layout & repo structure conventions). Procedural-preference skills. → ties to D2/D5. | 🔲 |
 | A5 | **Explicit gap analysis ("I don't know")** | Retrieval/answer surface admits what it does NOT know (no edge between X/Y, low confidence, stale `last_referenced`). Endorsed by both Honcho & gbrain notes. → ties to D3. | 🔲 |

@@ -7,6 +7,7 @@ from api.models.schemas import (
     ContextEpisodeExcerpt,
     ContextNeighbor,
     EntityContextResponse,
+    EntityDiff,
     EntityHistoryEntry,
     EntityResponse,
 )
@@ -54,13 +55,37 @@ async def get_entity(
 @router.get("/entities/{entity_id}/history", response_model=list[EntityHistoryEntry])
 async def get_entity_history(
     entity_id: str,
+    include_diff: bool = False,
     settings: Settings = Depends(get_settings),
 ):
+    """Entity history with per-commit author attribution.
+
+    Pass ``?include_diff=true`` to inline the added/removed diff for each commit
+    (opt-in so the default response stays small — backlog A1).
+    """
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
 
-    return await git_service.get_entity_history(entity_id, settings.memory_path)
+    return await git_service.get_entity_history(
+        entity_id, settings.memory_path, include_diff=include_diff
+    )
+
+
+@router.get("/entities/{entity_id}/history/{commit_hash}/diff", response_model=EntityDiff)
+async def get_entity_commit_diff(
+    entity_id: str,
+    commit_hash: str,
+    settings: Settings = Depends(get_settings),
+):
+    """Added/removed lines for one entity file at one commit (backlog A1)."""
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+
+    return await git_service.get_entity_commit_diff(
+        entity_id, commit_hash, settings.memory_path
+    )
 
 
 @router.get("/entities/{entity_id}/context", response_model=EntityContextResponse)

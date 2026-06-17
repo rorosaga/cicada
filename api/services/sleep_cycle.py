@@ -202,7 +202,7 @@ async def run(settings: Settings, cycle_id: str) -> None:
             _state.index_warning = "; ".join(index_warnings)
 
         # Commit
-        await _finalize(memory_path, cycle_id, changes)
+        await _finalize(memory_path, cycle_id, changes, settings)
         if _state.index_warning:
             _state.progress = f"Completed with warnings: {_state.index_warning}"
             logger.warning(
@@ -300,12 +300,16 @@ def _mark_episodes_processed(episodes: list[dict]) -> None:
         markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
 
 
-async def _finalize(memory_path: Path, cycle_id: str, changes: list) -> None:
+async def _finalize(
+    memory_path: Path, cycle_id: str, changes: list, settings: Settings | None = None
+) -> None:
     """Commit all changes from the sleep cycle with a structured message.
 
     Entity-level lines from ``changes`` have source + trigger; file-level
     additions (nudges, clarifications, graph_edges, etc.) are inferred from
-    ``git status`` so the commit message remains a complete manifest.
+    ``git status`` so the commit message remains a complete manifest. The
+    authoring model(s) for this cycle (main + disambiguation, per ``settings``)
+    are recorded as ``Cicada-Author:`` trailers for repo-wide attribution.
     """
     date_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -344,7 +348,20 @@ async def _finalize(memory_path: Path, cycle_id: str, changes: list) -> None:
         extra_lines.append(f"{path}: {action} (trigger: {trigger})")
 
     body_lines = entity_lines + extra_lines
-    message = f"Sleep cycle {date_str}\n\n" + "\n".join(body_lines)
+
+    # Author trailers: the models that actually wrote this consolidation. The
+    # disambiguation model (Stage 2 judge) is recorded too when distinct.
+    authors: list[str] = []
+    if settings is not None:
+        if settings.litellm_model:
+            authors.append(settings.litellm_model)
+        disambig = (settings.litellm_disambiguation_model or "").strip()
+        if disambig and disambig not in authors:
+            authors.append(disambig)
+
+    message = git_service.build_commit_message(
+        f"Sleep cycle {date_str}", body_lines, authors=authors
+    )
     async with _lock:
         await git_service.commit_changes(memory_path, message)
 

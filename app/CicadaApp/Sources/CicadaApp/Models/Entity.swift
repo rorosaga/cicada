@@ -68,11 +68,29 @@ enum HistoryChangeType: String, Codable {
     }
 }
 
+// Added/removed lines for one entity file at one commit (backlog A1).
+// NOT BUILD-VERIFIED — needs Xcode compile (M3).
+struct EntityDiff: Codable, Equatable {
+    let added: String
+    let removed: String
+
+    enum CodingKeys: String, CodingKey {
+        case added, removed
+    }
+}
+
 struct EntityHistoryEntry: Identifiable, Codable {
     var id = UUID()
     let date: String
     let changeType: HistoryChangeType
     let description: String
+    // M3 (backlog A2): the agent that authored this commit — a model id
+    // (e.g. "gpt-5.4-mini"), "user", or "unknown" for legacy untrailered commits.
+    let author: String
+    // Commit hash, used to fetch the per-commit diff on demand.
+    let commitHash: String
+    // Inline diff, present only when history was fetched with includeDiff=true.
+    let diff: EntityDiff?
 
     var dateValue: Date {
         let f = DateFormatter()
@@ -81,7 +99,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case date, changeType, description
+        case date, changeType, description, author, commitHash, diff
     }
 
     init(from decoder: Decoder) throws {
@@ -89,14 +107,27 @@ struct EntityHistoryEntry: Identifiable, Codable {
         date = try c.decode(String.self, forKey: .date)
         changeType = try c.decode(HistoryChangeType.self, forKey: .changeType)
         description = try c.decode(String.self, forKey: .description)
+        author = try c.decodeIfPresent(String.self, forKey: .author) ?? "unknown"
+        commitHash = try c.decodeIfPresent(String.self, forKey: .commitHash) ?? ""
+        diff = try c.decodeIfPresent(EntityDiff.self, forKey: .diff)
     }
 
-    init(date: Date, changeType: HistoryChangeType, description: String) {
+    init(
+        date: Date,
+        changeType: HistoryChangeType,
+        description: String,
+        author: String = "unknown",
+        commitHash: String = "",
+        diff: EntityDiff? = nil
+    ) {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         self.date = f.string(from: date)
         self.changeType = changeType
         self.description = description
+        self.author = author
+        self.commitHash = commitHash
+        self.diff = diff
     }
 
     func encode(to encoder: Encoder) throws {
@@ -104,7 +135,29 @@ struct EntityHistoryEntry: Identifiable, Codable {
         try c.encode(date, forKey: .date)
         try c.encode(changeType, forKey: .changeType)
         try c.encode(description, forKey: .description)
+        try c.encode(author, forKey: .author)
+        try c.encode(commitHash, forKey: .commitHash)
+        try c.encodeIfPresent(diff, forKey: .diff)
     }
+}
+
+// Repo-wide model/user attribution (backlog A2). NOT BUILD-VERIFIED.
+struct Contributor: Identifiable, Codable {
+    var id: String { author }
+    let author: String
+    let commitCount: Int
+    let fileCount: Int
+    let entityCount: Int
+    let files: [String]
+    let lastActive: String
+
+    enum CodingKeys: String, CodingKey {
+        case author, commitCount, fileCount, entityCount, files, lastActive
+    }
+}
+
+struct ContributorsResponse: Codable {
+    let contributors: [Contributor]
 }
 
 struct Entity: Identifiable, Codable {
