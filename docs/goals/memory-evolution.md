@@ -244,6 +244,33 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
   - **Deferred to M5f (clear TODO in `sleep_cycle`, Stage 5.57):** the link-enrichment subagent
     (John → recommended websites: fetch + summarize a link with no conversational description). M5e is the
     claim/trust/retrieval core only.
+  - **M5e adversarial-review MUST-FIX pass (TDD, hermetic, +6 tests, full suite 191 green):** two real
+    data-loss bugs found by review were fixed failing-test-first; the over-stated framing was corrected.
+    - **(1) Live Stage-5 could overwrite human prose.** `conflict_resolver.apply_changes` ran the LLM
+      synthesis path *unconditionally* and replaced page sections wholesale with the synthesized body
+      (else bare `merge_sections_fallback`, no human gate), so a hand-edited Summary on a real page could
+      be silently regenerated away — the prose-level violation of rule 3a. Fixed: a new `_is_human_edited`
+      detector (frontmatter `human_edited: true` OR a non-canonical hand-added H2, evaluated on the RAW
+      body *before* the lossy v2 lift folds such headings into Key Facts) now gates the path. Human-edited
+      pages take the **additive-only** `merge_sections_human_safe` over their raw sections (every human
+      line preserved verbatim, synthesis rewrite suppressed); agent-only pages keep full synthesis/merge
+      behavior. Covered by `test_conflict_resolver_human_safe.py` (human-edited Summary not overwritten,
+      non-canonical section survives, agent-only still synthesizes/merges).
+    - **(2) Latent graph-edge wipe in Stage 5.7.** `regenerate_edges_from_claims` rewrote
+      `graph_edges.yaml` *wholesale* the moment any page carried a claim, clobbering the relationship /
+      wikilink-`mentions` / media-`about` edges written earlier in the *same* cycle (Stage 5/5.5/5.55) —
+      a silent destruction of the non-claim graph the first time M5b seeding + a Sleep cycle ran on live
+      memory. Fixed: the regen now **merges** — it preserves every non-claim edge (rows without a
+      `claim_id`, the only rows this function owns) and replaces only the claim-derived rows. Covered by
+      `test_claim_edge_regen.py` mixed-state + stale-claim-edge cases.
+    - **Scope correction.** The M5e commit subject ("wire claim layer into Sleep") over-stated the
+      consolidation half: `reconcile_stage3` / `entities_to_claims` are implemented, fully tested, and
+      load-bearing in **retrieval**, but the live Stage-3 still runs the legacy `resolve_and_prune` and
+      live Stage-5 still emits claims only via the M5b seeder, not the reconciler. Replacing the legacy
+      Stage-3 body with `reconcile_stage3` end-to-end is **deferred to M5f** (tracked, not assumed done) —
+      a larger pipeline swap kept out of this review-fix pass to avoid regressing the entity-extraction
+      path. The human-protection invariant is now enforced in the live path at the **prose** level (fix 1);
+      the **claim** level lands when Stage-3 is swapped in M5f.
 
 ## APPLY — buildable now (low architecture risk)
 

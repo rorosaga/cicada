@@ -260,25 +260,33 @@ def _apply_filters(
 
 
 def regenerate_edges_from_claims(memory_path: Path) -> int:
-    """Regenerate ``graph_edges.yaml`` from currently-valid claims (M5e Stage 5).
+    """Refresh the claim-derived edges in ``graph_edges.yaml`` (M5e Stage 5.7).
 
-    Per D2 Stage 5: ``graph_edges.yaml`` becomes a **derived, valid-only**
-    projection of the claims layer — each edge tagged with the backing claim's
-    ``observer`` / ``context`` / ``claim_id`` / ``valid_from``. Only claims with a
-    node object (``object_kind == 'node'``), an open window, and no
+    Per D2 Stage 5: claim-backed edges in ``graph_edges.yaml`` are a **derived,
+    valid-only** projection of the claims layer — each tagged with the backing
+    claim's ``observer`` / ``context`` / ``claim_id`` / ``valid_from``. Only claims
+    with a node object (``object_kind == 'node'``), an open window, and no
     ``superseded_by`` produce an edge; closed/superseded beliefs are excluded
     (they live on in the page + git for the timeline).
 
+    CRITICAL (M5e review MUST-FIX): this runs AFTER Stage 5 / 5.5 / 5.55 have
+    already written relationship, wikilink-``mentions`` and media-``about`` edges
+    into the SAME file. It must therefore **merge** — it replaces only the
+    claim-derived edges (rows carrying a ``claim_id``, which are the only ones
+    this function ever writes) and preserves every non-claim edge verbatim.
+    Replacing the file wholesale here silently destroyed the rest of the edge
+    graph the first time any page carried a claim.
+
     Idempotent and non-destructive when there are NO claims: a bank that has not
     been consolidated yet (no ``claims`` blocks on any page) leaves the existing
-    ``graph_edges.yaml`` untouched, so legacy/seeded edge graphs do not get wiped.
-    Returns the number of edges written (0 = left as-is).
+    ``graph_edges.yaml`` untouched. Returns the number of claim-derived edges
+    written (0 = left as-is).
     """
     entities_dir = memory_path / "entities"
     if not entities_dir.exists():
         return 0
 
-    edges: list[dict] = []
+    claim_edges: list[dict] = []
     seen: set[tuple[str, str, str, str, str]] = set()
     any_claims = False
     for filepath in sorted(entities_dir.glob("*.md")):
@@ -301,7 +309,7 @@ def regenerate_edges_from_claims(memory_path: Path) -> int:
             if key in seen:
                 continue
             seen.add(key)
-            edges.append({
+            claim_edges.append({
                 "source": source,
                 "target": target,
                 "label": label,
@@ -315,11 +323,31 @@ def regenerate_edges_from_claims(memory_path: Path) -> int:
     if not any_claims:
         return 0
 
-    (memory_path / "graph_edges.yaml").write_text(
-        yaml.dump({"edges": edges}, default_flow_style=False, sort_keys=False, allow_unicode=True),
+    # Merge: keep every existing NON-claim edge (no ``claim_id`` tag), drop the
+    # old claim-derived rows (we are about to rewrite them from the current valid
+    # claim set), then append the freshly-projected claim edges. This preserves
+    # relationship / mentions / media edges written earlier in the same cycle.
+    edges_file = memory_path / "graph_edges.yaml"
+    preserved: list[dict] = []
+    if edges_file.exists():
+        try:
+            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+        except Exception:
+            data = {}
+        for edge in data.get("edges", []) or []:
+            if not isinstance(edge, dict):
+                continue
+            # A row this function owns is exactly one carrying ``claim_id``.
+            if edge.get("claim_id"):
+                continue
+            preserved.append(edge)
+
+    merged = preserved + claim_edges
+    edges_file.write_text(
+        yaml.dump({"edges": merged}, default_flow_style=False, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
-    return len(edges)
+    return len(claim_edges)
 
 
 def _load_edges(memory_path: Path) -> list[GraphLink]:

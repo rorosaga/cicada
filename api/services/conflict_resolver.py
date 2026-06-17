@@ -244,27 +244,43 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                         seen.add(alias.lower())
                 parsed.frontmatter["aliases"] = merged_aliases
 
-            # Lazy v1 -> v2 lift, then section-aware merge. Prefer the LLM
-            # synthesized body; fall back to a deterministic section merge.
-            sections = entity_body.upgrade_legacy_to_v2(
-                parsed.body, str(parsed.frontmatter.get("type", "concept"))
-            )
+            # M5e rule 3c (§8): on a HUMAN-EDITED page the agent may never
+            # regenerate-away human prose. Detect human-editedness from the RAW
+            # body (the lossy v2 lift folds non-canonical hand-added headings
+            # into Key Facts, so the detector + preservation must run BEFORE the
+            # lift). A page is human-edited if frontmatter says so, or the raw
+            # body carries a non-canonical H2 the agent pipeline never emits.
+            raw_sections = entity_body.parse_sections(parsed.body)
+            human_edited = _is_human_edited(parsed.frontmatter, raw_sections)
+
             synthesized_body = change.get("synthesized_body")
-            if synthesized_body:
-                # The synthesis call returns a full v2 body; re-parse so the
-                # Related reconciler runs against the canonical section dict.
+            new_fields = {
+                "summary": _entity_summary(new_entity),
+                "key_facts": new_entity.get("key_facts", []) or [],
+                "history_entries": new_entity.get("history_entries", []) or [],
+                "links": new_entity.get("links", []) or [],
+                "open_questions": new_entity.get("open_questions", []) or [],
+            }
+            if synthesized_body and not human_edited:
+                # Agent-only page: the synthesis call returns a full v2 body;
+                # re-parse so the Related reconciler runs against the canonical
+                # section dict. Full synthesis behavior is unchanged here.
                 sections = entity_body.parse_sections(synthesized_body)
-            else:
-                sections = entity_body.merge_sections_fallback(
-                    sections,
-                    {
-                        "summary": _entity_summary(new_entity),
-                        "key_facts": new_entity.get("key_facts", []) or [],
-                        "history_entries": new_entity.get("history_entries", []) or [],
-                        "links": new_entity.get("links", []) or [],
-                        "open_questions": new_entity.get("open_questions", []) or [],
-                    },
+            elif human_edited:
+                # Additive-only merge over the RAW sections (preserving every
+                # human-authored line, canonical or not, verbatim). The LLM
+                # synthesis rewrite is suppressed entirely — the prose-level
+                # mirror of "an agent claim may not close a human claim".
+                sections = entity_body.merge_sections_human_safe(
+                    raw_sections, new_fields, human_edited=True
                 )
+            else:
+                # Agent-only page with no synthesis: deterministic section merge
+                # over the lifted v2 sections (unchanged behavior).
+                sections = entity_body.upgrade_legacy_to_v2(
+                    parsed.body, str(parsed.frontmatter.get("type", "concept"))
+                )
+                sections = entity_body.merge_sections_fallback(sections, new_fields)
             parsed.frontmatter["layout_version"] = 2
 
             # Related reconciler — rebuild the ## Related block from the
@@ -290,6 +306,23 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
 
 # ---------- Helpers ----------
+
+
+def _is_human_edited(frontmatter: dict, sections: dict[str, str]) -> bool:
+    """Detect a page the human authored/edited (rule 3c, §8).
+
+    A page is treated as human-edited when EITHER the frontmatter carries an
+    explicit ``human_edited: true`` flag (set by the manual-edit / companion-app
+    write path) OR the lifted body contains a non-canonical hand-added H2 section
+    (a heading the agent pipeline never emits). On such a page the agent merge is
+    additive-only and the LLM synthesis rewrite is suppressed.
+    """
+    if bool((frontmatter or {}).get("human_edited", False)):
+        return True
+    for title in (sections or {}).keys():
+        if title and title not in entity_body.CANONICAL_SECTIONS:
+            return True
+    return False
 
 
 def _entity_summary(entity: dict) -> str:
