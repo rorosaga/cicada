@@ -552,6 +552,11 @@ class SleepStatusResponse(CamelModel):
     entities_updated: int = 0
     relationships_created: int = 0
     skills_detected: int = 0
+    # Resumable queue: episodes this cycle consolidated vs. left queued because
+    # their Stage-1 extraction failed (e.g. a credit cap hit mid-run).
+    # ``episodes_requeued`` > 0 means "completed, but re-run Sleep to finish".
+    episodes_processed: int = 0
+    episodes_requeued: int = 0
 
 
 class SleepHistoryEntry(CamelModel):

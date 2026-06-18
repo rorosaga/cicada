@@ -176,6 +176,17 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
         content = episode["content"]
 
         if not content.strip():
+            # No LLM call needed, but record a zero-entity result so the Sleep
+            # cycle marks this episode processed (done — nothing to extract)
+            # instead of leaving it queued and re-scanning it every run.
+            results[i] = {
+                "episode_id": ep_id,
+                "episode_timestamp": episode.get("timestamp"),
+                "origin": episode.get("origin", "unknown"),
+                "entities": [],
+                "relationships": [],
+            }
+            success += 1
             return
 
         chunks = _chunk_content(content)

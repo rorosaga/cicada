@@ -36,6 +36,12 @@ class SleepState:
     entities_updated: int = 0
     relationships_created: int = 0
     skills_detected: int = 0
+    # Resumable queue (robust partial runs): how many episodes this cycle
+    # actually consolidated vs. how many failed Stage-1 extraction and were
+    # left ``processed: false`` for the next trigger to retry. ``requeued`` > 0
+    # means "completed, but re-run Sleep to finish the rest".
+    episodes_processed: int = 0
+    episodes_requeued: int = 0
 
 
 _state = SleepState()
@@ -64,6 +70,8 @@ async def run(settings: Settings, cycle_id: str) -> None:
     _state.entities_updated = 0
     _state.relationships_created = 0
     _state.skills_detected = 0
+    _state.episodes_processed = 0
+    _state.episodes_requeued = 0
 
     memory_path = settings.memory_path
     logger.info(f"Sleep cycle {cycle_id} started — model: {settings.litellm_model}")
@@ -98,6 +106,21 @@ async def run(settings: Settings, cycle_id: str) -> None:
         total_rels = sum(len(e.get("relationships", [])) for e in extracted)
         logger.info(f"Stage 1 complete: {total_entities} entities, {total_rels} relationships extracted")
         _state.stage = 1
+
+        # Resumable queue — hard stop if EVERY episode failed Stage 1 (wrong
+        # model id, exhausted credits, total outage). Abort with the queue
+        # untouched instead of running the rest of the pipeline on nothing and
+        # committing a misleading empty "completed" cycle. Re-running after
+        # fixing the cause retries the whole batch.
+        if episodes and not extracted:
+            msg = (
+                "Stage 1 extracted nothing — all episodes failed "
+                "(check model id / API credits). Queue left intact for retry."
+            )
+            logger.error(msg)
+            _state.error = msg
+            _state.progress = f"Failed: {msg}"
+            return
 
         # Stage 2: Entity Resolution & Deduplication
         _state.progress = "Stage 2/5: Resolving entities..."
@@ -223,9 +246,25 @@ async def run(settings: Settings, cycle_id: str) -> None:
         except Exception as e:
             logger.warning(f"Stage 5.7 claim-edge regeneration failed: {type(e).__name__}: {e}")
 
-        # Mark episodes as processed
-        _mark_episodes_processed(episodes)
-        logger.info(f"Marked {len(episodes)} episodes as processed")
+        # Mark ONLY the episodes that successfully extracted this cycle.
+        # Episodes whose Stage-1 extraction errored (e.g. a credit cap hit
+        # mid-run) are absent from `extracted` and stay `processed: false`, so
+        # re-triggering Sleep resumes exactly where it left off instead of
+        # re-spending the whole batch. (Empty-content episodes return a
+        # zero-entity result, so they ARE here — done, nothing to retry.)
+        extracted_ids = {r["episode_id"] for r in extracted if r.get("episode_id")}
+        processed_episodes = [ep for ep in episodes if ep["id"] in extracted_ids]
+        requeued = len(episodes) - len(processed_episodes)
+        _mark_episodes_processed(processed_episodes)
+        _state.episodes_processed = len(processed_episodes)
+        _state.episodes_requeued = requeued
+        if requeued:
+            logger.warning(
+                f"Marked {len(processed_episodes)} episodes processed; {requeued} "
+                f"failed extraction and remain queued — re-run Sleep to continue"
+            )
+        else:
+            logger.info(f"Marked {len(processed_episodes)} episodes as processed")
 
         # Rebuild LEANN indexes so Bookworm reflects the post-sleep state.
         # Entity and episode rebuilds are independent and we want to surface
@@ -270,16 +309,21 @@ async def run(settings: Settings, cycle_id: str) -> None:
 
         # Commit
         await _finalize(memory_path, cycle_id, changes, settings)
+        requeue_note = (
+            f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
+            if _state.episodes_requeued else ""
+        )
         if _state.index_warning:
-            _state.progress = f"Completed with warnings: {_state.index_warning}"
+            _state.progress = f"Completed with warnings: {_state.index_warning}{requeue_note}"
             logger.warning(
                 f"Sleep cycle {cycle_id} completed with warnings — "
-                f"{len(changes)} changes committed; {_state.index_warning}"
+                f"{len(changes)} changes committed; {_state.index_warning}{requeue_note}"
             )
         else:
-            _state.progress = "Completed"
+            _state.progress = f"Completed{requeue_note}"
             logger.success(
                 f"Sleep cycle {cycle_id} completed — {len(changes)} changes committed"
+                f"{requeue_note}"
             )
         _state.stage = 5
 
