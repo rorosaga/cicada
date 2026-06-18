@@ -28,6 +28,7 @@ const typeColors = {
     location: "#AEB6C4",
     media:    "#F65BA6",
     hub:      "#E0A93A",   // deeper amber gold — distinct from skill gold + project purple
+    directory:"#7AA0C4",   // slate blue-gray "Finder folder" — mirrors CicadaTheme.entityColor(.directory)
     unknown:  "#9BA1AE",
 };
 
@@ -46,6 +47,7 @@ const typeClusterPositions = {
     skill:    [ 300,  100],
     location: [-300,  100],
     media:    [ -60, -360],
+    directory:[ -300, -240],
     hub:      [   0,    0],
 };
 

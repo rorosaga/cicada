@@ -42,6 +42,10 @@ enum CicadaTheme {
         case .location: Color(hex: 0xAEB6C4)
         case .media: mediaPink
         case .hub: hubGold
+        // directory = a slate blue-gray "Finder folder" hue. Saturated/bluer
+        // than location's neutral gray (AEB6C4) so the two stay distinguishable,
+        // and >15° off person-blue (5AA8FF) and project-purple (B57BFF).
+        case .directory: Color(hex: 0x7AA0C4)
         case .unknown: Color(hex: 0x9BA1AE)
         }
     }

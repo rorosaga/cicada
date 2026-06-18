@@ -314,6 +314,25 @@ actor APIClient {
         return try await post("/banks/\(encodedBank(name))/duplicate", body: ["newName": newName])
     }
 
+    /// `POST /banks/{name}/rename` `{newName}` → rename a bank in place (moves
+    /// `banks/<old>`, rekeys `banks.yaml`, repoints `active` if it was active).
+    /// Returns the on-disk **slug** the bank was rekeyed under (the backend
+    /// slugifies `newName` the same way create/duplicate do), captured from the
+    /// echoed roster so callers can re-target a subsequent activate/import. Falls
+    /// back to the locally-mirrored `sanitizeBankSlug` when the roster decode is
+    /// unusable.
+    @discardableResult
+    func renameBank(name: String, newName: String) async throws -> String {
+        let expectedSlug = sanitizeBankSlug(newName)
+        let resp: BanksResponse = try await post(
+            "/banks/\(encodedBank(name))/rename", body: ["newName": newName]
+        )
+        if let landed = resp.banks.first(where: { $0.name == expectedSlug })?.name {
+            return landed
+        }
+        return expectedSlug
+    }
+
     /// `POST /banks/{name}/import` (multipart file) → stage parsed conversations
     /// into bank `name` as dated episodes. Format is auto-detected server-side.
     func importToBank(name: String, fileURL: URL) async throws -> BankImportResponse {

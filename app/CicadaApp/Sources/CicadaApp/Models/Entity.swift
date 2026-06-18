@@ -2,7 +2,7 @@ import Foundation
 
 enum EntityType: String, Codable, CaseIterable, Identifiable {
     case person, project, company, concept, tool, deadline, skill, location
-    case media, hub
+    case media, hub, directory
     // Catch-all for any type the backend emits that this build doesn't know
     // yet (forward compat). Excluded from `selectableCases` so it never appears
     // as a filter checkbox, but it keeps unknown nodes on the graph instead of
@@ -33,6 +33,7 @@ enum EntityType: String, Codable, CaseIterable, Identifiable {
         case .location: "mappin.circle.fill"
         case .media: "photo.on.rectangle.angled"
         case .hub: "circle.hexagongrid.fill"
+        case .directory: "folder.badge.gearshape"
         case .unknown: "questionmark.circle"
         }
     }

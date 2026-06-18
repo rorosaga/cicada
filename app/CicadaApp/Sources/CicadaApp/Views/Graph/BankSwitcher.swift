@@ -13,6 +13,9 @@ struct BankSwitcher: View {
     @State private var isHovered = false
     @State private var showCreateSheet = false
     @State private var showDuplicateSheet = false
+    @State private var showRenameSheet = false
+    // The bank the rename sheet acts on, captured when the menu item is chosen.
+    @State private var renameTarget: MemoryBank?
 
     var body: some View {
         Menu {
@@ -45,6 +48,16 @@ struct BankSwitcher: View {
                 showDuplicateSheet = true
             } label: {
                 Label("Save as…", systemImage: "square.on.square")
+            }
+            .disabled(banksVM.activeName == nil)
+
+            Button {
+                // Rename the currently-active bank. Capture it now so the sheet
+                // has a stable target even if the roster reloads underneath.
+                renameTarget = banksVM.activeBank
+                showRenameSheet = true
+            } label: {
+                Label("Rename…", systemImage: "pencil")
             }
             .disabled(banksVM.activeName == nil)
         } label: {
@@ -102,6 +115,26 @@ struct BankSwitcher: View {
                 }
             }
         }
+        .sheet(isPresented: $showRenameSheet) {
+            BankNameSheet(
+                title: "Rename Project",
+                message: renameTarget.map { "Renames \u{201C}\($0.name)\u{201D} in place." }
+                    ?? "Renames the project in place.",
+                confirmLabel: "Rename",
+                showsDescription: false,
+                initialName: renameTarget?.name ?? "",
+                isPresented: $showRenameSheet
+            ) { newName, _ in
+                guard let source = renameTarget?.name else { return }
+                Task {
+                    await banksVM.rename(name: source, newName: newName)
+                    // Presenting the sheet tore down the graph's WKWebView, so
+                    // re-push the canvas regardless of whether the renamed bank
+                    // was active (load() in rename already repointed `active`).
+                    await graphVM.loadGraph()
+                }
+            }
+        }
     }
 
     private var displayName: String {
@@ -134,6 +167,9 @@ private struct BankNameSheet: View {
     let message: String
     let confirmLabel: String
     var showsDescription: Bool = true
+    /// Pre-filled value for the name field (used by "Rename…" to seed the
+    /// current name). Defaults to empty for create/duplicate.
+    var initialName: String = ""
     @Binding var isPresented: Bool
     let onConfirm: (String, String?) -> Void
 
@@ -145,6 +181,9 @@ private struct BankNameSheet: View {
             Text(title)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(CicadaTheme.textPrimary)
+                // Seed the field on first appearance so "Rename…" pre-fills the
+                // current name; no-op for create/duplicate (empty initialName).
+                .onAppear { if name.isEmpty { name = initialName } }
 
             Text(message)
                 .font(CicadaTheme.bodyFont)

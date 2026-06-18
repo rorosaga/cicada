@@ -70,6 +70,26 @@ final class BanksViewModel {
         }
     }
 
+    /// Rename a bank in place, then reload. Returns the backend **slug** the bank
+    /// was rekeyed under on success (e.g. "Original V1" → "original-v1"), or nil
+    /// on failure. If the renamed bank was the active one, the backend repoints
+    /// `active`, and `load()` picks that up — but callers should still use the
+    /// returned slug for any immediate follow-up activate/import.
+    @discardableResult
+    func rename(name: String, newName: String) async -> String? {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != name else { return nil }
+        errorMessage = nil
+        do {
+            let slug = try await APIClient.shared.renameBank(name: name, newName: trimmed)
+            await load()
+            return slug
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     /// "Save as…" — duplicate the given bank under a new name, then reload.
     @discardableResult
     func duplicate(from name: String, newName: String) async -> Bool {
