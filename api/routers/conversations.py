@@ -56,13 +56,18 @@ async def upload_conversation(
         "chatgpt_html": "ChatGPT — HTML Export",
     }
 
-    created, skipped = _stage_episodes(episodes, settings.memory_path / "episodes")
-    logger.info(f"  Staged {created} episodes, {skipped} duplicates skipped")
+    created, updated, skipped = _stage_episodes(
+        episodes, settings.memory_path / "episodes"
+    )
+    logger.info(
+        f"  Staged {created} new, {updated} updated, {skipped} unchanged"
+    )
     return ConversationUploadResponse(
         status="success",
         episodes_created=created,
+        episodes_updated=updated,
         duplicates_skipped=skipped,
-        message=f"Staged {created} episodes for next Sleep cycle",
+        message=f"Staged {created} new, {updated} updated, {skipped} unchanged",
         source=source_labels.get(source, source),
     )
 
@@ -151,6 +156,10 @@ def parse_anthropic_conversations(data: list) -> list[dict]:
             "timestamp": conv_timestamp,
             # Preserve original date for chronological staging
             "original_date": _extract_date(conv_timestamp),
+            # G20 delta re-import: stable per-thread identity so a re-export of a
+            # grown conversation updates its episode in place instead of forking.
+            "source_id": conv.get("uuid"),
+            "source_updated_at": conv.get("updated_at"),
         })
 
     # Sort episodes chronologically so they're staged in order
@@ -275,12 +284,23 @@ def parse_chatgpt_json(data: list) -> list[dict]:
         else:
             conv_timestamp = messages[0].get("timestamp")
 
+        # G20 delta re-import: stable per-thread identity. ChatGPT exports key on
+        # conversation_id (or a bare id); update_time is a unix epoch float, so
+        # render it ISO+"Z" with the same idiom used for create_time above.
+        source_id = conversation.get("conversation_id") or conversation.get("id")
+        update_time = conversation.get("update_time")
+        source_updated_at = None
+        if isinstance(update_time, (int, float)) and update_time > 0:
+            source_updated_at = datetime.fromtimestamp(update_time).isoformat() + "Z"
+
         episodes.append({
             "title": title,
             "source": "chatgpt",
             "messages": messages,
             "timestamp": conv_timestamp,
             "original_date": _extract_date(conv_timestamp),
+            "source_id": source_id,
+            "source_updated_at": source_updated_at,
         })
 
     episodes.sort(key=lambda e: e.get("timestamp", ""))
@@ -544,35 +564,55 @@ def _extract_date(timestamp: str | None) -> str | None:
 # --- Staging ---
 
 
-def _stage_episodes(episodes: list[dict], episodes_dir: Path) -> tuple[int, int]:
-    """Write episode files to disk with chronological IDs, deduplicating by content hash."""
+def _stage_episodes(
+    episodes: list[dict], episodes_dir: Path
+) -> tuple[int, int, int]:
+    """Stage episode files, delta-aware by stable source identity (G20).
+
+    Returns ``(created, updated, skipped)``:
+    - ``created``  — new episode files written (unseen source_id, or a no-id
+      format whose content hash wasn't already on disk).
+    - ``updated``  — existing episodes rewritten IN PLACE because the same
+      ``source_id`` was re-exported with changed content (a grown/edited
+      thread). Same episode id + filename; body, ``content_hash``,
+      ``source_updated_at`` refreshed and ``processed`` flipped back to
+      ``False`` so the next Sleep cycle re-consolidates only it.
+    - ``skipped``  — unchanged (same source_id + same content, or a no-id
+      episode whose content hash already exists).
+
+    Episodes WITHOUT a ``source_id`` keep the pre-G20 content-hash behaviour
+    exactly (create or skip, never update).
+    """
     episodes_dir.mkdir(parents=True, exist_ok=True)
 
-    # Collect existing content hashes
+    # Single pre-scan of the episodes dir:
+    #  - source_index: source_id -> {path, content_hash, source_updated_at}
+    #  - existing_hashes: all known content hashes (no-id fallback dedup)
+    #  - date_counts: per-date episode counts for sequential id numbering
+    source_index: dict[str, dict] = {}
     existing_hashes: set[str] = set()
+    date_counts: dict[str, int] = {}
     for filepath in episodes_dir.glob("*.md"):
         parsed = markdown_parser.parse(filepath)
-        h = parsed.frontmatter.get("content_hash")
+        fm = parsed.frontmatter
+        h = fm.get("content_hash")
         if h:
             existing_hashes.add(h)
-
-    created = 0
-    skipped = 0
-
-    # Track episode counts per date for sequential numbering
-    date_counts: dict[str, int] = {}
-    # Count existing episodes per date
-    for filepath in episodes_dir.glob("ep_*.md"):
-        parts = filepath.stem.split("_")
-        if len(parts) >= 4:
-            date_key = f"{parts[1]}-{parts[2]}-{parts[3].split('_')[0]}"
-            # Actually the format is ep_YYYY-MM-DD_NNN
-            date_key = "-".join(parts[1:4]) if len(parts) >= 4 else ""
+        sid = fm.get("source_id")
+        if sid:
+            source_index[sid] = {
+                "path": filepath,
+                "content_hash": h,
+                "source_updated_at": fm.get("source_updated_at"),
+            }
     for filepath in episodes_dir.glob("ep_*.md"):
         # ep_2026-04-08_001.md -> date = 2026-04-08
-        stem = filepath.stem  # ep_2026-04-08_001
-        date_part = stem[3:13]  # 2026-04-08
+        date_part = filepath.stem[3:13]
         date_counts[date_part] = date_counts.get(date_part, 0) + 1
+
+    created = 0
+    updated = 0
+    skipped = 0
 
     for episode in episodes:
         # Build content string for hashing
@@ -580,43 +620,119 @@ def _stage_episodes(episodes: list[dict], episodes_dir: Path) -> tuple[int, int]
         for msg in episode.get("messages", []):
             content_lines.append(f"{msg['role']}: {msg['text']}")
         content_str = "\n".join(content_lines)
-
         content_hash = hashlib.sha256(content_str.encode()).hexdigest()[:12]
+
+        source_id = episode.get("source_id")
+
+        # Truthy check (not ``is not None``) mirrors the pre-scan's ``if sid:``
+        # so an empty-string id falls through to content-hash dedup instead of
+        # forking a fresh file on every re-import.
+        if source_id:
+            existing = source_index.get(source_id)
+            if existing is None:
+                # Brand-new thread -> CREATE.
+                path = _write_new_episode(
+                    episode, episodes_dir, content_str, content_hash, date_counts
+                )
+                existing_hashes.add(content_hash)
+                # Track so a same-id repeat later in this batch updates in place
+                # rather than forking a second file.
+                source_index[source_id] = {
+                    "path": path,
+                    "content_hash": content_hash,
+                    "source_updated_at": episode.get("source_updated_at"),
+                }
+                created += 1
+                continue
+
+            if existing.get("content_hash") == content_hash:
+                # Same thread, unchanged content -> SKIP.
+                skipped += 1
+                continue
+
+            # Same thread, changed content -> UPDATE IN PLACE.
+            _update_episode_in_place(
+                existing["path"], episode, content_str, content_hash
+            )
+            existing_hashes.add(content_hash)
+            existing["content_hash"] = content_hash
+            existing["source_updated_at"] = episode.get("source_updated_at")
+            updated += 1
+            continue
+
+        # No stable source id -> pre-G20 content-hash dedup (create or skip).
         if content_hash in existing_hashes:
             skipped += 1
             continue
-
-        # Use the episode's original date for the ID, preserving chronological order
-        ep_date = episode.get("original_date") or datetime.now().strftime("%Y-%m-%d")
-        date_counts[ep_date] = date_counts.get(ep_date, 0) + 1
-        next_num = date_counts[ep_date]
-        episode_id = f"ep_{ep_date}_{next_num:03d}"
-
-        # Use the precise timestamp from the conversation
-        ts = episode.get("timestamp")
-        if ts is None:
-            ts = datetime.now().isoformat() + "Z"
-
-        frontmatter = {
-            "id": episode_id,
-            "timestamp": str(ts),
-            "source": episode.get("source", "unknown"),
-            "title": episode.get("title", "Untitled"),
-            "processed": False,
-            "content_hash": content_hash,
-        }
-        # Carry the import provenance tag (e.g. claude-export / gemini-export /
-        # chatgpt-export) when the parser stamped one. Absent for live capture
-        # and the legacy upload path, so frontmatter stays unchanged there.
-        if episode.get("origin"):
-            frontmatter["origin"] = episode["origin"]
-
-        markdown_parser.write(
-            episodes_dir / f"{episode_id}.md",
-            frontmatter,
-            content_str,
+        _write_new_episode(
+            episode, episodes_dir, content_str, content_hash, date_counts
         )
         existing_hashes.add(content_hash)
         created += 1
 
-    return created, skipped
+    return created, updated, skipped
+
+
+def _write_new_episode(
+    episode: dict,
+    episodes_dir: Path,
+    content_str: str,
+    content_hash: str,
+    date_counts: dict[str, int],
+) -> Path:
+    """Write a fresh episode file with a chronological id. Returns its path."""
+    # Use the episode's original date for the ID, preserving chronological order
+    ep_date = episode.get("original_date") or datetime.now().strftime("%Y-%m-%d")
+    date_counts[ep_date] = date_counts.get(ep_date, 0) + 1
+    next_num = date_counts[ep_date]
+    episode_id = f"ep_{ep_date}_{next_num:03d}"
+
+    # Use the precise timestamp from the conversation
+    ts = episode.get("timestamp")
+    if ts is None:
+        ts = datetime.now().isoformat() + "Z"
+
+    frontmatter = {
+        "id": episode_id,
+        "timestamp": str(ts),
+        "source": episode.get("source", "unknown"),
+        "title": episode.get("title", "Untitled"),
+        "processed": False,
+        "content_hash": content_hash,
+    }
+    # Carry the import provenance tag (e.g. claude-export / gemini-export /
+    # chatgpt-export) when the parser stamped one. Absent for live capture
+    # and the legacy upload path, so frontmatter stays unchanged there.
+    if episode.get("origin"):
+        frontmatter["origin"] = episode["origin"]
+    # G20: stable per-thread identity, written ONLY when the format provides it
+    # so existing-format frontmatter is unchanged. Inert to all other parsing.
+    if episode.get("source_id") is not None:
+        frontmatter["source_id"] = episode["source_id"]
+        frontmatter["source_updated_at"] = episode.get("source_updated_at")
+
+    path = episodes_dir / f"{episode_id}.md"
+    markdown_parser.write(path, frontmatter, content_str)
+    return path
+
+
+def _update_episode_in_place(
+    path: Path, episode: dict, content_str: str, content_hash: str
+) -> None:
+    """Rewrite an existing episode for a grown/edited thread (G20).
+
+    Keeps the SAME episode id + filename. Preserves the original
+    id/timestamp/source/origin frontmatter, refreshes the title, overwrites the
+    body, updates content_hash + source_updated_at, and flips ``processed`` back
+    to ``False`` so the next Sleep cycle re-consolidates only this episode.
+    """
+    fm = dict(markdown_parser.parse(path).frontmatter)
+    # Preserve id + original timestamp + source; refresh the rest.
+    fm["title"] = episode.get("title", fm.get("title", "Untitled"))
+    fm["content_hash"] = content_hash
+    fm["source_updated_at"] = episode.get("source_updated_at")
+    fm["source_id"] = episode.get("source_id")
+    fm["processed"] = False
+    if episode.get("origin"):
+        fm["origin"] = episode["origin"]
+    markdown_parser.write(path, fm, content_str)

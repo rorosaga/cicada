@@ -365,6 +365,7 @@ struct UploadOverlay: View {
         let uploadMode = mode
         Task {
             var totalCreated = 0
+            var totalUpdated = 0
             var totalSkipped = 0
             var firstError: String?
 
@@ -374,6 +375,7 @@ struct UploadOverlay: View {
                         ? try await APIClient.shared.uploadFile(fileURL: url)
                         : try await APIClient.shared.uploadSource(fileURL: url)
                     totalCreated += response.episodesCreated
+                    totalUpdated += response.episodesUpdated
                     totalSkipped += response.duplicatesSkipped
                     // Save to persistent history
                     UploadHistoryStore.shared.add(
@@ -397,7 +399,7 @@ struct UploadOverlay: View {
                 if let err = firstError {
                     errorMessage = err
                 } else {
-                    uploadResult = "Imported \(totalCreated) episodes" + (totalSkipped > 0 ? " (\(totalSkipped) duplicates)" : "")
+                    uploadResult = Self.importSummary(created: totalCreated, updated: totalUpdated, skipped: totalSkipped)
                     // Auto-close after success
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         withAnimation(.spring(duration: 0.3)) {
@@ -472,6 +474,7 @@ struct UploadOverlay: View {
             let bankName = bankSlug
 
             var totalStaged = 0
+            var totalUpdated = 0
             var totalSkipped = 0
             var minDate: String?
             var maxDate: String?
@@ -481,6 +484,7 @@ struct UploadOverlay: View {
                 do {
                     let resp = try await APIClient.shared.importToBank(name: bankName, fileURL: url)
                     totalStaged += resp.episodesStaged
+                    totalUpdated += resp.episodesUpdated
                     totalSkipped += resp.duplicatesSkipped
                     if let from = resp.dateRange?.from {
                         if minDate == nil || from < minDate! { minDate = from }
@@ -506,8 +510,8 @@ struct UploadOverlay: View {
                 if let err = firstError, totalStaged == 0 {
                     errorMessage = err
                 } else {
-                    var msg = "Imported \(totalStaged) episodes into \"\(bankName)\""
-                    if totalSkipped > 0 { msg += " (\(totalSkipped) duplicates)" }
+                    var msg = "Imported into \"\(bankName)\"\n"
+                    msg += Self.importSummary(created: totalStaged, updated: totalUpdated, skipped: totalSkipped)
                     if let from = minDate, let to = maxDate {
                         msg += "\n\(from) → \(to)"
                     }
@@ -517,6 +521,17 @@ struct UploadOverlay: View {
                 }
             }
         }
+    }
+
+    /// One-line ingestion summary, e.g. "12 new · 3 updated · 40 unchanged".
+    /// G20 surfaces re-staged (grown/edited) threads as their own "updated"
+    /// clause instead of hiding them inside the unchanged/skipped count; the
+    /// clause is omitted when nothing was updated to avoid noise.
+    private static func importSummary(created: Int, updated: Int, skipped: Int) -> String {
+        var parts = ["\(created) new"]
+        if updated > 0 { parts.append("\(updated) updated") }
+        parts.append("\(skipped) unchanged")
+        return parts.joined(separator: " · ")
     }
 
     private static func formattedNow() -> String {

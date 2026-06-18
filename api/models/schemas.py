@@ -585,6 +585,9 @@ class ScheduleConfig(CamelModel):
 class ConversationUploadResponse(CamelModel):
     status: str
     episodes_created: int
+    # G20 delta re-import: episodes rewritten in place because a re-exported
+    # thread grew/changed (same source_id, new content). Wire = episodesUpdated.
+    episodes_updated: int = 0
     duplicates_skipped: int
     message: str
     source: str = "unknown"
@@ -632,6 +635,9 @@ class BankImportDateRange(CamelModel):
 
 class BankImportResponse(CamelModel):
     episodes_staged: int = 0
+    # G20 delta re-import: episodes rewritten in place for grown/changed threads
+    # (same source_id, new content). Wire = episodesUpdated.
+    episodes_updated: int = 0
     duplicates_skipped: int = 0
     date_range: BankImportDateRange = Field(default_factory=BankImportDateRange)
     format: str = "unknown"

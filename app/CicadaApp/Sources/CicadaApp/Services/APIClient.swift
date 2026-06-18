@@ -3,9 +3,42 @@ import Foundation
 struct UploadResponse: Codable {
     let status: String
     let episodesCreated: Int
+    /// Threads that already existed but grew/changed since last import and were
+    /// re-staged in place (G20 delta re-import). Absent on legacy backends → 0.
+    let episodesUpdated: Int
     let duplicatesSkipped: Int
     let message: String
     let source: String
+
+    enum CodingKeys: String, CodingKey {
+        case status, episodesCreated, episodesUpdated, duplicatesSkipped, message, source
+    }
+
+    init(
+        status: String,
+        episodesCreated: Int,
+        episodesUpdated: Int = 0,
+        duplicatesSkipped: Int,
+        message: String,
+        source: String
+    ) {
+        self.status = status
+        self.episodesCreated = episodesCreated
+        self.episodesUpdated = episodesUpdated
+        self.duplicatesSkipped = duplicatesSkipped
+        self.message = message
+        self.source = source
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = (try? c.decode(String.self, forKey: .status)) ?? "ok"
+        episodesCreated = (try? c.decode(Int.self, forKey: .episodesCreated)) ?? 0
+        episodesUpdated = (try? c.decode(Int.self, forKey: .episodesUpdated)) ?? 0
+        duplicatesSkipped = (try? c.decode(Int.self, forKey: .duplicatesSkipped)) ?? 0
+        message = (try? c.decode(String.self, forKey: .message)) ?? ""
+        source = (try? c.decode(String.self, forKey: .source)) ?? ""
+    }
 }
 
 // MARK: - Memory banks (M6/M7)
@@ -81,17 +114,21 @@ func sanitizeBankSlug(_ name: String) -> String {
 /// import), so both ends are optional.
 struct BankImportResponse: Codable {
     let episodesStaged: Int
+    /// Existing threads re-staged in place after they grew/changed (G20 delta
+    /// re-import). Absent on legacy backends → 0.
+    let episodesUpdated: Int
     let duplicatesSkipped: Int
     let format: String?
     let dateRange: BankImportDateRange?
 
     enum CodingKeys: String, CodingKey {
-        case episodesStaged, duplicatesSkipped, format, dateRange
+        case episodesStaged, episodesUpdated, duplicatesSkipped, format, dateRange
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         episodesStaged = (try? c.decode(Int.self, forKey: .episodesStaged)) ?? 0
+        episodesUpdated = (try? c.decode(Int.self, forKey: .episodesUpdated)) ?? 0
         duplicatesSkipped = (try? c.decode(Int.self, forKey: .duplicatesSkipped)) ?? 0
         format = try c.decodeIfPresent(String.self, forKey: .format)
         dateRange = try c.decodeIfPresent(BankImportDateRange.self, forKey: .dateRange)
@@ -569,12 +606,13 @@ actor APIClient {
 
     /// Convenience: upload several source files, aggregating the counts.
     func uploadSources(fileURLs: [URL]) async throws -> UploadResponse {
-        var created = 0, skipped = 0
+        var created = 0, updated = 0, skipped = 0
         var lastMessage = ""
         var source = "sources"
         for url in fileURLs {
             let r = try await uploadSource(fileURL: url)
             created += r.episodesCreated
+            updated += r.episodesUpdated
             skipped += r.duplicatesSkipped
             lastMessage = r.message
             source = r.source
@@ -582,6 +620,7 @@ actor APIClient {
         return UploadResponse(
             status: "ok",
             episodesCreated: created,
+            episodesUpdated: updated,
             duplicatesSkipped: skipped,
             message: lastMessage,
             source: source

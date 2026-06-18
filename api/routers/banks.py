@@ -160,11 +160,14 @@ async def import_into_bank(
         **{"from": dates[0] if dates else None, "to": dates[-1] if dates else None}
     )
 
-    created, skipped = _stage_episodes(episodes, target_dir / "episodes")
-    logger.info(f"  Staged {created} episodes, {skipped} duplicates skipped ({fmt})")
+    created, updated, skipped = _stage_episodes(episodes, target_dir / "episodes")
+    logger.info(
+        f"  Staged {created} new, {updated} updated, {skipped} unchanged ({fmt})"
+    )
 
     return BankImportResponse(
         episodes_staged=created,
+        episodes_updated=updated,
         duplicates_skipped=skipped,
         date_range=date_range,
         format=fmt,
