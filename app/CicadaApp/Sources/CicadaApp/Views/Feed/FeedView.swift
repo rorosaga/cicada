@@ -29,6 +29,12 @@ struct FeedView: View {
 
                 content
             }
+            // Pin the header+search+scroll column to FILL the detail area. Without
+            // this, the nested ScrollView reports its full content height as the
+            // VStack's ideal, which propagates up and balloons the window vertically
+            // under `.prominentDetail` (Sleep avoids it by making ScrollView a direct
+            // ZStack child; Feed keeps a fixed header, so it must fill explicitly).
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             // Top-right controls (Upload + Sleep), shared chrome.
             VStack {
