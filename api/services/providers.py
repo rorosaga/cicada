@@ -200,3 +200,122 @@ def resolve_embed_fn(
         return np.asarray(encode(texts), dtype=np.float32)
 
     return _local_embed, model
+
+
+# --------------------------------------------------------------------------- #
+# Per-bank embedding resolution (query-time)
+# --------------------------------------------------------------------------- #
+#
+# A memory bank records the embedding model it was BUILT with in its sqlite
+# ``index_meta`` table. The query path must embed with THAT model — not the
+# global ``Settings`` mode — so two banks built with different embedders
+# (e.g. ``original-v1`` on embeddinggemma-300m/768 and ``claude-chats`` on
+# gemini-embedding-2/3072) each query correctly at the same time. The build
+# path still uses the global configured model, so a *fresh* bank indexes with
+# whatever ``CICADA_EMBEDDING_MODE`` says.
+
+# Recorded model ids that map to the OpenRouter ``/embeddings`` route. Gemini
+# embedding models are served via OpenRouter in Cicada.
+_OPENROUTER_EMBED_MODELS = ("gemini",)
+
+
+def _model_is_openai(model_id: str) -> bool:
+    m = model_id.lower()
+    return m.startswith("text-embedding-") or m.startswith("openai/")
+
+
+def _model_is_openrouter(model_id: str) -> bool:
+    m = model_id.lower()
+    if m.startswith("openrouter/"):
+        return True
+    return any(tok in m for tok in _OPENROUTER_EMBED_MODELS)
+
+
+def resolve_embed_fn_for_model(
+    model_id: str,
+    settings: Settings | None = None,
+    *,
+    transport: Callable[..., Any] | None = None,
+    openai_client_factory: Callable[..., Any] | None = None,
+    sentence_transformer_factory: Callable[..., Any] | None = None,
+) -> tuple[EmbedFn, str]:
+    """Build an embed_fn for a SPECIFIC recorded model id (query-time path).
+
+    Unlike :func:`resolve_embed_fn` (which reads the global mode from Settings),
+    this maps a concrete recorded ``model_id`` back to the right provider so a
+    bank queries with the model it was built with:
+
+      - ``text-embedding-*`` / ``openai/*``       -> OpenAI ``embeddings.create``
+      - ids containing ``gemini`` (or ``openrouter/*``) -> OpenRouter ``/embeddings``
+      - anything else (e.g. ``google/embeddinggemma-300m``) -> local
+        sentence-transformers, asymmetric query/document encode.
+
+    Returns ``(embed_fn, model_id)``. Injectable factories/transport keep this
+    hermetic; production uses the real OpenAI client / ``requests.post`` /
+    SentenceTransformer. Callers fall back to the global :func:`resolve_embed_fn`
+    when the bank's index is unbuilt (no recorded model).
+    """
+    if settings is None:
+        from api.config import get_settings
+
+        settings = get_settings()
+
+    mid = (model_id or "").strip()
+
+    if _model_is_openai(mid):
+        openai_model = mid.removeprefix("openai/")
+        if openai_client_factory is None:
+            from openai import OpenAI
+
+            openai_client_factory = OpenAI
+        client = openai_client_factory()
+
+        def _openai_embed(texts: list[str], *, is_query: bool = False) -> np.ndarray:
+            out: list[list[float]] = []
+            for start in range(0, len(texts), _EMBED_BATCH):
+                batch = texts[start : start + _EMBED_BATCH]
+                resp = client.embeddings.create(model=openai_model, input=batch)
+                out.extend(d.embedding for d in resp.data)
+            return np.asarray(out, dtype=np.float32)
+
+        return _openai_embed, mid
+
+    if _model_is_openrouter(mid):
+        api_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+        if transport is None:
+            import requests
+
+            transport = requests.post
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        attribution = _openrouter_headers(settings)
+        if attribution:
+            headers.update(attribution)
+
+        def _or_embed(texts: list[str], *, is_query: bool = False) -> np.ndarray:
+            out: list[list[float]] = []
+            for start in range(0, len(texts), _EMBED_BATCH):
+                batch = texts[start : start + _EMBED_BATCH]
+                resp = transport(
+                    OPENROUTER_EMBEDDINGS_URL,
+                    headers=headers,
+                    json={"model": mid, "input": batch},
+                )
+                resp.raise_for_status()
+                data = resp.json().get("data", [])
+                out.extend(d["embedding"] for d in data)
+            return np.asarray(out, dtype=np.float32)
+
+        return _or_embed, mid
+
+    # Local sentence-transformers (the recorded id is the ST model name).
+    if sentence_transformer_factory is None:
+        from sentence_transformers import SentenceTransformer
+
+        sentence_transformer_factory = SentenceTransformer
+    st_model = sentence_transformer_factory(mid)
+
+    def _local_for_model(texts: list[str], *, is_query: bool = False) -> np.ndarray:
+        encode = st_model.encode_query if is_query else st_model.encode_document
+        return np.asarray(encode(texts), dtype=np.float32)
+
+    return _local_for_model, mid

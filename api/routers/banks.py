@@ -20,6 +20,7 @@ from api.models.schemas import (
     BankImportResponse,
     BankInfo,
     BankListResponse,
+    BankRenameRequest,
 )
 from api.routers.conversations import _stage_episodes, parse_export_bytes
 from api.services import bank_registry
@@ -89,6 +90,34 @@ async def duplicate_bank(
         code = 404 if "Unknown bank" in str(e) else 409
         raise HTTPException(code, str(e))
     logger.info(f"Duplicated bank '{name}' -> '{slug}'")
+    data = bank_registry.list_banks(settings.memory_root)
+    return BankListResponse(
+        banks=[BankInfo(**b) for b in data["banks"]],
+        active=data["active"],
+    )
+
+
+@router.post("/banks/{name}/rename", response_model=BankListResponse)
+async def rename_bank(
+    name: str,
+    req: BankRenameRequest,
+    settings: Settings = Depends(get_settings),
+) -> BankListResponse:
+    if not (req.new_name or "").strip():
+        raise HTTPException(400, "newName is required")
+    try:
+        slug = bank_registry.rename_bank(settings.memory_root, name, req.new_name)
+    except ValueError as e:
+        # Unknown source -> 404; name collision -> 409; blank -> 400.
+        msg = str(e)
+        if "Unknown bank" in msg:
+            code = 404
+        elif "already exists" in msg:
+            code = 409
+        else:
+            code = 400
+        raise HTTPException(code, msg)
+    logger.info(f"Renamed bank '{name}' -> '{slug}'")
     data = bank_registry.list_banks(settings.memory_root)
     return BankListResponse(
         banks=[BankInfo(**b) for b in data["banks"]],

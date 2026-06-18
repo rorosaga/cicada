@@ -188,8 +188,11 @@ async def get_entity_location(
 
     parsed = markdown_parser.parse(entity_path)
     fm = parsed.frontmatter or {}
-    if str(fm.get("type", "")).lower() != "location":
-        raise HTTPException(400, f"Entity {entity_id} is not a location")
+    # G18 — path-listing applies to a `directory` entity; `location` (a physical
+    # place) is accepted too for rename-tolerance (legacy graphs filed paths
+    # under `location` before the split).
+    if str(fm.get("type", "")).lower() not in ("directory", "location"):
+        raise HTTPException(400, f"Entity {entity_id} is not a directory or location")
 
     declared = _detect_location_path(fm, parsed.body)
     if not declared:

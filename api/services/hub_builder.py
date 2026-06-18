@@ -33,6 +33,7 @@ TYPE_HUBS: list[tuple[str, str, str]] = [
     ("deadline", "deadlines", "Deadlines"),
     ("skill", "skills", "Skills"),
     ("location", "places", "Places"),
+    ("directory", "directories", "Directories"),
     ("media", "media", "Media"),
 ]
 

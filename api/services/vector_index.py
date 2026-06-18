@@ -106,9 +106,42 @@ class SqliteVecIndexer:
             if self.model_name is None:
                 self.model_name = resolved_model
 
-    def _embed(self, texts: list[str], *, is_query: bool = False) -> np.ndarray:
+    def _query_embed_fn(self) -> EmbedFn:
+        """The embed_fn used for SEARCH queries.
+
+        Per-bank embeddings: when this indexer wasn't handed an explicit
+        ``embed_fn`` and the on-disk index records the model it was BUILT with
+        (``index_meta.model``), embed the query with THAT model — not the global
+        ``Settings`` mode — so a bank built on embeddinggemma keeps querying with
+        embeddinggemma while a bank built on gemini-embedding-2 queries with
+        gemini, both correct at once. Falls back to the global ``embed_fn``
+        (``_ensure_embed_fn``) when an explicit fn was injected or the index is
+        unbuilt (no recorded model).
+        """
+        if self._embed_fn is not None:
+            return self._embed_fn
+        recorded = (self.index_info() or {}).get("model")
+        if recorded and recorded != "unknown":
+            from api.services.providers import resolve_embed_fn_for_model
+
+            embed_fn, _model = resolve_embed_fn_for_model(recorded)
+            return embed_fn
         self._ensure_embed_fn()
-        vectors = np.asarray(self._embed_fn(texts, is_query=is_query), dtype=np.float32)
+        return self._embed_fn
+
+    def _ensure_or_global(self) -> EmbedFn:
+        """The build/document-side embed_fn (injected fn, else global config).
+
+        Unchanged from prior behavior — indexing always uses the globally
+        configured model so a *fresh* bank is built with whatever
+        ``CICADA_EMBEDDING_MODE`` says.
+        """
+        self._ensure_embed_fn()
+        return self._embed_fn
+
+    def _embed(self, texts: list[str], *, is_query: bool = False) -> np.ndarray:
+        embed_fn = self._query_embed_fn() if is_query else self._ensure_or_global()
+        vectors = np.asarray(embed_fn(texts, is_query=is_query), dtype=np.float32)
         if vectors.ndim != 2 or vectors.shape[0] != len(texts):
             raise ValueError(
                 f"embed_fn returned shape {vectors.shape} for {len(texts)} texts"

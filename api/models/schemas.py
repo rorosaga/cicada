@@ -26,6 +26,34 @@ class EntityType(str, Enum):
     skill = "skill"
     location = "location"
     media = "media"
+    # G18 — a filesystem folder/path, split out from `location` (a physical
+    # place). Stage-1 classifies a PATH (`/Users/...`, `~/...`) as `directory`.
+    directory = "directory"
+
+
+# Types Stage-1 extraction may PRODUCE. This is intentionally a SUBSET of the
+# full ``EntityType`` enum: the enum still ACCEPTS every legacy value so the old
+# graph parses/renders unchanged, but the producible set is what the extraction
+# prompt offers the model.
+#
+# Excluded from producible (G17): ``deadline`` — due-dates are now attached as a
+# ``due`` claim/relationship on the relevant project/task instead of spawning a
+# standalone deadline entity. Legacy ``deadline`` pages stay valid (still in the
+# enum) and are never rewritten.
+# Excluded: ``media`` is produced by the media-ingestion path, not by Stage-1
+# conversation extraction.
+PRODUCIBLE_ENTITY_TYPES = frozenset(
+    {
+        EntityType.person,
+        EntityType.project,
+        EntityType.company,
+        EntityType.concept,
+        EntityType.tool,
+        EntityType.skill,
+        EntityType.location,
+        EntityType.directory,
+    }
+)
 
 
 class EntityStatus(str, Enum):
@@ -585,6 +613,10 @@ class BankCreateRequest(CamelModel):
 
 
 class BankDuplicateRequest(CamelModel):
+    new_name: str
+
+
+class BankRenameRequest(CamelModel):
     new_name: str
 
 

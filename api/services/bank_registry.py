@@ -326,3 +326,51 @@ def duplicate_bank(root: Path, name: str, new_name: str) -> str:
     }
     save_registry(root, registry)
     return new_slug
+
+
+def rename_bank(root: Path, name: str, new_name: str) -> str:
+    """Rename a bank in the registry, returning the new slug.
+
+    - **Legacy default** (in-place at ``root``): renames the registry KEY only.
+      The files stay at ``<root>`` (no relocation) and the renamed bank keeps
+      ``legacy: True``, so :func:`resolve_active_bank_path` / :func:`bank_dir`
+      still resolve it to the root.
+    - **Non-legacy bank**: moves ``banks/<oldSlug>`` -> ``banks/<newSlug>`` on
+      disk and rekeys the registry.
+
+    The ``active`` pointer follows the rename when the renamed bank was active.
+
+    Raises ``ValueError`` on an unknown source, a blank new name, or a slug
+    collision with an existing bank.
+    """
+    root = Path(root)
+    if not (new_name or "").strip():
+        raise ValueError("New bank name is required")
+
+    registry = _ensure_registry(root)
+    banks = registry.setdefault("banks", {})
+    if name not in banks:
+        raise ValueError(f"Unknown bank '{name}'")
+
+    new_slug = sanitize_id(new_name)
+    if new_slug == name:
+        return new_slug
+    if new_slug in banks:
+        raise ValueError(f"Bank '{new_slug}' already exists")
+
+    record = banks[name]
+    if not record.get("legacy"):
+        # Relocate the on-disk dir for a non-legacy bank.
+        src = root / BANKS_SUBDIR / name
+        dst = root / BANKS_SUBDIR / new_slug
+        if dst.exists():
+            raise ValueError(f"Bank directory '{new_slug}' already exists on disk")
+        if src.exists():
+            src.rename(dst)
+
+    # Rekey while preserving insertion order is not required; just re-add.
+    banks[new_slug] = banks.pop(name)
+    if registry.get("active") == name:
+        registry["active"] = new_slug
+    save_registry(root, registry)
+    return new_slug

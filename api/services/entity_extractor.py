@@ -20,7 +20,7 @@ Output valid JSON with this exact structure:
   "entities": [
     {
       "name": "Entity Name",
-      "type": "person|project|company|concept|tool|deadline|skill|location",
+      "type": "person|project|company|concept|tool|skill|location|directory",
       "aliases": ["Mongo", "the db"],
       "summary": "1-3 sentence orientation. See SUMMARY LENGTH BY TYPE below.",
       "key_facts": ["atomic fact", "another atomic fact"],
@@ -50,9 +50,9 @@ The entity body is rendered as ordered markdown sections: ## Summary, ## Key Fac
 sections. ## Related is generated from `relationships` — do NOT emit a related field.
 
 SUMMARY (## Summary) — the orientation line, "what is this and why does the user care":
-- deadline: 1-2 sentences. What is due, when, current status.
 - skill: 1-2 sentences. Procedural rule or preference, written as an instruction.
-- location: 2-3 sentences. Where it is, why it's relevant to the user.
+- location: 2-3 sentences. Where the physical place is, why it's relevant to the user.
+- directory: 1-2 sentences. What the folder/path holds and why it matters.
 - person: 2-4 sentences. Who they are, relationship to user, key context.
 - tool: 2-4 sentences. What it is, how the user uses it, why it matters.
 - concept: 3-4 sentences. Definition, relevance to user's work.
@@ -66,16 +66,16 @@ KEY FACTS (## Key Facts) — this is where density lives:
   affiliations, contact handles.
 - One fact per bullet. Do NOT re-narrate the summary.
 - Prefer 3-8 facts for project/company/tool; 2-5 for person/concept; 1-3 for
-  deadline/location. key_facts may be empty ONLY for skill.
+  location/directory. key_facts may be empty ONLY for skill.
 - key_facts is REQUIRED (emit when any relevant content exists) for project, company, tool.
 
 HISTORY ENTRIES (## History):
 - Include dated events extracted from the conversation, one sentence each.
-- Always emit history_entries for project, company, and deadline when any dated event
+- Always emit history_entries for project and company when any dated event
   is present. Never silently drop a date you saw.
 - For person entities, include key interaction dates when present.
-- For concept/tool/skill/location: only when the conversation contains specific dated
-  events. Otherwise leave history_entries as an empty array.
+- For concept/tool/skill/location/directory: only when the conversation contains
+  specific dated events. Otherwise leave history_entries as an empty array.
 
 LINKS (## Links):
 - Extract EVERY URL mentioned in connection with this entity into links[] with a human
@@ -95,10 +95,18 @@ EXTRACTION GUIDELINES:
   "the database", a nickname). Leave empty if there is only one name.
 - Use wikilinks `[[Entity Name]]` inside summary and key_facts to reference other entities.
   Do NOT fabricate links bullets — those come only from real URLs in the source.
-- Entity types must be exactly one of: person, project, company, concept, tool, deadline, skill, location.
+- Entity types must be exactly one of: person, project, company, concept, tool, skill, location, directory.
+- DUE-DATES ARE NOT ENTITIES. Do NOT create a standalone entity for a deadline or a bare date.
+  When something is due by a date, attach it as a relationship whose source is the thing that is
+  due (the project/task), label is "due", and target is the date literal (e.g. "2026-06-30"). You
+  may also note the date as a key_fact on that entity. Never emit a `deadline`-typed entity.
+- DIRECTORY vs LOCATION. Classify a filesystem PATH — anything that looks like `/Users/...`, a
+  `~/...` home-relative path, a repo/folder path, or a drive path — as type `directory`. Classify a
+  physical, real-world place (a city, an office, a campus, a venue) as type `location`. When in doubt
+  and the string is a slash/tilde path, prefer `directory`.
 - Relationships are critical — capture every meaningful connection between entities with a specific
   verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against",
-  "replaced by"). Use short verb phrases, not full sentences or generic "related to"."""
+  "replaced by", "due"). Use short verb phrases, not full sentences or generic "related to"."""
 
 # Max concurrent LLM calls — stay under rate limits
 MAX_CONCURRENCY = 10
