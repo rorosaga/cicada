@@ -691,6 +691,12 @@ async def _llm_judge_same_entity(
             model=disambig_model,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
+            # Disable provider-side reasoning + cap the call: a same/different
+            # judgment needs no chain-of-thought, and on GLM 5.2 reasoning-on
+            # made each disambiguation ~15-21s, crawling Stage 2 to hours. Mirrors
+            # the entity_extractor hardening. No-op for non-reasoning models.
+            extra_body={"reasoning": {"enabled": False}},
+            timeout=120,
         )
         raw = response.choices[0].message.content or "{}"
         parsed = json.loads(raw)
