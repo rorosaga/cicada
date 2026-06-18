@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -111,10 +112,87 @@ EXTRACTION GUIDELINES:
 # Max concurrent LLM calls — stay under rate limits
 MAX_CONCURRENCY = 10
 
-# Chunk size in chars (~6K tokens). Long conversations get split into chunks
-# so no information is lost. Each chunk gets its own extraction call.
-CHUNK_SIZE = 24_000
+# Chunk size in chars (~3K tokens). Long conversations get split into chunks
+# so no information is lost. Each chunk gets its own extraction call. Kept small
+# so no single call is enormous — with reasoning disabled (below) GLM 5.2 returns
+# a chunk this size in ~5s, so smaller chunks are cheap and bound worst-case
+# latency. (Was 24_000, which made big April threads time out at 600s.)
+CHUNK_SIZE = 12_000
 CHUNK_OVERLAP = 500  # Overlap to avoid splitting mid-sentence
+
+# Hard wall-clock cap per extraction call. A hung/over-long generation fails
+# fast and the episode requeues, rather than burning 10-20 min (litellm's 600s
+# default let timed-out reasoning generations run to ~1300s).
+EXTRACTION_TIMEOUT_S = 300
+
+# Disable provider-side "reasoning"/thinking for extraction. Structured entity
+# extraction does not benefit from chain-of-thought, and on GLM 5.2 reasoning
+# was the cause of timeouts + empty/non-JSON responses. OpenRouter forwards this
+# unified field to the model; passed via litellm's extra_body. Empirically: 21s
+# -> 5s, 905 -> 284 completion tokens, JSON still valid. Override with
+# ``settings.extraction_extra_body`` is intentionally NOT wired — reasoning-off
+# is the right default for all extraction backends (no-op for non-reasoning ones).
+EXTRACTION_EXTRA_BODY = {"reasoning": {"enabled": False}}
+
+# Errors worth one retry inside a single chunk call: transient rate limits,
+# timeouts, and a malformed/empty response (``_parse_json_lenient`` raises
+# ValueError; ``json.JSONDecodeError`` is a ValueError subclass).
+_EXTRACT_RETRYABLE = (
+    litellm.exceptions.RateLimitError,
+    litellm.exceptions.Timeout,
+    ValueError,
+)
+
+
+def _parse_json_lenient(raw: str | None) -> dict:
+    """Parse a JSON object from a possibly-noisy LLM response.
+
+    Tolerates a reasoning model's output: ```json fences, leading prose/thinking
+    before the object, and trailing commentary after it. Raises ``ValueError``
+    on empty or unparseable content so the caller counts the chunk failed (and
+    the episode is omitted from extraction → requeued by the Sleep cycle).
+    """
+    if not raw or not raw.strip():
+        raise ValueError("empty LLM response")
+    text = raw.strip()
+
+    # Strip a leading ```json / ``` fence and its closing ``` if present.
+    if text.startswith("```"):
+        text = re.sub(r"^```[A-Za-z0-9]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+
+    # Fast path: the whole thing is JSON.
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Otherwise carve out the first balanced {...} object (skips reasoning prose
+    # before it and any trailing text after it).
+    start = text.find("{")
+    if start == -1:
+        raise ValueError("no JSON object found in response")
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(text[start : i + 1])  # JSONDecodeError -> ValueError
+    raise ValueError("unbalanced JSON object in response")
 
 
 def _chunk_content(content: str) -> list[str]:
@@ -136,20 +214,48 @@ def _chunk_content(content: str) -> list[str]:
 
 
 async def _extract_chunk(
-    ep_id: str, chunk: str, chunk_idx: int, total_chunks: int, settings: Settings
+    ep_id: str,
+    chunk: str,
+    chunk_idx: int,
+    total_chunks: int,
+    settings: Settings,
+    *,
+    _attempt: int = 0,
 ) -> dict:
-    """Extract entities from a single chunk via LLM."""
-    response = await litellm.acompletion(
-        model=settings.litellm_model,
-        messages=[
-            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-            {"role": "user", "content": chunk},
-        ],
-        response_format={"type": "json_object"},
-    )
-    raw = response.choices[0].message.content
-    parsed = json.loads(raw)
-    return parsed
+    """Extract entities from a single chunk via LLM.
+
+    Reasoning is disabled and a hard timeout is set (see module constants). On a
+    transient failure (rate limit / timeout / malformed-or-empty response) the
+    call is retried ONCE with a short backoff; a second failure propagates so the
+    episode is counted failed and requeued. JSON parsing is lenient to tolerate a
+    reasoning model that wraps the object in fences or prose.
+    """
+    try:
+        response = await litellm.acompletion(
+            model=settings.litellm_model,
+            messages=[
+                {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                {"role": "user", "content": chunk},
+            ],
+            response_format={"type": "json_object"},
+            extra_body=EXTRACTION_EXTRA_BODY,
+            timeout=EXTRACTION_TIMEOUT_S,
+        )
+        raw = response.choices[0].message.content
+        return _parse_json_lenient(raw)
+    except _EXTRACT_RETRYABLE as e:
+        if _attempt >= 1:
+            raise
+        # Rate limits need a real cooldown; timeouts/parse failures retry fast.
+        backoff = 10 if isinstance(e, litellm.exceptions.RateLimitError) else 2
+        logger.warning(
+            f"  {ep_id} chunk {chunk_idx + 1}/{total_chunks} — "
+            f"{type(e).__name__}, retrying in {backoff}s..."
+        )
+        await asyncio.sleep(backoff)
+        return await _extract_chunk(
+            ep_id, chunk, chunk_idx, total_chunks, settings, _attempt=_attempt + 1
+        )
 
 
 async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
@@ -226,40 +332,10 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
                     refresh=False,
                 )
 
-            except litellm.exceptions.RateLimitError:
-                logger.warning(f"  [{i+1}/{total}] {ep_id} — rate limited, retrying in 10s...")
-                await asyncio.sleep(10)
-                # Retry once
-                try:
-                    response = await litellm.acompletion(
-                        model=settings.litellm_model,
-                        messages=[
-                            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-                            {"role": "user", "content": content},
-                        ],
-                        response_format={"type": "json_object"},
-                    )
-                    raw = response.choices[0].message.content
-                    parsed = json.loads(raw)
-                    entities = parsed.get("entities", [])
-                    relationships = parsed.get("relationships", [])
-                    for entity in entities:
-                        entity["source_episode"] = ep_id
-                        entity["source_episode_timestamp"] = episode.get("timestamp")
-                    for rel in relationships:
-                        rel["source_episode"] = ep_id
-                        rel["source_episode_timestamp"] = episode.get("timestamp")
-                    results[i] = {
-                        "episode_id": ep_id,
-                        "episode_timestamp": episode.get("timestamp"),
-                        "entities": entities,
-                        "relationships": relationships,
-                    }
-                    success += 1
-                except Exception as e:
-                    failed += 1
-                    logger.error(f"  [{i+1}/{total}] {ep_id} — retry failed: {e}")
-
+            # NOTE: transient failures (rate limit / timeout / malformed JSON)
+            # are already retried once INSIDE _extract_chunk; anything reaching
+            # here is a final failure. The episode is left out of `results`
+            # (results[i] stays None) so the Sleep cycle requeues it.
             except litellm.exceptions.AuthenticationError as e:
                 failed += 1
                 logger.error(f"  [{i+1}/{total}] {ep_id} — auth error (check API key): {e}")
