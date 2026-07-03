@@ -221,12 +221,28 @@ def respond_error(req_id, code, message):
 # --- Tool Handlers ---
 
 def get_memory_path() -> Path:
-    """Resolve the memory directory path."""
+    """Resolve the *active memory bank* directory.
+
+    ``CICADA_MEMORY_PATH`` names the memory **root** (the container of
+    ``banks.yaml`` + ``banks/<name>/``), not a bank. The API resolves the active
+    bank from that root via ``bank_registry.resolve_active_bank_path``; the MCP
+    MUST do the same or it serves a different graph than the app/Sleep cycle
+    (the "split-brain" bug — recall reads the stale legacy root while the vector
+    index + fresh episodes live in the active bank). We import the API resolver
+    and fall back to the raw root only if it is unavailable, so a bank switch
+    (which rewrites ``banks.yaml``, not the env var) takes effect live.
+    """
     import os
     env_path = os.environ.get("CICADA_MEMORY_PATH")
-    if env_path:
-        return Path(env_path)
-    return Path.home() / "cicada" / "memory"
+    root = Path(env_path) if env_path else Path.home() / "cicada" / "memory"
+    try:
+        from api.services.bank_registry import resolve_active_bank_path
+
+        return resolve_active_bank_path(root)
+    except Exception:
+        # Registry not importable / no banks.yaml → root IS the bank
+        # (identical to pre-banks behavior).
+        return root
 
 
 def handle_tool(name: str, arguments: dict) -> str:
@@ -1026,14 +1042,21 @@ def handle_save_episode(content: str, title: str | None) -> str:
     """Save content as a new episode for the next Sleep cycle."""
     import hashlib
 
+    from datetime import timezone
+
     memory_path = get_memory_path()
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
 
     today = datetime.now().strftime("%Y-%m-%d")
-    existing = list(episodes_dir.glob(f"ep_{today}_*.md"))
-    next_num = len(existing) + 1
-    episode_id = f"ep_{today}_{next_num:03d}"
+    # ID = max existing suffix + 1 (NOT count+1): count-based numbering collides
+    # and overwrites if any same-day episode was deleted/consolidated away.
+    max_num = 0
+    for filepath in episodes_dir.glob(f"ep_{today}_*.md"):
+        suffix = filepath.stem.rsplit("_", 1)[-1]
+        if suffix.isdigit():
+            max_num = max(max_num, int(suffix))
+    episode_id = f"ep_{today}_{max_num + 1:03d}"
 
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
 
@@ -1043,17 +1066,36 @@ def handle_save_episode(content: str, title: str | None) -> str:
         if f"content_hash: {content_hash}" in text:
             return f"Episode already exists (duplicate detected by content hash)."
 
-    frontmatter = f"""---
-id: {episode_id}
-timestamp: '{datetime.now().isoformat()}Z'
-source: mcp
-title: {title or 'MCP capture'}
-processed: false
-content_hash: {content_hash}
----"""
+    # Real UTC timestamp — the previous `datetime.now().isoformat() + "Z"` stamped
+    # naive LOCAL time but labeled it UTC, corrupting the temporal reasoning the
+    # Sleep cycle + claim `valid_from` key on.
+    timestamp = datetime.now(timezone.utc).isoformat()
 
+    # Build frontmatter as a dict and let markdown_parser (pyyaml) serialize it.
+    # A hand-rolled f-string breaks on any special char in `title` (e.g. a colon
+    # — `title: Q3: roadmap` is invalid YAML), which then stalls the whole Sleep
+    # cycle when the loader hits the malformed episode.
+    frontmatter = {
+        "id": episode_id,
+        "timestamp": timestamp,
+        "source": "mcp",
+        "origin": "mcp",
+        "title": title or "MCP capture",
+        "processed": False,
+        "content_hash": content_hash,
+    }
     filepath = episodes_dir / f"{episode_id}.md"
-    filepath.write_text(f"{frontmatter}\n\n{content}\n", encoding="utf-8")
+    try:
+        from api.services import markdown_parser
+
+        markdown_parser.write(filepath, frontmatter, content)
+    except Exception:
+        # Fallback if the API package isn't importable: dump YAML directly so a
+        # colon/quote in the title still can't produce invalid frontmatter.
+        import yaml
+
+        fm_str = yaml.safe_dump(frontmatter, default_flow_style=False, sort_keys=False).strip()
+        filepath.write_text(f"---\n{fm_str}\n---\n\n{content}\n", encoding="utf-8")
 
     return f"Episode saved as {episode_id}. It will be processed during the next Sleep cycle."
 
