@@ -480,3 +480,24 @@ def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
     if not chosen:  # legacy flat body (no H2s)
         return (lead or body).strip()[:max_chars]
     return "\n\n".join(chosen)
+
+
+def sections_to_fields(sections: dict) -> dict:
+    """Convert a ``{title: markdown}`` sections dict into the STRUCTURED
+    ``new_fields`` shape that :func:`merge_sections_fallback` /
+    :func:`merge_sections_human_safe` consume (``summary`` str + ``key_facts`` /
+    ``history_entries`` / ``links`` / ``open_questions`` bullet lists). Bullets
+    are the ``- `` lines of each list section; non-canonical sections are ignored
+    here (callers preserve those separately). Passing a raw sections dict to the
+    merge helpers merges nothing — this adapter is the bridge.
+    """
+    def _bullets(s: str) -> list[str]:
+        return [ln.strip()[2:].strip()
+                for ln in (s or "").splitlines() if ln.strip().startswith("- ")]
+    return {
+        "summary": (sections.get("Summary", "") or "").strip(),
+        "key_facts": _bullets(sections.get("Key Facts", "")),
+        "history_entries": _bullets(sections.get("History", "")),
+        "links": _bullets(sections.get("Links", "")),
+        "open_questions": _bullets(sections.get("Open Questions", "")),
+    }
