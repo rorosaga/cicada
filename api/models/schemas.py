@@ -125,6 +125,23 @@ class ContributorsResponse(CamelModel):
     contributors: list[Contributor] = []
 
 
+# --- Origins (capture-provenance aggregation) ---
+
+
+class OriginStat(CamelModel):
+    # Capture origin stamped in episode frontmatter (e.g. "mcp", "telegram",
+    # "chrome-bookmark", "safari-bookmark", "claude-export"), or "unknown"
+    # when an episode predates the origin field / never got one stamped.
+    origin: str
+    episode_count: int = 0
+    entity_count: int = 0
+    last_seen: str = ""  # ISO timestamp of the most recent episode for this origin
+
+
+class OriginsResponse(CamelModel):
+    origins: list[OriginStat] = []
+
+
 class EntityMedia(CamelModel):
     """Structured media metadata for a ``type: media`` entity (G11).
 
