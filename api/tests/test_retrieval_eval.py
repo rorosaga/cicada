@@ -34,3 +34,17 @@ def test_aggregate_computes_per_model_average():
     agg = ev.aggregate(rows)
     assert agg["haiku"]["avg"] == 0.5 and agg["haiku"]["n"] == 2
     assert agg["sonnet"]["avg"] == 0.8
+
+
+def test_run_one_uses_injected_runner():
+    def fake_runner(prompt, model, mcp_config):
+        return (0, "The answer is A.")  # (exit_code, stdout)
+    out = ev.run_one({"id": 1, "question": "Q?"}, "haiku", "/tmp/cfg.json", runner=fake_runner)
+    assert out["exit_ok"] is True and "answer is a" in out["answer"].lower()
+
+
+def test_run_one_marks_tool_failure_on_nonzero_exit():
+    def fake_runner(prompt, model, mcp_config):
+        return (1, "boom")
+    out = ev.run_one({"id": 1, "question": "Q?"}, "haiku", "/tmp/cfg.json", runner=fake_runner)
+    assert out["exit_ok"] is False

@@ -3,6 +3,7 @@ score with an LLM judge, aggregate. Personal questions live in a gitignored
 *.local.yaml; results go to benchmark_results/ (gitignored)."""
 from __future__ import annotations
 import json
+import subprocess
 import yaml
 from pathlib import Path
 
@@ -61,3 +62,64 @@ def aggregate(rows: list[dict]) -> dict:
     for a in agg.values():
         a["avg"] = round(a["total"] / a["n"], 3) if a["n"] else None
     return agg
+
+
+PROMPT_TMPL = (
+    "You have access to cicada memory tools (MCP 'cicada'). Use them (cicada_recall first; "
+    "then cicada_recall_detail / cicada_open_hub / cicada_ask / cicada_sources as needed — DO "
+    "follow through to recall_detail for full pages before concluding a fact is absent, and state "
+    "only facts present in tool results) to answer this about the user. If genuinely absent, say so.\n"
+    "Question: {q}"
+)
+
+
+def _default_runner(prompt: str, model: str, mcp_config: str) -> tuple[int, str]:
+    proc = subprocess.run(
+        ["claude", "-p", "--model", model, "--mcp-config", mcp_config,
+         "--strict-mcp-config", "--allowedTools", "mcp__cicada", "--max-turns", "14"],
+        input=prompt, capture_output=True, text=True, timeout=300,
+    )
+    return proc.returncode, (proc.stdout or "")
+
+
+def run_one(question: dict, model: str, mcp_config: str, *, runner=None) -> dict:
+    runner = runner or _default_runner
+    prompt = PROMPT_TMPL.format(q=question.get("question", ""))
+    try:
+        code, out = runner(prompt, model, mcp_config)
+    except Exception as exc:  # subprocess timeout/crash never aborts the batch
+        return {"model": model, "answer": f"(runner error: {exc})", "exit_ok": False}
+    out = (out or "").strip()
+    return {"model": model, "answer": out or "(empty)", "exit_ok": code == 0 and bool(out)}
+
+
+def main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--questions", required=True)
+    ap.add_argument("--mcp-config", required=True)
+    ap.add_argument("--models", default="claude-haiku-4-5-20251001,claude-sonnet-5")
+    ap.add_argument("--out", default="benchmark_results/retrieval_eval")
+    args = ap.parse_args(argv)
+
+    questions = load_questions(args.questions)
+    models = [m.strip() for m in args.models.split(",") if m.strip()]
+    rows = []
+    for q in questions:
+        for m in models:
+            r = run_one(q, m, args.mcp_config)
+            v = (judge_answer(q, m, r["answer"]) if r["exit_ok"]
+                 else {"verdict": "tool-failure", "score": 0.0, "diagnosis": "runner failed"})
+            rows.append({"id": q["id"], "model": m, **v, "answer": r["answer"][:1000]})
+    agg = aggregate(rows)
+    outdir = Path(args.out)
+    outdir.mkdir(parents=True, exist_ok=True)
+    (outdir / "rows.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+    (outdir / "aggregate.json").write_text(json.dumps(agg, indent=2))
+    for m, a in agg.items():
+        print(f"{m}: avg={a['avg']} n={a['n']} {a['by_verdict']}")
+    return agg
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()
