@@ -159,6 +159,73 @@ TOOLS = [
             "required": ["entity_id"],
         },
     },
+    {
+        "name": "cicada_write_claim",
+        "description": "Write ONE atomic fact into Cicada's memory as a structured, observer-tagged claim (subject-predicate-object), reusing the same trust-gated reconciliation the nightly Sleep cycle uses. Tag observer='rodrigo' ONLY for something the USER explicitly stated themselves — this claim becomes trust-protected and can never be silently overwritten by a later agent claim. Tag observer='agent' for something YOU inferred, deduced, or noticed yourself. Tag observer='external' for a fact attributed to a third party. Write ONE claim per atomic fact — never bundle multiple facts into a single call. If the subject has no entity page yet, a minimal one is created automatically. A lower-trust claim never overwrites a higher-trust one; it either coexists (flagged) or is held back for a nudge.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": "The entity the claim is about (e.g. 'Rodrigo', 'Cicada').",
+                },
+                "predicate": {
+                    "type": "string",
+                    "description": "The relation/verb (e.g. 'works-at', 'prefers', 'uses').",
+                },
+                "object": {
+                    "type": "string",
+                    "description": "The value or target entity of the claim (e.g. 'Figure AI', 'concise summaries').",
+                },
+                "observer": {
+                    "type": "string",
+                    "enum": ["rodrigo", "agent", "external"],
+                    "description": "Who holds this belief. 'rodrigo' = the user stated this themselves (trust-protected). 'agent' = you inferred/extracted this. 'external' = attributed to a third party. Defaults to 'agent'.",
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "Optional confidence 0.0-1.0 (default 0.7).",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional facet this claim belongs to (e.g. 'engineering', 'family', 'career'). Default 'general'.",
+                },
+                "source_episode": {
+                    "type": "string",
+                    "description": "Optional episode id this claim was grounded in (e.g. from cicada_save_episode or cicada_pending).",
+                },
+            },
+            "required": ["subject", "predicate", "object"],
+        },
+    },
+    {
+        "name": "cicada_pending",
+        "description": "List Cicada episodes not yet consolidated into the knowledge graph (processed: false). Use this to see what raw conversation material is waiting, then use cicada_write_claim to consolidate atomic facts out of it yourself, and cicada_mark_processed once you're done with an episode — this lets an agent do its own lightweight consolidation between Sleep cycles.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of unprocessed episodes to return (default 50).",
+                },
+            },
+        },
+    },
+    {
+        "name": "cicada_mark_processed",
+        "description": "Mark episodes as processed (processed: true) after you have consolidated their facts via cicada_write_claim. Only mark an episode processed once you have actually extracted what's worth keeping from it — an unmarked episode is still picked up by the next Sleep cycle as a safety net.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "episode_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "The episode ids to mark processed (e.g. ['ep_2026-07-02_001']).",
+                },
+            },
+            "required": ["episode_ids"],
+        },
+    },
 ]
 
 
@@ -286,6 +353,20 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_save_url(arguments.get("url", ""), arguments.get("note"))
     elif name == "cicada_sources":
         return handle_sources(arguments.get("entity_id", ""))
+    elif name == "cicada_write_claim":
+        return handle_write_claim(
+            arguments.get("subject", ""),
+            arguments.get("predicate", ""),
+            arguments.get("object", ""),
+            arguments.get("observer", "agent"),
+            arguments.get("confidence"),
+            arguments.get("context"),
+            arguments.get("source_episode"),
+        )
+    elif name == "cicada_pending":
+        return handle_pending(arguments.get("limit"))
+    elif name == "cicada_mark_processed":
+        return handle_mark_processed(arguments.get("episode_ids"))
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -784,6 +865,77 @@ def handle_sources(entity_id: str) -> str:
     for e in eps:
         parts.append(f"\n### episode {e['id']}\n{(e.get('chunk') or '').strip()[:2000]}")
     return "\n".join(parts)
+
+
+def handle_write_claim(
+    subject: str,
+    predicate: str,
+    object_: str,
+    observer: str | None,
+    confidence,
+    context: str | None,
+    source_episode: str | None,
+) -> str:
+    """Write one atomic fact as an observer-tagged claim (agentic write path)."""
+    from api.services import agentic_write
+
+    result = agentic_write.write_claim(
+        get_memory_path(),
+        subject,
+        predicate,
+        object_,
+        observer=(observer or "agent"),
+        confidence=confidence if confidence is not None else 0.7,
+        context=(context or "general"),
+        source_episode=source_episode,
+    )
+
+    if result.get("action") == "error":
+        return f"Could not write claim: {result.get('error', 'unknown error')}"
+
+    action = result.get("action")
+    verb = {
+        "written": "Recorded",
+        "coexist": "Recorded alongside an existing user-stated claim (flagged for review)",
+        "superseded": "NOT written — an existing higher-trust claim already covers this",
+    }.get(action, "Recorded")
+
+    return (
+        f"{verb}: {subject} {predicate} {object_} "
+        f"(entity `{result.get('entity_id')}`, claim `{result.get('claim_id')}`, "
+        f"observer={result.get('observer')}, action={action})."
+    )
+
+
+def handle_pending(limit) -> str:
+    """List unprocessed episodes for the agent's own consolidation loop."""
+    from api.services import agentic_write
+
+    try:
+        limit = int(limit) if limit is not None else 50
+    except (TypeError, ValueError):
+        limit = 50
+
+    episodes = agentic_write.list_unprocessed_episodes(get_memory_path(), limit=limit)
+    if not episodes:
+        return "No unprocessed episodes pending."
+
+    lines = [f"{len(episodes)} unprocessed episode(s):"]
+    for ep in episodes:
+        snippet = (ep.get("content") or "")[:300].strip().replace("\n", " ")
+        lines.append(f"- `{ep.get('id')}` — {ep.get('title', '')}: {snippet}")
+    return "\n".join(lines)
+
+
+def handle_mark_processed(episode_ids) -> str:
+    """Flip processed:true on the given episode ids."""
+    from api.services import agentic_write
+
+    if not isinstance(episode_ids, list) or not episode_ids:
+        return "episode_ids is required (a non-empty array of episode ids)."
+
+    count = agentic_write.mark_episodes_processed(get_memory_path(), episode_ids)
+    return f"Marked {count} episode(s) as processed."
 
 
 def handle_get_perspective(
