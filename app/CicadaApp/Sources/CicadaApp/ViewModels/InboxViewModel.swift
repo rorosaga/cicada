@@ -37,13 +37,18 @@ final class InboxViewModel {
     /// Resolve one item. Every action except `skip` removes the card locally
     /// (the file is unlinked server-side). `skip` keeps the item in the queue,
     /// so we reload to reflect any organic changes since last fetch.
+    ///
+    /// Returns whether the resolve succeeded, so callers (`InboxCardView` via
+    /// `InboxListView`) can reset UI state — e.g. the card's `resolving` dim
+    /// — on failure instead of leaving it frozen forever.
+    @discardableResult
     func resolve(
         id: String,
         action: String,
         answer: String? = nil,
         mergeTarget: String? = nil,
         mergeSurvivor: String? = nil
-    ) async {
+    ) async -> Bool {
         do {
             try await APIClient.shared.resolveInboxItem(
                 id: id, action: action, answer: answer,
@@ -56,8 +61,10 @@ final class InboxViewModel {
             }
             // Keep the menu-bar badge in lockstep with the resolve.
             await onResolved?()
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 }

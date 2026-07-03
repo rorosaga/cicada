@@ -1,6 +1,20 @@
 import SwiftUI
 import AppKit
 
+/// A transparent AppKit passthrough container that accepts the first mouse
+/// click even when its window isn't key yet. `ClickableWebView`
+/// (`Views/Graph/GraphView.swift`) already opts into this per-instance for
+/// the graph canvas, but plain SwiftUI controls (Button, Toggle, etc.) render
+/// inside the framework's own NSHostingView, whose `acceptsFirstMouse(for:)`
+/// defaults to `false` — so the very first click on any native control after
+/// the app loses focus is consumed as mere window activation instead of
+/// reaching the control ("needs a second click" bug). Wrapping the SwiftUI
+/// content view once, at the window level, fixes this for every control
+/// without touching each one individually.
+final class FirstMouseAcceptingView: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 @main
 struct CicadaApp: App {
     @State private var graphVM = GraphViewModel()
@@ -63,6 +77,7 @@ struct CicadaApp: App {
                     // Ensure the main window is key so TextFields can accept input.
                     if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
                         syncWindowChrome(window, mode: appColorScheme)
+                        enableFirstMouseAcceptance(for: window)
                         window.makeKeyAndOrderFront(nil)
                     }
                     menuBarManager.setup(
@@ -133,5 +148,22 @@ struct CicadaApp: App {
             window.appearance = NSAppearance(named: .aqua)
             window.backgroundColor = NSColor(red: 245 / 255, green: 246 / 255, blue: 250 / 255, alpha: 1)
         }
+    }
+
+    /// Reparents the window's existing (SwiftUI-owned) content view under a
+    /// `FirstMouseAcceptingView` wrapper exactly once, preserving frame and
+    /// autoresizing so nothing visually shifts, so native controls register
+    /// their first click even when the window isn't key yet. Idempotent: a
+    /// second call sees `window.contentView` already wrapped and no-ops.
+    private func enableFirstMouseAcceptance(for window: NSWindow) {
+        guard let hostedContent = window.contentView,
+              !(hostedContent is FirstMouseAcceptingView)
+        else { return }
+        let wrapper = FirstMouseAcceptingView(frame: hostedContent.frame)
+        wrapper.autoresizingMask = [.width, .height]
+        hostedContent.frame = wrapper.bounds
+        hostedContent.autoresizingMask = [.width, .height]
+        window.contentView = wrapper
+        wrapper.addSubview(hostedContent)
     }
 }
