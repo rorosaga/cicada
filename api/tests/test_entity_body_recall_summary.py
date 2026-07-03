@@ -14,4 +14,6 @@ def test_key_facts_always_survive_truncation():
 
 def test_returns_full_body_when_under_budget():
     body = "## Summary\nshort\n\n## Key Facts\n- a fact\n"
-    assert summarize_for_recall(body, max_chars=10000).strip().startswith("## Summary")
+    out = summarize_for_recall(body, max_chars=10000).strip()
+    assert out.startswith("## Summary")
+    assert "- a fact" in out  # Verify Key Facts content survives under generous budget

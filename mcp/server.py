@@ -920,9 +920,11 @@ def _type_aware_truncate(body: str, entity_type: str) -> str:
         budget = 2000 if entity_type in MEDIUM_TYPES else 3200
         return summarize_for_recall(body, max_chars=budget)
     except Exception:
-        # pyyaml-free fallback: old behavior
+        # pyyaml-free fallback: faithful OLD behavior per entity type
         if entity_type in MEDIUM_TYPES:
             return body[:2000]
+        if entity_type in MEDIUMLONG_TYPES:
+            return body[:3200]
         return _truncate_to_desc_and_recent_history(body, max_history=10)
 
 
