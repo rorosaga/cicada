@@ -8,6 +8,7 @@ enum AppTab: String, CaseIterable {
     case inbox = "Inbox"
     case contributors = "Contributors"
     case connect = "Connect"
+    case sources = "Capture"
 
     var icon: String {
         switch self {
@@ -18,6 +19,7 @@ enum AppTab: String, CaseIterable {
         case .inbox: "tray.full"
         case .contributors: "person.2.badge.gearshape"
         case .connect: "cable.connector"
+        case .sources: "tray.and.arrow.down"
         }
     }
 }
@@ -26,6 +28,7 @@ enum AppTab: String, CaseIterable {
 /// tab list by mental model without adding any new theme tokens.
 private enum SidebarSection: String, CaseIterable {
     case workspace = "Workspace"
+    case capture = "Capture"
     case maintenance = "Maintenance"
     case provenance = "Provenance"
     case setup = "Setup"
@@ -33,6 +36,7 @@ private enum SidebarSection: String, CaseIterable {
     var tabs: [AppTab] {
         switch self {
         case .workspace: [.graph, .clusters, .feed]
+        case .capture: [.sources]
         case .maintenance: [.sleep, .inbox]
         case .provenance: [.contributors]
         case .setup: [.connect]
@@ -99,7 +103,7 @@ struct SidebarView: View {
 
     private func badgeCount(for tab: AppTab) -> Int {
         switch tab {
-        case .graph, .clusters, .feed, .sleep, .contributors, .connect: 0
+        case .graph, .clusters, .feed, .sleep, .contributors, .connect, .sources: 0
         case .inbox: inboxCount
         }
     }

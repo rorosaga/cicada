@@ -78,6 +78,8 @@ struct ContentView: View {
             ContributorsView()
         case .connect:
             ConnectView()
+        case .sources:
+            SourcesView()
         }
     }
 }

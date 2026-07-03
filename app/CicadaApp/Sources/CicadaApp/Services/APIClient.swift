@@ -196,6 +196,36 @@ struct SourceListResponse: Codable {
     let total: Int
 }
 
+/// `POST /sources/save` full result — richer than the `saveSource(url:)`
+/// throws-only helper. Used by the Capture page's "Paste URL" tile so it can
+/// surface the resolved title/dedup status, not just success/failure.
+struct SourceSaveResult: Codable {
+    let status: String
+    let mediaEntityId: String
+    let episodeId: String
+    let title: String
+    let mediaType: String
+    let thumbnail: String?
+    let message: String
+}
+
+/// One source's tally from `POST /sources/sync-bookmarks` (`origin` is
+/// "chrome" or "safari").
+struct BookmarkSyncSourceSummary: Codable {
+    let origin: String
+    let found: Int
+    let new: Int
+    let skipped: Int
+}
+
+/// `POST /sources/sync-bookmarks` result — aggregate new/skipped plus the
+/// per-browser breakdown.
+struct BookmarkSyncResult: Codable {
+    let new: Int
+    let skipped: Int
+    let sources: [BookmarkSyncSourceSummary]
+}
+
 struct SleepStatusResponse: Codable {
     let status: String
     let cycleId: String?
@@ -569,6 +599,42 @@ actor APIClient {
     @discardableResult
     func ingestRSS(feedXml: String, tags: [String] = []) async throws -> UploadResponse {
         return try await post("/sources/rss", body: ["feedXml": feedXml, "tags": tags])
+    }
+
+    /// Ingest an RSS/Atom feed by URL (`POST /sources/rss`, the `feedUrl`
+    /// variant). Live network fetch is off by default server-side
+    /// (`CICADA_ALLOW_FEED_FETCH`), so a fresh install throws a 422 the caller
+    /// should surface as a friendly "disabled" message rather than swallow.
+    @discardableResult
+    func ingestRSS(feedUrl: String, tags: [String] = []) async throws -> UploadResponse {
+        return try await post("/sources/rss", body: ["feedUrl": feedUrl, "tags": tags])
+    }
+
+    /// Save a single URL with an optional note, returning the full save
+    /// result (title, thumbnail, dedup status) — richer than `saveSource(url:)`
+    /// above, which only throws on failure. Used by the Capture page's
+    /// "Paste URL" import tile.
+    @discardableResult
+    func saveURL(_ url: String, note: String? = nil) async throws -> SourceSaveResult {
+        var body: [String: Any] = ["url": url]
+        if let note, !note.isEmpty { body["note"] = note }
+        return try await post("/sources/save", body: body)
+    }
+
+    /// Keyless bookmark sync (`POST /sources/sync-bookmarks`). Called with no
+    /// arguments, it reads the real local Chrome/Safari bookmark files
+    /// (`bookmark_sync.sync_from_local_files`) — the Capture page's
+    /// "Sync bookmarks now" action. Passing base64 data instead syncs against
+    /// that inline payload (a future file-picker flow / what the backend tests
+    /// use). The dedup diff is the same `url_index.json` hash check every
+    /// other source path uses, so already-saved bookmarks come back as
+    /// `skipped`, not re-ingested.
+    @discardableResult
+    func syncBookmarks(chromeData: Data? = nil, safariData: Data? = nil) async throws -> BookmarkSyncResult {
+        var body: [String: Any] = [:]
+        if let chromeData { body["chromeDataB64"] = chromeData.base64EncodedString() }
+        if let safariData { body["safariDataB64"] = safariData.base64EncodedString() }
+        return try await post("/sources/sync-bookmarks", body: body.isEmpty ? nil : body)
     }
 
     /// Shared multipart POST for file ingestion endpoints. Mirrors `uploadFile`
