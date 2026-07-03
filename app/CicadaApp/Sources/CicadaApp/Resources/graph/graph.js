@@ -37,17 +37,21 @@ const typeColors = {
 // — the anchors just nudge same-type nodes toward each other. Obsidian-like
 // grouping without a Louvain pass. Nodes that orbit a hub use hubGravity
 // instead (see startSimulation) and ignore these anchors.
+// Type-cluster anchor positions (world units). Spread ~1.5x wider than the
+// original ±300 ring so the per-type clusters sit farther apart and read as
+// distinct groups instead of one clump; the soft anchor strength + center pull
+// still keep them coherent. The "fit" zoom reframes to whatever spread is used.
 const typeClusterPositions = {
-    person:   [   0, -300],
-    project:  [ 280, -100],
-    company:  [ 180,  240],
-    concept:  [-180,  240],
-    tool:     [-280, -100],
-    deadline: [   0,  300],
-    skill:    [ 300,  100],
-    location: [-300,  100],
-    media:    [ -60, -360],
-    directory:[ -300, -240],
+    person:   [   0, -450],
+    project:  [ 420, -150],
+    company:  [ 270,  360],
+    concept:  [-270,  360],
+    tool:     [-420, -150],
+    deadline: [   0,  450],
+    skill:    [ 450,  150],
+    location: [-450,  150],
+    media:    [ -90, -540],
+    directory:[-450, -360],
     hub:      [   0,    0],
 };
 
@@ -618,16 +622,22 @@ function startSimulation({ reheat = 1.0 } = {}) {
         .alphaMin(0.05)
         .force("link", d3.forceLink(visibleLinks)
             .id(d => d.id)
-            .distance(60)
-            .strength(0.5))
+            .distance(90)
+            // Looser link pull (was 0.5): at ~1000 nodes a strong link force
+            // yanks the connected core into a hairball. Weaker links let the
+            // charge repulsion open the dense center while anchors keep clusters.
+            .strength(0.28))
         .force("charge", d3.forceManyBody()
-            .strength(-40)
-            .distanceMax(400)
+            // Stronger, longer-reach repulsion so clusters breathe instead of
+            // clumping — nodes push apart farther before the type/hub anchors
+            // and center pull them back into recognizable clusters.
+            .strength(-150)
+            .distanceMax(700)
             .theta(0.9))
-        .force("center", d3.forceCenter(0, 0).strength(0.05))
+        .force("center", d3.forceCenter(0, 0).strength(0.04))
         .force("collision", d3.forceCollide()
-            .radius(d => nodeRadius(d) + 2)
-            .strength(0.8))
+            .radius(d => nodeRadius(d) + 6)
+            .strength(0.85))
         // Hubs are pulled toward their ring anchor; members toward their hub.
         // Nodes with no hub fall back to the soft per-type anchor below.
         .force("xType", d3.forceX(d => xAnchor(d)).strength(d => anchorStrength(d, "x")))
