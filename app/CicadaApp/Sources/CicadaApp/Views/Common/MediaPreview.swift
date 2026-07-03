@@ -88,6 +88,16 @@ enum MediaURLHelpers {
         return URL(string: "https://www.youtube-nocookie.com/embed/\(id)?autoplay=1")
     }
 
+    /// Embed url for the HERO player (G23/G25) — same id-extraction as
+    /// `youtubeEmbedURL` above, but WITHOUT `autoplay=1`. The hero renders
+    /// inline at the top of the entity page on every visit (not behind an
+    /// explicit tap like the sheet player), so autoplaying would be
+    /// surprising; the user presses play in-page instead.
+    static func youtubeHeroEmbedURL(from raw: String) -> URL? {
+        guard let id = youtubeID(from: raw) else { return nil }
+        return URL(string: "https://www.youtube-nocookie.com/embed/\(id)")
+    }
+
     static func youtubeID(from raw: String) -> String? {
         guard let comps = URLComponents(string: raw) else { return nil }
         // youtu.be/<id>

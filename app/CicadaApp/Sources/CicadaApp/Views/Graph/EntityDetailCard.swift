@@ -385,6 +385,15 @@ struct EntityDetailCard: View {
 
     private var renderedMarkdownView: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            // G23/G25: prominent media/website/image hero, shown above
+            // everything else — including the G24 summary — when the entity
+            // carries a previewable asset. Gated here (rather than always
+            // inserting `HeroPreview` and letting it self-collapse) so a
+            // non-previewable entity doesn't even cost a layout slot.
+            if HeroPreview.hasPreviewableAsset(for: entity) {
+                HeroPreview(entity: entity)
+            }
+
             // G24: fast human-readable gist, shown once at the very top of the
             // preview, before the rest of the body.
             if let summary = summaryText {
