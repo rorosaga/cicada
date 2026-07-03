@@ -730,11 +730,15 @@ Verify `memory/banks/claude-chats-v2/entities/` has ~1036 files. **Do not activa
 
 **Files:**
 - Create: `api/services/entity_merge.py`
+- Modify: `api/services/entity_body.py` (add the public `sections_to_fields` adapter)
 - Test: `api/tests/test_entity_merge.py`
+- Test: `api/tests/test_entity_body_sections_to_fields.py`
 
 **Interfaces:**
-- Consumes: `entity_body.parse_sections`, `entity_body.merge_sections_human_safe`, `markdown_parser.parse`/`write`, `git_service.build_commit_message`.
-- Produces: `merge_entities(memory_path: Path, loser_id: str, winner_id: str, *, author: str = "user") -> dict` — returns `{winner, merged_source_episodes:int, repointed_edges:int}`; unions frontmatter lists, section-merges bodies, repoints `graph_edges.yaml` endpoints loser→winner, deletes loser file.
+- Consumes: `entity_body.parse_sections`, `entity_body.merge_sections_human_safe`, `entity_body.CANONICAL_SECTIONS`, `markdown_parser.parse`/`write`, `git_service.build_commit_message`.
+- Produces: `entity_body.sections_to_fields(sections: dict) -> dict` — converts a `{title: markdown}` sections dict into the STRUCTURED `new_fields` shape that `merge_sections_human_safe` requires (`{summary: str, key_facts: list, history_entries: list, links: list, open_questions: list}`); `merge_entities(memory_path: Path, loser_id: str, winner_id: str, *, author: str = "user") -> dict` — returns `{winner, merged_source_episodes:int, repointed_edges:int}`; unions frontmatter lists, section-merges bodies, repoints `graph_edges.yaml` endpoints loser→winner, deletes loser file.
+
+**CRITICAL:** `merge_sections_human_safe(existing, new_fields, *, human_edited)` expects `new_fields` as a STRUCTURED dict with keys `summary`/`key_facts`/`history_entries`/`links`/`open_questions` (see `merge_sections_fallback` docstring) — NOT a `{title: content}` sections dict. Passing a sections dict silently merges nothing. Hence the `sections_to_fields` adapter below, which both this task and Task 13 use.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -776,7 +780,55 @@ def test_merge_unions_sources_and_repoints_edges(tmp_path):
 Run: `api/.venv/bin/python -m pytest api/tests/test_entity_merge.py -q`
 Expected: FAIL (module missing).
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 3a: Add the `sections_to_fields` adapter to `api/services/entity_body.py`** (append; do not change existing functions). First add a failing test `api/tests/test_entity_body_sections_to_fields.py`:
+
+```python
+from api.services.entity_body import sections_to_fields
+
+def test_sections_to_fields_maps_titles_and_splits_bullets():
+    sections = {
+        "Summary": "A one-line summary.",
+        "Key Facts": "- fact one\n- fact two",
+        "History": "- 2025-01-01: a thing",
+        "Links": "- https://x.example",
+        "Open Questions": "- what next?",
+        "My Notes": "non-canonical prose",  # ignored by the structured shape
+    }
+    f = sections_to_fields(sections)
+    assert f["summary"] == "A one-line summary."
+    assert f["key_facts"] == ["fact one", "fact two"]
+    assert f["history_entries"] == ["2025-01-01: a thing"]
+    assert f["links"] == ["https://x.example"]
+    assert f["open_questions"] == ["what next?"]
+```
+
+Run it (fails — `sections_to_fields` undefined), then implement (append to `api/services/entity_body.py`):
+
+```python
+def sections_to_fields(sections: dict) -> dict:
+    """Convert a ``{title: markdown}`` sections dict into the STRUCTURED
+    ``new_fields`` shape that :func:`merge_sections_fallback` /
+    :func:`merge_sections_human_safe` consume (``summary`` str + ``key_facts`` /
+    ``history_entries`` / ``links`` / ``open_questions`` bullet lists). Bullets
+    are the ``- `` lines of each list section; non-canonical sections are ignored
+    here (callers preserve those separately). Passing a raw sections dict to the
+    merge helpers merges nothing — this adapter is the bridge.
+    """
+    def _bullets(s: str) -> list[str]:
+        return [ln.strip()[2:].strip()
+                for ln in (s or "").splitlines() if ln.strip().startswith("- ")]
+    return {
+        "summary": (sections.get("Summary", "") or "").strip(),
+        "key_facts": _bullets(sections.get("Key Facts", "")),
+        "history_entries": _bullets(sections.get("History", "")),
+        "links": _bullets(sections.get("Links", "")),
+        "open_questions": _bullets(sections.get("Open Questions", "")),
+    }
+```
+
+Run the test (passes). Then continue to Step 3b.
+
+- [ ] **Step 3b: Write `api/services/entity_merge.py`**
 
 ```python
 # api/services/entity_merge.py
@@ -819,10 +871,18 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
                             float(lfm.get("confidence", 0) or 0))
 
     # Section-merge loser body into winner (human-safe: never drop winner prose).
+    # merge_sections_human_safe needs the STRUCTURED new_fields shape, so convert
+    # the loser's sections via sections_to_fields (a raw sections dict merges nothing).
     human = bool(wfm.get("human_edited"))
-    loser_fields = {k: v for k, v in entity_body.parse_sections(lpar.body).items() if k}
+    loser_sections = entity_body.parse_sections(lpar.body)
+    loser_fields = entity_body.sections_to_fields(loser_sections)
     merged_sections = entity_body.merge_sections_human_safe(
         entity_body.parse_sections(wpar.body), loser_fields, human_edited=human)
+    # Preserve any non-canonical (human-authored) loser sections too — the
+    # structured merge only carries the canonical fields.
+    for title, content in loser_sections.items():
+        if title and title not in entity_body.CANONICAL_SECTIONS and title not in merged_sections:
+            merged_sections[title] = content
     new_body = "\n\n".join(f"## {t}\n{c}" if t else c
                            for t, c in merged_sections.items() if c).strip()
     markdown_parser.write(wp, wfm, new_body)
@@ -1478,11 +1538,18 @@ def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
         return {"entity_id": entity_id, "changed": False,
                 "before_words": before, "after_words": before}
 
-    # Human-safe merge: never lose human sections or the claims block.
+    # Human-safe merge: never lose human sections or the claims block. Convert the
+    # LLM's new body to the STRUCTURED new_fields shape via sections_to_fields
+    # (a raw sections dict merges nothing).
     human = bool(par.frontmatter.get("human_edited"))
-    new_fields = {k: v for k, v in entity_body.parse_sections(new_body).items() if k}
+    new_sections = entity_body.parse_sections(new_body)
+    new_fields = entity_body.sections_to_fields(new_sections)
     merged = entity_body.merge_sections_human_safe(
         entity_body.parse_sections(par.body), new_fields, human_edited=human)
+    # Preserve any non-canonical sections the model produced.
+    for title, content in new_sections.items():
+        if title and title not in entity_body.CANONICAL_SECTIONS and title not in merged:
+            merged[title] = content
     final_body = "\n\n".join(f"## {t}\n{c}" if t else c
                              for t, c in merged.items() if c).strip()
     fm = dict(par.frontmatter)
