@@ -226,6 +226,134 @@ struct BookmarkSyncResult: Codable {
     let sources: [BookmarkSyncSourceSummary]
 }
 
+// MARK: - RSS feed subscriptions (G9 — feeds.yaml registry)
+
+/// One subscribed RSS/Atom feed (`GET /sources/feeds` / `POST /sources/feeds`).
+/// NOTE: unlike most endpoints, `/sources/feeds` echoes the raw on-disk record
+/// straight from `feed_registry.py` — it is NOT run through the API's
+/// CamelModel/`to_camel` alias generator, so `last_polled` stays snake_case on
+/// the wire (everything else here is a single word, so it looks camelCase by
+/// coincidence).
+struct FeedSubscription: Codable, Identifiable {
+    let url: String
+    let tags: [String]
+    let added: String
+    let lastPolled: String?
+
+    var id: String { url }
+
+    enum CodingKeys: String, CodingKey {
+        case url, tags, added
+        case lastPolled = "last_polled"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decode(String.self, forKey: .url)
+        tags = (try? c.decode([String].self, forKey: .tags)) ?? []
+        added = (try? c.decode(String.self, forKey: .added)) ?? ""
+        lastPolled = try c.decodeIfPresent(String.self, forKey: .lastPolled)
+    }
+}
+
+/// `GET /sources/feeds` envelope — the feed list plus a count.
+private struct FeedListResponse: Codable {
+    let feeds: [FeedSubscription]
+    let total: Int
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        feeds = (try? c.decode([FeedSubscription].self, forKey: .feeds)) ?? []
+        total = (try? c.decode(Int.self, forKey: .total)) ?? 0
+    }
+    enum CodingKeys: String, CodingKey { case feeds, total }
+}
+
+/// One feed's outcome within a `POST /sources/poll-feeds` sweep. Snake_case
+/// wire keys, same reasoning as `FeedSubscription` above.
+struct PollFeedItemResult: Codable, Identifiable {
+    let url: String
+    let status: String
+    let new: Int?
+    let duplicates: Int?
+    let error: String?
+
+    var id: String { url }
+
+    enum CodingKeys: String, CodingKey { case url, status, new, duplicates, error }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decode(String.self, forKey: .url)
+        status = (try? c.decode(String.self, forKey: .status)) ?? ""
+        new = try c.decodeIfPresent(Int.self, forKey: .new)
+        duplicates = try c.decodeIfPresent(Int.self, forKey: .duplicates)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+/// `POST /sources/poll-feeds` result. `skippedNoNetwork` (wire: number of
+/// feeds skipped — see below) is only present when live feed fetch is gated
+/// off server-side (`CICADA_ALLOW_FEED_FETCH` unset), in which case `new` and
+/// `perFeed` stay at their zero/empty defaults since nothing was fetched.
+struct PollFeedsResult: Codable {
+    let polled: Int
+    let new: Int
+    let skippedNoNetwork: Int
+    let perFeed: [PollFeedItemResult]
+
+    enum CodingKeys: String, CodingKey {
+        case polled, new
+        case skippedNoNetwork = "skipped_no_network"
+        case perFeed = "per_feed"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        polled = (try? c.decode(Int.self, forKey: .polled)) ?? 0
+        new = (try? c.decode(Int.self, forKey: .new)) ?? 0
+        skippedNoNetwork = (try? c.decode(Int.self, forKey: .skippedNoNetwork)) ?? 0
+        perFeed = (try? c.decode([PollFeedItemResult].self, forKey: .perFeed)) ?? []
+    }
+}
+
+// MARK: - Origins (ORIGIN-PROVENANCE — "where did this memory come from")
+
+/// One capture origin's tally from `GET /origins` — mirrors `Contributor`'s
+/// "who authored this belief" but keyed on capture origin (mcp, telegram,
+/// chrome-bookmark, safari-bookmark, claude-export, ...) rather than authoring
+/// model. Runs through the API's CamelModel, so these ARE camelCase on the wire.
+struct OriginStat: Codable, Identifiable {
+    let origin: String
+    let episodeCount: Int
+    let entityCount: Int
+    let lastSeen: String
+
+    var id: String { origin }
+
+    enum CodingKeys: String, CodingKey {
+        case origin, episodeCount, entityCount, lastSeen
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        origin = try c.decode(String.self, forKey: .origin)
+        episodeCount = (try? c.decode(Int.self, forKey: .episodeCount)) ?? 0
+        entityCount = (try? c.decode(Int.self, forKey: .entityCount)) ?? 0
+        lastSeen = (try? c.decode(String.self, forKey: .lastSeen)) ?? ""
+    }
+}
+
+struct OriginsResponse: Codable {
+    let origins: [OriginStat]
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        origins = (try? c.decode([OriginStat].self, forKey: .origins)) ?? []
+    }
+    enum CodingKeys: String, CodingKey { case origins }
+}
+
 struct SleepStatusResponse: Codable {
     let status: String
     let cycleId: String?
@@ -637,6 +765,53 @@ actor APIClient {
         return try await post("/sources/sync-bookmarks", body: body.isEmpty ? nil : body)
     }
 
+    // MARK: - RSS feed subscriptions (G9)
+
+    /// `GET /sources/feeds` → every subscribed RSS/Atom feed, in subscription order.
+    func fetchFeeds() async throws -> [FeedSubscription] {
+        let resp: FeedListResponse = try await get("/sources/feeds")
+        return resp.feeds
+    }
+
+    /// `POST /sources/feeds` `{url, tags?}` → subscribe to a feed. Idempotent —
+    /// re-subscribing an already-watched URL is a no-op on `added`/`lastPolled`
+    /// and just merges in any new tags. Returns the created/existing record.
+    @discardableResult
+    func subscribeFeed(url: String, tags: [String] = []) async throws -> FeedSubscription {
+        var body: [String: Any] = ["url": url]
+        if !tags.isEmpty { body["tags"] = tags }
+        return try await post("/sources/feeds", body: body)
+    }
+
+    /// `DELETE /sources/feeds` `{url}` → unsubscribe. Throws `.httpError(404, _)`
+    /// if the URL wasn't subscribed — callers surface that via `friendlyError`.
+    func unsubscribeFeed(url: String) async throws {
+        try await delete("/sources/feeds", body: ["url": url])
+    }
+
+    /// `POST /sources/poll-feeds` → check every subscribed feed for new items.
+    /// Respects the same `CICADA_ALLOW_FEED_FETCH` network gate as `ingestRSS`;
+    /// with the gate closed, nothing is fetched and the result reports
+    /// `skippedNoNetwork` instead of `new`.
+    @discardableResult
+    func pollFeeds() async throws -> PollFeedsResult {
+        return try await post("/sources/poll-feeds")
+    }
+
+    // MARK: - Origins (ORIGIN-PROVENANCE)
+
+    /// `GET /origins` → repo-wide episode/entity counts per capture origin.
+    /// Returns `[]` on a 404 so the Capture page's origins strip degrades
+    /// gracefully (hides itself) against a backend that hasn't shipped this yet.
+    func fetchOrigins() async throws -> [OriginStat] {
+        do {
+            let resp: OriginsResponse = try await get("/origins")
+            return resp.origins
+        } catch APIError.httpError(404, _) {
+            return []
+        }
+    }
+
     /// Shared multipart POST for file ingestion endpoints. Mirrors `uploadFile`
     /// but takes the target path so both `/conversations/upload` and
     /// `/sources/upload` reuse it.
@@ -809,6 +984,29 @@ actor APIClient {
         let url = URL(string: "\(baseURL)\(path)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let body {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverUnreachable
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.httpError(http.statusCode, msg)
+        }
+        return data
+    }
+
+    /// Generic DELETE-with-JSON-body helper (`/sources/feeds` unsubscribe is the
+    /// only caller today). Mirrors the `post(_:body:) -> Data` shape.
+    @discardableResult
+    private func delete(_ path: String, body: [String: Any]? = nil) async throws -> Data {
+        let url = URL(string: "\(baseURL)\(path)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let body {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)

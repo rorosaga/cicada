@@ -25,6 +25,23 @@ struct SourcesView: View {
     @State private var syncError: String?
     @State private var showSyncSetup = false
 
+    // RSS subscriptions section
+    @State private var feeds: [FeedSubscription] = []
+    @State private var feedsLoading = false
+    @State private var feedsError: String?
+    @State private var newFeedURL = ""
+    @State private var isSubscribing = false
+    @State private var subscribeError: String?
+    @State private var unsubscribingURL: String?
+    @State private var isPolling = false
+    @State private var pollResult: String?
+    @State private var pollError: String?
+    @State private var pollSkippedNoNetwork = false
+
+    // Origins strip section
+    @State private var origins: [OriginStat] = []
+    @State private var originsError: String?
+
     // Queue section
     @State private var status: StatusSnapshot?
     @State private var statusLoading = false
@@ -44,7 +61,9 @@ struct SourcesView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     importCard
+                    rssSubscriptionsCard
                     syncedAppsCard
+                    originsStrip
                     queueCard
                 }
                 .padding(.horizontal, CicadaTheme.spacingXL)
@@ -52,7 +71,12 @@ struct SourcesView: View {
             }
         }
         .background(CicadaTheme.background)
-        .task { await loadStatus() }
+        .task {
+            async let s: () = loadStatus()
+            async let f: () = loadFeeds()
+            async let o: () = loadOrigins()
+            _ = await (s, f, o)
+        }
         .onChange(of: sleepVM.isRunning) { _, running in
             // A cycle kicked off from the Consolidate button (or anywhere else
             // in the app) just finished — the queue count this page shows is
@@ -389,6 +413,283 @@ struct SourcesView: View {
         }
     }
 
+    // MARK: - RSS subscriptions
+
+    private var rssSubscriptionsCard: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            sectionLabel("RSS SUBSCRIPTIONS")
+            Text("Feeds Cicada checks automatically for new items — separate from the one-off RSS import above.")
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if feedsLoading && feeds.isEmpty {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading feeds…")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            } else if let err = feedsError, feeds.isEmpty {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(err)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(Color(hex: 0xEF4444))
+                    Button("Retry") { Task { await loadFeeds() } }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.accent)
+                }
+            } else if feeds.isEmpty {
+                Text("No feeds subscribed yet — add one below.")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            } else {
+                VStack(spacing: CicadaTheme.spacingSM) {
+                    ForEach(feeds) { feed in
+                        FeedSubscriptionRow(
+                            feed: feed,
+                            isRemoving: unsubscribingURL == feed.url,
+                            onRemove: { unsubscribeFeedNow(feed.url) }
+                        )
+                    }
+                }
+            }
+
+            addFeedRow
+
+            if isSubscribing {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    ProgressView().controlSize(.small)
+                    Text("Subscribing…")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            } else if let err = subscribeError {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(err)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(Color(hex: 0xEF4444))
+                    Button("Retry") { subscribeFeedNow() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.accent)
+                }
+            }
+
+            Divider().background(CicadaTheme.border)
+
+            pollFeedsRow
+
+            if pollSkippedNoNetwork {
+                Text("Live feed fetch is disabled on this backend — set CICADA_ALLOW_FEED_FETCH=1 in api/.env and restart the backend so polling can actually reach these feeds.")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(CicadaTheme.spacingLG)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private var addFeedRow: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Image(systemName: "plus")
+                .font(.system(size: 12))
+                .foregroundStyle(CicadaTheme.textTertiary)
+            TextField("https://example.com/feed.xml", text: $newFeedURL)
+                .textFieldStyle(.plain)
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .onSubmit { subscribeFeedNow() }
+            Button("Subscribe") { subscribeFeedNow() }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(
+                    newFeedURL.trimmingCharacters(in: .whitespaces).isEmpty
+                        ? CicadaTheme.textTertiary : CicadaTheme.accent
+                )
+                .disabled(newFeedURL.trimmingCharacters(in: .whitespaces).isEmpty || isSubscribing)
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+        .background(CicadaTheme.surfaceHover)
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+    }
+
+    private var pollFeedsRow: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            Button {
+                pollFeedsNow()
+            } label: {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    if isPolling {
+                        ProgressView().controlSize(.small).frame(width: 12, height: 12)
+                    } else {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 12))
+                    }
+                    Text(isPolling ? "Polling…" : "Poll feeds now")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(feeds.isEmpty && !isPolling ? CicadaTheme.textTertiary : .white)
+                .padding(.horizontal, CicadaTheme.spacingLG)
+                .padding(.vertical, CicadaTheme.spacingSM)
+                .background(feeds.isEmpty && !isPolling ? CicadaTheme.surfaceElevated : CicadaTheme.accent.opacity(0.9))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(isPolling || feeds.isEmpty)
+            .help(feeds.isEmpty ? "Subscribe to a feed first" : "Check every subscribed feed for new items")
+
+            if let result = pollResult {
+                Text(result)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(Color(hex: 0x22C55E))
+            } else if let err = pollError {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(err)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(Color(hex: 0xEF4444))
+                    Button("Retry") { pollFeedsNow() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.accent)
+                }
+            }
+        }
+    }
+
+    private func loadFeeds() async {
+        feedsLoading = true
+        do {
+            let f = try await APIClient.shared.fetchFeeds()
+            await MainActor.run {
+                feeds = f
+                feedsError = nil
+                feedsLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                feedsError = Self.friendlyError(error)
+                feedsLoading = false
+            }
+        }
+    }
+
+    private func subscribeFeedNow() {
+        let url = newFeedURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty, !isSubscribing else { return }
+
+        isSubscribing = true
+        subscribeError = nil
+
+        Task {
+            do {
+                _ = try await APIClient.shared.subscribeFeed(url: url)
+                await MainActor.run {
+                    isSubscribing = false
+                    newFeedURL = ""
+                }
+                await loadFeeds()
+            } catch {
+                await MainActor.run {
+                    isSubscribing = false
+                    subscribeError = Self.friendlyError(error)
+                }
+            }
+        }
+    }
+
+    private func unsubscribeFeedNow(_ url: String) {
+        unsubscribingURL = url
+        Task {
+            do {
+                try await APIClient.shared.unsubscribeFeed(url: url)
+                await MainActor.run { unsubscribingURL = nil }
+                await loadFeeds()
+            } catch {
+                await MainActor.run {
+                    unsubscribingURL = nil
+                    feedsError = Self.friendlyError(error)
+                }
+            }
+        }
+    }
+
+    private func pollFeedsNow() {
+        isPolling = true
+        pollResult = nil
+        pollError = nil
+        pollSkippedNoNetwork = false
+
+        Task {
+            do {
+                let r = try await APIClient.shared.pollFeeds()
+                await MainActor.run {
+                    isPolling = false
+                    if r.skippedNoNetwork > 0 {
+                        pollResult = "\(r.skippedNoNetwork) feed\(r.skippedNoNetwork == 1 ? "" : "s") skipped"
+                        pollSkippedNoNetwork = true
+                    } else {
+                        pollResult = "\(r.new) new"
+                    }
+                }
+                await loadFeeds()
+            } catch {
+                await MainActor.run {
+                    isPolling = false
+                    pollError = Self.friendlyError(error)
+                }
+            }
+        }
+    }
+
+    // MARK: - Origins strip
+
+    @ViewBuilder
+    private var originsStrip: some View {
+        if !origins.isEmpty {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                sectionLabel("WHERE YOUR MEMORY COMES FROM")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        ForEach(origins) { OriginPill(origin: $0) }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        } else if let err = originsError {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                sectionLabel("WHERE YOUR MEMORY COMES FROM")
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(err)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(Color(hex: 0xEF4444))
+                    Button("Retry") { Task { await loadOrigins() } }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.accent)
+                }
+            }
+        }
+        // else: no origins yet and no error — nothing to show, strip stays hidden.
+    }
+
+    private func loadOrigins() async {
+        do {
+            let o = try await APIClient.shared.fetchOrigins()
+            await MainActor.run {
+                origins = o
+                originsError = nil
+            }
+        } catch {
+            await MainActor.run {
+                originsError = Self.friendlyError(error)
+            }
+        }
+    }
+
     // MARK: - Queue
 
     private var queueCard: some View {
@@ -564,5 +865,135 @@ private struct ImportTileButton: View {
         .disabled(isBusy)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
+    }
+}
+
+// MARK: - Feed subscription row
+
+private struct FeedSubscriptionRow: View {
+    let feed: FeedSubscription
+    var isRemoving: Bool = false
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            Image(systemName: "dot.radiowaves.up.forward")
+                .font(.system(size: 12))
+                .foregroundStyle(CicadaTheme.textTertiary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(feed.url)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(subtitle)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+
+            Spacer()
+
+            if isRemoving {
+                ProgressView().controlSize(.small)
+            } else {
+                Button(action: onRemove) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Unsubscribe")
+            }
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+        .background(CicadaTheme.surfaceHover.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+    }
+
+    private var subtitle: String {
+        var parts = ["added \(feed.added)"]
+        if let polled = feed.lastPolled, !polled.isEmpty {
+            parts.append("last polled \(polled)")
+        } else {
+            parts.append("not polled yet")
+        }
+        if !feed.tags.isEmpty {
+            parts.append(feed.tags.joined(separator: ", "))
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Origin pill
+
+/// One capture-origin readout in the Capture page's "where your memory comes
+/// from" strip. Pill/capsule styling mirrors `ContributorAvatar`/`ClaimChip`'s
+/// provenance pills so provenance reads consistently across the app; icon and
+/// brand color mirror `CaptureSourceCatalog` where the origin has a known source.
+private struct OriginPill: View {
+    let origin: OriginStat
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(color)
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(CicadaTheme.textPrimary)
+            Text("\(origin.episodeCount) ep · \(origin.entityCount) ent")
+                .font(.system(size: 10, weight: .regular))
+                .foregroundStyle(CicadaTheme.textTertiary)
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+        .background(color.opacity(0.12))
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(color.opacity(0.3), lineWidth: 1))
+        .help(origin.lastSeen.isEmpty ? label : "\(label) · last seen \(origin.lastSeen)")
+    }
+
+    private var label: String {
+        switch origin.origin {
+        case "mcp": "MCP"
+        case "chrome-bookmark": "Chrome"
+        case "safari-bookmark": "Safari"
+        case "telegram": "Telegram"
+        case "claude-export": "Claude export"
+        case "chatgpt-export": "ChatGPT export"
+        case "rss": "RSS"
+        case "share-sheet": "Share Sheet"
+        case "unknown": "Unknown"
+        default: origin.origin.capitalized
+        }
+    }
+
+    private var symbol: String {
+        switch origin.origin {
+        case "mcp": "bubble.left.and.bubble.right"
+        case "chrome-bookmark": "globe"
+        case "safari-bookmark": "safari"
+        case "telegram": "paperplane.fill"
+        case "claude-export", "chatgpt-export": "square.and.arrow.down"
+        case "rss": "dot.radiowaves.up.forward"
+        case "share-sheet": "square.and.arrow.up"
+        case "unknown": "questionmark.circle"
+        default: "tray"
+        }
+    }
+
+    private var color: Color {
+        switch origin.origin {
+        case "mcp": CicadaTheme.accent
+        case "chrome-bookmark": Color(hex: 0x4285F4)
+        case "safari-bookmark": Color(hex: 0x00A2E8)
+        case "telegram": Color(hex: 0x26A5E4)
+        case "rss": Color(hex: 0xEE802F)
+        case "share-sheet": Color(hex: 0x8896FF)
+        case "unknown": CicadaTheme.textTertiary
+        default: CicadaTheme.textSecondary
+        }
     }
 }
