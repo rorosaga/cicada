@@ -19,136 +19,139 @@ if str(_REPO_ROOT) not in sys.path:
 
 # MCP protocol uses JSON-RPC 2.0 over stdin/stdout
 
+# Tool list advertised via `tools/list` and dispatched via `tools/call`. Kept at
+# module scope (not local to main()) so both main() and other modules (e.g. a
+# future cicada_sources tool, and tests like test_mcp_tool_descriptions.py) can
+# reference the same TOOLS constant without re-running the JSON-RPC loop.
+TOOLS = [
+    {
+        "name": "cicada_recall",
+        "description": "Search Cicada's knowledge graph for entities related to a topic. Returns concise summaries (Pass 1). Pending inbox items are surfaced first when relevant. Use this at the start of conversations to check what Cicada already knows about the topic being discussed. If a fact might exist, call cicada_recall_detail on the top suggested entity before concluding it is absent. State only facts present in tool results; do not add adjacent details from general knowledge.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The topic, person, project, or concept to search for",
+                }
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "cicada_recall_detail",
+        "description": "Return the FULL entity page for a specific entity. Use this as Pass 2 after cicada_recall when you need the complete description and history — not a summary.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": "The entity ID (e.g. 'figure-ai') or entity name from a cicada_recall result.",
+                }
+            },
+            "required": ["entity_id"],
+        },
+    },
+    {
+        "name": "cicada_save_episode",
+        "description": "Save a conversation snippet as an episode for Cicada's memory. The episode will be processed during the next Sleep cycle to extract entities and relationships. Use this when the conversation contains important information worth remembering.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The conversation content to save as an episode",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "A short title for this episode",
+                },
+            },
+            "required": ["content"],
+        },
+    },
+    {
+        "name": "cicada_check_nudges",
+        "description": "Check for pending inbox items in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, ambiguous mentions, or possible duplicates. Use this proactively when a conversation touches topics that might have pending items.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "Optional topic to filter inbox items by relevance",
+                }
+            },
+        },
+    },
+    {
+        "name": "cicada_open_hub",
+        "description": "Open a Cicada hub page (a topic or type index) and list its member entities with one-line summaries. Use after cicada_recall returns a relevant_hub, or to browse a topic. Pass a hub id like 'people', 'tools', or 'topic-robotics'.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"hub": {"type": "string"}},
+            "required": ["hub"],
+        },
+    },
+    {
+        "name": "cicada_ask",
+        "description": "Ask Cicada's memory a natural-language question and get a synthesized answer that CITES the entities it used and explicitly states what it could NOT answer (gaps). Grounded only in stored memory — it says 'I don't know' rather than guessing. Use when you want a direct answer rather than a list of entities to read yourself. Prefer this tool for direct factual questions — it reads full entity pages and claims and returns an answer with citations and an explicit gap list.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The natural-language question to ask of memory.",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "How many entities to retrieve as grounding context (default 6).",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "cicada_get_perspective",
+        "description": "Return a subject's currently-valid claims from a specific PERSPECTIVE — optionally filtered by observer (who holds the belief: 'agent', 'rodrigo', or 'external:<name>') and/or context (e.g. 'engineering', 'family', 'career'). Use when you need to know who believes what about a subject, or want only one facet of a subject (e.g. engineer-Rodrigo vs family-Rodrigo). Each claim carries its observer, context, source_trust, confidence, and valid-from date so you can attribute beliefs honestly.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": "The subject entity id or name (e.g. 'rodrigo', 'cicada').",
+                },
+                "observer": {
+                    "type": "string",
+                    "description": "Optional. Filter to one observer: 'agent', 'rodrigo', or 'external:<name>'.",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional. Filter to one context facet (e.g. 'engineering', 'family', 'career').",
+                },
+            },
+            "required": ["subject"],
+        },
+    },
+    {
+        "name": "cicada_save_url",
+        "description": "Save a URL (article, video, bookmark) into Cicada's memory as saved media. The link becomes a graph entity and connects to related topics after the next Sleep cycle. Use when the user shares a link worth remembering or says 'save this'.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to save"},
+                "note": {
+                    "type": "string",
+                    "description": "Optional note about why this was saved",
+                },
+            },
+            "required": ["url"],
+        },
+    },
+]
+
 
 def main():
     """Main loop: read JSON-RPC requests from stdin, write responses to stdout."""
-    # Server capabilities
-    tools = [
-        {
-            "name": "cicada_recall",
-            "description": "Search Cicada's knowledge graph for entities related to a topic. Returns concise summaries (Pass 1). Pending inbox items are surfaced first when relevant. Use this at the start of conversations to check what Cicada already knows about the topic being discussed.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The topic, person, project, or concept to search for",
-                    }
-                },
-                "required": ["query"],
-            },
-        },
-        {
-            "name": "cicada_recall_detail",
-            "description": "Return the FULL entity page for a specific entity. Use this as Pass 2 after cicada_recall when you need the complete description and history — not a summary.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "entity_id": {
-                        "type": "string",
-                        "description": "The entity ID (e.g. 'figure-ai') or entity name from a cicada_recall result.",
-                    }
-                },
-                "required": ["entity_id"],
-            },
-        },
-        {
-            "name": "cicada_save_episode",
-            "description": "Save a conversation snippet as an episode for Cicada's memory. The episode will be processed during the next Sleep cycle to extract entities and relationships. Use this when the conversation contains important information worth remembering.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "content": {
-                        "type": "string",
-                        "description": "The conversation content to save as an episode",
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "A short title for this episode",
-                    },
-                },
-                "required": ["content"],
-            },
-        },
-        {
-            "name": "cicada_check_nudges",
-            "description": "Check for pending inbox items in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, ambiguous mentions, or possible duplicates. Use this proactively when a conversation touches topics that might have pending items.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "topic": {
-                        "type": "string",
-                        "description": "Optional topic to filter inbox items by relevance",
-                    }
-                },
-            },
-        },
-        {
-            "name": "cicada_open_hub",
-            "description": "Open a Cicada hub page (a topic or type index) and list its member entities with one-line summaries. Use after cicada_recall returns a relevant_hub, or to browse a topic. Pass a hub id like 'people', 'tools', or 'topic-robotics'.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"hub": {"type": "string"}},
-                "required": ["hub"],
-            },
-        },
-        {
-            "name": "cicada_ask",
-            "description": "Ask Cicada's memory a natural-language question and get a synthesized answer that CITES the entities it used and explicitly states what it could NOT answer (gaps). Grounded only in stored memory — it says 'I don't know' rather than guessing. Use when you want a direct answer rather than a list of entities to read yourself.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The natural-language question to ask of memory.",
-                    },
-                    "top_k": {
-                        "type": "integer",
-                        "description": "How many entities to retrieve as grounding context (default 6).",
-                    },
-                },
-                "required": ["query"],
-            },
-        },
-        {
-            "name": "cicada_get_perspective",
-            "description": "Return a subject's currently-valid claims from a specific PERSPECTIVE — optionally filtered by observer (who holds the belief: 'agent', 'rodrigo', or 'external:<name>') and/or context (e.g. 'engineering', 'family', 'career'). Use when you need to know who believes what about a subject, or want only one facet of a subject (e.g. engineer-Rodrigo vs family-Rodrigo). Each claim carries its observer, context, source_trust, confidence, and valid-from date so you can attribute beliefs honestly.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "subject": {
-                        "type": "string",
-                        "description": "The subject entity id or name (e.g. 'rodrigo', 'cicada').",
-                    },
-                    "observer": {
-                        "type": "string",
-                        "description": "Optional. Filter to one observer: 'agent', 'rodrigo', or 'external:<name>'.",
-                    },
-                    "context": {
-                        "type": "string",
-                        "description": "Optional. Filter to one context facet (e.g. 'engineering', 'family', 'career').",
-                    },
-                },
-                "required": ["subject"],
-            },
-        },
-        {
-            "name": "cicada_save_url",
-            "description": "Save a URL (article, video, bookmark) into Cicada's memory as saved media. The link becomes a graph entity and connects to related topics after the next Sleep cycle. Use when the user shares a link worth remembering or says 'save this'.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "The URL to save"},
-                    "note": {
-                        "type": "string",
-                        "description": "Optional note about why this was saved",
-                    },
-                },
-                "required": ["url"],
-            },
-        },
-    ]
-
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -178,7 +181,7 @@ def main():
             pass
 
         elif method == "tools/list":
-            respond(req_id, {"tools": tools})
+            respond(req_id, {"tools": TOOLS})
 
         elif method == "tools/call":
             tool_name = params.get("name", "")
