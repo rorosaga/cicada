@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile
 from loguru import logger
+from pydantic import BaseModel
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
@@ -14,10 +15,19 @@ from api.models.schemas import (
     SourceSaveResponse,
     SourceUploadResponse,
 )
-from api.services import bookmark_sync, media_ingestor
+from api.services import bookmark_sync, feed_registry, media_ingestor
 from api.services.media_ingestor import MAX_BATCH, RawItem
 
 router = APIRouter()
+
+
+class FeedSubscribeRequest(BaseModel):
+    url: str
+    tags: list[str] | None = None
+
+
+class FeedUnsubscribeRequest(BaseModel):
+    url: str
 
 
 @router.post("/sources/save", response_model=SourceSaveResponse)
@@ -323,3 +333,51 @@ async def list_sources(
     else:
         items.sort(key=lambda i: i.saved_at, reverse=True)
     return SourceListResponse(items=items, total=len(items))
+
+
+# --- Feed subscriptions (registry + poll) -----------------------------------
+
+
+@router.get("/sources/feeds")
+async def list_feed_subscriptions(settings: Settings = Depends(get_settings)):
+    """List every subscribed RSS/Atom feed (``<memory>/feeds.yaml``)."""
+    feeds = feed_registry.list_feeds(settings.memory_path)
+    return {"feeds": feeds, "total": len(feeds)}
+
+
+@router.post("/sources/feeds")
+async def subscribe_feed(
+    request: FeedSubscribeRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """Subscribe to an RSS/Atom feed. Idempotent — re-subscribing dedups on URL."""
+    url = request.url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="URL must start with http:// or https://")
+    record = feed_registry.subscribe_feed(settings.memory_path, url, tags=request.tags)
+    return record
+
+
+@router.delete("/sources/feeds")
+async def unsubscribe_feed(
+    request: FeedUnsubscribeRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """Unsubscribe a feed by URL."""
+    removed = feed_registry.unsubscribe_feed(settings.memory_path, request.url)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Feed not subscribed")
+    return {"status": "ok", "url": request.url}
+
+
+@router.post("/sources/poll-feeds")
+async def poll_feeds(settings: Settings = Depends(get_settings)):
+    """Run a poll cycle over every subscribed feed.
+
+    Respects the same network gate as ``POST /sources/rss``
+    (``CICADA_ALLOW_FEED_FETCH=1``) — with no fetch allowed, this is a no-op
+    that reports ``skipped_no_network`` instead of hitting the network.
+    """
+    memory_path = settings.memory_path
+    result = await feed_registry.poll_feeds(memory_path)
+    return result
