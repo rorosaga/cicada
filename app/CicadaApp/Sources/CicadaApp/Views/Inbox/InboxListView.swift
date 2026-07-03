@@ -20,20 +20,24 @@ struct InboxListView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerBar
 
-            if viewModel.items.isEmpty {
+            // Error branch MUST come before the empty-items check — otherwise a
+            // failed `GET /inbox` (items stays []) falls through to the "All
+            // caught up" happy state and a real backend error looks like
+            // nothing needed attention.
+            if let err = viewModel.errorMessage, viewModel.items.isEmpty {
+                errorState(err)
+            } else if viewModel.items.isEmpty {
                 emptyState
             } else {
                 ScrollView {
                     LazyVStack(spacing: CicadaTheme.spacingSM) {
                         ForEach(visibleItems) { item in
                             InboxCardView(item: item) { action, answer, mergeTarget, mergeSurvivor in
-                                Task {
-                                    await viewModel.resolve(
-                                        id: item.id, action: action,
-                                        answer: answer, mergeTarget: mergeTarget,
-                                        mergeSurvivor: mergeSurvivor
-                                    )
-                                }
+                                await viewModel.resolve(
+                                    id: item.id, action: action,
+                                    answer: answer, mergeTarget: mergeTarget,
+                                    mergeSurvivor: mergeSurvivor
+                                )
                             }
                             .transition(.asymmetric(
                                 insertion: .opacity,
@@ -117,6 +121,42 @@ struct InboxListView: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Error state (load failure — distinct from "All caught up")
+
+    private func errorState(_ message: String) -> some View {
+        VStack(spacing: CicadaTheme.spacingLG) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 40))
+                .foregroundStyle(CicadaTheme.textTertiary)
+
+            Text("Couldn't load the inbox")
+                .font(CicadaTheme.headingFont)
+                .foregroundStyle(CicadaTheme.textPrimary)
+
+            Text(message)
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                Task { await viewModel.loadInbox() }
+            } label: {
+                Text("Retry")
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(.horizontal, CicadaTheme.spacingMD)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(CicadaTheme.accent)
+
             Spacer()
             Spacer()
         }

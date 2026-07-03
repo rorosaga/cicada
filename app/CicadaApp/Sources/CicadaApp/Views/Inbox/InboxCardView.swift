@@ -12,7 +12,9 @@ struct InboxCardView: View {
     /// (action, answer?, mergeTarget?, mergeSurvivor?) — forwarded to
     /// `InboxViewModel.resolve`. `mergeSurvivor` (issue #1) is the id the user
     /// chose to keep as the canonical entity; nil for non-merge actions.
-    let onResolve: (String, String?, String?, String?) -> Void
+    /// Returns whether the resolve succeeded — `fire()` uses this to reset
+    /// `resolving` on failure instead of leaving the card dimmed forever.
+    let onResolve: (String, String?, String?, String?) async -> Bool
 
     @State private var isExpanded = false
     @State private var isHovered = false
@@ -369,7 +371,11 @@ struct InboxCardView: View {
     }
 
     /// Fire a resolution. Skip just forwards (the card stays); everything else
-    /// plays a brief confirming fade before the list removes it.
+    /// plays a brief confirming fade before the list removes it. On success
+    /// the item disappears from `InboxViewModel.items`, which removes this
+    /// card from the list entirely — `resolving` never needs to be unset. On
+    /// failure the card survives (the item stays in the list), so `resolving`
+    /// MUST be reset here or the card stays frozen at 50% opacity forever.
     private func fire(
         _ action: String,
         answer: String? = nil,
@@ -379,7 +385,12 @@ struct InboxCardView: View {
         if action != "skip" {
             withAnimation(.spring(duration: 0.2)) { resolving = true }
         }
-        onResolve(action, answer, mergeTarget, mergeSurvivor)
+        Task {
+            let succeeded = await onResolve(action, answer, mergeTarget, mergeSurvivor)
+            if !succeeded {
+                withAnimation(.spring(duration: 0.2)) { resolving = false }
+            }
+        }
     }
 }
 

@@ -20,22 +20,28 @@ struct GraphFilter: Equatable {
         types.count == EntityType.selectableCases.count
     }
 
-    /// JSON-object payload for graph.js `applyFilters`. Sends `null` (omits) for
-    /// dimensions that are "no filter" so the JS treats them as all-pass.
+    /// JSON-object payload for graph.js `applyFilters`. Always sends an
+    /// explicit array for every set-valued axis — assigning `nil` into a
+    /// Swift `[String: Any]` DELETES the key, and graph.js's `toSet` guard is
+    /// `if ("observers" in f)` (etc.), so a nil-deleted key means the filter
+    /// never resets and the previous selection's dimming/reheat sticks. An
+    /// empty array is what graph.js's `toSet` already treats as "no filter",
+    /// so there is no need to omit the key.
     var jsPayload: [String: Any] {
         var payload: [String: Any] = [
             "minConfidence": minConfidence,
             "minDegree": minDegree,
         ]
-        payload["types"] = allTypesSelected ? nil : types.map(\.rawValue)
-        // statuses: send the explicit set; null only when every status is on.
+        payload["types"] = allTypesSelected ? [] : types.map(\.rawValue)
+        // statuses: send the explicit set; empty array only when every status is on.
         let allStatus = statuses.count == EntityStatus.allCases.count
-        payload["statuses"] = allStatus ? nil : statuses.map(\.rawValue)
-        payload["tags"] = tags.isEmpty ? nil : Array(tags)
-        // Claim-layer axes: send only when an explicit filter is active so the
-        // JS treats absence as all-pass (matching the existing null semantics).
-        payload["contexts"] = contexts.isEmpty ? nil : Array(contexts)
-        payload["observers"] = observers.isEmpty ? nil : Array(observers)
+        payload["statuses"] = allStatus ? [] : statuses.map(\.rawValue)
+        payload["tags"] = Array(tags)
+        // Claim-layer axes: always send the explicit set (possibly empty) so
+        // the JS can distinguish "no filter" (empty array) from a stale
+        // previous selection instead of silently keeping the old key/value.
+        payload["contexts"] = Array(contexts)
+        payload["observers"] = Array(observers)
         return payload
     }
 

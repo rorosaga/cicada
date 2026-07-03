@@ -24,9 +24,12 @@ struct ObserverFilterBar: View {
     }
 
     var body: some View {
-        // Only show once the graph actually carries observer data — otherwise
-        // the filter is a no-op control that would just confuse the demo.
-        if graphVM.observerRoster.isEmpty {
+        // Only show once the graph actually carries MORE THAN ONE distinct
+        // observer — a single-observer graph (e.g. everything asserted by
+        // `agent`) can't be filtered: every segment would show an identical
+        // slice, which is a no-op control that just confuses the user. The
+        // bar reappears automatically once multi-observer data exists.
+        if !graphVM.hasObserverDiversity {
             EmptyView()
         } else {
             HStack(spacing: 1) {

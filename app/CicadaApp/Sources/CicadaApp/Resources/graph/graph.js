@@ -1289,13 +1289,37 @@ function onMouseLeave() {
 
 // ---------- Swift-facing controls ----------
 
+// setsEqual compares two `toSet()` outputs (Set<string> or null) by value —
+// used to tell a genuinely new selection from a same-value re-send (e.g.
+// GraphFilter now always sends every axis, so key presence alone can't tell
+// us whether anything actually changed).
+function setsEqual(a, b) {
+    if (a === b) return true;          // same reference, or both null
+    if (!a || !b) return false;        // exactly one is null
+    if (a.size !== b.size) return false;
+    for (const v of a) { if (!b.has(v)) return false; }
+    return true;
+}
+
 // applyFilters is the new unified filter entry point. It accepts a JSON object
 // (string or object) covering every filter dimension, sets module-level state,
-// rebuilds the visible set, and does a soft reheat instead of a full restart.
+// and rebuilds the visible set + reheats the simulation — but ONLY when a
+// set-affecting axis (types/statuses/tags/contexts/minConfidence/minDegree)
+// actually changed by value. The observers axis is dim-only (see
+// nodeMatchesObservers / draw()), never drops nodes from visibleNodes, so an
+// observers-only change just needs a redraw — reheating for it was the
+// "graph expands on every click" bug that masked whether anything filtered.
 function applyFilters(payload) {
     const f = typeof payload === "string" ? JSON.parse(payload) : payload;
 
     const toSet = (arr) => (Array.isArray(arr) && arr.length) ? new Set(arr) : null;
+
+    const prevTypes = filters.types;
+    const prevStatuses = filters.statuses;
+    const prevTags = filters.tags;
+    const prevContexts = filters.contexts;
+    const prevMinConfidence = filters.minConfidence;
+    const prevMinDegree = filters.minDegree;
 
     if ("types" in f) filters.types = toSet(f.types);
     if ("statuses" in f) filters.statuses = toSet(f.statuses);
@@ -1307,9 +1331,19 @@ function applyFilters(payload) {
 
     if (nodes.length === 0) { scheduleRedraw(); return; }
 
-    rebuildVisible();
-    rebuildNeighborsIndex();
-    startSimulation({ reheat: 0.3 });
+    const setAffectingChanged =
+        !setsEqual(prevTypes, filters.types) ||
+        !setsEqual(prevStatuses, filters.statuses) ||
+        !setsEqual(prevTags, filters.tags) ||
+        !setsEqual(prevContexts, filters.contexts) ||
+        prevMinConfidence !== filters.minConfidence ||
+        prevMinDegree !== filters.minDegree;
+
+    if (setAffectingChanged) {
+        rebuildVisible();
+        rebuildNeighborsIndex();
+        startSimulation({ reheat: 0.3 });
+    }
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
     scheduleRedraw();
 }

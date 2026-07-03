@@ -13,6 +13,15 @@ final class GraphViewModel {
     /// Distinct observer wire-strings present in the graph (from `GET /graph`'s
     /// top-level `observers` roster). Drives the §3 observer filter bar.
     var observerRoster: [String] = []
+
+    /// True only when the graph has more than one distinct observer. A
+    /// single-observer graph (e.g. everything asserted by `agent`) can't be
+    /// meaningfully filtered — every segment would show the same slice — so
+    /// `ObserverFilterBar` gates its visibility on this rather than just
+    /// `observerRoster.isEmpty`.
+    var hasObserverDiversity: Bool {
+        observerRoster.count > 1
+    }
     /// Distinct contexts present across nodes/edges. Drives the §2 context
     /// legend. Derived client-side from the loaded graph.
     var contextRoster: [String] = []
