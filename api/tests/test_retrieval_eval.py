@@ -48,3 +48,10 @@ def test_run_one_marks_tool_failure_on_nonzero_exit():
         return (1, "boom")
     out = ev.run_one({"id": 1, "question": "Q?"}, "haiku", "/tmp/cfg.json", runner=fake_runner)
     assert out["exit_ok"] is False
+
+
+def test_run_one_marks_exit_ok_false_on_empty_output():
+    def fake_runner(prompt, model, mcp_config):
+        return (0, "")  # exit code 0 but empty output
+    out = ev.run_one({"id": 1, "question": "Q?"}, "haiku", "/tmp/cfg.json", runner=fake_runner)
+    assert out["exit_ok"] is False

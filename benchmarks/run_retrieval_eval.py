@@ -105,16 +105,32 @@ def main(argv=None):
     questions = load_questions(args.questions)
     models = [m.strip() for m in args.models.split(",") if m.strip()]
     rows = []
-    for q in questions:
-        for m in models:
-            r = run_one(q, m, args.mcp_config)
-            v = (judge_answer(q, m, r["answer"]) if r["exit_ok"]
-                 else {"verdict": "tool-failure", "score": 0.0, "diagnosis": "runner failed"})
-            rows.append({"id": q["id"], "model": m, **v, "answer": r["answer"][:1000]})
-    agg = aggregate(rows)
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
-    (outdir / "rows.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+
+    # Open rows.jsonl in write mode for incremental writing
+    rows_file = outdir / "rows.jsonl"
+    with open(rows_file, "w") as f:
+        for q in questions:
+            for m in models:
+                r = run_one(q, m, args.mcp_config)
+                if r["exit_ok"]:
+                    try:
+                        v = judge_answer(q, m, r["answer"])
+                    except Exception as exc:
+                        v = {
+                            "verdict": "tool-failure",
+                            "score": 0.0,
+                            "diagnosis": f"judge error: {exc}"
+                        }
+                else:
+                    v = {"verdict": "tool-failure", "score": 0.0, "diagnosis": "runner failed"}
+
+                row = {"id": q["id"], "model": m, **v, "answer": r["answer"][:1000]}
+                rows.append(row)
+                f.write(json.dumps(row) + "\n")
+
+    agg = aggregate(rows)
     (outdir / "aggregate.json").write_text(json.dumps(agg, indent=2))
     for m, a in agg.items():
         print(f"{m}: avg={a['avg']} n={a['n']} {a['by_verdict']}")

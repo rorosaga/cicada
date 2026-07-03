@@ -24,6 +24,7 @@ help:
 	  '  make table3-sleep-smoke    # 5-episode smoke test for sleep timing' \
 	  '  make ablation              # full Table 2 threshold sweep' \
 	  '  make ablation-smoke        # cheap Table 2 smoke test on 5 episodes' \
+	  '  make eval                  # retrieval eval using QUESTIONS + MCP_CONFIG' \
 	  '  make all-safe              # rebuild episodes + table1 + table3 (no sleep-cycle spend)' \
 	  '  make all-full              # rebuild episodes + table1 + table3-sleep + ablation' \
 	  '' \
