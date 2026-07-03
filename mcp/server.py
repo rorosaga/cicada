@@ -470,6 +470,26 @@ MEDIUM_TYPES = {"person", "location"}
 MEDIUMLONG_TYPES = {"tool", "concept"}
 
 
+def _rrf_fuse(*ranked_lists, k: int = 60) -> list[dict]:
+    """Reciprocal-rank fusion over hit lists keyed by entity_id.
+
+    score(id) = sum over lists of 1/(k + rank). Rewards ids that rank well in
+    multiple sources (a strong keyword AND vector hit reinforce). Keeps the
+    first-seen hit dict per id.
+    """
+    scores: dict[str, float] = {}
+    keep: dict[str, dict] = {}
+    for lst in ranked_lists:
+        for rank, hit in enumerate(lst):
+            eid = hit.get("entity_id") or hit.get("id")
+            if not eid:
+                continue
+            scores[eid] = scores.get(eid, 0.0) + 1.0 / (k + rank)
+            keep.setdefault(eid, hit)
+    ordered = sorted(scores, key=lambda e: -scores[e])
+    return [keep[e] for e in ordered]
+
+
 def handle_recall(query: str) -> str:
     """Two-source retrieval with progressive disclosure.
 
@@ -498,21 +518,11 @@ def handle_recall(query: str) -> str:
             + "\n".join(inbox_blurbs)
         )
 
-    # === Source 1: LEANN semantic search over entities ===
-    semantic = _leann_search_entities(memory_path, query, top_k=5)
-
-    # === Source 2: keyword fallback for exact-name matches ===
-    keyword = _keyword_search_entities(entities_dir, query, top_k=5)
-
-    # Merge by entity_id while preserving order
-    seen_ids: set[str] = set()
-    merged: list[dict] = []
-    for hit in semantic + keyword:
-        eid = hit.get("entity_id") or hit.get("id")
-        if not eid or eid in seen_ids:
-            continue
-        seen_ids.add(eid)
-        merged.append(hit)
+    # === Sources 1+2: semantic + keyword, rank-fused ===
+    semantic = _leann_search_entities(memory_path, query, top_k=8)
+    keyword = _keyword_search_entities(entities_dir, query, top_k=8)
+    merged = _rrf_fuse(semantic, keyword)
+    seen_ids: set[str] = {h.get("entity_id") or h.get("id") for h in merged}
 
     # === Structured hints block (machine-parseable, emitted first) ===
     # A small model that ignores prose can json.loads this fenced block to get
@@ -588,6 +598,18 @@ def handle_recall(query: str) -> str:
             snippet = (ep.get("text") or "")[:400].strip().replace("\n", " ")
             ep_lines.append(f"- [{ep_id}] {snippet}")
         output_parts.append("\n".join(ep_lines))
+
+    # === Episode fallback: when entity hits are thin, surface raw episode text ===
+    if len(merged) < 2:
+        ep_hits = _leann_search_episodes(memory_path, query, top_k=2)
+        ep_blurbs = []
+        for e in ep_hits:
+            meta = e.get("metadata", {}) or {}
+            snippet = (e.get("text", "") or "")[:400].strip()
+            if snippet:
+                ep_blurbs.append(f"- (episode {meta.get('episode_id', '?')}): {snippet}")
+        if ep_blurbs:
+            output_parts.append("**From source episodes:**\n" + "\n".join(ep_blurbs))
 
     return "\n\n".join(output_parts).strip() or f"No entities found matching '{query}'."
 
