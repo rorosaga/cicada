@@ -127,6 +127,11 @@ enum CaptureSourceCatalog {
 /// ConnectView.swift's layout (PageHeader, glassCard rows, CommandBox steps)
 /// so the two setup pages read as one system.
 struct SyncSetupView: View {
+    /// When presented as a sheet (e.g. from the Capture page), the parent passes
+    /// a dismiss callback and a "Done" button appears. Standalone (nil) shows no
+    /// button.
+    var onDone: (() -> Void)? = nil
+
     private let home = BackendProcess.installRoot().path
     @State private var sources: [CaptureSource] = []
 
@@ -135,7 +140,18 @@ struct SyncSetupView: View {
             PageHeader(
                 title: "Capture sources",
                 subtitle: "Memory doesn't only come from chat — these feed it too."
-            )
+            ) {
+                if let onDone {
+                    Button("Done", action: onDone)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, CicadaTheme.spacingLG)
+                        .padding(.vertical, CicadaTheme.spacingSM)
+                        .background(CicadaTheme.accent.opacity(0.9))
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
