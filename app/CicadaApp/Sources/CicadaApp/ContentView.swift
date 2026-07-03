@@ -9,10 +9,22 @@ struct ContentView: View {
     @AppStorage("cicada.hasSeenConnectGuide") private var hasSeenConnectGuide = false
     @State private var showOnboarding = false
 
+    // Theme: mirrors the persisted mode into `CicadaTheme.mode` (see
+    // Theme/CicadaTheme.swift) on every render, before Sidebar/detail are
+    // constructed below. @AppStorage guarantees SwiftUI re-invokes this body
+    // whenever the key changes, from anywhere (e.g. the toggle button in
+    // SidebarView).
+    @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
+
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(InboxViewModel.self) private var inboxVM
 
     var body: some View {
+        // `ViewBuilder` only accepts declarations/`let _ = ...` statements
+        // ahead of the returned View expression, not arbitrary statements —
+        // hence the `let _ =` wrapper around this side effect.
+        let _ = { CicadaTheme.mode = AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }()
+
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 selectedTab: $selectedTab,
@@ -24,6 +36,14 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CicadaTheme.background)
         }
+        // Most CicadaTheme.xxx tokens are plain static reads, not
+        // @Environment-tracked, so SwiftUI's dependency tracker won't know to
+        // re-invoke every descendant's `body` on a theme flip. Keying the
+        // whole sidebar/detail subtree on the raw mode string forces a clean
+        // rebuild (fresh body calls everywhere) whenever it changes, while
+        // `selectedTab`/`columnVisibility` above stay intact since they live
+        // outside this subtree.
+        .id(colorSchemeRaw)
         .navigationSplitViewStyle(.prominentDetail)
         .task {
             await graphVM.loadGraph()
