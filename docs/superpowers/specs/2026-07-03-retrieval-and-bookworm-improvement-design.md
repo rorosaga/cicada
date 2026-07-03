@@ -39,15 +39,20 @@ failures**, each traced to a specific code lever:
 
 ## 2. Scope & decisions (locked with Rodrigo, 2026-07-03)
 
-- **Scope:** retrieval layer **and** consolidation self-heal (not the full G10 big-model rebuild).
+- **Scope:** retrieval layer, consolidation self-heal, **and** a full source-grounded
+  re-consolidation of all ~1000 pages (Phase 3 = the G10 big-model pass, done the source-grounded,
+  git-reviewable way — see §4 Phase 3).
 - **Eval:** build a repeatable, committed harness in `benchmarks/`; personal questions stay in
   gitignored `*.local.yaml`.
 - **Memory safety:** Phase 2 (which rewrites entity files) runs on a **duplicate bank**
   (`claude-chats-v2`, created via the existing banks feature), leaving the live bank untouched
   until Rodrigo approves the result by comparing scores.
 
-**Non-goals:** G10 full-corpus big-model re-extraction *from scratch*; any change to the storage
-format (markdown+git stays source of truth); any change to the closed 8-type taxonomy.
+**Non-goals:** re-extracting entities *from scratch* (Phase 3 rewrites existing pages grounded in
+their sources — it does not re-run entity promotion/discovery over the whole corpus); any change to
+the storage format (markdown+git stays source of truth); any change to the closed 8-type taxonomy.
+*Note:* Phase 3 at full scope (all ~1000 pages, per Rodrigo's decision) is effectively the G10
+big-model re-consolidation, done the source-grounded, git-reviewable way.
 
 ### 2.1 Source corpus now in-repo (added 2026-07-03)
 
@@ -67,6 +72,9 @@ sources behind any entity and rewrite its page, with every rewrite captured as a
 3. Every "answer-is-in-memory" question is retrievable by *both* models (no false gaps on Q6/Q9).
 4. No regression: negative questions still correctly return honest gaps; `/ask` and existing tests
    stay green.
+5. **Page richness** (Phase 3): median entity-body word count rises materially from the ~50-word
+   baseline the audit measured, with **no hallucinated facts** introduced (rewrites must be
+   source-faithful — spot-checked against the primary conversations).
 
 ## 4. Design
 
@@ -157,11 +165,11 @@ original conversation. Returns a structured bundle (episode ids, chunk text, con
 messages, dates). Corpus path is optional so the primitive degrades to chunks-only when the export
 isn't present (e.g. a shipped install without the personal corpus).
 
-**3b. MCP read tool `cicada_sources(entity_id)`** — read-only surface over 3a (chunks mode). Two
-uses: (1) an interactive model can pull the primary sources behind a belief to ground an answer or
-verify a fact on demand; (2) transparency — the user (or the companion app) can see "which
-conversations produced this entity." Does **not** write; keeps the SKILL.md "Sleep owns entity
-writes" invariant.
+**3b. MCP read tool `cicada_sources(entity_id)` (DECIDED: build it)** — read-only surface over 3a
+(chunks mode). Two uses: (1) an interactive model can pull the primary sources behind a belief to
+ground an answer or verify a fact on demand; (2) transparency — the user (or the companion app) can
+see "which conversations produced this entity." Does **not** write; keeps the SKILL.md "Sleep owns
+entity writes" invariant.
 
 **3c. Source-grounded rewrite pass** — new `api/services/source_rewrite.py ::
 rewrite_entity_from_sources(memory_path, entity_id, settings, *, corpus_path=None)`. Feeds the
@@ -169,13 +177,22 @@ current page + gathered sources (3a) to a strong model (via the dormant `provide
 factory — this adopts it, closing part of G19) with a prompt to produce a richer, strictly
 source-faithful page in the v2 section grammar, preserving human-edited sections
 (`merge_sections_human_safe`) and the `` ```claims `` block. Commits with a `sleep/reconsolidation`
-trigger + the big model as `Cicada-Author`. Batched + bounded (`--limit`, thin-pages-first
-ordering by body length/confidence) so cost is controlled; runs on `claude-chats-v2`.
+trigger + the big model as `Cicada-Author`. Driven page-by-page by a resumable runner over the full
+bank (see Scope below); `--limit` exists only as an execution/testing knob, not a scope cap.
 
-**Relationship to G10:** this is the *source-grounded, per-entity, git-reviewable* form of the
-big-model re-consolidation — not a from-scratch black-box rebuild. Scope for this pass: **thin /
-low-confidence pages first** (and the eval-relevant entities, to prove the score lift), not all
-~1000 at once.
+**Scope (DECIDED by Rodrigo): all ~1000 pages** — the full source-grounded re-consolidation (= G10).
+Because it spends real OpenRouter budget over the whole bank, the pass MUST be:
+- **Resumable** — a processed-marker queue (mirror the existing Sleep resumable-queue pattern,
+  `feat/memory-evolution` commit 45adfba) so an interrupted/failed run continues, and only
+  successfully-rewritten pages are marked done.
+- **Thin/low-confidence-first ordering** — highest-value pages rewritten first, so an early stop
+  still captures most of the quality gain and the eval can measure lift mid-run.
+- **Cost-instrumented** — log per-page + cumulative token cost (via the litellm usage the provider
+  factory returns); estimate total up front (a dry-run over N pages × mean source size) and surface
+  it before the full run.
+- **Bounded per call** — cap source tokens per entity (`mode="full"` conversations can be ~100 msgs;
+  truncate/select the most relevant source spans when they exceed a budget).
+Runs on `claude-chats-v2`; the original bank is promoted only after an eval + spot-check on v2.
 
 ## 5. Testing
 
