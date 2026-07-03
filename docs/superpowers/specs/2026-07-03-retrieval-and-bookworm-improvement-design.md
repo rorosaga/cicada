@@ -46,8 +46,19 @@ failures**, each traced to a specific code lever:
   (`claude-chats-v2`, created via the existing banks feature), leaving the live bank untouched
   until Rodrigo approves the result by comparing scores.
 
-**Non-goals:** G10 full-corpus big-model re-extraction; any change to the storage format
-(markdown+git stays source of truth); any change to the closed 8-type taxonomy.
+**Non-goals:** G10 full-corpus big-model re-extraction *from scratch*; any change to the storage
+format (markdown+git stays source of truth); any change to the closed 8-type taxonomy.
+
+### 2.1 Source corpus now in-repo (added 2026-07-03)
+
+The raw chat-export corpus that produced the graph moved from `../thesis/cicada-data/` to
+`cicada/cicada-data/` (gitignored — ~209MB of personal conversations: `chat-exports/{claude,gemini,
+openai}`). The full **provenance chain is verified end-to-end**: an entity's `source_episodes:` →
+the episode file (which carries `source_id` = the original conversation `uuid`, plus the extracted
+chunk in its body) → the full original conversation in `chat-exports/claude/conversations.json`
+(220 conversations; **all 208 bank episodes' `source_id` resolve** to a full conversation, up to
+~100 messages each). This unlocks **Phase 3** below: a stronger model can re-read the primary
+sources behind any entity and rewrite its page, with every rewrite captured as a git commit.
 
 ## 3. Success criteria
 
@@ -130,6 +141,42 @@ backfilled stub entity so name-search resolves it. Fixes Q6.
 **Ordering:** duplicate bank → 2b dedup → 2c promotion → 2d hub regen → rebuild vector index →
 re-run eval on v2 vs original → Rodrigo promotes v2 if better.
 
+### Phase 3 — Source-grounded re-consolidation (the "review sources, rewrite the page" pass)
+
+The audit's #1 quality problem is thin pages (median ~50 words). Because the full provenance chain
+is now in-repo (§2.1), a stronger model can re-read the *primary sources* behind an entity and
+rewrite its page faithfully — richer Key Facts also directly help retrieval (Phase 1). Runs on the
+duplicate bank; every rewrite is a git commit, so `git blame` / `GET /entities/{id}/history` shows
+exactly what the pass changed and from which sources.
+
+**3a. Shared provenance primitive** — new `api/services/entity_sources.py :: gather_entity_sources(
+memory_path, entity_id, *, mode="chunks"|"full", corpus_path=None)`. Resolves entity →
+`source_episodes` → episode chunks (always available, in-repo); with `mode="full"` and a present
+`cicada-data/chat-exports` corpus, additionally resolves each episode's `source_id` to the full
+original conversation. Returns a structured bundle (episode ids, chunk text, conversation titles +
+messages, dates). Corpus path is optional so the primitive degrades to chunks-only when the export
+isn't present (e.g. a shipped install without the personal corpus).
+
+**3b. MCP read tool `cicada_sources(entity_id)`** — read-only surface over 3a (chunks mode). Two
+uses: (1) an interactive model can pull the primary sources behind a belief to ground an answer or
+verify a fact on demand; (2) transparency — the user (or the companion app) can see "which
+conversations produced this entity." Does **not** write; keeps the SKILL.md "Sleep owns entity
+writes" invariant.
+
+**3c. Source-grounded rewrite pass** — new `api/services/source_rewrite.py ::
+rewrite_entity_from_sources(memory_path, entity_id, settings, *, corpus_path=None)`. Feeds the
+current page + gathered sources (3a) to a strong model (via the dormant `providers.resolve_llm_fn`
+factory — this adopts it, closing part of G19) with a prompt to produce a richer, strictly
+source-faithful page in the v2 section grammar, preserving human-edited sections
+(`merge_sections_human_safe`) and the `` ```claims `` block. Commits with a `sleep/reconsolidation`
+trigger + the big model as `Cicada-Author`. Batched + bounded (`--limit`, thin-pages-first
+ordering by body length/confidence) so cost is controlled; runs on `claude-chats-v2`.
+
+**Relationship to G10:** this is the *source-grounded, per-entity, git-reviewable* form of the
+big-model re-consolidation — not a from-scratch black-box rebuild. Scope for this pass: **thin /
+low-confidence pages first** (and the eval-relevant entities, to prove the score lift), not all
+~1000 at once.
+
 ## 5. Testing
 
 - Every new service (`entity_merge`, `dedup_sweep`, promotion) gets hermetic TDD tests in
@@ -155,4 +202,7 @@ re-run eval on v2 vs original → Rodrigo promotes v2 if better.
 1. `benchmarks/run_retrieval_eval.py` + example questions template + `make eval` target.
 2. Phase-1 retrieval changes (vector_index, mcp/server, entity_body, SKILL.md) + regression tests.
 3. Phase-2 services (`entity_merge`, `dedup_sweep`, promotion) + tests, exercised on `claude-chats-v2`.
-4. A before/after scoreboard per phase, written to `docs/goals/audit-2026-07/`.
+4. Phase-3 source grounding: `entity_sources.py` primitive, `cicada_sources` MCP tool,
+   `source_rewrite.py` pass + tests; chat-export corpus in `cicada/cicada-data/` (gitignored).
+5. A before/after scoreboard per phase (incl. a page-richness metric: median body words), written
+   to `docs/goals/audit-2026-07/`.
