@@ -537,9 +537,6 @@ def handle_recall(query: str) -> str:
     if hints_block:
         output_parts.append(hints_block)
 
-    if not merged and not inbox_blurbs and not relevant_hub:
-        return f"No entities found matching '{query}'."
-
     # Surface the matched hub's member list when LEANN/keyword found nothing
     # (cold-start path) so the user still gets a navigable answer.
     if relevant_hub and not merged:
@@ -598,18 +595,6 @@ def handle_recall(query: str) -> str:
             snippet = (ep.get("text") or "")[:400].strip().replace("\n", " ")
             ep_lines.append(f"- [{ep_id}] {snippet}")
         output_parts.append("\n".join(ep_lines))
-
-    # === Episode fallback: when entity hits are thin, surface raw episode text ===
-    if len(merged) < 2:
-        ep_hits = _leann_search_episodes(memory_path, query, top_k=2)
-        ep_blurbs = []
-        for e in ep_hits:
-            meta = e.get("metadata", {}) or {}
-            snippet = (e.get("text", "") or "")[:400].strip()
-            if snippet:
-                ep_blurbs.append(f"- (episode {meta.get('episode_id', '?')}): {snippet}")
-        if ep_blurbs:
-            output_parts.append("**From source episodes:**\n" + "\n".join(ep_blurbs))
 
     return "\n\n".join(output_parts).strip() or f"No entities found matching '{query}'."
 
