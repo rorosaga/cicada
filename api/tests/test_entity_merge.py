@@ -81,3 +81,27 @@ def test_merge_preserves_winner_claims_block(tmp_path):
     assert result_claims, "winner's claims block must survive the merge"
     assert any(c.id == "clm_w1" for c in result_claims)
     assert "based in Barcelona" in win
+
+
+def test_merge_repoints_related_and_wikilinks_on_third_entity(tmp_path):
+    ents = tmp_path / "entities"; ents.mkdir()
+    _write(ents, "user", {"name": "user", "type": "person", "status": "active",
+                          "confidence": 0.8, "source_episodes": ["ep_1"]},
+           "## Summary\nThe user.\n")
+    _write(ents, "rorosaga", {"name": "rorosaga", "type": "person", "status": "active",
+                             "confidence": 0.7, "source_episodes": ["ep_2"]},
+           "## Summary\nGitHub handle.\n")
+    _write(ents, "mongodb", {"name": "mongodb", "type": "tool", "status": "active",
+                             "confidence": 0.6, "source_episodes": ["ep_3"],
+                             "related": ["rorosaga"]},
+           "## Summary\nWorks with [[rorosaga]] on the project.\n")
+
+    out = merge_entities(tmp_path, loser_id="rorosaga", winner_id="user")
+
+    third = (ents / "mongodb.md").read_text()
+    third_fm = yaml.safe_load(third.split("---")[1])
+    assert "rorosaga" not in third_fm.get("related", [])
+    assert "user" in third_fm.get("related", [])
+    assert "[[rorosaga]]" not in third
+    assert "[[user]]" in third
+    assert out["repointed_refs"] >= 1

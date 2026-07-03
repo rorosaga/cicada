@@ -5,6 +5,7 @@ Unions list frontmatter, section-merges bodies (human-prose-safe), repoints
 graph_edges.yaml endpoints loser->winner, deletes the loser. Reversible via git.
 """
 from __future__ import annotations
+import re
 from pathlib import Path
 import yaml
 from api.services import markdown_parser, entity_body
@@ -100,6 +101,49 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
         data["edges"] = cleaned
         edges_file.write_text(yaml.safe_dump(data, sort_keys=False))
 
+    # Repoint OTHER entities' related: frontmatter and in-body [[wikilinks]]
+    # that still point at the loser, before it's deleted — otherwise those
+    # become dangling references that accumulate across dedup runs.
+    winner_name = str(wfm.get("name", winner_id))
+    loser_name = str(lfm.get("name", loser_id))
+    loser_match = {loser_id.lower(), loser_name.lower()}
+    wikilink_targets = {loser_id, loser_name}
+    wikilink_re = re.compile(
+        r"\[\[\s*(?:" + "|".join(re.escape(t) for t in wikilink_targets) + r")\s*\]\]",
+        re.IGNORECASE,
+    )
+
+    repointed_refs = 0
+    for ep in ents.glob("*.md"):
+        if ep.name in (f"{loser_id}.md", f"{winner_id}.md"):
+            continue
+        epar = markdown_parser.parse(ep)
+        efm = dict(epar.frontmatter)
+        changed = False
+
+        related = efm.get("related")
+        if isinstance(related, list):
+            new_related, seen_r = [], set()
+            for r in related:
+                if isinstance(r, str) and r.lower() in loser_match:
+                    r = winner_name
+                dedup_key = r.lower() if isinstance(r, str) else r
+                if dedup_key in seen_r:
+                    continue
+                seen_r.add(dedup_key)
+                new_related.append(r)
+            if new_related != related:
+                efm["related"] = new_related
+                changed = True
+
+        new_body, n_subs = wikilink_re.subn(f"[[{winner_name}]]", epar.body)
+        if n_subs:
+            changed = True
+
+        if changed:
+            markdown_parser.write(ep, efm, new_body)
+            repointed_refs += 1
+
     lp.unlink()
     return {"winner": winner_id, "merged_source_episodes": len(wfm.get("source_episodes", [])),
-            "repointed_edges": repointed}
+            "repointed_edges": repointed, "repointed_refs": repointed_refs}
