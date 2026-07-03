@@ -269,6 +269,70 @@ def parse_netscape_bookmarks(html: str) -> list[RawItem]:
     return items
 
 
+def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
+    """Safari bookmarks in either shape Safari can hand you.
+
+    (a) ``~/Library/Safari/Bookmarks.plist`` — a binary or XML property list.
+        Walked via stdlib ``plistlib.loads`` (auto-detects binary vs XML);
+        nested ``Children`` folders (``WebBookmarkTypeList``/``...Proxy``) are
+        recursed, and each ``WebBookmarkTypeLeaf`` yields a ``RawItem`` from
+        ``URLString`` + ``URIDictionary["title"]``. Folders themselves are
+        skipped (never emitted as items); leaves with a non-http(s) URL
+        (``javascript:``, ``mailto:``, etc.) are skipped too.
+    (b) A Safari-exported bookmarks HTML file — Safari exports the same
+        Netscape Bookmark File Format Chrome/Firefox do, so on plist-parse
+        failure we decode the bytes as text and delegate straight to
+        ``parse_netscape_bookmarks``.
+
+    Malformed input of either shape degrades to ``[]`` — never raises.
+    """
+    import plistlib
+
+    try:
+        root = plistlib.loads(data)
+    except Exception:
+        try:
+            text = data.decode("utf-8", errors="replace")
+        except Exception:
+            return []
+        return parse_netscape_bookmarks(text)
+
+    items: list[RawItem] = []
+
+    def walk(node) -> None:
+        if not isinstance(node, dict):
+            return
+        if node.get("WebBookmarkType") == "WebBookmarkTypeLeaf":
+            url = node.get("URLString")
+            if isinstance(url, str) and url.startswith(("http://", "https://")):
+                uri_dict = node.get("URIDictionary")
+                title = uri_dict.get("title") if isinstance(uri_dict, dict) else None
+                items.append(RawItem(url=url, title=title or None))
+            return
+        for child in node.get("Children", []) or []:
+            walk(child)
+
+    walk(root)
+    return items
+
+
+def read_live_safari_bookmarks() -> list[RawItem]:
+    """Read the current user's real ``~/Library/Safari/Bookmarks.plist``, if present.
+
+    Convenience for a future "Import from Safari" button — not exercised by
+    tests (hermetic tests never touch the live filesystem). Missing file or
+    any read/parse error degrades to ``[]``, same as ``parse_safari_bookmarks``.
+    """
+    from pathlib import Path as _Path
+
+    plist_path = _Path.home() / "Library" / "Safari" / "Bookmarks.plist"
+    try:
+        data = plist_path.read_bytes()
+    except OSError:
+        return []
+    return parse_safari_bookmarks(data)
+
+
 def parse_chrome_bookmarks_json(data: dict) -> list[RawItem]:
     """Chrome ``Bookmarks`` JSON — recurse the roots tree, type=='url'."""
     items: list[RawItem] = []
@@ -485,7 +549,13 @@ def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, boo
     if name.endswith(".xml") or name.endswith(".rss") or name.endswith(".atom"):
         return parse_rss(content.decode("utf-8", errors="replace")), "RSS Feed", False
     if name.endswith(".html") or name.endswith(".htm"):
-        return parse_netscape_bookmarks(content.decode("utf-8", errors="replace")), "Bookmarks", True
+        # parse_safari_bookmarks falls through to parse_netscape_bookmarks for
+        # non-plist bytes, so this is byte-for-byte the same output as before
+        # for Chrome/Firefox exports too — Safari's HTML export is Netscape
+        # format anyway.
+        return parse_safari_bookmarks(content), "Bookmarks", True
+    if name.endswith(".plist"):
+        return parse_safari_bookmarks(content), "Safari Bookmarks", True
     if name.endswith(".json"):
         data = json.loads(content)
         if isinstance(data, dict) and "roots" in data:
@@ -511,7 +581,9 @@ def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, boo
         return parse_csv_url_list(text), "URL List", False
     if name.endswith(".txt"):
         return parse_url_list(content.decode("utf-8", errors="replace")), "URL List", False
-    raise ValueError("Unsupported file format. Use .html, .json, .csv, .txt, or .xml/.rss/.atom")
+    raise ValueError(
+        "Unsupported file format. Use .html, .json, .csv, .txt, .plist, or .xml/.rss/.atom"
+    )
 
 
 # --- Relevance metric (§3.4, feed sorting) ---------------------------------
