@@ -79,7 +79,7 @@ def test_search_missing_index_returns_empty(tmp_path):
     assert indexer.search_entities("anything", top_k=5) == []
 
 
-def test_archived_entities_excluded_by_default(tmp_path):
+def test_archived_entity_surfaces_via_fallback_when_active_thin(tmp_path):
     entities_dir = tmp_path / "entities"
     entities_dir.mkdir()
     _make_entity(
@@ -103,6 +103,51 @@ def test_archived_entities_excluded_by_default(tmp_path):
         "python web framework api", top_k=5, include_archived=True
     )
     assert "old-api" in {h["metadata"]["entity_id"] for h in all_hits}
+
+
+def test_archived_never_leaks_when_active_set_sufficient(tmp_path):
+    """Core invariant: when >= top_k active hits exist, archived never leaks."""
+    entities_dir = tmp_path / "entities"
+    entities_dir.mkdir()
+
+    # Create 3 ACTIVE entities matching the query
+    _make_entity(
+        entities_dir, "active-python-1", "Active Python Tool 1", "tool",
+        "python web framework api first active tool.", status="active",
+    )
+    _make_entity(
+        entities_dir, "active-python-2", "Active Python Tool 2", "tool",
+        "python web framework api second active tool.", status="active",
+    )
+    _make_entity(
+        entities_dir, "active-python-3", "Active Python Tool 3", "tool",
+        "python web framework api third active tool.", status="active",
+    )
+
+    # Create 1 ARCHIVED entity that also matches the query
+    _make_entity(
+        entities_dir, "archived-python", "Archived Python Tool", "tool",
+        "python web framework api legacy archived tool.", status="archived",
+    )
+
+    indexer = SqliteVecIndexer(tmp_path, embed_fn=fake_embed)
+    indexer.index_entities()
+
+    # Search with top_k=2 (less than 3 active); we get 2 active + fallback archived
+    hits_k2 = indexer.search_entities("python web framework api", top_k=2)
+    ids_k2 = {h["metadata"]["entity_id"] for h in hits_k2}
+    # With only 2 active hits when top_k=2, archived may surface as fallback
+    assert len([h for h in hits_k2 if h["metadata"]["status"] == "active"]) >= 2
+
+    # Search with top_k=3 (exactly 3 active available); archived must NOT leak
+    hits_k3 = indexer.search_entities("python web framework api", top_k=3)
+    archived_ids = {h["metadata"]["entity_id"] for h in hits_k3 if h["metadata"]["status"] == "archived"}
+    assert archived_ids == set(), f"Archived entity leaked when active set sufficient: {archived_ids}"
+
+    # Verify all returned entities are active
+    for hit in hits_k3:
+        assert hit["metadata"]["status"] == "active", \
+            f"Expected all hits to be active, but got {hit['metadata']['entity_id']} with status {hit['metadata']['status']}"
 
 
 def test_index_info_records_model_and_dim(tmp_path):
