@@ -132,8 +132,9 @@ final class MenuBarManager: NSObject {
         case .sleeping(let st):
             stage = st
             overlays.append(BookwormSprites.stageDots(st))
-            // Cycle the zZz overlay in lockstep with the base frame.
-            overlays.append(BookwormSprites.zzzFrames[idx % BookwormSprites.zzzFrames.count])
+            // Note: the zZz glyphs are already baked into `base` by
+            // `BookwormSprites.frames(for: .sleeping)`, so no separate zZz
+            // overlay is appended here.
         case .curious(let count):
             badge = min(99, count)
             // The numeric badge is drawn as menu-bar text alongside the icon
@@ -326,7 +327,9 @@ extension MenuBarManager {
             let (frames, _) = BookwormSprites.frames(for: st)
             var overlays: [[String]] = []
             if case .sleeping(let s) = st {
-                overlays = [BookwormSprites.stageDots(s), BookwormSprites.zzzFrames[0]]
+                // The zZz glyphs are baked into `frames[0]` already; only the
+                // stage-progress dots need to be overlaid here.
+                overlays = [BookwormSprites.stageDots(s)]
             }
             if case .curious(let c) = st {
                 overlays = [BookwormSprites.badgeOverlay(c)]

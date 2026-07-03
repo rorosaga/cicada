@@ -74,6 +74,21 @@ enum BookwormSprites {
         "     #####      ",
     ])
 
+    /// OR-merges an overlay grid onto a base grid (row/col-wise `#` union).
+    /// Used to bake the zZz overlay into the sleeping-state frames themselves
+    /// so any consumer that just plays `frames(for:)` — not only the menu-bar
+    /// renderer's explicit `overlays:` path — shows the rising zZz.
+    private static func merged(_ base: [String], _ overlay: [String]) -> [String] {
+        base.enumerated().map { r, baseLine in
+            guard r < overlay.count else { return baseLine }
+            let overlayLine = Array(overlay[r])
+            return String(Array(baseLine).enumerated().map { c, ch -> Character in
+                if c < overlayLine.count, overlayLine[c] == "#" { return "#" }
+                return ch
+            })
+        }
+    }
+
     // MARK: - zZz overlay frames (drawn on top of sleepEyes)
     //
     // A `z` climbing up-right above the head over three frames. Overlay-only:
@@ -135,6 +150,17 @@ enum BookwormSprites {
         "               ",
         "               ",
     ]
+
+    /// The full sleeping-state frame sequence: `sleepEyes` with the rising zZz
+    /// overlay baked in, one `z` growing to three across the loop. This is what
+    /// ``frames(for:)`` hands back for `.sleeping`, so both ``BookwormView``
+    /// (plain frame playback, no overlay support) and the menu-bar status item
+    /// (which additionally OR-s in the same `zzzFrames` via its own `overlays:`
+    /// path — harmless, since OR-merge is idempotent) show the worm visibly
+    /// dozing off.
+    static let sleepFrame1: [String] = merged(sleepEyes, zzzFrame1)
+    static let sleepFrame2: [String] = merged(sleepEyes, zzzFrame2)
+    static let sleepFrame3: [String] = merged(sleepEyes, zzzFrame3)
 
     // MARK: - Digesting (chewing mouth open/closed)
 
@@ -210,8 +236,9 @@ enum BookwormSprites {
             return ([awakeOpen, awakeOpen, awakeOpen, awakeOpen, awakeOpen,
                      awakeOpen, awakeOpen, awakeOpen, awakeOpen, awakeBlink], 0.5)
         case .sleeping:
-            // zZz rises over three frames; base eyes stay shut.
-            return ([sleepEyes, sleepEyes, sleepEyes], 0.6)
+            // zZz rises over three frames (one z, then two, then three,
+            // looping); base eyes stay shut throughout.
+            return ([sleepFrame1, sleepFrame2, sleepFrame3], 0.6)
         case .digesting:
             return ([chew1, chew2, chew1, chew2, chew1, chew2], 0.18)
         case .happy:

@@ -44,6 +44,12 @@ struct SidebarView: View {
     @Binding var selectedTab: AppTab
     var inboxCount: Int
 
+    // Theme toggle. Persists directly to the same key CicadaApp/ContentView
+    // read, so flipping it here propagates everywhere without any extra
+    // plumbing.
+    @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
+    private var colorScheme: AppColorScheme { AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             ForEach(SidebarSection.allCases, id: \.self) { section in
@@ -72,11 +78,19 @@ struct SidebarView: View {
 
             Spacer()
 
-            Text("Cicada")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .padding(.horizontal, CicadaTheme.spacingLG)
-                .padding(.bottom, CicadaTheme.spacingMD)
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Text("Cicada")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+
+                Spacer()
+
+                ThemeToggleButton(colorScheme: colorScheme) {
+                    colorSchemeRaw = (colorScheme == .dark ? AppColorScheme.light : AppColorScheme.dark).rawValue
+                }
+            }
+            .padding(.horizontal, CicadaTheme.spacingLG)
+            .padding(.bottom, CicadaTheme.spacingMD)
         }
         .padding(.top, CicadaTheme.spacingXL)
         .frame(minWidth: 180)
@@ -131,5 +145,30 @@ private struct SidebarRow: View {
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
         .animation(.easeInOut(duration: 0.15), value: isSelected)
+    }
+}
+
+/// Sun/moon toggle in the sidebar footer, next to the "Cicada" wordmark.
+/// Purely presentational — the parent owns reading/writing
+/// `cicada.colorScheme` so this stays a dumb button.
+private struct ThemeToggleButton: View {
+    let colorScheme: AppColorScheme
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: colorScheme == .dark ? "moon.fill" : "sun.max.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+                .frame(width: 22, height: 22)
+                .background(
+                    Circle().fill(isHovered ? CicadaTheme.surfaceHover : .clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(colorScheme == .dark ? "Switch to light mode" : "Switch to dark mode")
+        .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
     }
 }

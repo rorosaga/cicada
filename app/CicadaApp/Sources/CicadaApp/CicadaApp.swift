@@ -11,6 +11,14 @@ struct CicadaApp: App {
     @State private var backend = BackendProcess()
     @State private var menuPollTask: Task<Void, Never>?
 
+    // Theme: persisted mode driving both the SwiftUI environment
+    // (`.preferredColorScheme`, so system materials/controls follow) and the
+    // native AppKit window chrome (titlebar/background), which NSWindow
+    // doesn't pick up from SwiftUI state automatically — see
+    // `syncWindowChrome` below.
+    @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
+    private var appColorScheme: AppColorScheme { AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }
+
     init() {
         // Swift Package executable targets launch without an Info.plist, so AppKit
         // treats the process as a command-line tool by default. The window appears
@@ -28,7 +36,14 @@ struct CicadaApp: App {
                 .environment(inboxVM)
                 .environment(sleepVM)
                 .environment(banksVM)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(appColorScheme == .light ? .light : .dark)
+                .onChange(of: colorSchemeRaw) { _, newValue in
+                    let mode = AppColorScheme(rawValue: newValue) ?? .dark
+                    CicadaTheme.mode = mode
+                    if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
+                        syncWindowChrome(window, mode: mode)
+                    }
+                }
                 .onAppear {
                     backend.start()
                     // When SleepViewModel observes a cycle finish (running ->
@@ -47,15 +62,7 @@ struct CicadaApp: App {
                     }
                     // Ensure the main window is key so TextFields can accept input.
                     if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
-                        // Unify the title bar with the dark app background (#0E0F14).
-                        // The default macOS titlebar material reads gray over the
-                        // app's near-black content; a transparent titlebar + a
-                        // matching window background makes the bar consistently dark
-                        // on every page. (A per-page content background can't recolor
-                        // window chrome — that was the failed earlier attempt that
-                        // also stretched the Inbox window.)
-                        window.titlebarAppearsTransparent = true
-                        window.backgroundColor = NSColor(red: 14 / 255, green: 15 / 255, blue: 20 / 255, alpha: 1)
+                        syncWindowChrome(window, mode: appColorScheme)
                         window.makeKeyAndOrderFront(nil)
                     }
                     menuBarManager.setup(
@@ -104,5 +111,27 @@ struct CicadaApp: App {
                 }
         }
         .defaultSize(width: 1200, height: 800)
+    }
+
+    /// Keeps the native AppKit window chrome (titlebar material + background)
+    /// in lockstep with the SwiftUI theme. NSWindow isn't SwiftUI-observed,
+    /// so this must be called explicitly on launch and again on every toggle
+    /// (see the `.onChange(of: colorSchemeRaw)` above).
+    ///
+    /// A transparent titlebar + a matching window background makes the bar
+    /// read as a continuation of the app's content on every page instead of
+    /// the default gray macOS titlebar material. (A per-page content
+    /// background can't recolor window chrome — that was the failed earlier
+    /// attempt that also stretched the Inbox window.)
+    private func syncWindowChrome(_ window: NSWindow, mode: AppColorScheme) {
+        window.titlebarAppearsTransparent = true
+        switch mode {
+        case .dark:
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.backgroundColor = NSColor(red: 14 / 255, green: 15 / 255, blue: 20 / 255, alpha: 1)
+        case .light:
+            window.appearance = NSAppearance(named: .aqua)
+            window.backgroundColor = NSColor(red: 245 / 255, green: 246 / 255, blue: 250 / 255, alpha: 1)
+        }
     }
 }
