@@ -439,3 +439,44 @@ def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict
         pairs.append((name, ""))
 
     return _related_bullets(pairs)
+
+
+# Priority order for recall summaries: fact-bearing sections first. Summary +
+# Key Facts are ALWAYS included in full (they hold the answer); the rest fill
+# the remaining budget in this order.
+_RECALL_PRIORITY = ["Summary", "Key Facts", "History", "Links", "Related", "Open Questions"]
+
+
+def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
+    """Section-aware truncation that always preserves Summary + Key Facts.
+
+    Byte-offset truncation can cut Key Facts (where specific figures live). This
+    keeps Summary + Key Facts whole, then appends further canonical sections in
+    priority order until the char budget is reached.
+    """
+    sections = parse_sections(body)
+    lead = sections.get("", "").strip()
+    chosen: list[str] = []
+    used = 0
+    # Always-include tier, whole:
+    for title in ("Summary", "Key Facts"):
+        content = sections.get(title, "").strip()
+        if content:
+            block = f"## {title}\n{content}"
+            chosen.append(block)
+            used += len(block)
+    # Fill remaining budget:
+    for title in _RECALL_PRIORITY:
+        if title in ("Summary", "Key Facts"):
+            continue
+        content = sections.get(title, "").strip()
+        if not content:
+            continue
+        block = f"## {title}\n{content}"
+        if used + len(block) > max_chars and chosen:
+            break
+        chosen.append(block)
+        used += len(block)
+    if not chosen:  # legacy flat body (no H2s)
+        return (lead or body).strip()[:max_chars]
+    return "\n\n".join(chosen)

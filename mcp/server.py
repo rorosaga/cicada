@@ -915,12 +915,15 @@ def _type_aware_truncate(body: str, entity_type: str) -> str:
         return ""
     if entity_type in SHORT_TYPES:
         return body
-    if entity_type in MEDIUM_TYPES:
-        return body[:2000]
-    if entity_type in MEDIUMLONG_TYPES:
-        return body[:3200]
-    # project, company, etc — description + last 10 history entries
-    return _truncate_to_desc_and_recent_history(body, max_history=10)
+    try:
+        from api.services.entity_body import summarize_for_recall
+        budget = 2000 if entity_type in MEDIUM_TYPES else 3200
+        return summarize_for_recall(body, max_chars=budget)
+    except Exception:
+        # pyyaml-free fallback: old behavior
+        if entity_type in MEDIUM_TYPES:
+            return body[:2000]
+        return _truncate_to_desc_and_recent_history(body, max_history=10)
 
 
 def _truncate_to_desc_and_recent_history(body: str, max_history: int = 10) -> str:
