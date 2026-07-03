@@ -202,3 +202,8 @@ def write_claims(body: str, claims: list[Claim]) -> str:
     if stripped:
         return f"{stripped}\n\n{block}\n"
     return f"{block}\n"
+
+
+def strip_claims_block(body: str) -> str:
+    """Return body with the ```claims fenced block removed (trailing ws trimmed)."""
+    return _CLAIMS_BLOCK_RE.sub("", body or "").strip()

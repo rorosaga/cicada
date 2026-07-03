@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 import yaml
 from api.services import markdown_parser, entity_body
+from api.services.claims import parse_claims, write_claims, strip_claims_block
 
 _LIST_FIELDS = ("source_episodes", "tags", "related", "aliases")
 
@@ -42,11 +43,17 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     # Section-merge loser body into winner (human-safe: never drop winner prose).
     # merge_sections_human_safe needs the STRUCTURED new_fields shape, so convert
     # the loser's sections via sections_to_fields (a raw sections dict merges nothing).
+    # Preserve the winner's ```claims block verbatim across the merge — capture it
+    # before merging, then merge on claims-stripped bodies so the fence can never
+    # end up mid-section. (The loser body is also stripped so a loser claims
+    # fence doesn't leak in as prose; unioning the loser's claims into the winner
+    # is a deliberate follow-up, not attempted here.)
+    winner_claims = parse_claims(wpar.body)
     human = bool(wfm.get("human_edited"))
-    loser_sections = entity_body.parse_sections(lpar.body)
+    loser_sections = entity_body.parse_sections(strip_claims_block(lpar.body))
     loser_fields = entity_body.sections_to_fields(loser_sections)
     merged_sections = entity_body.merge_sections_human_safe(
-        entity_body.parse_sections(wpar.body), loser_fields, human_edited=human)
+        entity_body.parse_sections(strip_claims_block(wpar.body)), loser_fields, human_edited=human)
     # Preserve any non-canonical (human-authored) loser sections too — the
     # structured merge only carries the canonical fields. If the winner
     # already has a same-titled custom section with different content,
@@ -65,6 +72,8 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
         # identical content: keep winner's, no dup
     new_body = "\n\n".join(f"## {t}\n{c}" if t else c
                            for t, c in merged_sections.items() if c).strip()
+    if winner_claims:
+        new_body = write_claims(new_body, winner_claims)
     markdown_parser.write(wp, wfm, new_body)
 
     # Repoint edges.

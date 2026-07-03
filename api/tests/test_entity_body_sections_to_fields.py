@@ -13,6 +13,14 @@ def test_sections_to_fields_maps_titles_and_splits_bullets():
     f = sections_to_fields(sections)
     assert f["summary"] == "A one-line summary."
     assert f["key_facts"] == ["fact one", "fact two"]
-    assert f["history_entries"] == ["2025-01-01: a thing"]
+    assert f["history_entries"] == [{"date": "2025-01-01", "event": "a thing"}]
     assert f["links"] == ["https://x.example"]
     assert f["open_questions"] == ["what next?"]
+
+
+def test_sections_to_fields_history_entries_dict_shape():
+    f = sections_to_fields({"History": "- 2025-01-01: a thing\n- no-date event"})
+    assert f["history_entries"] == [
+        {"date": "2025-01-01", "event": "a thing"},
+        {"date": "", "event": "no-date event"},
+    ]

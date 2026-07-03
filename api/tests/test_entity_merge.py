@@ -1,6 +1,7 @@
 from pathlib import Path
 import pytest
 import yaml
+from api.services import claims
 from api.services.entity_merge import merge_entities
 
 
@@ -58,3 +59,25 @@ def test_noncanonical_section_collision_keeps_both(tmp_path):
     win = (ents / "user.md").read_text()
     assert "Winner note content." in win
     assert "Loser note content." in win
+
+
+def test_merge_preserves_winner_claims_block(tmp_path):
+    ents = tmp_path / "entities"; ents.mkdir()
+    winner_body = claims.write_claims(
+        "## Summary\nThe user.\n\n## Key Facts\n- likes concise summaries\n",
+        [claims.Claim(id="clm_w1", text="a winner claim")],
+    )
+    _write(ents, "user", {"name": "user", "type": "person", "status": "active",
+                          "confidence": 0.8, "source_episodes": ["ep_1"]},
+           winner_body)
+    _write(ents, "rorosaga", {"name": "rorosaga", "type": "person", "status": "active",
+                             "confidence": 0.7, "source_episodes": ["ep_2"]},
+           "## Summary\nGitHub handle.\n\n## Key Facts\n- based in Barcelona\n")
+
+    merge_entities(tmp_path, loser_id="rorosaga", winner_id="user")
+
+    win = (ents / "user.md").read_text()
+    result_claims = claims.parse_claims(win)
+    assert result_claims, "winner's claims block must survive the merge"
+    assert any(c.id == "clm_w1" for c in result_claims)
+    assert "based in Barcelona" in win

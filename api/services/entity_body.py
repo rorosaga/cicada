@@ -494,10 +494,25 @@ def sections_to_fields(sections: dict) -> dict:
     def _bullets(s: str) -> list[str]:
         return [ln.strip()[2:].strip()
                 for ln in (s or "").splitlines() if ln.strip().startswith("- ")]
+
+    def _history_dicts(s: str) -> list[dict]:
+        out = []
+        for ln in (s or "").splitlines():
+            ln = ln.strip()
+            if not ln.startswith("- "):
+                continue
+            item = ln[2:].strip()
+            if ": " in item:
+                date, _, event = item.partition(": ")
+                out.append({"date": date.strip(), "event": event.strip()})
+            else:
+                out.append({"date": "", "event": item})
+        return out
+
     return {
         "summary": (sections.get("Summary", "") or "").strip(),
         "key_facts": _bullets(sections.get("Key Facts", "")),
-        "history_entries": _bullets(sections.get("History", "")),
+        "history_entries": _history_dicts(sections.get("History", "")),
         "links": _bullets(sections.get("Links", "")),
         "open_questions": _bullets(sections.get("Open Questions", "")),
     }

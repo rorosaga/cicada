@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from api.services import markdown_parser, entity_body
+from api.services.claims import parse_claims, write_claims, strip_claims_block
 from api.services.entity_sources import gather_entity_sources
 
 _PROMPT = (
@@ -54,25 +55,39 @@ def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
                   response_format={"type": "json_object"})
     txt = resp["choices"][0]["message"]["content"]
     s, e = txt.find("{"), txt.rfind("}")
-    new_body = json.loads(txt[s:e + 1]).get("body", "").strip() if s >= 0 else ""
+    if s < 0 or e <= s:
+        return {"entity_id": entity_id, "changed": False,
+                "before_words": before, "after_words": before}
+    try:
+        new_body = json.loads(txt[s:e + 1]).get("body", "").strip()
+    except Exception:
+        return {"entity_id": entity_id, "changed": False,
+                "before_words": before, "after_words": before}
     if not new_body:
         return {"entity_id": entity_id, "changed": False,
                 "before_words": before, "after_words": before}
+
+    # Preserve the existing ```claims block verbatim — the rewrite must not
+    # introduce/alter claims. Capture it before merging, then merge on the
+    # claims-stripped bodies so the fence can never end up mid-section.
+    existing_claims = parse_claims(par.body)
 
     # Human-safe merge: never lose human sections or the claims block. Convert the
     # LLM's new body to the STRUCTURED new_fields shape via sections_to_fields
     # (a raw sections dict merges nothing).
     human = bool(par.frontmatter.get("human_edited"))
-    new_sections = entity_body.parse_sections(new_body)
+    new_sections = entity_body.parse_sections(strip_claims_block(new_body))
     new_fields = entity_body.sections_to_fields(new_sections)
     merged = entity_body.merge_sections_human_safe(
-        entity_body.parse_sections(par.body), new_fields, human_edited=human)
+        entity_body.parse_sections(strip_claims_block(par.body)), new_fields, human_edited=human)
     # Preserve any non-canonical sections the model produced.
     for title, content in new_sections.items():
         if title and title not in entity_body.CANONICAL_SECTIONS and title not in merged:
             merged[title] = content
     final_body = "\n\n".join(f"## {t}\n{c}" if t else c
                              for t, c in merged.items() if c).strip()
+    if existing_claims:
+        final_body = write_claims(final_body, existing_claims)
     fm = dict(par.frontmatter)
     fm["layout_version"] = 2
     markdown_parser.write(ent, fm, final_body)
