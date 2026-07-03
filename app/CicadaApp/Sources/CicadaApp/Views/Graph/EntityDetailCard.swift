@@ -376,12 +376,27 @@ struct EntityDetailCard: View {
         return text.isEmpty ? nil : text
     }
 
+    /// G24: the entity's `## Summary` section text, for the summary box atop
+    /// the rendered markdown preview. Nil when no Summary section is present
+    /// — the box renders nothing rather than showing empty chrome.
+    private var summaryText: String? {
+        section(named: "## Summary", in: entity.markdownContent)
+    }
+
     private var renderedMarkdownView: some View {
-        // Inline transclusion (§1): tokenize the body into text/embed segments
-        // and render `![[…]]` embeds as nested collapsible cards. Falls back to
-        // plain wikilink rendering for bodies with no embeds.
-        TranscludingMarkdownView(body: entity.markdownContent)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            // G24: fast human-readable gist, shown once at the very top of the
+            // preview, before the rest of the body.
+            if let summary = summaryText {
+                SummaryBox(text: summary)
+            }
+
+            // Inline transclusion (§1): tokenize the body into text/embed segments
+            // and render `![[…]]` embeds as nested collapsible cards. Falls back to
+            // plain wikilink rendering for bodies with no embeds.
+            TranscludingMarkdownView(body: entity.markdownContent)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var rawMarkdownView: some View {
@@ -779,6 +794,45 @@ struct EntityDetailCard: View {
 
         \(entity.markdownContent)
         """
+    }
+}
+
+// MARK: - Summary Box (G24)
+//
+// A visually distinct card rendered atop the entity's markdown preview,
+// surfacing the `## Summary` section's text so the user can read the gist
+// fast without scanning the full body. Mirrors TransclusionCard's accent-bar
+// treatment (left accent stripe + surface background + hairline border) so
+// it reads as "part of this app's card language" rather than a one-off.
+
+private struct SummaryBox: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            Rectangle()
+                .fill(CicadaTheme.accent.opacity(0.7))
+                .frame(width: 3)
+
+            HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(CicadaTheme.accent)
+
+                Text(text)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(CicadaTheme.spacingMD)
+        }
+        .background(CicadaTheme.surface.opacity(0.6))
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .overlay(
+            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .stroke(CicadaTheme.border, lineWidth: 1)
+        )
     }
 }
 
