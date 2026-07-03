@@ -147,6 +147,18 @@ TOOLS = [
             "required": ["url"],
         },
     },
+    {
+        "name": "cicada_sources",
+        "description": "Return the primary source conversation chunks that produced an entity "
+                       "(the episodes it was consolidated from). Use this to ground or verify a "
+                       "fact against what the user actually said, or to show provenance.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"entity_id": {"type": "string",
+                "description": "The entity id (e.g. 'diego-sanmartin') to fetch sources for."}},
+            "required": ["entity_id"],
+        },
+    },
 ]
 
 
@@ -272,6 +284,8 @@ def handle_tool(name: str, arguments: dict) -> str:
         )
     elif name == "cicada_save_url":
         return handle_save_url(arguments.get("url", ""), arguments.get("note"))
+    elif name == "cicada_sources":
+        return handle_sources(arguments.get("entity_id", ""))
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -754,6 +768,22 @@ def handle_recall_detail(entity_id: str) -> str:
             return path.read_text(encoding="utf-8")
 
     return f"Entity '{entity_id}' not found."
+
+
+def handle_sources(entity_id: str) -> str:
+    """Render the source episode chunks behind an entity (chunks mode)."""
+    try:
+        from api.services.entity_sources import gather_entity_sources
+        bundle = gather_entity_sources(get_memory_path(), entity_id, mode="chunks")
+    except Exception as exc:  # pragma: no cover
+        return f"Could not gather sources for '{entity_id}': {exc}"
+    eps = bundle.get("episodes", [])
+    if not eps:
+        return f"No source episodes found for '{entity_id}'."
+    parts = [f"**Sources for `{entity_id}`** ({len(eps)} episode(s)):"]
+    for e in eps:
+        parts.append(f"\n### episode {e['id']}\n{(e.get('chunk') or '').strip()[:2000]}")
+    return "\n".join(parts)
 
 
 def handle_get_perspective(
