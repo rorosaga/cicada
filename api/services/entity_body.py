@@ -454,7 +454,8 @@ def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
     keeps Summary + Key Facts whole, then appends further canonical sections in
     priority order until the char budget is reached.
     """
-    sections = parse_sections(body)
+    from api.services.claims import strip_claims_block
+    sections = parse_sections(strip_claims_block(body))
     lead = sections.get("", "").strip()
     chosen: list[str] = []
     used = 0
