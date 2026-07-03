@@ -91,6 +91,24 @@ class Settings(BaseSettings):
     openrouter_referer: str = ""              # CICADA_OPENROUTER_REFERER (HTTP-Referer)
     openrouter_title: str = "Cicada"          # CICADA_OPENROUTER_TITLE (X-OpenRouter-Title)
 
+    # LLM consolidation mode — how ``resolve_llm_fn`` routes the sleep-cycle
+    # model. "byok" (default) is today's behavior: whatever ``litellm_model``
+    # (or ``effective_consolidation_model``) resolves to, routed through
+    # litellm's normal provider prefixes (openai/anthropic/openrouter/...) using
+    # the matching *_API_KEY env var. "local" routes to an on-device Ollama
+    # server instead — no API key required, fully offline — by binding the
+    # model to ``ollama/<ollama_model>`` and pointing litellm's api_base at
+    # ``ollama_base_url``. "agent" is reserved for a future MCP-agent-driven
+    # mode; not yet implemented here. Setting llm_mode != "local" leaves
+    # resolve_llm_fn's byok/openrouter behavior byte-identical to before this
+    # field existed.
+    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|byok|local)
+    # Model name passed to Ollama when llm_mode="local" (litellm bind:
+    # "ollama/<ollama_model>"). Does NOT include the "ollama/" prefix itself.
+    ollama_model: str = "llama3.1"             # CICADA_OLLAMA_MODEL
+    # Base URL of the local Ollama server, forwarded to litellm as api_base.
+    ollama_base_url: str = "http://localhost:11434"  # CICADA_OLLAMA_BASE_URL
+
     # Server
     host: str = "127.0.0.1"
     port: int = 8000

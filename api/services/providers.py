@@ -75,13 +75,22 @@ def resolve_llm_fn(
     Returns:
         ``fn(messages, *, response_format=None, **kw)`` forwarding to
         ``completion`` with ``model=`` bound and — only for ``openrouter/`` models
-        with attribution configured — ``extra_headers`` attached.
+        with attribution configured — ``extra_headers`` attached. When
+        ``settings.llm_mode == "local"`` (or the resolved model already starts
+        with ``ollama/``), the model is bound to ``ollama/<settings.ollama_model>``
+        (litellm's Ollama routing prefix) and ``api_base`` is set to
+        ``settings.ollama_base_url`` — no API key required. This leaves the
+        byok/openrouter path byte-identical when ``llm_mode != "local"``.
     """
     resolved_model = (model or settings.litellm_model).strip()
     if completion is None:
         import litellm
 
         completion = litellm.completion
+
+    is_local = settings.llm_mode == "local" or resolved_model.startswith("ollama/")
+    if is_local and not resolved_model.startswith("ollama/"):
+        resolved_model = f"ollama/{settings.ollama_model}"
 
     is_openrouter = resolved_model.startswith("openrouter/")
     headers = _openrouter_headers(settings) if is_openrouter else None
@@ -92,6 +101,8 @@ def resolve_llm_fn(
             call_kw["response_format"] = response_format
         if headers is not None and "extra_headers" not in call_kw:
             call_kw["extra_headers"] = headers
+        if is_local and "api_base" not in call_kw:
+            call_kw["api_base"] = settings.ollama_base_url
         return completion(**call_kw)
 
     return _call
