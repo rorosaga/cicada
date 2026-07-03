@@ -2,8 +2,12 @@
 pass (Phase 3). Thin/low-confidence pages first; a done-marker makes it
 resumable. Runs on the DUPLICATE bank only."""
 from __future__ import annotations
+import logging
+import subprocess
 from pathlib import Path
-from api.services import markdown_parser
+from api.services import git_service, markdown_parser
+
+logger = logging.getLogger(__name__)
 
 
 def ordered_entities(memory_path: Path) -> list[str]:
@@ -29,8 +33,41 @@ def _mark_done(marker_path: Path | None, eid: str) -> None:
             fh.write(eid + "\n")
 
 
+def _commit_entity(memory_path: Path, eid: str, r: dict, settings) -> None:
+    """Commit a single rewritten entity file so it lands as its own
+    git-blame-able commit, authored by the consolidation model.
+
+    Degrades gracefully (logs and returns) when ``memory_path`` isn't a git
+    repo, or on any git failure — a commit failure must never abort the batch
+    since the rewrite already succeeded on disk.
+    """
+    if not (memory_path / ".git").exists():
+        return
+    author = "unknown"
+    if settings is not None and hasattr(settings, "effective_consolidation_model"):
+        author = settings.effective_consolidation_model
+    subject = f"entities/{eid}.md: source-grounded reconsolidation"
+    body_lines = [
+        f"entities/{eid}.md: rewritten (trigger: sleep/reconsolidation, "
+        f"before_words: {r.get('before_words', 0)}, after_words: {r.get('after_words', 0)})"
+    ]
+    message = git_service.build_commit_message(subject, body_lines, authors=[author])
+    rel_path = f"entities/{eid}.md"
+    try:
+        subprocess.run(
+            ["git", "-C", str(memory_path), "add", "--", rel_path],
+            check=True, capture_output=True, text=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(memory_path), "commit", "-m", message],
+            check=True, capture_output=True, text=True,
+        )
+    except Exception as exc:
+        logger.warning("run_source_reconsolidation: commit failed for %s: %s", eid, exc)
+
+
 def run_batch(memory_path: Path, settings, *, limit=None, corpus_path=None,
-              rewrite_fn=None, marker_path=None) -> dict:
+              rewrite_fn=None, marker_path=None, commit: bool = True) -> dict:
     if rewrite_fn is None:  # pragma: no cover - runtime
         from api.services.source_rewrite import rewrite_entity_from_sources as rewrite_fn
     done = _load_done(marker_path)
@@ -48,6 +85,8 @@ def run_batch(memory_path: Path, settings, *, limit=None, corpus_path=None,
             rewritten += 1
             wb += r.get("before_words", 0)
             wa += r.get("after_words", 0)
+            if commit:
+                _commit_entity(memory_path, eid, r, settings)
         else:
             skipped += 1
         _mark_done(marker_path, eid)
