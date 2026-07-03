@@ -708,3 +708,23 @@ class MediaSourceItem(CamelModel):
 class SourceListResponse(CamelModel):
     items: list[MediaSourceItem]
     total: int
+
+
+class BookmarkSyncRequest(CamelModel):
+    # Both optional + base64-encoded so the same endpoint works for an inline
+    # hermetic test payload and (when omitted entirely) a local-file sync.
+    chrome_data_b64: Optional[str] = None
+    safari_data_b64: Optional[str] = None
+
+
+class BookmarkSyncSourceSummary(CamelModel):
+    origin: str
+    found: int = 0
+    new: int = 0
+    skipped: int = 0
+
+
+class BookmarkSyncResponse(CamelModel):
+    new: int
+    skipped: int
+    sources: list[BookmarkSyncSourceSummary] = []

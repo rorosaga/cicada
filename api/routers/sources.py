@@ -5,6 +5,8 @@ from loguru import logger
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    BookmarkSyncRequest,
+    BookmarkSyncResponse,
     MediaSourceItem,
     SourceListResponse,
     SourceRssRequest,
@@ -12,7 +14,7 @@ from api.models.schemas import (
     SourceSaveResponse,
     SourceUploadResponse,
 )
-from api.services import media_ingestor
+from api.services import bookmark_sync, media_ingestor
 from api.services.media_ingestor import MAX_BATCH, RawItem
 
 router = APIRouter()
@@ -204,6 +206,51 @@ async def ingest_rss(
         message=f"Saved {created} item(s) from the feed",
         source="RSS Feed",
     )
+
+
+@router.post("/sources/sync-bookmarks", response_model=BookmarkSyncResponse)
+async def sync_bookmarks(
+    request: BookmarkSyncRequest | None = None,
+    settings: Settings = Depends(get_settings),
+):
+    """Keyless bookmark sync: diff local Chrome/Safari bookmarks and ingest only new URLs.
+
+    Body is optional. Pass base64 ``chromeDataB64``/``safariDataB64`` (inline
+    data — what tests and a future companion-app file picker use) to sync
+    against that data hermetically. Omit the body (or send neither field) to
+    read the real local bookmark files instead — best-effort, offline-safe;
+    see ``bookmark_sync.sync_from_local_files``.
+
+    The "diff" is the existing ``url_index.json`` hash dedup in
+    ``media_ingestor.ingest_batch`` — already-saved bookmarks are silently
+    skipped, only unseen URLs become new episodes/media entities.
+    """
+    import base64
+
+    memory_path = settings.memory_path
+
+    chrome_data = None
+    safari_data = None
+    if request is not None:
+        if request.chrome_data_b64:
+            try:
+                chrome_data = base64.b64decode(request.chrome_data_b64)
+            except Exception:
+                raise HTTPException(status_code=422, detail="Invalid chromeDataB64")
+        if request.safari_data_b64:
+            try:
+                safari_data = base64.b64decode(request.safari_data_b64)
+            except Exception:
+                raise HTTPException(status_code=422, detail="Invalid safariDataB64")
+
+    if chrome_data is not None or safari_data is not None:
+        result = await bookmark_sync.sync_bookmarks(
+            memory_path, chrome_data=chrome_data, safari_data=safari_data
+        )
+    else:
+        result = await bookmark_sync.sync_from_local_files(memory_path)
+
+    return BookmarkSyncResponse(**result)
 
 
 @router.get("/sources", response_model=SourceListResponse)
