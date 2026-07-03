@@ -93,8 +93,11 @@ def test_archived_entities_excluded_by_default(tmp_path):
     indexer = SqliteVecIndexer(tmp_path, embed_fn=fake_embed)
     indexer.index_entities()
 
+    # with < top_k active hits, archived entities are appended as fallback
     default_hits = indexer.search_entities("python web framework api", top_k=5)
-    assert {h["metadata"]["entity_id"] for h in default_hits} == {"active-api"}
+    ids = {h["metadata"]["entity_id"] for h in default_hits}
+    assert "active-api" in ids
+    assert "old-api" in ids  # archived surfaced as fallback when active set thin
 
     all_hits = indexer.search_entities(
         "python web framework api", top_k=5, include_archived=True

@@ -300,23 +300,31 @@ class SqliteVecIndexer:
     def search_entities(
         self, query: str, top_k: int = 5, include_archived: bool = False
     ) -> list[dict]:
-        """Semantic search over promoted entity pages."""
+        """Semantic search over promoted entity pages.
+
+        When ``include_archived`` is False (default), active entities are
+        preferred, but if fewer than ``top_k`` active hits exist, archived hits
+        are appended as a *fallback tier* (ranked last, status preserved) so a
+        paraphrased query can still reach a decayed page (e.g. a rejected
+        application). ``include_archived=True`` returns the raw ranking.
+        """
         if not self.db_path.exists():
             return []
         conn = self._connect()
         try:
-            # over-fetch so archived filtering doesn't starve the result set
             fetch_k = top_k * 3 if not include_archived else top_k
             results = self._knn(conn, "entities", query, fetch_k)
         except sqlite3.OperationalError:
             return []
         finally:
             conn.close()
-        if not include_archived:
-            results = [
-                r for r in results if r.get("metadata", {}).get("status") != "archived"
-            ]
-        return results[:top_k]
+        if include_archived:
+            return results[:top_k]
+        active = [r for r in results if r.get("metadata", {}).get("status") != "archived"]
+        if len(active) >= top_k:
+            return active[:top_k]
+        archived = [r for r in results if r.get("metadata", {}).get("status") == "archived"]
+        return (active + archived)[:top_k]
 
     def _search_kind(self, kind: str, query: str, top_k: int) -> list[dict]:
         """Shared search helper: returns [] for a missing db or missing table."""
