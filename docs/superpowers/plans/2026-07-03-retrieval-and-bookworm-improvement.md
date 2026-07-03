@@ -340,15 +340,21 @@ number every later phase is measured against.
 from api.services.vector_index import SqliteVecIndexer
 
 
-def _fake_embed(texts):
-    # bag-of-words 8-dim deterministic vector; same shape the indexer expects
+def _fake_embed(texts, *, is_query: bool = False):
+    # bag-of-words deterministic embedder. MUST match the indexer's contract:
+    # accepts `*, is_query` and returns a float32 numpy array (see existing
+    # api/tests fake_embed). A plain list breaks the indexer's np.vstack path.
     import re
+    import numpy as np
     vocab = ["esa", "rejected", "chile", "space", "active", "thing", "mongodb", "misc"]
-    out = []
+    rows = []
     for t in texts:
         toks = set(re.findall(r"[a-z]+", t.lower()))
-        out.append([1.0 if v in toks else 0.0 for v in vocab])
-    return out
+        v = np.array([1.0 if w in toks else 0.0 for w in vocab], dtype=np.float32)
+        n = float(np.linalg.norm(v))
+        v = v / n if n > 0 else np.ones(len(vocab), dtype=np.float32) / np.sqrt(len(vocab))
+        rows.append(v)
+    return np.vstack(rows).astype(np.float32)
 
 
 def _mk(dir_, eid, status, body):
