@@ -1,87 +1,15 @@
-# Cicada Table 1 question set — TEMPLATE.
-#
-# The benchmark should use niche, memory-dependent questions that a base
-# model could not answer well without access to the user's own conversation
-# history. The categories below match experiments.tex and are meant to make
-# Cicada shine on exactly the things the architecture is supposed to help
-# with: long-range recall, cross-episode linkage, ambiguity handling, and
-# action-oriented memory.
-#
-# Keep the representative structure of this file in the repo, but put the
-# real personal benchmark in a local gitignored copy:
-#
-#     cp benchmarks/questions.example.yaml benchmarks/questions.local.yaml
-#
-# Then edit the local file if you need to personalize wording, expected
-# answers, or trim the set.
-
+# TEMPLATE — neutral placeholders only. Copy to questions.local.yaml (gitignored)
+# and fill with real questions grounded in your memory.
 questions:
-  - id: Q01
-    category: factual_recall
-    text: "Why did I ultimately decide not to attend a fully funded event even though travel and accommodation were covered?"
-    expected_answer: "Because another deadline conflicted with the travel plan closely enough that attending felt too risky."
-
-  - id: Q02
-    category: factual_recall
-    text: "What was my actual decision about a side project in March, and what was the core reason for it?"
-    expected_answer: "I stepped back from the work because a more important deadline and the surrounding risk made continuing at the same intensity unrealistic."
-
-  - id: Q03
-    category: factual_recall
-    text: "In an administrative email thread, who did I say was no longer working there, and why did I avoid volunteering other contacts?"
-    expected_answer: "I said the original contact no longer worked there, and I avoided volunteering other contacts because the request seemed optional and not worth bothering them over."
-
-  - id: Q04
-    category: factual_recall
-    text: "What rough per-person budget did I estimate for attending a hackathon abroad?"
-    expected_answer: "A ballpark per-person estimate covering flights, accommodation, and local transit, with no participation fee."
-
-  - id: Q05
-    category: relational_depth
-    text: "When I was choosing between a cheaper nearby event and a more ambitious overseas one, what was the initial recommendation and what later changed my thinking?"
-    expected_answer: "The initial recommendation favored the cheaper and more practical option, but later the higher-upside event became more attractive because of sponsorship possibilities and broader strategic value."
-
-  - id: Q06
-    category: relational_depth
-    text: "How did the same major deadline shape two separate decisions about work and travel?"
-    expected_answer: "In both cases the deadline overruled the opportunity, leading me to step back from one commitment and decline the other."
-
-  - id: Q07
-    category: relational_depth
-    text: "What role did a stable fallback job play in how I was thinking about risk, immigration, and my next career step while reassessing a startup role?"
-    expected_answer: "It served as a safety net, giving me a credible fallback and reducing the pressure to stay in a riskier role."
-
-  - id: Q08
-    category: relational_depth
-    text: "What two immigration questions was I trying to clarify with legal counsel, and why did nationality matter in that context?"
-    expected_answer: "I was comparing permit pathways and asking whether nationality changed which route made the most sense or preserved later advantages."
-
-  - id: Q09
-    category: proactive_recall
-    text: "If I ask about a partially resolved course or program name, should the system answer confidently or surface ambiguity first?"
-    expected_answer: "It should surface ambiguity first if the name is not fully canonicalized."
-
-  - id: Q10
-    category: proactive_recall
-    text: "If I ask who my teammates were for a hackathon idea, is there any person-name ambiguity the system should surface before answering?"
-    expected_answer: "Yes. The system should surface unresolved or only partially resolved person-name ambiguity instead of pretending every short name is fully canonicalized."
-
-  - id: Q11
-    category: proactive_recall
-    text: "If I just ask what did a person with a common short name want from me, should the system answer directly or flag ambiguity?"
-    expected_answer: "It should flag ambiguity first if the short name could refer to more than one person or is not fully resolved."
-
-  - id: Q12
-    category: actionability
-    text: "Given my situation in early March, what was the most defensible thing to do about an overcommitting side role?"
-    expected_answer: "Have the direct conversation, step back from active work, and focus on the primary deadline instead of trying to stay half-in."
-
-  - id: Q13
-    category: actionability
-    text: "What was the most realistic response to a landlord suddenly sending several months of delayed utility receipts at once?"
-    expected_answer: "Acknowledge the underlying obligation but ask in writing for an installment plan because the invoices were forwarded late as one lump sum."
-
-  - id: Q14
-    category: actionability
-    text: "What was the lowest-friction reply I should send to an institution asking for an outdated contact?"
-    expected_answer: "A short polite reply explaining that the original contact no longer works there, without volunteering additional contacts unless truly necessary."
+  - id: 1
+    question: "What was the headline result of the paper my thesis supervisor recommended?"
+    ground_truth: "<placeholder fact>"
+    expected_entities: ["the-supervisor", "the-precedent-paper"]
+    category: multi-hop
+    difficulty: hard
+  - id: 2
+    question: "When is the final thesis submission deadline?"
+    ground_truth: "<placeholder date>"
+    expected_entities: ["thesis-deadline"]
+    category: fact
+    difficulty: medium
