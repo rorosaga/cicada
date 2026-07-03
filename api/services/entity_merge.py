@@ -22,6 +22,8 @@ def _union(a, b):
 
 def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
                    *, author: str = "user") -> dict:
+    if loser_id == winner_id:
+        raise ValueError(f"cannot merge an entity into itself: {winner_id}")
     ents = memory_path / "entities"
     lp, wp = ents / f"{loser_id}.md", ents / f"{winner_id}.md"
     if not lp.exists() or not wp.exists():
@@ -46,10 +48,21 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     merged_sections = entity_body.merge_sections_human_safe(
         entity_body.parse_sections(wpar.body), loser_fields, human_edited=human)
     # Preserve any non-canonical (human-authored) loser sections too — the
-    # structured merge only carries the canonical fields.
+    # structured merge only carries the canonical fields. If the winner
+    # already has a same-titled custom section with different content,
+    # append rather than silently dropping the loser's content.
     for title, content in loser_sections.items():
-        if title and title not in entity_body.CANONICAL_SECTIONS and title not in merged_sections:
+        if not title or title in entity_body.CANONICAL_SECTIONS:
+            continue
+        content = (content or "").strip()
+        if not content:
+            continue
+        existing = (merged_sections.get(title) or "").strip()
+        if not existing:
             merged_sections[title] = content
+        elif content not in existing:
+            merged_sections[title] = existing + "\n\n" + content
+        # identical content: keep winner's, no dup
     new_body = "\n\n".join(f"## {t}\n{c}" if t else c
                            for t, c in merged_sections.items() if c).strip()
     markdown_parser.write(wp, wfm, new_body)
@@ -63,6 +76,19 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
             for end in ("source", "target"):
                 if e.get(end) == loser_id:
                     e[end] = winner_id; repointed += 1
+        # Repointing can create self-loops (loser->winner edges both ends now
+        # winner) or duplicates (winner already had the same edge). Drop both.
+        seen = set()
+        cleaned = []
+        for e in data.get("edges", []):
+            if e.get("source") == e.get("target"):
+                continue  # drop self-loop created by repointing
+            key = (e.get("source"), e.get("target"), e.get("label"))
+            if key in seen:
+                continue  # drop duplicate
+            seen.add(key)
+            cleaned.append(e)
+        data["edges"] = cleaned
         edges_file.write_text(yaml.safe_dump(data, sort_keys=False))
 
     lp.unlink()
