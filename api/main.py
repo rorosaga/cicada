@@ -12,6 +12,7 @@ from api.config import get_settings
 from api.routers import (
     ask,
     banks,
+    capture,
     claims,
     clarifications,
     contributors,
@@ -123,3 +124,4 @@ app.include_router(conversations.router, tags=["conversations"])
 app.include_router(sources.router, tags=["sources"])
 app.include_router(banks.router, tags=["banks"])
 app.include_router(local_refs.router, tags=["local-refs"])
+app.include_router(capture.router, tags=["capture"])

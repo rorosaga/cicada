@@ -136,7 +136,21 @@ class Settings(BaseSettings):
     hub_tag_max_hubs: int = 30       # cap on tag-cluster hubs
     hub_member_cap: int = 150        # max members listed per hub file
 
+    # Telegram capture connector (Wave B ingestion) — a message forwarded/sent
+    # to the user's own bot, POSTed by Telegram to `POST /capture/telegram`,
+    # becomes a staged episode or media item (see
+    # `api/services/telegram_capture.py`). Empty (the default) keeps the
+    # connector fully inert: the endpoint 503s and no webhook traffic is
+    # accepted, so an unconfigured install gets zero added surface area. Set
+    # CICADA_TELEGRAM_BOT_TOKEN to the token from @BotFather to activate.
+    telegram_bot_token: str = ""  # CICADA_TELEGRAM_BOT_TOKEN
+
     model_config = {"env_prefix": "CICADA_", "env_file": ".env", "extra": "ignore"}
+
+    @property
+    def telegram_enabled(self) -> bool:
+        """Whether the Telegram capture connector is configured (token present)."""
+        return bool((self.telegram_bot_token or "").strip())
 
     @property
     def effective_consolidation_model(self) -> str:
