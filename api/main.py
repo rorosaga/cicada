@@ -19,6 +19,7 @@ from api.routers import (
     entities,
     graph,
     inbox,
+    local_refs,
     nudges,
     search,
     sleep,
@@ -121,3 +122,4 @@ app.include_router(sleep.router, tags=["sleep"])
 app.include_router(conversations.router, tags=["conversations"])
 app.include_router(sources.router, tags=["sources"])
 app.include_router(banks.router, tags=["banks"])
+app.include_router(local_refs.router, tags=["local-refs"])
