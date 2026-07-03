@@ -3,6 +3,11 @@ import SwiftUI
 struct ContentView: View {
     @State private var selectedTab: AppTab = .graph
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
+    // First-launch onboarding: show the Connect guide once, then it lives in
+    // the sidebar under Setup. Stored flag so reinstalls of the same Mac user
+    // don't re-trigger it on every launch.
+    @AppStorage("cicada.hasSeenConnectGuide") private var hasSeenConnectGuide = false
+    @State private var showOnboarding = false
 
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(InboxViewModel.self) private var inboxVM
@@ -24,6 +29,16 @@ struct ContentView: View {
             await graphVM.loadGraph()
             await inboxVM.loadInbox()
         }
+        .onAppear {
+            if !hasSeenConnectGuide { showOnboarding = true }
+        }
+        .sheet(isPresented: $showOnboarding) {
+            ConnectView(isOnboarding: true) {
+                hasSeenConnectGuide = true
+                showOnboarding = false
+            }
+            .frame(width: 780, height: 640)
+        }
     }
 
     @ViewBuilder
@@ -41,6 +56,8 @@ struct ContentView: View {
             InboxListView()
         case .contributors:
             ContributorsView()
+        case .connect:
+            ConnectView()
         }
     }
 }

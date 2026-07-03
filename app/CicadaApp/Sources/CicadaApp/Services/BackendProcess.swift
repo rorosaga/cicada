@@ -91,23 +91,26 @@ final class BackendProcess {
         isRunning = false
     }
 
-    private func resolveMemoryPath() -> URL {
-        // Development: use sibling memory/ directory
+    /// The Cicada checkout/install root: the repo directory in dev builds,
+    /// `~/cicada` for installed apps. Shared by the backend spawn paths and the
+    /// Connect page (which renders copy-pasteable MCP registration commands).
+    static func installRoot() -> URL {
         let bundlePath = Bundle.main.bundlePath
         if bundlePath.contains(".build") || bundlePath.contains("DerivedData") {
-            // Dev build — resolve relative to known project structure
-            let cicadaRoot = findCicadaRoot()
-            return cicadaRoot.appendingPathComponent("memory")
+            return findCicadaRoot()
         }
-        // Production: ~/cicada/memory
         return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("cicada/memory")
+            .appendingPathComponent("cicada")
+    }
+
+    private func resolveMemoryPath() -> URL {
+        Self.installRoot().appendingPathComponent("memory")
     }
 
     private func resolveAPIPath() -> URL {
         let bundlePath = Bundle.main.bundlePath
         if bundlePath.contains(".build") || bundlePath.contains("DerivedData") {
-            return findCicadaRoot().appendingPathComponent("api")
+            return Self.findCicadaRoot().appendingPathComponent("api")
         }
         // Production: bundled in app resources
         return Bundle.main.resourceURL?
@@ -137,7 +140,7 @@ final class BackendProcess {
         return bindResult < 0 && errno == EADDRINUSE
     }
 
-    private func findCicadaRoot() -> URL {
+    private static func findCicadaRoot() -> URL {
         // Walk up from bundle path to find cicada/ root
         var url = URL(fileURLWithPath: Bundle.main.bundlePath)
         for _ in 0..<10 {
