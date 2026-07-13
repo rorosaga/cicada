@@ -101,7 +101,7 @@ def test_sync_notes_new_note_creates_episode(tmp_path):
     memory = _memory(tmp_path)
     result = run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2)))
 
-    assert result == {"new": 2, "updated": 0, "skipped": 0, "total": 2}
+    assert result == {"new": 2, "updated": 0, "skipped": 0, "total": 2, "excluded": 0}
 
     episodes = list((memory / "episodes").glob("ep_*.md"))
     assert len(episodes) == 2
@@ -122,7 +122,7 @@ def test_sync_notes_unchanged_note_skipped_on_second_sync(tmp_path):
     run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2)))
 
     result = run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2)))
-    assert result == {"new": 0, "updated": 0, "skipped": 2, "total": 2}
+    assert result == {"new": 0, "updated": 0, "skipped": 2, "total": 2, "excluded": 0}
 
     episodes = list((memory / "episodes").glob("ep_*.md"))
     assert len(episodes) == 2  # no new episodes written
@@ -133,7 +133,7 @@ def test_sync_notes_modified_note_reemits_updated_episode(tmp_path):
     run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2)))
 
     result = run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2_EDITED)))
-    assert result == {"new": 0, "updated": 1, "skipped": 1, "total": 2}
+    assert result == {"new": 0, "updated": 1, "skipped": 1, "total": 2, "excluded": 0}
 
     episodes = list((memory / "episodes").glob("ep_*.md"))
     assert len(episodes) == 3  # original 2 + 1 fresh episode for the edit
@@ -163,13 +163,13 @@ def test_sync_notes_no_id_falls_back_to_name_created_hash(tmp_path):
 
     # Same name+created (no id) again -> treated as the same note, skipped.
     result2 = run(notes_sync.sync_notes(memory, dump=_dump(NOTE_NO_ID)))
-    assert result2 == {"new": 0, "updated": 0, "skipped": 1, "total": 1}
+    assert result2 == {"new": 0, "updated": 0, "skipped": 1, "total": 1, "excluded": 0}
 
 
 def test_sync_notes_empty_dump(tmp_path):
     memory = _memory(tmp_path)
     result = run(notes_sync.sync_notes(memory, dump=""))
-    assert result == {"new": 0, "updated": 0, "skipped": 0, "total": 0}
+    assert result == {"new": 0, "updated": 0, "skipped": 0, "total": 0, "excluded": 0}
     assert list((memory / "episodes").glob("ep_*.md")) == []
 
 
@@ -226,7 +226,7 @@ def test_sync_from_local_notes_osascript_failure_returns_empty(tmp_path, monkeyp
     monkeypatch.setattr(notes_sync, "_run_osascript", boom)
 
     result = run(notes_sync.sync_from_local_notes(tmp_path / "memory"))
-    assert result == {"new": 0, "updated": 0, "skipped": 0, "total": 0}
+    assert result == {"new": 0, "updated": 0, "skipped": 0, "total": 0, "excluded": 0}
 
 
 def test_sync_from_local_notes_uses_injected_dump(tmp_path, monkeypatch):
@@ -288,4 +288,46 @@ def test_sync_notes_endpoint_empty_dump(tmp_path, monkeypatch):
     client, _ = _make_client(tmp_path, monkeypatch)
     resp = client.post("/sources/sync-notes", json={"notesDump": ""})
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"new": 0, "updated": 0, "skipped": 0, "total": 0}
+    assert resp.json() == {"new": 0, "updated": 0, "skipped": 0, "total": 0, "excluded": 0}
+
+
+# --- Folder exclusion (CICADA_NOTES_EXCLUDE_FOLDERS) -------------------------
+
+
+def _dump_record(note_id, name, body, folder):
+    from api.services.notes_sync import FIELD_SEP
+    return FIELD_SEP.join([note_id, name, body, "Monday, 1 January 2026 at 10:00:00", "Monday, 1 January 2026 at 10:00:00", folder])
+
+
+def test_excluded_folder_notes_never_ingested(tmp_path, monkeypatch):
+    import asyncio
+    from api.services import notes_sync
+    from api.services.notes_sync import RECORD_SEP
+
+    monkeypatch.setenv("CICADA_NOTES_EXCLUDE_FOLDERS", "Contraseñas, Secrets")
+    dump = RECORD_SEP.join([
+        _dump_record("n1", "wifi password", "hunter2", "Contraseñas"),
+        _dump_record("n2", "grocery list", "eggs", "Notes"),
+    ])
+    result = asyncio.run(notes_sync.sync_notes(tmp_path, dump=dump))
+
+    assert result["new"] == 1
+    assert result["excluded"] == 1
+    bodies = " ".join(p.read_text() for p in (tmp_path / "episodes").glob("*.md"))
+    assert "hunter2" not in bodies
+    assert "grocery list" in bodies
+    # excluded note never entered the dedup index: lifting the exclusion later ingests it fresh
+    monkeypatch.setenv("CICADA_NOTES_EXCLUDE_FOLDERS", "")
+    result2 = asyncio.run(notes_sync.sync_notes(tmp_path, dump=dump))
+    assert result2["new"] == 1 and result2["excluded"] == 0
+
+
+def test_exclusion_defaults_off(tmp_path, monkeypatch):
+    import asyncio
+    from api.services import notes_sync
+    from api.services.notes_sync import RECORD_SEP
+
+    monkeypatch.delenv("CICADA_NOTES_EXCLUDE_FOLDERS", raising=False)
+    dump = RECORD_SEP.join([_dump_record("n1", "a", "b", "Anything")])
+    result = asyncio.run(notes_sync.sync_notes(tmp_path, dump=dump))
+    assert result["new"] == 1 and result["excluded"] == 0
