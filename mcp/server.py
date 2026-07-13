@@ -226,6 +226,23 @@ TOOLS = [
             "required": ["episode_ids"],
         },
     },
+    {
+        "name": "cicada_repo_context",
+        "description": "Return live git context (branch, ahead/behind, dirty files, worktrees, last commit) for a repo Cicada knows about — either an entity that declares a `repos:` link, or a raw filesystem path. Use when the user asks about the state of a project's git repo/checkout, or before suggesting git actions, so you're grounded in what's actually on disk right now rather than guessing. Degrades gracefully (e.g. 'repo context unavailable (...)') when the path is missing, not a git repo, or belongs to a different device.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": "An entity id or name that declares a `repos:` link (e.g. 'cicada'). Exactly one of entity_id/path is required.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "A raw filesystem path to a git repo (e.g. '~/Documents/roros_lab/cicada'). Exactly one of entity_id/path is required.",
+                },
+            },
+        },
+    },
 ]
 
 
@@ -367,6 +384,8 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_pending(arguments.get("limit"))
     elif name == "cicada_mark_processed":
         return handle_mark_processed(arguments.get("episode_ids"))
+    elif name == "cicada_repo_context":
+        return handle_repo_context(arguments.get("entity_id"), arguments.get("path"))
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -936,6 +955,94 @@ def handle_mark_processed(episode_ids) -> str:
 
     count = agentic_write.mark_episodes_processed(get_memory_path(), episode_ids)
     return f"Marked {count} episode(s) as processed."
+
+
+def handle_repo_context(entity_id: str | None, path: str | None) -> str:
+    """Live git context for a repo Cicada knows about (backlog G-repo).
+
+    Exactly one of ``entity_id`` / ``path`` is required. ``entity_id`` reads
+    the resolved entity's own declared ``repos:`` frontmatter and renders one
+    or more contexts (an entity can declare more than one repo); ``path``
+    probes that filesystem path directly with no declared metadata to compare
+    against. Always returns rendered text — never raw JSON — and degrades to a
+    human-readable "repo context unavailable (...)" line on any non-ok status.
+    """
+    entity_id = (entity_id or "").strip()
+    path = (path or "").strip()
+
+    if bool(entity_id) == bool(path):
+        return "Exactly one of entity_id or path is required."
+
+    from api.services import repo_context
+
+    if path:
+        ctx = repo_context.resolve_repo_context({"path": path})
+        return _render_repo_context(path, [ctx])
+
+    memory_path = get_memory_path()
+    entities_dir = memory_path / "entities"
+    resolved_id = _entity_id_for_name(entities_dir, entity_id) or entity_id
+    entity_path = entities_dir / f"{resolved_id}.md"
+    if not entity_path.exists():
+        return f"Entity '{entity_id}' not found."
+
+    try:
+        from api.services import markdown_parser
+
+        parsed = markdown_parser.parse(entity_path)
+    except Exception as e:
+        return f"Could not read '{entity_id}': {e}"
+
+    declared = parsed.frontmatter.get("repos") or []
+    declared = [d for d in declared if isinstance(d, dict) and d.get("path")]
+    if not declared:
+        return f"Entity '{resolved_id}' has no declared repos."
+
+    contexts = [repo_context.resolve_repo_context(d) for d in declared]
+    return _render_repo_context(resolved_id, contexts)
+
+
+def _render_repo_context(label: str, contexts: list[dict]) -> str:
+    """Render one or more ``RepoContext`` dicts as human-readable text."""
+    blocks = []
+    for ctx in contexts:
+        if ctx.get("status") != "ok":
+            blocks.append(
+                f"repo context unavailable for `{ctx.get('path')}` "
+                f"(status: {ctx.get('status')})"
+            )
+            continue
+
+        lines = [f"**{ctx.get('path')}**"]
+        branch = ctx.get("current_branch") or "(detached)"
+        lines.append(f"- branch: {branch}")
+        ahead, behind = ctx.get("ahead"), ctx.get("behind")
+        if ahead is not None or behind is not None:
+            lines.append(f"- ahead/behind origin: {ahead or 0}/{behind or 0}")
+        dirty = ctx.get("dirty_files")
+        if dirty is not None:
+            lines.append(f"- dirty files: {dirty}")
+        commit = ctx.get("last_commit")
+        if commit:
+            lines.append(
+                f"- last commit: {commit.get('hash', '')[:8]} "
+                f"by {commit.get('author')} ({commit.get('date')}): {commit.get('subject')}"
+            )
+        worktrees = ctx.get("worktrees") or []
+        if len(worktrees) > 1:
+            wt_lines = ", ".join(
+                f"{w.get('path')} ({w.get('branch') or 'detached'}"
+                f"{', main' if w.get('is_main') else ''})"
+                for w in worktrees
+            )
+            lines.append(f"- worktrees: {wt_lines}")
+        if ctx.get("stale_hint"):
+            lines.append(f"- note: {ctx['stale_hint']}")
+        blocks.append("\n".join(lines))
+
+    header = f"Repo context for `{label}`:" if len(contexts) > 1 or contexts[0].get("path") != label else ""
+    body = "\n\n".join(blocks)
+    return f"{header}\n\n{body}".strip() if header else body
 
 
 def handle_get_perspective(

@@ -29,6 +29,7 @@ const typeColors = {
     media:    "#F65BA6",
     hub:      "#E0A93A",   // deeper amber gold — distinct from skill gold + project purple
     directory:"#7AA0C4",   // slate blue-gray "Finder folder" — mirrors CicadaTheme.entityColor(.directory)
+    repo:     "#5B6472",   // dark slate — subtle, read-time synthetic node (backlog G-repo)
     unknown:  "#9BA1AE",
 };
 
@@ -52,6 +53,7 @@ const typeClusterPositions = {
     location: [-450,  150],
     media:    [ -90, -540],
     directory:[-450, -360],
+    repo:     [ 540, -360],
     hub:      [   0,    0],
 };
 

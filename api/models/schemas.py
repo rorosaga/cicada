@@ -219,6 +219,93 @@ class LocationListing(CamelModel):
     entries: list[LocationEntry] = []
 
 
+# --- Repo links (backlog G-repo) ---
+#
+# Deliberately plain BaseModel (NOT CamelModel) — the G-repo shared contract
+# fixes this wire shape as snake_case JSON so the MCP tool, the router, and
+# any other in-flight agent's work all match byte-for-byte. Don't swap in
+# CamelModel here even though the rest of this file uses it.
+
+
+class RepoWorktree(BaseModel):
+    """One entry from ``git worktree list`` for a repo, declared-flag merged in.
+
+    ``is_main`` is derived from ``--git-common-dir`` (git.py's source of
+    truth), not from frontmatter. ``declared`` is True when this worktree's
+    path also appears in the entity's declared ``repos[].worktrees`` list.
+    """
+
+    path: str
+    branch: Optional[str] = None
+    is_main: bool = False
+    is_dirty: Optional[bool] = None
+    declared: bool = False
+
+
+class RepoLastCommit(BaseModel):
+    hash: str
+    author: str
+    date: str
+    subject: str
+
+
+class RepoContext(BaseModel):
+    """Live git snapshot for one declared ``repos:`` entry on an entity.
+
+    ``status`` is one of ``ok`` | ``other_device`` | ``missing`` |
+    ``not_a_repo`` | ``git_unavailable`` | ``timeout`` — only ``ok`` carries
+    live data; every other status degrades the rest of the fields to
+    ``None``/``[]`` rather than raising. ``stale_hint`` is populated only when
+    a declared value contradicts what git actually observes (e.g. a declared
+    ``default_branch`` that doesn't match the observed one).
+    """
+
+    path: str
+    device: Optional[str] = None
+    status: str
+    exists: bool = False
+    is_git_repo: bool = False
+    remote: Optional[str] = None
+    current_branch: Optional[str] = None
+    default_branch_declared: Optional[str] = None
+    default_branch_observed: Optional[str] = None
+    ahead: Optional[int] = None
+    behind: Optional[int] = None
+    dirty_files: Optional[int] = None
+    worktrees: list[RepoWorktree] = []
+    last_commit: Optional[RepoLastCommit] = None
+    stale_hint: Optional[str] = None
+
+
+class RepoContextList(BaseModel):
+    """``GET /entities/{id}/repos`` response — [] when the entity has no ``repos:`` key."""
+
+    entity_id: str
+    repos: list[RepoContext] = []
+
+
+class RepoWorktreeInput(BaseModel):
+    path: str
+    branch: Optional[str] = None
+    primary: bool = False
+
+
+class RepoInput(BaseModel):
+    """One ``repos:`` entry as submitted to ``PATCH /entities/{id}/repos``."""
+
+    path: str = Field(..., min_length=1)
+    device: Optional[str] = None
+    remote: Optional[str] = None
+    default_branch: Optional[str] = None
+    worktrees: Optional[list[RepoWorktreeInput]] = None
+
+
+class RepoUpdateRequest(BaseModel):
+    """``repos: []`` removes the frontmatter key entirely (not written as an empty list)."""
+
+    repos: list[RepoInput] = []
+
+
 # --- Claims (M5b — the CPCG belief atom on the wire) ---
 
 

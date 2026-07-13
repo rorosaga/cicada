@@ -6,6 +6,7 @@ import yaml
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
 from api.services import predicates
 from api.services.claims import parse_claims
+from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import parse
 
 # Module-level mtime cache. The full (unfiltered) graph is expensive to build
@@ -71,6 +72,13 @@ def _build_full(memory_path: Path) -> GraphResponse:
     subject_contexts: dict[str, set[str]] = {}
     edge_claim_index: dict[tuple[str, str, str], tuple[str, str]] = {}
     all_observers: set[str] = set()
+    # G-repo: read-time repo:<slug> synthetic nodes + "has repo" edges, derived
+    # from each entity's declared `repos:` frontmatter — nothing persisted to
+    # disk. One node per distinct repo PATH (not per entity), so two entities
+    # pointing at the same checkout share a single node with an edge from each
+    # owner (mirrors the hub: injection just below).
+    repo_node_names: dict[str, str] = {}  # "repo:<slug>" -> display name
+    repo_links: list[GraphLink] = []
     for filepath in sorted(entities_dir.glob("*.md")):
         try:
             parsed = parse(filepath)
@@ -106,6 +114,27 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 has_pending=eid in pending_ids,
                 observers=sorted(subject_observers.get(eid, set())),
                 contexts=sorted(subject_contexts.get(eid, set())),
+            )
+        )
+        for repo_decl in fm.get("repos") or []:
+            if not isinstance(repo_decl, dict):
+                continue
+            repo_path = str(repo_decl.get("path", "") or "").strip()
+            if not repo_path:
+                continue
+            display_name = Path(repo_path).name or repo_path
+            repo_id = f"repo:{sanitize_id(display_name)}"
+            repo_node_names.setdefault(repo_id, display_name)
+            repo_links.append(GraphLink(source=eid, target=repo_id, label="has repo"))
+
+    for repo_id, display_name in repo_node_names.items():
+        nodes.append(
+            GraphNode(
+                id=repo_id,
+                name=display_name,
+                type="repo",
+                status="active",
+                confidence=1.0,
             )
         )
 
@@ -150,8 +179,10 @@ def _build_full(memory_path: Path) -> GraphResponse:
             node.hub_id = member_to_hub[node.id]
 
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).
-    valid_ids = entity_ids | {n.id for n in nodes if n.is_hub}
+    # repo:<slug> ids join valid_ids so `has repo` edges survive filtering too.
+    valid_ids = entity_ids | {n.id for n in nodes if n.is_hub} | set(repo_node_names)
     links = [l for l in raw_links if l.source in valid_ids and l.target in valid_ids]
+    links.extend(repo_links)
 
     # M5b: tag each edge with the backing claim's id + context when a valid claim
     # matches (subject, normalized-label, object). Additive — leaves context/
