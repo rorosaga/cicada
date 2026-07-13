@@ -64,8 +64,11 @@ def read_chrome_bookmarks(data: bytes) -> list[RawItem]:
     """Parse Chrome's ``Bookmarks`` JSON tree into ``RawItem``s.
 
     Walks ``roots`` -> recurses ``children``; a node with ``type == "url"``
-    yields a ``RawItem(url, title)``, folders (``type == "folder"``) are
-    recursed into but never emitted themselves. Delegates to the existing
+    yields a ``RawItem(url, title, folder)`` where ``folder`` is the ``/``-
+    joined display-name path of every enclosing folder (e.g. "Bookmarks bar/
+    Reading"). Folders (``type == "folder"``) are recursed into but never
+    emitted themselves — only their name flows onto descendant leaves.
+    Delegates to the existing
     ``media_ingestor.parse_chrome_bookmarks_json`` (same tree-walk already
     used by the ``.json`` branch of ``parse_upload``) so there is exactly one
     Chrome-tree-walking implementation. Malformed/non-JSON bytes degrade to

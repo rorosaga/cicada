@@ -57,13 +57,15 @@ All connectors follow the shipped pattern: **keyless/local-first, episodes at ca
 
 | # | Item | Size | Approach |
 |---|---|---|---|
-| B1 | **Music — Apple Music** *(new)* | **S** | AppleScript batch enumeration of Music.app (play counts, played date, loved, persistent ID) — a near-copy of `notes_sync.py`, same TCC consent model. `music_index.json` dedup, `origin: apple-music` |
-| B1b | **Music — Spotify** *(new)* | M | Extended Streaming History export zip → import queue (keyless; export takes up to ~30 days to arrive, so ship Apple Music first). Aggregation policy (per-track vs per-session episodes) is the main design decision |
-| B2 | **Possessions / wishlist / likes** | **S** | Not telemetry — first-person claims. Telegram verbs (`/own`, `/want`, `/like`) + the existing `cicada_write_claim` path (trust-gated, ambiguity-guarded) + A3 predicates. No new entity type needed initially |
-| B3 | **Places & travel semantics** | M | `visited` / `wants-to-visit` claims on `location` entities (A3); optional Google Takeout import (Saved Places + Semantic Location History) — schema-drift risk, keep parser defensive |
-| B4 | **Fitness — Apple Health** | L | `export.zip` → import queue, `iterparse` (files reach GBs), daily-rollup episodes (not per-sample). Inherently manual sync loop (iPhone export + AirDrop); no macOS API exists. Do last or on explicit demand |
+| B1 | **Music — Apple Music** *(new)* (G31) | **S** | AppleScript batch enumeration of Music.app (play counts, played date, loved, persistent ID) — a near-copy of `notes_sync.py`, same TCC consent model. `music_index.json` dedup, `origin: apple-music` |
+| B1b | **Music — Spotify** *(new)* (G32) | M | Extended Streaming History export zip → import queue (keyless; export takes up to ~30 days to arrive, so ship Apple Music first). Aggregation policy (per-track vs per-session episodes) is the main design decision |
+| B2 | **Possessions / wishlist / likes** (G34) | **S** | Not telemetry — first-person claims. Telegram verbs (`/own`, `/want`, `/like`) + the existing `cicada_write_claim` path (trust-gated, ambiguity-guarded) + A3 predicates. No new entity type needed initially |
+| B3 | **Places & travel semantics** (G33, G35) | M | `visited` / `wants-to-visit` claims on `location` entities (A3); optional Google Takeout import (Saved Places + Semantic Location History) — schema-drift risk, keep parser defensive |
+| B4 | **Fitness — Apple Health** (G36) | L | `export.zip` → import queue, `iterparse` (files reach GBs), daily-rollup episodes (not per-sample). Inherently manual sync loop (iPhone export + AirDrop); no macOS API exists. Do last or on explicit demand. Extend later with clinical Health Records (G45) — same `export.zip`, opt-in |
 | B5 | **Calendar deepening** | M | Decide event semantics: recurring events → claims on people/projects (`meets-weekly-with`), plus a "my week" agenda surface in the app (pairs with C1 timeline) |
 | B6 | **Ideas & tasks as memory** (G13) | M–L | Claims with `idea`/`todo`/`open-question` predicates + inbox surfacing ("you had an open idea about X"). Consider a `cicada_note` MCP quick-capture verb |
+| B7 | **Reading & life-log connectors** *(new, research 2026-07-13)* (G39–G43, G46) | S | Apple Books highlights (local SQLite, no export step), Kindle clippings (`My Clippings.txt`), Photos metadata via `osxphotos` (people/places/dates, never pixels), Journaling (`/journal` `/dream` Telegram verbs), Voice Memos (local Whisper transcribe), Contacts.app (birthday/employer corroboration). Same shipped keyless-local-connector pattern; best ROI found in the domain research pass |
+| B8 | **Education, courses & certificates** *(new, research 2026-07-13)* (G44) | M | LinkedIn export (`Certifications.csv`/`Education.csv`) + per-course certificate PDFs dropped into a watch-folder; no unified keyless API across providers, stays multi-source and periodic |
 
 ## Track C — The reading experience (explore · visualize · audit)
 
@@ -80,7 +82,7 @@ All connectors follow the shipped pattern: **keyless/local-first, episodes at ca
 |---|---|---|---|
 | D1 | **Bank export/import bundle** — `GET /banks/{name}/export` producing a zip (memory git repo + manifest + schema version), and the import counterpart | M | The "transferable" clause of the vision; today only chat-export *import* exists |
 | D2 | **.dmg packaging** — embedded Python runtime (or PyInstaller-style backend binary), signed + notarized app, drag-to-Applications | L | **The launch blocker** for anyone-but-you. Current: `git clone` + `install.sh` + Swift toolchain. Everything else on this roadmap is usable by you without it |
-| D3 | Share Extension (marked "Coming soon" in SyncSetupView) | M | Share-sheet capture from any Mac app |
+| D3 | Share Extension (marked "Coming soon" in SyncSetupView) (G37) | M | Share-sheet capture from any Mac app — any app with a share button exports straight to Cicada. iOS companion app (share sheet on iPhone) is the natural later extension of the same idea, not scoped now |
 | D4 | Docs truth pass — CLAUDE.md done 2026-07-13; keep `memory-evolution.md` statuses live as tracks ship | S | Recurring |
 
 ## Decisions that gate work (answer once, unblock much)

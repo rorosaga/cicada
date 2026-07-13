@@ -53,6 +53,10 @@ class RawItem:
     channel: str | None = None
     added: str | None = None
     note: str | None = None
+    # Human-readable source folder/category path, e.g. "Bookmarks Bar/AI/Papers"
+    # (Chrome/Safari folder tree) or a single enclosing folder name (Netscape
+    # HTML export). Provenance only — never part of dedup identity.
+    folder: str | None = None
 
 
 @dataclass
@@ -257,14 +261,21 @@ def parse_netscape_bookmarks(html: str) -> list[RawItem]:
             continue
         tags = [t.strip() for t in (a.get("tags", "") or "").split(",") if t.strip()]
         # Nearest enclosing folder <H3> name -> a tag for nested links.
-        folder = a.find_previous("h3")
-        if folder and folder.get_text(strip=True):
-            tags.append(folder.get_text(strip=True))
+        # Netscape's loose/unclosed-tag HTML doesn't expose a clean DL/DT
+        # nesting to reconstruct a full folder *path* (that would mean
+        # rewriting this parser around real DOM ancestry); we carry the single
+        # nearest-enclosing folder name only, same depth this parser already
+        # sees for the tag above.
+        folder_tag = a.find_previous("h3")
+        folder_name = folder_tag.get_text(strip=True) if folder_tag else None
+        if folder_name:
+            tags.append(folder_name)
         items.append(RawItem(
             url=href,
             title=(a.get_text(strip=True) or None),
             tags=tags,
             added=a.get("add_date"),
+            folder=folder_name or None,
         ))
     return items
 
@@ -278,7 +289,10 @@ def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
         recursed, and each ``WebBookmarkTypeLeaf`` yields a ``RawItem`` from
         ``URLString`` + ``URIDictionary["title"]``. Folders themselves are
         skipped (never emitted as items); leaves with a non-http(s) URL
-        (``javascript:``, ``mailto:``, etc.) are skipped too.
+        (``javascript:``, ``mailto:``, etc.) are skipped too. Each folder's
+        ``Title`` is threaded down as a ``/``-joined path (e.g. ``"Favorites/
+        AI/Papers"``) and stamped on every leaf beneath it as ``folder``; the
+        root list's own ``Title`` is normally ``""`` and contributes nothing.
     (b) A Safari-exported bookmarks HTML file — Safari exports the same
         Netscape Bookmark File Format Chrome/Firefox do, so on plist-parse
         failure we decode the bytes as text and delegate straight to
@@ -299,7 +313,7 @@ def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
 
     items: list[RawItem] = []
 
-    def walk(node) -> None:
+    def walk(node, path: tuple[str, ...]) -> None:
         if not isinstance(node, dict):
             return
         if node.get("WebBookmarkType") == "WebBookmarkTypeLeaf":
@@ -307,12 +321,15 @@ def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
             if isinstance(url, str) and url.startswith(("http://", "https://")):
                 uri_dict = node.get("URIDictionary")
                 title = uri_dict.get("title") if isinstance(uri_dict, dict) else None
-                items.append(RawItem(url=url, title=title or None))
+                folder = "/".join(path) if path else None
+                items.append(RawItem(url=url, title=title or None, folder=folder))
             return
+        title = node.get("Title")
+        new_path = path + (title,) if title else path
         for child in node.get("Children", []) or []:
-            walk(child)
+            walk(child, new_path)
 
-    walk(root)
+    walk(root, ())
     return items
 
 
@@ -334,10 +351,19 @@ def read_live_safari_bookmarks() -> list[RawItem]:
 
 
 def parse_chrome_bookmarks_json(data: dict) -> list[RawItem]:
-    """Chrome ``Bookmarks`` JSON — recurse the roots tree, type=='url'."""
+    """Chrome ``Bookmarks`` JSON — recurse the roots tree, type=='url'.
+
+    Each root (``bookmark_bar``, ``other``, ``synced``) and every nested
+    ``type == "folder"`` node carries a display ``name`` (e.g. "Bookmarks
+    bar", "Reading"); that name is threaded down the recursion as a
+    ``/``-joined path (e.g. ``"Bookmarks bar/Reading"``) and stamped on every
+    ``type == "url"`` leaf beneath it as ``folder``. Folders themselves are
+    still never emitted as items — only their name flows onto descendant
+    leaves.
+    """
     items: list[RawItem] = []
 
-    def walk(node):
+    def walk(node, path: tuple[str, ...]) -> None:
         if not isinstance(node, dict):
             return
         if node.get("type") == "url" and node.get("url"):
@@ -345,14 +371,18 @@ def parse_chrome_bookmarks_json(data: dict) -> list[RawItem]:
                 url=node["url"],
                 title=node.get("name") or None,
                 added=node.get("date_added"),
+                folder="/".join(path) if path else None,
             ))
+            return
+        name = node.get("name")
+        new_path = path + (name,) if name else path
         for child in node.get("children", []) or []:
-            walk(child)
+            walk(child, new_path)
 
     roots = data.get("roots", {})
     if isinstance(roots, dict):
         for root in roots.values():
-            walk(root)
+            walk(root, ())
     return items
 
 
@@ -666,7 +696,9 @@ def _next_episode_id(episodes_dir: Path, ep_date: str) -> str:
 # --- Writers ---
 
 
-def _episode_body(meta: MediaMeta, url: str, saved_date: str, note: str | None) -> str:
+def _episode_body(
+    meta: MediaMeta, url: str, saved_date: str, note: str | None, folder: str | None = None
+) -> str:
     lines = [
         f"# {meta.title}",
         "",
@@ -677,6 +709,8 @@ def _episode_body(meta: MediaMeta, url: str, saved_date: str, note: str | None) 
         lines.append(f"**Site:** {meta.site}")
     if meta.channel:
         lines.append(f"**Channel:** {meta.channel}")
+    if folder:
+        lines.append(f"**Folder:** {folder}")
     lines.append(f"**Saved:** {saved_date}")
     if meta.description:
         lines += ["", "## Description", meta.description]
@@ -705,7 +739,7 @@ def write_media_episode(
     timestamp = now.isoformat() + "Z"
     saved_date = ep_date
 
-    body = _episode_body(meta, item.url, saved_date, item.note)
+    body = _episode_body(meta, item.url, saved_date, item.note, folder=item.folder)
     content_hash = hashlib.sha256(normalize_url(item.url).encode()).hexdigest()[:12]
 
     frontmatter = {
@@ -717,6 +751,7 @@ def write_media_episode(
         "content_hash": content_hash,
         "url": item.url,
         "media_entity_id": media_entity_id,
+        "folder": item.folder or None,
     }
     markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
     return episode_id
@@ -738,7 +773,14 @@ def write_media_entity(
 ) -> None:
     entities_dir.mkdir(parents=True, exist_ok=True)
     today = datetime.now()
-    tags = sorted(set([meta.media_type] + (item.tags or [])))
+    tag_set = set([meta.media_type] + (item.tags or []))
+    # Sanitized folder-slug tag mirrors notes_sync stamping its Apple Notes
+    # folder onto the episode: raw human path lives in frontmatter (below),
+    # a filesystem-/graph-safe slug also lands in tags so folder/category is
+    # filterable the same way any other tag is.
+    if item.folder:
+        tag_set.add(sanitize_id(item.folder))
+    tags = sorted(tag_set)
 
     frontmatter = {
         "name": meta.title,
@@ -752,6 +794,7 @@ def write_media_entity(
         "tags": tags,
         "related": [],
         "version": 1,
+        "folder": item.folder or None,
         "media": {
             "url": item.url,
             "media_type": meta.media_type,
