@@ -117,12 +117,26 @@ def _opt_str(value: Any) -> str | None:
     return str(value)
 
 
-def parse_claims(body: str) -> list[Claim]:
+class MalformedClaimsBlockError(ValueError):
+    """A ```claims block exists but cannot be parsed.
+
+    Raised only by ``parse_claims(..., strict=True)``. Read-modify-write
+    callers MUST use strict mode: with the lenient default, a corrupt block
+    reads as "no claims" and the subsequent ``write_claims`` replaces the
+    block wholesale — silently destroying every claim trapped in the
+    unparseable YAML.
+    """
+
+
+def parse_claims(body: str, *, strict: bool = False) -> list[Claim]:
     """Extract the claims from the ` ```claims ` block in ``body``.
 
-    Returns ``[]`` when no block is present (legacy page) or when the block is
-    malformed (logged as a warning, never raised) — so a bad block degrades to
-    "no claims" rather than crashing the index rebuild.
+    Returns ``[]`` when no block is present (legacy page). When the block is
+    present but malformed: with ``strict=False`` (default, for read-only
+    paths like the index rebuild) it is logged and degrades to ``[]``; with
+    ``strict=True`` (required for every read-modify-write path) it raises
+    :class:`MalformedClaimsBlockError` so the caller aborts instead of
+    overwriting claims it could not read.
     """
     if not body:
         return []
@@ -133,11 +147,17 @@ def parse_claims(body: str) -> list[Claim]:
     try:
         loaded = yaml.safe_load(payload)
     except yaml.YAMLError as exc:
+        if strict:
+            raise MalformedClaimsBlockError(f"YAML error in ```claims block: {exc}") from exc
         logger.warning(f"malformed ```claims block (YAML error), ignoring: {exc}")
         return []
     if loaded is None:
         return []
     if not isinstance(loaded, list):
+        if strict:
+            raise MalformedClaimsBlockError(
+                f"```claims block payload is not a YAML list (got {type(loaded).__name__})"
+            )
         logger.warning(
             "```claims block payload is not a YAML list "
             f"(got {type(loaded).__name__}), ignoring"

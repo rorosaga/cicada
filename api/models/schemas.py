@@ -864,3 +864,17 @@ class MaintenanceDedupSweepResponse(CamelModel):
     proposed: list[MaintenanceMergePair] = []
     # Pairs the judge was uncertain about — same shape as the Nudge Inbox.
     nudged: list[MaintenanceNudgePair] = []
+
+
+class NotesSyncRequest(CamelModel):
+    # The raw delimited osascript dump (what tests and a future companion-app
+    # path use), mirroring BookmarkSyncRequest's inline-data shape. Omitted
+    # entirely -> the endpoint falls back to a real local osascript enumeration.
+    notes_dump: Optional[str] = None
+
+
+class NotesSyncResponse(CamelModel):
+    new: int
+    updated: int
+    skipped: int
+    total: int = 0

@@ -32,7 +32,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import markdown_parser, predicates
-from api.services.claims import Claim, parse_claims, write_claims
+from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.vector_index import EmbedFn, SqliteVecIndexer
 
 
@@ -155,7 +155,11 @@ def seed_claims_from_edges(
             frontmatter.get("created") or today
         )
 
-        existing = parse_claims(body)
+        try:
+            existing = parse_claims(body, strict=True)
+        except MalformedClaimsBlockError as exc:
+            logger.error(f"corrupt ```claims block on {subject}, skipping seed: {exc}")
+            continue
         existing_keys = {
             _claim_key(c.subject, c.predicate, c.object, c.observer, c.context)
             for c in existing

@@ -226,6 +226,23 @@ struct BookmarkSyncResult: Codable {
     let sources: [BookmarkSyncSourceSummary]
 }
 
+/// `POST /sources/sync-notes` result — Apple Notes one-way sync tally. Mirrors
+/// `BookmarkSyncResult`'s new/skipped shape; Notes is a single local source so
+/// there's no per-app breakdown to carry. Any extra fields the backend sends
+/// (e.g. a `sources` echo) are simply ignored by `Decodable`.
+struct NoteSyncResult: Codable {
+    let new: Int
+    let skipped: Int
+
+    enum CodingKeys: String, CodingKey { case new, skipped }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        new = (try? c.decode(Int.self, forKey: .new)) ?? 0
+        skipped = (try? c.decode(Int.self, forKey: .skipped)) ?? 0
+    }
+}
+
 // MARK: - RSS feed subscriptions (G9 — feeds.yaml registry)
 
 /// One subscribed RSS/Atom feed (`GET /sources/feeds` / `POST /sources/feeds`).
@@ -314,6 +331,95 @@ struct PollFeedsResult: Codable {
         new = (try? c.decode(Int.self, forKey: .new)) ?? 0
         skippedNoNetwork = (try? c.decode(Int.self, forKey: .skippedNoNetwork)) ?? 0
         perFeed = (try? c.decode([PollFeedItemResult].self, forKey: .perFeed)) ?? []
+    }
+}
+
+// MARK: - Calendar subscriptions (mirrors RSS feed subscriptions above,
+// same on-disk-registry reasoning — calendars.yaml in place of feeds.yaml)
+
+/// One subscribed ICS/webcal calendar (`GET /sources/calendars` /
+/// `POST /sources/calendars`). Mirrors `FeedSubscription` field-for-field:
+/// echoes the raw on-disk record straight from the calendar registry, so
+/// `last_polled` stays snake_case on the wire like its feed counterpart.
+struct CalendarSubscription: Codable, Identifiable {
+    let url: String
+    let tags: [String]
+    let added: String
+    let lastPolled: String?
+
+    var id: String { url }
+
+    enum CodingKeys: String, CodingKey {
+        case url, tags, added
+        case lastPolled = "last_polled"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decode(String.self, forKey: .url)
+        tags = (try? c.decode([String].self, forKey: .tags)) ?? []
+        added = (try? c.decode(String.self, forKey: .added)) ?? ""
+        lastPolled = try c.decodeIfPresent(String.self, forKey: .lastPolled)
+    }
+}
+
+/// `GET /sources/calendars` envelope — the calendar list plus a count.
+private struct CalendarListResponse: Codable {
+    let calendars: [CalendarSubscription]
+    let total: Int
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        calendars = (try? c.decode([CalendarSubscription].self, forKey: .calendars)) ?? []
+        total = (try? c.decode(Int.self, forKey: .total)) ?? 0
+    }
+    enum CodingKeys: String, CodingKey { case calendars, total }
+}
+
+/// One calendar's outcome within a `POST /sources/poll-calendars` sweep.
+/// Snake_case wire keys, mirrors `PollFeedItemResult`.
+struct PollCalendarItemResult: Codable, Identifiable {
+    let url: String
+    let status: String
+    let new: Int?
+    let duplicates: Int?
+    let error: String?
+
+    var id: String { url }
+
+    enum CodingKeys: String, CodingKey { case url, status, new, duplicates, error }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decode(String.self, forKey: .url)
+        status = (try? c.decode(String.self, forKey: .status)) ?? ""
+        new = try c.decodeIfPresent(Int.self, forKey: .new)
+        duplicates = try c.decodeIfPresent(Int.self, forKey: .duplicates)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+/// `POST /sources/poll-calendars` result. Mirrors `PollFeedsResult` — when
+/// the network gate is closed server-side, `new`/`perCalendar` stay at their
+/// zero/empty defaults and `skippedNoNetwork` reports the count instead.
+struct PollCalendarsResult: Codable {
+    let polled: Int
+    let new: Int
+    let skippedNoNetwork: Int
+    let perCalendar: [PollCalendarItemResult]
+
+    enum CodingKeys: String, CodingKey {
+        case polled, new
+        case skippedNoNetwork = "skipped_no_network"
+        case perCalendar = "per_calendar"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        polled = (try? c.decode(Int.self, forKey: .polled)) ?? 0
+        new = (try? c.decode(Int.self, forKey: .new)) ?? 0
+        skippedNoNetwork = (try? c.decode(Int.self, forKey: .skippedNoNetwork)) ?? 0
+        perCalendar = (try? c.decode([PollCalendarItemResult].self, forKey: .perCalendar)) ?? []
     }
 }
 
@@ -781,6 +887,16 @@ actor APIClient {
         return try await post("/sources/sync-bookmarks", body: body.isEmpty ? nil : body)
     }
 
+    /// One-way Apple Notes sync (`POST /sources/sync-notes`). Mirrors
+    /// `syncBookmarks()` — keyless, reads local Notes via AppleScript/osascript
+    /// (no login, no OAuth). The first call triggers a macOS automation
+    /// permission prompt for Notes; the Capture page's "Sync Notes now" action
+    /// calls this with no arguments.
+    @discardableResult
+    func syncNotes() async throws -> NoteSyncResult {
+        return try await post("/sources/sync-notes")
+    }
+
     // MARK: - RSS feed subscriptions (G9)
 
     /// `GET /sources/feeds` → every subscribed RSS/Atom feed, in subscription order.
@@ -812,6 +928,38 @@ actor APIClient {
     @discardableResult
     func pollFeeds() async throws -> PollFeedsResult {
         return try await post("/sources/poll-feeds")
+    }
+
+    // MARK: - Calendar subscriptions (mirrors RSS feed subscriptions above)
+
+    /// `GET /sources/calendars` → every subscribed webcal/ICS calendar, in
+    /// subscription order.
+    func fetchCalendars() async throws -> [CalendarSubscription] {
+        let resp: CalendarListResponse = try await get("/sources/calendars")
+        return resp.calendars
+    }
+
+    /// `POST /sources/calendars` `{url, tags?}` → subscribe to a webcal://.ics
+    /// calendar. Idempotent, mirrors `subscribeFeed`.
+    @discardableResult
+    func subscribeCalendar(url: String, tags: [String] = []) async throws -> CalendarSubscription {
+        var body: [String: Any] = ["url": url]
+        if !tags.isEmpty { body["tags"] = tags }
+        return try await post("/sources/calendars", body: body)
+    }
+
+    /// `DELETE /sources/calendars` `{url}` → unsubscribe. Throws
+    /// `.httpError(404, _)` if the URL wasn't subscribed, mirrors `unsubscribeFeed`.
+    func unsubscribeCalendar(url: String) async throws {
+        try await delete("/sources/calendars", body: ["url": url])
+    }
+
+    /// `POST /sources/poll-calendars` → check every subscribed calendar for
+    /// new events. Mirrors `pollFeeds`, including the same network-gate
+    /// behavior when live fetch is disabled server-side.
+    @discardableResult
+    func pollCalendars() async throws -> PollCalendarsResult {
+        return try await post("/sources/poll-calendars")
     }
 
     // MARK: - Origins (ORIGIN-PROVENANCE)

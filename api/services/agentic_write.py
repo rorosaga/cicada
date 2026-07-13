@@ -36,7 +36,7 @@ from loguru import logger
 
 from api.services import entity_body, markdown_parser
 from api.services.claim_reconciler import reconcile_stage3
-from api.services.claims import Claim, parse_claims, write_claims
+from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 _EP_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
@@ -268,7 +268,23 @@ def write_claim(
         )
 
         parsed = markdown_parser.parse(page)
-        existing_claims = parse_claims(parsed.body)
+        try:
+            existing_claims = parse_claims(parsed.body, strict=True)
+        except MalformedClaimsBlockError as exc:
+            # Refuse to touch the page: with a lenient parse the corrupt block
+            # would read as "no claims" and the rewrite below would wipe it.
+            logger.error(f"corrupt ```claims block on {entity_id}, refusing to write: {exc}")
+            return {
+                "subject": subject_raw,
+                "entity_id": entity_id,
+                "claim_id": None,
+                "action": "corrupt_claims_block",
+                "observer": observer,
+                "error": (
+                    f"entity '{entity_id}' has an unparseable ```claims block; "
+                    "repair it before writing claims (nothing was modified)"
+                ),
+            }
 
         settings = _ReconcileSettings(memory_path=memory_path)
         reconciled, nudges, audit = reconcile_stage3(

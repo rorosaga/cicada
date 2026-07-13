@@ -356,6 +356,25 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
   bounded by `--models`/`--n`/`--max-chars`, with `--embed-test` for live dim/cost on the embedding model.
   `benchmark_results/` is gitignored — never committed. → feeds **G10**; relates to **D2/M5d** (big-model
   re-consolidation) and **M3** (`Cicada-Author` provider attribution).
+- ✅ **2026-07-13 — Calendar ICS + Apple Notes connectors (R6 deferred half, backend):** two more
+  one-way, keyless episode emitters, mirroring `feed_registry`/`bookmark_sync` exactly. **Calendar:**
+  `api/services/calendar_registry.py` — `<memory>/calendars.yaml` subscription registry (`webcal://`
+  normalized to `https://` at subscribe time, same dedup/tag-merge shape as feeds), `icalendar`-backed
+  `parse_ics` (line folding + TZID resolved, date-only all-day events, RRULE presence noted but not
+  expanded) filtered to a past-30-day/next-180-day window, one episode per `VEVENT`
+  (`origin: "calendar"`), dedup on UID+DTSTART(+SEQUENCE) via `memory/sources/calendar_index.json` so an
+  edited event re-ingests but an unchanged one never duplicates; polling gated behind the same
+  `CICADA_ALLOW_FEED_FETCH=1`. **Apple Notes:** `api/services/notes_sync.py` — one batched `osascript`
+  call (never per-note) dumps every note via a small delimited format, diffed against
+  `memory/sources/notes_index.json` (keyed on note id, falling back to a name+creation-date hash) so a
+  new note emits an episode (`origin: "apple-notes"`, folder name as a tag hint), an edited note
+  (changed modification date) re-emits an updated episode, and an unchanged note is skipped; plaintext
+  capped at 20k chars. The one real I/O seam (`_run_osascript`) is the sole thing tests monkeypatch —
+  **no test ever invokes real `osascript`** (TCC-prompt-safe). Both wired into `api/routers/sources.py`
+  mirroring the feeds/bookmark-sync endpoint shapes exactly: `GET/POST/DELETE /sources/calendars`,
+  `POST /sources/poll-calendars`, `POST /sources/sync-notes`. 52 new hermetic tests (444 -> 496 green).
+  → relates to **R6** (connectors as Awake-phase episode emitters — was explicitly deferred there),
+  **G9** (origin provenance — both origins flow straight into `GET /origins`, no changes needed there).
 
 ## APPLY — buildable now (low architecture risk)
 
