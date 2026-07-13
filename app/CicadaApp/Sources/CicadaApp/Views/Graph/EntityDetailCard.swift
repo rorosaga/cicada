@@ -17,6 +17,12 @@ struct EntityDetailCard: View {
     // entities; nil while loading or when no path/endpoint is available.
     @State private var locationListing: LocationListing?
 
+    // Repository context (G9 companion). Loaded lazily on appear for
+    // `.project`/`.directory` entities; empty while loading, on 404, or when
+    // the entity carries no `repos:` key — the section renders nothing in
+    // all three cases (see `fetchEntityRepos`).
+    @State private var repoContexts: [RepoContext] = []
+
     struct TimelineKey: Identifiable, Hashable {
         let predicate: String
         let context: String
@@ -216,18 +222,30 @@ struct EntityDetailCard: View {
                 locationSection
             }
 
+            if !repoContexts.isEmpty {
+                Divider().background(CicadaTheme.border)
+                repositorySection
+            }
+
             Divider().background(CicadaTheme.border)
             metadataSection
         }
         .padding(CicadaTheme.spacingLG)
         .task(id: entity.id) {
             // Reset before (re)fetching so swapping between entities can't show
-            // a previous location's listing. `.task(id:)` already guarantees this
-            // runs once per id, so no extra "loaded" guard is needed.
+            // a previous entity's location/repo data. `.task(id:)` already
+            // guarantees this runs once per id, so no extra "loaded" guard is
+            // needed.
             locationListing = nil
+            repoContexts = []
             // Only location entities have a directory listing to fetch.
-            guard entity.type == .location else { return }
-            locationListing = try? await APIClient.shared.fetchLocationListing(id: entity.id)
+            if entity.type == .location {
+                locationListing = try? await APIClient.shared.fetchLocationListing(id: entity.id)
+            }
+            // Only project/directory entities carry a `repos:` frontmatter key.
+            if entity.type == .project || entity.type == .directory {
+                repoContexts = (try? await APIClient.shared.fetchEntityRepos(entityId: entity.id)) ?? []
+            }
         }
     }
 
@@ -347,6 +365,167 @@ struct EntityDetailCard: View {
         return unit == 0
             ? "\(bytes) \(units[unit])"
             : String(format: "%.1f %@", value, units[unit])
+    }
+
+    // MARK: - Repository Section (G9 companion)
+    //
+    // For `.project`/`.directory` entities carrying a `repos:` frontmatter
+    // key, shows the live local-checkout state per declared repo — remote,
+    // branch, dirty/ahead/behind counts, last commit, worktrees, and any
+    // `stale_hint`. Gated entirely by `!repoContexts.isEmpty` in `contentTab`,
+    // so this only ever renders once data has actually arrived — no empty
+    // section, no loading skeleton. NOT INTEGRATION-TESTED against a live
+    // backend (built in parallel by another agent).
+
+    private var repositorySection: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CicadaTheme.entityColor(for: .tool))
+                Text(repoContexts.count > 1 ? "Repositories" : "Repository")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+
+            ForEach(repoContexts) { repo in
+                repoCard(repo)
+            }
+        }
+    }
+
+    private func repoCard(_ repo: RepoContext) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+                VStack(alignment: .leading, spacing: 2) {
+                    if let remote = repo.remote, !remote.isEmpty {
+                        Text(remote)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Text(repo.path)
+                        .font(CicadaTheme.monoFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                Spacer()
+                repoStatusBadge(repo.status)
+            }
+
+            HStack(spacing: CicadaTheme.spacingXS) {
+                if let branch = repo.currentBranch, !branch.isEmpty {
+                    pill(branch, icon: "arrow.triangle.branch", color: CicadaTheme.accent)
+                }
+                if let dirty = repo.dirtyFiles, dirty > 0 {
+                    pill("\(dirty) dirty", icon: "circle.fill", color: Color(hex: 0xF59E0B))
+                }
+                if let ahead = repo.ahead, ahead > 0 {
+                    pill("↑\(ahead)", icon: nil, color: Color(hex: 0x22C55E))
+                }
+                if let behind = repo.behind, behind > 0 {
+                    pill("↓\(behind)", icon: nil, color: Color(hex: 0xEF4444))
+                }
+            }
+
+            if let commit = repo.lastCommit, !commit.hash.isEmpty {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Text(commit.shortHash)
+                        .font(CicadaTheme.monoFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    Text(commit.subject)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(relativeDate(commit.dateValue))
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            }
+
+            if repo.worktrees.count > 1 {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(repo.worktrees, id: \.path) { wt in
+                        HStack(spacing: 4) {
+                            Image(systemName: wt.isMain ? "star.fill" : "arrow.triangle.branch")
+                                .font(.system(size: 9))
+                                .foregroundStyle(wt.isMain ? CicadaTheme.hubGold : CicadaTheme.textTertiary)
+                            Text(wt.branch ?? wt.path)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                                .lineLimit(1)
+                            if wt.isDirty == true {
+                                Circle()
+                                    .fill(Color(hex: 0xF59E0B))
+                                    .frame(width: 5, height: 5)
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 2)
+            }
+
+            if let hint = repo.staleHint, !hint.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 9))
+                    Text(hint)
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(Color(hex: 0xF59E0B))
+            }
+        }
+        .padding(CicadaTheme.spacingMD)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CicadaTheme.surfaceHover.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+    }
+
+    private func repoStatusBadge(_ status: String) -> some View {
+        let (label, color): (String, Color) = {
+            switch status {
+            case "ok": return ("ok", Color(hex: 0x22C55E))
+            case "other_device": return ("other device", CicadaTheme.textTertiary)
+            case "missing": return ("missing", Color(hex: 0xEF4444))
+            case "not_a_repo": return ("not a repo", Color(hex: 0xEF4444))
+            case "git_unavailable": return ("git unavailable", Color(hex: 0xF59E0B))
+            case "timeout": return ("timeout", Color(hex: 0xF59E0B))
+            default: return (status, CicadaTheme.textTertiary)
+            }
+        }()
+        return Text(label)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.15))
+            .clipShape(Capsule())
+    }
+
+    private func pill(_ text: String, icon: String?, color: Color) -> some View {
+        HStack(spacing: 3) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 7))
+            }
+            Text(text)
+                .font(.system(size: 10, weight: .medium))
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(color.opacity(0.12))
+        .clipShape(Capsule())
+    }
+
+    private func relativeDate(_ date: Date) -> String {
+        let fmt = RelativeDateTimeFormatter()
+        fmt.unitsStyle = .abbreviated
+        return fmt.localizedString(for: date, relativeTo: .now)
     }
 
     /// The `## Description` body section of a media entity, used as the website

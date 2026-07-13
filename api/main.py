@@ -21,6 +21,7 @@ from api.routers import (
     graph,
     inbox,
     local_refs,
+    maintenance,
     nudges,
     origins,
     search,
@@ -127,3 +128,4 @@ app.include_router(sources.router, tags=["sources"])
 app.include_router(banks.router, tags=["banks"])
 app.include_router(local_refs.router, tags=["local-refs"])
 app.include_router(capture.router, tags=["capture"])
+app.include_router(maintenance.router, tags=["maintenance"])

@@ -12,6 +12,7 @@ import litellm
 from loguru import logger
 
 from api.config import Settings
+from api.services.providers import resolve_llm_fn
 
 SKILL_DETECTION_PROMPT = """You are analyzing patterns in a personal knowledge graph to extract procedural skills and preferences.
 
@@ -73,8 +74,14 @@ async def detect_patterns(
     )
 
     try:
-        response = await litellm.acompletion(
-            model=settings.litellm_model,
+        # Route through the provider factory (CQA-H3) so llm_mode="local"
+        # (ollama) and consolidation_model overrides apply here too — the
+        # completion callable stays litellm.acompletion, so this is still an
+        # async call, byte-identical when neither override is configured.
+        llm_fn = resolve_llm_fn(
+            settings, model=settings.effective_consolidation_model, completion=litellm.acompletion
+        )
+        response = await llm_fn(
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
         )

@@ -47,15 +47,26 @@ def find_candidate_pairs(memory_path: Path, *, embed_fn=None, min_cosine=0.85):
 
 
 def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
-                seed_pairs=None, auto_merge_threshold=0.9) -> dict:
+                seed_pairs=None, auto_merge_threshold=0.9, dry_run=False,
+                limit=None) -> dict:
+    """Run the full-graph dedup sweep.
+
+    ``dry_run`` (G21 maintenance endpoint): when True, a pair the judge calls
+    "same" with high enough confidence is reported under ``proposed`` instead
+    of actually calling ``merge_entities`` — nothing is written to disk.
+    ``limit`` caps how many candidate pairs are considered, bounding judge
+    (LLM) calls on a large graph.
+    """
     if judge_fn is None:  # pragma: no cover - resolved at runtime
         judge_fn = _default_judge_fn(settings)
     pairs = list(seed_pairs or [])
     if not pairs:
         pairs = [(a, b) for (a, b, _score) in find_candidate_pairs(memory_path, embed_fn=embed_fn)]
+    if limit is not None:
+        pairs = pairs[:limit]
 
     ents = memory_path / "entities"
-    merged, nudged = [], []
+    merged, proposed, nudged = [], [], []
     gone: set[str] = set()
     for a, b in pairs:
         if a in gone or b in gone:
@@ -74,8 +85,11 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
                 and winner in (a, b)
             ):
                 loser = b if winner == a else a
-                merge_entities(memory_path, loser_id=loser, winner_id=winner)
-                merged.append((loser, winner))
+                if dry_run:
+                    proposed.append((loser, winner))
+                else:
+                    merge_entities(memory_path, loser_id=loser, winner_id=winner)
+                    merged.append((loser, winner))
                 gone.add(loser)
             elif verdict in ("same", "unsure"):
                 # Either genuinely uncertain, or "same" with a high enough
@@ -86,7 +100,7 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
         except Exception as exc:  # noqa: BLE001 - one bad pair must not abort the sweep
             logger.warning("dedup_sweep: skipping pair (%s, %s) after error: %s", a, b, exc)
             continue
-    return {"merged": merged, "nudged": nudged}
+    return {"merged": merged, "proposed": proposed, "nudged": nudged, "candidate_pairs": len(pairs)}
 
 
 def _default_judge_fn(settings):  # pragma: no cover - needs a real model

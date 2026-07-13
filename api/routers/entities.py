@@ -1,5 +1,6 @@
 import os
 import re
+from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,8 +16,12 @@ from api.models.schemas import (
     EntityResponse,
     LocationEntry,
     LocationListing,
+    RepoContext,
+    RepoContextList,
+    RepoInput,
+    RepoUpdateRequest,
 )
-from api.services import git_service, markdown_parser
+from api.services import git_service, markdown_parser, repo_context
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
@@ -242,6 +247,94 @@ async def get_entity_location(
     return LocationListing(
         path=declared, exists=True, accessible=True, truncated=truncated, entries=entries
     )
+
+
+@router.get("/entities/{entity_id}/repos", response_model=RepoContextList)
+async def get_entity_repos(
+    entity_id: str,
+    settings: Settings = Depends(get_settings),
+):
+    """Live git context for an entity's declared ``repos:`` frontmatter (G-repo).
+
+    Trust boundary mirrors ``get_entity_location``: the only paths ever probed
+    are the ones the ENTITY ITSELF declares (frontmatter ``repos: [...]``) —
+    never a request-supplied path. 404 only when the entity file itself does
+    not exist; an entity with no ``repos:`` key returns ``repos: []`` at 200.
+    """
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+
+    parsed = markdown_parser.parse(entity_path)
+    declared_repos = parsed.frontmatter.get("repos") or []
+
+    contexts = [
+        RepoContext(**repo_context.resolve_repo_context(decl))
+        for decl in declared_repos
+        if isinstance(decl, dict) and decl.get("path")
+    ]
+    return RepoContextList(entity_id=entity_id, repos=contexts)
+
+
+def _repo_input_to_frontmatter(r: RepoInput) -> dict:
+    """One validated ``RepoInput`` -> the dict shape written into ``repos:``."""
+    out: dict = {"path": r.path}
+    if r.device:
+        out["device"] = r.device
+    if r.remote:
+        out["remote"] = r.remote
+    if r.default_branch:
+        out["default_branch"] = r.default_branch
+    if r.worktrees:
+        out["worktrees"] = [
+            {"path": w.path, "branch": w.branch, "primary": w.primary}
+            for w in r.worktrees
+        ]
+    return out
+
+
+@router.patch("/entities/{entity_id}/repos", response_model=RepoContextList)
+async def update_entity_repos(
+    entity_id: str,
+    request: RepoUpdateRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """Rewrite ONLY the ``repos:`` frontmatter key and commit (G-repo).
+
+    Setting ``repos: []`` removes the key entirely rather than persisting an
+    empty list, so an entity that never declared a repo stays byte-identical.
+    Every other frontmatter key and the body are left untouched. Commits via
+    the same structured-commit-message + git_service pattern as every other
+    Cicada write: trigger ``user/companion_app``, ``Cicada-Author: user``.
+    """
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+
+    parsed = markdown_parser.parse(entity_path)
+    fm = parsed.frontmatter
+
+    if not request.repos:
+        fm.pop("repos", None)
+    else:
+        fm["repos"] = [_repo_input_to_frontmatter(r) for r in request.repos]
+
+    markdown_parser.write(entity_path, fm, parsed.body)
+
+    message = git_service.build_commit_message(
+        f"Update repo links {date.today().isoformat()}",
+        [f"entities/{entity_id}.md: updated (trigger: user/companion_app)"],
+        authors=["user"],
+    )
+    await git_service.commit_changes(settings.memory_path, message)
+
+    declared_repos = fm.get("repos") or []
+    contexts = [
+        RepoContext(**repo_context.resolve_repo_context(decl))
+        for decl in declared_repos
+        if isinstance(decl, dict) and decl.get("path")
+    ]
+    return RepoContextList(entity_id=entity_id, repos=contexts)
 
 
 @router.get("/entities/{entity_id}/context", response_model=EntityContextResponse)

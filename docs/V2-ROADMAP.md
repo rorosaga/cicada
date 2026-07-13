@@ -1,5 +1,10 @@
 # Cicada v2 — Roadmap
 
+> **Status: fully shipped as of 2026-07.** All six axes and all four waves described below
+> have landed (see [`docs/goals/memory-evolution.md`](goals/memory-evolution.md) for the
+> up-to-date implementation log). This document is kept as a **historical record** of the
+> original v2 plan — read it for the *why*, not for current status.
+
 **Branch:** `feat/v2-revamp` · **Date:** 2026-06-12
 
 v2 turns Cicada from a thesis prototype into a plug-and-play second-brain memory layer that is friendly to **both** agents (small LLMs traverse it via files; LEANN handles fuzzy recall) and users (one inbox, a meaningful graph, a menu-bar bookworm companion).

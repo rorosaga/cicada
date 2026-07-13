@@ -244,6 +244,158 @@ struct LocationListing: Codable {
     }
 }
 
+// MARK: - Project repository context (G9 companion)
+//
+// `GET /entities/{id}/repos` surfaces the git-repo context declared under a
+// project/directory entity's `repos:` frontmatter — local checkout status,
+// branch, ahead/behind, worktrees, last commit — so the companion app can
+// show "what's the state of this repo on disk" without the user opening a
+// terminal. NOT INTEGRATION-TESTED against a live backend (built in parallel
+// by another agent) — this matches the shared API contract exactly and is
+// compile-verified only.
+//
+// Unlike the rest of this file's endpoints (which ride the app-wide camelCase
+// wire convention — see `api/models/schemas.py::to_camel`), this endpoint is
+// SPECIFIED as snake_case JSON in the shared contract, so every multi-word key
+// below gets an explicit snake_case `CodingKeys` raw value rather than relying
+// on the Swift property name.
+
+/// One worktree entry inside a `RepoContext.worktrees` list.
+struct RepoWorktree: Codable, Hashable {
+    let path: String
+    let branch: String?
+    let isMain: Bool
+    let isDirty: Bool?
+    let declared: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case path, branch
+        case isMain = "is_main"
+        case isDirty = "is_dirty"
+        case declared
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
+        branch = try c.decodeIfPresent(String.self, forKey: .branch)
+        isMain = try c.decodeIfPresent(Bool.self, forKey: .isMain) ?? false
+        isDirty = try c.decodeIfPresent(Bool.self, forKey: .isDirty)
+        declared = try c.decodeIfPresent(Bool.self, forKey: .declared) ?? false
+    }
+}
+
+/// The last commit on a repo/worktree, as surfaced by `RepoContext.last_commit`.
+struct RepoLastCommit: Codable, Hashable {
+    let hash: String
+    let author: String
+    let date: String
+    let subject: String
+
+    enum CodingKeys: String, CodingKey { case hash, author, date, subject }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        hash = try c.decodeIfPresent(String.self, forKey: .hash) ?? ""
+        author = try c.decodeIfPresent(String.self, forKey: .author) ?? ""
+        date = try c.decodeIfPresent(String.self, forKey: .date) ?? ""
+        subject = try c.decodeIfPresent(String.self, forKey: .subject) ?? ""
+    }
+
+    /// The commit date parsed leniently — the backend emits an ISO-8601-ish
+    /// git date string; fall back to `.now` (never shown, callers only use
+    /// this for `RelativeDateTimeFormatter`) if it doesn't parse.
+    var dateValue: Date {
+        ISO8601DateFormatter().date(from: date)
+            ?? RepoLastCommit.looseFormatter.date(from: date)
+            ?? .now
+    }
+
+    private static let looseFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    var shortHash: String { String(hash.prefix(7)) }
+}
+
+/// One repo declared on a project entity's `repos:` frontmatter, enriched
+/// with live local-checkout status. Every non-identifying field is optional —
+/// a repo can be `missing`, on `other_device`, or simply not a git repo, and
+/// still round-trips through this type.
+struct RepoContext: Codable, Identifiable {
+    let path: String
+    let device: String?
+    /// `ok | other_device | missing | not_a_repo | git_unavailable | timeout`
+    let status: String
+    let exists: Bool
+    let isGitRepo: Bool
+    let remote: String?
+    let currentBranch: String?
+    let defaultBranchDeclared: String?
+    let defaultBranchObserved: String?
+    let ahead: Int?
+    let behind: Int?
+    let dirtyFiles: Int?
+    let worktrees: [RepoWorktree]
+    let lastCommit: RepoLastCommit?
+    let staleHint: String?
+
+    var id: String { path }
+
+    enum CodingKeys: String, CodingKey {
+        case path, device, status, exists
+        case isGitRepo = "is_git_repo"
+        case remote
+        case currentBranch = "current_branch"
+        case defaultBranchDeclared = "default_branch_declared"
+        case defaultBranchObserved = "default_branch_observed"
+        case ahead, behind
+        case dirtyFiles = "dirty_files"
+        case worktrees
+        case lastCommit = "last_commit"
+        case staleHint = "stale_hint"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
+        device = try c.decodeIfPresent(String.self, forKey: .device)
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? "missing"
+        exists = try c.decodeIfPresent(Bool.self, forKey: .exists) ?? false
+        isGitRepo = try c.decodeIfPresent(Bool.self, forKey: .isGitRepo) ?? false
+        remote = try c.decodeIfPresent(String.self, forKey: .remote)
+        currentBranch = try c.decodeIfPresent(String.self, forKey: .currentBranch)
+        defaultBranchDeclared = try c.decodeIfPresent(String.self, forKey: .defaultBranchDeclared)
+        defaultBranchObserved = try c.decodeIfPresent(String.self, forKey: .defaultBranchObserved)
+        ahead = try c.decodeIfPresent(Int.self, forKey: .ahead)
+        behind = try c.decodeIfPresent(Int.self, forKey: .behind)
+        dirtyFiles = try c.decodeIfPresent(Int.self, forKey: .dirtyFiles)
+        worktrees = try c.decodeIfPresent([RepoWorktree].self, forKey: .worktrees) ?? []
+        lastCommit = try c.decodeIfPresent(RepoLastCommit.self, forKey: .lastCommit)
+        staleHint = try c.decodeIfPresent(String.self, forKey: .staleHint)
+    }
+}
+
+/// `GET /entities/{id}/repos` response envelope.
+struct RepoContextList: Codable {
+    let entityId: String
+    let repos: [RepoContext]
+
+    enum CodingKeys: String, CodingKey {
+        case entityId = "entity_id"
+        case repos
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entityId = try c.decodeIfPresent(String.self, forKey: .entityId) ?? ""
+        repos = try c.decodeIfPresent([RepoContext].self, forKey: .repos) ?? []
+    }
+}
+
 /// The nested `media:` block on a `media`-type entity (G11). Authoritative
 /// shape: `api/services/media_ingestor.py::write_media_entity`. Every field is
 /// optional/decode-tolerant — the backend may not surface this block yet (it
