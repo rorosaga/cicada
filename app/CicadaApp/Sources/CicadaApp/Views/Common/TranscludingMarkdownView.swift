@@ -11,7 +11,11 @@ import SwiftUI
 // the existing `graphVM.selectEntity(id:)` hook.
 
 enum MarkdownSegment {
-    case text(AttributedString)
+    // Raw markdown text (headings, lists, code fences, prose, `[[wikilinks]]`,
+    // real links — everything BUT `![[embed]]` / `![alt](url)` tokens, which
+    // are split out into their own segments below). Rendered via
+    // `MarkdownBody`, a real block-level markdown renderer — see that file.
+    case text(String)
     case embed(ref: String)
     // G11: an inline markdown image `![alt](url)`. Rendered as an
     // `ImageThumbnail` (tap → lightbox), reusing the media preview machinery.
@@ -34,12 +38,9 @@ struct TranscludingMarkdownView: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
                 switch seg {
-                case .text(let attr):
-                    if !attr.characters.isEmpty {
-                        Text(attr)
-                            .font(CicadaTheme.bodyFont)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                case .text(let raw):
+                    if !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        MarkdownBody(text: raw)
                     }
                 case .embed(let ref):
                     if depth >= 2 || visited.contains(ref) {
@@ -65,18 +66,35 @@ struct TranscludingMarkdownView: View {
                 }
             }
         }
+        // Wikilinks are rewritten (by `MarkdownBody`) into ordinary markdown
+        // links pointed at a synthetic `cicada://entity/<id>` URL. Intercept
+        // that scheme here and route it to the graph's entity navigation;
+        // everything else (http/https) falls through to the system handler
+        // (opens in the default browser). `selectEntity` already no-ops
+        // gracefully (logs + leaves selection untouched) if `<id>` doesn't
+        // resolve to a real entity, so a stale/typo'd wikilink can't crash.
+        .environment(\.openURL, OpenURLAction { url in
+            guard url.scheme == "cicada" else { return .systemAction }
+            let id = url.lastPathComponent
+            if !id.isEmpty {
+                graphVM.selectEntity(id: id)
+            }
+            return .handled
+        })
     }
 
     /// Tokenize `body0` into text/embed/image segments. A single regex pass
     /// matches BOTH `![[ref]]` wikilink embeds AND `![alt](url)` markdown images
     /// (alternation; whichever group matched decides the segment kind — the
     /// embed alternative is tried first so `![[x]]` never mis-parses as an
-    /// image). Residual text is rendered with the shared wikilink highlighter.
+    /// image). Residual text is passed through RAW (no wikilink processing
+    /// here) — `MarkdownBody` owns full block + inline markdown rendering,
+    /// including `[[wikilinks]]`, for each `.text` segment.
     private var segments: [MarkdownSegment] {
         // Group 1: embed ref (`![[ref]]`). Groups 2/3: image alt + url (`![alt](url)`).
         let pattern = "!\\[\\[(.+?)\\]\\]|!\\[([^\\]]*)\\]\\(([^)]+)\\)"
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return [.text(renderWikilinks(body0))]
+            return [.text(body0)]
         }
         let nsText = body0 as NSString
         var out: [MarkdownSegment] = []
@@ -85,7 +103,7 @@ struct TranscludingMarkdownView: View {
         for match in matches {
             let beforeRange = NSRange(location: lastEnd, length: match.range.location - lastEnd)
             if beforeRange.length > 0 {
-                out.append(.text(renderWikilinks(nsText.substring(with: beforeRange))))
+                out.append(.text(nsText.substring(with: beforeRange)))
             }
             if match.range(at: 1).location != NSNotFound {
                 // `![[ref]]` embed.
@@ -100,9 +118,9 @@ struct TranscludingMarkdownView: View {
             lastEnd = match.range.location + match.range.length
         }
         if lastEnd < nsText.length {
-            out.append(.text(renderWikilinks(nsText.substring(from: lastEnd))))
+            out.append(.text(nsText.substring(from: lastEnd)))
         }
-        if out.isEmpty { out.append(.text(renderWikilinks(body0))) }
+        if out.isEmpty { out.append(.text(body0)) }
         return out
     }
 
