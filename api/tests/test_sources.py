@@ -415,3 +415,177 @@ def test_parse_netscape_bookmarks_extracts_links():
     urls = {i.url for i in items}
     assert "https://blog.example.com/a" in urls
     assert "https://blog.example.com/b" in urls
+
+
+# --- Source folder/category provenance --------------------------------------
+
+
+def test_parse_netscape_bookmarks_carries_nearest_enclosing_folder():
+    html = """<!DOCTYPE NETSCAPE-Bookmark-file-1>
+    <DL><p>
+      <DT><H3>Reading</H3>
+      <DL><p>
+        <DT><A HREF="https://blog.example.com/a">Post A</A>
+        <DT><A HREF="https://blog.example.com/b">Post B</A>
+      </DL><p>
+    </DL>"""
+    items = media_ingestor.parse_netscape_bookmarks(html)
+    assert {i.folder for i in items} == {"Reading"}
+    # Folder also lands as a tag (pre-existing behavior), now alongside the
+    # dedicated ``folder`` field.
+    assert all("Reading" in i.tags for i in items)
+
+
+def test_parse_netscape_bookmarks_no_folder_is_none():
+    html = """<!DOCTYPE NETSCAPE-Bookmark-file-1>
+    <DL><p>
+        <DT><A HREF="https://example.com/top">Top level</A>
+    </DL>"""
+    items = media_ingestor.parse_netscape_bookmarks(html)
+    assert items[0].folder is None
+
+
+def test_parse_chrome_bookmarks_json_nested_folders_yield_folder_paths():
+    tree = {
+        "roots": {
+            "bookmark_bar": {
+                "type": "folder",
+                "name": "Bookmarks bar",
+                "children": [
+                    {
+                        "type": "folder",
+                        "name": "AI",
+                        "children": [
+                            {
+                                "type": "folder",
+                                "name": "Papers",
+                                "children": [
+                                    {
+                                        "type": "url",
+                                        "name": "Attention Is All You Need",
+                                        "url": "https://example.com/attention",
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "type": "url",
+                        "name": "Top level link",
+                        "url": "https://example.com/top",
+                    },
+                ],
+            },
+            "other": {"type": "folder", "name": "Other bookmarks", "children": []},
+        },
+    }
+    items = media_ingestor.parse_chrome_bookmarks_json(tree)
+    by_url = {i.url: i for i in items}
+    assert by_url["https://example.com/attention"].folder == "Bookmarks bar/AI/Papers"
+    assert by_url["https://example.com/top"].folder == "Bookmarks bar"
+
+
+def test_parse_safari_bookmarks_plist_nested_folder_path():
+    import plistlib
+
+    tree = {
+        "Title": "",
+        "WebBookmarkType": "WebBookmarkTypeList",
+        "Children": [
+            {
+                "WebBookmarkType": "WebBookmarkTypeList",
+                "Title": "Favorites",
+                "Children": [
+                    {
+                        "WebBookmarkType": "WebBookmarkTypeList",
+                        "Title": "Papers",
+                        "Children": [
+                            {
+                                "WebBookmarkType": "WebBookmarkTypeLeaf",
+                                "URLString": "https://example.org/paper",
+                                "URIDictionary": {"title": "A Paper"},
+                            },
+                        ],
+                    },
+                    {
+                        "WebBookmarkType": "WebBookmarkTypeLeaf",
+                        "URLString": "https://example.org/top",
+                        "URIDictionary": {"title": "Top"},
+                    },
+                ],
+            },
+        ],
+    }
+    data = plistlib.dumps(tree)
+    items = media_ingestor.parse_safari_bookmarks(data)
+    by_url = {i.url: i for i in items}
+    assert by_url["https://example.org/paper"].folder == "Favorites/Papers"
+    assert by_url["https://example.org/top"].folder == "Favorites"
+
+
+def test_ingest_one_media_entity_carries_folder_frontmatter_and_tag(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    item = RawItem(url="https://example.com/attention", folder="Bookmarks bar/AI/Papers")
+    created, dups = run(
+        media_ingestor.ingest_batch([item], memory, from_bookmark_file=True, commit=False)
+    )
+    assert created == 1
+    assert dups == 0
+
+    entities = list((memory / "entities").glob("media-*.md"))
+    assert len(entities) == 1
+    fm = markdown_parser.parse(entities[0]).frontmatter
+    assert fm["folder"] == "Bookmarks bar/AI/Papers"
+    assert "bookmarks-bar-ai-papers" in fm["tags"]
+
+    episodes = list((memory / "episodes").glob("ep_*.md"))
+    assert len(episodes) == 1
+    ep_fm = markdown_parser.parse(episodes[0]).frontmatter
+    assert ep_fm["folder"] == "Bookmarks bar/AI/Papers"
+
+
+def test_ingest_one_media_entity_no_folder_omits_folder_tag(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    item = RawItem(url="https://example.com/no-folder")
+    run(media_ingestor.ingest_batch([item], memory, commit=False))
+
+    entities = list((memory / "entities").glob("media-*.md"))
+    fm = markdown_parser.parse(entities[0]).frontmatter
+    assert fm["folder"] is None
+
+
+def test_resync_same_url_with_folder_does_not_duplicate(tmp_path, monkeypatch):
+    """Folder is provenance, not identity: re-seeing an already-ingested URL
+    with a (possibly different) folder must still dedup on url_hash alone —
+    no second episode/entity, no duplicate url_index entry."""
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    first = RawItem(url="https://example.com/reused")
+    created1, dups1 = run(
+        media_ingestor.ingest_batch([first], memory, commit=False)
+    )
+    assert created1 == 1
+    assert dups1 == 0
+
+    # Same URL re-seen with a folder this time (e.g. the user later filed it
+    # into a Chrome folder, or it shows up in a fresh bookmark export).
+    second = RawItem(url="https://example.com/reused", folder="Bookmarks bar/Reading")
+    created2, dups2 = run(
+        media_ingestor.ingest_batch([second], memory, commit=False)
+    )
+    assert created2 == 0
+    assert dups2 == 1
+
+    assert len(list((memory / "episodes").glob("ep_*.md"))) == 1
+    assert len(list((memory / "entities").glob("media-*.md"))) == 1

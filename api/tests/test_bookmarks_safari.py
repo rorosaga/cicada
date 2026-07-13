@@ -4,7 +4,9 @@ Covers ``parse_safari_bookmarks`` for both shapes Safari can hand you:
 
 - (a) ``Bookmarks.plist`` — built inline with ``plistlib.dumps`` (binary and
   XML forms), with a nested folder + 2 leaf bookmarks, asserting folders are
-  skipped and only leaf URL+title pairs come out;
+  skipped and only leaf URL+title pairs come out, and that each leaf carries
+  its enclosing folder's ``Title`` as ``RawItem.folder`` (provenance, not an
+  emitted item);
 - (b) a Safari-exported bookmarks HTML file (Netscape format) — delegates to
   ``parse_netscape_bookmarks`` and must produce identical items;
 
@@ -93,6 +95,12 @@ def test_parse_safari_bookmarks_plist_folders_not_emitted_as_items():
     urls = {i.url for i in items}
     assert "Reading List" not in urls
     assert "Empty Folder" not in urls
+
+
+def test_parse_safari_bookmarks_plist_leaves_carry_folder_path():
+    data = plistlib.dumps(SAFARI_PLIST_TREE)
+    items = media_ingestor.parse_safari_bookmarks(data)
+    assert all(i.folder == "Reading List" for i in items)
 
 
 def test_parse_safari_bookmarks_malformed_bytes_returns_empty():
