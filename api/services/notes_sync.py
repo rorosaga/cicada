@@ -25,6 +25,7 @@ raw dump as a plain string) or file I/O against a ``tmp_path`` workspace.
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
@@ -50,31 +51,51 @@ _EXPECTED_FIELDS = 6  # id, name, body, created, modified, folder
 # cycle only needs enough text to extract entities/claims from.
 MAX_NOTE_BODY_CHARS = 20_000
 
-# Single batched AppleScript: walks every account -> folder -> note and emits
-# one RECORD_SEP-terminated, FIELD_SEP-joined record per note. A per-note
-# `try` block means one note Notes.app can't read (rare, corrupt note) is
-# skipped rather than aborting the whole dump.
+# Single batched AppleScript: walks every account -> folder and emits one
+# RECORD_SEP-terminated, FIELD_SEP-joined record per note. Two performance
+# constraints shaped this (a 217-note library blew the original 30s budget —
+# even `count of notes` alone took 16s): (1) properties are fetched in BULK
+# per folder (`id of every note of fld` = one Apple event for the whole
+# folder) instead of five events per note; (2) records accumulate in an
+# AppleScript *list* joined once via text item delimiters at the end —
+# `out & ...` string concat is quadratic in total output size. A per-folder
+# `try` block means one folder Notes.app can't read is skipped rather than
+# aborting the whole dump; the inner per-note `try` skips a single
+# unreadable/corrupt note.
 _APPLESCRIPT = """
+set FS to (ASCII character 30)
+set RS to (ASCII character 29)
+set outList to {}
 tell application "Notes"
-    set out to ""
     repeat with acc in accounts
         repeat with fld in folders of acc
-            repeat with nt in notes of fld
-                try
-                    set noteId to id of nt as string
-                    set noteName to name of nt as string
-                    set noteBody to plaintext of nt as string
-                    set cDate to (creation date of nt) as string
-                    set mDate to (modification date of nt) as string
-                    set folderName to name of fld as string
-                    set out to out & noteId & (ASCII character 30) & noteName & (ASCII character 30) & noteBody & (ASCII character 30) & cDate & (ASCII character 30) & mDate & (ASCII character 30) & folderName & (ASCII character 29)
-                end try
-            end repeat
+            try
+                set folderName to name of fld as string
+                set noteIds to id of every note of fld
+                set noteNames to name of every note of fld
+                set noteBodies to plaintext of every note of fld
+                set cDates to creation date of every note of fld
+                set mDates to modification date of every note of fld
+                repeat with i from 1 to count of noteIds
+                    try
+                        set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName
+                    end try
+                end repeat
+            end try
         end repeat
     end repeat
-    return out
 end tell
+set AppleScript's text item delimiters to RS
+set out to outList as string
+set AppleScript's text item delimiters to ""
+return out
 """.strip()
+
+# Bulk fetch cuts Apple-event count dramatically, but a large library
+# (hundreds of notes with long bodies) still needs real time to serialize
+# plaintext across the Apple Events boundary. Overridable via env for
+# pathological libraries.
+OSASCRIPT_TIMEOUT_S = int(os.environ.get("CICADA_NOTES_SYNC_TIMEOUT_S", "180"))
 
 
 # --- The one real I/O seam --------------------------------------------------
@@ -94,7 +115,7 @@ def _run_osascript() -> str:
         ["osascript", "-e", _APPLESCRIPT],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=OSASCRIPT_TIMEOUT_S,
         check=False,
     )
     if result.returncode != 0:
@@ -242,10 +263,32 @@ async def sync_notes(memory_path: Path, *, dump: str) -> dict[str, Any]:
     every other connector) and the index is repointed at it. An unchanged
     note (same id, same ``modified``) is skipped entirely.
 
-    Returns ``{"new": int, "updated": int, "skipped": int, "total": int}``.
+    Returns ``{"new": int, "updated": int, "skipped": int, "total": int,
+    "excluded": int}``.
+
+    Folder exclusion: ``CICADA_NOTES_EXCLUDE_FOLDERS`` (comma-separated,
+    case-insensitive folder names, default empty) drops matching notes
+    BEFORE the dedup index ever sees them — so an excluded folder ingests
+    cleanly later if the exclusion is lifted. Motivating case: a
+    password-notes folder must never land in a plaintext memory graph that
+    LLM clients read.
     """
     memory_path = Path(memory_path)
     notes = parse_notes_dump(dump)
+    excluded_folders = {
+        f.strip().casefold()
+        for f in os.environ.get("CICADA_NOTES_EXCLUDE_FOLDERS", "").split(",")
+        if f.strip()
+    }
+    excluded_count = 0
+    if excluded_folders:
+        kept = []
+        for note in notes:
+            if note.folder.casefold() in excluded_folders:
+                excluded_count += 1
+            else:
+                kept.append(note)
+        notes = kept
     idx = _load_notes_index(memory_path)
 
     new_count = 0
@@ -287,6 +330,7 @@ async def sync_notes(memory_path: Path, *, dump: str) -> dict[str, Any]:
         "updated": updated_count,
         "skipped": skipped_count,
         "total": len(notes),
+        "excluded": excluded_count,
     }
 
 
@@ -302,7 +346,7 @@ async def sync_from_local_notes(memory_path: Path) -> dict[str, Any]:
         raw = _run_osascript()
     except Exception as e:
         logger.debug(f"Could not read Apple Notes: {type(e).__name__}: {e}")
-        return {"new": 0, "updated": 0, "skipped": 0, "total": 0}
+        return {"new": 0, "updated": 0, "skipped": 0, "total": 0, "excluded": 0}
 
     return await sync_notes(memory_path, dump=raw)
 

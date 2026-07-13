@@ -878,3 +878,5 @@ class NotesSyncResponse(CamelModel):
     updated: int
     skipped: int
     total: int = 0
+    # Notes dropped by CICADA_NOTES_EXCLUDE_FOLDERS before dedup/ingest.
+    excluded: int = 0
