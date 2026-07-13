@@ -347,7 +347,11 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
     episodes_dir = memory_path / "episodes"
     results: list[dict] = []
     for filepath in episodes_dir.glob("*.md"):
-        parsed = markdown_parser.parse(filepath)
+        try:
+            parsed = markdown_parser.parse(filepath)
+        except Exception as exc:  # noqa: BLE001 - one malformed episode must not abort the cycle
+            logger.warning(f"_get_unprocessed_episodes: skipping malformed episode {filepath}: {exc}")
+            continue
         if not parsed.frontmatter.get("processed", False):
             source = parsed.frontmatter.get("source", "unknown")
             results.append({
@@ -402,7 +406,11 @@ def list_all_episodes(memory_path: Path) -> list[dict]:
     episodes_dir = memory_path / "episodes"
     results: list[dict] = []
     for filepath in episodes_dir.glob("*.md"):
-        parsed = markdown_parser.parse(filepath)
+        try:
+            parsed = markdown_parser.parse(filepath)
+        except Exception as exc:  # noqa: BLE001 - one malformed episode must not abort the cycle
+            logger.warning(f"list_all_episodes: skipping malformed episode {filepath}: {exc}")
+            continue
         fm = parsed.frontmatter
         results.append({
             "id": fm.get("id", filepath.stem),
@@ -422,7 +430,11 @@ def _load_existing_entities(memory_path: Path) -> list[dict]:
     entities_dir = memory_path / "entities"
     results: list[dict] = []
     for filepath in sorted(entities_dir.glob("*.md")):
-        parsed = markdown_parser.parse(filepath)
+        try:
+            parsed = markdown_parser.parse(filepath)
+        except Exception as exc:  # noqa: BLE001 - one malformed entity must not abort the cycle
+            logger.warning(f"_load_existing_entities: skipping malformed entity {filepath}: {exc}")
+            continue
         results.append({
             "id": filepath.stem,
             "frontmatter": parsed.frontmatter,
@@ -436,7 +448,11 @@ def _mark_episodes_processed(episodes: list[dict]) -> None:
     """Mark episodes as processed in their frontmatter."""
     for ep in episodes:
         filepath = ep["filepath"]
-        parsed = markdown_parser.parse(filepath)
+        try:
+            parsed = markdown_parser.parse(filepath)
+        except Exception as exc:  # noqa: BLE001 - one malformed episode must not abort the cycle
+            logger.warning(f"_mark_episodes_processed: skipping malformed episode {filepath}: {exc}")
+            continue
         parsed.frontmatter["processed"] = True
         markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
 

@@ -832,3 +832,35 @@ class BookmarkSyncResponse(CamelModel):
     new: int
     skipped: int
     sources: list[BookmarkSyncSourceSummary] = []
+
+
+# --- Maintenance (G21 dedup sweep) ------------------------------------------
+
+
+class MaintenanceDedupSweepRequest(CamelModel):
+    # Default True: an unguarded POST from a naive client must never write.
+    dry_run: bool = True
+    # Caps how many candidate pairs are judged (bounds LLM calls on a large
+    # graph). None (default) means "no cap".
+    limit: Optional[int] = None
+
+
+class MaintenanceMergePair(CamelModel):
+    loser: str
+    winner: str
+
+
+class MaintenanceNudgePair(CamelModel):
+    a: str
+    b: str
+
+
+class MaintenanceDedupSweepResponse(CamelModel):
+    dry_run: bool
+    candidate_pairs: int = 0
+    # Merges actually performed (only possible when dry_run=false).
+    merged: list[MaintenanceMergePair] = []
+    # Merges the judge would have performed, held back because dry_run=true.
+    proposed: list[MaintenanceMergePair] = []
+    # Pairs the judge was uncertain about — same shape as the Nudge Inbox.
+    nudged: list[MaintenanceNudgePair] = []

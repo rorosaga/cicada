@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.services import entity_body, markdown_parser
+from api.services.providers import resolve_llm_fn
 
 
 async def resolve_and_prune(
@@ -574,8 +575,13 @@ async def _synthesize_entity_update(
         new_history=json.dumps(new_history_entries) if new_history_entries else "[]",
         source_reference_date=source_reference_date or "unknown",
     )
-    response = await litellm.acompletion(
-        model=settings.litellm_model,
+    # Route through the provider factory (CQA-H3) so llm_mode="local" (ollama)
+    # and consolidation_model overrides apply uniformly here too. completion
+    # stays litellm.acompletion, so this is still awaited exactly as before.
+    llm_fn = resolve_llm_fn(
+        settings, model=settings.effective_consolidation_model, completion=litellm.acompletion
+    )
+    response = await llm_fn(
         messages=[{"role": "user", "content": prompt}],
     )
     body = response.choices[0].message.content or ""
@@ -623,8 +629,10 @@ async def _detect_contradiction(
         existing_body=existing_body[:4000],
         new_description=new_description[:2000],
     )
-    response = await litellm.acompletion(
-        model=settings.litellm_model,
+    llm_fn = resolve_llm_fn(
+        settings, model=settings.effective_consolidation_model, completion=litellm.acompletion
+    )
+    response = await llm_fn(
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )
