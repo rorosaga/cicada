@@ -607,6 +607,22 @@ actor APIClient {
         }
     }
 
+    /// `GET /entities/{id}/repos` (G9 companion) — the git-repo(s) declared on
+    /// a project/directory entity's `repos:` frontmatter, enriched with live
+    /// local-checkout status. Returns `[]` on a 404 (endpoint not shipped yet,
+    /// or entity carries no `repos:` key) or any other error so the entity
+    /// detail card degrades quietly — no Repository section rather than an
+    /// error state. NOT INTEGRATION-TESTED against a live backend (built in
+    /// parallel by another agent); matches the shared contract exactly.
+    func fetchEntityRepos(entityId: String) async throws -> [RepoContext] {
+        do {
+            let r: RepoContextList = try await get("/entities/\(encodedID(entityId))/repos")
+            return r.repos
+        } catch {
+            return []
+        }
+    }
+
     // MARK: - Claims (CPCG claim layer)
 
     /// `GET /entities/{id}/claims` — the subject's claims. By default only

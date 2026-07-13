@@ -1,12 +1,14 @@
 import SwiftUI
+import MapKit
 
-// MARK: - HeroPreview (G23/G25)
+// MARK: - HeroPreview (G23/G25 + location map pin)
 //
 // A prominent image-rich preview rendered at the very TOP of an entity's
 // rendered-markdown tab (see `EntityDetailCard.renderedMarkdownView`, ABOVE
 // the G24 `SummaryBox`). Makes entity pages image-rich: a YouTube hero gets
 // an in-app embedded player, a website/bookmark hero gets an OG-style card,
-// and any entity carrying a usable thumbnail gets a hero image.
+// any entity carrying a usable thumbnail gets a hero image, and a `location`
+// entity gets a single-pin MapKit map.
 //
 // Reuses the existing media machinery rather than reinventing it:
 //   • `MediaPreviewModel` / `MediaURLHelpers` (MediaPreview.swift) for the
@@ -28,10 +30,14 @@ struct HeroPreview: View {
     static let maxHeight: CGFloat = 220
 
     /// Whether this entity has anything worth rendering as a hero. Mirrors
-    /// the dispatch in `content(for:)` below — kept in sync deliberately
-    /// (small enum, unlikely to drift) so the parent can decide layout
-    /// inclusion without instantiating a view.
+    /// the dispatch in `content(for:)` / `body` below — kept in sync
+    /// deliberately (small enum, unlikely to drift) so the parent can decide
+    /// layout inclusion without instantiating a view. Location entities
+    /// always qualify: `LocationHero` itself degrades to an icon+name
+    /// placeholder while geocoding or on failure, so there's always
+    /// something worth the layout slot.
     static func hasPreviewableAsset(for entity: Entity) -> Bool {
+        if entity.type == .location { return true }
         guard let media = entity.media, media.hasURL else { return false }
         let model = MediaPreviewModel(block: media, title: entity.name)
         switch model.kind {
@@ -45,7 +51,9 @@ struct HeroPreview: View {
     }
 
     var body: some View {
-        if let media = entity.media, media.hasURL {
+        if entity.type == .location {
+            LocationHero(entity: entity)
+        } else if let media = entity.media, media.hasURL {
             content(for: MediaPreviewModel(block: media, title: entity.name))
         }
     }
@@ -288,5 +296,184 @@ private struct CompactSiteHero: View {
             )
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Location hero (single-pin MapKit map)
+//
+// A `location`-type entity's hero: a small MapKit map centered on the entity,
+// one pin. Geocoding (`CLGeocoder`) is async and can fail or take a moment,
+// so this always renders SOMETHING — an icon+name placeholder while
+// resolving or on failure, the map once resolved — never an empty slot
+// (mirrors `HeroPreview.hasPreviewableAsset` always returning true for
+// `.location`). Results are cached in-memory per entity id (`resolveCache`)
+// so re-renders (tab switches, scroll, parent re-layout) never re-geocode.
+
+private struct LocationHero: View {
+    let entity: Entity
+
+    @State private var coordinate: CLLocationCoordinate2D?
+    @State private var isResolved = false
+
+    /// entity id → resolved coordinate, or `nil` for "geocoded and failed".
+    /// The outer `Optional` from the dictionary lookup distinguishes "never
+    /// attempted" (cache miss) from "attempted, no result" (cached `nil`).
+    @MainActor
+    private static var resolveCache: [String: CLLocationCoordinate2D?] = [:]
+
+    var body: some View {
+        Group {
+            if let coordinate {
+                mapView(coordinate)
+            } else {
+                placeholder
+            }
+        }
+        .task(id: entity.id) {
+            await resolve()
+        }
+    }
+
+    @MainActor
+    private func resolve() async {
+        if let cached = Self.resolveCache[entity.id] {
+            coordinate = cached
+            isResolved = true
+            return
+        }
+
+        // Prefer a lat/lon declared directly in frontmatter — no geocoding
+        // round-trip needed, and immune to geocoder ambiguity. The backend
+        // doesn't emit these keys today, but frontmatter is user/agent
+        // editable, so honor them opportunistically if present.
+        if let declared = Self.declaredCoordinate(from: entity.rawMarkdown) {
+            coordinate = declared
+            Self.resolveCache[entity.id] = declared
+            isResolved = true
+            return
+        }
+
+        do {
+            let placemarks = try await CLGeocoder().geocodeAddressString(entity.name)
+            let resolved = placemarks.first?.location?.coordinate
+            coordinate = resolved
+            Self.resolveCache[entity.id] = resolved
+        } catch {
+            coordinate = nil
+            Self.resolveCache[entity.id] = nil
+        }
+        isResolved = true
+    }
+
+    private func mapView(_ coordinate: CLLocationCoordinate2D) -> some View {
+        Map(initialPosition: .region(
+            MKCoordinateRegion(
+                center: coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
+            )
+        )) {
+            Marker(entity.name, coordinate: coordinate)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: HeroPreview.maxHeight)
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                .stroke(CicadaTheme.border, lineWidth: 1)
+        )
+        .overlay(alignment: .bottomTrailing) {
+            openInMapsButton(coordinate)
+                .padding(CicadaTheme.spacingSM)
+        }
+    }
+
+    private func openInMapsButton(_ coordinate: CLLocationCoordinate2D) -> some View {
+        Button {
+            let query = entity.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? entity.name
+            let urlString = "https://maps.apple.com/?ll=\(coordinate.latitude),\(coordinate.longitude)&q=\(query)"
+            if let url = URL(string: urlString) {
+                NSWorkspace.shared.open(url)
+            }
+        } label: {
+            Image(systemName: "arrow.up.forward.app")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .padding(6)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Open in Maps")
+    }
+
+    /// Icon + name shown while resolving or when geocoding produced no
+    /// coordinate — the "hide the map on failure" fallback. Not a loading
+    /// spinner-only state: a location card without a pin is still worth
+    /// showing the name in, so this doubles as the failure state too.
+    private var placeholder: some View {
+        VStack(spacing: CicadaTheme.spacingSM) {
+            if isResolved {
+                Image(systemName: "mappin.slash.circle")
+                    .font(.system(size: 28))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+            Text(entity.name)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: HeroPreview.maxHeight)
+        .background(CicadaTheme.surfaceHover.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                .stroke(CicadaTheme.border, lineWidth: 1)
+        )
+    }
+
+    /// Best-effort `lat:`/`lon:` (or `latitude:`/`longitude:`) top-level
+    /// frontmatter scalars, mirroring the block-extraction style of
+    /// `Entity.parseMediaFrontmatter` but reading UN-indented keys instead of
+    /// a nested block. No backend support for these keys exists today — this
+    /// only pays off if frontmatter is hand-edited or a future backend adds
+    /// them — so it degrades to `nil` (→ geocoding) whenever absent.
+    private static func declaredCoordinate(from raw: String) -> CLLocationCoordinate2D? {
+        guard !raw.isEmpty else { return nil }
+        let lines = raw.components(separatedBy: "\n")
+        var fmLines: [String] = []
+        var inBlock = false
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "---" {
+                if inBlock { break }   // closing fence
+                inBlock = true
+                continue
+            }
+            if inBlock { fmLines.append(line) }
+        }
+        guard !fmLines.isEmpty else { return nil }
+
+        var lat: Double?
+        var lon: Double?
+        for line in fmLines {
+            // Only top-level (unindented) scalar keys.
+            guard let first = line.first, first != " ", first != "\t" else { continue }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let colon = trimmed.firstIndex(of: ":") else { continue }
+            let key = String(trimmed[..<colon]).trimmingCharacters(in: .whitespaces).lowercased()
+            var value = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            if value.count >= 2, value.first == "\"", value.last == "\"" {
+                value = String(value.dropFirst().dropLast())
+            }
+            switch key {
+            case "lat", "latitude": lat = Double(value)
+            case "lon", "lng", "longitude": lon = Double(value)
+            default: break
+            }
+        }
+        guard let lat, let lon else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 }
