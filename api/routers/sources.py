@@ -9,13 +9,15 @@ from api.models.schemas import (
     BookmarkSyncRequest,
     BookmarkSyncResponse,
     MediaSourceItem,
+    NotesSyncRequest,
+    NotesSyncResponse,
     SourceListResponse,
     SourceRssRequest,
     SourceSaveRequest,
     SourceSaveResponse,
     SourceUploadResponse,
 )
-from api.services import bookmark_sync, feed_registry, media_ingestor
+from api.services import bookmark_sync, calendar_registry, feed_registry, media_ingestor, notes_sync
 from api.services.media_ingestor import MAX_BATCH, RawItem
 
 router = APIRouter()
@@ -27,6 +29,15 @@ class FeedSubscribeRequest(BaseModel):
 
 
 class FeedUnsubscribeRequest(BaseModel):
+    url: str
+
+
+class CalendarSubscribeRequest(BaseModel):
+    url: str
+    tags: list[str] | None = None
+
+
+class CalendarUnsubscribeRequest(BaseModel):
     url: str
 
 
@@ -381,3 +392,86 @@ async def poll_feeds(settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
     result = await feed_registry.poll_feeds(memory_path)
     return result
+
+
+# --- Calendar subscriptions (registry + poll) --------------------------------
+
+
+@router.get("/sources/calendars")
+async def list_calendar_subscriptions(settings: Settings = Depends(get_settings)):
+    """List every subscribed calendar (``<memory>/calendars.yaml``)."""
+    calendars = calendar_registry.list_calendars(settings.memory_path)
+    return {"calendars": calendars, "total": len(calendars)}
+
+
+@router.post("/sources/calendars")
+async def subscribe_calendar(
+    request: CalendarSubscribeRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """Subscribe to an ICS/webcal calendar. Idempotent — re-subscribing dedups
+    on the normalized URL. ``webcal://`` is normalized to ``https://``."""
+    url = request.url.strip()
+    if not url.lower().startswith(("http://", "https://", "webcal://")):
+        raise HTTPException(
+            status_code=422, detail="URL must start with http://, https://, or webcal://"
+        )
+    record = calendar_registry.subscribe_calendar(settings.memory_path, url, tags=request.tags)
+    return record
+
+
+@router.delete("/sources/calendars")
+async def unsubscribe_calendar(
+    request: CalendarUnsubscribeRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """Unsubscribe a calendar by URL."""
+    removed = calendar_registry.unsubscribe_calendar(settings.memory_path, request.url)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Calendar not subscribed")
+    return {"status": "ok", "url": request.url}
+
+
+@router.post("/sources/poll-calendars")
+async def poll_calendars(settings: Settings = Depends(get_settings)):
+    """Run a poll cycle over every subscribed calendar.
+
+    Respects the same network gate as feed polling
+    (``CICADA_ALLOW_FEED_FETCH=1``) — with no fetch allowed, this is a no-op
+    that reports ``skipped_no_network`` instead of hitting the network. Each
+    VEVENT within the ingestion window becomes one episode (dedup: UID +
+    DTSTART + SEQUENCE).
+    """
+    memory_path = settings.memory_path
+    result = await calendar_registry.poll_calendars(memory_path)
+    return result
+
+
+# --- Apple Notes one-way import ----------------------------------------------
+
+
+@router.post("/sources/sync-notes", response_model=NotesSyncResponse)
+async def sync_notes(
+    request: NotesSyncRequest | None = None,
+    settings: Settings = Depends(get_settings),
+):
+    """Keyless Apple Notes sync: enumerate local Notes via ``osascript`` and
+    write an episode for every new or modified note.
+
+    Body is optional. Pass an inline ``notesDump`` (the raw delimited dump —
+    what tests and a future companion-app path use) to sync against that data
+    hermetically. Omit the body to read the real local Notes.app via
+    ``osascript`` instead — never exercised in tests.
+
+    Dedup/re-emit is entirely ``memory/sources/notes_index.json`` (keyed on
+    note id, last-seen modification date): unchanged notes are skipped,
+    edited notes re-emit an updated episode, brand-new notes emit a fresh one.
+    """
+    memory_path = settings.memory_path
+
+    if request is not None and request.notes_dump is not None:
+        result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump)
+    else:
+        result = await notes_sync.sync_from_local_notes(memory_path)
+
+    return NotesSyncResponse(**result)
