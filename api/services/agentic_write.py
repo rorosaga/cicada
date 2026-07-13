@@ -33,6 +33,7 @@ from datetime import date
 from pathlib import Path
 
 from loguru import logger
+from thefuzz import fuzz
 
 from api.services import entity_body, markdown_parser
 from api.services.claim_reconciler import reconcile_stage3
@@ -96,6 +97,40 @@ class _ReconcileSettings:
     litellm_model: str = "mcp-agentic-write"
     archive_threshold: float = 0.2
     decay_nudge_threshold: float = 0.4
+
+
+def _find_subject_candidates(memory_path: Path, subject: str, limit: int = 5) -> list[dict]:
+    """Near-match existing entities for a subject that resolved to no exact page.
+
+    Reconsolidation-pilot finding (2026-07-13): 4 of 5 stubs created through
+    this write path were duplicates of existing, better-formed entities
+    ("Raul" vs raul-perez-pelaez.md, "Tumi" vs tumi-robotics.md) because only
+    exact-slug resolution runs here — Stage-2 fuzzy resolution is deliberately
+    not in this path. This helper is the lightweight pre-check: stems only (no
+    file parsing, cheap at personal scale), token-subset containment plus
+    thefuzz token_set_ratio, same >85 bar entity_resolver uses.
+    """
+    entities_dir = Path(memory_path) / "entities"
+    if not entities_dir.exists():
+        return []
+    subject_tokens = {t for t in sanitize_id(subject).split("-") if t}
+    if not subject_tokens:
+        return []
+    subject_text = " ".join(sorted(subject_tokens))
+    scored: list[dict] = []
+    for filepath in entities_dir.glob("*.md"):
+        stem = filepath.stem
+        stem_tokens = {t for t in stem.split("-") if t}
+        if not stem_tokens:
+            continue
+        if stem_tokens == subject_tokens:
+            continue  # exact resolution already ran; only NEAR matches here
+        contained = subject_tokens <= stem_tokens or stem_tokens <= subject_tokens
+        score = fuzz.token_set_ratio(subject_text, " ".join(sorted(stem_tokens)))
+        if contained or score > 85:
+            scored.append({"entity_id": stem, "score": 100 if contained else score})
+    scored.sort(key=lambda c: (-c["score"], c["entity_id"]))
+    return scored[:limit]
 
 
 def _ensure_subject_page(
@@ -205,6 +240,7 @@ def write_claim(
     source_episode: str | None = None,
     object_kind: str = "node",
     text: str | None = None,
+    force_new_entity: bool = False,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
@@ -213,6 +249,12 @@ def write_claim(
     or ``{subject, entity_id: None, claim_id: None, action: "error", observer,
     error}`` on any failure/bad input — the caller (MCP tool handler) can
     render either shape without a try/except of its own.
+
+    When the subject resolves to no existing page but NEAR-matches existing
+    entities, returns ``action: "ambiguous_subject"`` with ``candidates`` and
+    writes nothing — ask, don't guess. Re-issue with the chosen candidate's
+    entity_id as the subject, or ``force_new_entity=True`` to create a
+    genuinely new page despite the near-matches.
     """
     subject_raw = (subject or "").strip()
     predicate_raw = (predicate or "").strip()
@@ -231,6 +273,25 @@ def write_claim(
 
     try:
         memory_path = Path(memory_path)
+
+        if not force_new_entity and resolve_entity_file(memory_path, subject_raw) is None:
+            candidates = _find_subject_candidates(memory_path, subject_raw)
+            if candidates:
+                names = ", ".join(c["entity_id"] for c in candidates)
+                return {
+                    "subject": subject_raw,
+                    "entity_id": None,
+                    "claim_id": None,
+                    "action": "ambiguous_subject",
+                    "observer": observer,
+                    "candidates": candidates,
+                    "error": (
+                        f"subject '{subject_raw}' matches no page exactly but is close to: "
+                        f"{names}. Re-issue with the intended entity_id as subject, or "
+                        "force_new_entity=true to create a new page (nothing was written)."
+                    ),
+                }
+
         page, entity_id = _ensure_subject_page(
             memory_path, subject_raw, predicate_raw, source_episode
         )

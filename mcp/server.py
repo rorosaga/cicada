@@ -194,6 +194,10 @@ TOOLS = [
                     "type": "string",
                     "description": "Optional episode id this claim was grounded in (e.g. from cicada_save_episode or cicada_pending).",
                 },
+                "force_new_entity": {
+                    "type": "boolean",
+                    "description": "Only set true after an 'ambiguous subject' response, when none of the suggested near-match entities is the intended subject — creates a genuinely new entity page despite the near-matches. Default false.",
+                },
             },
             "required": ["subject", "predicate", "object"],
         },
@@ -379,6 +383,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("confidence"),
             arguments.get("context"),
             arguments.get("source_episode"),
+            bool(arguments.get("force_new_entity", False)),
         )
     elif name == "cicada_pending":
         return handle_pending(arguments.get("limit"))
@@ -894,6 +899,7 @@ def handle_write_claim(
     confidence,
     context: str | None,
     source_episode: str | None,
+    force_new_entity: bool = False,
 ) -> str:
     """Write one atomic fact as an observer-tagged claim (agentic write path)."""
     from api.services import agentic_write
@@ -907,9 +913,22 @@ def handle_write_claim(
         confidence=confidence if confidence is not None else 0.7,
         context=(context or "general"),
         source_episode=source_episode,
+        force_new_entity=force_new_entity,
     )
 
-    if result.get("action") == "error":
+    if result.get("action") == "ambiguous_subject":
+        lines = [
+            f"NOT written — ambiguous subject '{subject}'. Existing entities are close matches:"
+        ]
+        for cand in result.get("candidates", []):
+            lines.append(f"  - {cand['entity_id']} (match {cand['score']})")
+        lines.append(
+            "Re-issue cicada_write_claim with the intended entity_id as the subject, "
+            "or force_new_entity=true if this is genuinely a different, new entity."
+        )
+        return "\n".join(lines)
+
+    if result.get("action") == "error" or result.get("error"):
         return f"Could not write claim: {result.get('error', 'unknown error')}"
 
     action = result.get("action")
