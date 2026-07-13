@@ -41,7 +41,7 @@ from typing import Awaitable, Callable
 from loguru import logger
 
 from api.services import markdown_parser
-from api.services.claims import Claim, parse_claims, write_claims
+from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 
 # summarize_fn(title, url, settings) -> description string | None
 SummarizeFn = Callable[[str, str, object], Awaitable[str | None]]
@@ -114,7 +114,11 @@ def _build_recommends_claim(
 def _append_claim(filepath: Path, new_claim: Claim) -> bool:
     """Append ``new_claim`` to a page's ```claims block (dedupe by id). True if added."""
     parsed = markdown_parser.parse(filepath)
-    claims = parse_claims(parsed.body)
+    try:
+        claims = parse_claims(parsed.body, strict=True)
+    except MalformedClaimsBlockError as exc:
+        logger.error(f"corrupt ```claims block on {filepath.name}, skipping enrichment: {exc}")
+        return False
     if any(c.id == new_claim.id for c in claims):
         return False
     claims.append(new_claim)

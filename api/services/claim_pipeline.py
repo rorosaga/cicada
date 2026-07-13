@@ -134,6 +134,9 @@ def run_claim_pipeline(
             continue
         try:
             parsed = markdown_parser.parse(filepath)
+            # strict guard: if the existing block is unparseable, raise (caught
+            # below) instead of overwriting claims we could not read.
+            parse_claims(parsed.body, strict=True)
             new_body = write_claims(parsed.body, claims)
             if new_body != parsed.body:
                 markdown_parser.write(filepath, parsed.frontmatter, new_body)
