@@ -1,0 +1,249 @@
+# predicates-seed.yaml
+# ---------------------------------------------------------------------------
+# Predicate-normalization SEED for Cicada M5 (CPCG editable-page reconciliation).
+# Seeds memory/_predicates.yaml later. DERIVED from the live knowledge graph:
+#   - source: memory/graph_edges.yaml  (4571 edges, 2446 DISTINCT raw labels)
+#   - memory/entities/*.md `related:` fields are UNTYPED bare wikilinks, so they
+#     contribute no predicate vocabulary — all relation semantics live in edge labels.
+#
+# CONSERVATISM RULE (authoritative): fold a synonym into a canonical ONLY when it
+# is clearly the SAME relation in the SAME direction. When in doubt, LEAVE UNFOLDED
+# and add it to `uncertain_flag_for_audit` (see predicates-rationale.md). Folding is
+# the dangerous direction: it collapses distinct beliefs and can create false
+# contradictions on single-valued keys. Under-folding is safe (just verbose).
+#
+# DIRECTIONALITY: passive/inverse phrasings (`is used by`, `is built by`,
+# `is sponsored by`, `hosted by`) are NOT synonyms of their active form — they
+# REVERSE subject/object. They are listed under `inverse_pairs` for the M5 edge
+# normalizer to flip-and-canonicalize, NOT under `synonyms`. Folding an inverse
+# into the active canonical without flipping the edge would corrupt direction.
+#
+# SCOPE: this seed canonicalizes the meaningful HEAD of the distribution
+# (freq >= 2 == 619 labels covering 2744 / 4571 edges). The 1827 freq==1
+# long-tail labels are intentionally NOT enumerated here — they are mostly
+# one-off natural-language phrasings. They MUST be routed through the mandatory
+# normalization-audit nudge (see predicates-rationale.md) rather than auto-folded.
+# ---------------------------------------------------------------------------
+
+# Canonical predicate forms chosen (lowercase, hyphenless, present-active where a
+# clear active head exists). These become the controlled vocabulary keys.
+canonical:
+  - uses              # depends-on a tool/tech/library/framework as an implementation dependency
+  - depends-on        # general dependency / requirement (non-tool, or hard prerequisite)
+  - includes          # whole -> part (composition, this side is the WHOLE)
+  - part-of           # part -> whole (this side is the PART)  [inverse of includes]
+  - contains          # container -> contained (kept distinct from includes: physical/structural)
+  - implements        # realizes an interface/spec/algorithm/concept
+  - supports          # provides capability for / is compatible with (softer than uses)
+  - provides          # offers a service/feature/resource
+  - hosts             # runs/serves/houses another entity (infra or org hosting)
+  - runs-on           # executes on top of (platform/runtime relation)
+  - requires          # hard prerequisite
+  - connects-to       # network/integration link between systems
+  - integrates-with   # bidirectional system integration
+  - works-at          # person -> organization employment
+  - works-on          # person -> project/task involvement
+  - works-with        # person/system collaboration (peer)
+  - located-in        # entity -> place (geographic containment)
+  - takes-place-in    # event -> place/time
+  - sponsors          # org -> person/event funding
+  - is-a              # type/instance/subtype classification
+  - relates-to        # GENERIC fallback association (multi-valued, never a contradiction key)
+  - compares-against  # benchmark/comparison relation
+  - contrasts-with    # opposition / differs-from
+  - inspired-by       # provenance of an idea
+  - references        # cites / points to
+  - creates           # produces/generates an artifact
+  - calls              # code-level invocation
+  - reads              # data input
+  - writes             # data output
+  - targets            # aims at / optimizes for
+  - considering        # person -> opportunity under consideration (epistemic: tentative)
+
+# ---------------------------------------------------------------------------
+# synonym -> canonical  (CONSERVATIVE FOLDS ONLY; same relation, same direction)
+# Frequencies of the folded variants are in predicates-rationale.md.
+# ---------------------------------------------------------------------------
+synonyms:
+  # --- uses family (tool/tech implementation dependency) ---
+  used: uses
+  use: uses
+  may use: uses                 # modality stripped; see rationale (epistemic flag candidate)
+  can use: uses
+  could use: uses
+  would use: uses
+  plans to use: uses
+  wants to use: uses
+  built with: uses              # "X built with Y" == X uses Y
+  is built with: uses
+  built on: uses
+  is built on: uses
+  runs on: runs-on              # canonical form normalization
+  run on: runs-on
+  runs in: runs-on
+  relies on: depends-on
+  relied on: depends-on
+  needs: requires
+  require: requires
+
+  # --- includes / part-of (composition) ---
+  part of: part-of
+  belongs to: part-of
+  contained in: part-of
+  is part of: part-of
+
+  # --- contains (kept separate from includes; structural containment) ---
+  contain: contains
+
+  # --- works-* family (person/org/project) ---
+  worked at: works-at
+  works for: works-at
+  interned at: works-at
+  previously worked at: works-at
+  worked on: works-on
+  worked with: works-with
+  collaborates with: works-with
+
+  # --- location family ---
+  is based in: located-in
+  based in: located-in
+  is located in: located-in
+  located in: located-in
+  operates in: located-in
+  is in: located-in
+  takes place in: takes-place-in
+  takes place at: takes-place-in
+  held at: takes-place-in
+  held in: takes-place-in
+  was held in: takes-place-in
+
+  # --- comparison / contrast ---
+  compares against: compares-against
+  compares to: compares-against
+  benchmarks against: compares-against
+  contrasts with: contrasts-with
+  differs from: contrasts-with
+  differentiates from: contrasts-with
+
+  # --- classification ---
+  is a: is-a
+  is an instance of: is-a
+  is a type of: is-a
+  is an example of: is-a
+  is a form of: is-a
+
+  # --- inspiration / provenance ---
+  inspired by: inspired-by
+  draws inspiration from: inspired-by
+
+  # --- generic association (SINK for vague labels; multi-valued) ---
+  is associated with: relates-to
+  associated with: relates-to
+  is relevant to: relates-to
+  relates to: relates-to
+
+  # --- integration / connectivity ---
+  connects to: connects-to
+  is connected to: connects-to
+  communicates with: connects-to
+  integrates with: integrates-with
+
+  # --- consideration (person -> opportunity, tentative) ---
+  is considering: considering
+  considered: considering
+  considering applying to: considering
+  considered applying to: considering
+  wants to apply to: considering
+
+# ---------------------------------------------------------------------------
+# inverse_pairs: passive / reversed phrasings. The M5 normalizer should FLIP the
+# edge (swap source/target) AND map to the canonical, NOT treat as a synonym.
+# Format:  raw_inverse_label: canonical_active   (after flip)
+# ---------------------------------------------------------------------------
+inverse_pairs:
+  is used by: uses
+  is built on: uses             # NOTE: directional check — "X is built on Y" => X uses Y (NOT flipped); audit
+  is part of: part-of           # already active in this graph's usage; listed for normalizer awareness
+  is sponsored by: sponsors
+  is hosted by: hosts
+  hosted by: hosts
+  is hosted at: hosts
+  is powered by: uses
+  powered by: uses
+  is provided by: provides
+  provided by: provides
+  is implemented by: implements
+  implemented by: implements
+  is compared against: compares-against
+  was compared against: compares-against
+  is contrasted with: contrasts-with
+  is offered by: provides
+  is managed by: manages
+  is required by: requires
+  is used in: uses
+  used in: uses
+
+# ---------------------------------------------------------------------------
+# CONTRADICTION SEMANTICS
+# single_valued: at most ONE valid (non-superseded) object per (subject, predicate).
+#   A second valid object on the same key is a CONTRADICTION -> conflict-resolution /
+#   nudge. These are the keys M5 reconciliation must guard.
+# multi_valued: objects COEXIST; multiple valid objects are normal, never a conflict.
+# ---------------------------------------------------------------------------
+single_valued:
+  - uses              # primary store / primary stack — "switched from Postgres to SQLite". NOTE: real graphs DO list multiple `uses`; treat single-valued ONLY when context marks it as the PRIMARY of a kind (see rationale: needs object-typing to be safe -> AUDIT).
+  - runs-on           # primary runtime/platform
+  - located-in        # an entity is in one primary place
+  - takes-place-in    # an event has one primary place/time
+  - works-at          # primary current employer (historical via valid_* bi-temporal)
+  - part-of           # a part belongs to one primary whole
+  - is-a              # one primary type (Cicada's closed 8-type set already enforces this)
+  - depends-on        # a primary/critical dependency (audit: often multi in practice)
+
+multi_valued:
+  - relates-to        # generic association
+  - includes          # a whole has many parts
+  - contains          # a container has many contents
+  - supports          # supports many things
+  - provides          # provides many things
+  - works-with        # collaborates with many
+  - works-on          # involved in many projects
+  - connects-to
+  - integrates-with
+  - references
+  - compares-against
+  - contrasts-with
+  - inspired-by
+  - sponsors
+  - hosts
+  - implements
+  - requires          # may require many (see note on depends-on)
+  - creates
+  - calls
+  - reads
+  - writes
+  - targets
+  - considering
+
+# ---------------------------------------------------------------------------
+# uncertain_flag_for_audit: HEAD-frequency labels deliberately LEFT UNFOLDED
+# because the fold target is not unambiguous. These MUST surface in the mandatory
+# normalization-audit nudge before any auto-fold. (Long-tail freq==1 labels are
+# audited as a class — see rationale.)
+# ---------------------------------------------------------------------------
+uncertain_flag_for_audit:
+  - built            # bare; could be uses(built-with) | creates(built X) | located(built-at). Direction/object unknown.
+  - supports         # capability vs endorsement vs structural support — kept canonical but watch object-type
+  - is a             # mostly is-a, but "is a construct in" / "is a feature of" are part-of-flavored — split-phrase risk
+  - has              # too generic; could be includes | provides | located. DO NOT auto-fold.
+  - provides         # provides-service vs provides-access-to vs provides-context-for differ
+  - hosts            # org-hosting vs infra-hosting vs event-hosting — same word, different object types
+  - depends-on       # single- vs multi-valued unresolved without object typing
+  - works-with       # person-collab vs system-interop — disambiguate by subject type
+  - includes         # composition vs "includes example/colleague" enumerations
+  - relates-to       # SINK predicate: verify nothing single-valued got dumped here
+  # Phrase-split risks (canonical head matches but tail changes the relation):
+  - "is a construct in"      # -> part-of, NOT is-a
+  - "is a feature of"        # -> part-of, NOT is-a
+  - "uses for retrieval"     # object-qualified `uses`; strip qualifier or keep as note?
+  - "built on"               # vs "is built on" inverse-direction ambiguity

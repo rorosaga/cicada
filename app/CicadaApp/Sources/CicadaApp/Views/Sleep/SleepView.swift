@@ -32,7 +32,10 @@ struct SleepView: View {
 
     var body: some View {
         ZStack {
-            CicadaTheme.background.ignoresSafeArea()
+            // No .ignoresSafeArea(): the title bar is darkened at the window level
+            // (CicadaApp). Ignoring the safe area here pushed content under the menu
+            // bar and stretched the window to full screen height.
+            CicadaTheme.background
 
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
@@ -102,17 +105,18 @@ struct SleepView: View {
     // MARK: Header
 
     private var headerRow: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Sleep Cycle")
-                    .font(CicadaTheme.titleFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text("Consolidate today's episodes into the memory graph.")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-            Spacer()
+        // SleepView's scroll content already carries `spacingXL` padding around
+        // the whole VStack, so this header strips PageHeader's outer padding and
+        // just reuses its title/subtitle typography for visual parity.
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            Text("Sleep Cycle")
+                .font(CicadaTheme.titleFont)
+                .foregroundStyle(CicadaTheme.textPrimary)
+            Text("Consolidate today's episodes into the memory graph.")
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Schedule

@@ -3,12 +3,13 @@ MEMORY ?= memory
 QUESTIONS ?= benchmarks/questions.local.yaml
 QUERIES ?= benchmarks/queries.local.txt
 OUT ?= benchmark_results
+MCP_CONFIG ?= benchmarks/mcp-eval.local.json
 EPISODE_LIMIT ?=
 ABLATIONS ?= default promotion_1 promotion_3 decay_aggressive decay_loose
 
 INSTALL_FLAGS ?=
 
-.PHONY: help install doctor app run-app backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke all-safe all-full
+.PHONY: help install doctor app run-app backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
 
 help:
 	@printf '%s\n' \
@@ -23,6 +24,7 @@ help:
 	  '  make table3-sleep-smoke    # 5-episode smoke test for sleep timing' \
 	  '  make ablation              # full Table 2 threshold sweep' \
 	  '  make ablation-smoke        # cheap Table 2 smoke test on 5 episodes' \
+	  '  make eval                  # retrieval eval using QUESTIONS + MCP_CONFIG' \
 	  '  make all-safe              # rebuild episodes + table1 + table3 (no sleep-cycle spend)' \
 	  '  make all-full              # rebuild episodes + table1 + table3-sleep + ablation' \
 	  '' \
@@ -92,6 +94,12 @@ ablation:
 
 ablation-smoke:
 	$(MAKE) ablation EPISODE_LIMIT=5
+
+eval:
+	$(PYTHON) -m benchmarks.run_retrieval_eval \
+		--questions $(QUESTIONS) \
+		--mcp-config $(MCP_CONFIG) \
+		--out $(OUT)/retrieval_eval
 
 all-safe: rebuild-episodes table1 table3
 

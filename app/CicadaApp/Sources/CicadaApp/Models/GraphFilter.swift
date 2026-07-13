@@ -11,23 +11,37 @@ struct GraphFilter: Equatable {
     var minDegree: Int = 0          // 0 = show isolated nodes; 1 = hide leaves
     var tags: Set<String> = []
     var searchText: String = ""
+    // Claim-layer filter axes (§2a context legend, §3a observer bar). Empty =
+    // "no filter" (all-pass). graph.js dims/drops non-matching nodes/edges.
+    var contexts: Set<String> = []
+    var observers: Set<String> = []
 
     var allTypesSelected: Bool {
         types.count == EntityType.selectableCases.count
     }
 
-    /// JSON-object payload for graph.js `applyFilters`. Sends `null` (omits) for
-    /// dimensions that are "no filter" so the JS treats them as all-pass.
+    /// JSON-object payload for graph.js `applyFilters`. Always sends an
+    /// explicit array for every set-valued axis — assigning `nil` into a
+    /// Swift `[String: Any]` DELETES the key, and graph.js's `toSet` guard is
+    /// `if ("observers" in f)` (etc.), so a nil-deleted key means the filter
+    /// never resets and the previous selection's dimming/reheat sticks. An
+    /// empty array is what graph.js's `toSet` already treats as "no filter",
+    /// so there is no need to omit the key.
     var jsPayload: [String: Any] {
         var payload: [String: Any] = [
             "minConfidence": minConfidence,
             "minDegree": minDegree,
         ]
-        payload["types"] = allTypesSelected ? nil : types.map(\.rawValue)
-        // statuses: send the explicit set; null only when every status is on.
+        payload["types"] = allTypesSelected ? [] : types.map(\.rawValue)
+        // statuses: send the explicit set; empty array only when every status is on.
         let allStatus = statuses.count == EntityStatus.allCases.count
-        payload["statuses"] = allStatus ? nil : statuses.map(\.rawValue)
-        payload["tags"] = tags.isEmpty ? nil : Array(tags)
+        payload["statuses"] = allStatus ? [] : statuses.map(\.rawValue)
+        payload["tags"] = Array(tags)
+        // Claim-layer axes: always send the explicit set (possibly empty) so
+        // the JS can distinguish "no filter" (empty array) from a stale
+        // previous selection instead of silently keeping the old key/value.
+        payload["contexts"] = Array(contexts)
+        payload["observers"] = Array(observers)
         return payload
     }
 
@@ -46,6 +60,10 @@ struct GraphFilter: Equatable {
 
     mutating func toggleStatus(_ status: EntityStatus) {
         if statuses.contains(status) { statuses.remove(status) } else { statuses.insert(status) }
+    }
+
+    mutating func toggleContext(_ context: String) {
+        if contexts.contains(context) { contexts.remove(context) } else { contexts.insert(context) }
     }
 }
 

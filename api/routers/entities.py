@@ -1,3 +1,5 @@
+import os
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,8 +9,12 @@ from api.models.schemas import (
     ContextEpisodeExcerpt,
     ContextNeighbor,
     EntityContextResponse,
+    EntityDiff,
     EntityHistoryEntry,
+    EntityMedia,
     EntityResponse,
+    LocationEntry,
+    LocationListing,
 )
 from api.services import git_service, markdown_parser
 from api.services.hub_builder import _one_line_summary
@@ -48,19 +54,194 @@ async def get_entity(
         markdown_content=parsed.body,
         raw_markdown=entity_path.read_text(encoding="utf-8"),
         history=history,
+        media=_build_media_block(fm, parsed.body),
+    )
+
+
+# Body section whose prose becomes EntityMedia.description (M4 media entities
+# write a ``## Summary`` block; ``## Description``/``## Notes`` are secondary).
+_SUMMARY_RE = re.compile(
+    r"^##\s+Summary\s*$(.*?)(?=^##\s|\Z)", re.IGNORECASE | re.MULTILINE | re.DOTALL
+)
+
+
+def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
+    """Build the structured ``media`` block for a ``type: media`` entity.
+
+    Reads the nested ``media:`` frontmatter block written by
+    ``media_ingestor.write_media_entity``; returns ``None`` for any entity that
+    lacks a usable block (every non-media entity, plus a defensive guard for a
+    ``type: media`` entity missing its block). ``description`` is lifted from the
+    body's ``## Summary`` section when present. No key is invented — missing
+    optionals stay ``None``.
+    """
+    media = frontmatter.get("media")
+    if not isinstance(media, dict):
+        return None
+    url = media.get("url")
+    media_type = media.get("media_type")
+    if not url or not media_type:
+        return None
+
+    description = None
+    match = _SUMMARY_RE.search(body or "")
+    if match:
+        text = match.group(1).strip()
+        if text:
+            description = text
+
+    return EntityMedia(
+        url=str(url),
+        media_type=str(media_type),
+        site=media.get("site") or None,
+        channel=media.get("channel") or None,
+        thumbnail=media.get("thumbnail") or None,
+        description=description,
     )
 
 
 @router.get("/entities/{entity_id}/history", response_model=list[EntityHistoryEntry])
 async def get_entity_history(
     entity_id: str,
+    include_diff: bool = False,
     settings: Settings = Depends(get_settings),
 ):
+    """Entity history with per-commit author attribution.
+
+    Pass ``?include_diff=true`` to inline the added/removed diff for each commit
+    (opt-in so the default response stays small — backlog A1).
+    """
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
 
-    return await git_service.get_entity_history(entity_id, settings.memory_path)
+    return await git_service.get_entity_history(
+        entity_id, settings.memory_path, include_diff=include_diff
+    )
+
+
+@router.get("/entities/{entity_id}/history/{commit_hash}/diff", response_model=EntityDiff)
+async def get_entity_commit_diff(
+    entity_id: str,
+    commit_hash: str,
+    settings: Settings = Depends(get_settings),
+):
+    """Added/removed lines for one entity file at one commit (backlog A1)."""
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+
+    return await git_service.get_entity_commit_diff(
+        entity_id, commit_hash, settings.memory_path
+    )
+
+
+# Bound on the number of immediate children returned, so a huge directory can
+# never produce an unbounded payload.
+LOCATION_MAX_ENTRIES = 200
+
+# Detect an absolute filesystem path inside a location entity's body when no
+# ``path:`` frontmatter key is present (TODO: Sleep should extract this into
+# frontmatter — see ``get_entity_location``). POSIX-only, anchored at a slash
+# or ``~/``; intentionally conservative.
+_BODY_PATH_RE = re.compile(r"(?<!\S)(~?/[^\s`'\"()]+)")
+
+
+def _detect_location_path(frontmatter: dict, body: str) -> str | None:
+    """Resolve a location's declared path from the ENTITY only (never a request).
+
+    Prefers an explicit ``path:`` frontmatter key; falls back to the first
+    absolute/``~`` path found in the body. Returns the raw declared string
+    (un-expanded) or ``None`` when nothing is declared.
+    """
+    declared = frontmatter.get("path")
+    if declared:
+        text = str(declared).strip()
+        if text:
+            return text
+    match = _BODY_PATH_RE.search(body or "")
+    return match.group(1) if match else None
+
+
+@router.get("/entities/{entity_id}/location", response_model=LocationListing)
+async def get_entity_location(
+    entity_id: str,
+    settings: Settings = Depends(get_settings),
+):
+    """Safe immediate-children listing for a ``type: location`` entity.
+
+    Security model: the only path ever used is the one the ENTITY ITSELF declares
+    (frontmatter ``path:`` if present, else a path detected in the body) — never a
+    path supplied by the request — so there is no arbitrary-path traversal. Lists
+    immediate children only (``os.scandir``, depth 1), reports name/isDir/size
+    (stat metadata only, never file contents), bounds the count at
+    ``LOCATION_MAX_ENTRIES``, and degrades gracefully: missing path →
+    ``exists=False``; permission error → ``accessible=False``; both still 200.
+
+    TODO (Sleep): the entity extractor should write a ``path:`` key into
+    ``type: location`` frontmatter when a description names a directory, so this
+    endpoint doesn't have to body-scan. Out of scope for this UI/UX pass.
+    """
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+
+    parsed = markdown_parser.parse(entity_path)
+    fm = parsed.frontmatter or {}
+    # G18 — path-listing applies to a `directory` entity; `location` (a physical
+    # place) is accepted too for rename-tolerance (legacy graphs filed paths
+    # under `location` before the split).
+    if str(fm.get("type", "")).lower() not in ("directory", "location"):
+        raise HTTPException(400, f"Entity {entity_id} is not a directory or location")
+
+    declared = _detect_location_path(fm, parsed.body)
+    if not declared:
+        return LocationListing(path=None, exists=False, entries=[])
+
+    resolved = Path(os.path.expanduser(declared)).resolve()
+    if not resolved.is_dir():
+        # Missing, or points at a file rather than a listable directory.
+        return LocationListing(path=declared, exists=False, entries=[])
+
+    entries: list[LocationEntry] = []
+    truncated = False
+    try:
+        with os.scandir(resolved) as it:
+            raw = list(it)
+    except PermissionError:
+        return LocationListing(path=declared, exists=True, accessible=False, entries=[])
+    except OSError:
+        return LocationListing(path=declared, exists=True, accessible=False, entries=[])
+
+    # Sort dirs-first, then by name (case-insensitive) for stable display.
+    def _sort_key(d: os.DirEntry) -> tuple:
+        try:
+            is_dir = d.is_dir(follow_symlinks=False)
+        except OSError:
+            is_dir = False
+        return (0 if is_dir else 1, d.name.lower())
+
+    raw.sort(key=_sort_key)
+    if len(raw) > LOCATION_MAX_ENTRIES:
+        truncated = True
+        raw = raw[:LOCATION_MAX_ENTRIES]
+
+    for d in raw:
+        try:
+            is_dir = d.is_dir(follow_symlinks=False)
+        except OSError:
+            is_dir = False
+        size = 0
+        if not is_dir:
+            try:
+                size = d.stat(follow_symlinks=False).st_size
+            except OSError:
+                size = 0
+        entries.append(LocationEntry(name=d.name, is_dir=is_dir, size=size))
+
+    return LocationListing(
+        path=declared, exists=True, accessible=True, truncated=truncated, entries=entries
+    )
 
 
 @router.get("/entities/{entity_id}/context", response_model=EntityContextResponse)
@@ -131,13 +312,13 @@ def _hubs_for_entity(memory_path: Path, entity_id: str) -> list[str]:
 
 
 def _leann_entity_neighbors(memory_path: Path, query: str, top_k: int) -> list[dict]:
-    """LEANN entity hits, or [] when LEANN is unavailable (caller degrades)."""
+    """Vector entity hits, or [] when the index is unavailable (caller degrades)."""
     try:
-        from api.services.leann_indexer import LeannIndexer
+        from api.services.vector_index import SqliteVecIndexer
     except Exception:
         return []
     try:
-        indexer = LeannIndexer(memory_path)
+        indexer = SqliteVecIndexer(memory_path)
         raw = indexer.search_entities(query, top_k=top_k)
     except Exception:
         return []
@@ -243,11 +424,11 @@ def _build_episodes(
             )
         )
 
-    # Top-2 LEANN episode hits not already covered.
+    # Top-2 episode hits not already covered.
     try:
-        from api.services.leann_indexer import LeannIndexer
+        from api.services.vector_index import SqliteVecIndexer
 
-        indexer = LeannIndexer(memory_path)
+        indexer = SqliteVecIndexer(memory_path)
         for r in indexer.search_episodes(name, top_k=2) or []:
             meta = r.get("metadata", {}) or {}
             ep_id = str(meta.get("episode_id", "") or "")

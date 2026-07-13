@@ -1,5 +1,4 @@
 import logging
-import subprocess
 import sys
 from contextlib import asynccontextmanager
 
@@ -11,18 +10,25 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from api.config import get_settings
 from api.routers import (
+    ask,
+    banks,
+    capture,
+    claims,
     clarifications,
+    contributors,
     conversations,
     entities,
     graph,
     inbox,
+    local_refs,
     nudges,
+    origins,
     search,
     sleep,
     sources,
     status,
 )
-from api.services import sleep_scheduler
+from api.services import bank_registry, sleep_scheduler
 from api.services.inbox_migration import migrate_to_inbox
 
 # --- Logging setup ---
@@ -54,17 +60,19 @@ async def lifespan(app: FastAPI):
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")
 
-    # Ensure memory directories exist. ``nudges``/``clarifications`` are still
-    # mkdir'd for the shim/migration read path; ``inbox`` is the write target;
-    # ``hubs`` holds the regenerated hub tier (Stage 5.6); ``sources`` holds the
-    # media URL dedup index.
-    for subdir in ("entities", "nudges", "clarifications", "inbox", "episodes", "hubs", "sources"):
-        (settings.memory_path / subdir).mkdir(parents=True, exist_ok=True)
-
-    # Ensure memory dir is a git repo
-    git_dir = settings.memory_path / ".git"
-    if not git_dir.exists():
-        subprocess.run(["git", "init"], cwd=str(settings.memory_path), check=True)
+    # Ensure the active bank's memory directories + seed files + git repo exist.
+    # ``scaffold_bank`` is the single shared scaffolder used by both this lifespan
+    # (legacy/default bank, in place at the root) and ``bank_registry.create_bank``
+    # so every bank — including the legacy one — has identical structure:
+    # ``nudges``/``clarifications`` for the shim/migration read path; ``inbox`` as
+    # the write target; ``hubs`` for the regenerated hub tier (Stage 5.6);
+    # ``sources`` for the media URL dedup index; ``candidates``/``_procedures``
+    # for the M5 claim-layer milestones; plus the human-authored
+    # ``_predicates.yaml`` / ``_preferences.md`` seeds (created if missing,
+    # never clobbered).
+    git_existed = (settings.memory_path / ".git").exists()
+    bank_registry.scaffold_bank(settings.memory_path)
+    if not git_existed and (settings.memory_path / ".git").exists():
         logger.info("Initialized git repo in memory directory")
 
     # One-time idempotent migration of legacy nudges/clarifications into inbox/.
@@ -104,11 +112,18 @@ app.add_middleware(
 
 app.include_router(graph.router, tags=["graph"])
 app.include_router(search.router, tags=["search"])
+app.include_router(ask.router, tags=["ask"])
 app.include_router(inbox.router, tags=["inbox"])
 app.include_router(status.router, tags=["status"])
 app.include_router(nudges.router, tags=["nudges"])
 app.include_router(clarifications.router, tags=["clarifications"])
 app.include_router(entities.router, tags=["entities"])
+app.include_router(claims.router, tags=["claims"])
+app.include_router(contributors.router, tags=["contributors"])
+app.include_router(origins.router, tags=["origins"])
 app.include_router(sleep.router, tags=["sleep"])
 app.include_router(conversations.router, tags=["conversations"])
 app.include_router(sources.router, tags=["sources"])
+app.include_router(banks.router, tags=["banks"])
+app.include_router(local_refs.router, tags=["local-refs"])
+app.include_router(capture.router, tags=["capture"])

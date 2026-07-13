@@ -26,6 +26,34 @@ class EntityType(str, Enum):
     skill = "skill"
     location = "location"
     media = "media"
+    # G18 — a filesystem folder/path, split out from `location` (a physical
+    # place). Stage-1 classifies a PATH (`/Users/...`, `~/...`) as `directory`.
+    directory = "directory"
+
+
+# Types Stage-1 extraction may PRODUCE. This is intentionally a SUBSET of the
+# full ``EntityType`` enum: the enum still ACCEPTS every legacy value so the old
+# graph parses/renders unchanged, but the producible set is what the extraction
+# prompt offers the model.
+#
+# Excluded from producible (G17): ``deadline`` — due-dates are now attached as a
+# ``due`` claim/relationship on the relevant project/task instead of spawning a
+# standalone deadline entity. Legacy ``deadline`` pages stay valid (still in the
+# enum) and are never rewritten.
+# Excluded: ``media`` is produced by the media-ingestion path, not by Stage-1
+# conversation extraction.
+PRODUCIBLE_ENTITY_TYPES = frozenset(
+    {
+        EntityType.person,
+        EntityType.project,
+        EntityType.company,
+        EntityType.concept,
+        EntityType.tool,
+        EntityType.skill,
+        EntityType.location,
+        EntityType.directory,
+    }
+)
 
 
 class EntityStatus(str, Enum):
@@ -44,10 +72,95 @@ class NudgeType(str, Enum):
 # --- Entity ---
 
 
+class EntityDiff(CamelModel):
+    # Added / removed line blocks for one entity file at one commit, newline-joined.
+    # git_service caps each side at DIFF_MAX_LINES so the response can't explode on
+    # a huge rewrite; when the cap is hit a truncation marker is appended to the
+    # affected side and ``truncated`` is set so the client can show "diff clipped".
+    added: str = ""
+    removed: str = ""
+    truncated: bool = False
+
+
 class EntityHistoryEntry(CamelModel):
     date: str
     change_type: str
     description: str
+    # Commit-level provenance (M3 / backlog A2). ``author`` is the model id that
+    # wrote this commit (e.g. "gpt-5.4-mini") or "user" for manual/companion-app
+    # writes, parsed from the commit's ``Cicada-Author:`` trailer; "unknown" for
+    # legacy untrailered commits. ``commit_hash`` enables an on-demand per-commit
+    # diff fetch. ``diff`` is populated only when history is requested with
+    # ``include_diff=true`` (kept opt-in so the default response stays small).
+    author: str = "unknown"
+    commit_hash: str = ""
+    diff: Optional[EntityDiff] = None
+
+
+# --- Contributors (git-trailer attribution, backlog A2) ---
+
+
+class Contributor(CamelModel):
+    # An authoring agent: a model id (e.g. "gpt-5.4-mini"), "user", or "unknown".
+    author: str
+    commit_count: int = 0
+    file_count: int = 0
+    entity_count: int = 0
+    files: list[str] = []
+    last_active: str = ""  # ISO date (YYYY-MM-DD) of the author's most recent commit
+    # G15 — visual identity (all additive + defaulted, so the wire stays
+    # backward-compatible with older clients that don't decode them).
+    # ``kind``: "user" for the literal `user` author, "unknown" for legacy
+    # untrailered commits, "model" for every model id. ``provider`` is the
+    # model's company (openai/anthropic/google/other) derived from the id, or
+    # None for user/unknown. ``avatar_url`` is the user's GitHub profile picture
+    # (https://github.com/<handle>.png) for the `user` author when a handle is
+    # known; None for model/unknown (their identity is rendered client-side).
+    kind: str = "unknown"  # "user" | "model" | "unknown"
+    provider: Optional[str] = None  # "openai" | "anthropic" | "google" | "other" | None
+    avatar_url: Optional[str] = None
+
+
+class ContributorsResponse(CamelModel):
+    contributors: list[Contributor] = []
+
+
+# --- Origins (capture-provenance aggregation) ---
+
+
+class OriginStat(CamelModel):
+    # Capture origin stamped in episode frontmatter (e.g. "mcp", "telegram",
+    # "chrome-bookmark", "safari-bookmark", "claude-export"), or "unknown"
+    # when an episode predates the origin field / never got one stamped.
+    origin: str
+    episode_count: int = 0
+    entity_count: int = 0
+    last_seen: str = ""  # ISO timestamp of the most recent episode for this origin
+
+
+class OriginsResponse(CamelModel):
+    origins: list[OriginStat] = []
+
+
+class EntityMedia(CamelModel):
+    """Structured media metadata for a ``type: media`` entity (G11).
+
+    Mirrors the nested ``media:`` frontmatter block written by
+    ``media_ingestor.write_media_entity`` so the companion app's media-preview UI
+    (EntityDetailCard / Feed) can render an image / video player / OG link card
+    without re-parsing ``raw_markdown`` client-side. ``description`` is lifted
+    from the entity body's ``## Summary`` section (not stored in frontmatter).
+    Everything except ``url``/``mediaType`` is optional — a bare bookmark may
+    carry no OG metadata. This block is ``None`` for every non-media entity, so
+    the wire stays backward-compatible (additive + defaulted).
+    """
+
+    url: str
+    media_type: str
+    site: Optional[str] = None
+    channel: Optional[str] = None
+    thumbnail: Optional[str] = None
+    description: Optional[str] = None
 
 
 class EntityResponse(CamelModel):
@@ -68,6 +181,111 @@ class EntityResponse(CamelModel):
     # companion app — transparency over reconstruction.
     raw_markdown: str = ""
     history: list[EntityHistoryEntry]
+    # Structured media metadata for ``type: media`` entities (G11); ``None`` for
+    # every other entity. Populated from the nested ``media:`` frontmatter block.
+    media: Optional[EntityMedia] = None
+
+
+# --- Location listing (#7 — show a location entity's directory contents) ---
+
+
+class LocationEntry(CamelModel):
+    """One immediate child of a location entity's declared directory.
+
+    ``size`` is ``st_size`` in bytes for files, ``0`` for directories. File
+    contents are NEVER read — only stat metadata.
+    """
+
+    name: str
+    is_dir: bool = False
+    size: int = 0
+
+
+class LocationListing(CamelModel):
+    """Safe immediate-children listing for a ``type: location`` entity.
+
+    The ``path`` is read from the entity itself (frontmatter ``path:`` if present,
+    else a path detected in the body) — never from the request — so there is no
+    arbitrary-path traversal. ``exists``/``accessible`` degrade gracefully:
+    a missing path → ``exists=False``; a permission error → ``accessible=False``;
+    both still 200 with empty ``entries``. ``truncated`` is set when the child
+    count exceeds the bound and the list was clipped.
+    """
+
+    path: Optional[str] = None
+    exists: bool = False
+    accessible: bool = True
+    truncated: bool = False
+    entries: list[LocationEntry] = []
+
+
+# --- Claims (M5b — the CPCG belief atom on the wire) ---
+
+
+class ClaimModel(CamelModel):
+    """One perspectival, bi-temporal claim, camelCase on the wire.
+
+    Mirrors :class:`api.services.claims.Claim` (the in-page YAML dataclass) and
+    the Swift ``Claim`` model in ``d2-companion-showcase.md`` §0 exactly — every
+    field that doc's ``Claim`` decodes is emitted here so the macOS app decodes
+    one shape across the claims / timeline / transclude surfaces. ``observer`` is
+    a plain wire string (``agent`` | ``rodrigo`` | ``external:<name>``); the app
+    parses it into its closed-core-plus-open-tail ``Observer`` enum.
+    """
+
+    id: str
+    text: str
+    subject: str = ""
+    predicate: str = ""
+    object: str = ""
+    object_kind: str = "node"
+    observer: str = "agent"
+    context: str = "general"
+    epistemic: str = "explicit"
+    source_trust: str = "agent_extracted"
+    confidence: float = 0.0
+    valid_from: str = ""
+    valid_to: Optional[str] = None
+    superseded_by: Optional[str] = None
+    supersedes: Optional[str] = None
+    source_episodes: list[str] = []
+    premises: list[str] = []
+    authored_by: str = "unknown"
+    origin: Optional[str] = None
+
+
+class ClaimListResponse(CamelModel):
+    claims: list[ClaimModel] = []
+
+
+class ClaimTimeline(CamelModel):
+    """One ``(subject, predicate, context)`` key's claims, newest first.
+
+    Includes superseded claims (this is the historical/contradiction view), so
+    the companion ``BeliefTimelineView`` can draw the ``superseded_by`` chain and
+    the validity-bar strip.
+    """
+
+    subject: str
+    predicate: str
+    context: str
+    claims: list[ClaimModel] = []
+
+
+class TransclusionPayload(CamelModel):
+    """Resolved ``![[…]]`` embed. ``resolved=False`` → render a soft "not found".
+
+    ``kind`` is ``entity`` | ``facet`` | ``claim``. For an entity/facet, ``summary``
+    is the generated one-liner; ``claims`` carries the facet/claim slice (``[]``
+    for a bare entity).
+    """
+
+    kind: str = "entity"
+    ref: str = ""
+    title: str = ""
+    summary: str = ""
+    claims: list[ClaimModel] = []
+    resolved: bool = False
 
 
 # --- Graph ---
@@ -90,17 +308,33 @@ class GraphNode(CamelModel):
     member_count: int = 0
     hub_kind: Optional[str] = None  # "type" | "tag" | None
     hub_id: Optional[str] = None    # member node -> its hub id, enables hub gravity
+    # M5b claim-layer overlay fields (all additive/optional — old graph
+    # consumers ignore them; the d3 graph lights up only when present). See
+    # d2-companion-showcase.md §2: observer badges, context-colored facet
+    # sub-nodes (isFacet/parentId/context). ``observers``/``contexts`` are the
+    # distinct wire-strings asserting claims about this subject.
+    observers: list[str] = []
+    contexts: list[str] = []
+    is_facet: bool = False
+    parent_id: Optional[str] = None
+    context: Optional[str] = None
 
 
 class GraphLink(CamelModel):
     source: str
     target: str
     label: str
+    # M5b: context-colored edges + click-through to a claim (additive/optional).
+    context: Optional[str] = None
+    claim_id: Optional[str] = None
 
 
 class GraphResponse(CamelModel):
     nodes: list[GraphNode]
     links: list[GraphLink]
+    # M5b: distinct observer roster across the graph, so the observer filter bar
+    # can populate its segments without a second call. Additive/optional.
+    observers: list[str] = []
 
 
 # --- Search ---
@@ -118,6 +352,31 @@ class SearchHit(CamelModel):
 
 class SearchResponse(CamelModel):
     results: list[SearchHit]
+
+
+# --- Ask (auditable NL synthesis over memory) ---
+
+
+class AskRequest(CamelModel):
+    query: str
+    top_k: int = Field(default=6, ge=1, le=50)
+
+
+class AskCitation(CamelModel):
+    entity_id: str
+    entity_name: str
+    file_path: str
+    snippet: str
+    source_episodes: list[str] = []
+
+
+class AskResponse(CamelModel):
+    answer: str
+    confidence: float
+    citations: list[AskCitation] = []
+    # The flagship gap-analysis field: explicit "what I could not answer".
+    gaps: list[str] = []
+    used_entities: list[str] = []
 
 
 # --- Entity context (progressive disclosure) ---
@@ -230,6 +489,12 @@ class InboxResolveRequest(CamelModel):
     action: str
     answer: Optional[str] = None
     merge_target: Optional[str] = None
+    # #1 merge direction: the id/name the user wants to KEEP as the canonical
+    # survivor. When absent (or equal to ``merge_target``), the legacy behavior
+    # holds — the clarified mention is absorbed INTO the existing ``merge_target``.
+    # When it names the cleaner mention instead, the surviving file is renamed to
+    # the survivor's slug so a merge can go either direction.
+    merge_survivor: Optional[str] = None
 
 
 # --- Status aggregate (menu-bar / tamagotchi) ---
@@ -304,6 +569,11 @@ class SleepStatusResponse(CamelModel):
     entities_updated: int = 0
     relationships_created: int = 0
     skills_detected: int = 0
+    # Resumable queue: episodes this cycle consolidated vs. left queued because
+    # their Stage-1 extraction failed (e.g. a credit cap hit mid-run).
+    # ``episodes_requeued`` > 0 means "completed, but re-run Sleep to finish".
+    episodes_processed: int = 0
+    episodes_requeued: int = 0
 
 
 class SleepHistoryEntry(CamelModel):
@@ -337,9 +607,62 @@ class ScheduleConfig(CamelModel):
 class ConversationUploadResponse(CamelModel):
     status: str
     episodes_created: int
+    # G20 delta re-import: episodes rewritten in place because a re-exported
+    # thread grew/changed (same source_id, new content). Wire = episodesUpdated.
+    episodes_updated: int = 0
     duplicates_skipped: int
     message: str
     source: str = "unknown"
+
+
+# --- Memory Banks (M6) ---
+
+
+class BankInfo(CamelModel):
+    name: str
+    active: bool = False
+    entity_count: int = 0
+    episode_count: int = 0
+    created_at: str = ""
+    description: str = ""
+
+
+class BankListResponse(CamelModel):
+    banks: list[BankInfo] = []
+    active: str = ""
+
+
+class BankCreateRequest(CamelModel):
+    name: str
+    description: Optional[str] = None
+
+
+class BankDuplicateRequest(CamelModel):
+    new_name: str
+
+
+class BankRenameRequest(CamelModel):
+    new_name: str
+
+
+# --- Chat-history import (M7) ---
+
+
+class BankImportDateRange(CamelModel):
+    # Min / max original conversation date (YYYY-MM-DD) across staged episodes.
+    # Both ``None`` when nothing dated was staged (e.g. memories-only import).
+    from_: Optional[str] = Field(default=None, alias="from")
+    to: Optional[str] = None
+
+
+class BankImportResponse(CamelModel):
+    episodes_staged: int = 0
+    # G20 delta re-import: episodes rewritten in place for grown/changed threads
+    # (same source_id, new content). Wire = episodesUpdated.
+    episodes_updated: int = 0
+    duplicates_skipped: int = 0
+    date_range: BankImportDateRange = Field(default_factory=BankImportDateRange)
+    format: str = "unknown"
 
 
 # --- Sources (media ingestion) ---
@@ -373,6 +696,15 @@ class SourceUploadResponse(CamelModel):
     source: str = "unknown"
 
 
+class SourceRssRequest(CamelModel):
+    # Exactly one of feed_xml / feed_url is required. ``feed_xml`` is the
+    # keyless/offline path (paste or fetched-elsewhere XML); ``feed_url`` only
+    # works when the network-fetch flag is enabled server-side.
+    feed_xml: Optional[str] = None
+    feed_url: Optional[str] = None
+    tags: list[str] = []
+
+
 class MediaSourceItem(CamelModel):
     media_entity_id: str
     url: str
@@ -385,8 +717,31 @@ class MediaSourceItem(CamelModel):
     tags: list[str] = []
     status: str = "active"
     related_count: int = 0
+    # §3.4 relevance: confidence x recency-decay x personal weight, in [0,1].
+    relevance: float = 0.0
+    personal_relevance: Optional[str] = None
 
 
 class SourceListResponse(CamelModel):
     items: list[MediaSourceItem]
     total: int
+
+
+class BookmarkSyncRequest(CamelModel):
+    # Both optional + base64-encoded so the same endpoint works for an inline
+    # hermetic test payload and (when omitted entirely) a local-file sync.
+    chrome_data_b64: Optional[str] = None
+    safari_data_b64: Optional[str] = None
+
+
+class BookmarkSyncSourceSummary(CamelModel):
+    origin: str
+    found: int = 0
+    new: int = 0
+    skipped: int = 0
+
+
+class BookmarkSyncResponse(CamelModel):
+    new: int
+    skipped: int
+    sources: list[BookmarkSyncSourceSummary] = []

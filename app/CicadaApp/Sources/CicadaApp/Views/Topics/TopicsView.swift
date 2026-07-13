@@ -12,7 +12,10 @@ struct TopicsView: View {
 
     var body: some View {
         ZStack {
-            CicadaTheme.background.ignoresSafeArea()
+            // No .ignoresSafeArea(): the title bar is darkened at the window level
+            // (CicadaApp). Ignoring the safe area here pushed content under the menu
+            // bar and stretched the window to full screen height.
+            CicadaTheme.background
 
             if let entity = selectedEntity {
                 // Detail view
@@ -82,6 +85,12 @@ private struct TopicsListView: View {
     @Binding var showLabelPopover: Bool
     let onSelect: (Entity) -> Void
 
+    // View-local navigation state for the type-grouped list. None of this writes
+    // the Graph-shared `enabledTypes` / `graphVM.filter.types`, so it can never
+    // desync the Graph tab — it's purely a way to navigate THIS list by type.
+    @State private var expandedTypes: Set<EntityType> = []
+    @State private var focusedType: EntityType?
+
     private var filteredEntities: [Entity] {
         var list = graphVM.entities.filter { enabledTypes.contains($0.type) }
         if !selectedLabels.isEmpty {
@@ -122,19 +131,59 @@ private struct TopicsListView: View {
             .sorted { $0.0.localizedCaseInsensitiveCompare($1.0) == .orderedAscending }
     }
 
+    /// `filteredEntities` grouped by type, in canonical `selectableCases` order
+    /// (person, project, …, media, hub), dropping types with no matches. Computed
+    /// once per render so each section header / chip shows the live post-filter,
+    /// post-search count. `filteredEntities` is already A→Z (empty search) or
+    /// ranked (search), so each group preserves that order.
+    private var groupedEntities: [(type: EntityType, entities: [Entity])] {
+        let buckets = Dictionary(grouping: filteredEntities, by: \.type)
+        return EntityType.selectableCases.compactMap { type in
+            guard let entities = buckets[type], !entities.isEmpty else { return nil }
+            return (type, entities)
+        }
+    }
+
+    private var presentTypes: [EntityType] {
+        groupedEntities.map(\.type)
+    }
+
+    private var isSearching: Bool {
+        !searchText.isEmpty
+    }
+
+    private func toggle(_ type: EntityType) {
+        if expandedTypes.contains(type) {
+            expandedTypes.remove(type)
+            if focusedType == type { focusedType = nil }
+        } else {
+            expandedTypes.insert(type)
+        }
+    }
+
+    /// Tapping a rail chip "focuses" a type: scroll to it + solo-expand it. A
+    /// second tap on the focused chip clears focus and collapses everything.
+    private func focus(_ type: EntityType, proxy: ScrollViewProxy) {
+        if focusedType == type {
+            withAnimation(.spring(duration: 0.25)) {
+                focusedType = nil
+                expandedTypes.remove(type)
+            }
+            return
+        }
+        withAnimation(.spring(duration: 0.3)) {
+            focusedType = type
+            expandedTypes = [type]
+            proxy.scrollTo(type, anchor: .top)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header with title + search + filter
-            HStack(spacing: CicadaTheme.spacingMD) {
-                Text("Topics")
-                    .font(CicadaTheme.titleFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-
-                Spacer()
-            }
-            .padding(.horizontal, CicadaTheme.spacingXL)
-            .padding(.top, CicadaTheme.spacingXL)
-            .padding(.bottom, CicadaTheme.spacingMD)
+            PageHeader(
+                title: "Clusters",
+                subtitle: "Auto-detected groups of related entities."
+            )
 
             // Search + filter row
             HStack(spacing: CicadaTheme.spacingMD) {
@@ -143,7 +192,7 @@ private struct TopicsListView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(CicadaTheme.textTertiary)
 
-                    TextField("Search topics...", text: $searchText)
+                    TextField("Search clusters...", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
@@ -207,24 +256,223 @@ private struct TopicsListView: View {
             .padding(.horizontal, CicadaTheme.spacingXL)
             .padding(.bottom, CicadaTheme.spacingMD)
 
-            // Count
-            Text("\(filteredEntities.count) topics")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .padding(.horizontal, CicadaTheme.spacingXL)
-                .padding(.bottom, CicadaTheme.spacingSM)
+            // Type-jump rail: quick "focus this type" chips. Hidden while
+            // searching (search flattens to a global ranked list). Wrapped by the
+            // ScrollViewReader below so chips can scroll the list to a section.
+            ScrollViewReader { proxy in
+                VStack(alignment: .leading, spacing: 0) {
+                    if !isSearching && presentTypes.count > 1 {
+                        TypeJumpRail(
+                            groups: groupedEntities,
+                            focusedType: focusedType,
+                            onTap: { focus($0, proxy: proxy) }
+                        )
+                        .padding(.bottom, CicadaTheme.spacingSM)
+                    }
 
-            // List
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(filteredEntities) { entity in
-                        TopicRowListItem(entity: entity, onTap: { onSelect(entity) })
+                    // Count + expand/collapse-all control
+                    HStack(spacing: CicadaTheme.spacingMD) {
+                        Text("\(filteredEntities.count) clusters")
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+
+                        if !isSearching && presentTypes.count > 1 {
+                            let allExpanded = expandedTypes.isSuperset(of: presentTypes)
+                            Button {
+                                withAnimation(.spring(duration: 0.25)) {
+                                    if allExpanded {
+                                        expandedTypes.removeAll()
+                                    } else {
+                                        expandedTypes = Set(presentTypes)
+                                    }
+                                    focusedType = nil
+                                }
+                            } label: {
+                                HStack(spacing: CicadaTheme.spacingXS) {
+                                    Image(systemName: allExpanded ? "chevron.up.chevron.down" : "chevron.down.chevron.up")
+                                        .font(.system(size: 9, weight: .semibold))
+                                    Text(allExpanded ? "Collapse all" : "Expand all")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, CicadaTheme.spacingXL)
+                    .padding(.bottom, CicadaTheme.spacingSM)
+
+                    // List — flat ranked list while searching, type-grouped
+                    // collapsible sections otherwise. Each section header AND each
+                    // expanded row is emitted as a *direct* child of the outer
+                    // LazyVStack, so every row is its own lazy cell. Expanding a
+                    // 600+ entity type (or "Expand all") never materializes more
+                    // rows than fit on screen — laziness is genuinely per-row.
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            if isSearching {
+                                ForEach(filteredEntities) { entity in
+                                    TopicRowListItem(entity: entity, onTap: { onSelect(entity) })
+                                }
+                            } else {
+                                ForEach(groupedEntities, id: \.type) { group in
+                                    TypeSectionHeader(
+                                        type: group.type,
+                                        count: group.entities.count,
+                                        isExpanded: expandedTypes.contains(group.type),
+                                        onToggle: { withAnimation(.spring(duration: 0.25)) { toggle(group.type) } }
+                                    )
+                                    .id(group.type)
+
+                                    if expandedTypes.contains(group.type) {
+                                        ForEach(group.entities) { entity in
+                                            TopicRowListItem(entity: entity, onTap: { onSelect(entity) })
+                                                .padding(.leading, CicadaTheme.spacingLG)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, CicadaTheme.spacingXL)
+                        .padding(.bottom, CicadaTheme.spacingXL)
                     }
                 }
-                .padding(.horizontal, CicadaTheme.spacingXL)
-                .padding(.bottom, CicadaTheme.spacingXL)
             }
         }
+        // Reset view-local navigation state if the underlying set changes shape
+        // (e.g. type filter toggled in the popover) so we never point focus at a
+        // type that no longer has matches.
+        .onChange(of: presentTypes) { _, newTypes in
+            let present = Set(newTypes)
+            expandedTypes.formIntersection(present)
+            if let f = focusedType, !present.contains(f) { focusedType = nil }
+        }
+    }
+}
+
+// MARK: - Type Section (collapsible per-type group)
+
+/// The tappable header for a single entity-type section. Header = color dot +
+/// icon + label + live count pill + rotating chevron. This is a standalone lazy
+/// cell: the expanded rows are emitted as siblings in the parent LazyVStack (not
+/// nested here), so per-row laziness is preserved even for 600+ entity types.
+private struct TypeSectionHeader: View {
+    let type: EntityType
+    let count: Int
+    let isExpanded: Bool
+    let onToggle: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: CicadaTheme.spacingMD) {
+                Circle()
+                    .fill(CicadaTheme.entityColor(for: type))
+                    .frame(width: 10, height: 10)
+
+                Image(systemName: type.icon)
+                    .font(.system(size: 12))
+                    .foregroundStyle(CicadaTheme.entityColor(for: type))
+                    .frame(width: 16)
+
+                Text(type.label)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+
+                Text("\(count)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(CicadaTheme.entityColor(for: type))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(CicadaTheme.entityColor(for: type).opacity(0.12))
+                    .clipShape(Capsule())
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            }
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .padding(.vertical, CicadaTheme.spacingMD)
+            .background(
+                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                    .fill(isHovered ? CicadaTheme.surfaceHover : .clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+    }
+}
+
+// MARK: - Type Jump Rail
+
+/// Horizontal strip of type chips under the search row. Tapping a chip focuses
+/// that type (scroll + solo-expand). Purely view-local — never touches the
+/// Graph-shared filter. Only present types appear (count-0 types are absent).
+private struct TypeJumpRail: View {
+    let groups: [(type: EntityType, entities: [Entity])]
+    let focusedType: EntityType?
+    let onTap: (EntityType) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                ForEach(groups, id: \.type) { group in
+                    TypeChip(
+                        type: group.type,
+                        count: group.entities.count,
+                        isFocused: focusedType == group.type,
+                        onTap: { onTap(group.type) }
+                    )
+                }
+            }
+            .padding(.horizontal, CicadaTheme.spacingXL)
+        }
+    }
+}
+
+private struct TypeChip: View {
+    let type: EntityType
+    let count: Int
+    let isFocused: Bool
+    let onTap: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        let color = CicadaTheme.entityColor(for: type)
+        Button(action: onTap) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 7, height: 7)
+
+                Text(type.label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isFocused ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+
+                Text("\(count)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(isFocused ? color.opacity(0.15) : (isHovered ? CicadaTheme.surfaceHover : .clear))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(isFocused ? color.opacity(0.6) : CicadaTheme.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
     }
 }
 
@@ -278,10 +526,23 @@ private struct TopicsLabelPopover: View {
     @Binding var selectedLabels: Set<String>
     @State private var labelSearch: String = ""
 
-    private var visibleLabels: [(String, Int)] {
+    /// Cap on how many label rows are materialized at once. Even with the
+    /// LazyVStack below, bounding the rendered set keeps an empty/short search
+    /// from building thousands of rows when the popover opens (the freeze).
+    private static let renderCap = 100
+
+    private var matchingLabels: [(String, Int)] {
         let query = labelSearch.trimmingCharacters(in: .whitespaces).lowercased()
         if query.isEmpty { return allLabels }
         return allLabels.filter { $0.0.lowercased().contains(query) }
+    }
+
+    private var visibleLabels: [(String, Int)] {
+        Array(matchingLabels.prefix(Self.renderCap))
+    }
+
+    private var hiddenCount: Int {
+        max(0, matchingLabels.count - visibleLabels.count)
     }
 
     var body: some View {
@@ -313,7 +574,7 @@ private struct TopicsLabelPopover: View {
                     .padding(.vertical, CicadaTheme.spacingSM)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
+                    LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(visibleLabels, id: \.0) { label, count in
                             Button {
                                 if selectedLabels.contains(label) {
@@ -342,6 +603,14 @@ private struct TopicsLabelPopover: View {
                                 .padding(.vertical, 3)
                             }
                             .buttonStyle(.plain)
+                        }
+
+                        if hiddenCount > 0 {
+                            Text("+\(hiddenCount) more — refine search")
+                                .font(.system(size: 10))
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 4)
                         }
                     }
                 }
@@ -443,7 +712,7 @@ private struct TopicDetailView: View {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 12, weight: .medium))
-                        Text("Topics")
+                        Text("Clusters")
                             .font(.system(size: 12, weight: .medium))
                     }
                     .foregroundStyle(CicadaTheme.textSecondary)
@@ -461,7 +730,7 @@ private struct TopicDetailView: View {
             // Detail card — EntityDetailCard already has its own internal
             // ScrollView, so wrapping it in a second one broke the width
             // proposal chain for long markdown bodies (the "zoomed in" bug).
-            EntityDetailCard(entity: displayEntity)
+            EntityDetailCard(entity: displayEntity, showsCloseButton: false)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(CicadaTheme.spacingXL)

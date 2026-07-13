@@ -302,6 +302,43 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict) -> dict[
     return merged
 
 
+def merge_sections_human_safe(
+    existing: dict[str, str], new_fields: dict, *, human_edited: bool
+) -> dict[str, str]:
+    """Section-aware merge that NEVER rewrites or removes human prose (rule 3c).
+
+    On an agent-only page (``human_edited=False``) this is the normal
+    :func:`merge_sections_fallback` (union Key Facts / Links / Open Questions,
+    additive Summary, dedupe History).
+
+    On a **human-edited** page (``human_edited=True`` — the frontmatter carries
+    ``human_edited: true``, or the page has non-canonical hand-added headings) the
+    merge is **additive only**: every existing section (canonical or not) is
+    preserved verbatim, and the agent may only ADD a deduped bullet / append a
+    follow-on Summary sentence — it may never replace or drop an existing line.
+    This is the prose-level mirror of the Stage-3 ``COEXIST_FLAG`` rule (an agent
+    may not regenerate-away human prose any more than it may close a human claim).
+    """
+    if not human_edited:
+        return merge_sections_fallback(existing, new_fields)
+
+    existing = dict(existing or {})
+    # Snapshot every human-authored (non-canonical) section so the additive merge
+    # below cannot touch it.
+    human_sections = {
+        title: content
+        for title, content in existing.items()
+        if title not in CANONICAL_SECTIONS and title != ""
+    }
+
+    merged = merge_sections_fallback(existing, new_fields)
+
+    # Re-assert the human sections verbatim — they are never rewritten.
+    for title, content in human_sections.items():
+        merged[title] = content
+    return merged
+
+
 def upgrade_legacy_to_v2(body: str, entity_type: str) -> dict[str, str]:
     """Lift a v1 flat body into a v2 section dict (pure string transform).
 
@@ -402,3 +439,81 @@ def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict
         pairs.append((name, ""))
 
     return _related_bullets(pairs)
+
+
+# Priority order for recall summaries: fact-bearing sections first. Summary +
+# Key Facts are ALWAYS included in full (they hold the answer); the rest fill
+# the remaining budget in this order.
+_RECALL_PRIORITY = ["Summary", "Key Facts", "History", "Links", "Related", "Open Questions"]
+
+
+def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
+    """Section-aware truncation that always preserves Summary + Key Facts.
+
+    Byte-offset truncation can cut Key Facts (where specific figures live). This
+    keeps Summary + Key Facts whole, then appends further canonical sections in
+    priority order until the char budget is reached.
+    """
+    from api.services.claims import strip_claims_block
+    sections = parse_sections(strip_claims_block(body))
+    lead = sections.get("", "").strip()
+    chosen: list[str] = []
+    used = 0
+    # Always-include tier, whole:
+    for title in ("Summary", "Key Facts"):
+        content = sections.get(title, "").strip()
+        if content:
+            block = f"## {title}\n{content}"
+            chosen.append(block)
+            used += len(block)
+    # Fill remaining budget:
+    for title in _RECALL_PRIORITY:
+        if title in ("Summary", "Key Facts"):
+            continue
+        content = sections.get(title, "").strip()
+        if not content:
+            continue
+        block = f"## {title}\n{content}"
+        if used + len(block) > max_chars and chosen:
+            break
+        chosen.append(block)
+        used += len(block)
+    if not chosen:  # legacy flat body (no H2s)
+        return (lead or body).strip()[:max_chars]
+    return "\n\n".join(chosen)
+
+
+def sections_to_fields(sections: dict) -> dict:
+    """Convert a ``{title: markdown}`` sections dict into the STRUCTURED
+    ``new_fields`` shape that :func:`merge_sections_fallback` /
+    :func:`merge_sections_human_safe` consume (``summary`` str + ``key_facts`` /
+    ``history_entries`` / ``links`` / ``open_questions`` bullet lists). Bullets
+    are the ``- `` lines of each list section; non-canonical sections are ignored
+    here (callers preserve those separately). Passing a raw sections dict to the
+    merge helpers merges nothing — this adapter is the bridge.
+    """
+    def _bullets(s: str) -> list[str]:
+        return [ln.strip()[2:].strip()
+                for ln in (s or "").splitlines() if ln.strip().startswith("- ")]
+
+    def _history_dicts(s: str) -> list[dict]:
+        out = []
+        for ln in (s or "").splitlines():
+            ln = ln.strip()
+            if not ln.startswith("- "):
+                continue
+            item = ln[2:].strip()
+            if ": " in item:
+                date, _, event = item.partition(": ")
+                out.append({"date": date.strip(), "event": event.strip()})
+            else:
+                out.append({"date": "", "event": item})
+        return out
+
+    return {
+        "summary": (sections.get("Summary", "") or "").strip(),
+        "key_facts": _bullets(sections.get("Key Facts", "")),
+        "history_entries": _history_dicts(sections.get("History", "")),
+        "links": _bullets(sections.get("Links", "")),
+        "open_questions": _bullets(sections.get("Open Questions", "")),
+    }

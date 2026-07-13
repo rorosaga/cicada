@@ -36,6 +36,12 @@ class SleepState:
     entities_updated: int = 0
     relationships_created: int = 0
     skills_detected: int = 0
+    # Resumable queue (robust partial runs): how many episodes this cycle
+    # actually consolidated vs. how many failed Stage-1 extraction and were
+    # left ``processed: false`` for the next trigger to retry. ``requeued`` > 0
+    # means "completed, but re-run Sleep to finish the rest".
+    episodes_processed: int = 0
+    episodes_requeued: int = 0
 
 
 _state = SleepState()
@@ -64,11 +70,22 @@ async def run(settings: Settings, cycle_id: str) -> None:
     _state.entities_updated = 0
     _state.relationships_created = 0
     _state.skills_detected = 0
+    _state.episodes_processed = 0
+    _state.episodes_requeued = 0
 
     memory_path = settings.memory_path
     logger.info(f"Sleep cycle {cycle_id} started — model: {settings.litellm_model}")
 
     try:
+        # M5e: ensure the runtime predicate-normalization map exists (idempotent,
+        # non-clobbering) so Stage 2 predicate folding + Stage 3 cardinality keying
+        # have a controlled vocabulary to key on.
+        try:
+            from api.services import predicates
+            predicates.install_predicate_map(memory_path)
+        except Exception as e:
+            logger.warning(f"predicate map install skipped: {type(e).__name__}: {e}")
+
         # Collect unprocessed episodes
         episodes = _get_unprocessed_episodes(memory_path)
         if not episodes:
@@ -89,6 +106,21 @@ async def run(settings: Settings, cycle_id: str) -> None:
         total_rels = sum(len(e.get("relationships", [])) for e in extracted)
         logger.info(f"Stage 1 complete: {total_entities} entities, {total_rels} relationships extracted")
         _state.stage = 1
+
+        # Resumable queue — hard stop if EVERY episode failed Stage 1 (wrong
+        # model id, exhausted credits, total outage). Abort with the queue
+        # untouched instead of running the rest of the pipeline on nothing and
+        # committing a misleading empty "completed" cycle. Re-running after
+        # fixing the cause retries the whole batch.
+        if episodes and not extracted:
+            msg = (
+                "Stage 1 extracted nothing — all episodes failed "
+                "(check model id / API credits). Queue left intact for retry."
+            )
+            logger.error(msg)
+            _state.error = msg
+            _state.progress = f"Failed: {msg}"
+            return
 
         # Stage 2: Entity Resolution & Deduplication
         _state.progress = "Stage 2/5: Resolving entities..."
@@ -156,6 +188,28 @@ async def run(settings: Settings, cycle_id: str) -> None:
         except Exception as e:
             logger.warning(f"Stage 5.55 media edge injection failed: {type(e).__name__}: {e}")
 
+        # Stage 5.56 (M5f): CLAIM LAYER — load-bearing in the live cycle now.
+        # Runs AFTER the entity path's Stage-5 page writes (so create-pages exist
+        # to host the ```claims block) and 5.55 media edges, but BEFORE the hub /
+        # edge-regen / index steps (so they project the freshly-written claims).
+        # This is ADDITIVE: the legacy entity extraction + conflict_resolver path
+        # above keeps working untouched; claims are emitted (Stage 1 projection),
+        # trust-reconciled (Stage 3 — no agent claim can close a human claim), and
+        # written into the same editable pages (Stage 5 — human prose preserved).
+        try:
+            from api.services.claim_pipeline import run_claim_pipeline
+            from api.services.inbox_generator import write_claim_nudges
+            claim_result = run_claim_pipeline(extracted, existing, memory_path, settings)
+            n_nudges = write_claim_nudges(claim_result.get("nudges", []), memory_path)
+            logger.info(
+                f"Stage 5.56: claim layer wrote {claim_result.get('claims_written', 0)} "
+                f"claims across {claim_result.get('subjects_written', 0)} pages "
+                f"({claim_result.get('subjects_skipped', 0)} page-less), "
+                f"{n_nudges} claim nudges"
+            )
+        except Exception as e:
+            logger.warning(f"Stage 5.56 claim pipeline failed: {type(e).__name__}: {e}")
+
         # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
         # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
         try:
@@ -165,9 +219,52 @@ async def run(settings: Settings, cycle_id: str) -> None:
         except Exception as e:
             logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
 
-        # Mark episodes as processed
-        _mark_episodes_processed(episodes)
-        logger.info(f"Marked {len(episodes)} episodes as processed")
+        # Stage 5.57 (M5f): link-enrichment subagent — when a saved media link
+        # (e.g. a website Prof. John recommended) lacks a meaningful description,
+        # a bounded subagent fetches + summarizes it and records a `describes`
+        # claim + `recommends` claims, with bidirectional ![[…]] transclusion
+        # (m5-prep/link-enrichment.md). Offline-safe, LLM-call-capped; any failure
+        # logs a warning and continues — the cycle is never hard-blocked.
+        try:
+            from api.services.link_enrichment import default_summarize, enrich_media_links
+            n_enriched = await enrich_media_links(
+                memory_path, changes, settings, summarize_fn=default_summarize
+            )
+            if n_enriched:
+                logger.info(f"Stage 5.57: enriched {n_enriched} media link(s)")
+        except Exception as e:
+            logger.warning(f"Stage 5.57 link enrichment failed: {type(e).__name__}: {e}")
+
+        # Stage 5.7: Regenerate graph_edges.yaml as a valid-only projection of the
+        # claims layer (tagged with observer/context/claim_id). No-op on banks
+        # with no claims yet, so seeded/legacy edge graphs are not wiped (M5e).
+        try:
+            from api.services.graph_builder import regenerate_edges_from_claims
+            n_edges = regenerate_edges_from_claims(memory_path)
+            if n_edges:
+                logger.info(f"Stage 5.7: regenerated {n_edges} valid-only claim edges")
+        except Exception as e:
+            logger.warning(f"Stage 5.7 claim-edge regeneration failed: {type(e).__name__}: {e}")
+
+        # Mark ONLY the episodes that successfully extracted this cycle.
+        # Episodes whose Stage-1 extraction errored (e.g. a credit cap hit
+        # mid-run) are absent from `extracted` and stay `processed: false`, so
+        # re-triggering Sleep resumes exactly where it left off instead of
+        # re-spending the whole batch. (Empty-content episodes return a
+        # zero-entity result, so they ARE here — done, nothing to retry.)
+        extracted_ids = {r["episode_id"] for r in extracted if r.get("episode_id")}
+        processed_episodes = [ep for ep in episodes if ep["id"] in extracted_ids]
+        requeued = len(episodes) - len(processed_episodes)
+        _mark_episodes_processed(processed_episodes)
+        _state.episodes_processed = len(processed_episodes)
+        _state.episodes_requeued = requeued
+        if requeued:
+            logger.warning(
+                f"Marked {len(processed_episodes)} episodes processed; {requeued} "
+                f"failed extraction and remain queued — re-run Sleep to continue"
+            )
+        else:
+            logger.info(f"Marked {len(processed_episodes)} episodes as processed")
 
         # Rebuild LEANN indexes so Bookworm reflects the post-sleep state.
         # Entity and episode rebuilds are independent and we want to surface
@@ -176,11 +273,11 @@ async def run(settings: Settings, cycle_id: str) -> None:
         # *with a warning* — not a silent pass, not a hard failure.
         index_warnings: list[str] = []
         try:
-            from api.services.leann_indexer import LeannIndexer
-            indexer = LeannIndexer(memory_path)
+            from api.services.vector_index import SqliteVecIndexer
+            indexer = SqliteVecIndexer(memory_path)
         except Exception as e:
             indexer = None
-            warning = f"LEANN indexer init failed: {type(e).__name__}: {e}"
+            warning = f"vector indexer init failed: {type(e).__name__}: {e}"
             logger.warning(warning)
             index_warnings.append(warning)
 
@@ -189,30 +286,44 @@ async def run(settings: Settings, cycle_id: str) -> None:
                 indexer.index_entities()
             except Exception as e:
                 warning = f"entity index rebuild failed: {type(e).__name__}: {e}"
-                logger.warning(f"LEANN {warning}")
+                logger.warning(f"vector {warning}")
                 index_warnings.append(warning)
             try:
                 indexer.index_episodes()
             except Exception as e:
                 warning = f"episode index rebuild failed: {type(e).__name__}: {e}"
-                logger.warning(f"LEANN {warning}")
+                logger.warning(f"vector {warning}")
+                index_warnings.append(warning)
+            # M5e: rebuild the derived claims index from the in-page ```claims
+            # blocks so claim-first /ask + get_perspective reflect the post-Sleep
+            # belief state. Only currently-valid claims are indexed.
+            try:
+                indexer.index_claims()
+            except Exception as e:
+                warning = f"claims index rebuild failed: {type(e).__name__}: {e}"
+                logger.warning(f"vector {warning}")
                 index_warnings.append(warning)
 
         if index_warnings:
             _state.index_warning = "; ".join(index_warnings)
 
         # Commit
-        await _finalize(memory_path, cycle_id, changes)
+        await _finalize(memory_path, cycle_id, changes, settings)
+        requeue_note = (
+            f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
+            if _state.episodes_requeued else ""
+        )
         if _state.index_warning:
-            _state.progress = f"Completed with warnings: {_state.index_warning}"
+            _state.progress = f"Completed with warnings: {_state.index_warning}{requeue_note}"
             logger.warning(
                 f"Sleep cycle {cycle_id} completed with warnings — "
-                f"{len(changes)} changes committed; {_state.index_warning}"
+                f"{len(changes)} changes committed; {_state.index_warning}{requeue_note}"
             )
         else:
-            _state.progress = "Completed"
+            _state.progress = f"Completed{requeue_note}"
             logger.success(
                 f"Sleep cycle {cycle_id} completed — {len(changes)} changes committed"
+                f"{requeue_note}"
             )
         _state.stage = 5
 
@@ -238,10 +349,15 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
     for filepath in episodes_dir.glob("*.md"):
         parsed = markdown_parser.parse(filepath)
         if not parsed.frontmatter.get("processed", False):
+            source = parsed.frontmatter.get("source", "unknown")
             results.append({
                 "id": parsed.frontmatter.get("id", filepath.stem),
                 "content": parsed.body,
-                "source": parsed.frontmatter.get("source", "unknown"),
+                "source": source,
+                # G9 origin: explicit field if present, else derived from the
+                # legacy `source` (origin-and-harness-sync.md §1b). Propagated into
+                # extracted claims so each belief records which harness it came from.
+                "origin": parsed.frontmatter.get("origin") or _derive_origin(source),
                 "timestamp": str(parsed.frontmatter.get("timestamp", "") or ""),
                 "filepath": filepath,
             })
@@ -249,6 +365,31 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
     # timestamp so the sort is stable regardless of filesystem order.
     results.sort(key=lambda r: (r.get("timestamp") or "", r["id"]))
     return results
+
+
+# Legacy `source` -> G9 `origin` derivation (origin-and-harness-sync.md §1b).
+_SOURCE_TO_ORIGIN = {
+    "claude": "claude-code",
+    "claude_memory": "claude-code",
+    "claude_project": "claude-code",
+    "mcp": "claude-code",
+    "chatgpt-export": "chatgpt-export",
+    "claude-export": "claude-export",
+    "telegram": "telegram",
+    "rss": "rss",
+    "bookmark": "bookmark",
+}
+
+
+def _derive_origin(source: str | None) -> str:
+    """Map a legacy episode ``source`` to a G9 ``origin`` harness id, else ``unknown``."""
+    s = str(source or "").strip().lower()
+    if not s:
+        return "unknown"
+    if s in _SOURCE_TO_ORIGIN:
+        return _SOURCE_TO_ORIGIN[s]
+    # Already an origin-shaped value (e.g. codex, cursor) passes through.
+    return s
 
 
 def list_all_episodes(memory_path: Path) -> list[dict]:
@@ -300,12 +441,16 @@ def _mark_episodes_processed(episodes: list[dict]) -> None:
         markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
 
 
-async def _finalize(memory_path: Path, cycle_id: str, changes: list) -> None:
+async def _finalize(
+    memory_path: Path, cycle_id: str, changes: list, settings: Settings | None = None
+) -> None:
     """Commit all changes from the sleep cycle with a structured message.
 
     Entity-level lines from ``changes`` have source + trigger; file-level
     additions (nudges, clarifications, graph_edges, etc.) are inferred from
-    ``git status`` so the commit message remains a complete manifest.
+    ``git status`` so the commit message remains a complete manifest. The
+    authoring model(s) for this cycle (main + disambiguation, per ``settings``)
+    are recorded as ``Cicada-Author:`` trailers for repo-wide attribution.
     """
     date_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -344,7 +489,20 @@ async def _finalize(memory_path: Path, cycle_id: str, changes: list) -> None:
         extra_lines.append(f"{path}: {action} (trigger: {trigger})")
 
     body_lines = entity_lines + extra_lines
-    message = f"Sleep cycle {date_str}\n\n" + "\n".join(body_lines)
+
+    # Author trailers: the models that actually wrote this consolidation. The
+    # disambiguation model (Stage 2 judge) is recorded too when distinct.
+    authors: list[str] = []
+    if settings is not None:
+        if settings.litellm_model:
+            authors.append(settings.litellm_model)
+        disambig = (settings.litellm_disambiguation_model or "").strip()
+        if disambig and disambig not in authors:
+            authors.append(disambig)
+
+    message = git_service.build_commit_message(
+        f"Sleep cycle {date_str}", body_lines, authors=authors
+    )
     async with _lock:
         await git_service.commit_changes(memory_path, message)
 

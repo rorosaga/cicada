@@ -158,9 +158,24 @@ Sleep cycle 2026-03-20
 entities/recruiting-thread.md: updated (source: ep_2026-03-20_002, trigger: sleep/extraction)
 entities/recruiter-contact.md: created (source: ep_2026-03-20_002, trigger: clarification/resolved)
 nudges/nudge_005.md: resolved (trigger: user/companion_app)
+
+Cicada-Author: gpt-5.4-mini
+Cicada-Author: gpt-5.4-nano
 ```
 
 **Trigger types:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`
+
+**Commit-author trailers (`Cicada-Author:`).** Every Cicada write records *which agent
+authored it* as one or more `Cicada-Author:` git trailers appended after a blank line at the
+end of the commit body. The value is a **model id** (e.g. `gpt-5.4-mini`; the Stage-2
+disambiguation model is recorded too when distinct) for sleep-cycle/agent writes, or the
+literal **`user`** for manual/companion-app/media-save writes; legacy untrailered commits
+are attributed to **`unknown`**. The trailer carries no entity id, so it is **inert to the
+entity-line parsing** above — extend it, don't break it. Built by
+`git_service.build_commit_message(subject, body_lines, authors=...)` and parsed by
+`git_service._parse_authors`. This powers `GET /contributors` (repo-wide per-author
+commit/file/entity counts + last-active) and the per-commit `author` field on
+`GET /entities/{id}/history` — a memory system honest about which model authored each belief.
 
 **Entity-level provenance** uses `git blame`:
 - `git blame entities/recruiting-thread.md` → which commit wrote each current line
@@ -227,6 +242,9 @@ POST /nudges/{id}/resolve       → submit resolution for a nudge
 GET  /clarifications            → list of pending clarifications
 POST /clarifications/{id}       → answer / dismiss / merge / skip
 GET  /entities/{id}/history     → git blame on entity file, enriched with structured commit metadata
+                                  (+ per-commit author from Cicada-Author trailer; ?include_diff=true inlines diffs)
+GET  /entities/{id}/history/{commit}/diff → added/removed lines for that entity file at that commit
+GET  /contributors              → repo-wide per-author (model/user) commit/file/entity counts + last-active
 POST /sleep/trigger             → manually trigger the sleep cycle
 GET  /sleep/history             → git log on whole repo (chronological Sleep cycle history)
 POST /conversations/upload      → ingest a conversation export file

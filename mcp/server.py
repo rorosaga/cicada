@@ -12,103 +12,225 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Allow importing sibling packages (api.services.leann_indexer) when run as a script
+# Allow importing sibling packages (api.services.vector_index) when run as a script
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 # MCP protocol uses JSON-RPC 2.0 over stdin/stdout
 
+# Tool list advertised via `tools/list` and dispatched via `tools/call`. Kept at
+# module scope (not local to main()) so both main() and other modules (e.g. a
+# future cicada_sources tool, and tests like test_mcp_tool_descriptions.py) can
+# reference the same TOOLS constant without re-running the JSON-RPC loop.
+TOOLS = [
+    {
+        "name": "cicada_recall",
+        "description": "Search Cicada's knowledge graph for entities related to a topic. Returns concise summaries (Pass 1). Pending inbox items are surfaced first when relevant. Use this at the start of conversations to check what Cicada already knows about the topic being discussed. If a fact might exist, call cicada_recall_detail on the top suggested entity before concluding it is absent. State only facts present in tool results; do not add adjacent details from general knowledge.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The topic, person, project, or concept to search for",
+                }
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "cicada_recall_detail",
+        "description": "Return the FULL entity page for a specific entity. Use this as Pass 2 after cicada_recall when you need the complete description and history — not a summary.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": "The entity ID (e.g. 'figure-ai') or entity name from a cicada_recall result.",
+                }
+            },
+            "required": ["entity_id"],
+        },
+    },
+    {
+        "name": "cicada_save_episode",
+        "description": "Save a conversation snippet as an episode for Cicada's memory. The episode will be processed during the next Sleep cycle to extract entities and relationships. Use this when the conversation contains important information worth remembering.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The conversation content to save as an episode",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "A short title for this episode",
+                },
+            },
+            "required": ["content"],
+        },
+    },
+    {
+        "name": "cicada_check_nudges",
+        "description": "Check for pending inbox items in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, ambiguous mentions, or possible duplicates. Use this proactively when a conversation touches topics that might have pending items.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "Optional topic to filter inbox items by relevance",
+                }
+            },
+        },
+    },
+    {
+        "name": "cicada_open_hub",
+        "description": "Open a Cicada hub page (a topic or type index) and list its member entities with one-line summaries. Use after cicada_recall returns a relevant_hub, or to browse a topic. Pass a hub id like 'people', 'tools', or 'topic-robotics'.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"hub": {"type": "string"}},
+            "required": ["hub"],
+        },
+    },
+    {
+        "name": "cicada_ask",
+        "description": "Ask Cicada's memory a natural-language question and get a synthesized answer that CITES the entities it used and explicitly states what it could NOT answer (gaps). Grounded only in stored memory — it says 'I don't know' rather than guessing. Use when you want a direct answer rather than a list of entities to read yourself. Prefer this tool for direct factual questions — it reads full entity pages and claims and returns an answer with citations and an explicit gap list.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The natural-language question to ask of memory.",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "How many entities to retrieve as grounding context (default 6).",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "cicada_get_perspective",
+        "description": "Return a subject's currently-valid claims from a specific PERSPECTIVE — optionally filtered by observer (who holds the belief: 'agent', 'rodrigo', or 'external:<name>') and/or context (e.g. 'engineering', 'family', 'career'). Use when you need to know who believes what about a subject, or want only one facet of a subject (e.g. engineer-Rodrigo vs family-Rodrigo). Each claim carries its observer, context, source_trust, confidence, and valid-from date so you can attribute beliefs honestly.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": "The subject entity id or name (e.g. 'rodrigo', 'cicada').",
+                },
+                "observer": {
+                    "type": "string",
+                    "description": "Optional. Filter to one observer: 'agent', 'rodrigo', or 'external:<name>'.",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional. Filter to one context facet (e.g. 'engineering', 'family', 'career').",
+                },
+            },
+            "required": ["subject"],
+        },
+    },
+    {
+        "name": "cicada_save_url",
+        "description": "Save a URL (article, video, bookmark) into Cicada's memory as saved media. The link becomes a graph entity and connects to related topics after the next Sleep cycle. Use when the user shares a link worth remembering or says 'save this'.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to save"},
+                "note": {
+                    "type": "string",
+                    "description": "Optional note about why this was saved",
+                },
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "cicada_sources",
+        "description": "Return the primary source conversation chunks that produced an entity "
+                       "(the episodes it was consolidated from). Use this to ground or verify a "
+                       "fact against what the user actually said, or to show provenance.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"entity_id": {"type": "string",
+                "description": "The entity id (e.g. 'diego-sanmartin') to fetch sources for."}},
+            "required": ["entity_id"],
+        },
+    },
+    {
+        "name": "cicada_write_claim",
+        "description": "Write ONE atomic fact into Cicada's memory as a structured, observer-tagged claim (subject-predicate-object), reusing the same trust-gated reconciliation the nightly Sleep cycle uses. Tag observer='rodrigo' ONLY for something the USER explicitly stated themselves — this claim becomes trust-protected and can never be silently overwritten by a later agent claim. Tag observer='agent' for something YOU inferred, deduced, or noticed yourself. Tag observer='external' for a fact attributed to a third party. Write ONE claim per atomic fact — never bundle multiple facts into a single call. If the subject has no entity page yet, a minimal one is created automatically. A lower-trust claim never overwrites a higher-trust one; it either coexists (flagged) or is held back for a nudge.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": "The entity the claim is about (e.g. 'Rodrigo', 'Cicada').",
+                },
+                "predicate": {
+                    "type": "string",
+                    "description": "The relation/verb (e.g. 'works-at', 'prefers', 'uses').",
+                },
+                "object": {
+                    "type": "string",
+                    "description": "The value or target entity of the claim (e.g. 'Figure AI', 'concise summaries').",
+                },
+                "observer": {
+                    "type": "string",
+                    "enum": ["rodrigo", "agent", "external"],
+                    "description": "Who holds this belief. 'rodrigo' = the user stated this themselves (trust-protected). 'agent' = you inferred/extracted this. 'external' = attributed to a third party. Defaults to 'agent'.",
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "Optional confidence 0.0-1.0 (default 0.7).",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional facet this claim belongs to (e.g. 'engineering', 'family', 'career'). Default 'general'.",
+                },
+                "source_episode": {
+                    "type": "string",
+                    "description": "Optional episode id this claim was grounded in (e.g. from cicada_save_episode or cicada_pending).",
+                },
+            },
+            "required": ["subject", "predicate", "object"],
+        },
+    },
+    {
+        "name": "cicada_pending",
+        "description": "List Cicada episodes not yet consolidated into the knowledge graph (processed: false). Use this to see what raw conversation material is waiting, then use cicada_write_claim to consolidate atomic facts out of it yourself, and cicada_mark_processed once you're done with an episode — this lets an agent do its own lightweight consolidation between Sleep cycles.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of unprocessed episodes to return (default 50).",
+                },
+            },
+        },
+    },
+    {
+        "name": "cicada_mark_processed",
+        "description": "Mark episodes as processed (processed: true) after you have consolidated their facts via cicada_write_claim. Only mark an episode processed once you have actually extracted what's worth keeping from it — an unmarked episode is still picked up by the next Sleep cycle as a safety net.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "episode_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "The episode ids to mark processed (e.g. ['ep_2026-07-02_001']).",
+                },
+            },
+            "required": ["episode_ids"],
+        },
+    },
+]
+
 
 def main():
     """Main loop: read JSON-RPC requests from stdin, write responses to stdout."""
-    # Server capabilities
-    tools = [
-        {
-            "name": "cicada_recall",
-            "description": "Search Cicada's knowledge graph for entities related to a topic. Returns concise summaries (Pass 1). Pending inbox items are surfaced first when relevant. Use this at the start of conversations to check what Cicada already knows about the topic being discussed.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The topic, person, project, or concept to search for",
-                    }
-                },
-                "required": ["query"],
-            },
-        },
-        {
-            "name": "cicada_recall_detail",
-            "description": "Return the FULL entity page for a specific entity. Use this as Pass 2 after cicada_recall when you need the complete description and history — not a summary.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "entity_id": {
-                        "type": "string",
-                        "description": "The entity ID (e.g. 'figure-ai') or entity name from a cicada_recall result.",
-                    }
-                },
-                "required": ["entity_id"],
-            },
-        },
-        {
-            "name": "cicada_save_episode",
-            "description": "Save a conversation snippet as an episode for Cicada's memory. The episode will be processed during the next Sleep cycle to extract entities and relationships. Use this when the conversation contains important information worth remembering.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "content": {
-                        "type": "string",
-                        "description": "The conversation content to save as an episode",
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "A short title for this episode",
-                    },
-                },
-                "required": ["content"],
-            },
-        },
-        {
-            "name": "cicada_check_nudges",
-            "description": "Check for pending inbox items in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, ambiguous mentions, or possible duplicates. Use this proactively when a conversation touches topics that might have pending items.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "topic": {
-                        "type": "string",
-                        "description": "Optional topic to filter inbox items by relevance",
-                    }
-                },
-            },
-        },
-        {
-            "name": "cicada_open_hub",
-            "description": "Open a Cicada hub page (a topic or type index) and list its member entities with one-line summaries. Use after cicada_recall returns a relevant_hub, or to browse a topic. Pass a hub id like 'people', 'tools', or 'topic-robotics'.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"hub": {"type": "string"}},
-                "required": ["hub"],
-            },
-        },
-        {
-            "name": "cicada_save_url",
-            "description": "Save a URL (article, video, bookmark) into Cicada's memory as saved media. The link becomes a graph entity and connects to related topics after the next Sleep cycle. Use when the user shares a link worth remembering or says 'save this'.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "The URL to save"},
-                    "note": {
-                        "type": "string",
-                        "description": "Optional note about why this was saved",
-                    },
-                },
-                "required": ["url"],
-            },
-        },
-    ]
-
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -138,7 +260,7 @@ def main():
             pass
 
         elif method == "tools/list":
-            respond(req_id, {"tools": tools})
+            respond(req_id, {"tools": TOOLS})
 
         elif method == "tools/call":
             tool_name = params.get("name", "")
@@ -181,12 +303,28 @@ def respond_error(req_id, code, message):
 # --- Tool Handlers ---
 
 def get_memory_path() -> Path:
-    """Resolve the memory directory path."""
+    """Resolve the *active memory bank* directory.
+
+    ``CICADA_MEMORY_PATH`` names the memory **root** (the container of
+    ``banks.yaml`` + ``banks/<name>/``), not a bank. The API resolves the active
+    bank from that root via ``bank_registry.resolve_active_bank_path``; the MCP
+    MUST do the same or it serves a different graph than the app/Sleep cycle
+    (the "split-brain" bug — recall reads the stale legacy root while the vector
+    index + fresh episodes live in the active bank). We import the API resolver
+    and fall back to the raw root only if it is unavailable, so a bank switch
+    (which rewrites ``banks.yaml``, not the env var) takes effect live.
+    """
     import os
     env_path = os.environ.get("CICADA_MEMORY_PATH")
-    if env_path:
-        return Path(env_path)
-    return Path.home() / "cicada" / "memory"
+    root = Path(env_path) if env_path else Path.home() / "cicada" / "memory"
+    try:
+        from api.services.bank_registry import resolve_active_bank_path
+
+        return resolve_active_bank_path(root)
+    except Exception:
+        # Registry not importable / no banks.yaml → root IS the bank
+        # (identical to pre-banks behavior).
+        return root
 
 
 def handle_tool(name: str, arguments: dict) -> str:
@@ -203,10 +341,122 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_check_nudges(arguments.get("topic"))
     elif name == "cicada_open_hub":
         return handle_open_hub(arguments.get("hub", ""))
+    elif name == "cicada_ask":
+        return handle_ask(arguments.get("query", ""), arguments.get("top_k", 6))
+    elif name == "cicada_get_perspective":
+        return handle_get_perspective(
+            arguments.get("subject", ""),
+            arguments.get("observer"),
+            arguments.get("context"),
+        )
     elif name == "cicada_save_url":
         return handle_save_url(arguments.get("url", ""), arguments.get("note"))
+    elif name == "cicada_sources":
+        return handle_sources(arguments.get("entity_id", ""))
+    elif name == "cicada_write_claim":
+        return handle_write_claim(
+            arguments.get("subject", ""),
+            arguments.get("predicate", ""),
+            arguments.get("object", ""),
+            arguments.get("observer", "agent"),
+            arguments.get("confidence"),
+            arguments.get("context"),
+            arguments.get("source_episode"),
+        )
+    elif name == "cicada_pending":
+        return handle_pending(arguments.get("limit"))
+    elif name == "cicada_mark_processed":
+        return handle_mark_processed(arguments.get("episode_ids"))
     else:
         raise ValueError(f"Unknown tool: {name}")
+
+
+def handle_ask(query: str, top_k: int = 6) -> str:
+    """Answer a NL question over memory with citations + explicit gaps.
+
+    Prefers the running FastAPI backend (POST /ask) so the synthesis uses the
+    configured litellm model + sqlite-vec index. Falls back to calling the
+    ask_service directly when the backend is down (degrades like cicada_save_url).
+    The rendered text always shows the answer, what it could NOT answer (gaps),
+    and the entity citations — the auditable-synthesis contract.
+    """
+    query = (query or "").strip()
+    if not query:
+        return "query is required."
+    try:
+        top_k = int(top_k)
+    except (TypeError, ValueError):
+        top_k = 6
+
+    result: dict | None = None
+
+    # Path 1: the FastAPI backend, if it's up (has the LLM wired).
+    try:
+        import urllib.request
+
+        payload = json.dumps({"query": query, "topK": top_k}).encode("utf-8")
+        req = urllib.request.Request(
+            "http://127.0.0.1:8000/ask",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        # API serializes camelCase; normalize back to the service dict shape.
+        result = {
+            "answer": data.get("answer", ""),
+            "confidence": data.get("confidence", 0.0),
+            "citations": [
+                {
+                    "entity_id": c.get("entityId", c.get("entity_id", "")),
+                    "entity_name": c.get("entityName", c.get("entity_name", "")),
+                    "source_episodes": c.get("sourceEpisodes", c.get("source_episodes", [])),
+                }
+                for c in data.get("citations", []) or []
+            ],
+            "gaps": data.get("gaps", []) or [],
+            "used_entities": data.get("usedEntities", data.get("used_entities", [])) or [],
+        }
+    except Exception:
+        result = None
+
+    # Path 2: direct service call (backend down). Uses the configured litellm
+    # model + local sqlite-vec index via the service defaults.
+    if result is None:
+        try:
+            from api.services import ask_service
+
+            result = ask_service.answer_query(get_memory_path(), query, top_k=top_k)
+        except Exception as e:
+            return f"Error: could not answer ({type(e).__name__}: {e})"
+
+    return _render_ask(result)
+
+
+def _render_ask(result: dict) -> str:
+    lines = [result.get("answer", "").strip()]
+    confidence = result.get("confidence", 0.0)
+    try:
+        lines.append(f"\n_Confidence: {float(confidence):.2f}_")
+    except (TypeError, ValueError):
+        pass
+
+    gaps = result.get("gaps", []) or []
+    if gaps:
+        lines.append("\n**Could not answer / missing from memory:**")
+        lines.extend(f"- {g}" for g in gaps)
+
+    citations = result.get("citations", []) or []
+    if citations:
+        lines.append("\n**Citations:**")
+        for c in citations:
+            name = c.get("entity_name", c.get("entity_id", "?"))
+            eps = c.get("source_episodes", []) or []
+            ep_note = f" (episodes: {', '.join(eps)})" if eps else ""
+            lines.append(f"- [[{name}]]{ep_note}")
+
+    return "\n".join(lines).strip()
 
 
 def handle_save_url(url: str, note: str | None) -> str:
@@ -318,6 +568,26 @@ MEDIUM_TYPES = {"person", "location"}
 MEDIUMLONG_TYPES = {"tool", "concept"}
 
 
+def _rrf_fuse(*ranked_lists, k: int = 60) -> list[dict]:
+    """Reciprocal-rank fusion over hit lists keyed by entity_id.
+
+    score(id) = sum over lists of 1/(k + rank). Rewards ids that rank well in
+    multiple sources (a strong keyword AND vector hit reinforce). Keeps the
+    first-seen hit dict per id.
+    """
+    scores: dict[str, float] = {}
+    keep: dict[str, dict] = {}
+    for lst in ranked_lists:
+        for rank, hit in enumerate(lst):
+            eid = hit.get("entity_id") or hit.get("id")
+            if not eid:
+                continue
+            scores[eid] = scores.get(eid, 0.0) + 1.0 / (k + rank)
+            keep.setdefault(eid, hit)
+    ordered = sorted(scores, key=lambda e: -scores[e])
+    return [keep[e] for e in ordered]
+
+
 def handle_recall(query: str) -> str:
     """Two-source retrieval with progressive disclosure.
 
@@ -346,21 +616,11 @@ def handle_recall(query: str) -> str:
             + "\n".join(inbox_blurbs)
         )
 
-    # === Source 1: LEANN semantic search over entities ===
-    semantic = _leann_search_entities(memory_path, query, top_k=5)
-
-    # === Source 2: keyword fallback for exact-name matches ===
-    keyword = _keyword_search_entities(entities_dir, query, top_k=5)
-
-    # Merge by entity_id while preserving order
-    seen_ids: set[str] = set()
-    merged: list[dict] = []
-    for hit in semantic + keyword:
-        eid = hit.get("entity_id") or hit.get("id")
-        if not eid or eid in seen_ids:
-            continue
-        seen_ids.add(eid)
-        merged.append(hit)
+    # === Sources 1+2: semantic + keyword, rank-fused ===
+    semantic = _leann_search_entities(memory_path, query, top_k=8)
+    keyword = _keyword_search_entities(entities_dir, query, top_k=8)
+    merged = _rrf_fuse(semantic, keyword)
+    seen_ids: set[str] = {h.get("entity_id") or h.get("id") for h in merged}
 
     # === Structured hints block (machine-parseable, emitted first) ===
     # A small model that ignores prose can json.loads this fenced block to get
@@ -374,9 +634,6 @@ def handle_recall(query: str) -> str:
     hints_block = _hints_block(suggested, relevant_hub, hub_member_ids)
     if hints_block:
         output_parts.append(hints_block)
-
-    if not merged and not inbox_blurbs and not relevant_hub:
-        return f"No entities found matching '{query}'."
 
     # Surface the matched hub's member list when LEANN/keyword found nothing
     # (cold-start path) so the user still gets a navigable answer.
@@ -594,16 +851,165 @@ def handle_recall_detail(entity_id: str) -> str:
     return f"Entity '{entity_id}' not found."
 
 
+def handle_sources(entity_id: str) -> str:
+    """Render the source episode chunks behind an entity (chunks mode)."""
+    try:
+        from api.services.entity_sources import gather_entity_sources
+        bundle = gather_entity_sources(get_memory_path(), entity_id, mode="chunks")
+    except Exception as exc:  # pragma: no cover
+        return f"Could not gather sources for '{entity_id}': {exc}"
+    eps = bundle.get("episodes", [])
+    if not eps:
+        return f"No source episodes found for '{entity_id}'."
+    parts = [f"**Sources for `{entity_id}`** ({len(eps)} episode(s)):"]
+    for e in eps:
+        parts.append(f"\n### episode {e['id']}\n{(e.get('chunk') or '').strip()[:2000]}")
+    return "\n".join(parts)
+
+
+def handle_write_claim(
+    subject: str,
+    predicate: str,
+    object_: str,
+    observer: str | None,
+    confidence,
+    context: str | None,
+    source_episode: str | None,
+) -> str:
+    """Write one atomic fact as an observer-tagged claim (agentic write path)."""
+    from api.services import agentic_write
+
+    result = agentic_write.write_claim(
+        get_memory_path(),
+        subject,
+        predicate,
+        object_,
+        observer=(observer or "agent"),
+        confidence=confidence if confidence is not None else 0.7,
+        context=(context or "general"),
+        source_episode=source_episode,
+    )
+
+    if result.get("action") == "error":
+        return f"Could not write claim: {result.get('error', 'unknown error')}"
+
+    action = result.get("action")
+    verb = {
+        "written": "Recorded",
+        "coexist": "Recorded alongside an existing user-stated claim (flagged for review)",
+        "superseded": "NOT written — an existing higher-trust claim already covers this",
+    }.get(action, "Recorded")
+
+    return (
+        f"{verb}: {subject} {predicate} {object_} "
+        f"(entity `{result.get('entity_id')}`, claim `{result.get('claim_id')}`, "
+        f"observer={result.get('observer')}, action={action})."
+    )
+
+
+def handle_pending(limit) -> str:
+    """List unprocessed episodes for the agent's own consolidation loop."""
+    from api.services import agentic_write
+
+    try:
+        limit = int(limit) if limit is not None else 50
+    except (TypeError, ValueError):
+        limit = 50
+
+    episodes = agentic_write.list_unprocessed_episodes(get_memory_path(), limit=limit)
+    if not episodes:
+        return "No unprocessed episodes pending."
+
+    lines = [f"{len(episodes)} unprocessed episode(s):"]
+    for ep in episodes:
+        snippet = (ep.get("content") or "")[:300].strip().replace("\n", " ")
+        lines.append(f"- `{ep.get('id')}` — {ep.get('title', '')}: {snippet}")
+    return "\n".join(lines)
+
+
+def handle_mark_processed(episode_ids) -> str:
+    """Flip processed:true on the given episode ids."""
+    from api.services import agentic_write
+
+    if not isinstance(episode_ids, list) or not episode_ids:
+        return "episode_ids is required (a non-empty array of episode ids)."
+
+    count = agentic_write.mark_episodes_processed(get_memory_path(), episode_ids)
+    return f"Marked {count} episode(s) as processed."
+
+
+def handle_get_perspective(
+    subject: str, observer: str | None = None, context: str | None = None
+) -> str:
+    """Return a subject's currently-valid claims, optionally filtered by perspective.
+
+    The D2 ``get_perspective(subject, observer?, context?)`` Bookworm tool: reads
+    the in-page ``claims`` block (the source of truth) for the resolved subject,
+    keeps only currently-valid (open, non-superseded) claims, applies the optional
+    ``observer`` / ``context`` post-filters, and renders each with its provenance
+    so the agent can attribute "who believes what" honestly.
+    """
+    from api.services import markdown_parser
+    from api.services.claims import parse_claims
+    from api.services.id_utils import resolve_entity_file
+
+    if not subject:
+        return "subject is required."
+
+    memory_path = get_memory_path()
+    page = resolve_entity_file(memory_path, subject)
+    if page is None or not page.exists():
+        return f"No subject '{subject}' found in memory."
+
+    try:
+        parsed = markdown_parser.parse(page)
+    except Exception as e:
+        return f"Could not read '{subject}': {e}"
+
+    claims = [
+        c
+        for c in parse_claims(parsed.body)
+        if c.valid_to is None and not c.superseded_by
+    ]
+    if observer:
+        claims = [c for c in claims if c.observer == observer]
+    if context:
+        claims = [c for c in claims if c.context == context]
+
+    fm = parsed.frontmatter or {}
+    title = str(fm.get("name", page.stem.replace("-", " ").title()))
+    perspective = []
+    if observer:
+        perspective.append(f"observer={observer}")
+    if context:
+        perspective.append(f"context={context}")
+    header = f"Perspective on {title}"
+    if perspective:
+        header += f" ({', '.join(perspective)})"
+
+    if not claims:
+        return f"{header}: no currently-valid claims match."
+
+    lines = [f"{header} — {len(claims)} valid claim(s):", ""]
+    for c in claims:
+        prov = (
+            f"{c.observer} · {c.context} · {c.source_trust} · "
+            f"conf {c.confidence:.2f} · since {c.valid_from or 'undated'}"
+        )
+        lines.append(f"- {c.text}\n  _({prov})_")
+    return "\n".join(lines)
+
+
 # ---------- Helpers: search sources ----------
 
 
 def _leann_search_entities(memory_path: Path, query: str, top_k: int) -> list[dict]:
     try:
-        from api.services.leann_indexer import LeannIndexer
+        from api.services.vector_index import SqliteVecIndexer
     except Exception:
         return []
     try:
-        indexer = LeannIndexer(memory_path)
+        indexer = SqliteVecIndexer(memory_path)
         results = indexer.search_entities(query, top_k=top_k)
     except Exception:
         return []
@@ -616,7 +1022,7 @@ def _leann_search_entities(memory_path: Path, query: str, top_k: int) -> list[di
             continue
         out.append({
             "entity_id": eid,
-            "source": "leann",
+            "source": "vector",
             "score": r.get("score", 0.0),
             "text": r.get("text", ""),
             "metadata": meta,
@@ -626,11 +1032,11 @@ def _leann_search_entities(memory_path: Path, query: str, top_k: int) -> list[di
 
 def _leann_search_episodes(memory_path: Path, query: str, top_k: int) -> list[dict]:
     try:
-        from api.services.leann_indexer import LeannIndexer
+        from api.services.vector_index import SqliteVecIndexer
     except Exception:
         return []
     try:
-        indexer = LeannIndexer(memory_path)
+        indexer = SqliteVecIndexer(memory_path)
         return indexer.search_episodes(query, top_k=top_k)
     except Exception:
         return []
@@ -701,12 +1107,17 @@ def _type_aware_truncate(body: str, entity_type: str) -> str:
         return ""
     if entity_type in SHORT_TYPES:
         return body
-    if entity_type in MEDIUM_TYPES:
-        return body[:2000]
-    if entity_type in MEDIUMLONG_TYPES:
-        return body[:3200]
-    # project, company, etc — description + last 10 history entries
-    return _truncate_to_desc_and_recent_history(body, max_history=10)
+    try:
+        from api.services.entity_body import summarize_for_recall
+        budget = 2000 if entity_type in MEDIUM_TYPES else 3200
+        return summarize_for_recall(body, max_chars=budget)
+    except Exception:
+        # pyyaml-free fallback: faithful OLD behavior per entity type
+        if entity_type in MEDIUM_TYPES:
+            return body[:2000]
+        if entity_type in MEDIUMLONG_TYPES:
+            return body[:3200]
+        return _truncate_to_desc_and_recent_history(body, max_history=10)
 
 
 def _truncate_to_desc_and_recent_history(body: str, max_history: int = 10) -> str:
@@ -828,14 +1239,21 @@ def handle_save_episode(content: str, title: str | None) -> str:
     """Save content as a new episode for the next Sleep cycle."""
     import hashlib
 
+    from datetime import timezone
+
     memory_path = get_memory_path()
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
 
     today = datetime.now().strftime("%Y-%m-%d")
-    existing = list(episodes_dir.glob(f"ep_{today}_*.md"))
-    next_num = len(existing) + 1
-    episode_id = f"ep_{today}_{next_num:03d}"
+    # ID = max existing suffix + 1 (NOT count+1): count-based numbering collides
+    # and overwrites if any same-day episode was deleted/consolidated away.
+    max_num = 0
+    for filepath in episodes_dir.glob(f"ep_{today}_*.md"):
+        suffix = filepath.stem.rsplit("_", 1)[-1]
+        if suffix.isdigit():
+            max_num = max(max_num, int(suffix))
+    episode_id = f"ep_{today}_{max_num + 1:03d}"
 
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
 
@@ -845,17 +1263,36 @@ def handle_save_episode(content: str, title: str | None) -> str:
         if f"content_hash: {content_hash}" in text:
             return f"Episode already exists (duplicate detected by content hash)."
 
-    frontmatter = f"""---
-id: {episode_id}
-timestamp: '{datetime.now().isoformat()}Z'
-source: mcp
-title: {title or 'MCP capture'}
-processed: false
-content_hash: {content_hash}
----"""
+    # Real UTC timestamp — the previous `datetime.now().isoformat() + "Z"` stamped
+    # naive LOCAL time but labeled it UTC, corrupting the temporal reasoning the
+    # Sleep cycle + claim `valid_from` key on.
+    timestamp = datetime.now(timezone.utc).isoformat()
 
+    # Build frontmatter as a dict and let markdown_parser (pyyaml) serialize it.
+    # A hand-rolled f-string breaks on any special char in `title` (e.g. a colon
+    # — `title: Q3: roadmap` is invalid YAML), which then stalls the whole Sleep
+    # cycle when the loader hits the malformed episode.
+    frontmatter = {
+        "id": episode_id,
+        "timestamp": timestamp,
+        "source": "mcp",
+        "origin": "mcp",
+        "title": title or "MCP capture",
+        "processed": False,
+        "content_hash": content_hash,
+    }
     filepath = episodes_dir / f"{episode_id}.md"
-    filepath.write_text(f"{frontmatter}\n\n{content}\n", encoding="utf-8")
+    try:
+        from api.services import markdown_parser
+
+        markdown_parser.write(filepath, frontmatter, content)
+    except Exception:
+        # Fallback if the API package isn't importable: dump YAML directly so a
+        # colon/quote in the title still can't produce invalid frontmatter.
+        import yaml
+
+        fm_str = yaml.safe_dump(frontmatter, default_flow_style=False, sort_keys=False).strip()
+        filepath.write_text(f"---\n{fm_str}\n---\n\n{content}\n", encoding="utf-8")
 
     return f"Episode saved as {episode_id}. It will be processed during the next Sleep cycle."
 

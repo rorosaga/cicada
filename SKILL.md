@@ -27,6 +27,15 @@ file is the policy: when to recall, how to traverse, and what never to touch.
    not a summary.
 3. Follow `[[wikilinks]]` / the Related list with more `cicada_recall_detail`
    calls when you need relational depth.
+4. Before answering that something is not in memory, open the top entity with
+   `cicada_recall_detail`. State only facts the tools returned — never fill
+   gaps with general knowledge.
+
+## Grounding
+- Before answering that something is not in memory, open the top entity with
+  `cicada_recall_detail`. State only facts the tools returned — never fill
+  gaps with general knowledge.
+- For a direct factual question, `cicada_ask` is usually the best single call.
 
 ## Hub browsing (filesystem traversal)
 For structured exploration rather than fuzzy search, walk the hub tier:

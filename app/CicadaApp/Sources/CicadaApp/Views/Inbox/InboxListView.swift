@@ -20,19 +20,24 @@ struct InboxListView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerBar
 
-            if viewModel.items.isEmpty {
+            // Error branch MUST come before the empty-items check — otherwise a
+            // failed `GET /inbox` (items stays []) falls through to the "All
+            // caught up" happy state and a real backend error looks like
+            // nothing needed attention.
+            if let err = viewModel.errorMessage, viewModel.items.isEmpty {
+                errorState(err)
+            } else if viewModel.items.isEmpty {
                 emptyState
             } else {
                 ScrollView {
                     LazyVStack(spacing: CicadaTheme.spacingSM) {
                         ForEach(visibleItems) { item in
-                            InboxCardView(item: item) { action, answer, mergeTarget in
-                                Task {
-                                    await viewModel.resolve(
-                                        id: item.id, action: action,
-                                        answer: answer, mergeTarget: mergeTarget
-                                    )
-                                }
+                            InboxCardView(item: item) { action, answer, mergeTarget, mergeSurvivor in
+                                await viewModel.resolve(
+                                    id: item.id, action: action,
+                                    answer: answer, mergeTarget: mergeTarget,
+                                    mergeSurvivor: mergeSurvivor
+                                )
                             }
                             .transition(.asymmetric(
                                 insertion: .opacity,
@@ -46,6 +51,10 @@ struct InboxListView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The title bar is darkened at the window level (titlebarAppearsTransparent
+        // + dark backgroundColor in CicadaApp), so the content background must NOT
+        // ignoreSafeArea here — combined with maxHeight:.infinity that extended the
+        // content under the menu bar and stretched the whole window to full height.
         .background(CicadaTheme.background)
         .task { await viewModel.loadInbox() }
     }
@@ -53,18 +62,16 @@ struct InboxListView: View {
     // MARK: - Header (title + kind filter chips)
 
     private var headerBar: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingMD) {
-                Text("Inbox")
-                    .font(CicadaTheme.titleFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-
+        VStack(alignment: .leading, spacing: 0) {
+            PageHeader(
+                title: "Inbox",
+                subtitle: "Nudges and clarifications waiting on you."
+            ) {
                 if !viewModel.items.isEmpty {
                     Text("\(viewModel.items.count) pending")
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
-                Spacer()
             }
 
             if !viewModel.items.isEmpty {
@@ -83,11 +90,10 @@ struct InboxListView: View {
                     }
                     Spacer()
                 }
+                .padding(.horizontal, CicadaTheme.spacingXL)
+                .padding(.bottom, CicadaTheme.spacingMD)
             }
         }
-        .padding(.horizontal, CicadaTheme.spacingXL)
-        .padding(.top, CicadaTheme.spacingXL)
-        .padding(.bottom, CicadaTheme.spacingMD)
     }
 
     /// Kinds present in the current inbox, in a stable display order.
@@ -115,6 +121,42 @@ struct InboxListView: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Error state (load failure — distinct from "All caught up")
+
+    private func errorState(_ message: String) -> some View {
+        VStack(spacing: CicadaTheme.spacingLG) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 40))
+                .foregroundStyle(CicadaTheme.textTertiary)
+
+            Text("Couldn't load the inbox")
+                .font(CicadaTheme.headingFont)
+                .foregroundStyle(CicadaTheme.textPrimary)
+
+            Text(message)
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                Task { await viewModel.loadInbox() }
+            } label: {
+                Text("Retry")
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(.horizontal, CicadaTheme.spacingMD)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(CicadaTheme.accent)
+
             Spacer()
             Spacer()
         }

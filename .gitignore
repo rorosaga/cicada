@@ -5,6 +5,11 @@ __pycache__/
 # Personal conversation exports — never commit
 data/
 
+# Raw chat-export corpus used to consolidate the memory graph (claude/gemini/openai).
+# ~200MB of personal conversations; kept local for source-grounded re-consolidation
+# and provenance review, never committed.
+cicada-data/
+
 # Memory runtime data is a separate git repo
 memory/
 memory_backup/

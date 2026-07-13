@@ -15,18 +15,21 @@
 // updateGraph (position preservation) so post-sleep refreshes settle instead
 // of exploding. The canvas + quadtree pipeline is untouched.
 
+// MUST stay byte-identical to CicadaTheme.entityColor(for:) — Tailwind-400-band
+// hues on the darker #0E0F14 base so all 8 pop and clear ~4.5:1+ contrast.
 const typeColors = {
-    person:   "#4A9EFF",
-    project:  "#A855F7",
-    company:  "#F97316",
-    concept:  "#22C55E",
-    tool:     "#14B8A6",
-    deadline: "#EF4444",
-    skill:    "#EAB308",
-    location: "#9CA3AF",
-    media:    "#EC4899",
-    hub:      "#E6B450",   // neutral gold — distinct from project purple
-    unknown:  "#999999",
+    person:   "#5AA8FF",
+    project:  "#B57BFF",
+    company:  "#FF8A3D",
+    concept:  "#3BD97A",
+    tool:     "#2DD4BF",
+    deadline: "#FF5C5C",
+    skill:    "#F2C744",
+    location: "#AEB6C4",
+    media:    "#F65BA6",
+    hub:      "#E0A93A",   // deeper amber gold — distinct from skill gold + project purple
+    directory:"#7AA0C4",   // slate blue-gray "Finder folder" — mirrors CicadaTheme.entityColor(.directory)
+    unknown:  "#9BA1AE",
 };
 
 // Soft per-type cluster anchors. These are only used by the xType/yType
@@ -34,18 +37,55 @@ const typeColors = {
 // — the anchors just nudge same-type nodes toward each other. Obsidian-like
 // grouping without a Louvain pass. Nodes that orbit a hub use hubGravity
 // instead (see startSimulation) and ignore these anchors.
+// Type-cluster anchor positions (world units). Spread ~1.5x wider than the
+// original ±300 ring so the per-type clusters sit farther apart and read as
+// distinct groups instead of one clump; the soft anchor strength + center pull
+// still keep them coherent. The "fit" zoom reframes to whatever spread is used.
 const typeClusterPositions = {
-    person:   [   0, -300],
-    project:  [ 280, -100],
-    company:  [ 180,  240],
-    concept:  [-180,  240],
-    tool:     [-280, -100],
-    deadline: [   0,  300],
-    skill:    [ 300,  100],
-    location: [-300,  100],
-    media:    [ -60, -360],
+    person:   [   0, -450],
+    project:  [ 420, -150],
+    company:  [ 270,  360],
+    concept:  [-270,  360],
+    tool:     [-420, -150],
+    deadline: [   0,  450],
+    skill:    [ 450,  150],
+    location: [-450,  150],
+    media:    [ -90, -540],
+    directory:[-450, -360],
     hub:      [   0,    0],
 };
+
+// Context color mirror of CicadaTheme.contextColor (claim layer §2a). Known
+// core contexts are hard-coded; unknown ones hash to a stable HSL hue so the
+// graph never flickers. Used to color edge strokes + facet node fills.
+const CONTEXT_COLORS = {
+    engineering:   "#2DD4BF",   // = tool
+    family:        "#F65BA6",   // = media
+    philosophical: "#B57BFF",   // = project
+    career:        "#FF8A3D",   // = company
+    cross:         "#F2C744",   // = skill (cross-context bridge stays loudest)
+    general:       "#7A8290",
+};
+const OBSERVER_BADGE_COLORS = {
+    agent:    "#8896FF",   // accent
+    rodrigo:  "#5AA8FF",   // blue (person)
+    external: "#F65BA6",   // pink (media)
+};
+function hashHue(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+    return Math.abs(h) % 360;
+}
+function contextColor(context) {
+    if (!context) return "#262A33";   // = CicadaTheme.border (contextless edge)
+    if (CONTEXT_COLORS[context]) return CONTEXT_COLORS[context];
+    return `hsl(${hashHue(context)}, 55%, 68%)`;
+}
+function observerBadgeColor(wire) {
+    if (!wire) return OBSERVER_BADGE_COLORS.agent;
+    if (wire.startsWith("external:")) return OBSERVER_BADGE_COLORS.external;
+    return OBSERVER_BADGE_COLORS[wire] || OBSERVER_BADGE_COLORS.external;
+}
 
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 6.0;
@@ -66,7 +106,7 @@ const LABEL_BUDGET = 200;           // max node labels rendered per frame
 const STATUS_ALPHA = { active: 0.92, decaying: 0.5, archived: 0.28, dropped: 0.0 };
 
 const HUB_RING_FLOOR = 22;          // minimum radius for a hub node
-const PULSE_COLOR = "#F5C04E";      // amber attention color for pending pulse
+const PULSE_COLOR = "#FFCB57";      // amber attention color for pending pulse (= CicadaTheme.pendingPulse)
 
 // Surface uncaught JS errors to the Swift side — a silent exception here
 // renders as an inexplicably blank canvas otherwise.
@@ -110,6 +150,8 @@ let filters = {
     minConfidence: 0,
     tags: null,         // null/empty = no tag filter; otherwise Set<string>
     minDegree: 1,       // default drops only fully isolated nodes
+    contexts: null,     // null = all contexts; otherwise Set<string> — DROPS non-matching edges/facets
+    observers: null,    // null = all observers; otherwise Set<string> — DIMS non-matching nodes (kept visible)
 };
 
 // Focus / ego mode.
@@ -164,6 +206,54 @@ function nodeHubId(n) {
 // n.degree, so this just reads it.
 function nodeDegree(n) {
     return Number(n.degree || 0);
+}
+
+// ---------- Claim-layer field accessors (§2) ----------
+
+function nodeIsFacet(n) {
+    return Boolean(n.isFacet ?? n.is_facet);
+}
+
+function nodeParentId(n) {
+    return n.parentId ?? n.parent_id ?? null;
+}
+
+function nodeContext(n) {
+    return n.context ?? null;
+}
+
+function nodeObservers(n) {
+    const o = n.observers;
+    return Array.isArray(o) ? o : [];
+}
+
+function nodeContexts(n) {
+    const c = n.contexts;
+    return Array.isArray(c) ? c : [];
+}
+
+// A node "matches" the observer filter if any of its observers is selected.
+// Facet nodes inherit their parent's match via their own (parent-copied)
+// observer list when present; if a node has no observer info it matches (so the
+// legacy graph never dims to nothing).
+function nodeMatchesObservers(n) {
+    if (!filters.observers) return true;
+    const obs = nodeObservers(n);
+    if (!obs.length) return true;
+    return obs.some(o => filters.observers.has(o));
+}
+
+// A node passes the context filter if it has no context info, OR is a facet in
+// a selected context, OR (for a parent node) has at least one selected context.
+function nodeMatchesContexts(n) {
+    if (!filters.contexts) return true;
+    if (nodeIsFacet(n)) {
+        const c = nodeContext(n);
+        return c ? filters.contexts.has(c) : true;
+    }
+    const ctxs = nodeContexts(n);
+    if (!ctxs.length) return true;
+    return ctxs.some(c => filters.contexts.has(c));
 }
 
 // ---------- Init ----------
@@ -418,6 +508,16 @@ function buildHubIndex() {
             if (hs.size === 1) memberToHub.set(nid, [...hs][0]);
         }
     }
+
+    // §2c: facet satellites gravitate toward their parent subject. Route them
+    // through the SAME hubGravity machinery by mapping facet -> parentId. This
+    // is additive: a facet whose parent isn't on the graph is simply left out.
+    const nodeIds = new Set(nodes.map(n => n.id));
+    for (const n of nodes) {
+        if (!nodeIsFacet(n)) continue;
+        const pid = nodeParentId(n);
+        if (pid && nodeIds.has(pid)) memberToHub.set(n.id, pid);
+    }
 }
 
 function seedPositionFor(n) {
@@ -448,7 +548,9 @@ function rebuildVisible() {
     const minDeg = filters.minDegree;
 
     visibleNodes = nodes.filter(n => {
-        if ((n._localDegree || 0) < minDeg) return false;
+        // Facet sub-nodes are exempt from the min-degree cull (they only ever
+        // hold a single facetOf edge to their parent).
+        if (!nodeIsFacet(n) && (n._localDegree || 0) < minDeg) return false;
         if (typeFilter && !typeFilter.has(n.type)) return false;
         if (statusFilter && !statusFilter.has(n.status)) return false;
         if ((n.confidence || 0) < minConf) return false;
@@ -456,6 +558,10 @@ function rebuildVisible() {
             const tags = n.tags || [];
             if (!tags.some(t => tagFilter.has(t))) return false;
         }
+        // Context filter DROPS non-matching facet/context nodes (so "engineering
+        // only" removes other facet satellites). Observer filter only DIMS, so
+        // it is applied in draw(), not here.
+        if (!nodeMatchesContexts(n)) return false;
         return true;
     });
 
@@ -463,7 +569,11 @@ function rebuildVisible() {
     visibleLinks = links.filter(l => {
         const sid = typeof l.source === "object" ? l.source.id : l.source;
         const tid = typeof l.target === "object" ? l.target.id : l.target;
-        return visibleIds.has(sid) && visibleIds.has(tid);
+        if (!visibleIds.has(sid) || !visibleIds.has(tid)) return false;
+        // Context filter drops edges asserted in a non-selected context (an
+        // edge with no context is context-blind and always passes).
+        if (filters.contexts && l.context && !filters.contexts.has(l.context)) return false;
+        return true;
     });
 
     anyPending = visibleNodes.some(nodeHasPending);
@@ -512,16 +622,22 @@ function startSimulation({ reheat = 1.0 } = {}) {
         .alphaMin(0.05)
         .force("link", d3.forceLink(visibleLinks)
             .id(d => d.id)
-            .distance(60)
-            .strength(0.5))
+            .distance(90)
+            // Looser link pull (was 0.5): at ~1000 nodes a strong link force
+            // yanks the connected core into a hairball. Weaker links let the
+            // charge repulsion open the dense center while anchors keep clusters.
+            .strength(0.28))
         .force("charge", d3.forceManyBody()
-            .strength(-40)
-            .distanceMax(400)
+            // Stronger, longer-reach repulsion so clusters breathe instead of
+            // clumping — nodes push apart farther before the type/hub anchors
+            // and center pull them back into recognizable clusters.
+            .strength(-150)
+            .distanceMax(700)
             .theta(0.9))
-        .force("center", d3.forceCenter(0, 0).strength(0.05))
+        .force("center", d3.forceCenter(0, 0).strength(0.04))
         .force("collision", d3.forceCollide()
-            .radius(d => nodeRadius(d) + 2)
-            .strength(0.8))
+            .radius(d => nodeRadius(d) + 6)
+            .strength(0.85))
         // Hubs are pulled toward their ring anchor; members toward their hub.
         // Nodes with no hub fall back to the soft per-type anchor below.
         .force("xType", d3.forceX(d => xAnchor(d)).strength(d => anchorStrength(d, "x")))
@@ -553,6 +669,9 @@ function nodeRadius(d) {
     // Confidence is the primary size channel so "bigger = more confident" is
     // preattentive and not dominated by hub degree. Degree is a secondary
     // bump. Hubs get a size floor + multiplier so they read as the top tier.
+    // §2c: facet satellites are deliberately small — they orbit their parent
+    // and read as context tags, not first-class subjects.
+    if (nodeIsFacet(d)) return 3 + (d.confidence || 0) * 4;
     const base = 4;
     const confTerm = (d.confidence || 0) * 8;       // primary: 0–8 px
     const degreeTerm = Math.sqrt(nodeDegree(d)) * 1.5;  // secondary
@@ -716,7 +835,9 @@ function draw() {
         }
 
         ctx.globalAlpha = alpha;
-        ctx.strokeStyle = "#666";
+        // §2a: context-colored edges. An edge with a context paints in its
+        // context hue; a contextless (legacy) edge keeps the flat gray.
+        ctx.strokeStyle = l.context ? contextColor(l.context) : "#262A33";
         ctx.lineWidth = 1 / transform.k;
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
@@ -727,12 +848,20 @@ function draw() {
     // ---- Nodes ----
     for (const n of visibleNodes) {
         const r = nodeRadius(n);
-        const color = typeColors[n.type] || typeColors.unknown;
+        const isFacet = nodeIsFacet(n);
+        // §2c: facet sub-nodes fill with their context color instead of the
+        // type color, so the engineering/family satellites read as contexts.
+        const color = isFacet
+            ? contextColor(nodeContext(n))
+            : (typeColors[n.type] || typeColors.unknown);
         const isHub = nodeIsHub(n);
 
         // Status drives base opacity. Focus dimming and hover dimming stack on
         // top: a node outside the focus neighborhood fades to context.
         let alpha = STATUS_ALPHA[n.status] ?? 0.92;
+        // §3a: observer filter DIMS (not deletes) non-matching nodes so the
+        // contrast reads as "this is the slice X asserts." Reuses focus-alpha.
+        if (!nodeMatchesObservers(n)) alpha = Math.min(alpha, 0.1);
         if (focusActive && !focusSet.has(n.id)) alpha = Math.min(alpha, 0.06);
         if (hoverActive) {
             const isHover = n.id === hoveredNode.id;
@@ -807,6 +936,25 @@ function draw() {
             ctx.beginPath();
             ctx.arc(n.x, n.y, r + 6 / transform.k, 0, Math.PI * 2);
             ctx.stroke();
+        }
+
+        // §2b: observer badges — a tiny filled dot per distinct observer at the
+        // node's upper-right. An external:* observer is the "someone else told
+        // me this" signal, visible at a glance. Only at a readable zoom so the
+        // dots don't smear into the node at low scale.
+        const observers = nodeObservers(n);
+        if (observers.length && !isFacet && transform.k >= ZOOM_HUBS_ONLY && alpha > 0.12) {
+            const bs = 2.6 / transform.k;            // badge radius
+            const gap = 1.5 / transform.k;
+            const startX = n.x + r * 0.72;
+            const startY = n.y - r * 0.72;
+            ctx.globalAlpha = alpha;
+            observers.slice(0, 3).forEach((wire, i) => {
+                ctx.fillStyle = observerBadgeColor(wire);
+                ctx.beginPath();
+                ctx.arc(startX + i * (bs * 2 + gap), startY, bs, 0, Math.PI * 2);
+                ctx.fill();
+            });
         }
     }
 
@@ -901,7 +1049,7 @@ function drawNodeLabels(hoverActive, neighbors, focusActive) {
         // intentional — neighbor labels read slightly softer than the hovered
         // node's own plate so the focal point stays dominant.
         ctx.globalAlpha = hoverActive ? 0.8 : 0.95;
-        ctx.fillStyle = "#F5F5F5";
+        ctx.fillStyle = "#ECEDF2";   // = CicadaTheme.textPrimary
         ctx.fillText(n.name, n.x, n.y + r + (4 / k));
     }
     ctx.shadowBlur = 0;
@@ -943,11 +1091,11 @@ function drawEdgeLabels(focusActive) {
         const boxH = fontSize + padY * 2;
 
         ctx.globalAlpha = alpha * 0.7;
-        ctx.fillStyle = "rgba(18, 18, 22, 0.85)";
+        ctx.fillStyle = "rgba(14, 15, 20, 0.85)";   // = CicadaTheme.background
         ctx.fillRect(mx - boxW / 2, my - boxH / 2, boxW, boxH);
 
         ctx.globalAlpha = alpha;
-        ctx.fillStyle = "#D8D8D8";
+        ctx.fillStyle = "#C7CBD6";
         ctx.fillText(l.label, mx, my);
     }
     ctx.globalAlpha = 1;
@@ -969,9 +1117,9 @@ function drawHoverLabel(n) {
     const boxX = n.x - boxW / 2;
     const boxY = n.y + r + (6 / k);
     ctx.globalAlpha = 0.92;
-    ctx.fillStyle = "rgba(18, 18, 22, 0.92)";
+    ctx.fillStyle = "rgba(14, 15, 20, 0.92)";   // = CicadaTheme.background
     ctx.fillRect(boxX, boxY, boxW, boxH);
-    ctx.fillStyle = "#F5F5F5";
+    ctx.fillStyle = "#ECEDF2";   // = CicadaTheme.textPrimary
     ctx.fillText(text, n.x, boxY + boxH / 2);
     ctx.globalAlpha = 1;
 }
@@ -1141,25 +1289,61 @@ function onMouseLeave() {
 
 // ---------- Swift-facing controls ----------
 
+// setsEqual compares two `toSet()` outputs (Set<string> or null) by value —
+// used to tell a genuinely new selection from a same-value re-send (e.g.
+// GraphFilter now always sends every axis, so key presence alone can't tell
+// us whether anything actually changed).
+function setsEqual(a, b) {
+    if (a === b) return true;          // same reference, or both null
+    if (!a || !b) return false;        // exactly one is null
+    if (a.size !== b.size) return false;
+    for (const v of a) { if (!b.has(v)) return false; }
+    return true;
+}
+
 // applyFilters is the new unified filter entry point. It accepts a JSON object
 // (string or object) covering every filter dimension, sets module-level state,
-// rebuilds the visible set, and does a soft reheat instead of a full restart.
+// and rebuilds the visible set + reheats the simulation — but ONLY when a
+// set-affecting axis (types/statuses/tags/contexts/minConfidence/minDegree)
+// actually changed by value. The observers axis is dim-only (see
+// nodeMatchesObservers / draw()), never drops nodes from visibleNodes, so an
+// observers-only change just needs a redraw — reheating for it was the
+// "graph expands on every click" bug that masked whether anything filtered.
 function applyFilters(payload) {
     const f = typeof payload === "string" ? JSON.parse(payload) : payload;
 
     const toSet = (arr) => (Array.isArray(arr) && arr.length) ? new Set(arr) : null;
+
+    const prevTypes = filters.types;
+    const prevStatuses = filters.statuses;
+    const prevTags = filters.tags;
+    const prevContexts = filters.contexts;
+    const prevMinConfidence = filters.minConfidence;
+    const prevMinDegree = filters.minDegree;
 
     if ("types" in f) filters.types = toSet(f.types);
     if ("statuses" in f) filters.statuses = toSet(f.statuses);
     if ("minConfidence" in f) filters.minConfidence = Number(f.minConfidence) || 0;
     if ("tags" in f) filters.tags = toSet(f.tags);
     if ("minDegree" in f) filters.minDegree = Number(f.minDegree) || 0;
+    if ("contexts" in f) filters.contexts = toSet(f.contexts);
+    if ("observers" in f) filters.observers = toSet(f.observers);
 
     if (nodes.length === 0) { scheduleRedraw(); return; }
 
-    rebuildVisible();
-    rebuildNeighborsIndex();
-    startSimulation({ reheat: 0.3 });
+    const setAffectingChanged =
+        !setsEqual(prevTypes, filters.types) ||
+        !setsEqual(prevStatuses, filters.statuses) ||
+        !setsEqual(prevTags, filters.tags) ||
+        !setsEqual(prevContexts, filters.contexts) ||
+        prevMinConfidence !== filters.minConfidence ||
+        prevMinDegree !== filters.minDegree;
+
+    if (setAffectingChanged) {
+        rebuildVisible();
+        rebuildNeighborsIndex();
+        startSimulation({ reheat: 0.3 });
+    }
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
     scheduleRedraw();
 }

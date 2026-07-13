@@ -1,13 +1,30 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var selectedTab: AppTab = .memory
+    @State private var selectedTab: AppTab = .graph
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
+    // First-launch onboarding: show the Connect guide once, then it lives in
+    // the sidebar under Setup. Stored flag so reinstalls of the same Mac user
+    // don't re-trigger it on every launch.
+    @AppStorage("cicada.hasSeenConnectGuide") private var hasSeenConnectGuide = false
+    @State private var showOnboarding = false
+
+    // Theme: mirrors the persisted mode into `CicadaTheme.mode` (see
+    // Theme/CicadaTheme.swift) on every render, before Sidebar/detail are
+    // constructed below. @AppStorage guarantees SwiftUI re-invokes this body
+    // whenever the key changes, from anywhere (e.g. the toggle button in
+    // SidebarView).
+    @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
 
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(InboxViewModel.self) private var inboxVM
 
     var body: some View {
+        // `ViewBuilder` only accepts declarations/`let _ = ...` statements
+        // ahead of the returned View expression, not arbitrary statements —
+        // hence the `let _ =` wrapper around this side effect.
+        let _ = { CicadaTheme.mode = AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }()
+
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 selectedTab: $selectedTab,
@@ -19,24 +36,50 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CicadaTheme.background)
         }
+        // Most CicadaTheme.xxx tokens are plain static reads, not
+        // @Environment-tracked, so SwiftUI's dependency tracker won't know to
+        // re-invoke every descendant's `body` on a theme flip. Keying the
+        // whole sidebar/detail subtree on the raw mode string forces a clean
+        // rebuild (fresh body calls everywhere) whenever it changes, while
+        // `selectedTab`/`columnVisibility` above stay intact since they live
+        // outside this subtree.
+        .id(colorSchemeRaw)
         .navigationSplitViewStyle(.prominentDetail)
         .task {
             await graphVM.loadGraph()
             await inboxVM.loadInbox()
+        }
+        .onAppear {
+            if !hasSeenConnectGuide { showOnboarding = true }
+        }
+        .sheet(isPresented: $showOnboarding) {
+            ConnectView(isOnboarding: true) {
+                hasSeenConnectGuide = true
+                showOnboarding = false
+            }
+            .frame(width: 780, height: 640)
         }
     }
 
     @ViewBuilder
     private var detailContent: some View {
         switch selectedTab {
-        case .memory:
+        case .graph:
             GraphContainerView(selectedTab: $selectedTab)
-        case .topics:
+        case .clusters:
             TopicsView(selectedTab: $selectedTab)
+        case .feed:
+            FeedView(selectedTab: $selectedTab)
         case .sleep:
             SleepView(selectedTab: $selectedTab)
         case .inbox:
             InboxListView()
+        case .contributors:
+            ContributorsView()
+        case .connect:
+            ConnectView()
+        case .sources:
+            SourcesView()
         }
     }
 }
@@ -46,6 +89,7 @@ struct ContentView: View {
 struct GraphContainerView: View {
     @Binding var selectedTab: AppTab
     @Environment(GraphViewModel.self) private var graphVM
+    @Environment(BanksViewModel.self) private var banksVM
     @State private var showUploadOverlay = false
 
     var body: some View {
@@ -64,6 +108,31 @@ struct GraphContainerView: View {
                     .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
+            }
+
+            // Top-left: memory-bank ("Projects") switcher (M6) above the observer
+            // "who believes what" filter (§3a). The filter bar only renders once
+            // the graph carries observer data, otherwise EmptyView.
+            VStack {
+                HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                        BankSwitcher(banksVM: banksVM)
+                        ObserverFilterBar()
+                    }
+                    .padding(CicadaTheme.spacingLG)
+                    Spacer()
+                }
+                Spacer()
+            }
+
+            // Bottom-left: context legend (§2a). EmptyView until contexts land.
+            VStack {
+                Spacer()
+                HStack {
+                    ContextLegend()
+                        .padding(CicadaTheme.spacingLG)
+                    Spacer()
+                }
             }
 
             // Bottom-right: Filter + Zoom controls
@@ -89,7 +158,7 @@ struct GraphContainerView: View {
                     .onTapGesture { graphVM.clearSelection() }
                     .transition(.opacity)
 
-                EntityDetailCard(entity: entity, defaultRaw: true)
+                EntityDetailCard(entity: entity, defaultRaw: false)
                     .frame(maxWidth: 620, maxHeight: 680)
                     .padding(CicadaTheme.spacingXL)
                     .transition(.scale(scale: 0.97).combined(with: .opacity))

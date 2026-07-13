@@ -26,17 +26,25 @@ struct UploadHistoryEntry: Identifiable, Codable {
 
 enum UploadMode: String, CaseIterable {
     case conversations = "Conversations"
+    case project = "Project import"
     case sources = "Saved media"
 }
 
 struct UploadOverlay: View {
     @Binding var isPresented: Bool
+    @Environment(BanksViewModel.self) private var banksVM
+    @Environment(GraphViewModel.self) private var graphVM
     @State private var isDragOver = false
     @State private var isUploading = false
     @State private var uploadResult: String?
     @State private var errorMessage: String?
     @State private var mode: UploadMode = .conversations
     @State private var urlText = ""
+
+    // M7 project-import target. nil = "new project" (creates `newBankName`);
+    // otherwise an existing bank name.
+    @State private var targetBank: String?
+    @State private var newBankName = ""
 
     var body: some View {
         ZStack {
@@ -62,17 +70,29 @@ struct UploadOverlay: View {
                 .labelsHidden()
                 .frame(width: 280)
                 .disabled(isUploading)
-                .onChange(of: mode) { _, _ in
+                .onChange(of: mode) { _, newMode in
                     uploadResult = nil
                     errorMessage = nil
+                    if newMode == .project {
+                        Task {
+                            await banksVM.load()
+                            if targetBank == nil { targetBank = banksVM.activeName }
+                        }
+                    }
                 }
 
-                Image(systemName: iconName)
-                    .font(.system(size: 44))
-                    .foregroundStyle(isDragOver ? CicadaTheme.accent : CicadaTheme.textTertiary)
-                    .symbolEffect(.pulse, isActive: isUploading)
+                // The same bookworm mascot as the menu bar: it chews
+                // (`.digesting`) while ingesting, beams (`.happy`) on success,
+                // and idles (`.awake`) otherwise. Reuses deriveBookwormState
+                // semantics by passing the state directly.
+                BookwormView(
+                    state: mascotState,
+                    pointSize: 72,
+                    tint: isDragOver ? CicadaTheme.accent : CicadaTheme.textSecondary
+                )
+                .frame(height: 72)
 
-                Text(isUploading ? "Uploading..." : (mode == .conversations ? "Upload Conversations" : "Save Bookmarks & Links"))
+                Text(titleText)
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
 
@@ -91,11 +111,20 @@ struct UploadOverlay: View {
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .multilineTextAlignment(.center)
-                } else {
-                    Text("Drop a browser bookmarks export (HTML/JSON),\na Takeout watch-later file, or paste a URL below")
+                } else if mode == .project {
+                    Text("Import a Claude, ChatGPT, or Gemini export\n(.json / .html / .zip) into a memory project")
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .multilineTextAlignment(.center)
+                } else {
+                    Text("Drop a browser bookmarks export (HTML/JSON),\na Takeout file, an RSS/Atom feed (XML), or paste a URL below")
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                if mode == .project {
+                    bankTargetSelector
                 }
 
                 if mode == .sources {
@@ -157,9 +186,60 @@ struct UploadOverlay: View {
         }
     }
 
-    private var iconName: String {
-        if isUploading { return "arrow.up.circle" }
-        return mode == .conversations ? "arrow.up.doc.fill" : "bookmark.fill"
+    private var titleText: String {
+        if isUploading { return "Uploading..." }
+        switch mode {
+        case .conversations: return "Upload Conversations"
+        case .project: return "Import into a Project"
+        case .sources: return "Save Bookmarks & Links"
+        }
+    }
+
+    // MARK: - M7 bank target selector
+
+    /// Picker choosing where a project import lands: an existing bank, or a new
+    /// one named in the inline field. `targetBank == nil` is the "new" sentinel.
+    @ViewBuilder
+    private var bankTargetSelector: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text("TARGET PROJECT")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.2)
+
+            Picker("", selection: $targetBank) {
+                ForEach(banksVM.banks) { bank in
+                    Text(bank.name).tag(Optional(bank.name))
+                }
+                Divider()
+                Text("New project…").tag(Optional<String>.none)
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(isUploading)
+
+            if targetBank == nil {
+                TextField("New project name", text: $newBankName)
+                    .textFieldStyle(.plain)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .padding(.horizontal, CicadaTheme.spacingMD)
+                    .padding(.vertical, CicadaTheme.spacingSM)
+                    .background(CicadaTheme.surfaceHover)
+                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+                    .disabled(isUploading)
+            }
+        }
+        .frame(width: 340)
+    }
+
+    /// Mascot mood for the ingestion overlay: chewing while ingesting, happy on
+    /// a successful result, idle otherwise.
+    private var mascotState: BookwormState {
+        if isUploading { return .digesting }
+        if uploadResult != nil { return .happy }
+        return .awake
     }
 
     /// Friendly message when the sources backend hasn't shipped yet (404).
@@ -193,16 +273,32 @@ struct UploadOverlay: View {
         }
     }
 
+    /// Feed-file UTTypes for the "Saved media" picker. `.xml` is a system type;
+    /// `.rss`/`.atom` aren't, so derive them from the extension (nil-safe). These
+    /// route through `/sources/upload` -> `parse_upload` -> `parse_rss`.
+    private static let feedContentTypes: [UTType] = {
+        var types: [UTType] = [.xml]
+        for ext in ["rss", "atom"] {
+            if let t = UTType(filenameExtension: ext) { types.append(t) }
+        }
+        return types
+    }()
+
     private func pickFilesOrFolder() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = mode == .conversations
-            ? [.json, .html]
-            : [.json, .html, .commaSeparatedText, .plainText]
+        switch mode {
+        case .conversations:
+            panel.allowedContentTypes = [.json, .html]
+            panel.message = "Select export files or a folder containing them"
+        case .project:
+            panel.allowedContentTypes = [.json, .html, .zip]
+            panel.message = "Select a Claude / ChatGPT / Gemini export (.json, .html, or .zip)"
+        case .sources:
+            panel.allowedContentTypes = [.json, .html, .commaSeparatedText, .plainText] + Self.feedContentTypes
+            panel.message = "Select bookmark exports, Takeout files, RSS/Atom feeds, or URL lists"
+        }
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
-        panel.message = mode == .conversations
-            ? "Select export files or a folder containing them"
-            : "Select bookmark exports, Takeout files, or URL lists"
 
         guard panel.runModal() == .OK else { return }
         uploadURLs(panel.urls)
@@ -226,9 +322,13 @@ struct UploadOverlay: View {
     }
 
     private func uploadURLs(_ urls: [URL]) {
+        if mode == .project {
+            importToBank(urls)
+            return
+        }
         let allowedExts = mode == .conversations
             ? Set(["json", "html"])
-            : Set(["json", "html", "csv", "txt"])
+            : Set(["json", "html", "csv", "txt", "xml", "rss", "atom"])
         var filesToUpload: [URL] = []
         let fm = FileManager.default
         for url in urls {
@@ -254,7 +354,7 @@ struct UploadOverlay: View {
         guard !filesToUpload.isEmpty else {
             errorMessage = mode == .conversations
                 ? "No JSON or HTML files found"
-                : "No bookmark, Takeout, or URL-list files found"
+                : "No bookmark, Takeout, feed (XML/RSS/Atom), or URL-list files found"
             return
         }
 
@@ -265,6 +365,7 @@ struct UploadOverlay: View {
         let uploadMode = mode
         Task {
             var totalCreated = 0
+            var totalUpdated = 0
             var totalSkipped = 0
             var firstError: String?
 
@@ -274,6 +375,7 @@ struct UploadOverlay: View {
                         ? try await APIClient.shared.uploadFile(fileURL: url)
                         : try await APIClient.shared.uploadSource(fileURL: url)
                     totalCreated += response.episodesCreated
+                    totalUpdated += response.episodesUpdated
                     totalSkipped += response.duplicatesSkipped
                     // Save to persistent history
                     UploadHistoryStore.shared.add(
@@ -297,7 +399,7 @@ struct UploadOverlay: View {
                 if let err = firstError {
                     errorMessage = err
                 } else {
-                    uploadResult = "Imported \(totalCreated) episodes" + (totalSkipped > 0 ? " (\(totalSkipped) duplicates)" : "")
+                    uploadResult = Self.importSummary(created: totalCreated, updated: totalUpdated, skipped: totalSkipped)
                     // Auto-close after success
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         withAnimation(.spring(duration: 0.3)) {
@@ -307,6 +409,129 @@ struct UploadOverlay: View {
                 }
             }
         }
+    }
+
+    // MARK: - M7 project import
+
+    /// Stage conversation exports into a target memory bank via
+    /// `POST /banks/{name}/import`. Accepts .json/.html/.zip (folders are walked
+    /// for matching files). When the target is "new", the bank is created first.
+    private func importToBank(_ urls: [URL]) {
+        let allowedExts = Set(["json", "html", "zip"])
+        var filesToUpload: [URL] = []
+        let fm = FileManager.default
+        for url in urls {
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: nil) {
+                    for case let fileURL as URL in enumerator {
+                        if allowedExts.contains(fileURL.pathExtension.lowercased()) {
+                            filesToUpload.append(fileURL)
+                        }
+                    }
+                }
+            } else if allowedExts.contains(url.pathExtension.lowercased()) {
+                filesToUpload.append(url)
+            }
+        }
+
+        guard !filesToUpload.isEmpty else {
+            errorMessage = "No .json, .html, or .zip export files found"
+            return
+        }
+
+        // Resolve the destination bank name. nil sentinel => create a new one.
+        // `targetBank` already holds an existing bank's slug; `newBankName` is a
+        // raw human-typed string that must be slugified to match the backend.
+        let creatingNew = targetBank == nil
+        let typedName = (targetBank ?? newBankName).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typedName.isEmpty else {
+            errorMessage = "Name the new project first"
+            return
+        }
+
+        isUploading = true
+        errorMessage = nil
+        uploadResult = nil
+
+        Task {
+            // The slug the import must target. For an existing bank this is the
+            // selection (already a slug); for a new bank it is the slug the
+            // backend keyed it under, captured from create().
+            let bankSlug: String
+            if creatingNew {
+                guard let slug = await banksVM.create(name: typedName) else {
+                    await MainActor.run {
+                        isUploading = false
+                        errorMessage = banksVM.errorMessage ?? "Couldn't create project \"\(typedName)\""
+                    }
+                    return
+                }
+                bankSlug = slug
+            } else {
+                bankSlug = typedName
+            }
+            let bankName = bankSlug
+
+            var totalStaged = 0
+            var totalUpdated = 0
+            var totalSkipped = 0
+            var minDate: String?
+            var maxDate: String?
+            var firstError: String?
+
+            for url in filesToUpload {
+                do {
+                    let resp = try await APIClient.shared.importToBank(name: bankName, fileURL: url)
+                    totalStaged += resp.episodesStaged
+                    totalUpdated += resp.episodesUpdated
+                    totalSkipped += resp.duplicatesSkipped
+                    if let from = resp.dateRange?.from {
+                        if minDate == nil || from < minDate! { minDate = from }
+                    }
+                    if let to = resp.dateRange?.to {
+                        if maxDate == nil || to > maxDate! { maxDate = to }
+                    }
+                } catch {
+                    if firstError == nil { firstError = Self.friendlyError(error) }
+                }
+            }
+
+            // Reload banks so counts/roster reflect the import.
+            await banksVM.load()
+            // If we imported into the active bank, refresh the graph in place.
+            let isActive = banksVM.activeName == bankName
+            if isActive {
+                await graphVM.loadGraph()
+            }
+
+            await MainActor.run {
+                isUploading = false
+                if let err = firstError, totalStaged == 0 {
+                    errorMessage = err
+                } else {
+                    var msg = "Imported into \"\(bankName)\"\n"
+                    msg += Self.importSummary(created: totalStaged, updated: totalUpdated, skipped: totalSkipped)
+                    if let from = minDate, let to = maxDate {
+                        msg += "\n\(from) → \(to)"
+                    }
+                    uploadResult = msg
+                    targetBank = bankName
+                    newBankName = ""
+                }
+            }
+        }
+    }
+
+    /// One-line ingestion summary, e.g. "12 new · 3 updated · 40 unchanged".
+    /// G20 surfaces re-staged (grown/edited) threads as their own "updated"
+    /// clause instead of hiding them inside the unchanged/skipped count; the
+    /// clause is omitted when nothing was updated to avoid noise.
+    private static func importSummary(created: Int, updated: Int, skipped: Int) -> String {
+        var parts = ["\(created) new"]
+        if updated > 0 { parts.append("\(updated) updated") }
+        parts.append("\(skipped) unchanged")
+        return parts.joined(separator: " · ")
     }
 
     private static func formattedNow() -> String {

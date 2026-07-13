@@ -14,7 +14,7 @@ from api.services.clarification_manager import (
     ClarificationManager,
 )
 from api.services.id_utils import sanitize_id
-from api.services.leann_indexer import LeannIndexer, PendingEntity
+from api.services.vector_index import PendingEntity, SqliteVecIndexer
 
 
 async def resolve(
@@ -87,7 +87,7 @@ async def resolve(
 
     # Pending store — sub-threshold entities from previous cycles
     try:
-        indexer = LeannIndexer(settings.memory_path)
+        indexer = SqliteVecIndexer(settings.memory_path)
     except Exception as e:
         logger.debug(f"LEANN pending store unavailable: {e}")
         indexer = None
@@ -691,6 +691,12 @@ async def _llm_judge_same_entity(
             model=disambig_model,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
+            # Disable provider-side reasoning + cap the call: a same/different
+            # judgment needs no chain-of-thought, and on GLM 5.2 reasoning-on
+            # made each disambiguation ~15-21s, crawling Stage 2 to hours. Mirrors
+            # the entity_extractor hardening. No-op for non-reasoning models.
+            extra_body={"reasoning": {"enabled": False}},
+            timeout=120,
         )
         raw = response.choices[0].message.content or "{}"
         parsed = json.loads(raw)

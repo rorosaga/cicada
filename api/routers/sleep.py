@@ -55,6 +55,8 @@ async def sleep_status():
         entities_updated=state.entities_updated,
         relationships_created=state.relationships_created,
         skills_detected=state.skills_detected,
+        episodes_processed=state.episodes_processed,
+        episodes_requeued=state.episodes_requeued,
     )
 
 

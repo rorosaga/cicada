@@ -26,6 +26,14 @@ struct GraphView: NSViewRepresentable {
         webView.layer?.backgroundColor = .clear
 
         // Load bundled HTML
+        // TODO(G26): theme graph.js webview. The SwiftUI chrome is now
+        // light/dark switchable (CicadaTheme.mode), but this WKWebView loads
+        // a static graph/index.html + graph.js that hard-codes the dark d3
+        // canvas palette. Follow-up: either postMessage the active
+        // AppColorScheme into the page (bridge already exists via
+        // `cicada` in WKUserContentController, see Coordinator below) and
+        // have graph.js swap its color constants, or accept the graph
+        // staying dark for now as scoped.
         if let resourceURL = Bundle.module.url(forResource: "graph/index", withExtension: "html") {
             webView.loadFileURL(resourceURL, allowingReadAccessTo: resourceURL.deletingLastPathComponent())
         }

@@ -1,8 +1,11 @@
 """Stage 1: Entity & Relationship Extraction via litellm."""
 
 import asyncio
+import hashlib
 import json
+import re
 import sys
+from pathlib import Path
 
 import litellm
 from loguru import logger
@@ -18,7 +21,7 @@ Output valid JSON with this exact structure:
   "entities": [
     {
       "name": "Entity Name",
-      "type": "person|project|company|concept|tool|deadline|skill|location",
+      "type": "person|project|company|concept|tool|skill|location|directory",
       "aliases": ["Mongo", "the db"],
       "summary": "1-3 sentence orientation. See SUMMARY LENGTH BY TYPE below.",
       "key_facts": ["atomic fact", "another atomic fact"],
@@ -48,9 +51,9 @@ The entity body is rendered as ordered markdown sections: ## Summary, ## Key Fac
 sections. ## Related is generated from `relationships` — do NOT emit a related field.
 
 SUMMARY (## Summary) — the orientation line, "what is this and why does the user care":
-- deadline: 1-2 sentences. What is due, when, current status.
 - skill: 1-2 sentences. Procedural rule or preference, written as an instruction.
-- location: 2-3 sentences. Where it is, why it's relevant to the user.
+- location: 2-3 sentences. Where the physical place is, why it's relevant to the user.
+- directory: 1-2 sentences. What the folder/path holds and why it matters.
 - person: 2-4 sentences. Who they are, relationship to user, key context.
 - tool: 2-4 sentences. What it is, how the user uses it, why it matters.
 - concept: 3-4 sentences. Definition, relevance to user's work.
@@ -64,16 +67,16 @@ KEY FACTS (## Key Facts) — this is where density lives:
   affiliations, contact handles.
 - One fact per bullet. Do NOT re-narrate the summary.
 - Prefer 3-8 facts for project/company/tool; 2-5 for person/concept; 1-3 for
-  deadline/location. key_facts may be empty ONLY for skill.
+  location/directory. key_facts may be empty ONLY for skill.
 - key_facts is REQUIRED (emit when any relevant content exists) for project, company, tool.
 
 HISTORY ENTRIES (## History):
 - Include dated events extracted from the conversation, one sentence each.
-- Always emit history_entries for project, company, and deadline when any dated event
+- Always emit history_entries for project and company when any dated event
   is present. Never silently drop a date you saw.
 - For person entities, include key interaction dates when present.
-- For concept/tool/skill/location: only when the conversation contains specific dated
-  events. Otherwise leave history_entries as an empty array.
+- For concept/tool/skill/location/directory: only when the conversation contains
+  specific dated events. Otherwise leave history_entries as an empty array.
 
 LINKS (## Links):
 - Extract EVERY URL mentioned in connection with this entity into links[] with a human
@@ -93,18 +96,103 @@ EXTRACTION GUIDELINES:
   "the database", a nickname). Leave empty if there is only one name.
 - Use wikilinks `[[Entity Name]]` inside summary and key_facts to reference other entities.
   Do NOT fabricate links bullets — those come only from real URLs in the source.
-- Entity types must be exactly one of: person, project, company, concept, tool, deadline, skill, location.
+- Entity types must be exactly one of: person, project, company, concept, tool, skill, location, directory.
+- DUE-DATES ARE NOT ENTITIES. Do NOT create a standalone entity for a deadline or a bare date.
+  When something is due by a date, attach it as a relationship whose source is the thing that is
+  due (the project/task), label is "due", and target is the date literal (e.g. "2026-06-30"). You
+  may also note the date as a key_fact on that entity. Never emit a `deadline`-typed entity.
+- DIRECTORY vs LOCATION. Classify a filesystem PATH — anything that looks like `/Users/...`, a
+  `~/...` home-relative path, a repo/folder path, or a drive path — as type `directory`. Classify a
+  physical, real-world place (a city, an office, a campus, a venue) as type `location`. When in doubt
+  and the string is a slash/tilde path, prefer `directory`.
 - Relationships are critical — capture every meaningful connection between entities with a specific
   verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against",
-  "replaced by"). Use short verb phrases, not full sentences or generic "related to"."""
+  "replaced by", "due"). Use short verb phrases, not full sentences or generic "related to"."""
 
 # Max concurrent LLM calls — stay under rate limits
 MAX_CONCURRENCY = 10
 
-# Chunk size in chars (~6K tokens). Long conversations get split into chunks
-# so no information is lost. Each chunk gets its own extraction call.
-CHUNK_SIZE = 24_000
+# Chunk size in chars (~3K tokens). Long conversations get split into chunks
+# so no information is lost. Each chunk gets its own extraction call. Kept small
+# so no single call is enormous — with reasoning disabled (below) GLM 5.2 returns
+# a chunk this size in ~5s, so smaller chunks are cheap and bound worst-case
+# latency. (Was 24_000, which made big April threads time out at 600s.)
+CHUNK_SIZE = 12_000
 CHUNK_OVERLAP = 500  # Overlap to avoid splitting mid-sentence
+
+# Hard wall-clock cap per extraction call. A hung/over-long generation fails
+# fast and the episode requeues, rather than burning 10-20 min (litellm's 600s
+# default let timed-out reasoning generations run to ~1300s).
+EXTRACTION_TIMEOUT_S = 300
+
+# Disable provider-side "reasoning"/thinking for extraction. Structured entity
+# extraction does not benefit from chain-of-thought, and on GLM 5.2 reasoning
+# was the cause of timeouts + empty/non-JSON responses. OpenRouter forwards this
+# unified field to the model; passed via litellm's extra_body. Empirically: 21s
+# -> 5s, 905 -> 284 completion tokens, JSON still valid. Override with
+# ``settings.extraction_extra_body`` is intentionally NOT wired — reasoning-off
+# is the right default for all extraction backends (no-op for non-reasoning ones).
+EXTRACTION_EXTRA_BODY = {"reasoning": {"enabled": False}}
+
+# Errors worth one retry inside a single chunk call: transient rate limits,
+# timeouts, and a malformed/empty response (``_parse_json_lenient`` raises
+# ValueError; ``json.JSONDecodeError`` is a ValueError subclass).
+_EXTRACT_RETRYABLE = (
+    litellm.exceptions.RateLimitError,
+    litellm.exceptions.Timeout,
+    ValueError,
+)
+
+
+def _parse_json_lenient(raw: str | None) -> dict:
+    """Parse a JSON object from a possibly-noisy LLM response.
+
+    Tolerates a reasoning model's output: ```json fences, leading prose/thinking
+    before the object, and trailing commentary after it. Raises ``ValueError``
+    on empty or unparseable content so the caller counts the chunk failed (and
+    the episode is omitted from extraction → requeued by the Sleep cycle).
+    """
+    if not raw or not raw.strip():
+        raise ValueError("empty LLM response")
+    text = raw.strip()
+
+    # Strip a leading ```json / ``` fence and its closing ``` if present.
+    if text.startswith("```"):
+        text = re.sub(r"^```[A-Za-z0-9]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+
+    # Fast path: the whole thing is JSON.
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Otherwise carve out the first balanced {...} object (skips reasoning prose
+    # before it and any trailing text after it).
+    start = text.find("{")
+    if start == -1:
+        raise ValueError("no JSON object found in response")
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(text[start : i + 1])  # JSONDecodeError -> ValueError
+    raise ValueError("unbalanced JSON object in response")
 
 
 def _chunk_content(content: str) -> list[str]:
@@ -126,20 +214,48 @@ def _chunk_content(content: str) -> list[str]:
 
 
 async def _extract_chunk(
-    ep_id: str, chunk: str, chunk_idx: int, total_chunks: int, settings: Settings
+    ep_id: str,
+    chunk: str,
+    chunk_idx: int,
+    total_chunks: int,
+    settings: Settings,
+    *,
+    _attempt: int = 0,
 ) -> dict:
-    """Extract entities from a single chunk via LLM."""
-    response = await litellm.acompletion(
-        model=settings.litellm_model,
-        messages=[
-            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-            {"role": "user", "content": chunk},
-        ],
-        response_format={"type": "json_object"},
-    )
-    raw = response.choices[0].message.content
-    parsed = json.loads(raw)
-    return parsed
+    """Extract entities from a single chunk via LLM.
+
+    Reasoning is disabled and a hard timeout is set (see module constants). On a
+    transient failure (rate limit / timeout / malformed-or-empty response) the
+    call is retried ONCE with a short backoff; a second failure propagates so the
+    episode is counted failed and requeued. JSON parsing is lenient to tolerate a
+    reasoning model that wraps the object in fences or prose.
+    """
+    try:
+        response = await litellm.acompletion(
+            model=settings.litellm_model,
+            messages=[
+                {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                {"role": "user", "content": chunk},
+            ],
+            response_format={"type": "json_object"},
+            extra_body=EXTRACTION_EXTRA_BODY,
+            timeout=EXTRACTION_TIMEOUT_S,
+        )
+        raw = response.choices[0].message.content
+        return _parse_json_lenient(raw)
+    except _EXTRACT_RETRYABLE as e:
+        if _attempt >= 1:
+            raise
+        # Rate limits need a real cooldown; timeouts/parse failures retry fast.
+        backoff = 10 if isinstance(e, litellm.exceptions.RateLimitError) else 2
+        logger.warning(
+            f"  {ep_id} chunk {chunk_idx + 1}/{total_chunks} — "
+            f"{type(e).__name__}, retrying in {backoff}s..."
+        )
+        await asyncio.sleep(backoff)
+        return await _extract_chunk(
+            ep_id, chunk, chunk_idx, total_chunks, settings, _attempt=_attempt + 1
+        )
 
 
 async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
@@ -166,6 +282,17 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
         content = episode["content"]
 
         if not content.strip():
+            # No LLM call needed, but record a zero-entity result so the Sleep
+            # cycle marks this episode processed (done — nothing to extract)
+            # instead of leaving it queued and re-scanning it every run.
+            results[i] = {
+                "episode_id": ep_id,
+                "episode_timestamp": episode.get("timestamp"),
+                "origin": episode.get("origin", "unknown"),
+                "entities": [],
+                "relationships": [],
+            }
+            success += 1
             return
 
         chunks = _chunk_content(content)
@@ -180,16 +307,20 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
                     all_entities.extend(parsed.get("entities", []))
                     all_relationships.extend(parsed.get("relationships", []))
 
+                ep_origin = episode.get("origin", "unknown")
                 for entity in all_entities:
                     entity["source_episode"] = ep_id
                     entity["source_episode_timestamp"] = episode.get("timestamp")
+                    entity["origin"] = ep_origin
                 for rel in all_relationships:
                     rel["source_episode"] = ep_id
                     rel["source_episode_timestamp"] = episode.get("timestamp")
+                    rel["origin"] = ep_origin
 
                 results[i] = {
                     "episode_id": ep_id,
                     "episode_timestamp": episode.get("timestamp"),
+                    "origin": ep_origin,
                     "entities": all_entities,
                     "relationships": all_relationships,
                 }
@@ -201,40 +332,10 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
                     refresh=False,
                 )
 
-            except litellm.exceptions.RateLimitError:
-                logger.warning(f"  [{i+1}/{total}] {ep_id} — rate limited, retrying in 10s...")
-                await asyncio.sleep(10)
-                # Retry once
-                try:
-                    response = await litellm.acompletion(
-                        model=settings.litellm_model,
-                        messages=[
-                            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-                            {"role": "user", "content": content},
-                        ],
-                        response_format={"type": "json_object"},
-                    )
-                    raw = response.choices[0].message.content
-                    parsed = json.loads(raw)
-                    entities = parsed.get("entities", [])
-                    relationships = parsed.get("relationships", [])
-                    for entity in entities:
-                        entity["source_episode"] = ep_id
-                        entity["source_episode_timestamp"] = episode.get("timestamp")
-                    for rel in relationships:
-                        rel["source_episode"] = ep_id
-                        rel["source_episode_timestamp"] = episode.get("timestamp")
-                    results[i] = {
-                        "episode_id": ep_id,
-                        "episode_timestamp": episode.get("timestamp"),
-                        "entities": entities,
-                        "relationships": relationships,
-                    }
-                    success += 1
-                except Exception as e:
-                    failed += 1
-                    logger.error(f"  [{i+1}/{total}] {ep_id} — retry failed: {e}")
-
+            # NOTE: transient failures (rate limit / timeout / malformed JSON)
+            # are already retried once INSIDE _extract_chunk; anything reaching
+            # here is a final failure. The episode is left out of `results`
+            # (results[i] stays None) so the Sleep cycle requeues it.
             except litellm.exceptions.AuthenticationError as e:
                 failed += 1
                 logger.error(f"  [{i+1}/{total}] {ep_id} — auth error (check API key): {e}")
@@ -261,3 +362,113 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
     all_extracted = [r for r in results if r is not None]
     logger.info(f"Extraction done: {success} succeeded, {failed} failed out of {total}")
     return all_extracted
+
+
+# --------------------------------------------------------------------------- #
+# M5e Stage-1: claim emission (back-compatible projection of the extract shape)
+# --------------------------------------------------------------------------- #
+#
+# The existing entity/relationship extraction shape is the
+# ``observer=agent, context=general, epistemic=explicit, source_trust=
+# agent_extracted`` special case (D2 ADDENDUM (4) + sleep-trust §1). Rather than
+# rewrite the prompt, we deterministically project the already-extracted
+# relationship dicts into perspectival ``Claim`` objects, with ``origin``
+# propagated from the episode (origin-and-harness-sync.md). Routine extraction
+# defaults to ``observer=agent``; manual-edit / clarification paths set
+# ``source_trust=user_stated, origin=manual_edit|clarification`` upstream.
+
+
+def _claim_date(timestamp: str | None, episode_id: str) -> str:
+    """A YYYY-MM-DD date from the episode timestamp, falling back to its id."""
+    ts = str(timestamp or "").strip()
+    if len(ts) >= 10 and ts[4:5] == "-" and ts[7:8] == "-":
+        return ts[:10]
+    # episode ids are ep_YYYY-MM-DD_NNN — recover the date head if present.
+    import re
+
+    m = re.search(r"(\d{4}-\d{2}-\d{2})", episode_id or "")
+    return m.group(1) if m else ""
+
+
+def _emit_claim_id(subject: str, predicate: str, obj: str, valid_from: str) -> str:
+    digest = hashlib.sha1(
+        f"{subject}\x00{predicate}\x00{obj}\x00{valid_from}".encode("utf-8")
+    ).hexdigest()[:8]
+    base = valid_from or "undated"
+    return f"clm_{base}_{digest}"
+
+
+def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
+    """Project Stage-1 extraction output into perspectival ``Claim`` objects.
+
+    Each relationship ``{source, target, label}`` becomes one claim
+    ``(subject=slug(source), predicate=normalize(label), object=slug(target))``
+    with the agent/general/explicit/agent_extracted defaults and the episode's
+    ``origin``. The raw label is carried on ``claim.predicate_raw`` so Stage 3 can
+    emit the mandatory ``normalization-audit`` nudge when a fold happened.
+
+    ``memory_path`` resolves the predicate normalizer; ``None`` slugifies labels
+    deterministically (used by hermetic tests). Deterministic claim ids keep the
+    projection idempotent across Sleep cycles.
+    """
+    from api.services import predicates
+    from api.services.claims import Claim
+    from api.services.id_utils import sanitize_id
+
+    normalize = predicates.load_normalizer(memory_path) if memory_path is not None else None
+
+    claims: list = []
+    seen_ids: set[str] = set()
+    for extraction in extracted:
+        episode_id = str(extraction.get("episode_id", "") or "")
+        origin = str(extraction.get("origin") or "unknown")
+        for rel in extraction.get("relationships", []) or []:
+            source = str(rel.get("source", "") or "").strip()
+            target = str(rel.get("target", "") or "").strip()
+            raw_label = str(rel.get("label", "") or "").strip() or "relates to"
+            if not source or not target:
+                continue
+            subject = sanitize_id(source)
+            obj = sanitize_id(target)
+            if subject == obj:
+                continue
+            if normalize is not None:
+                predicate = normalize(raw_label) or "relates-to"
+            else:
+                predicate = _slug_label(raw_label)
+            ep = str(rel.get("source_episode", "") or episode_id)
+            valid_from = _claim_date(rel.get("source_episode_timestamp"), ep)
+            cid = _emit_claim_id(subject, predicate, obj, valid_from)
+            if cid in seen_ids:
+                continue
+            seen_ids.add(cid)
+            claim = Claim(
+                id=cid,
+                text=f"{source} {raw_label} {target}",
+                subject=subject,
+                predicate=predicate,
+                object=obj,
+                object_kind="node",
+                observer="agent",
+                context="general",
+                epistemic="explicit",
+                source_trust="agent_extracted",
+                confidence=float(rel.get("confidence", 0.6) or 0.6),
+                valid_from=valid_from or None,
+                source_episodes=[ep] if ep else [],
+                origin=origin,
+            )
+            # The pre-normalization label (for the Stage-3 normalization audit).
+            setattr(claim, "predicate_raw", raw_label)
+            claims.append(claim)
+    return claims
+
+
+def _slug_label(label: str) -> str:
+    import re
+
+    s = (label or "").strip().lower()
+    s = re.sub(r"\s+", "-", s)
+    s = re.sub(r"[^a-z0-9\-]+", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s or "relates-to"
