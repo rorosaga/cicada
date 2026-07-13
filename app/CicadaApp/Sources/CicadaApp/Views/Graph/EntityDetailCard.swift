@@ -376,6 +376,35 @@ struct EntityDetailCard: View {
         return text.isEmpty ? nil : text
     }
 
+    /// Inverse of `section(named:in:)`: return `markdown` with the named
+    /// `## Header` and its body (up to the next `## ` header or EOF) removed.
+    /// Used to strip sections that already have a dedicated surface — the
+    /// `## Summary` accent box, the media `## Description` card — so they don't
+    /// render a second time as a plain heading+paragraph in the body below.
+    private func stripSection(named header: String, from markdown: String) -> String {
+        let lines = markdown.components(separatedBy: "\n")
+        guard let start = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces) == header
+        }) else { return markdown }
+        var kept = Array(lines[..<start])
+        var i = start + 1
+        while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("## ") {
+            i += 1
+        }
+        kept.append(contentsOf: lines[i...])
+        return kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The entity body with the sections that already render in their own
+    /// dedicated chrome (`## Summary` → SummaryBox, `## Description` → media
+    /// hero/website card) removed, so the rendered markdown view below doesn't
+    /// show them a second time.
+    private var bodyForRendering: String {
+        var body = stripSection(named: "## Summary", from: entity.markdownContent)
+        body = stripSection(named: "## Description", from: body)
+        return body
+    }
+
     /// G24: the entity's `## Summary` section text, for the summary box atop
     /// the rendered markdown preview. Nil when no Summary section is present
     /// — the box renders nothing rather than showing empty chrome.
@@ -402,8 +431,10 @@ struct EntityDetailCard: View {
 
             // Inline transclusion (§1): tokenize the body into text/embed segments
             // and render `![[…]]` embeds as nested collapsible cards. Falls back to
-            // plain wikilink rendering for bodies with no embeds.
-            TranscludingMarkdownView(body: entity.markdownContent)
+            // plain wikilink rendering for bodies with no embeds. Summary /
+            // Description are stripped here — they already render in their own
+            // chrome above (SummaryBox / media hero) and would otherwise double.
+            TranscludingMarkdownView(body: bodyForRendering)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -940,45 +971,9 @@ private struct FlowLayout: Layout {
 }
 
 // MARK: - Wikilink Rendering
-
-/// Parse `[[Wikilinks]]` into an `AttributedString` where the link text is
-/// highlighted in the accent color and the surrounding body uses the
-/// secondary text color.
-private func renderedMarkdownAttributed(_ text: String) -> AttributedString {
-    var result = AttributedString()
-
-    guard let regex = try? NSRegularExpression(pattern: "\\[\\[(.+?)\\]\\]") else {
-        var plain = AttributedString(text)
-        plain.foregroundColor = CicadaTheme.textSecondary
-        return plain
-    }
-
-    let nsText = text as NSString
-    var lastEnd = 0
-
-    let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
-    for match in matches {
-        let beforeRange = NSRange(location: lastEnd, length: match.range.location - lastEnd)
-        if beforeRange.length > 0 {
-            var plain = AttributedString(nsText.substring(with: beforeRange))
-            plain.foregroundColor = CicadaTheme.textSecondary
-            result.append(plain)
-        }
-
-        let linkRange = match.range(at: 1)
-        var link = AttributedString(nsText.substring(with: linkRange))
-        link.foregroundColor = CicadaTheme.accent
-        link.font = CicadaTheme.bodyFont.weight(.medium)
-        result.append(link)
-
-        lastEnd = match.range.location + match.range.length
-    }
-
-    if lastEnd < nsText.length {
-        var plain = AttributedString(nsText.substring(from: lastEnd))
-        plain.foregroundColor = CicadaTheme.textSecondary
-        result.append(plain)
-    }
-
-    return result
-}
+//
+// The former `renderedMarkdownAttributed(_:)` lived here — a private,
+// zero-call-site duplicate of `renderWikilinks` (ClaimChip.swift), superseded
+// by `TranscludingMarkdownView` / `MarkdownBody`. Removed so nobody "fixes
+// markdown" here and sees no effect; all entity-body rendering now flows
+// through `MarkdownBody`.

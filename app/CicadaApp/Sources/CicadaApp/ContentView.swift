@@ -158,7 +158,7 @@ struct GraphContainerView: View {
                     .onTapGesture { graphVM.clearSelection() }
                     .transition(.opacity)
 
-                EntityDetailCard(entity: entity, defaultRaw: true)
+                EntityDetailCard(entity: entity, defaultRaw: false)
                     .frame(maxWidth: 620, maxHeight: 680)
                     .padding(CicadaTheme.spacingXL)
                     .transition(.scale(scale: 0.97).combined(with: .opacity))
