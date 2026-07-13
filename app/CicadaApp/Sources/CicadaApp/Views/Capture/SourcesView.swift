@@ -25,6 +25,11 @@ struct SourcesView: View {
     @State private var syncError: String?
     @State private var showSyncSetup = false
 
+    // Apple Notes sync (synced-apps section)
+    @State private var isSyncingNotes = false
+    @State private var syncNotesResult: String?
+    @State private var syncNotesError: String?
+
     // RSS subscriptions section
     @State private var feeds: [FeedSubscription] = []
     @State private var feedsLoading = false
@@ -37,6 +42,19 @@ struct SourcesView: View {
     @State private var pollResult: String?
     @State private var pollError: String?
     @State private var pollSkippedNoNetwork = false
+
+    // Calendar subscriptions section
+    @State private var calendars: [CalendarSubscription] = []
+    @State private var calendarsLoading = false
+    @State private var calendarsError: String?
+    @State private var newCalendarURL = ""
+    @State private var isSubscribingCalendar = false
+    @State private var subscribeCalendarError: String?
+    @State private var unsubscribingCalendarURL: String?
+    @State private var isPollingCalendars = false
+    @State private var pollCalendarsResult: String?
+    @State private var pollCalendarsError: String?
+    @State private var pollCalendarsSkippedNoNetwork = false
 
     // Origins strip section
     @State private var origins: [OriginStat] = []
@@ -62,6 +80,7 @@ struct SourcesView: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     importCard
                     rssSubscriptionsCard
+                    calendarsCard
                     syncedAppsCard
                     originsStrip
                     queueCard
@@ -74,8 +93,9 @@ struct SourcesView: View {
         .task {
             async let s: () = loadStatus()
             async let f: () = loadFeeds()
+            async let c: () = loadCalendars()
             async let o: () = loadOrigins()
-            _ = await (s, f, o)
+            _ = await (s, f, c, o)
         }
         .onChange(of: sleepVM.isRunning) { _, running in
             // A cycle kicked off from the Consolidate button (or anywhere else
@@ -388,6 +408,56 @@ struct SourcesView: View {
                     .disabled(isSyncing)
                 }
             }
+
+            Divider().background(CicadaTheme.border)
+
+            HStack(alignment: .top, spacing: CicadaTheme.spacingLG) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                    Text("Apple Notes syncs one-way from your local Notes library — no login, no OAuth.")
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("First sync prompts macOS for automation access to Notes — allow it once and Cicada handles the rest.")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if isSyncingNotes {
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            ProgressView().controlSize(.small)
+                            Text("Syncing…")
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                        }
+                    } else if let result = syncNotesResult {
+                        Text(result)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(Color(hex: 0x22C55E))
+                    } else if let err = syncNotesError {
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            Text(err)
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(Color(hex: 0xEF4444))
+                            Button("Retry") { Task { await syncNotesNow() } }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(CicadaTheme.accent)
+                        }
+                    }
+                }
+
+                Spacer(minLength: CicadaTheme.spacingMD)
+
+                Button {
+                    Task { await syncNotesNow() }
+                } label: {
+                    Text("Sync Notes now")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(isSyncingNotes)
+            }
         }
         .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -409,6 +479,25 @@ struct SourcesView: View {
             await MainActor.run {
                 isSyncing = false
                 syncError = Self.friendlyError(error)
+            }
+        }
+    }
+
+    private func syncNotesNow() async {
+        isSyncingNotes = true
+        syncNotesError = nil
+        syncNotesResult = nil
+        do {
+            let r = try await APIClient.shared.syncNotes()
+            await MainActor.run {
+                isSyncingNotes = false
+                syncNotesResult = "\(r.new) new · \(r.skipped) skipped"
+            }
+            await loadStatus()
+        } catch {
+            await MainActor.run {
+                isSyncingNotes = false
+                syncNotesError = Self.friendlyError(error)
             }
         }
     }
@@ -640,6 +729,238 @@ struct SourcesView: View {
                 await MainActor.run {
                     isPolling = false
                     pollError = Self.friendlyError(error)
+                }
+            }
+        }
+    }
+
+    // MARK: - Calendar subscriptions
+
+    private var calendarsCard: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            sectionLabel("CALENDARS")
+            Text("Webcal/ICS calendars Cicada checks automatically for new events — episodes only, Sleep does the rest.")
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if calendarsLoading && calendars.isEmpty {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading calendars…")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            } else if let err = calendarsError, calendars.isEmpty {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(err)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(Color(hex: 0xEF4444))
+                    Button("Retry") { Task { await loadCalendars() } }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.accent)
+                }
+            } else if calendars.isEmpty {
+                Text("No calendars subscribed yet — add one below.")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            } else {
+                VStack(spacing: CicadaTheme.spacingSM) {
+                    ForEach(calendars) { calendar in
+                        CalendarSubscriptionRow(
+                            calendar: calendar,
+                            isRemoving: unsubscribingCalendarURL == calendar.url,
+                            onRemove: { unsubscribeCalendarNow(calendar.url) }
+                        )
+                    }
+                }
+            }
+
+            addCalendarRow
+
+            if isSubscribingCalendar {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    ProgressView().controlSize(.small)
+                    Text("Subscribing…")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            } else if let err = subscribeCalendarError {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(err)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(Color(hex: 0xEF4444))
+                    Button("Retry") { subscribeCalendarNow() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.accent)
+                }
+            }
+
+            Divider().background(CicadaTheme.border)
+
+            pollCalendarsRow
+
+            if pollCalendarsSkippedNoNetwork {
+                Text("Live calendar fetch is disabled on this backend — set CICADA_ALLOW_FEED_FETCH=1 in api/.env and restart the backend so polling can actually reach these calendars.")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(CicadaTheme.spacingLG)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private var addCalendarRow: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Image(systemName: "plus")
+                .font(.system(size: 12))
+                .foregroundStyle(CicadaTheme.textTertiary)
+            TextField("webcal://example.com/calendar.ics", text: $newCalendarURL)
+                .textFieldStyle(.plain)
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .onSubmit { subscribeCalendarNow() }
+            Button("Subscribe") { subscribeCalendarNow() }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(
+                    newCalendarURL.trimmingCharacters(in: .whitespaces).isEmpty
+                        ? CicadaTheme.textTertiary : CicadaTheme.accent
+                )
+                .disabled(newCalendarURL.trimmingCharacters(in: .whitespaces).isEmpty || isSubscribingCalendar)
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+        .background(CicadaTheme.surfaceHover)
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+    }
+
+    private var pollCalendarsRow: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            Button {
+                pollCalendarsNow()
+            } label: {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    if isPollingCalendars {
+                        ProgressView().controlSize(.small).frame(width: 12, height: 12)
+                    } else {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 12))
+                    }
+                    Text(isPollingCalendars ? "Polling…" : "Poll calendars now")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(calendars.isEmpty && !isPollingCalendars ? CicadaTheme.textTertiary : .white)
+                .padding(.horizontal, CicadaTheme.spacingLG)
+                .padding(.vertical, CicadaTheme.spacingSM)
+                .background(calendars.isEmpty && !isPollingCalendars ? CicadaTheme.surfaceElevated : CicadaTheme.accent.opacity(0.9))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(isPollingCalendars || calendars.isEmpty)
+            .help(calendars.isEmpty ? "Subscribe to a calendar first" : "Check every subscribed calendar for new events")
+
+            if let result = pollCalendarsResult {
+                Text(result)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(Color(hex: 0x22C55E))
+            } else if let err = pollCalendarsError {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(err)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(Color(hex: 0xEF4444))
+                    Button("Retry") { pollCalendarsNow() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.accent)
+                }
+            }
+        }
+    }
+
+    private func loadCalendars() async {
+        calendarsLoading = true
+        do {
+            let c = try await APIClient.shared.fetchCalendars()
+            await MainActor.run {
+                calendars = c
+                calendarsError = nil
+                calendarsLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                calendarsError = Self.friendlyError(error)
+                calendarsLoading = false
+            }
+        }
+    }
+
+    private func subscribeCalendarNow() {
+        let url = newCalendarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty, !isSubscribingCalendar else { return }
+
+        isSubscribingCalendar = true
+        subscribeCalendarError = nil
+
+        Task {
+            do {
+                _ = try await APIClient.shared.subscribeCalendar(url: url)
+                await MainActor.run {
+                    isSubscribingCalendar = false
+                    newCalendarURL = ""
+                }
+                await loadCalendars()
+            } catch {
+                await MainActor.run {
+                    isSubscribingCalendar = false
+                    subscribeCalendarError = Self.friendlyError(error)
+                }
+            }
+        }
+    }
+
+    private func unsubscribeCalendarNow(_ url: String) {
+        unsubscribingCalendarURL = url
+        Task {
+            do {
+                try await APIClient.shared.unsubscribeCalendar(url: url)
+                await MainActor.run { unsubscribingCalendarURL = nil }
+                await loadCalendars()
+            } catch {
+                await MainActor.run {
+                    unsubscribingCalendarURL = nil
+                    calendarsError = Self.friendlyError(error)
+                }
+            }
+        }
+    }
+
+    private func pollCalendarsNow() {
+        isPollingCalendars = true
+        pollCalendarsResult = nil
+        pollCalendarsError = nil
+        pollCalendarsSkippedNoNetwork = false
+
+        Task {
+            do {
+                let r = try await APIClient.shared.pollCalendars()
+                await MainActor.run {
+                    isPollingCalendars = false
+                    if r.skippedNoNetwork > 0 {
+                        pollCalendarsResult = "\(r.skippedNoNetwork) calendar\(r.skippedNoNetwork == 1 ? "" : "s") skipped"
+                        pollCalendarsSkippedNoNetwork = true
+                    } else {
+                        pollCalendarsResult = "\(r.new) new"
+                    }
+                }
+                await loadCalendars()
+            } catch {
+                await MainActor.run {
+                    isPollingCalendars = false
+                    pollCalendarsError = Self.friendlyError(error)
                 }
             }
         }
@@ -926,6 +1247,64 @@ private struct FeedSubscriptionRow: View {
     }
 }
 
+// MARK: - Calendar subscription row
+
+private struct CalendarSubscriptionRow: View {
+    let calendar: CalendarSubscription
+    var isRemoving: Bool = false
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            Image(systemName: "calendar")
+                .font(.system(size: 12))
+                .foregroundStyle(CicadaTheme.textTertiary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(calendar.url)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(subtitle)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+
+            Spacer()
+
+            if isRemoving {
+                ProgressView().controlSize(.small)
+            } else {
+                Button(action: onRemove) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Unsubscribe")
+            }
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+        .background(CicadaTheme.surfaceHover.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+    }
+
+    private var subtitle: String {
+        var parts = ["added \(calendar.added)"]
+        if let polled = calendar.lastPolled, !polled.isEmpty {
+            parts.append("last polled \(polled)")
+        } else {
+            parts.append("not polled yet")
+        }
+        if !calendar.tags.isEmpty {
+            parts.append(calendar.tags.joined(separator: ", "))
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
 // MARK: - Origin pill
 
 /// One capture-origin readout in the Capture page's "where your memory comes
@@ -964,6 +1343,8 @@ private struct OriginPill: View {
         case "claude-export": "Claude export"
         case "chatgpt-export": "ChatGPT export"
         case "rss": "RSS"
+        case "calendar": "Calendar"
+        case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
         case "unknown": "Unknown"
         default: origin.origin.capitalized
@@ -978,6 +1359,8 @@ private struct OriginPill: View {
         case "telegram": "paperplane.fill"
         case "claude-export", "chatgpt-export": "square.and.arrow.down"
         case "rss": "dot.radiowaves.up.forward"
+        case "calendar": "calendar"
+        case "apple-notes": "note.text"
         case "share-sheet": "square.and.arrow.up"
         case "unknown": "questionmark.circle"
         default: "tray"
@@ -991,6 +1374,8 @@ private struct OriginPill: View {
         case "safari-bookmark": Color(hex: 0x00A2E8)
         case "telegram": Color(hex: 0x26A5E4)
         case "rss": Color(hex: 0xEE802F)
+        case "calendar": Color(hex: 0xFF3B30)
+        case "apple-notes": Color(hex: 0xFFCC00)
         case "share-sheet": Color(hex: 0x8896FF)
         case "unknown": CicadaTheme.textTertiary
         default: CicadaTheme.textSecondary
