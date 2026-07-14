@@ -548,6 +548,59 @@ def test_ingest_one_media_entity_carries_folder_frontmatter_and_tag(tmp_path, mo
     assert ep_fm["folder"] == "Bookmarks bar/AI/Papers"
 
 
+# --- G9 origin threading + media filename byte-cap (live-test findings) ----
+
+
+def test_ingest_one_stamps_origin_on_episode_and_entity(tmp_path, monkeypatch):
+    """RawItem.origin (set by bookmark_sync._tag_origin) must land in BOTH the
+    episode and the media entity frontmatter, not just RawItem.tags."""
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    item = RawItem(
+        url="https://example.com/origin-test",
+        title="Origin Test",
+        tags=["chrome-bookmark"],
+        origin="chrome-bookmark",
+    )
+    idx: dict = {}
+    result = run(
+        media_ingestor.ingest_one(item, memory, object(), idx, from_bookmark_file=True)
+    )
+    assert result.status == "created"
+
+    ep_fm = markdown_parser.parse(memory / "episodes" / f"{result.episode_id}.md").frontmatter
+    assert ep_fm["origin"] == "chrome-bookmark"
+
+    ent_fm = markdown_parser.parse(
+        memory / "entities" / f"{result.media_entity_id}.md"
+    ).frontmatter
+    assert ent_fm["origin"] == "chrome-bookmark"
+
+
+def test_ingest_one_without_origin_omits_the_field(tmp_path, monkeypatch):
+    """A plain /sources/save (no RawItem.origin) must not regress — no origin
+    key at all, same as before G9 threading landed."""
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    item = RawItem(url="https://example.com/no-origin")
+    idx: dict = {}
+    result = run(media_ingestor.ingest_one(item, memory, object(), idx))
+
+    ep_fm = markdown_parser.parse(memory / "episodes" / f"{result.episode_id}.md").frontmatter
+    assert "origin" not in ep_fm
+
+    ent_fm = markdown_parser.parse(
+        memory / "entities" / f"{result.media_entity_id}.md"
+    ).frontmatter
+    assert "origin" not in ent_fm
+
+
 def test_ingest_one_media_entity_no_folder_omits_folder_tag(tmp_path, monkeypatch):
     _offline_enrich(monkeypatch)
     memory = tmp_path / "memory"
@@ -589,3 +642,108 @@ def test_resync_same_url_with_folder_does_not_duplicate(tmp_path, monkeypatch):
 
     assert len(list((memory / "episodes").glob("ep_*.md"))) == 1
     assert len(list((memory / "entities").glob("media-*.md"))) == 1
+
+
+def test_bookmark_sync_tag_origin_sets_both_tags_and_origin_field():
+    from api.services import bookmark_sync
+
+    items = [RawItem(url="https://example.com/a")]
+    tagged = bookmark_sync._tag_origin(items, "safari-bookmark")
+    assert tagged[0].origin == "safari-bookmark"
+    assert "safari-bookmark" in tagged[0].tags
+
+
+def test_media_entity_id_caps_long_title_under_byte_limit():
+    """A whole-paragraph OG title (heavy multi-byte emoji) must not blow past
+    the 255-byte filesystem filename limit."""
+    long_title = "💖🧸 moeru-ai airi " * 40  # far past 255 bytes once encoded
+    meta = MediaMeta(title=long_title, media_type="bookmark")
+    item = RawItem(url="https://github.com/moeru-ai/airi")
+
+    entity_id = media_ingestor._media_entity_id(meta, item)
+    filename_bytes = f"{entity_id}.md".encode("utf-8")
+
+    assert len(filename_bytes) < 255
+    assert entity_id.startswith("media-")
+
+
+def test_media_entity_id_short_title_unaffected():
+    """A normal, short title must not gain a hash suffix (no behavior change
+    for the overwhelming majority of saves)."""
+    meta = MediaMeta(title="A normal short title", media_type="bookmark")
+    item = RawItem(url="https://example.com/normal")
+    assert media_ingestor._media_entity_id(meta, item) == "media-a-normal-short-title"
+
+
+def test_media_entity_id_no_collision_for_different_long_titles_same_prefix():
+    """Two different long titles that share the same truncated prefix must not
+    collide on the same filename — the hash suffix is derived from the URL."""
+    prefix = "a" * 200
+    meta1 = MediaMeta(title=prefix + " first article", media_type="bookmark")
+    meta2 = MediaMeta(title=prefix + " second article", media_type="bookmark")
+    item1 = RawItem(url="https://example.com/first")
+    item2 = RawItem(url="https://example.com/second")
+
+    id1 = media_ingestor._media_entity_id(meta1, item1)
+    id2 = media_ingestor._media_entity_id(meta2, item2)
+
+    assert id1 != id2
+    assert len(f"{id1}.md".encode("utf-8")) < 255
+    assert len(f"{id2}.md".encode("utf-8")) < 255
+
+
+def test_truncate_utf8_never_splits_a_multibyte_character():
+    # 3-byte-each characters; a byte budget that lands mid-character must back
+    # off to the previous whole character, never raise, never emit invalid utf-8.
+    s = "漢" * 50  # a CJK character, 3 bytes in utf-8
+    truncated, was_truncated = media_ingestor._truncate_utf8(s, 100)
+    assert was_truncated is True
+    truncated.encode("utf-8")  # must not raise
+    assert len(truncated.encode("utf-8")) <= 100
+
+
+def test_ingest_one_with_long_title_end_to_end_creates_valid_files(tmp_path, monkeypatch):
+    """The whole ingest_one path must succeed (no OSError) for a title long
+    enough to have crashed pre-fix, and the resulting file must be readable."""
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    first = RawItem(url="https://example.com/reused")
+    created1, dups1 = run(
+        media_ingestor.ingest_batch([first], memory, commit=False)
+    )
+    assert created1 == 1
+    assert dups1 == 0
+
+    # Same URL re-seen with a folder this time (e.g. the user later filed it
+    # into a Chrome folder, or it shows up in a fresh bookmark export).
+    second = RawItem(url="https://example.com/reused", folder="Bookmarks bar/Reading")
+    created2, dups2 = run(
+        media_ingestor.ingest_batch([second], memory, commit=False)
+    )
+    assert created2 == 0
+    assert dups2 == 1
+
+    assert len(list((memory / "episodes").glob("ep_*.md"))) == 1
+    assert len(list((memory / "entities").glob("media-*.md"))) == 1
+    long_title = "💖🧸 " * 60
+
+    async def fake_enrich(url, client, from_bookmark_file=False):
+        return MediaMeta(title=long_title, description="", site="github.com", media_type="bookmark")
+
+    monkeypatch.setattr(media_ingestor, "enrich", fake_enrich)
+
+    item = RawItem(url="https://github.com/moeru-ai/airi", origin="chrome-bookmark")
+    idx: dict = {}
+    result = run(
+        media_ingestor.ingest_one(item, memory, object(), idx, from_bookmark_file=True)
+    )
+    assert result.status == "created"
+
+    entity_path = memory / "entities" / f"{result.media_entity_id}.md"
+    assert entity_path.exists()
+    assert len(entity_path.name.encode("utf-8")) < 255
+    fm = markdown_parser.parse(entity_path).frontmatter
+    assert fm["origin"] == "chrome-bookmark"
