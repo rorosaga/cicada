@@ -375,6 +375,21 @@ Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V
   `POST /sources/poll-calendars`, `POST /sources/sync-notes`. 52 new hermetic tests (444 -> 496 green).
   → relates to **R6** (connectors as Awake-phase episode emitters — was explicitly deferred there),
   **G9** (origin provenance — both origins flow straight into `GET /origins`, no changes needed there).
+- ✅ **2026-07-14 — end-to-end consolidation run on live data (agentic Sonnet-5 path, zero API keys):**
+  full Sleep-cycle-shaped consolidation exercised against real captured data — **786 bookmarks + 193
+  notes → 988 episodes → 442 claims, 74 new entities, 805 zero-claim episodes** — via the agentic
+  (Claude-Code-driven) extraction path, no OpenRouter/OpenAI key required. Live testing against real
+  data (not fixtures) surfaced two bugs, both root-caused and fixed same-day: **(1) origin-attribution
+  gap** — bookmark-synced episodes and their media entities carried `source: bookmark` but never
+  `origin:`, so the Capture page's origins strip bucketed all of them under "Unknown" (`RawItem.origin`
+  now threads explicitly from `bookmark_sync._tag_origin` through `media_ingestor.write_media_episode`/
+  `write_media_entity` into both frontmatters; `api/scripts/backfill_bookmark_origins.py` repairs
+  already-ingested files); **(2) media filename byte-cap** — a GitHub bookmark whose OG title was a
+  whole paragraph produced a `media-*.md` filename past the 255-byte filesystem limit (`OSError Errno
+  63`), and because `url_index` only records successful ingests, the failing URL retried forever on
+  every sync (`_media_entity_id` now caps the slug at ~120 UTF-8 bytes and appends an 8-hex-char
+  content-hash suffix on truncation so two long titles can't collide). → relates to **G9** (origin
+  provenance), **M4** (media ingestion), **G10** (agentic bulk-extraction path).
 
 ## APPLY — buildable now (low architecture risk)
 

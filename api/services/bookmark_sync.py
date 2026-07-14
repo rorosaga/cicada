@@ -11,8 +11,11 @@ drops anything already present — that IS the diff. This module only adds:
 
 1. two more producers of ``RawItem`` (Chrome's ``Bookmarks`` JSON tree, and
    Safari via the existing ``parse_safari_bookmarks``);
-2. an ``origin`` tag (``chrome-bookmark`` / ``safari-bookmark``) so synced
-   items are distinguishable from a manual save or a one-off file upload;
+2. an ``origin`` tag (``chrome-bookmark`` / ``safari-bookmark``) — stamped
+   both into ``RawItem.tags`` (a searchable graph tag) and ``RawItem.origin``
+   (the G9 capture-provenance field ``media_ingestor`` writes verbatim into
+   the resulting episode + media entity frontmatter) — so synced items are
+   distinguishable from a manual save or a one-off file upload;
 3. a thin summary shape (``{new, skipped, sources}``) for the endpoint/cron.
 
 Nothing here reads a real file path unless ``sync_from_local_files`` is
@@ -89,6 +92,12 @@ def read_chrome_bookmarks(data: bytes) -> list[RawItem]:
 def _tag_origin(items: list[RawItem], origin: str) -> list[RawItem]:
     for item in items:
         item.tags = sorted(set((item.tags or []) + [origin]))
+        # ``tags`` also carries arbitrary bookmark-folder names, so it isn't a
+        # reliable provenance signal on its own — stamp the explicit ``origin``
+        # field too. ``media_ingestor.write_media_episode``/``write_media_entity``
+        # thread this straight into episode + media-entity frontmatter (G9
+        # origin-provenance; see ``api/services/origin_stats.py``).
+        item.origin = origin
     return items
 
 

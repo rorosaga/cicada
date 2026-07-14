@@ -57,6 +57,15 @@ class RawItem:
     # (Chrome/Safari folder tree) or a single enclosing folder name (Netscape
     # HTML export). Provenance only — never part of dedup identity.
     folder: str | None = None
+    # Explicit capture-provenance tag (G9 ``origin``), set by the caller when
+    # known — e.g. ``bookmark_sync._tag_origin`` sets ``"chrome-bookmark"`` /
+    # ``"safari-bookmark"``. Threaded straight through to the episode + media
+    # entity frontmatter by ``write_media_episode``/``write_media_entity``
+    # rather than derived from ``tags`` (which also carries arbitrary bookmark
+    # folder names and must not be mistaken for provenance). ``None`` when the
+    # caller has no origin to report — those writes simply omit the field, same
+    # as before this was added.
+    origin: str | None = None
 
 
 @dataclass
@@ -753,14 +762,51 @@ def write_media_episode(
         "media_entity_id": media_entity_id,
         "folder": item.folder or None,
     }
+    if item.origin:
+        frontmatter["origin"] = item.origin
     markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
     return episode_id
+
+
+# Byte budget for the slug portion of a media entity id. macOS/APFS (and most
+# filesystems) cap a filename at 255 *bytes*, not characters — a long OG title
+# heavy on multi-byte emoji/CJK can blow past that in far fewer than 255
+# characters. "media-" (6 bytes) + slug + an optional "-<8 hex>" hash suffix
+# (9 bytes) + ".md" (3 bytes) must stay comfortably under 255; 120 leaves a
+# wide margin.
+_MAX_SLUG_BYTES = 120
+
+
+def _truncate_utf8(s: str, max_bytes: int) -> tuple[str, bool]:
+    """Truncate ``s`` to at most ``max_bytes`` UTF-8 bytes without splitting a
+    multi-byte character. Returns ``(truncated, was_truncated)``.
+    """
+    encoded = s.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return s, False
+    chunk = encoded[:max_bytes]
+    # Back off one byte at a time until the tail decodes cleanly (a multi-byte
+    # UTF-8 character split mid-sequence raises UnicodeDecodeError).
+    while chunk:
+        try:
+            return chunk.decode("utf-8"), True
+        except UnicodeDecodeError:
+            chunk = chunk[:-1]
+    return "", True
 
 
 def _media_entity_id(meta: MediaMeta, item: RawItem) -> str:
     slug = sanitize_id(meta.title) if meta.title else ""
     if not slug or slug == "unnamed":
         slug = sanitize_id(_fallback_title(item.url))
+
+    slug, truncated = _truncate_utf8(slug, _MAX_SLUG_BYTES)
+    slug = slug.strip("-") or "unnamed"
+    if truncated:
+        # A stable suffix derived from the URL so two different long titles
+        # that truncate to the same prefix never collide on the same filename.
+        suffix = hashlib.sha256(normalize_url(item.url).encode("utf-8")).hexdigest()[:8]
+        slug = f"{slug}-{suffix}"
     return f"media-{slug}"
 
 
@@ -795,15 +841,17 @@ def write_media_entity(
         "related": [],
         "version": 1,
         "folder": item.folder or None,
-        "media": {
-            "url": item.url,
-            "media_type": meta.media_type,
-            "site": meta.site,
-            "channel": meta.channel,
-            "thumbnail": meta.thumbnail,
-            "saved_at": today.isoformat() + "Z",
-            "url_hash": url_hash(item.url),
-        },
+    }
+    if item.origin:
+        frontmatter["origin"] = item.origin
+    frontmatter["media"] = {
+        "url": item.url,
+        "media_type": meta.media_type,
+        "site": meta.site,
+        "channel": meta.channel,
+        "thumbnail": meta.thumbnail,
+        "saved_at": today.isoformat() + "Z",
+        "url_hash": url_hash(item.url),
     }
     body = _entity_body(meta, item.note)
     markdown_parser.write(entities_dir / f"{entity_id}.md", frontmatter, body)
