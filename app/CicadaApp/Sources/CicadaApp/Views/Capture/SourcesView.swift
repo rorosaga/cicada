@@ -275,10 +275,14 @@ struct SourcesView: View {
 
     private func pickBookmarksFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json, .html]
+        // .json/.html cover browser bookmarks + Instagram saved-posts exports;
+        // .commaSeparatedText covers a single YouTube Takeout playlist CSV;
+        // .zip covers a whole Takeout export (playlists + watch history) in
+        // one drop — see media_ingestor.parse_upload for the routing.
+        panel.allowedContentTypes = [.json, .html, .commaSeparatedText, .zip]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.message = "Select a browser bookmarks export (HTML or JSON)"
+        panel.message = "Select a bookmarks/saved-content export (HTML, JSON, CSV, or ZIP)"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         runImport(files: panel.urls) { url in try await APIClient.shared.uploadSource(fileURL: url) }
     }
@@ -1346,6 +1350,8 @@ private struct OriginPill: View {
         case "calendar": "Calendar"
         case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
+        case "instagram-saved": "Instagram Saved"
+        case "youtube-playlist": "YouTube Playlist"
         case "unknown": "Unknown"
         default: origin.origin.capitalized
         }
@@ -1362,6 +1368,8 @@ private struct OriginPill: View {
         case "calendar": "calendar"
         case "apple-notes": "note.text"
         case "share-sheet": "square.and.arrow.up"
+        case "instagram-saved": "camera.fill"
+        case "youtube-playlist": "play.rectangle.fill"
         case "unknown": "questionmark.circle"
         default: "tray"
         }
@@ -1377,6 +1385,8 @@ private struct OriginPill: View {
         case "calendar": Color(hex: 0xFF3B30)
         case "apple-notes": Color(hex: 0xFFCC00)
         case "share-sheet": Color(hex: 0x8896FF)
+        case "instagram-saved": Color(hex: 0xE1306C)
+        case "youtube-playlist": Color(hex: 0xFF0000)
         case "unknown": CicadaTheme.textTertiary
         default: CicadaTheme.textSecondary
         }

@@ -21,6 +21,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -171,6 +172,13 @@ def _site_of(url: str) -> str | None:
 
 def _fallback_title(url: str) -> str:
     parsed = urlparse(url if "://" in url else "https://" + url)
+    # A ``/watch?v=<id>`` URL carries its identity in the query string, not
+    # the path (``parsed.path`` is just ``"/watch"`` for every video) — fall
+    # back to the video id so two different unenriched videos never collide
+    # on the same fallback title (and, downstream, the same entity filename).
+    vid = _youtube_video_id(parsed)
+    if vid:
+        return vid
     seg = parsed.path.strip("/").split("/")[-1] if parsed.path.strip("/") else ""
     seg = seg.replace("-", " ").replace("_", " ").strip()
     return seg or (parsed.hostname or url)
@@ -434,6 +442,201 @@ def parse_youtube_takeout(content: bytes, filename: str) -> list[RawItem]:
     return items
 
 
+def parse_instagram_saved(data: dict) -> list[RawItem]:
+    """Meta "Download your information" saved-posts export.
+
+    Canonical shape: a top-level dict with ``saved_saved_media`` holding a list
+    of records like::
+
+        {"title": "<account name>",
+         "string_map_data": {"Saved on": {"href": "https://instagram.com/reel/...",
+                                            "timestamp": 1699000000}}}
+
+    Also tolerates a **collections** variant where saves are grouped under
+    collection names — either ``saved_saved_media`` itself is a
+    ``{collection_name: [record, ...]}`` dict, or a record carries a nested
+    ``name`` + ``sources``/``media`` list (a collection wrapper). The
+    collection name becomes ``RawItem.folder``; ungrouped saves default to
+    folder ``"Saved"``.
+
+    Parses defensively — any unknown/missing key is tolerated, malformed
+    input degrades to ``[]`` rather than raising.
+    """
+    items: list[RawItem] = []
+    if not isinstance(data, dict):
+        return items
+
+    media = data.get("saved_saved_media")
+    if media is None:
+        # Tolerate any other "saved_*" top-level key carrying the payload.
+        for key, value in data.items():
+            if isinstance(key, str) and key.startswith("saved_") and value:
+                media = value
+                break
+    if media is None:
+        return items
+
+    def item_from_record(record, folder: str | None) -> None:
+        if not isinstance(record, dict):
+            return
+        title = record.get("title")
+        href = None
+        smd = record.get("string_map_data")
+        if isinstance(smd, dict):
+            saved_on = smd.get("Saved on")
+            if isinstance(saved_on, dict):
+                href = saved_on.get("href")
+            if not href:
+                for v in smd.values():
+                    if isinstance(v, dict) and v.get("href"):
+                        href = v["href"]
+                        break
+        if not href:
+            href = record.get("href") or record.get("url")
+        if not href or not isinstance(href, str):
+            return
+        items.append(RawItem(
+            url=href,
+            title=title if isinstance(title, str) else None,
+            folder=folder or "Saved",
+            origin="instagram-saved",
+        ))
+
+    if isinstance(media, list):
+        for record in media:
+            # A collections wrapper nests a "name" + "sources"/"media" list
+            # instead of a leaf record's "string_map_data".
+            if isinstance(record, dict) and "string_map_data" not in record and (
+                "sources" in record or "media" in record
+            ):
+                coll_name = record.get("name") if isinstance(record.get("name"), str) else None
+                sub_records = record.get("sources") or record.get("media") or []
+                if isinstance(sub_records, list):
+                    for sub in sub_records:
+                        item_from_record(sub, coll_name)
+                    continue
+            item_from_record(record, None)
+    elif isinstance(media, dict):
+        # {collection_name: [record, ...]}
+        for coll_name, records in media.items():
+            if isinstance(records, list):
+                for record in records:
+                    item_from_record(record, coll_name if isinstance(coll_name, str) else None)
+
+    return items
+
+
+def _is_instagram_saved_json(data) -> bool:
+    """Sniff rule: a ``.json`` whose top-level dict has a ``saved_*`` key."""
+    return isinstance(data, dict) and any(
+        isinstance(k, str) and k.startswith("saved_") for k in data.keys()
+    )
+
+
+def _playlist_name_from_filename(filename: str) -> str:
+    """``"Watch later-videos.csv"`` -> ``"Watch later"``; ``"<Name>-videos.csv"`` -> ``"<Name>"``."""
+    stem = Path(filename).stem  # strips ".csv"
+    if stem.lower().endswith("-videos"):
+        stem = stem[: -len("-videos")]
+    stem = stem.strip()
+    return stem or "Playlist"
+
+
+def _sniff_youtube_video_id_column(fieldnames: list[str] | None) -> str | None:
+    for name in fieldnames or []:
+        if name and name.strip() in ("Video ID", "Video Id"):
+            return name
+    return None
+
+
+def parse_youtube_playlist_csv(content: bytes, filename: str) -> list[RawItem]:
+    """A single Google Takeout per-playlist video CSV.
+
+    Takeout ships one CSV per playlist under ``Playlists/``, with the playlist
+    name baked into the filename (e.g. ``"Watch later-videos.csv"``,
+    ``"<Name>-videos.csv"``). Columns include a video-id column
+    (``"Video ID"`` or ``"Video Id"``) and a timestamp; there is no title
+    column — titles are filled in later by the youtube oEmbed enrichment path.
+
+    An unrecognized CSV (no video-id column) yields ``[]`` — never raises.
+    """
+    import csv
+    import io
+
+    try:
+        text = content.decode("utf-8", errors="replace")
+    except Exception:
+        return []
+
+    try:
+        reader = csv.DictReader(io.StringIO(text))
+        vid_col = _sniff_youtube_video_id_column(reader.fieldnames)
+    except Exception:
+        return []
+    if vid_col is None:
+        return []
+
+    playlist_name = _playlist_name_from_filename(filename)
+    items: list[RawItem] = []
+    for row in reader:
+        vid = (row.get(vid_col) or "").strip()
+        if not vid:
+            continue
+        items.append(RawItem(
+            url=f"https://www.youtube.com/watch?v={vid}",
+            title=None,
+            folder=playlist_name,
+            origin="youtube-playlist",
+        ))
+    return items
+
+
+# Cap on the number of members walked inside an uploaded zip archive — a
+# saved-content export zip has at most a handful of playlist CSVs + one
+# watch-history.json; this just bounds a maliciously/accidentally huge zip.
+_MAX_ZIP_MEMBERS = 5000
+
+
+def parse_youtube_takeout_zip(content: bytes) -> list[RawItem]:
+    """Walk a whole Google Takeout zip: ``playlists/*.csv`` + ``watch-history.json``.
+
+    Lets a user drop one Takeout export zip in a single upload instead of
+    hunting for individual files. Unrecognized members (anything that isn't a
+    ``playlists/*.csv`` or a ``watch-history.json``) are skipped. Any read
+    error on an individual member is skipped rather than raised — a partially
+    corrupt zip still yields whatever is parseable. A non-zip or unreadable
+    archive degrades to ``[]``.
+    """
+    import zipfile
+
+    items: list[RawItem] = []
+    try:
+        zf = zipfile.ZipFile(BytesIO(content))
+    except Exception:
+        return []
+
+    with zf:
+        names = zf.namelist()[:_MAX_ZIP_MEMBERS]
+        for name in names:
+            lower = name.lower()
+            # Match case-insensitively, but pass the *original*-cased base
+            # filename down to the parsers — the playlist name is derived
+            # from it and must keep its real casing.
+            base = name.rsplit("/", 1)[-1]
+            try:
+                if lower.endswith(".csv") and "playlists/" in lower:
+                    member_bytes = zf.read(name)
+                    items.extend(parse_youtube_playlist_csv(member_bytes, base))
+                elif base.lower() == "watch-history.json":
+                    member_bytes = zf.read(name)
+                    items.extend(parse_youtube_takeout(member_bytes, base))
+            except Exception as e:
+                logger.debug(f"Skipping unreadable zip member {name}: {type(e).__name__}: {e}")
+                continue
+
+    return items
+
+
 def parse_url_list(text: str) -> list[RawItem]:
     """``.txt`` one URL per line (skip blanks / ``#`` comments)."""
     items: list[RawItem] = []
@@ -599,6 +802,12 @@ def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, boo
         data = json.loads(content)
         if isinstance(data, dict) and "roots" in data:
             return parse_chrome_bookmarks_json(data), "Chrome Bookmarks", True
+        # Instagram "Download your information" saved-posts export — sniffed
+        # BEFORE the generic-JSON fallback below (and before the Takeout list
+        # check, which only ever matches a list, never a dict, so ordering
+        # between the two doesn't matter).
+        if _is_instagram_saved_json(data):
+            return parse_instagram_saved(data), "Instagram Saved", False
         # Takeout JSON is a list of watch entries; otherwise a generic URL list.
         if isinstance(data, list) and data and isinstance(data[0], dict) and (
             "titleUrl" in data[0] or "subtitles" in data[0]
@@ -614,14 +823,21 @@ def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, boo
                     items.append(RawItem(url=entry["url"], title=entry.get("title")))
         return items, "URL List", False
     if name.endswith(".csv"):
-        text = content.decode("utf-8", errors="replace")
-        if "Video ID" in text or "Video Id" in text:
-            return parse_youtube_takeout(content, name), "YouTube Takeout", False
-        return parse_csv_url_list(text), "URL List", False
+        # A per-playlist Takeout CSV is sniffed by header (a real video-id
+        # column), not a fragile "in text" substring check — an unrecognized
+        # CSV (no such column) falls through to the plain URL-list parser.
+        # Pass the *original* filename (not the lowercased ``name``) so the
+        # derived playlist folder keeps its real casing.
+        playlist_items = parse_youtube_playlist_csv(content, filename or name)
+        if playlist_items:
+            return playlist_items, "YouTube Playlist", False
+        return parse_csv_url_list(content.decode("utf-8", errors="replace")), "URL List", False
+    if name.endswith(".zip"):
+        return parse_youtube_takeout_zip(content), "YouTube Takeout (zip)", False
     if name.endswith(".txt"):
         return parse_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     raise ValueError(
-        "Unsupported file format. Use .html, .json, .csv, .txt, .plist, or .xml/.rss/.atom"
+        "Unsupported file format. Use .html, .json, .csv, .txt, .plist, .zip, or .xml/.rss/.atom"
     )
 
 
