@@ -19,6 +19,7 @@ URL-only fallback (matching the "offline-safe" requirement).
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta
 
 import pytest
@@ -747,3 +748,333 @@ def test_ingest_one_with_long_title_end_to_end_creates_valid_files(tmp_path, mon
     assert len(entity_path.name.encode("utf-8")) < 255
     fm = markdown_parser.parse(entity_path).frontmatter
     assert fm["origin"] == "chrome-bookmark"
+
+
+# --- G47: saved-content importers (Instagram saved + YouTube playlists) ----
+
+INSTAGRAM_SAVED_FLAT = {
+    "saved_saved_media": [
+        {
+            "title": "account_one",
+            "string_map_data": {
+                "Saved on": {
+                    "href": "https://www.instagram.com/reel/AAA111/",
+                    "timestamp": 1699000000,
+                }
+            },
+        },
+        {
+            "title": "account_two",
+            "string_map_data": {
+                "Saved on": {
+                    "href": "https://www.instagram.com/reel/BBB222/",
+                    "timestamp": 1699000001,
+                }
+            },
+        },
+    ]
+}
+
+INSTAGRAM_SAVED_COLLECTIONS = {
+    "saved_saved_media": {
+        "Recipes": [
+            {
+                "title": "chef_account",
+                "string_map_data": {
+                    "Saved on": {
+                        "href": "https://www.instagram.com/p/CCC333/",
+                        "timestamp": 1699000002,
+                    }
+                },
+            },
+        ],
+        "Travel": [
+            {
+                "title": "wanderer_account",
+                "string_map_data": {
+                    "Saved on": {
+                        "href": "https://www.instagram.com/p/DDD444/",
+                        "timestamp": 1699000003,
+                    }
+                },
+            },
+        ],
+    }
+}
+
+YOUTUBE_PLAYLIST_CSV = (
+    "Video ID,Playlist Video Creation Timestamp\n"
+    "abc123,2023-11-01T00:00:00Z\n"
+    "def456,2023-11-02T00:00:00Z\n"
+)
+
+
+def test_parse_instagram_saved_flat_extracts_items():
+    items = media_ingestor.parse_instagram_saved(INSTAGRAM_SAVED_FLAT)
+    assert len(items) == 2
+    urls = {i.url for i in items}
+    assert "https://www.instagram.com/reel/AAA111/" in urls
+    assert "https://www.instagram.com/reel/BBB222/" in urls
+    assert all(i.origin == "instagram-saved" for i in items)
+    # No collection -> default "Saved" folder.
+    assert all(i.folder == "Saved" for i in items)
+    titles = {i.title for i in items}
+    assert titles == {"account_one", "account_two"}
+
+
+def test_parse_instagram_saved_collections_variant_maps_folder():
+    items = media_ingestor.parse_instagram_saved(INSTAGRAM_SAVED_COLLECTIONS)
+    assert len(items) == 2
+    by_url = {i.url: i for i in items}
+    recipes = by_url["https://www.instagram.com/p/CCC333/"]
+    travel = by_url["https://www.instagram.com/p/DDD444/"]
+    assert recipes.folder == "Recipes"
+    assert recipes.origin == "instagram-saved"
+    assert travel.folder == "Travel"
+
+
+def test_parse_instagram_saved_tolerates_unknown_keys():
+    data = {
+        "saved_saved_media": [
+            {
+                "title": "acct",
+                "unexpected_field": {"nested": True},
+                "string_map_data": {
+                    "Saved on": {"href": "https://www.instagram.com/reel/ZZZ/", "timestamp": 1}
+                },
+            }
+        ],
+        "some_other_top_level_key": "ignored",
+    }
+    items = media_ingestor.parse_instagram_saved(data)
+    assert len(items) == 1
+    assert items[0].url == "https://www.instagram.com/reel/ZZZ/"
+
+
+def test_parse_instagram_saved_malformed_returns_empty():
+    assert media_ingestor.parse_instagram_saved({}) == []
+    assert media_ingestor.parse_instagram_saved({"saved_saved_media": "not a list or dict"}) == []
+    assert media_ingestor.parse_instagram_saved("not even a dict") == []
+
+
+def test_is_instagram_saved_json_sniff_rule():
+    assert media_ingestor._is_instagram_saved_json(INSTAGRAM_SAVED_FLAT) is True
+    assert media_ingestor._is_instagram_saved_json({"saved_collections": []}) is True
+    assert media_ingestor._is_instagram_saved_json({"roots": {}}) is False
+    assert media_ingestor._is_instagram_saved_json(["a", "b"]) is False
+
+
+def test_parse_upload_routes_instagram_json():
+    items, label, from_bookmark = media_ingestor.parse_upload(
+        json.dumps(INSTAGRAM_SAVED_FLAT).encode("utf-8"), "saved_posts.json"
+    )
+    assert label == "Instagram Saved"
+    assert from_bookmark is False
+    assert len(items) == 2
+
+
+def test_parse_upload_generic_json_url_list_unaffected_by_instagram_sniff():
+    """A plain JSON URL list (no ``saved_*`` key) must still hit the old
+    generic-list path, not misfire into the Instagram parser."""
+    items, label, _ = media_ingestor.parse_upload(
+        json.dumps(["https://example.com/a", "https://example.com/b"]).encode("utf-8"),
+        "links.json",
+    )
+    assert label == "URL List"
+    assert len(items) == 2
+    assert items[0].origin is None
+
+
+def test_ingest_instagram_saved_stamps_origin_and_folder_end_to_end(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    items = media_ingestor.parse_instagram_saved(INSTAGRAM_SAVED_COLLECTIONS)
+    created, dups = run(media_ingestor.ingest_batch(items, memory, commit=False))
+    assert created == 2
+    assert dups == 0
+
+    entities = list((memory / "entities").glob("media-*.md"))
+    assert len(entities) == 2
+    folders = set()
+    for path in entities:
+        fm = markdown_parser.parse(path).frontmatter
+        assert fm["origin"] == "instagram-saved"
+        folders.add(fm["folder"])
+    assert folders == {"Recipes", "Travel"}
+
+    episodes = list((memory / "episodes").glob("ep_*.md"))
+    assert len(episodes) == 2
+    for path in episodes:
+        ep_fm = markdown_parser.parse(path).frontmatter
+        assert ep_fm["origin"] == "instagram-saved"
+
+
+# --- YouTube playlist CSV ----------------------------------------------------
+
+
+def test_parse_youtube_playlist_csv_builds_urls_and_folder_from_filename():
+    items = media_ingestor.parse_youtube_playlist_csv(
+        YOUTUBE_PLAYLIST_CSV.encode("utf-8"), "Watch later-videos.csv"
+    )
+    assert len(items) == 2
+    assert items[0].url == "https://www.youtube.com/watch?v=abc123"
+    assert items[1].url == "https://www.youtube.com/watch?v=def456"
+    assert all(i.folder == "Watch later" for i in items)
+    assert all(i.origin == "youtube-playlist" for i in items)
+    assert all(i.title is None for i in items)
+
+
+def test_parse_youtube_playlist_csv_strips_videos_suffix_preserving_case():
+    items = media_ingestor.parse_youtube_playlist_csv(
+        YOUTUBE_PLAYLIST_CSV.encode("utf-8"), "My Robotics Faves-videos.csv"
+    )
+    assert all(i.folder == "My Robotics Faves" for i in items)
+
+
+def test_parse_youtube_playlist_csv_video_id_alt_header():
+    csv_text = "Video Id\nxyz789\n"
+    items = media_ingestor.parse_youtube_playlist_csv(csv_text.encode("utf-8"), "Custom-videos.csv")
+    assert len(items) == 1
+    assert items[0].url == "https://www.youtube.com/watch?v=xyz789"
+
+
+def test_parse_youtube_playlist_csv_unrecognized_returns_empty_never_raises():
+    assert media_ingestor.parse_youtube_playlist_csv(b"a,b,c\n1,2,3\n", "random.csv") == []
+    assert media_ingestor.parse_youtube_playlist_csv(b"", "empty.csv") == []
+    assert media_ingestor.parse_youtube_playlist_csv(b"\xff\xfe\x00garbage", "bad.csv") == []
+
+
+def test_parse_upload_routes_playlist_csv():
+    items, label, from_bookmark = media_ingestor.parse_upload(
+        YOUTUBE_PLAYLIST_CSV.encode("utf-8"), "Watch later-videos.csv"
+    )
+    assert label == "YouTube Playlist"
+    assert from_bookmark is False
+    assert len(items) == 2
+    assert items[0].folder == "Watch later"
+
+
+def test_parse_upload_random_csv_still_falls_through_to_url_list():
+    """A CSV with no video-id column and no url/link/href column yields []
+    (via the existing ``parse_csv_url_list`` fallback), never raises."""
+    items, label, _ = media_ingestor.parse_upload(b"name,age\nAda,36\n", "people.csv")
+    assert label == "URL List"
+    assert items == []
+
+
+def test_parse_upload_csv_with_url_column_still_works_unaffected():
+    items, label, _ = media_ingestor.parse_upload(
+        b"url,note\nhttps://example.com/x,hi\n", "links.csv"
+    )
+    assert label == "URL List"
+    assert len(items) == 1
+    assert items[0].url == "https://example.com/x"
+
+
+def test_ingest_youtube_playlist_creates_episode_and_entity_with_folder(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    items, _, _ = media_ingestor.parse_upload(
+        YOUTUBE_PLAYLIST_CSV.encode("utf-8"), "Watch later-videos.csv"
+    )
+    created, dups = run(media_ingestor.ingest_batch(items, memory, commit=False))
+    assert created == 2
+    assert dups == 0
+
+    entities = list((memory / "entities").glob("media-*.md"))
+    assert len(entities) == 2
+    for path in entities:
+        fm = markdown_parser.parse(path).frontmatter
+        assert fm["origin"] == "youtube-playlist"
+        assert fm["folder"] == "Watch later"
+        assert fm["media"]["media_type"] == "youtube"
+
+
+# --- YouTube Takeout zip walk -------------------------------------------------
+
+
+def _build_takeout_zip() -> bytes:
+    import io
+    import zipfile
+
+    watch_history = json.dumps([
+        {
+            "titleUrl": "https://www.youtube.com/watch?v=wat001",
+            "title": "Watched Something",
+            "time": "2023-11-01T00:00:00Z",
+        }
+    ])
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "Takeout/YouTube and YouTube Music/playlists/Watch later-videos.csv",
+            YOUTUBE_PLAYLIST_CSV,
+        )
+        zf.writestr(
+            "Takeout/YouTube and YouTube Music/playlists/My Faves-videos.csv",
+            "Video Id\nzzz999\n",
+        )
+        zf.writestr(
+            "Takeout/YouTube and YouTube Music/history/watch-history.json",
+            watch_history,
+        )
+        # Unrecognized member -> must be skipped, never raise.
+        zf.writestr("Takeout/YouTube and YouTube Music/other-file.txt", "ignore me")
+    return buf.getvalue()
+
+
+def test_parse_youtube_takeout_zip_mixed_content():
+    data = _build_takeout_zip()
+    items = media_ingestor.parse_youtube_takeout_zip(data)
+    # 2 items from Watch later, 1 from My Faves, 1 from watch-history.json.
+    assert len(items) == 4
+    urls = {i.url for i in items}
+    assert "https://www.youtube.com/watch?v=abc123" in urls
+    assert "https://www.youtube.com/watch?v=def456" in urls
+    assert "https://www.youtube.com/watch?v=zzz999" in urls
+    assert "https://www.youtube.com/watch?v=wat001" in urls
+
+    by_url = {i.url: i for i in items}
+    assert by_url["https://www.youtube.com/watch?v=abc123"].folder == "Watch later"
+    assert by_url["https://www.youtube.com/watch?v=abc123"].origin == "youtube-playlist"
+    assert by_url["https://www.youtube.com/watch?v=zzz999"].folder == "My Faves"
+    # watch-history.json flows through parse_youtube_takeout, which doesn't
+    # set folder/origin (distinct code path from the playlist CSVs).
+    assert by_url["https://www.youtube.com/watch?v=wat001"].title == "Watched Something"
+
+
+def test_parse_youtube_takeout_zip_unrecognized_or_corrupt_returns_empty():
+    assert media_ingestor.parse_youtube_takeout_zip(b"not a zip file") == []
+    assert media_ingestor.parse_youtube_takeout_zip(b"") == []
+
+
+def test_parse_upload_routes_takeout_zip():
+    data = _build_takeout_zip()
+    items, label, from_bookmark = media_ingestor.parse_upload(data, "takeout.zip")
+    assert label == "YouTube Takeout (zip)"
+    assert from_bookmark is False
+    assert len(items) == 4
+
+
+def test_ingest_takeout_zip_dedups_on_second_import(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    data = _build_takeout_zip()
+    items, _, _ = media_ingestor.parse_upload(data, "takeout.zip")
+    created1, dups1 = run(media_ingestor.ingest_batch(items, memory, commit=False))
+    assert created1 == 4
+    assert dups1 == 0
+
+    items2, _, _ = media_ingestor.parse_upload(data, "takeout.zip")
+    created2, dups2 = run(media_ingestor.ingest_batch(items2, memory, commit=False))
+    assert created2 == 0
+    assert dups2 == 4

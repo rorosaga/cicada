@@ -66,6 +66,7 @@ All connectors follow the shipped pattern: **keyless/local-first, episodes at ca
 | B6 | **Ideas & tasks as memory** (G13) | M–L | Claims with `idea`/`todo`/`open-question` predicates + inbox surfacing ("you had an open idea about X"). Consider a `cicada_note` MCP quick-capture verb |
 | B7 | **Reading & life-log connectors** *(new, research 2026-07-13)* (G39–G43, G46) | S | Apple Books highlights (local SQLite, no export step), Kindle clippings (`My Clippings.txt`), Photos metadata via `osxphotos` (people/places/dates, never pixels), Journaling (`/journal` `/dream` Telegram verbs), Voice Memos (local Whisper transcribe), Contacts.app (birthday/employer corroboration). Same shipped keyless-local-connector pattern; best ROI found in the domain research pass |
 | B8 | **Education, courses & certificates** *(new, research 2026-07-13)* (G44) | M | LinkedIn export (`Certifications.csv`/`Education.csv`) + per-course certificate PDFs dropped into a watch-folder; no unified keyless API across providers, stays multi-source and periodic |
+| B9 | **Saved-content importers — Instagram + YouTube playlists** *(shipped)* (G47) | S | Instagram "Download your information" saved-posts JSON + YouTube Takeout per-playlist CSV/zip, riding the existing `media_ingestor.parse_upload` export-file path (no new architecture). Future members of the same family: TikTok favorites, Reddit saved, X bookmarks — each has an official data-export file |
 
 ## Track C — The reading experience (explore · visualize · audit)
 
