@@ -522,6 +522,16 @@ See root `CLAUDE.md`'s "Repo links" subsection for the full frontmatter shape.
 
 ---
 
+## Live-conversation provenance & resume (2026-08-20)
+
+Captured from Rodrigo 2026-08-20: memory should know not just *which harness* and *which model* wrote it, but *which specific live conversation* — and let you jump back into that conversation.
+
+| ID | Item | Notes | Status |
+|----|------|-------|--------|
+| G48 | **Live-conversation provenance + "Recent conversations" resume list** | Track which **live conversations** (Claude Code sessions, Cursor chats, any MCP-connected harness) wrote to which part of memory, and surface them as a **"Recent conversations"** list you can **hop back into** (resume). Two parts. **(a) Conversation-level provenance:** today provenance answers *which model* (M3 `Cicada-Author`) and *which harness* (G9 `origin`) but not *which conversation*. Stamp a **`session_id`/conversation id** (+ optional transcript path / resume handle) onto episodes captured live via MCP (`cicada_save_episode`, `cicada_write_claim`), and propagate it episode → entities/claims via `source_episodes` — the exact pattern G9 used to thread `origin`. Claude Code exposes its session id to hooks/MCP context; other harnesses analogously; degrade gracefully when a harness offers none. **(b) Recent-conversations surface:** a recency-sorted list (app view + API endpoint) grouping memory writes by conversation — harness, model, timestamp, and *which entities/claims that conversation touched* — with a one-click **"Resume"** action that reopens the session (`claude --resume <session-id>` for Claude Code; per-harness deep-link where one exists, provenance-only fallback where not). Inverse navigation too: from an entity's history, jump to the conversation that wrote that belief, then back into it live. → extends **G9** (origin: harness → *conversation*), **M3/A2** (contributors: model → *session*); relates to **G12/M7** (imported conversations already carry per-conversation `uuid`s — same grouping applies, minus resume) and the entity history/provenance views. | 🔲 |
+
+---
+
 ## Open decisions (asked to Rodrigo — answers recorded here)
 
 These are the foundational forks; most of the backlog hangs off them.
