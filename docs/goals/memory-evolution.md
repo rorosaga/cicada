@@ -532,6 +532,16 @@ Captured from Rodrigo 2026-08-20: memory should know not just *which harness* an
 
 ---
 
+## Subscription-first portability (2026-08-21)
+
+Captured from Rodrigo 2026-08-21: Cicada should be fully useful with **no API keys** — powered by the Claude or ChatGPT plan the user already pays for, connected into those same sessions. A 15-agent research workflow (repo grounding → Claude-plan/ChatGPT-plan/local-fallback/prior-art research → 5 adversarially verified claims → 3 candidate architectures → judged synthesis) produced [`subscription-first-portability.md`](subscription-first-portability.md).
+
+| ID | Item | Notes | Status |
+|----|------|-------|--------|
+| G49 | **Subscription-only Cicada — the "Session-Native Engine Ladder"** | Adopt the recommended architecture in [`subscription-first-portability.md`](subscription-first-portability.md): a **Claude Code plugin** (SessionStart primer, Stop/SessionEnd auto-capture, PreCompact flush, both skills, MCP registration, new `cicada_commit` tool) with a **Codex CLI mirror** for ChatGPT-plan users; underneath, an **engine ladder** (implement the reserved `llm_mode="agent"`: subscription CLI `claude -p`/`codex exec` → local Ollama → BYOK → skip-with-queue) behind a mandatory `providers.resolve_llm_fn` seam; on top, **keyless onboarding** (plan-picker wizard replacing "paste your key" with vendor OAuth, ungated embedding default removing the HF_TOKEN gate, launchd nightly runner with env-key sanitization + stop-on-throttle). Two non-negotiables all three candidate designs converged on: a deterministic **"structural Sleep"** (decay/hubs/edges/index/inbox/git-commit — zero LLM, runs nightly no matter what, sweep-commits agentic writes) and **bearer-token auth on localhost:8000 as a launch blocker**. Phased P0–P5 (~5–7 solo weeks; Claude-plan user fully served after ~2). Key verified facts: `claude -p` runs on Pro/Max subscription OAuth (billing-split paused Jun 2026); published token-limit figures are **refuted** → budget in invocations + live throttle detection, never tokens. Re-confirm the doc's "NOT verified" checklist (hooks payloads, plugin marketplace, all Codex-side claims) before building each phase. → subsumes the engine half of **G10** (agentic extraction), extends **G9** (origin) + M3 (contributors, per-rung `Cicada-Author`), relates to G13, launch-blocker list, and `install.sh`/onboarding. | 🔲 |
+
+---
+
 ## Open decisions (asked to Rodrigo — answers recorded here)
 
 These are the foundational forks; most of the backlog hangs off them.
