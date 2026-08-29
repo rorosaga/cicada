@@ -72,9 +72,16 @@ def version(memory_path: Path, sleep_state=None) -> VersionInfo:
     return VersionInfo(version=_digest(comps), components=comps)
 
 
-def etag_for(memory_path: Path, *keys: str) -> str:
+def etag_for(memory_path: Path, *keys: str, extra: str = "") -> str:
+    """ETag over the named components, plus an optional ``extra`` string folded
+    into the digest — for varying request state (query params, filters) that
+    changes the response body but isn't reflected in any filesystem component.
+    """
     comps = components(memory_path)
-    return '"' + _digest({k: comps[k] for k in keys}) + '"'
+    parts: dict = {k: comps[k] for k in keys}
+    if extra:
+        parts["_extra"] = extra
+    return '"' + _digest(parts) + '"'
 
 
 def conditional(request: Request, response: Response, etag: str) -> Response | None:

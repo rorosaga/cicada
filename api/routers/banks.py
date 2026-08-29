@@ -25,7 +25,7 @@ from api.models.schemas import (
     BankRenameRequest,
 )
 from api.routers.conversations import _stage_episodes, parse_export_bytes
-from api.services import bank_registry, sync_service
+from api.services import bank_index, bank_registry, sync_service
 from api.services.graph_builder import file_mtime
 
 router = APIRouter()
@@ -37,12 +37,23 @@ async def list_banks(
     response: Response,
     settings: Settings = Depends(get_settings),
 ) -> BankListResponse:
-    base_etag = sync_service.etag_for(settings.memory_path, "bank")
-    registry_mtime = file_mtime(settings.memory_root / "banks.yaml")
-    etag = '"' + hashlib.sha1((base_etag + str(registry_mtime)).encode()).hexdigest()[:16] + '"'
+    root = settings.memory_root
+    registry_mtime = file_mtime(root / "banks.yaml")
+    registry = bank_registry.load_registry(root)
+    # The listing's body includes each bank's live entity_count/episode_count
+    # (bank_registry.list_banks -> _count(bank_dir(...), "entities"/"episodes")),
+    # so the ETag must cover those per-bank counts too -- not just banks.yaml's
+    # own mtime -- or a 304 would hide a changed count.
+    parts = [str(registry_mtime)]
+    for name in sorted((registry.get("banks", {}) or {}).keys()):
+        bank_path = bank_registry.bank_dir(root, name)
+        entities_stamp = bank_index.dir_stamp(bank_path, "entities")
+        episodes_stamp = bank_index.dir_stamp(bank_path, "episodes")
+        parts.append(f"{name}:{entities_stamp}:{episodes_stamp}")
+    etag = '"' + hashlib.sha1("|".join(parts).encode()).hexdigest()[:16] + '"'
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
-    data = bank_registry.list_banks(settings.memory_root)
+    data = bank_registry.list_banks(root)
     return BankListResponse(
         banks=[BankInfo(**b) for b in data["banks"]],
         active=data["active"],

@@ -43,11 +43,47 @@ def test_version_stable_then_changes(client):
 
 def test_etag_304_on_graph_and_inbox(client):
     c, _ = client
-    for path in ("/graph", "/inbox", "/contributors", "/banks"):
+    for path in ("/graph", "/inbox", "/contributors", "/banks", "/sources", "/origins"):
         r1 = c.get(path)
         assert r1.status_code == 200 and r1.headers.get("etag"), path
         r2 = c.get(path, headers={"If-None-Match": r1.headers["etag"]})
         assert r2.status_code == 304, path
+
+
+def test_banks_etag_changes_when_bank_entity_count_changes(client):
+    """The /banks ETag must cover the entity_count/episode_count it reports for
+    every bank -- not just banks.yaml's own mtime -- or a 304 would hide a
+    changed count (a real body diff) behind a stale ETag."""
+    c, mem = client
+
+    r1 = c.get("/banks")
+    assert r1.status_code == 200 and r1.headers.get("etag")
+    etag1 = r1.headers["etag"]
+
+    time.sleep(0.01)
+    (mem / "entities" / "brand-new.md").write_text("---\ntype: concept\n---\nx\n")
+
+    r2 = c.get("/banks", headers={"If-None-Match": etag1})
+    assert r2.status_code == 200, "entity_count changed -- must not 304"
+    etag2 = r2.headers["etag"]
+    assert etag2 != etag1
+
+    r3 = c.get("/banks", headers={"If-None-Match": etag2})
+    assert r3.status_code == 304, "unchanged since etag2 -- should 304 now"
+
+
+def test_graph_etag_varies_with_query_params(client):
+    c, _ = client
+    e1 = c.get("/graph").headers["etag"]
+    e2 = c.get("/graph?hubs_only=true").headers["etag"]
+    assert e1 != e2
+
+
+def test_inbox_etag_varies_with_kind_filter(client):
+    c, _ = client
+    e1 = c.get("/inbox").headers["etag"]
+    e2 = c.get("/inbox?kind=decay").headers["etag"]
+    assert e1 != e2
 
 
 def test_sse_first_event_is_version(client):

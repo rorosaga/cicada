@@ -16,7 +16,7 @@ async def list_inbox(
     kind: Optional[str] = Query(None),
     settings: Settings = Depends(get_settings),
 ):
-    etag = sync_service.etag_for(settings.memory_path, "inbox")
+    etag = sync_service.etag_for(settings.memory_path, "inbox", extra=kind or "")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     items = inbox_service.load_inbox(settings.memory_path)

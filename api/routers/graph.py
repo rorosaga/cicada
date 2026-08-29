@@ -28,7 +28,10 @@ async def get_graph(
     hubs_only: bool = False,
     settings: Settings = Depends(get_settings),
 ):
-    etag = sync_service.etag_for(settings.memory_path, "entities", "edges", "hubs", "inbox")
+    extra = f"{types}|{statuses}|{min_confidence}|{tags}|{include_hubs}|{hubs_only}"
+    etag = sync_service.etag_for(
+        settings.memory_path, "entities", "edges", "hubs", "inbox", extra=extra
+    )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     return await run_in_threadpool(

@@ -288,7 +288,7 @@ async def list_sources(
     computed from each entity's frontmatter.
     """
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "sources", "episodes")
+    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", extra=sort)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     idx = media_ingestor.load_url_index(memory_path)
