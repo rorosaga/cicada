@@ -354,5 +354,6 @@ else
 fi
 echo "  launchd:       $PLIST_PATH"
 [ "$DO_SKILL" -eq 1 ] && echo "  skill:         $CLAUDE_SKILLS_DIR/cicada/SKILL.md"
+echo "  API token:     ${CICADA_HOME:-$HOME/.cicada}/api_token (the app and MCP server read it automatically)"
 echo
 echo "  Next: run 'make doctor' to verify, or 'curl localhost:$PORT/healthz'."
