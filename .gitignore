@@ -24,3 +24,6 @@ benchmarks/queries.txt
 
 # macOS Finder
 .DS_Store
+
+# superpowers SDD scratch (ledger, briefs, review packages)
+.superpowers/
