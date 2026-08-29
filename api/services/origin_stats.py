@@ -17,7 +17,7 @@ but keyed on capture origin rather than authoring model.
 
 from pathlib import Path
 
-from api.services import markdown_parser
+from api.services import bank_index
 
 UNKNOWN_ORIGIN = "unknown"
 
@@ -38,10 +38,9 @@ def aggregate_origins(memory_path: Path) -> list[dict]:
     episode_origin: dict[str, str] = {}
     agg: dict[str, dict] = {}
 
-    for filepath in sorted(episodes_dir.glob("*.md")):
-        parsed = markdown_parser.parse(filepath)
-        fm = parsed.frontmatter
-        episode_id = str(fm.get("id") or filepath.stem)
+    for f in bank_index.files(memory_path, "episodes"):
+        fm = f.frontmatter
+        episode_id = str(fm.get("id") or f.stem)
         origin = str(fm.get("origin") or "").strip() or UNKNOWN_ORIGIN
         timestamp = str(fm.get("timestamp") or "")
 
@@ -54,27 +53,24 @@ def aggregate_origins(memory_path: Path) -> list[dict]:
         if timestamp > state["last_seen"]:
             state["last_seen"] = timestamp
 
-    entities_dir = memory_path / "entities"
-    if entities_dir.exists():
-        for filepath in sorted(entities_dir.glob("*.md")):
-            parsed = markdown_parser.parse(filepath)
-            fm = parsed.frontmatter
-            entity_id = str(fm.get("id") or filepath.stem)
-            source_episodes = fm.get("source_episodes", []) or []
+    for f in bank_index.files(memory_path, "entities"):
+        fm = f.frontmatter
+        entity_id = str(fm.get("id") or f.stem)
+        source_episodes = fm.get("source_episodes", []) or []
 
-            # An entity's origins = the distinct origins of its source episodes.
-            # Only episodes we actually saw on disk contribute (a dangling
-            # source_episode reference doesn't manufacture a phantom origin).
-            origins_for_entity = {
-                episode_origin[ep_id]
-                for ep_id in source_episodes
-                if ep_id in episode_origin
-            }
-            for origin in origins_for_entity:
-                state = agg.setdefault(
-                    origin, {"episode_count": 0, "entity_ids": set(), "last_seen": ""}
-                )
-                state["entity_ids"].add(entity_id)
+        # An entity's origins = the distinct origins of its source episodes.
+        # Only episodes we actually saw on disk contribute (a dangling
+        # source_episode reference doesn't manufacture a phantom origin).
+        origins_for_entity = {
+            episode_origin[ep_id]
+            for ep_id in source_episodes
+            if ep_id in episode_origin
+        }
+        for origin in origins_for_entity:
+            state = agg.setdefault(
+                origin, {"episode_count": 0, "entity_ids": set(), "last_seen": ""}
+            )
+            state["entity_ids"].add(entity_id)
 
     results = [
         {

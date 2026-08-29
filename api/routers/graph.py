@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import GraphResponse
@@ -24,7 +25,8 @@ async def get_graph(
     hubs_only: bool = False,
     settings: Settings = Depends(get_settings),
 ):
-    return build_graph(
+    return await run_in_threadpool(
+        build_graph,
         settings.memory_path,
         types=_split(types),
         statuses=_split(statuses),

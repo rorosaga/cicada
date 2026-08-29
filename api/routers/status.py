@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
@@ -13,8 +14,8 @@ from api.models.schemas import (
     StatusResponse,
     StatusSleep,
 )
-from api.services import git_service, inbox_service, sleep_scheduler
-from api.services.sleep_cycle import _get_unprocessed_episodes, get_sleep_state
+from api.services import bank_index, git_service, inbox_service, sleep_scheduler
+from api.services.sleep_cycle import get_sleep_state
 
 router = APIRouter()
 
@@ -71,11 +72,9 @@ def _leann_present(memory_path: Path) -> bool:
 @router.get("/status", response_model=StatusResponse)
 async def get_status(settings: Settings = Depends(get_settings)):
     state = get_sleep_state()
-    items = inbox_service.load_inbox(settings.memory_path)
+    items, unprocessed, last_ingested = await run_in_threadpool(_scan_bank, settings.memory_path)
     by_kind = Counter(i.kind.value for i in items)
 
-    episodes = _get_unprocessed_episodes(settings.memory_path)
-    last_ingested = _last_ingested_at(settings.memory_path)
     last_sleep = await _last_sleep_at(settings.memory_path)
     next_sleep = _next_sleep_at(settings.memory_path)
 
@@ -95,7 +94,7 @@ async def get_status(settings: Settings = Depends(get_settings)):
         ),
         inbox=StatusInbox(total=len(items), by_kind=dict(by_kind)),
         episodes=StatusEpisodes(
-            unprocessed=len(episodes),
+            unprocessed=unprocessed,
             last_ingested_at=last_ingested,
         ),
         last_sleep_at=last_sleep,
@@ -104,23 +103,27 @@ async def get_status(settings: Settings = Depends(get_settings)):
     )
 
 
+def _scan_bank(memory_path: Path) -> tuple[list, int, str | None]:
+    """Sync helper for the blocking file-scanning pieces of ``/status``.
+
+    Loads the inbox and the episodes bank_index in one threadpool hop so the
+    event loop isn't blocked by filesystem/YAML work.
+    """
+    items = inbox_service.load_inbox(memory_path)
+    unprocessed = 0
+    last_ingested = _last_ingested_at(memory_path)
+    for f in bank_index.files(memory_path, "episodes"):
+        if not f.frontmatter.get("processed", False):
+            unprocessed += 1
+    return items, unprocessed, last_ingested
+
+
 def _last_ingested_at(memory_path: Path) -> str | None:
     """Latest episode timestamp across all episodes, or None."""
-    from api.services import markdown_parser
-
-    episodes_dir = memory_path / "episodes"
-    latest: str | None = None
-    if not episodes_dir.exists():
-        return None
-    for filepath in episodes_dir.glob("*.md"):
-        try:
-            parsed = markdown_parser.parse(filepath)
-        except Exception:
-            continue
-        ts = str(parsed.frontmatter.get("timestamp", "") or "").strip()
-        if ts and (latest is None or ts > latest):
-            latest = ts
-    return latest
+    return max(
+        (str(f.frontmatter.get("timestamp") or "") for f in bank_index.files(memory_path, "episodes")),
+        default="",
+    ) or None
 
 
 async def _last_sleep_at(memory_path: Path) -> str | None:

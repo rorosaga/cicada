@@ -6,7 +6,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.config import Settings
-from api.services import git_service, markdown_parser
+from api.services import bank_index, git_service, markdown_parser
 
 
 @dataclass
@@ -344,27 +344,23 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
     ``conflict_resolver.apply_changes``, which use earliest/latest source
     episode timestamps to set ``created`` and ``last_referenced``.
     """
-    episodes_dir = memory_path / "episodes"
     results: list[dict] = []
-    for filepath in episodes_dir.glob("*.md"):
-        try:
-            parsed = markdown_parser.parse(filepath)
-        except Exception as exc:  # noqa: BLE001 - one malformed episode must not abort the cycle
-            logger.warning(f"_get_unprocessed_episodes: skipping malformed episode {filepath}: {exc}")
+    for f in bank_index.files(memory_path, "episodes"):
+        fm = f.frontmatter
+        if fm.get("processed", False):
             continue
-        if not parsed.frontmatter.get("processed", False):
-            source = parsed.frontmatter.get("source", "unknown")
-            results.append({
-                "id": parsed.frontmatter.get("id", filepath.stem),
-                "content": parsed.body,
-                "source": source,
-                # G9 origin: explicit field if present, else derived from the
-                # legacy `source` (origin-and-harness-sync.md §1b). Propagated into
-                # extracted claims so each belief records which harness it came from.
-                "origin": parsed.frontmatter.get("origin") or _derive_origin(source),
-                "timestamp": str(parsed.frontmatter.get("timestamp", "") or ""),
-                "filepath": filepath,
-            })
+        source = fm.get("source", "unknown")
+        results.append({
+            "id": fm.get("id", f.stem),
+            "content": f.body(),
+            "source": source,
+            # G9 origin: explicit field if present, else derived from the
+            # legacy `source` (origin-and-harness-sync.md §1b). Propagated into
+            # extracted claims so each belief records which harness it came from.
+            "origin": fm.get("origin") or _derive_origin(source),
+            "timestamp": str(fm.get("timestamp", "") or ""),
+            "filepath": f.path,
+        })
     # Fall back on the id (which begins with the date) for episodes missing a
     # timestamp so the sort is stable regardless of filesystem order.
     results.sort(key=lambda r: (r.get("timestamp") or "", r["id"]))

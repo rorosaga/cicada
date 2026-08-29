@@ -7,6 +7,7 @@ from", mirroring ``api/routers/contributors.py``'s "who authored this belief".
 """
 
 from fastapi import APIRouter, Depends
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import OriginsResponse
@@ -19,5 +20,5 @@ router = APIRouter()
 async def get_origins(
     settings: Settings = Depends(get_settings),
 ):
-    origins = origin_stats.aggregate_origins(settings.memory_path)
+    origins = await run_in_threadpool(origin_stats.aggregate_origins, settings.memory_path)
     return OriginsResponse(origins=origins)
