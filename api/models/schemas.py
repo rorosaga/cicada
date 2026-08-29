@@ -880,3 +880,55 @@ class NotesSyncResponse(CamelModel):
     total: int = 0
     # Notes dropped by CICADA_NOTES_EXCLUDE_FOLDERS before dedup/ingest.
     excluded: int = 0
+
+# --- Provider connections (G50) ---
+
+
+class ConnectionKind(str, Enum):
+    subscription = "subscription"
+    usage = "usage"
+    local = "local"
+
+
+class LoginHint(CamelModel):
+    mode: str  # terminal | device-code | key | none
+    command: Optional[str] = None
+
+
+class ConnectionStatus(CamelModel):
+    id: str
+    label: str
+    kind: ConnectionKind
+    available: bool = False
+    connected: bool = False
+    plan: Optional[str] = None
+    plan_label: Optional[str] = None
+    tier: Optional[str] = None
+    account: Optional[str] = None
+    price_usd_month: Optional[float] = None
+    price_note: Optional[str] = None
+    billing: str = "usage"  # subscription | usage | free
+    engine_role: Optional[str] = None
+    detail: Optional[str] = None
+    login: Optional[LoginHint] = None
+
+
+class LoginSession(CamelModel):
+    session_id: str
+    connection_id: str
+    mode: str
+    state: str = "pending"  # pending | done | failed
+    command: Optional[str] = None
+    code: Optional[str] = None
+    url: Optional[str] = None
+    raw_output: str = ""
+    detail: Optional[str] = None
+
+
+class ConnectionsResponse(CamelModel):
+    connections: list[ConnectionStatus]
+
+
+class StatusConnections(CamelModel):
+    connected: list[str] = []
+    engine: Optional[str] = None
