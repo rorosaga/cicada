@@ -662,9 +662,7 @@ actor APIClient {
     /// `POST /banks/{name}/import` (multipart file) → stage parsed conversations
     /// into bank `name` as dated episodes. Format is auto-detected server-side.
     func importToBank(name: String, fileURL: URL) async throws -> BankImportResponse {
-        let url = URL(string: "\(baseURL)/banks/\(encodedBank(name))/import")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        var request = makeRequest("/banks/\(encodedBank(name))/import", method: "POST", json: false)
 
         let boundary = UUID().uuidString
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")

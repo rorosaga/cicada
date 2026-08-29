@@ -7,6 +7,12 @@ is generated once into ``$CICADA_HOME/api_token`` (0600); the companion app,
 the MCP server and ``doctor.sh`` read the same file. ``CICADA_API_TOKEN``
 overrides the file; ``CICADA_API_AUTH=off`` disables the check (tests/dev only
 — logged loudly at startup).
+
+Open paths (no bearer token required): ``GET /healthz`` (installer/doctor
+liveness probe) and ``POST /capture/telegram`` (Telegram's servers hit this
+webhook through a public tunnel and cannot send our bearer header — it stays
+gated by its own ``CICADA_TELEGRAM_BOT_TOKEN`` check in
+``api/routers/capture.py``).
 """
 from __future__ import annotations
 
@@ -18,7 +24,7 @@ from fastapi import Header, HTTPException, Request
 from loguru import logger
 
 TOKEN_FILE_NAME = "api_token"
-_OPEN_PATHS = frozenset({"/healthz"})
+_OPEN_PATHS = frozenset({"/healthz", "/capture/telegram"})
 
 
 def cicada_home() -> Path:

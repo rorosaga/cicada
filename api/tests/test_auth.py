@@ -61,3 +61,13 @@ def test_auth_off_switch_disables_check(home, monkeypatch):
     monkeypatch.setenv("CICADA_API_AUTH", "off")
     with TestClient(main.app) as client:
         assert client.get("/status").status_code == 200
+
+
+def test_capture_telegram_is_exempt_from_bearer_check(home):
+    """Telegram's servers POST this webhook through a public tunnel and cannot
+    send our bearer header, so it's in ``_OPEN_PATHS`` — gated only by its own
+    ``CICADA_TELEGRAM_BOT_TOKEN`` check in api/routers/capture.py, never by
+    ``require_token``."""
+    with TestClient(main.app) as client:
+        resp = client.post("/capture/telegram", json={})
+        assert resp.json() != {"detail": "missing or invalid bearer token"}
