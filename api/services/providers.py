@@ -20,6 +20,7 @@ Everything here is hermetically testable: ``resolve_llm_fn`` takes an injectable
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any, Callable
 
 import numpy as np
@@ -34,6 +35,51 @@ LlmFn = Callable[..., Any]
 
 OPENROUTER_EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings"
 _EMBED_BATCH = 100
+
+# Memoised (embed_fn, model_id) per recorded model id — the query-time path
+# (``resolve_embed_fn_for_model`` with no injected factories) used to
+# construct a fresh SentenceTransformer (a multi-second model load, not
+# inference) on every call. Loaded once per process and reused.
+_EMBED_CACHE: dict[str, tuple[EmbedFn, str]] = {}
+_EMBED_LOCK = threading.Lock()
+
+
+def _default_sentence_transformer_factory():
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer
+
+
+def clear_embed_cache() -> None:
+    with _EMBED_LOCK:
+        _EMBED_CACHE.clear()
+
+
+def cached_embed_fn_for_model(model_id: str, settings: Settings | None = None) -> tuple[EmbedFn, str]:
+    """Memoised :func:`resolve_embed_fn_for_model` — the model is loaded once per process."""
+    mid = (model_id or "").strip()
+    with _EMBED_LOCK:
+        hit = _EMBED_CACHE.get(mid)
+        if hit is not None:
+            return hit
+    built = resolve_embed_fn_for_model(
+        mid, settings, sentence_transformer_factory=_default_sentence_transformer_factory(), _skip_cache=True
+    )
+    with _EMBED_LOCK:
+        return _EMBED_CACHE.setdefault(mid, built)
+
+
+def warm_query_embedder(memory_path) -> None:
+    """Preload the query embedder recorded in the bank's index (background, best effort)."""
+    try:
+        from api.services.vector_index import SqliteVecIndexer
+
+        recorded = (SqliteVecIndexer(memory_path).index_info() or {}).get("model")
+        if recorded and recorded != "unknown":
+            cached_embed_fn_for_model(recorded)
+            logger.info(f"Warmed query embedder: {recorded}")
+    except Exception as exc:  # never fatal
+        logger.warning(f"embedder warm-up skipped: {exc}")
 
 
 # --------------------------------------------------------------------------- #
@@ -249,6 +295,7 @@ def resolve_embed_fn_for_model(
     transport: Callable[..., Any] | None = None,
     openai_client_factory: Callable[..., Any] | None = None,
     sentence_transformer_factory: Callable[..., Any] | None = None,
+    _skip_cache: bool = False,
 ) -> tuple[EmbedFn, str]:
     """Build an embed_fn for a SPECIFIC recorded model id (query-time path).
 
@@ -266,6 +313,14 @@ def resolve_embed_fn_for_model(
     SentenceTransformer. Callers fall back to the global :func:`resolve_embed_fn`
     when the bank's index is unbuilt (no recorded model).
     """
+    if (
+        not _skip_cache
+        and transport is None
+        and openai_client_factory is None
+        and sentence_transformer_factory is None
+    ):
+        return cached_embed_fn_for_model(model_id, settings)
+
     if settings is None:
         from api.config import get_settings
 

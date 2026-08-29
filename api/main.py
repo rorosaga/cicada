@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -31,6 +32,7 @@ from api.routers import (
     status,
 )
 from api.services import bank_registry, sleep_scheduler
+from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
 from api.services.inbox_migration import migrate_to_inbox
 
@@ -70,6 +72,12 @@ async def lifespan(app: FastAPI):
     loaded = connection_secrets.load_secrets()
     if loaded:
         logger.info(f"Loaded {len(loaded)} provider key(s) from {connection_secrets.secrets_path()}")
+
+    # Preload the query embedder recorded in the bank's index in the
+    # background so the first /search request doesn't pay the model-load
+    # cost. Never awaited — must not block startup — and warm_query_embedder
+    # swallows its own errors so a slow/missing index can't crash boot.
+    asyncio.get_running_loop().run_in_executor(None, warm_query_embedder, settings.memory_path)
 
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")
