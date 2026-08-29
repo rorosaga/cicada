@@ -9,6 +9,7 @@ a key it should not see.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import shutil
 from dataclasses import dataclass
@@ -36,6 +37,8 @@ def scrubbed_env() -> dict[str, str]:
 async def run_cli(argv: list[str], *, timeout: float = 15.0) -> CliResult:
     """Run ``argv`` with a scrubbed env. Never raises: missing binary -> rc 127,
     timeout -> rc 124, so adapters can degrade to ``available=False``."""
+    if not argv:
+        return CliResult(127, "", "empty argv")
     if shutil.which(argv[0]) is None and not os.path.exists(argv[0]):
         return CliResult(127, "", f"{argv[0]}: not found")
     try:
@@ -51,7 +54,10 @@ async def run_cli(argv: list[str], *, timeout: float = 15.0) -> CliResult:
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
-        proc.kill()
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(proc.wait(), timeout=5)
         return CliResult(124, "", f"{argv[0]} timed out after {timeout}s")
     return CliResult(proc.returncode or 0, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"))
 
