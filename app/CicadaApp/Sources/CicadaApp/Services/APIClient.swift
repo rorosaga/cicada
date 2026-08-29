@@ -800,6 +800,38 @@ actor APIClient {
         return resp.contributors
     }
 
+    // MARK: - Connections (G50)
+
+    func fetchConnections(fresh: Bool = false) async throws -> [ConnectionStatus] {
+        let resp: ConnectionsResponse = try await get("/connections\(fresh ? "?fresh=true" : "")")
+        return resp.connections
+    }
+
+    func beginLogin(_ id: String) async throws -> LoginSession {
+        try await post("/connections/\(id)/login")
+    }
+
+    func loginState(_ id: String, sessionId: String) async throws -> LoginSession {
+        try await get("/connections/\(id)/login/\(sessionId)")
+    }
+
+    func logout(_ id: String) async throws -> ConnectionStatus {
+        try await post("/connections/\(id)/logout")
+    }
+
+    func setKey(_ id: String, key: String) async throws -> ConnectionStatus {
+        try await put("/connections/\(id)/key", body: ["key": key])
+    }
+
+    func removeKey(_ id: String) async throws -> ConnectionStatus {
+        let data = try await delete("/connections/\(id)/key")
+        return try decoder.decode(ConnectionStatus.self, from: data)
+    }
+
+    func setTier(_ id: String, tier: String?) async throws -> ConnectionStatus {
+        try await put("/connections/\(id)/prefs", body: ["tier": tier ?? NSNull()])
+    }
+
     // MARK: - Inbox
 
     /// Fetch the unified inbox (`GET /inbox`). Optionally filter by kinds —
