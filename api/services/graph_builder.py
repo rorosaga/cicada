@@ -449,3 +449,10 @@ def _inbox_mtime(memory_path: Path) -> float:
         if m > latest:
             latest = m
     return latest
+
+
+# Public aliases for callers outside this module (e.g. sync_service) that only
+# need the cheap mtime helpers, not the full cached graph build.
+dir_mtime = _dir_mtime
+file_mtime = _mtime
+inbox_mtime = _inbox_mtime

@@ -9,7 +9,9 @@ and manage *every* bank, not just the resolved active one.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+import hashlib
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
 from loguru import logger
 
 from api.config import Settings, get_settings
@@ -23,13 +25,23 @@ from api.models.schemas import (
     BankRenameRequest,
 )
 from api.routers.conversations import _stage_episodes, parse_export_bytes
-from api.services import bank_registry
+from api.services import bank_registry, sync_service
+from api.services.graph_builder import file_mtime
 
 router = APIRouter()
 
 
 @router.get("/banks", response_model=BankListResponse)
-async def list_banks(settings: Settings = Depends(get_settings)) -> BankListResponse:
+async def list_banks(
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+) -> BankListResponse:
+    base_etag = sync_service.etag_for(settings.memory_path, "bank")
+    registry_mtime = file_mtime(settings.memory_root / "banks.yaml")
+    etag = '"' + hashlib.sha1((base_etag + str(registry_mtime)).encode()).hexdigest()[:16] + '"'
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
     data = bank_registry.list_banks(settings.memory_root)
     return BankListResponse(
         banks=[BankInfo(**b) for b in data["banks"]],

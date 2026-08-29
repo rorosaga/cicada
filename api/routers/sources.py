@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 
@@ -17,7 +17,7 @@ from api.models.schemas import (
     SourceSaveResponse,
     SourceUploadResponse,
 )
-from api.services import bookmark_sync, calendar_registry, feed_registry, media_ingestor, notes_sync
+from api.services import bookmark_sync, calendar_registry, feed_registry, media_ingestor, notes_sync, sync_service
 from api.services.media_ingestor import MAX_BATCH, RawItem
 
 router = APIRouter()
@@ -276,6 +276,8 @@ async def sync_bookmarks(
 
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
+    request: Request,
+    response: Response,
     sort: str = Query("recent", pattern="^(recent|relevance)$"),
     settings: Settings = Depends(get_settings),
 ):
@@ -286,6 +288,9 @@ async def list_sources(
     computed from each entity's frontmatter.
     """
     memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "sources", "episodes")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
     idx = media_ingestor.load_url_index(memory_path)
 
     items = []

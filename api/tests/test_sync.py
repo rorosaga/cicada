@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from api import config, main
+from api.services import bank_index, sync_service
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    config.get_settings.cache_clear()
+    bank_index.invalidate()
+    with TestClient(main.app) as c:
+        yield c, tmp_path
+    config.get_settings.cache_clear()
+
+
+def test_git_head_reads_ref_without_subprocess(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x"], cwd=tmp_path, check=True)
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True).stdout.strip()
+    assert sync_service.git_head(tmp_path) == sha
+    assert sync_service.git_head(tmp_path / "nope") == ""
+
+
+def test_version_stable_then_changes(client):
+    c, mem = client
+    v1 = c.get("/sync/version").json()
+    v2 = c.get("/sync/version").json()
+    assert v1["version"] == v2["version"] and set(v1["components"]) >= {"entities", "inbox", "episodes", "git_head", "bank", "sleep"}
+    time.sleep(0.01)
+    (mem / "entities" / "new.md").write_text("---\ntype: concept\n---\nx\n")
+    v3 = c.get("/sync/version").json()
+    assert v3["version"] != v1["version"] and v3["components"]["entities"] != v1["components"]["entities"]
+
+
+def test_etag_304_on_graph_and_inbox(client):
+    c, _ = client
+    for path in ("/graph", "/inbox", "/contributors", "/banks"):
+        r1 = c.get(path)
+        assert r1.status_code == 200 and r1.headers.get("etag"), path
+        r2 = c.get(path, headers={"If-None-Match": r1.headers["etag"]})
+        assert r2.status_code == 304, path
+
+
+def test_sse_first_event_is_version(client):
+    # NOTE: this repo's starlette/httpx versions make TestClient's `.stream()`
+    # run the ASGI app to full completion (via a *blocking* portal.call, see
+    # starlette/testclient.py::_TestClientTransport.handle_request) before
+    # returning any bytes at all -- so `with c.stream(...)` never returns for
+    # a never-ending SSE generator, and would hang the test suite forever.
+    # Drive the router's async generator directly instead: pull one event,
+    # then aclose() it (exercising the same cancellation path a real client
+    # disconnect would trigger) and assert that raises nothing.
+    import asyncio
+
+    from api.config import get_settings
+    from api.routers import sync as sync_router
+
+    async def _drive():
+        settings = get_settings()
+        resp = await sync_router.events(settings=settings)
+        assert resp.media_type == "text/event-stream"
+        gen = resp.body_iterator
+        first = await gen.__anext__()
+        await gen.aclose()
+        return first
+
+    first = asyncio.run(_drive())
+    lines = first.splitlines()
+    assert lines[0] == "event: version"
+    data = json.loads(lines[1].split(":", 1)[1])
+    assert "version" in data
+
+
+def test_status_does_not_spawn_git_twice_when_head_unchanged(client, monkeypatch):
+    c, _ = client
+    from api.services import git_service
+
+    calls = {"n": 0}
+    orig = git_service._run_git
+
+    async def counting(*args, **kwargs):
+        calls["n"] += 1
+        return await orig(*args, **kwargs)
+
+    monkeypatch.setattr(git_service, "_run_git", counting)
+
+    r1 = c.get("/status")
+    after_first = calls["n"]
+    r2 = c.get("/status")
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert calls["n"] == after_first, (
+        f"expected no additional git calls on the second /status with HEAD unchanged "
+        f"({after_first} -> {calls['n']})"
+    )

@@ -30,6 +30,7 @@ from api.routers import (
     sleep,
     sources,
     status,
+    sync,
 )
 from api.services import bank_registry, sleep_scheduler
 from api.services.providers import warm_query_embedder
@@ -156,3 +157,4 @@ app.include_router(local_refs.router, tags=["local-refs"])
 app.include_router(capture.router, tags=["capture"])
 app.include_router(maintenance.router, tags=["maintenance"])
 app.include_router(connections.router, tags=["connections"])
+app.include_router(sync.router, tags=["sync"])

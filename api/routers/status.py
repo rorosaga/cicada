@@ -14,10 +14,14 @@ from api.models.schemas import (
     StatusResponse,
     StatusSleep,
 )
-from api.services import bank_index, git_service, inbox_service, sleep_scheduler
+from api.services import bank_index, git_service, inbox_service, sleep_scheduler, sync_service
 from api.services.sleep_cycle import get_sleep_state
 
 router = APIRouter()
+
+# module-level cache: git_head(memory_path) -> last_sleep_at, so /status only
+# shells out to `git log` when HEAD actually moved (a Sleep-cycle commit).
+_last_sleep_cache: dict[str, str | None] = {}
 
 
 @router.get("/healthz", response_model=HealthResponse)
@@ -72,8 +76,9 @@ def _leann_present(memory_path: Path) -> bool:
 @router.get("/status", response_model=StatusResponse)
 async def get_status(settings: Settings = Depends(get_settings)):
     state = get_sleep_state()
-    items, unprocessed, last_ingested = await run_in_threadpool(_scan_bank, settings.memory_path)
-    by_kind = Counter(i.kind.value for i in items)
+    total, by_kind, unprocessed, last_ingested = await run_in_threadpool(
+        _scan_bank, settings.memory_path
+    )
 
     last_sleep = await _last_sleep_at(settings.memory_path)
     next_sleep = _next_sleep_at(settings.memory_path)
@@ -92,7 +97,7 @@ async def get_status(settings: Settings = Depends(get_settings)):
             cycle_id=state.cycle_id,
             error=state.error,
         ),
-        inbox=StatusInbox(total=len(items), by_kind=dict(by_kind)),
+        inbox=StatusInbox(total=total, by_kind=by_kind),
         episodes=StatusEpisodes(
             unprocessed=unprocessed,
             last_ingested_at=last_ingested,
@@ -103,19 +108,43 @@ async def get_status(settings: Settings = Depends(get_settings)):
     )
 
 
-def _scan_bank(memory_path: Path) -> tuple[list, int, str | None]:
+def _scan_bank(memory_path: Path) -> tuple[int, dict[str, int], int, str | None]:
     """Sync helper for the blocking file-scanning pieces of ``/status``.
 
-    Loads the inbox and the episodes bank_index in one threadpool hop so the
-    event loop isn't blocked by filesystem/YAML work.
+    Uses the bank_index cache (frontmatter-only, mtime-gated) for both the
+    inbox count/by-kind breakdown and the episodes bank_index in one
+    threadpool hop so the event loop isn't blocked by filesystem/YAML work.
     """
-    items = inbox_service.load_inbox(memory_path)
+    total, by_kind = _inbox_counts(memory_path)
     unprocessed = 0
     last_ingested = _last_ingested_at(memory_path)
     for f in bank_index.files(memory_path, "episodes"):
         if not f.frontmatter.get("processed", False):
             unprocessed += 1
-    return items, unprocessed, last_ingested
+    return total, by_kind, unprocessed, last_ingested
+
+
+def _inbox_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
+    """Inbox total + by-kind breakdown from bank_index frontmatter.
+
+    Reads the ``kind`` field straight off each cached ``inbox-*.md`` file's
+    frontmatter (see ``inbox_service._item_from_file``) instead of fully
+    parsing every item via ``inbox_service.load_inbox``. Falls back to
+    ``load_inbox`` only if some file's frontmatter doesn't carry ``kind`` at
+    all (as opposed to relying on ``_item_from_file``'s ``"decay"`` default).
+    """
+    total = 0
+    by_kind: Counter = Counter()
+    for f in bank_index.files(memory_path, "inbox"):
+        if not f.stem.startswith("inbox-"):
+            continue
+        fm = f.frontmatter
+        if "kind" not in fm:
+            items = inbox_service.load_inbox(memory_path)
+            return len(items), dict(Counter(i.kind.value for i in items))
+        total += 1
+        by_kind[str(fm["kind"])] += 1
+    return total, dict(by_kind)
 
 
 def _last_ingested_at(memory_path: Path) -> str | None:
@@ -127,12 +156,26 @@ def _last_ingested_at(memory_path: Path) -> str | None:
 
 
 async def _last_sleep_at(memory_path: Path) -> str | None:
-    """Date of the most recent Sleep cycle commit, or None."""
+    """Date of the most recent Sleep cycle commit, or None.
+
+    Cached per HEAD (read from ``.git/HEAD``, no subprocess — see
+    ``sync_service.git_head``) so ``git log`` only runs again once HEAD
+    actually moves, instead of on every ``/status`` call.
+    """
+    head = sync_service.git_head(memory_path)
+    cache_key = f"{memory_path}:{head}"
+    if cache_key in _last_sleep_cache:
+        return _last_sleep_cache[cache_key]
+
     history = await git_service.get_sleep_history(memory_path)
+    result = None
     for entry in history:
         if entry.message.lower().startswith("sleep cycle"):
-            return entry.date
-    return None
+            result = entry.date
+            break
+
+    _last_sleep_cache[cache_key] = result
+    return result
 
 
 def _next_sleep_at(memory_path: Path) -> str | None:
