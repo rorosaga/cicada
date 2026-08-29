@@ -611,6 +611,7 @@ class StatusResponse(CamelModel):
     episodes: StatusEpisodes
     last_sleep_at: Optional[str] = None
     next_sleep_at: Optional[str] = None
+    connections: Optional["StatusConnections"] = None
 
 
 # --- Health (liveness probe for installer / doctor) ---

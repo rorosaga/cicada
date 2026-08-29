@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Request
 from api.config import Settings, get_settings
 from api.models.schemas import (
     HealthResponse,
+    StatusConnections,
     StatusEpisodes,
     StatusInbox,
     StatusResponse,
@@ -78,6 +79,12 @@ async def get_status(settings: Settings = Depends(get_settings)):
     last_sleep = await _last_sleep_at(settings.memory_path)
     next_sleep = _next_sleep_at(settings.memory_path)
 
+    from api.services.connections.registry import get_registry
+
+    conn_statuses = await get_registry(settings).statuses()
+    connected_ids = [c.id for c in conn_statuses if c.connected]
+    engine = next((c.engine_role for c in conn_statuses if c.connected), None)
+
     return StatusResponse(
         sleep=StatusSleep(
             status=state.status,
@@ -93,6 +100,7 @@ async def get_status(settings: Settings = Depends(get_settings)):
         ),
         last_sleep_at=last_sleep,
         next_sleep_at=next_sleep,
+        connections=StatusConnections(connected=connected_ids, engine=engine),
     )
 
 

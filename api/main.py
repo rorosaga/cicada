@@ -15,6 +15,7 @@ from api.routers import (
     capture,
     claims,
     clarifications,
+    connections,
     contributors,
     conversations,
     entities,
@@ -146,3 +147,4 @@ app.include_router(banks.router, tags=["banks"])
 app.include_router(local_refs.router, tags=["local-refs"])
 app.include_router(capture.router, tags=["capture"])
 app.include_router(maintenance.router, tags=["maintenance"])
+app.include_router(connections.router, tags=["connections"])
