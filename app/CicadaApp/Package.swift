@@ -8,6 +8,10 @@ let package = Package(
         .executableTarget(
             name: "CicadaApp",
             resources: [.copy("Resources")]
+        ),
+        .testTarget(
+            name: "CicadaAppTests",
+            dependencies: ["CicadaApp"]
         )
     ]
 )
