@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 
 from api.services import bank_index
@@ -56,6 +57,29 @@ def test_missing_dir_and_malformed_file(tmp_path):
     (d / "bad.md").write_text("---\n: [unclosed\n---\n")
     _write(d / "ok.md", "id: ok")
     assert [f.stem for f in bank_index.files(tmp_path, "episodes")] == ["ok"]
+
+
+def test_concurrent_files_no_torn_state(tmp_path):
+    bank_index.invalidate()
+    d = tmp_path / "episodes"; d.mkdir()
+    file_count = 20
+    for i in range(file_count):
+        _write(d / f"ep{i}.md", f"id: ep{i}")
+    before = bank_index.parse_count
+    results: list = [None, None]
+
+    def worker(idx):
+        results[idx] = bank_index.files(tmp_path, "episodes")
+
+    t1 = threading.Thread(target=worker, args=(0,))
+    t2 = threading.Thread(target=worker, args=(1,))
+    t1.start(); t2.start()
+    t1.join(); t2.join()
+
+    expected = {f"ep{i}" for i in range(file_count)}
+    assert {f.stem for f in results[0]} == expected
+    assert {f.stem for f in results[1]} == expected
+    assert bank_index.parse_count - before <= 2 * file_count
 
 
 def test_dir_stamp_changes_on_write(tmp_path):

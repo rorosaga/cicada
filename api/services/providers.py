@@ -42,6 +42,10 @@ _EMBED_BATCH = 100
 # inference) on every call. Loaded once per process and reused.
 _EMBED_CACHE: dict[str, tuple[EmbedFn, str]] = {}
 _EMBED_LOCK = threading.Lock()
+# Per-model in-flight build guard: while one thread is constructing the model
+# for a given id, any other caller waits on its Event instead of racing it
+# into building (and paying for) a second SentenceTransformer load.
+_EMBED_INFLIGHT: dict[str, threading.Event] = {}
 
 
 def _default_sentence_transformer_factory():
@@ -53,20 +57,46 @@ def _default_sentence_transformer_factory():
 def clear_embed_cache() -> None:
     with _EMBED_LOCK:
         _EMBED_CACHE.clear()
+        _EMBED_INFLIGHT.clear()
 
 
 def cached_embed_fn_for_model(model_id: str, settings: Settings | None = None) -> tuple[EmbedFn, str]:
-    """Memoised :func:`resolve_embed_fn_for_model` — the model is loaded once per process."""
+    """Memoised :func:`resolve_embed_fn_for_model` — the model is loaded once per process.
+
+    Concurrent misses for the same ``model_id`` (e.g. the lifespan warm-up
+    thread racing the first live query) don't each build their own model:
+    the first caller becomes the builder, every other caller waits on that
+    build's :class:`threading.Event` and then re-checks the cache.
+    """
     mid = (model_id or "").strip()
-    with _EMBED_LOCK:
-        hit = _EMBED_CACHE.get(mid)
-        if hit is not None:
-            return hit
-    built = resolve_embed_fn_for_model(
-        mid, settings, sentence_transformer_factory=_default_sentence_transformer_factory(), _skip_cache=True
-    )
-    with _EMBED_LOCK:
-        return _EMBED_CACHE.setdefault(mid, built)
+    while True:
+        with _EMBED_LOCK:
+            hit = _EMBED_CACHE.get(mid)
+            if hit is not None:
+                return hit
+            event = _EMBED_INFLIGHT.get(mid)
+            if event is None:
+                event = threading.Event()
+                _EMBED_INFLIGHT[mid] = event
+                own_build = True
+            else:
+                own_build = False
+
+        if not own_build:
+            event.wait()
+            continue  # loop back around: check the cache the builder filled
+
+        try:
+            built = resolve_embed_fn_for_model(
+                mid, settings, sentence_transformer_factory=_default_sentence_transformer_factory(), _skip_cache=True
+            )
+            with _EMBED_LOCK:
+                _EMBED_CACHE[mid] = built
+            return built
+        finally:
+            with _EMBED_LOCK:
+                _EMBED_INFLIGHT.pop(mid, None)
+            event.set()
 
 
 def warm_query_embedder(memory_path) -> None:
