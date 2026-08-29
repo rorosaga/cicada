@@ -173,13 +173,18 @@ def _user_avatar_url(handle: str | None) -> str | None:
 
 
 async def _run_git(memory_path: Path, *args: str) -> str:
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        *args,
-        cwd=str(memory_path),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            *args,
+            cwd=str(memory_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as exc:
+        # cwd missing (e.g. a bank/memory dir not yet scaffolded) -> treat like
+        # "no git history" rather than crashing the caller.
+        raise GitError(f"git {' '.join(args)} failed: {exc}") from exc
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
         raise GitError(f"git {' '.join(args)} failed: {stderr.decode(errors='replace')}")

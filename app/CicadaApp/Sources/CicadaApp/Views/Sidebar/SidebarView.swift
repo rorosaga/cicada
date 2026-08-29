@@ -7,6 +7,7 @@ enum AppTab: String, CaseIterable {
     case sleep = "Sleep"
     case inbox = "Inbox"
     case contributors = "Contributors"
+    case connections = "Connections"
     case connect = "Connect"
     case sources = "Capture"
 
@@ -18,6 +19,7 @@ enum AppTab: String, CaseIterable {
         case .sleep: "moon.fill"
         case .inbox: "tray.full"
         case .contributors: "person.2.badge.gearshape"
+        case .connections: "person.crop.circle.badge.checkmark"
         case .connect: "cable.connector"
         case .sources: "tray.and.arrow.down"
         }
@@ -39,7 +41,7 @@ private enum SidebarSection: String, CaseIterable {
         case .capture: [.sources]
         case .maintenance: [.sleep, .inbox]
         case .provenance: [.contributors]
-        case .setup: [.connect]
+        case .setup: [.connections, .connect]
         }
     }
 }
@@ -103,7 +105,7 @@ struct SidebarView: View {
 
     private func badgeCount(for tab: AppTab) -> Int {
         switch tab {
-        case .graph, .clusters, .feed, .sleep, .contributors, .connect, .sources: 0
+        case .graph, .clusters, .feed, .sleep, .contributors, .connections, .connect, .sources: 0
         case .inbox: inboxCount
         }
     }

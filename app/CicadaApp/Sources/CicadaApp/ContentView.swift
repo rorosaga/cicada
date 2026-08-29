@@ -76,6 +76,8 @@ struct ContentView: View {
             InboxListView()
         case .contributors:
             ContributorsView()
+        case .connections:
+            ConnectionsView()
         case .connect:
             ConnectView()
         case .sources:

@@ -15,6 +15,7 @@ MEMORY_PATH="${CICADA_MEMORY_PATH:-$HOME/cicada/memory}"
 CLAUDE_CLI="${CLAUDE_CLI:-claude}"
 PORT="${CICADA_PORT:-8000}"
 VENV_PY="$REPO/api/.venv/bin/python"
+TOKEN_FILE="${CICADA_HOME:-$HOME/.cicada}/api_token"
 
 FAILURES=0
 
@@ -35,6 +36,18 @@ if [ -n "$HEALTH_JSON" ] && printf '%s' "$HEALTH_JSON" | grep -q '"status"'; the
 else
   fail "Backend /healthz not reachable on :$PORT"
   note "start it: ./install.sh  (or check logs/backend.err.log)"
+fi
+
+# 1b. Bearer-token auth: /status must accept the token in $CICADA_HOME/api_token.
+if [ -r "$TOKEN_FILE" ]; then
+  if curl -fsS -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "http://127.0.0.1:$PORT/status" >/dev/null 2>&1; then
+    pass "API auth: token accepted"
+  else
+    fail "API auth: /status rejected the token in $TOKEN_FILE"
+  fi
+else
+  fail "API auth: no token file yet at $TOKEN_FILE"
+  note "start the backend once to generate it: ./install.sh"
 fi
 
 # 2. Memory dir exists.

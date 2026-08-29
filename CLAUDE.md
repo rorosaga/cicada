@@ -254,10 +254,12 @@ SwiftUI app spawns the FastAPI server as a child process on launch using Swift's
 
 ## API Design
 
-Grew past "one endpoint per screen" as the companion app matured. 17 routers currently mounted
+Grew past "one endpoint per screen" as the companion app matured. 18 routers currently mounted
 in `api/main.py` (`graph`, `search`, `ask`, `inbox`, `status`, `nudges`, `clarifications`,
 `entities`, `claims`, `contributors`, `origins`, `sleep`, `conversations`, `sources`, `banks`,
-`local_refs`, `capture`), plus repo-context and maintenance endpoints:
+`local_refs`, `capture`, `connections`), plus repo-context and maintenance endpoints:
+
+Every endpoint except `GET /healthz` and `POST /capture/telegram` requires `Authorization: Bearer <token>` — the token lives at `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests). The Telegram webhook is exempt because Telegram's servers cannot send the header; today it is gated only by Telegram being configured (`CICADA_TELEGRAM_BOT_TOKEN`), not by a per-request secret — see G57.
 
 ```
 GET  /graph                               → nodes + edges JSON for d3 (incl. synthetic repo: nodes)
@@ -297,6 +299,11 @@ GET/POST /banks, POST /banks/{name}/activate|duplicate|rename|import → memory-
 GET  /local-ref                           → resolve local device/path references
 POST /capture/telegram                    → token-gated Telegram capture webhook
 POST /maintenance/dedup-sweep             → full-graph dedup sweep (G21)
+GET  /connections, GET /connections/{id}   → provider connections (plan, price, connected) — probed via vendor CLIs
+POST /connections/{id}/login|logout        → start the vendor CLI's own login flow / sign out
+GET  /connections/{id}/login/{sid}         → device-code login progress (ChatGPT/Codex)
+PUT/DELETE /connections/{id}/key           → BYOK key into ~/.cicada/secrets.env (0600)
+PUT  /connections/{id}/prefs               → tier override (Claude Max 5x/20x), enabled flag
 ```
 
 The API reads and writes the same markdown files and git repo that the Sleep cycle operates on. **There's no separate database — the filesystem is the single source of truth.**

@@ -8,6 +8,7 @@ Cursor) can connect to. Provides tools for:
 """
 
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -395,6 +396,21 @@ def handle_tool(name: str, arguments: dict) -> str:
         raise ValueError(f"Unknown tool: {name}")
 
 
+def _backend_headers() -> dict[str, str]:
+    """Bearer token for the local backend (api/services/auth.py)."""
+    token = (os.environ.get("CICADA_API_TOKEN") or "").strip()
+    if not token:
+        home = Path(os.environ.get("CICADA_HOME") or Path.home() / ".cicada").expanduser()
+        try:
+            token = (home / "api_token").read_text(encoding="utf-8").strip()
+        except OSError:
+            token = ""
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def handle_ask(query: str, top_k: int = 6) -> str:
     """Answer a NL question over memory with citations + explicit gaps.
 
@@ -422,7 +438,7 @@ def handle_ask(query: str, top_k: int = 6) -> str:
         req = urllib.request.Request(
             "http://127.0.0.1:8000/ask",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=_backend_headers(),
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
@@ -498,7 +514,7 @@ def handle_save_url(url: str, note: str | None) -> str:
         req = urllib.request.Request(
             "http://127.0.0.1:8000/sources/save",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=_backend_headers(),
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=8) as resp:

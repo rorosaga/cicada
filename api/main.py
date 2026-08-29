@@ -2,7 +2,7 @@ import logging
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
@@ -15,6 +15,7 @@ from api.routers import (
     capture,
     claims,
     clarifications,
+    connections,
     contributors,
     conversations,
     entities,
@@ -30,6 +31,7 @@ from api.routers import (
     status,
 )
 from api.services import bank_registry, sleep_scheduler
+from api.services.auth import auth_enabled, get_token, require_token
 from api.services.inbox_migration import migrate_to_inbox
 
 # --- Logging setup ---
@@ -58,6 +60,17 @@ litellm.set_verbose = False
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    if auth_enabled():
+        get_token()  # generate the token file on first boot so clients can read it
+    else:
+        logger.warning("CICADA_API_AUTH=off — the local API is UNAUTHENTICATED (dev/test only)")
+
+    from api.services.connections import secrets as connection_secrets
+
+    loaded = connection_secrets.load_secrets()
+    if loaded:
+        logger.info(f"Loaded {len(loaded)} provider key(s) from {connection_secrets.secrets_path()}")
+
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")
 
@@ -101,7 +114,12 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Cicada API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="Cicada API",
+    version="0.1.0",
+    lifespan=lifespan,
+    dependencies=[Depends(require_token)],
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -129,3 +147,4 @@ app.include_router(banks.router, tags=["banks"])
 app.include_router(local_refs.router, tags=["local-refs"])
 app.include_router(capture.router, tags=["capture"])
 app.include_router(maintenance.router, tags=["maintenance"])
+app.include_router(connections.router, tags=["connections"])
