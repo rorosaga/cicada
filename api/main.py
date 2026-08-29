@@ -63,6 +63,13 @@ async def lifespan(app: FastAPI):
         get_token()  # generate the token file on first boot so clients can read it
     else:
         logger.warning("CICADA_API_AUTH=off — the local API is UNAUTHENTICATED (dev/test only)")
+
+    from api.services.connections import secrets as connection_secrets
+
+    loaded = connection_secrets.load_secrets()
+    if loaded:
+        logger.info(f"Loaded {len(loaded)} provider key(s) from {connection_secrets.secrets_path()}")
+
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")
 
