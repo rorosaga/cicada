@@ -7,6 +7,7 @@ struct ConnectionsView: View {
     @State private var viewModel = ConnectionsViewModel()
     @State private var keyDrafts: [String: String] = [:]
     @State private var confirmDisconnect: ConnectionStatus?
+    @State private var terminalFallback = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
@@ -30,6 +31,7 @@ struct ConnectionsView: View {
                                 keyDraft: Binding(get: { keyDrafts[c.id, default: ""] }, set: { keyDrafts[c.id] = $0 }),
                                 pendingLogin: viewModel.pendingLogin?.connectionId == c.id ? viewModel.pendingLogin : nil,
                                 awaitingTerminal: viewModel.awaitingTerminal == c.id,
+                                terminalFallback: terminalFallback,
                                 onConnect: { Task { await connect(c) } },
                                 onDisconnect: { confirmDisconnect = c },
                                 onSaveKey: { Task { await viewModel.saveKey(c.id, key: keyDrafts[c.id, default: ""]); keyDrafts[c.id] = "" } },
@@ -56,14 +58,18 @@ struct ConnectionsView: View {
     }
 
     private func connect(_ c: ConnectionStatus) async {
+        terminalFallback = false
         guard let session = await viewModel.beginLogin(c.id) else { return }
         if session.mode == "terminal", let cmd = session.command {
-            openInTerminal(cmd)
+            terminalFallback = !openInTerminal(cmd)
         }
     }
 
     /// Hand the interactive browser-OAuth login to Terminal (Claude Code needs a TTY).
-    private func openInTerminal(_ command: String) {
+    /// Returns `true` if Terminal was launched, `false` if AppleScript failed and the
+    /// command was copied to the clipboard as a fallback.
+    @discardableResult
+    private func openInTerminal(_ command: String) -> Bool {
         let script = "tell application \"Terminal\"\nactivate\ndo script \"\(command)\"\nend tell"
         if let apple = NSAppleScript(source: script) {
             var err: NSDictionary?
@@ -71,8 +77,13 @@ struct ConnectionsView: View {
             if err != nil {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(command, forType: .string)
+                return false
             }
+            return true
         }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+        return false
     }
 }
 
@@ -81,6 +92,7 @@ private struct ConnectionCard: View {
     @Binding var keyDraft: String
     let pendingLogin: LoginSession?
     let awaitingTerminal: Bool
+    let terminalFallback: Bool
     let onConnect: () -> Void
     let onDisconnect: () -> Void
     let onSaveKey: () -> Void
@@ -168,7 +180,9 @@ private struct ConnectionCard: View {
             deviceCode(pending)
         } else if awaitingTerminal, let cmd = connection.login?.command {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text("Finish signing in in the Terminal window, then this card updates itself.")
+                Text(terminalFallback
+                     ? "Couldn't open Terminal — the command was copied to your clipboard. Paste it into any terminal and finish signing in; this card updates itself."
+                     : "Finish signing in in the Terminal window, then this card updates itself.")
                     .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 CommandBox(command: cmd)
             }
