@@ -33,6 +33,11 @@ _INSTALL_HINT = "Install Codex CLI (npm i -g @openai/codex) and run `codex login
 
 login_sessions: dict[str, LoginSession] = {}
 _watchers: set[asyncio.Task] = set()
+# Most-recent live (pending or just-finished) session per connection id, paired
+# with its subprocess — lets a repeated Connect kill a still-running prior
+# ``codex login --device-auth`` instead of leaking it.
+_live: dict[str, tuple[LoginSession, asyncio.subprocess.Process]] = {}
+RAW_OUTPUT_CAP = 4096
 
 
 def codex_home_dir() -> Path:
@@ -92,9 +97,10 @@ class CodexPlanAdapter:
         return shutil.which("codex") is not None
 
     def _base(self, **kw) -> ConnectionStatus:
+        kw.setdefault("engine_role", None)
         return ConnectionStatus(
             id=self.id, label=self.label, kind=self.kind, billing="subscription",
-            engine_role="subscription-cli", tier=self._tier,
+            tier=self._tier,
             login=LoginHint(mode="device-code", command="codex login --device-auth"), **kw,
         )
 
@@ -109,22 +115,46 @@ class CodexPlanAdapter:
         plan, email = read_plan_from_auth_json(self._home / "auth.json")
         if plan is None and "api key" in (res.stdout + res.stderr).lower():
             return self._base(available=True, detail="Codex is using an API key, not a ChatGPT plan. Use the OpenAI API-key connection for usage-based billing.")
-        usd, note = pricing.price_for(self.id, plan, self._tier)
+        if plan is None:
+            usd, note = None, "plan not detected — run the CLI once to refresh"
+        else:
+            usd, note = pricing.price_for(self.id, plan, self._tier)
         return self._base(
-            available=True, connected=True, plan=plan,
+            available=True, connected=True, plan=plan, engine_role="subscription-cli",
             plan_label=pricing.plan_label(self.id, plan, self._tier),
             account=email, price_usd_month=usd, price_note=note,
         )
 
     async def begin_login(self) -> LoginSession:
+        prior = _live.get(self.id)
+        if prior is not None:
+            prior_sess, prior_proc = prior
+            if prior_sess.state == "pending":
+                try:
+                    prior_proc.kill()
+                except ProcessLookupError:
+                    pass
+                prior_sess.state = "failed"
+                prior_sess.detail = "superseded"
+                self._prune_terminal_sessions(keep_session_id=prior_sess.session_id)
+
         sess = LoginSession(session_id=uuid.uuid4().hex, connection_id=self.id, mode="device-code",
                             command="codex login --device-auth")
         login_sessions[sess.session_id] = sess
         proc = await self._spawn(["codex", "login", "--device-auth"])
+        _live[self.id] = (sess, proc)
         task = asyncio.get_running_loop().create_task(self._watch(sess, proc))
         _watchers.add(task)
         task.add_done_callback(_watchers.discard)
         return sess
+
+    def _prune_terminal_sessions(self, keep_session_id: str) -> None:
+        """Drop other terminal (``done``/``failed``) sessions for this
+        connection, keeping ``keep_session_id`` retrievable (the app is still
+        polling it) so ``login_sessions`` doesn't grow forever."""
+        for sid, s in list(login_sessions.items()):
+            if s.connection_id == self.id and sid != keep_session_id and s.state in ("done", "failed"):
+                del login_sessions[sid]
 
     async def _watch(self, sess: LoginSession, proc) -> None:
         try:
@@ -134,6 +164,8 @@ class CodexPlanAdapter:
                     break
                 text = line.decode("utf-8", "replace")
                 sess.raw_output += text
+                if len(sess.raw_output) > RAW_OUTPUT_CAP:
+                    sess.raw_output = sess.raw_output[-RAW_OUTPUT_CAP:]
                 code, url = parse_device_output(sess.raw_output)
                 sess.code, sess.url = sess.code or code, sess.url or url
             rc = await proc.wait()
@@ -143,6 +175,12 @@ class CodexPlanAdapter:
         except Exception as exc:  # never let a watcher crash the loop
             logger.warning(f"codex login watcher failed: {exc}")
             sess.state, sess.detail = "failed", str(exc)
+        finally:
+            # Only prune on an actual terminal transition — a cancelled watch
+            # (e.g. event-loop shutdown) must not prune the *other* sessions
+            # for this connection while this one is still "pending".
+            if sess.state in ("done", "failed"):
+                self._prune_terminal_sessions(keep_session_id=sess.session_id)
 
     async def logout(self) -> None:
         await self._run(["codex", "logout"])

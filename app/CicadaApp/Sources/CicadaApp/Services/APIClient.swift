@@ -807,6 +807,13 @@ actor APIClient {
         return resp.connections
     }
 
+    /// Fetch a single connection's status (`GET /connections/{id}`). Used by
+    /// terminal-login polling so it checks only the one connection instead of
+    /// sweeping all six on every tick.
+    func fetchConnection(_ id: String, fresh: Bool = false) async throws -> ConnectionStatus {
+        try await get("/connections/\(id)\(fresh ? "?fresh=true" : "")")
+    }
+
     func beginLogin(_ id: String) async throws -> LoginSession {
         try await post("/connections/\(id)/login")
     }

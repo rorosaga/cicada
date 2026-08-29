@@ -6,6 +6,7 @@ never persisted — so no plan/email snapshot ever touches disk.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -82,7 +83,46 @@ class Registry:
         return status
 
     async def statuses(self, fresh: bool = False) -> list[ConnectionStatus]:
-        return [await self.status(a.id, fresh=fresh) for a in self.adapters()]
+        """Probe every adapter concurrently, preserving adapter order.
+
+        Adapters never raise (each ``status()`` implementation catches its
+        own errors), but ``asyncio.gather`` is still used without
+        ``return_exceptions`` short-circuiting the others — a failing
+        coroutine must not take the rest down.
+        """
+        adapters = self.adapters()
+        results = await asyncio.gather(
+            *(self.status(a.id, fresh=fresh) for a in adapters),
+            return_exceptions=True,
+        )
+        statuses: list[ConnectionStatus] = []
+        for adapter, result in zip(adapters, results):
+            if isinstance(result, BaseException):
+                # Defensive fallback only — adapters are documented to never
+                # raise. Re-probe the cache (may still be empty) rather than
+                # let one bad adapter drop an entry from the response.
+                cached = self._cache.get(adapter.id)
+                if cached:
+                    statuses.append(cached[1])
+                continue
+            statuses.append(result)
+        return statuses
+
+    def cached_statuses(self) -> list[ConnectionStatus]:
+        """Cache-only snapshot, in adapter order — never probes.
+
+        Used by ``GET /status`` (the menu-bar poll) so a cold or expired
+        cache never triggers a fresh ``claude``/``codex``/Ollama shell-out;
+        it just contributes nothing to the connections block until the next
+        ``GET /connections`` warms the cache.
+        """
+        now = time.monotonic()
+        out: list[ConnectionStatus] = []
+        for adapter in self.adapters():
+            hit = self._cache.get(adapter.id)
+            if hit and now - hit[0] < STATUS_TTL_SECONDS:
+                out.append(hit[1])
+        return out
 
 
 _registry: Registry | None = None

@@ -74,6 +74,17 @@ def test_status_connected(tmp_path, monkeypatch):
     assert s.login.mode == "device-code"
 
 
+def test_status_connected_with_unknown_plan(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
+    # No auth.json at tmp_path -> read_plan_from_auth_json returns (None, None),
+    # and the fake CLI's stdout mentions neither "api key" nor a plan.
+    run = _runner(stdout="Logged in")
+    s = asyncio.run(codex_cli.CodexPlanAdapter(runner=run, codex_home=tmp_path).status())
+    assert s.connected and s.plan is None
+    assert s.price_usd_month is None
+    assert s.price_note == "plan not detected — run the CLI once to refresh"
+
+
 def test_status_logged_out(tmp_path, monkeypatch):
     monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
     s = asyncio.run(codex_cli.CodexPlanAdapter(runner=_runner(rc=1, stderr="Not logged in"), codex_home=tmp_path).status())
@@ -131,6 +142,89 @@ def test_begin_login_spawns_device_auth_and_tracks_session(tmp_path, monkeypatch
     tracked = codex_cli.login_sessions[sess.session_id]
     assert tracked.code == "WXYZ-1234" and tracked.url == "https://auth.openai.com/device"
     assert tracked.state == "done"
+
+
+def test_begin_login_supersedes_prior_pending_session(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
+
+    class _Proc:
+        returncode = None
+
+        def __init__(self):
+            self.stdout = self
+            self.killed = False
+
+        async def readline(self):
+            # Never produces a line / EOF — the fake never actually dies, so
+            # the watcher stays parked in "pending" (real ``kill()`` would
+            # close the pipe and unblock this; ``begin_login`` itself is what
+            # marks the session "failed", independent of the watcher).
+            await asyncio.sleep(3600)
+            return b""
+
+        def kill(self):
+            self.killed = True
+
+        async def wait(self):
+            self.returncode = -9
+            return -9
+
+    procs: list[_Proc] = []
+
+    async def spawn(argv):
+        proc = _Proc()
+        procs.append(proc)
+        return proc
+
+    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), codex_home=tmp_path, spawn=spawn)
+
+    async def go():
+        first = await adapter.begin_login()
+        await asyncio.sleep(0.01)
+        second = await adapter.begin_login()
+        await asyncio.sleep(0.05)
+        return first, second
+
+    first, second = asyncio.run(go())
+    assert procs[0].killed is True
+    assert codex_cli.login_sessions[first.session_id].state == "failed"
+    assert codex_cli.login_sessions[first.session_id].detail == "superseded"
+    assert first.session_id != second.session_id
+    assert second.session_id in codex_cli.login_sessions
+
+
+def test_raw_output_is_capped(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
+
+    class _Proc:
+        returncode = None
+
+        def __init__(self):
+            # > 4096 chars of lines.
+            self.lines = [f"line {i} filler filler filler filler\n".encode() for i in range(300)]
+            self.stdout = self
+
+        async def readline(self):
+            return self.lines.pop(0) if self.lines else b""
+
+        async def wait(self):
+            self.returncode = 0
+            return 0
+
+    async def spawn(argv):
+        return _Proc()
+
+    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), codex_home=tmp_path, spawn=spawn)
+
+    async def go():
+        sess = await adapter.begin_login()
+        await asyncio.sleep(0.05)
+        return sess
+
+    sess = asyncio.run(go())
+    tracked = codex_cli.login_sessions[sess.session_id]
+    assert tracked.state == "done"
+    assert len(tracked.raw_output) <= codex_cli.RAW_OUTPUT_CAP
 
 
 def test_status_binary_vanishes_between_which_and_exec(tmp_path, monkeypatch):

@@ -81,7 +81,7 @@ async def get_status(settings: Settings = Depends(get_settings)):
 
     from api.services.connections.registry import get_registry
 
-    conn_statuses = await get_registry(settings).statuses()
+    conn_statuses = get_registry(settings).cached_statuses()
     connected_ids = [c.id for c in conn_statuses if c.connected]
     engine = next((c.engine_role for c in conn_statuses if c.connected), None)
 

@@ -88,8 +88,13 @@ final class ConnectionsViewModel {
             if Task.isCancelled { return }
             try? await Task.sleep(for: .seconds(3))
             if Task.isCancelled { return }
-            await load(fresh: true)
-            if connections.first(where: { $0.id == id })?.connected == true {
+            guard let latest = try? await APIClient.shared.fetchConnection(id, fresh: true) else { continue }
+            if Task.isCancelled { return }
+            if let idx = connections.firstIndex(where: { $0.id == id }) {
+                connections[idx] = latest
+            }
+            if latest.connected {
+                await load()
                 awaitingTerminal = nil
                 return
             }

@@ -38,9 +38,10 @@ class ClaudePlanAdapter:
         return shutil.which("claude") is not None
 
     def _base(self, **kw) -> ConnectionStatus:
+        kw.setdefault("engine_role", None)
         return ConnectionStatus(
             id=self.id, label=self.label, kind=self.kind, billing="subscription",
-            engine_role="subscription-cli", tier=self._tier,
+            tier=self._tier,
             login=LoginHint(mode="terminal", command=LOGIN_COMMAND), **kw,
         )
 
@@ -59,9 +60,12 @@ class ClaudePlanAdapter:
         if info.get("authMethod") not in (None, "claude.ai"):
             return self._base(available=True, detail="Claude Code is using an API key, not a plan. Use the OpenAI/Anthropic API-key connection for usage-based billing.")
         plan = (info.get("subscriptionType") or "").lower() or None
-        usd, note = pricing.price_for(self.id, plan, self._tier)
+        if plan is None:
+            usd, note = None, "plan not detected — run the CLI once to refresh"
+        else:
+            usd, note = pricing.price_for(self.id, plan, self._tier)
         return self._base(
-            available=True, connected=True, plan=plan,
+            available=True, connected=True, plan=plan, engine_role="subscription-cli",
             plan_label=pricing.plan_label(self.id, plan, self._tier),
             account=info.get("email"), price_usd_month=usd, price_note=note,
             detail=info.get("orgName"),

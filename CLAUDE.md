@@ -259,7 +259,7 @@ in `api/main.py` (`graph`, `search`, `ask`, `inbox`, `status`, `nudges`, `clarif
 `entities`, `claims`, `contributors`, `origins`, `sleep`, `conversations`, `sources`, `banks`,
 `local_refs`, `capture`, `connections`), plus repo-context and maintenance endpoints:
 
-Every endpoint except `GET /healthz` requires `Authorization: Bearer <token>` — the token lives at `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests).
+Every endpoint except `GET /healthz` and `POST /capture/telegram` requires `Authorization: Bearer <token>` — the token lives at `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests). The Telegram webhook is exempt because Telegram's servers cannot send the header; today it is gated only by Telegram being configured (`CICADA_TELEGRAM_BOT_TOKEN`), not by a per-request secret — see G57.
 
 ```
 GET  /graph                               → nodes + edges JSON for d3 (incl. synthetic repo: nodes)

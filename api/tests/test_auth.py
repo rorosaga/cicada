@@ -57,6 +57,16 @@ def test_wrong_token_rejected(home):
         assert resp.status_code == 401
 
 
+def test_non_ascii_bearer_token_is_rejected_not_500(home):
+    with TestClient(main.app) as client:
+        # httpx/starlette require header values as raw bytes when they aren't
+        # pure ASCII (a plain `str` there hits httpx's own ascii-encode step
+        # before the request is even sent) — this is "é" UTF-8-encoded, as a
+        # real non-ASCII bearer token would arrive on the wire.
+        resp = client.get("/status", headers={"Authorization": b"Bearer \xc3\xa9"})
+        assert resp.status_code == 401
+
+
 def test_auth_off_switch_disables_check(home, monkeypatch):
     monkeypatch.setenv("CICADA_API_AUTH", "off")
     with TestClient(main.app) as client:

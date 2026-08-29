@@ -10,9 +10,10 @@ overrides the file; ``CICADA_API_AUTH=off`` disables the check (tests/dev only
 
 Open paths (no bearer token required): ``GET /healthz`` (installer/doctor
 liveness probe) and ``POST /capture/telegram`` (Telegram's servers hit this
-webhook through a public tunnel and cannot send our bearer header — it stays
-gated by its own ``CICADA_TELEGRAM_BOT_TOKEN`` check in
-``api/routers/capture.py``).
+webhook through a public tunnel and cannot send our bearer header). Today that
+route is gated only by Telegram being *configured*
+(``CICADA_TELEGRAM_BOT_TOKEN`` set, checked in ``api/routers/capture.py``), not
+by a per-request secret verifying the caller really is Telegram — see G57.
 """
 from __future__ import annotations
 
@@ -65,5 +66,5 @@ async def require_token(
     supplied = ""
     if authorization and authorization.lower().startswith("bearer "):
         supplied = authorization[7:].strip()
-    if not supplied or not secrets.compare_digest(supplied, get_token()):
+    if not supplied or not secrets.compare_digest(supplied.encode("utf-8"), get_token().encode("utf-8")):
         raise HTTPException(status_code=401, detail="missing or invalid bearer token")

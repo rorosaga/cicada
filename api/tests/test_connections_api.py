@@ -21,7 +21,10 @@ def client(tmp_path, monkeypatch):
     config.get_settings.cache_clear()
     registry.reset_registry()
 
+    calls: list[list[str]] = []
+
     async def fake_run(argv):
+        calls.append(argv)
         if argv[:3] == ["claude", "auth", "status"]:
             return CliResult(0, json.dumps({"loggedIn": True, "authMethod": "claude.ai",
                                             "email": "r@example.com", "subscriptionType": "max"}), "")
@@ -29,6 +32,7 @@ def client(tmp_path, monkeypatch):
             return CliResult(1, "", "Not logged in")
         return CliResult(0, "", "")
 
+    fake_run.calls = calls  # type: ignore[attr-defined]
     monkeypatch.setattr(base, "run_cli", fake_run)
     monkeypatch.setattr(registry.shutil, "which", lambda name: f"/usr/local/bin/{name}")
 
@@ -36,7 +40,9 @@ def client(tmp_path, monkeypatch):
         raise ConnectionError("no ollama in tests")
 
     monkeypatch.setattr(registry, "_ollama_fetch_tags", no_tags)
-    yield TestClient(main.app)
+    test_client = TestClient(main.app)
+    test_client.run_cli_calls = calls  # type: ignore[attr-defined]
+    yield test_client
     registry.reset_registry()
     config.get_settings.cache_clear()
 
@@ -89,5 +95,14 @@ def test_unknown_connection_404(client):
 
 
 def test_status_has_connections_block(client):
+    # Warm the cache first — /status is cache-only and never probes itself.
+    assert client.get("/connections").status_code == 200
     body = client.get("/status").json()
     assert body["connections"]["connected"] == ["claude-plan"]
+
+
+def test_status_cold_cache_does_not_probe(client):
+    body = client.get("/status").json()
+    assert body["connections"]["connected"] == []
+    assert body["connections"]["engine"] is None
+    assert client.run_cli_calls == []

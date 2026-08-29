@@ -44,6 +44,19 @@ def test_status_connected_max_with_tier(monkeypatch):
     assert s.price_usd_month == 200.0 and s.plan_label == "Claude Max 20x" and s.tier == "20x"
 
 
+def test_status_connected_with_unknown_plan(monkeypatch):
+    monkeypatch.setattr(claude_cli.shutil, "which", lambda _: "/usr/local/bin/claude")
+    out = json.dumps({
+        "loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
+        "email": "r@example.com", "orgName": "Personal", "subscriptionType": "",
+    })
+    adapter = claude_cli.ClaudePlanAdapter(runner=_runner(stdout=out))
+    s = asyncio.run(adapter.status())
+    assert s.connected and s.plan is None
+    assert s.price_usd_month is None
+    assert s.price_note == "plan not detected — run the CLI once to refresh"
+
+
 def test_status_logged_out(monkeypatch):
     monkeypatch.setattr(claude_cli.shutil, "which", lambda _: "/usr/local/bin/claude")
     adapter = claude_cli.ClaudePlanAdapter(runner=_runner(stdout='{"loggedIn": false}'))
