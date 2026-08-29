@@ -405,6 +405,11 @@ class GraphNode(CamelModel):
     is_facet: bool = False
     parent_id: Optional[str] = None
     context: Optional[str] = None
+    # Sync-engine fields (additive): a short body-derived preview and a
+    # content fingerprint so the companion app can detect per-node changes
+    # without diffing full entity bodies.
+    summary: Optional[str] = None
+    content_hash: str = ""
 
 
 class GraphLink(CamelModel):

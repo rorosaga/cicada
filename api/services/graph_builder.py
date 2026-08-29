@@ -1,13 +1,43 @@
+import hashlib
+import json
+import re
 from collections import Counter
 from pathlib import Path
 
 import yaml
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import predicates
+from api.services import bank_index, predicates
 from api.services.claims import parse_claims
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import parse
+
+_SUMMARY_RE = re.compile(r"^##\s+Summary\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def summarize(body: str) -> str | None:
+    """Return a short preview: the first non-empty line under a ``## Summary``
+    heading, else the first 200 chars of the body with newlines collapsed."""
+    text = (body or "").strip()
+    if not text:
+        return None
+    m = _SUMMARY_RE.search(text)
+    if m:
+        rest = text[m.end():]
+        for line in rest.splitlines():
+            s = line.strip()
+            if s.startswith("#"):
+                break
+            if s:
+                return s[:200]
+    flat = " ".join(l.strip() for l in text.splitlines() if l.strip() and not l.strip().startswith("#"))
+    return flat[:200] or None
+
+
+def content_hash(fm: dict, body: str) -> str:
+    """sha1 of frontmatter JSON + body, truncated to 12 hex chars."""
+    return hashlib.sha1((json.dumps(fm, sort_keys=True, default=str) + "\n" + (body or "")).encode()).hexdigest()[:12]
+
 
 # Module-level mtime cache. The full (unfiltered) graph is expensive to build
 # over ~1882 entities; keying on the entities-dir + edges-file + inbox mtimes
@@ -79,16 +109,16 @@ def _build_full(memory_path: Path) -> GraphResponse:
     # owner (mirrors the hub: injection just below).
     repo_node_names: dict[str, str] = {}  # "repo:<slug>" -> display name
     repo_links: list[GraphLink] = []
-    for filepath in sorted(entities_dir.glob("*.md")):
+    for f in bank_index.files(memory_path, "entities"):
+        fm = f.frontmatter
+        eid = f.stem
         try:
-            parsed = parse(filepath)
-            fm = parsed.frontmatter
+            body = f.body()
         except Exception:
             continue
-        eid = filepath.stem
         entity_ids.add(eid)
         try:
-            for claim in parse_claims(parsed.body):
+            for claim in parse_claims(body):
                 if claim.valid_to is not None or claim.superseded_by:
                     continue  # overlay reflects currently-valid beliefs only
                 if claim.observer:
@@ -114,6 +144,8 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 has_pending=eid in pending_ids,
                 observers=sorted(subject_observers.get(eid, set())),
                 contexts=sorted(subject_contexts.get(eid, set())),
+                summary=summarize(body),
+                content_hash=content_hash(fm, body),
             )
         )
         for repo_decl in fm.get("repos") or []:
