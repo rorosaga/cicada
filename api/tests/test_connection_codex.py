@@ -49,6 +49,20 @@ def test_read_plan_missing_file(tmp_path):
     assert codex_cli.read_plan_from_auth_json(tmp_path / "nope.json") == (None, None)
 
 
+def test_decode_jwt_claims_scalar_payload_returns_empty_dict():
+    assert codex_cli.decode_jwt_claims(_jwt(5)) == {}
+    assert codex_cli.decode_jwt_claims(_jwt([1, 2])) == {}
+
+
+def test_read_plan_from_auth_json_scalar_payload_degrades(tmp_path):
+    claims_token = _jwt(5)
+    (tmp_path / "auth.json").write_text(json.dumps({
+        "auth_mode": "chatgpt",
+        "tokens": {"id_token": claims_token, "access_token": "x", "refresh_token": "y"},
+    }))
+    assert codex_cli.read_plan_from_auth_json(tmp_path / "auth.json") == (None, None)
+
+
 def test_status_connected(tmp_path, monkeypatch):
     monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
     home = _auth_json(tmp_path, plan="plus")
@@ -105,6 +119,9 @@ def test_begin_login_spawns_device_auth_and_tracks_session(tmp_path, monkeypatch
 
     async def go():
         sess = await adapter.begin_login()
+        # The watcher task must be strongly referenced (not just held by the
+        # event loop, which only holds weak refs) so it survives to completion.
+        assert codex_cli._watchers, "watcher task was not retained"
         await asyncio.sleep(0.05)  # let the watcher drain the fake process
         return sess
 
@@ -114,6 +131,15 @@ def test_begin_login_spawns_device_auth_and_tracks_session(tmp_path, monkeypatch
     tracked = codex_cli.login_sessions[sess.session_id]
     assert tracked.code == "WXYZ-1234" and tracked.url == "https://auth.openai.com/device"
     assert tracked.state == "done"
+
+
+def test_status_binary_vanishes_between_which_and_exec(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
+    s = asyncio.run(codex_cli.CodexPlanAdapter(
+        runner=_runner(rc=127, stderr="codex: not found"), codex_home=tmp_path,
+    ).status())
+    assert not s.available and not s.connected
+    assert "install" in s.detail.lower()
 
 
 def test_logout_runs_cli(tmp_path):

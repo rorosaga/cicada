@@ -32,6 +32,7 @@ _CODE_RE = re.compile(r"\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b")
 _INSTALL_HINT = "Install Codex CLI (npm i -g @openai/codex) and run `codex login` once."
 
 login_sessions: dict[str, LoginSession] = {}
+_watchers: set[asyncio.Task] = set()
 
 
 def codex_home_dir() -> Path:
@@ -44,9 +45,10 @@ def decode_jwt_claims(token: str) -> dict:
         return {}
     payload = parts[1] + "=" * (-len(parts[1]) % 4)
     try:
-        return json.loads(base64.urlsafe_b64decode(payload.encode()).decode("utf-8", "replace"))
+        data = json.loads(base64.urlsafe_b64decode(payload.encode()).decode("utf-8", "replace"))
     except (ValueError, UnicodeDecodeError):
         return {}
+    return data if isinstance(data, dict) else {}
 
 
 def read_plan_from_auth_json(path: Path) -> tuple[str | None, str | None]:
@@ -119,7 +121,9 @@ class CodexPlanAdapter:
                             command="codex login --device-auth")
         login_sessions[sess.session_id] = sess
         proc = await self._spawn(["codex", "login", "--device-auth"])
-        asyncio.get_running_loop().create_task(self._watch(sess, proc))
+        task = asyncio.get_running_loop().create_task(self._watch(sess, proc))
+        _watchers.add(task)
+        task.add_done_callback(_watchers.discard)
         return sess
 
     async def _watch(self, sess: LoginSession, proc) -> None:

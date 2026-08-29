@@ -59,6 +59,14 @@ def test_status_not_installed(monkeypatch):
     assert not s.available and not s.connected and "install" in s.detail.lower()
 
 
+def test_status_binary_vanishes_between_which_and_exec(monkeypatch):
+    monkeypatch.setattr(claude_cli.shutil, "which", lambda _: "/usr/local/bin/claude")
+    adapter = claude_cli.ClaudePlanAdapter(runner=_runner(rc=127, stderr="claude: not found"))
+    s = asyncio.run(adapter.status())
+    assert not s.available and not s.connected
+    assert "install" in s.detail.lower()
+
+
 def test_status_garbage_output_degrades(monkeypatch):
     monkeypatch.setattr(claude_cli.shutil, "which", lambda _: "/usr/local/bin/claude")
     adapter = claude_cli.ClaudePlanAdapter(runner=_runner(stdout="not json"))
