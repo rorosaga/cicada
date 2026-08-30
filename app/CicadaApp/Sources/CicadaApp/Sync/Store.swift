@@ -38,6 +38,18 @@ final class Store {
     private var entityLRU: [String] = []
     private let entityCacheLimit = 200
 
+    /// Inbox item ids hidden by an optimistic `InboxResolve` (§5.4). An id is
+    /// dropped only once a refreshed snapshot no longer contains it — if a 304
+    /// races the server-side delete, the item is still in `inbox.value` and
+    /// un-hiding it here would flash the card back for one refresh cycle.
+    var hiddenInboxIds: Set<String> = []
+
+    /// The inbox as the UI should see it: the snapshot minus anything hidden
+    /// by an in-flight or already-confirmed resolve.
+    var visibleInbox: [InboxItem] {
+        (inbox.value ?? []).filter { !hiddenInboxIds.contains($0.id) }
+    }
+
     /// Transient one-line error surfaced by the UI. Set only when a refresh
     /// fails *and* we had nothing to show — a failed background refresh over
     /// good data stays silent.
@@ -217,12 +229,27 @@ final class Store {
         }
         self[keyPath: kp].isRefreshing = true
         repeat {
+            // The bank this request belongs to. A GET issued for bank A can
+            // land after the user switched to B; writing A's payload (and A's
+            // etag) into B's slot is the same cross-bank bleed `hydrate`
+            // guards against, just arriving from the network instead of disk.
+            let epoch = bank
             do {
                 let result = try await fetch(self[keyPath: kp].etag)
+                // `.banks` is global (cached under `rosterBank`) — a roster
+                // response is valid whichever bank is active, and discarding
+                // it would strand the switch that this very response reports.
+                if domain != .banks, bank != epoch {
+                    Self.logger.debug("discarding stale \(domain.rawValue, privacy: .public) response from bank \(epoch, privacy: .public)")
+                    self[keyPath: kp].isRefreshing = false
+                    wantsRefresh.remove(domain)
+                    return  // still pending: the post-switch reconcile refetches it
+                }
                 if !result.notModified, let value = result.value {
                     self[keyPath: kp].value = value
                     self[keyPath: kp].etag = result.etag
                     self[keyPath: kp].loadedAt = Date()
+                    if domain == .inbox { pruneHiddenInboxIds() }
                     await cache.save(value, etag: result.etag,
                                      domain: domain, bank: domain == .banks ? Self.rosterBank : bank)
                 }
@@ -246,8 +273,17 @@ final class Store {
         }
         status.isRefreshing = true
         repeat {
+            let epoch = bank
             do {
                 let snapshot = try await api.fetchStatus()
+                // Same epoch guard as `refreshOne`: a status fetched for the
+                // previous bank must not feed the menu-bar bookworm the wrong
+                // bank's mood after a switch.
+                if bank != epoch {
+                    status.isRefreshing = false
+                    wantsRefresh.remove(.status)
+                    return
+                }
                 status.value = snapshot
                 status.loadedAt = Date()
                 await cache.save(snapshot, etag: nil, domain: .status, bank: bank)
@@ -297,6 +333,39 @@ final class Store {
         lastSleepAt: nil,
         nextSleepAt: nil
     )
+
+    // MARK: - Mutations (§5.4)
+
+    /// Apply a mutation optimistically, then send it. On failure the change is
+    /// rolled back and a toast explains why; on success the mutation's own
+    /// domains are reconciled so the server's authoritative version replaces
+    /// the locally-painted one.
+    ///
+    /// Returns whether the request landed, so callers can reset per-row UI
+    /// state (a spinner, a dimmed card) instead of leaving it stuck.
+    @discardableResult
+    func perform(_ mutation: any Mutation) async -> Bool {
+        await mutation.optimistic(self)
+        do {
+            try await mutation.request(api)
+            let domains = mutation.refreshDomains
+            if !domains.isEmpty { await refresh(domains) }
+            return true
+        } catch {
+            await mutation.rollback(self)
+            toast = mutation.failureMessage
+            Self.logger.debug("mutation failed: \(String(describing: error))")
+            return false
+        }
+    }
+
+    /// Drop hidden inbox ids the server has actually removed. Ids still
+    /// present in the fresh snapshot stay hidden — a 304 or a snapshot taken
+    /// just before the delete would otherwise flash a resolved card back.
+    private func pruneHiddenInboxIds() {
+        guard !hiddenInboxIds.isEmpty, let items = inbox.value else { return }
+        hiddenInboxIds.formIntersection(Set(items.map(\.id)))
+    }
 
     // MARK: - Version diffing
 

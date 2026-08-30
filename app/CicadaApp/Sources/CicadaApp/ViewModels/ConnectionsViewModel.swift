@@ -125,23 +125,36 @@ final class ConnectionsViewModel {
         awaitingTerminal = nil
     }
 
+    // MARK: Mutations (§5.4)
+    //
+    // Each flips the row locally through `Store.perform` (instant card
+    // update), then — on success only — re-probes with `fresh: true` so the
+    // server's authoritative row (real account, real price note) replaces the
+    // optimistic one. A failure rolls the row back and the Store's toast
+    // explains why; `errorMessage` mirrors it for the inline banner.
+
     func logout(_ id: String) async {
-        do { _ = try await APIClient.shared.logout(id); await load(fresh: true) }
-        catch { errorMessage = error.localizedDescription }
+        await mutate(LogoutConnection(id: id))
     }
 
     func saveKey(_ id: String, key: String) async {
-        do { _ = try await APIClient.shared.setKey(id, key: key); await load(fresh: true) }
-        catch { errorMessage = error.localizedDescription }
+        await mutate(SetConnectionKey(id: id, key: key))
     }
 
     func removeKey(_ id: String) async {
-        do { _ = try await APIClient.shared.removeKey(id); await load(fresh: true) }
-        catch { errorMessage = error.localizedDescription }
+        await mutate(RemoveConnectionKey(id: id))
     }
 
     func setTier(_ id: String, tier: String?) async {
-        do { _ = try await APIClient.shared.setTier(id, tier: tier); await load(fresh: true) }
-        catch { errorMessage = error.localizedDescription }
+        await mutate(SetConnectionTier(id: id, tier: tier))
+    }
+
+    private func mutate(_ mutation: any Mutation) async {
+        errorMessage = nil
+        if await store.perform(mutation) {
+            await load(fresh: true)
+        } else {
+            errorMessage = store.toast
+        }
     }
 }

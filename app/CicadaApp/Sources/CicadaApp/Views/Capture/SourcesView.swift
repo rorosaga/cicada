@@ -674,19 +674,16 @@ struct SourcesView: View {
         isSubscribing = true
         subscribeError = nil
 
+        // Optimistic (§5.4): the row appears (and the field clears) at once;
+        // `Store.perform` refreshes `.feeds` on success and removes the row
+        // again — with a toast — if the POST never landed.
         Task {
-            do {
-                _ = try await APIClient.shared.subscribeFeed(url: url)
-                await MainActor.run {
-                    isSubscribing = false
-                    newFeedURL = ""
-                }
-                await loadFeeds()
-            } catch {
-                await MainActor.run {
-                    isSubscribing = false
-                    subscribeError = Self.friendlyError(error)
-                }
+            let ok = await store.perform(SubscribeFeed(url: url))
+            isSubscribing = false
+            if ok {
+                newFeedURL = ""
+            } else {
+                subscribeError = store.toast
             }
         }
     }
@@ -694,16 +691,9 @@ struct SourcesView: View {
     private func unsubscribeFeedNow(_ url: String) {
         unsubscribingURL = url
         Task {
-            do {
-                try await APIClient.shared.unsubscribeFeed(url: url)
-                await MainActor.run { unsubscribingURL = nil }
-                await loadFeeds()
-            } catch {
-                await MainActor.run {
-                    unsubscribingURL = nil
-                    feedsError = Self.friendlyError(error)
-                }
-            }
+            let ok = await store.perform(UnsubscribeFeed(url: url))
+            unsubscribingURL = nil
+            if !ok { feedsError = store.toast }
         }
     }
 
@@ -897,18 +887,12 @@ struct SourcesView: View {
         subscribeCalendarError = nil
 
         Task {
-            do {
-                _ = try await APIClient.shared.subscribeCalendar(url: url)
-                await MainActor.run {
-                    isSubscribingCalendar = false
-                    newCalendarURL = ""
-                }
-                await loadCalendars()
-            } catch {
-                await MainActor.run {
-                    isSubscribingCalendar = false
-                    subscribeCalendarError = Self.friendlyError(error)
-                }
+            let ok = await store.perform(SubscribeCalendar(url: url))
+            isSubscribingCalendar = false
+            if ok {
+                newCalendarURL = ""
+            } else {
+                subscribeCalendarError = store.toast
             }
         }
     }
@@ -916,16 +900,9 @@ struct SourcesView: View {
     private func unsubscribeCalendarNow(_ url: String) {
         unsubscribingCalendarURL = url
         Task {
-            do {
-                try await APIClient.shared.unsubscribeCalendar(url: url)
-                await MainActor.run { unsubscribingCalendarURL = nil }
-                await loadCalendars()
-            } catch {
-                await MainActor.run {
-                    unsubscribingCalendarURL = nil
-                    calendarsError = Self.friendlyError(error)
-                }
-            }
+            let ok = await store.perform(UnsubscribeCalendar(url: url))
+            unsubscribingCalendarURL = nil
+            if !ok { calendarsError = store.toast }
         }
     }
 

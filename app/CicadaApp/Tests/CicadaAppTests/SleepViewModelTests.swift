@@ -104,4 +104,29 @@ final class SleepViewModelTests: XCTestCase {
         XCTAssertEqual(completedTimestamps.count, 1)
         XCTAssertEqual(completedTimestamps.first, true, "must only fire once idle was actually observed")
     }
+
+    /// Carry-over: a cycle that finishes in under a second is never observed
+    /// as "running" by the 1s poll — but it still mutated the graph. After
+    /// five consecutive idle ticks the loop closes out exactly once and stops.
+    func test_pollLoop_firesOnceAfterFiveIdleTicks_whenRunningIsNeverObserved() async throws {
+        let store = idleStore()
+        let fetch: () async throws -> SleepStatusResponse = {
+            try self.sleepStatus(status: "idle", stage: 5)
+        }
+        let vm = SleepViewModel(store: store, fetchSleepStatus: fetch)
+
+        var completedCount = 0
+        vm.onCycleCompleted = { completedCount += 1 }
+
+        await vm.triggerManually()
+
+        // Four ticks in, the bound has not been reached yet.
+        try await Task.sleep(for: .seconds(4.5))
+        XCTAssertEqual(completedCount, 0, "must not close out before the bound")
+
+        // Fifth tick fires it; the loop then ends, so waiting five more
+        // seconds must not produce a second completion.
+        try await Task.sleep(for: .seconds(5.5))
+        XCTAssertEqual(completedCount, 1, "exactly one completion, then the poll stops")
+    }
 }

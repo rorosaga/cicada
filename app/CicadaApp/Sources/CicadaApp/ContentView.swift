@@ -18,6 +18,7 @@ struct ContentView: View {
 
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(InboxViewModel.self) private var inboxVM
+    @Environment(Store.self) private var store
 
     var body: some View {
         // `ViewBuilder` only accepts declarations/`let _ = ...` statements
@@ -35,6 +36,10 @@ struct ContentView: View {
             detailContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CicadaTheme.background)
+                // A rolled-back mutation (or a refresh that failed with
+                // nothing on screen) posts `store.toast`; show it at the
+                // bottom of whatever page is open (§5.4).
+                .overlay(alignment: .bottom) { toastBanner }
         }
         // Most CicadaTheme.xxx tokens are plain static reads, not
         // @Environment-tracked, so SwiftUI's dependency tracker won't know to
@@ -61,6 +66,32 @@ struct ContentView: View {
                 showOnboarding = false
             }
             .frame(width: 780, height: 640)
+        }
+    }
+
+    /// Transient capsule for `store.toast`, auto-clearing after 4 s. Keyed on
+    /// the message so a second toast restarts the timer instead of inheriting
+    /// the first one's remaining time.
+    @ViewBuilder
+    private var toastBanner: some View {
+        if let toast = store.toast {
+            Text(toast)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(
+                    Capsule().fill(CicadaTheme.surface)
+                        .overlay(Capsule().stroke(CicadaTheme.border, lineWidth: 1))
+                )
+                .shadow(color: .black.opacity(0.25), radius: 10, y: 3)
+                .padding(.bottom, 22)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .task(id: toast) {
+                    try? await Task.sleep(for: .seconds(4))
+                    guard !Task.isCancelled else { return }
+                    store.toast = nil
+                }
         }
     }
 

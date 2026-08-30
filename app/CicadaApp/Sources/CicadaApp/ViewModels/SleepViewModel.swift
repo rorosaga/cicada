@@ -44,6 +44,15 @@ final class SleepViewModel {
     /// reporting the previous cycle's "idle" the instant a new one starts.
     private var hasSeenRunning = false
 
+    /// Consecutive non-running ticks seen since the poll started without ever
+    /// observing `"running"`. A cycle can finish in under a second (an empty
+    /// episode queue does), in which case the loop never catches a running
+    /// frame — but the graph was still mutated. After `idleTickBound` such
+    /// ticks we close out exactly like a normally-observed cycle instead of
+    /// polling for nothing.
+    private var idleTicksSinceStart = 0
+    private static let idleTickBound = 5
+
     /// Injectable so tests can feed a deterministic running/running/idle
     /// sequence without a live backend. Defaults to the real network call.
     private let fetchSleepStatus: () async throws -> SleepStatusResponse
@@ -126,13 +135,16 @@ final class SleepViewModel {
         }
     }
 
+    /// Start a cycle. `TriggerSleep` (§5.4) flips the Store's sleep status to
+    /// `running` before the POST goes out, so the dashboard and the menu-bar
+    /// bookworm react on the click; a failure restores the previous status and
+    /// the Store's toast explains why.
     func triggerManually() async {
         errorMessage = nil
-        do {
-            _ = try await APIClient.shared.triggerSleep()
+        if await store.perform(TriggerSleep()) {
             startPolling()
-        } catch {
-            errorMessage = error.localizedDescription
+        } else {
+            errorMessage = store.toast
         }
     }
 
@@ -150,6 +162,7 @@ final class SleepViewModel {
     private func startPolling() {
         pollTask?.cancel()
         hasSeenRunning = false
+        idleTicksSinceStart = 0
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
@@ -170,12 +183,23 @@ final class SleepViewModel {
                     // never stop one.
                     if next.status == "running" {
                         self.hasSeenRunning = true
+                    } else if !self.hasSeenRunning {
+                        self.idleTicksSinceStart += 1
                     }
-                    if self.hasSeenRunning && next.status == "idle" {
-                        self.pollTask = nil
+                    // Sub-1s cycle: never seen running, but `idleTickBound`
+                    // idle ticks have gone by since the trigger. Treat it as
+                    // finished — the cycle did run and did change the graph.
+                    let boundReached = !self.hasSeenRunning
+                        && self.idleTicksSinceStart >= Self.idleTickBound
+                    if (self.hasSeenRunning && next.status == "idle") || boundReached {
                         // Refresh the queue once the cycle finishes so the
-                        // UI shows the post-cycle state.
+                        // UI shows the post-cycle state. `pollTask` is nilled
+                        // *after* that call, not before: `load()` re-arms the
+                        // poll when it sees no poll in flight, which would
+                        // restart this loop (and, on the `boundReached` path,
+                        // re-fire the hook every 5 ticks forever).
                         await self.load()
+                        self.pollTask = nil
                         // Fire the post-cycle hook exactly once. We do not
                         // refresh the graph if the cycle ended in error
                         // (Sleep crashed mid-pipeline → markdown graph could

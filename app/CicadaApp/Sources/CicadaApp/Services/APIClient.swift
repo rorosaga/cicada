@@ -59,6 +59,22 @@ struct MemoryBank: Codable, Identifiable {
         case name, active, entityCount, episodeCount, createdAt, description
     }
 
+    /// Memberwise init (the `init(from:)` below suppresses the synthesized
+    /// one). `ActivateBank`'s optimistic apply needs to flip `active` on a
+    /// roster row before the server echoes the new roster back.
+    init(name: String, active: Bool, entityCount: Int, episodeCount: Int,
+         createdAt: String, description: String?) {
+        self.name = name; self.active = active
+        self.entityCount = entityCount; self.episodeCount = episodeCount
+        self.createdAt = createdAt; self.description = description
+    }
+
+    /// A copy with `active` replaced.
+    func settingActive(_ isActive: Bool) -> MemoryBank {
+        MemoryBank(name: name, active: isActive, entityCount: entityCount,
+                   episodeCount: episodeCount, createdAt: createdAt, description: description)
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
@@ -264,6 +280,12 @@ struct FeedSubscription: Codable, Identifiable {
         case lastPolled = "last_polled"
     }
 
+    /// Memberwise init — `SubscribeFeed`'s optimistic apply inserts a
+    /// provisional row (no `lastPolled` yet) that the server's echo replaces.
+    init(url: String, tags: [String] = [], added: String = "", lastPolled: String? = nil) {
+        self.url = url; self.tags = tags; self.added = added; self.lastPolled = lastPolled
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         url = try c.decode(String.self, forKey: .url)
@@ -352,6 +374,12 @@ struct CalendarSubscription: Codable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case url, tags, added
         case lastPolled = "last_polled"
+    }
+
+    /// Memberwise init — mirrors `FeedSubscription`'s, for the optimistic
+    /// `SubscribeCalendar` row.
+    init(url: String, tags: [String] = [], added: String = "", lastPolled: String? = nil) {
+        self.url = url; self.tags = tags; self.added = added; self.lastPolled = lastPolled
     }
 
     init(from decoder: Decoder) throws {
@@ -1402,6 +1430,36 @@ extension APIClient: SyncAPI {
     /// `GET /sync/version` → the current component version vector.
     func fetchSyncVersion() async throws -> VersionVector {
         try await get("/sync/version")
+    }
+
+    // MARK: Writes (§5.4)
+    //
+    // `subscribeFeed`/`unsubscribeFeed`/`subscribeCalendar`/
+    // `unsubscribeCalendar`/`activateBank`/`triggerSleep` already match their
+    // `SyncAPI` requirements exactly, so they satisfy the protocol from their
+    // primary declarations above. The five below only exist to give the
+    // protocol's connection/inbox names a home; each forwards verbatim.
+
+    func resolveInbox(id: String, action: String, answer: String?,
+                      mergeTarget: String?, mergeSurvivor: String?) async throws {
+        try await resolveInboxItem(id: id, action: action, answer: answer,
+                                   mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+    }
+
+    func setConnectionTier(_ id: String, tier: String?) async throws -> ConnectionStatus {
+        try await setTier(id, tier: tier)
+    }
+
+    func setConnectionKey(_ id: String, key: String) async throws -> ConnectionStatus {
+        try await setKey(id, key: key)
+    }
+
+    func removeConnectionKey(_ id: String) async throws -> ConnectionStatus {
+        try await removeKey(id)
+    }
+
+    func logoutConnection(_ id: String) async throws -> ConnectionStatus {
+        try await logout(id)
     }
 
     /// Opens the long-lived `GET /sync/events` SSE stream. The 1-hour timeout

@@ -39,6 +39,29 @@ protocol SyncAPI: Sendable {
     func fetchStatus() async throws -> StatusSnapshot
     func fetchEntity(id: String) async throws -> Entity
 
+    // MARK: Writes (§5.4)
+    //
+    // Every mutation routed through `Store.perform` goes out through this
+    // protocol rather than `APIClient.shared` directly, so a test can drive
+    // the optimistic/rollback paths with a fake that throws on demand.
+    // Signatures mirror `APIClient`'s existing methods (return values and
+    // all) so `APIClient` conforms without wrapper indirection; the mutations
+    // themselves ignore the returned bodies — the authoritative state arrives
+    // with the follow-up refresh.
+
+    func resolveInbox(id: String, action: String, answer: String?,
+                      mergeTarget: String?, mergeSurvivor: String?) async throws
+    func setConnectionTier(_ id: String, tier: String?) async throws -> ConnectionStatus
+    func setConnectionKey(_ id: String, key: String) async throws -> ConnectionStatus
+    func removeConnectionKey(_ id: String) async throws -> ConnectionStatus
+    func logoutConnection(_ id: String) async throws -> ConnectionStatus
+    func subscribeFeed(url: String, tags: [String]) async throws -> FeedSubscription
+    func unsubscribeFeed(url: String) async throws
+    func subscribeCalendar(url: String, tags: [String]) async throws -> CalendarSubscription
+    func unsubscribeCalendar(url: String) async throws
+    func activateBank(name: String) async throws
+    func triggerSleep() async throws -> SleepTriggerResponse
+
     /// `GET /sync/version` — the current version vector.
     func fetchSyncVersion() async throws -> VersionVector
     /// `GET /sync/events` — a long-lived SSE line stream (bearer attached).

@@ -24,6 +24,40 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
         case priceUsdMonth, priceNote, billing, engineRole, detail, login
     }
 
+    /// Memberwise init — declaring `init(from:)` below suppresses the
+    /// synthesized one, and the optimistic mutations (§5.4) need to build a
+    /// patched copy of a row (new tier, or `connected: false`) before the
+    /// server's own version arrives.
+    init(id: String, label: String, kind: String, available: Bool, connected: Bool,
+         plan: String?, planLabel: String?, tier: String?, account: String?,
+         priceUsdMonth: Double?, priceNote: String?, billing: String,
+         engineRole: String?, detail: String?, login: LoginHint?) {
+        self.id = id; self.label = label; self.kind = kind
+        self.available = available; self.connected = connected
+        self.plan = plan; self.planLabel = planLabel; self.tier = tier
+        self.account = account; self.priceUsdMonth = priceUsdMonth
+        self.priceNote = priceNote; self.billing = billing
+        self.engineRole = engineRole; self.detail = detail; self.login = login
+    }
+
+    /// A copy with only the named fields replaced. `nil` arguments mean
+    /// "keep what's there"; the double-optionals carry "set this to nil"
+    /// through (`.some(nil)`).
+    func patching(connected: Bool? = nil, tier: String?? = nil, planLabel: String?? = nil,
+                  priceUsdMonth: Double?? = nil, priceNote: String?? = nil) -> ConnectionStatus {
+        ConnectionStatus(
+            id: id, label: label, kind: kind, available: available,
+            connected: connected ?? self.connected,
+            plan: plan,
+            planLabel: planLabel ?? self.planLabel,
+            tier: tier ?? self.tier,
+            account: account,
+            priceUsdMonth: priceUsdMonth ?? self.priceUsdMonth,
+            priceNote: priceNote ?? self.priceNote,
+            billing: billing, engineRole: engineRole, detail: detail, login: login
+        )
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)

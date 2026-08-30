@@ -66,6 +66,97 @@ final class FakeSyncAPI: SyncAPI {
         g?.resume()
     }
     var syncVersion = VersionVector(version: "v0", components: [:])
+
+    // MARK: Writes (§5.4)
+
+    /// Every write the fake saw, in order, as "name:argument" strings.
+    var writes: [String] = []
+    /// When true, every write throws — drives the rollback paths.
+    var failWrites = false
+    /// Parks the next write until `releaseWriteGate()`, so a test can inspect
+    /// the Store while a mutation is mid-flight.
+    var gateWrites = false
+    private var writeGate: CheckedContinuation<Void, Never>?
+    /// Set once a gated write has actually parked.
+    private(set) var writeIsParked = false
+
+    func releaseWriteGate() {
+        let g = writeGate
+        writeGate = nil
+        writeIsParked = false
+        g?.resume()
+    }
+
+    /// Spins (bounded) until a gated write has parked.
+    func waitForParkedWrite(file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<200_000 {
+            if writeIsParked { return }
+            await Task.yield()
+        }
+        XCTFail("write never parked on the gate", file: file, line: line)
+    }
+
+    private func record(_ what: String) async throws {
+        writes.append(what)
+        if gateWrites {
+            await withCheckedContinuation { c in
+                writeIsParked = true
+                writeGate = c
+            }
+        }
+        if failWrites { throw APIError.serverUnreachable }
+    }
+
+    func resolveInbox(id: String, action: String, answer: String?,
+                      mergeTarget: String?, mergeSurvivor: String?) async throws {
+        try await record("resolveInbox:\(id):\(action)")
+    }
+    func setConnectionTier(_ id: String, tier: String?) async throws -> ConnectionStatus {
+        try await record("setConnectionTier:\(id):\(tier ?? "nil")")
+        return try connectionFixture(id: id)
+    }
+    func setConnectionKey(_ id: String, key: String) async throws -> ConnectionStatus {
+        try await record("setConnectionKey:\(id)")
+        return try connectionFixture(id: id)
+    }
+    func removeConnectionKey(_ id: String) async throws -> ConnectionStatus {
+        try await record("removeConnectionKey:\(id)")
+        return try connectionFixture(id: id)
+    }
+    func logoutConnection(_ id: String) async throws -> ConnectionStatus {
+        try await record("logoutConnection:\(id)")
+        return try connectionFixture(id: id)
+    }
+    func subscribeFeed(url: String, tags: [String]) async throws -> FeedSubscription {
+        try await record("subscribeFeed:\(url)")
+        return FeedSubscription(url: url, tags: tags)
+    }
+    func unsubscribeFeed(url: String) async throws {
+        try await record("unsubscribeFeed:\(url)")
+    }
+    func subscribeCalendar(url: String, tags: [String]) async throws -> CalendarSubscription {
+        try await record("subscribeCalendar:\(url)")
+        return CalendarSubscription(url: url, tags: tags)
+    }
+    func unsubscribeCalendar(url: String) async throws {
+        try await record("unsubscribeCalendar:\(url)")
+    }
+    func activateBank(name: String) async throws {
+        try await record("activateBank:\(name)")
+    }
+    func triggerSleep() async throws -> SleepTriggerResponse {
+        try await record("triggerSleep")
+        return try JSONDecoder().decode(
+            SleepTriggerResponse.self,
+            from: Data(#"{"status":"started","cycleId":"c1","message":"started"}"#.utf8))
+    }
+
+    private func connectionFixture(id: String) throws -> ConnectionStatus {
+        ConnectionStatus(id: id, label: id, kind: "subscription", available: true,
+                         connected: true, plan: "max", planLabel: nil, tier: nil,
+                         account: nil, priceUsdMonth: nil, priceNote: nil,
+                         billing: "subscription", engineRole: nil, detail: nil, login: nil)
+    }
     var entities: [String: Entity] = [:]
     var entityFetches = 0
 
@@ -379,5 +470,31 @@ final class StoreTests: XCTestCase {
         api.releaseGate(.graph)
         await switching.value
         XCTAssertNotNil(store.graph.value, "the reconcile then fills B's graph in")
+    }
+
+    /// A `/graph` GET issued while bank A was active must not land in bank B's
+    /// slot when it completes after a switch. Without the epoch guard the
+    /// response (and A's etag) overwrite B's freshly-reset snapshot, and the
+    /// etag makes the next real fetch answer 304 — A's graph then sticks under
+    /// B's label indefinitely.
+    func testStaleBankResponseIsDiscarded() async throws {
+        let api = FakeSyncAPI()
+        api.gatedDomains = [.graph]
+        let store = Store(cache: tempCache(), api: api)
+        await store.hydrate(bank: "A")
+
+        let inFlight = Task { await store.refresh([.graph]) }
+        await waitForGate(api, .graph)
+
+        // The switch happens while A's graph response is in flight.
+        store.bank = "B"
+
+        api.gatedDomains = []
+        api.releaseGate(.graph)
+        await inFlight.value
+
+        XCTAssertNil(store.graph.value, "bank A's response must not be written into bank B's slot")
+        XCTAssertNil(store.graph.etag, "and A's etag must not be sent to B")
+        XCTAssertFalse(store.graph.isRefreshing, "the discarded refresh still clears its flag")
     }
 }
