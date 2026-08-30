@@ -32,7 +32,7 @@ cicada/
 │
 ├── app/                        ← SwiftUI macOS app
 │   ├── CicadaApp.xcodeproj
-│   └── CicadaApp/
+│   └── Sources/CicadaApp/
 │       ├── Views/
 │       │   ├── GraphView.swift         ← WKWebView wrapper for d3
 │       │   ├── NudgeInboxView.swift
@@ -167,6 +167,25 @@ repos:
 
 `GET /entities/{id}/repos` and `PATCH /entities/{id}/repos` read/write only this key. The live git context (current branch, ahead/behind, dirty files, worktree state) is resolved **on demand, never cached** — the entity page only ever declares which repos it's linked to; `git_service` shells out fresh on every call to answer "what's the state of this repo right now." Surfaced in the graph as a synthetic `repo:<slug>` node per distinct path, and via the `cicada_repo_context` MCP tool.
 
+### Fact sources (G61)
+Entity pages may carry an optional `sources:` frontmatter key — *where to look a fact up*,
+distinct from `source_episodes` (where a belief came from) and from the body's `## Links`:
+
+```yaml
+sources:
+  - ref: https://www.linkedin.com/in/rodrigosagastegui
+    kind: url            # url | path | note (inferred from `ref` when not given)
+    predicate: works-at  # optional — which fact this source refreshes
+    added_by: user       # model id, or "user"
+    added_at: '2026-08-30'
+```
+
+Read/written by `api/services/fact_sources.py` behind `GET/POST/DELETE /entities/{id}/sources`
+(note: `api/services/entity_sources.py` is a *different* module — it resolves an entity's episodes
+back to whole conversations). `cicada_write_claim` accepts `sources: [str]`, attributed to the
+model that wrote the claim. Conflict generation consults them: a matching source becomes the
+card's "Source to check" hint. Nothing is fetched in this slice.
+
 ### sqlite-vec (Vector Index)
 Lightweight on-device semantic search (`api/services/vector_index.py`, replaces the earlier LEANN wrapper — `leann_indexer.py` has been deleted). Embeddings are stored, not recomputed at query time, so search is a single in-process ANN lookup with no latency tax. Default backend is **EmbeddingGemma-300M** (768-dim, on-device, gated HF model) with asymmetric query/document embedding prompts; the index is *derived and disposable* — rebuilt from entity/episode markdown by the Sleep cycle, and can be deleted and regenerated at any time (see the Thesis Benchmarks note below on `benchmarks.rebuild_leann`'s historical name). Runs locally, zero cloud costs for the default backend.
 
@@ -271,7 +290,7 @@ GET  /graph                               → nodes + edges JSON for d3 (incl. s
 GET  /search                              → cross-graph search (entities + episodes)
 POST /ask                                 → grounded NL answer over the graph, with citations + gap analysis
 GET  /inbox                               → unified pending-item queue (nudges + clarifications + merge suggestions)
-POST /inbox/{id}/resolve                  → resolve a pending inbox item
+POST /inbox/{id}/resolve                  → resolve a pending inbox item (accepts optionKey / answer / remindDays; action "defer" hides it until remind_after)
 GET  /nudges                              → DEPRECATED thin projection over /inbox (kept for compat)
 POST /nudges/{id}/resolve                 → DEPRECATED — see /inbox/{id}/resolve
 GET  /clarifications                      → DEPRECATED thin projection over /inbox (kept for compat)
@@ -285,6 +304,9 @@ GET  /entities/{id}/location              → directory-entity listing
 GET  /entities/{id}/context               → entity + related context bundle
 GET  /entities/{id}/repos                 → declared repos: frontmatter + live-resolved git context per repo
 PATCH /entities/{id}/repos                → rewrite the repos: frontmatter key
+GET  /entities/{id}/sources               → declared "where to check this fact" sources (G61)
+POST /entities/{id}/sources               → append a source {ref, kind?, predicate?}; kind inferred
+DELETE /entities/{id}/sources/{index}     → remove one source
 GET  /entities/{id}/claims                → claim layer for an entity
 GET  /entities/{id}/timeline              → bi-temporal claim timeline
 GET  /transclude                          → transclusion payload for embedding one page inside another
@@ -361,12 +383,31 @@ response shapes) kept only so the SwiftUI app and any external caller keep worki
 - Each item shows: entity involved, kind, question, relevant context
 - Quick-action buttons per kind:
   - **Decay** ("Still interested in Salesforce?"): `Yes, keep active` / `No, archive it` / `Remind me later`
-  - **Conflict** ("Postgres or SQLite?"): `[Option A]` / `[Option B]` / `Both are true (different contexts)`
   - **Clarification** ("Who is Francesco?"): free-text answer, dismiss, merge into an existing entity, or skip
   - **Merge suggestion**: confirm or reject a proposed entity merge
 - Responding writes the resolution back to the entity page (or creates a new entity)
 - Items resolved organically by later conversation are automatically removed
 - Badge count on the inbox icon
+
+**Question object (G60):** every `conflict` / `clarification` / `merge_suggestion` item carries
+  `question` (one sentence), `options: [{key, label, description, claim_id, observed_at,
+  last_referenced}]`, `allow_other`, `allow_defer`, `predicate`, and an optional `hint`
+  (from the entity's `sources:`). Descriptions lead with the age phrase ("6 months ago") so
+  staleness is visible before choosing; `age_days` is derived at read time, never stored.
+  Legacy flat `options: [str]` items still render — they are upgraded to `{key, label}` on read.
+
+**Dedup + time:** items are keyed `(entity_id, predicate)` (clarifications by
+  `(entity_id, uncertainty_type)`, merges by the sorted entity pair). A second competing value
+  **merges** into the open item as another option instead of writing a duplicate file. Each Sleep,
+  `inbox_questions.refresh_open_questions` bumps re-mentioned options, auto-resolves a question the
+  user answered organically in conversation, escalates a question every option of which has been
+  silent for `inbox_stale_after_days` (default 90) by inserting a "Neither anymore" option, and
+  keeps deferred items (`remind_after` in the future) out of `GET /inbox` and `cicada_check_nudges`.
+
+**Resolve is claim-aware:** picking an option supersedes every losing claim (`valid_to` +
+  `superseded_by`); "both" keeps them open with a `context` qualifier; "neither"/free text writes a
+  `user_stated` claim that closes them; `defer` writes `remind_after`. All four commit with
+  `Cicada-Author: user`.
 
 **Three resolution paths for clarifications:**
 1. **Organic**: User naturally provides context in later conversation → next Sleep cycle promotes
