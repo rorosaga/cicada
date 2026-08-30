@@ -528,12 +528,18 @@ async def porcelain_status(memory_path: Path) -> str:
         return ""
 
 
-async def commit_resolution(memory_path: Path, entity_id: str, trigger: str) -> None:
+async def commit_resolution(
+    memory_path: Path,
+    entity_id: str,
+    trigger: str,
+    extra_lines: list[str] | None = None,
+) -> None:
     """Commit after an inbox (nudge/clarification/conflict) resolution.
 
     Emits a structured "Inbox resolution <date>" subject so the resolution
     surfaces in ``get_sleep_history`` (the Sleep dashboard) — the old
-    single-line subject was never matched by the history filter.
+    single-line subject was never matched by the history filter. ``extra_lines``
+    appends further per-file manifest lines (G60: one per closed claim's page).
     """
     date_str = date.today().isoformat()
     # trigger is "inbox/<kind>/resolved" — tag the kind into the subject so the
@@ -546,10 +552,8 @@ async def commit_resolution(memory_path: Path, entity_id: str, trigger: str) -> 
         f"Inbox resolution ({kind}) {date_str}" if kind
         else f"Inbox resolution {date_str}"
     )
+    body_lines = [f"entities/{entity_id}.md: updated (trigger: {trigger})"]
+    body_lines.extend(extra_lines or [])
     # An inbox resolution is a user/companion-app action -> attribute to "user".
-    message = build_commit_message(
-        subject,
-        [f"entities/{entity_id}.md: updated (trigger: {trigger})"],
-        authors=["user"],
-    )
+    message = build_commit_message(subject, body_lines, authors=["user"])
     await commit_changes(memory_path, message)

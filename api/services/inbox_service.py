@@ -213,10 +213,18 @@ async def resolve(
     parsed = markdown_parser.parse(path)
     kind = str(parsed.frontmatter.get("kind", "decay"))
 
+    # G60 §2.4 — `defer` is kind-agnostic: it never touches claims or the entity
+    # page, it just pushes the item out of sight until `remind_after`.
+    if request.action == "defer":
+        return _defer(path, parsed, request, settings, item_id)
+
+    extra_lines: list[str] = []
     if kind == "decay":
         entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
     elif kind == "conflict":
-        entity_id, skipped = await _resolve_conflict(path, parsed, request, settings)
+        entity_id, skipped, extra_lines = await _resolve_conflict(
+            path, parsed, request, settings
+        )
     elif kind in ("clarification", "merge_suggestion"):
         entity_id, skipped = await _resolve_clarification(
             path, parsed, request, settings
@@ -231,9 +239,21 @@ async def resolve(
     from api.services import git_service
 
     await git_service.commit_resolution(
-        settings.memory_path, entity_id, f"inbox/{kind}/resolved"
+        settings.memory_path, entity_id, f"inbox/{kind}/resolved", extra_lines
     )
     return {"status": "resolved", "id": item_id}
+
+
+def _defer(path, parsed, request, settings, item_id: str) -> dict:
+    """Push an item's ``remind_after`` into the future; the file stays."""
+    days = request.remind_days
+    if days is None:
+        days = int(getattr(settings, "inbox_defer_days", 30) or 30)
+    remind_after = str(date.today() + timedelta(days=max(1, int(days))))
+    parsed.frontmatter["remind_after"] = remind_after
+    parsed.frontmatter["updated_date"] = str(date.today())
+    markdown_parser.write(path, parsed.frontmatter, parsed.body)
+    return {"status": "deferred", "id": item_id, "remindAfter": remind_after}
 
 
 async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
@@ -276,32 +296,158 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
     return entity_id, False
 
 
-async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool]:
-    """Conflict adjudication — LLM-synthesize the answer into the entity body.
+def _user_claim_id(entity_id: str, predicate: str, obj: str, today: str) -> str:
+    """Stable id for a user-authored resolution claim (mirrors agentic_write)."""
+    import hashlib
 
-    The user's chosen option (or free text) becomes the authoritative
-    description; ``conflict_resolver._synthesize_entity_update`` integrates it
-    coherently instead of accreting a disconnected paragraph (the old bug). A
-    non-LLM dedup fallback keeps the resolve path working without an API key.
+    digest = hashlib.sha1(
+        f"{entity_id}\x00{predicate}\x00{obj}\x00user\x00{today}".encode("utf-8")
+    ).hexdigest()[:8]
+    return f"clm_{today}_user_{digest}"
+
+
+def _close_today(old, *, by, today: str) -> None:
+    """Bi-temporally close ``old`` in favor of ``by``, but with ``valid_to``
+    pinned to *today* (the resolution date) rather than ``_close``'s default of
+    the winner's ``valid_from`` — a user resolving a conflict today closes the
+    old belief today, regardless of when the winning claim was first observed.
     """
+    from api.services.claim_reconciler import _close
+
+    _close(old, by=by)
+    old.valid_to = today
+
+
+async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
+    """Claim-aware conflict adjudication (§2.4).
+
+    The chosen option decides what happens in the ``claims`` block FIRST — a
+    winning claim is reinforced and every loser is bi-temporally closed, "both"
+    keeps them all open with a context qualifier, and "neither"/free text writes
+    a ``user_stated`` claim that closes them. Only then is a full sentence (not
+    a raw button label — the old bug) fed to the LLM body rewrite.
+    """
+    from api.services import predicates
+    from api.services.claims import Claim, parse_claims, write_claims
     from api.services.conflict_resolver import _synthesize_entity_update
 
-    entity_id = parsed.frontmatter.get("entity_id", "")
-    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
-    answer = (request.answer or "").strip()
+    fm_item = parsed.frontmatter
+    entity_id = str(fm_item.get("entity_id", "") or "")
 
-    if entity_path.exists() and answer:
-        entity = markdown_parser.parse(entity_path)
-        fm = entity.frontmatter
-        new_body = None
+    if request.action == "skip":
+        return entity_id, True, []
+
+    predicate_raw = str(fm_item.get("predicate", "") or "description")
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    options = inbox_questions.normalize_options(fm_item.get("options"))
+    option_key = (request.option_key or "").strip()
+    answer = (request.answer or "").strip()
+    today = str(date.today())
+    extra_lines: list[str] = []
+
+    if not entity_path.exists():
+        # Nothing to write into; clear the question rather than stranding it.
+        path.unlink()
+        return entity_id, False, extra_lines
+
+    entity = markdown_parser.parse(entity_path)
+    fm = entity.frontmatter
+    name = str(fm.get("name", entity_id) or entity_id)
+    normalize_predicate = predicates.load_normalizer(settings.memory_path)
+    predicate = normalize_predicate(predicate_raw) or predicate_raw
+
+    try:
+        claim_list = parse_claims(entity.body, strict=True)
+    except Exception:
+        # A corrupt claims block must never be silently overwritten.
+        claim_list = None
+
+    by_id = {c.id: c for c in (claim_list or [])}
+    option_claims = [
+        by_id[str(o["claim_id"])]
+        for o in options
+        if o.get("claim_id") and str(o["claim_id"]) in by_id
+    ]
+    chosen = next((o for o in options if str(o.get("key")) == option_key), None)
+
+    sentence = answer or ""
+
+    if claim_list is not None:
+        if chosen is not None and chosen.get("claim_id") and option_key not in ("both", "neither"):
+            winner = by_id[str(chosen["claim_id"])]
+            winner.confidence = max(winner.confidence, 0.9)
+            for loser in option_claims:
+                if loser.id != winner.id and loser.valid_to is None:
+                    _close_today(loser, by=winner, today=today)
+                    extra_lines.append(
+                        f"entities/{entity_id}.md: updated "
+                        f"(source: {path.stem}, trigger: inbox/conflict/resolved)"
+                    )
+            sentence = (
+                f"{predicates.predicate_phrase(predicate, name, chosen['label'])} "
+                f"(confirmed by user on {today})."
+            )
+
+        elif option_key == "both":
+            labels = []
+            for claim in option_claims:
+                if claim.context == "general":
+                    claim.context = f"as of {claim.valid_from or today}"
+                labels.append(claim.object)
+            sentence = (
+                f"Both are true: {' and '.join(labels)} (confirmed by user on {today})."
+                if labels else sentence
+            )
+
+        else:
+            # `neither`, or free text with no option key.
+            if answer:
+                new_claim = Claim(
+                    id=_user_claim_id(entity_id, predicate, answer, today),
+                    text=f"{predicates.predicate_phrase(predicate, name, answer)}.",
+                    subject=entity_id,
+                    predicate=predicate,
+                    object=answer,
+                    # Keep the SAME belief slot (observer) as the claims being
+                    # replaced so future reconciliation sees one lineage.
+                    observer=option_claims[0].observer if option_claims else "rodrigo",
+                    context=option_claims[0].context if option_claims else "general",
+                    source_trust="user_stated",
+                    origin="clarification",
+                    authored_by="user",
+                    confidence=0.95,
+                    valid_from=today,
+                    recorded_at=today,
+                )
+                for loser in option_claims:
+                    if loser.valid_to is None:
+                        _close_today(loser, by=new_claim, today=today)
+                claim_list.append(new_claim)
+                sentence = (
+                    f"{predicates.predicate_phrase(predicate, name, answer)} "
+                    f"(stated by user on {today})."
+                )
+            else:
+                for loser in option_claims:
+                    if loser.valid_to is None:
+                        loser.valid_to = today
+                sentence = (
+                    f"None of the previously recorded values for "
+                    f"'{predicate}' are current as of {today}."
+                )
+
+        entity.body = write_claims(entity.body, claim_list)
+
+    new_body = None
+    if sentence:
         try:
             new_body = await _synthesize_entity_update(
-                entity_name=fm.get("name", entity_id),
+                entity_name=name,
                 entity_type=fm.get("type", "concept"),
                 existing_body=entity.body,
-                new_description=answer,
+                new_description=sentence,
                 new_history_entries=[],
-                source_reference_date=str(date.today()),
+                source_reference_date=today,
                 settings=settings,
             )
         except Exception:
@@ -309,16 +455,22 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool]
         if not new_body:
             # Safe fallback: dedup guard instead of blind append.
             new_body = (
-                entity.body.rstrip() + f"\n\n{answer}"
-                if answer not in entity.body
+                entity.body.rstrip() + f"\n\n{sentence}"
+                if sentence not in entity.body
                 else entity.body
             )
-        fm["last_referenced"] = str(date.today())
-        fm["version"] = int(fm.get("version", 1) or 1) + 1
-        markdown_parser.write(entity_path, fm, new_body)
+
+    if claim_list is not None and new_body is not None:
+        # The synthesizer only ever returns prose; re-attach the machine layer
+        # so an LLM rewrite can never drop the claims block.
+        new_body = write_claims(new_body, claim_list)
+
+    fm["last_referenced"] = today
+    fm["version"] = int(fm.get("version", 1) or 1) + 1
+    markdown_parser.write(entity_path, fm, new_body or entity.body)
 
     path.unlink()
-    return entity_id, False
+    return entity_id, False, extra_lines
 
 
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool]:
