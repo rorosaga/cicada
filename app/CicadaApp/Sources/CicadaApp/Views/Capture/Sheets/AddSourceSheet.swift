@@ -350,7 +350,7 @@ struct AddSourceSheet: View {
         let ok = await store.perform(SubscribeFeed(url: url, tags: []))
         feedText = ok ? "" : feedText
         busy = false
-        if ok { await finish("Subscribed — Cicada polls it from now on") } else { error = store.toast }
+        if ok { await finish("Subscribed — Cicada polls it from now on") } else { result = nil; error = store.toast }
     }
 
     private func subscribeCalendar() async {
@@ -360,7 +360,7 @@ struct AddSourceSheet: View {
         let ok = await store.perform(SubscribeCalendar(url: url, tags: []))
         calendarText = ok ? "" : calendarText
         busy = false
-        if ok { await finish("Subscribed — events arrive on the next poll") } else { error = store.toast }
+        if ok { await finish("Subscribed — events arrive on the next poll") } else { result = nil; error = store.toast }
     }
 
     private func syncBookmarks() async {
