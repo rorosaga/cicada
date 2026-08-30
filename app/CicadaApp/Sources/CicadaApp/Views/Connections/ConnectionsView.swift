@@ -11,8 +11,8 @@ struct ConnectionsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            PageHeader(title: "Connections",
-                       subtitle: "Which plan or key powers Cicada. Subscriptions sign in through their own CLI — Cicada never sees the token.") {
+            PageHeader(title: "Plans & keys",
+                       subtitle: "What Cicada bills against. Subscriptions sign in through their own CLI — Cicada never sees the token.") {
                 Button { Task { await viewModel.load(fresh: true) } } label: { Image(systemName: "arrow.clockwise") }
             }
 
@@ -134,14 +134,39 @@ private struct ConnectionCard: View {
                 Text(detail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             }
 
-            if connection.connected, connection.plan == "max" || connection.plan == "pro", connection.isSubscription,
-               connection.id == "claude-plan" || (connection.id == "chatgpt-plan" && connection.plan == "pro") {
-                Picker("Tier", selection: Binding(get: { connection.tier ?? "" }, set: { onTier($0.isEmpty ? nil : $0) })) {
+            // G63: "why does this say Connected?" — the sentence comes from the
+            // backend adapter that ran the probe, so the copy can never drift
+            // from the check that produced it.
+            if let how = connection.how {
+                Text(how)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let powers = connection.powersLine {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Text("POWERS")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .tracking(1.1)
+                    Text(powers)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
+            }
+
+            if connection.showsTierPicker {
+                Picker("Your Max tier (for cost estimates only)",
+                       selection: Binding(get: { connection.tier ?? "" },
+                                          set: { onTier($0.isEmpty ? nil : $0) })) {
                     Text("Pick tier…").tag("")
                     Text("5x").tag("5x")
                     Text("20x").tag("20x")
                 }
-                .pickerStyle(.segmented).frame(maxWidth: 260)
+                .pickerStyle(.segmented).frame(maxWidth: 300)
+                Text("Your Max tier (for cost estimates only)")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
             }
 
             actions
@@ -188,7 +213,14 @@ private struct ConnectionCard: View {
                 CommandBox(command: cmd)
             }
         } else {
-            Button("Connect", action: onConnect).buttonStyle(.borderedProminent)
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                if let cmd = connection.login?.command, connection.login?.mode == "terminal" {
+                    Text("Cicada can't sign you in — Claude Code does. Run this once and this card updates itself:")
+                        .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                    CommandBox(command: cmd)
+                }
+                Button("Connect", action: onConnect).buttonStyle(.borderedProminent)
+            }
         }
     }
 

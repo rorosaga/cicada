@@ -21,7 +21,8 @@ final class MutationTests: XCTestCase {
         ConnectionStatus(id: id, label: id, kind: "subscription", available: true,
                          connected: true, plan: plan, planLabel: nil, tier: tier,
                          account: "me@example.com", priceUsdMonth: nil, priceNote: nil,
-                         billing: "subscription", engineRole: nil, detail: nil, login: nil)
+                         billing: "subscription", engineRole: nil, detail: nil,
+                         how: nil, powers: [], login: nil)
     }
 
     // MARK: - Inbox

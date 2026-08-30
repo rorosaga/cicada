@@ -162,7 +162,8 @@ final class FakeSyncAPI: SyncAPI {
         ConnectionStatus(id: id, label: id, kind: "subscription", available: true,
                          connected: true, plan: "max", planLabel: nil, tier: nil,
                          account: nil, priceUsdMonth: nil, priceNote: nil,
-                         billing: "subscription", engineRole: nil, detail: nil, login: nil)
+                         billing: "subscription", engineRole: nil, detail: nil,
+                         how: nil, powers: [], login: nil)
     }
     var entities: [String: Entity] = [:]
     var entityFetches = 0
