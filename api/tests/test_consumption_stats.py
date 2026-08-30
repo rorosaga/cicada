@@ -64,6 +64,22 @@ def test_memory_write_days_counts_attributed_commits_only(env):
     assert days == {"2026-08-27": 2}
 
 
+def test_memory_write_days_buckets_by_utc_not_author_offset(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "memory"
+    (repo / "entities").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    day, msg = "2026-08-27T23:30:00-0700", "Sleep cycle\n\nx\n\nCicada-Author: gpt-5.4-mini\n"
+    (repo / "entities" / "late.md").write_text(msg)
+    _git(repo, "add", "-A")
+    subprocess.run(["git", "commit", "-q", "-m", msg], cwd=repo, check=True,
+                   env={**__import__("os").environ, "GIT_AUTHOR_DATE": day, "GIT_COMMITTER_DATE": day})
+    days = asyncio.run(cs.memory_write_days(repo))
+    assert days == {"2026-08-28": 1}
+
+
 def test_streaks():
     active = {"2026-08-28", "2026-08-27", "2026-08-25", "2026-08-24", "2026-08-23"}
     assert cs.streaks(active, TODAY) == (2, 3)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from api.services import git_service, telemetry
@@ -28,20 +28,37 @@ def resolve_range(range_: str, today: date) -> date | None:
 
 
 async def memory_write_days(memory_path: Path) -> dict[str, int]:
+    """ISO-day -> attributed-commit count, bucketed by **UTC** calendar day.
+
+    ``git log --date=short`` (or any ``%ad``-based format) buckets by the
+    author's recorded UTC *offset*, not UTC itself — a commit authored at
+    ``2026-08-27T23:30:00-07:00`` (= ``2026-08-28T06:30Z``) would land on
+    ``2026-08-27`` there, one day off from how the telemetry ledger buckets
+    its explicit-UTC ``ts[:10]`` timestamps. We instead take the strict-ISO
+    author date (``%aI``, includes the offset) and convert to UTC in Python
+    so both sources agree on one calendar-day definition.
+    """
     if not (memory_path / ".git").exists():
         return {}
     sep, rec = "\x1f", "\x1e"
     try:
-        out = await git_service._run_git(memory_path, "log", f"--format=%ad{sep}%b{rec}", "--date=short")
+        out = await git_service._run_git(memory_path, "log", f"--format=%aI{sep}%b{rec}")
     except git_service.GitError:
         return {}
     days: Counter[str] = Counter()
     for record in out.split(rec):
         if sep not in record:
             continue
-        day, body = record.strip("\n").split(sep, 1)
+        iso_date, body = record.strip("\n").split(sep, 1)
+        iso_date = iso_date.strip()
+        if not iso_date:
+            continue
+        try:
+            day = datetime.fromisoformat(iso_date).astimezone(timezone.utc).date().isoformat()
+        except ValueError:
+            continue
         if git_service._parse_authors(body):
-            days[day.strip()] += 1
+            days[day] += 1
     return dict(days)
 
 
