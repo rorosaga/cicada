@@ -78,7 +78,9 @@ def test_item_from_file_upgrades_legacy_flat_options(tmp_path):
     assert [o.key for o in item.options] == ["0", "1", "2"]
     assert item.options[0].label == "mongodb"
     assert item.question is None
-    assert item.allow_other is False
+    # Legacy conflicts (no allow_* keys) must still offer the free-text and
+    # defer escapes — the resolve path accepts them for every conflict.
+    assert item.allow_other is True and item.allow_defer is True
 
 
 def test_item_from_file_reads_question_object_and_derives_age(tmp_path):

@@ -85,8 +85,11 @@ def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
         options=options,
         created_date=str(fm.get("created_date", "") or ""),
         question=_opt_str(fm.get("question")),
-        allow_other=bool(fm.get("allow_other", False)),
-        allow_defer=bool(fm.get("allow_defer", False)),
+        # Conflicts and clarifications always accept a free-text answer and a
+        # deferral on the resolve path, so legacy items (written before G60,
+        # no allow_* keys) must not lock the user into the closed option set.
+        allow_other=bool(fm.get("allow_other", kind in ("conflict", "clarification"))),
+        allow_defer=bool(fm.get("allow_defer", kind in ("conflict", "clarification"))),
         predicate=_opt_str(fm.get("predicate")),
         hint=_opt_str(fm.get("hint")),
         remind_after=_opt_str(fm.get("remind_after")),
