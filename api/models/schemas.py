@@ -219,6 +219,32 @@ class LocationListing(CamelModel):
     entries: list[LocationEntry] = []
 
 
+# --- Fact sources (G61 — "where to look this up") ---
+
+
+class EntitySource(CamelModel):
+    """One declared refresh source on an entity page's ``sources:`` key."""
+
+    ref: str
+    kind: str = "note"          # url | path | note
+    predicate: Optional[str] = None
+    added_by: str = "user"      # model id, or "user"
+    added_at: str = ""
+
+
+class EntitySourceCreate(CamelModel):
+    """``POST /entities/{id}/sources`` body. ``kind`` is inferred when omitted."""
+
+    ref: str
+    kind: Optional[str] = None
+    predicate: Optional[str] = None
+
+
+class EntitySourceList(CamelModel):
+    entity_id: str
+    sources: list[EntitySource] = []
+
+
 # --- Repo links (backlog G-repo) ---
 #
 # Deliberately plain BaseModel (NOT CamelModel) — the G-repo shared contract

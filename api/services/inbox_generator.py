@@ -123,6 +123,23 @@ def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
     return True
 
 
+def _refresh_hint(path: Path, hint: str | None) -> None:
+    """Refresh the ``hint`` on an already-open item after a merge (G61).
+
+    A merge-on-collision keeps the original item, so a source added after it
+    was first written would otherwise never surface. ``None`` leaves the
+    existing hint untouched — a merge with no computable hint should not
+    erase one set by an earlier cycle.
+    """
+    if hint is None:
+        return
+    parsed = markdown_parser.parse(path)
+    if parsed.frontmatter.get("hint") == hint:
+        return
+    parsed.frontmatter["hint"] = hint
+    markdown_parser.write(path, parsed.frontmatter, parsed.body)
+
+
 async def generate(
     changes: list[dict],
     skills: list[dict],
@@ -185,9 +202,19 @@ async def generate(
         elif action == "conflict_nudge":
             entity_id = change["id"]
             entity_name = change.get("entity", {}).get("name", entity_id.replace("-", " ").title())
+            hint = None
+            try:
+                from api.services import fact_sources
+
+                # Entity-path conflicts carry no predicate (key on the literal
+                # "description"), so ANY url-kind source is a match here.
+                hint = fact_sources.hint_for(memory_path, entity_id, "description")
+            except Exception:
+                hint = None
             open_path = find_open(memory_path, "conflict", entity_id, "description")
             if open_path is not None:
                 merge_options_into(open_path, change.get("options") or [], str(date.today()))
+                _refresh_hint(open_path, hint)
                 continue
             item_id = f"inbox-{next_num:03d}"
             next_num += 1
@@ -205,6 +232,7 @@ async def generate(
                 "question": change.get("question"),
                 "allow_other": True,
                 "allow_defer": True,
+                "hint": hint,
             }
             body = change.get("conflict_context", f"New information conflicts with existing data for {entity_name}.")
             markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
@@ -275,11 +303,19 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
             except Exception:
                 pass
 
+        hint = None
         if action == "conflict_nudge":
             predicate = str(nudge.get("predicate", "") or "description")
+            try:
+                from api.services import fact_sources
+
+                hint = fact_sources.hint_for(memory_path, entity_id, predicate)
+            except Exception:
+                hint = None
             open_path = find_open(memory_path, "conflict", entity_id, predicate)
             if open_path is not None:
                 merge_options_into(open_path, nudge.get("options") or [], str(date.today()))
+                _refresh_hint(open_path, hint)
                 merged += 1
                 continue
             kind, priority, required = "conflict", 0.8, "choice"
@@ -319,6 +355,8 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
             "claim_id": nudge.get("claim_id"),
             "existing_claim_id": nudge.get("existing_claim_id"),
             "trigger": nudge.get("trigger", "sleep/conflict_resolution"),
+            # G61 — which declared source refreshes this fact, "conflict"-only.
+            "hint": hint,
         }
         body = nudge.get("conflict_context") or (
             f"{entity_name} hasn't been mentioned recently; confidence dropped to "
