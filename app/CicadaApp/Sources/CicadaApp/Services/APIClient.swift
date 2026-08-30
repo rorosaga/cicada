@@ -1283,6 +1283,14 @@ extension APIClient {
     /// a 304 as `notModified` (value nil) so the caller keeps its snapshot.
     func getConditional<T: Decodable>(_ path: String, etag: String?) async throws -> Conditional<T> {
         var request = makeRequest(path, method: "GET", json: false)
+        // We already do our own conditional-GET caching (the `etag`
+        // param, `Snapshot`, `SnapshotCache`) — `URLSession.shared`'s own
+        // `URLCache` must not also intercept these requests, or a stale
+        // system-level cache entry from an earlier process/session (e.g. an
+        // empty `/graph` captured before this bank had any nodes) gets
+        // replayed forever, bypassing the network entirely and never
+        // reaching our ETag logic at all.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         if let etag, !etag.isEmpty { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }

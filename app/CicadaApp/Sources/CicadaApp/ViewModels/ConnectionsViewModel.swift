@@ -2,48 +2,76 @@ import Foundation
 import Observation
 
 // G50: provider connections — probe/connect/disconnect through the vendor CLIs.
+/// Thin projection over `Store.connections` (§5.5), moved from a per-view
+/// `@State` to an app-level, environment-injected VM in Task 7 so switching
+/// away from and back to this tab renders instantly from the snapshot.
+///
+/// Mutations (`beginLogin`/`logout`/`saveKey`/…) need the *freshest* possible
+/// probe (bypassing the backend's own TTL cache via `fresh: true`), which
+/// `SyncAPI.fetchConnections(etag:)` — the conditional GET the Store polls —
+/// doesn't support. Rather than keep a second, parallel copy of the
+/// connections array, those paths write the fresh result straight into
+/// `store.connections` (and its disk cache) via `setConnections`, so the
+/// Store stays the single source of truth and every reader (this VM
+/// included) sees the same value.
 @Observable
 @MainActor
 final class ConnectionsViewModel {
-    var connections: [ConnectionStatus] = []
-    var isLoading = false
+    private let store: Store
+
     var errorMessage: String?
     /// Active device-code login (ChatGPT/Codex) being polled.
     var pendingLogin: LoginSession?
     /// Connection id whose Terminal hand-off is in progress (Claude).
     var awaitingTerminal: String?
 
-    private var pollTask: Task<Void, Never>?
-    /// The device-code or terminal-hand-off poll spawned by `beginLogin`. Tracked
-    /// separately from `pollTask` (the 30 s background refresh) so leaving the
-    /// page via `stopPolling()` cancels an in-flight login poll too, instead of
-    /// letting it keep running for up to 5 minutes.
+    /// The device-code or terminal-hand-off poll spawned by `beginLogin`.
+    /// `stopPolling()` cancels an in-flight login poll on page exit, instead
+    /// of letting it keep running for up to 5 minutes.
     private var loginTask: Task<Void, Never>?
 
+    init(store: Store) {
+        self.store = store
+    }
+
+    var connections: [ConnectionStatus] { store.connections.value ?? [] }
+
+    var isLoading: Bool { store.connections.isEmpty && store.connections.isRefreshing }
+
+    /// Writes a freshly-probed connections array straight into the Store
+    /// (value + cache), so this VM never holds a copy that can drift from
+    /// what every other reader of `store.connections` sees.
+    private func setConnections(_ result: [ConnectionStatus]) {
+        store.connections.value = result
+        store.connections.loadedAt = Date()
+        let bank = store.bank
+        let cache = store.cache
+        Task { await cache.save(result, etag: nil, domain: .connections, bank: bank) }
+    }
+
     func load(fresh: Bool = false) async {
-        isLoading = connections.isEmpty
-        defer { isLoading = false }
         errorMessage = nil
+        guard fresh else {
+            await store.refresh([.connections])
+            if store.connections.value == nil {
+                errorMessage = store.toast
+            }
+            return
+        }
         do {
-            connections = try await APIClient.shared.fetchConnections(fresh: fresh)
+            setConnections(try await APIClient.shared.fetchConnections(fresh: true))
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    /// Refresh every 30 s while the page is visible (matches the backend TTL).
-    func startPolling() {
-        pollTask?.cancel()
-        pollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                await self?.load()
-            }
-        }
-    }
+    /// No-op: the old 30 s background-refresh timer duplicated what the
+    /// Store already does (SSE-pushed + refreshed on every version bump).
+    /// Kept as a method — rather than removed — so `ConnectionsView`'s
+    /// `.task { … ; viewModel.startPolling() }` still compiles unchanged.
+    func startPolling() {}
 
     func stopPolling() {
-        pollTask?.cancel(); pollTask = nil
         loginTask?.cancel(); loginTask = nil
     }
 
@@ -90,8 +118,9 @@ final class ConnectionsViewModel {
             if Task.isCancelled { return }
             guard let latest = try? await APIClient.shared.fetchConnection(id, fresh: true) else { continue }
             if Task.isCancelled { return }
-            if let idx = connections.firstIndex(where: { $0.id == id }) {
-                connections[idx] = latest
+            if var current = store.connections.value, let idx = current.firstIndex(where: { $0.id == id }) {
+                current[idx] = latest
+                setConnections(current)
             }
             if latest.connected {
                 await load()

@@ -45,10 +45,13 @@ struct ContentView: View {
         // outside this subtree.
         .id(colorSchemeRaw)
         .navigationSplitViewStyle(.prominentDetail)
-        .task {
-            await graphVM.loadGraph()
-            await inboxVM.loadInbox()
-        }
+        // No `.task { load() }` here: `graphVM`/`inboxVM` are thin
+        // projections over `Store.graph`/`Store.inbox` (§5.5). The Store
+        // hydrates both from disk and refreshes them itself
+        // (`store.bootstrap()`, wired in `CicadaApp`'s `.onAppear`); the VMs
+        // pick up every subsequent change reactively (`GraphViewModel`'s
+        // `observeStore()`; `InboxViewModel.items` reads the snapshot
+        // directly), so there's nothing left for ContentView to kick off.
         .onAppear {
             if !hasSeenConnectGuide { showOnboarding = true }
         }

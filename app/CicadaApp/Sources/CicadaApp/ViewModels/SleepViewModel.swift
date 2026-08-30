@@ -1,13 +1,24 @@
 import Foundation
 import Observation
 
+/// Backs the Sleep dashboard. `status` is still `SleepStatusResponse` (richer
+/// than `Store.status`'s `StatusSnapshot.Sleep` — it carries the per-cycle
+/// counters `/sleep/status` returns that `/status` doesn't), so this VM keeps
+/// fetching it via `APIClient` rather than projecting it wholesale. What it
+/// *does* take from the Store: an immediate, synchronous read of
+/// `store.status.value?.sleep.status` to know whether a cycle is already
+/// running without waiting on its own network round-trip, and as an extra
+/// signal (alongside its own poll) for noticing the running → idle edge.
+/// `episodes`/`schedule` have no Store domain (§brief) — those stay plain
+/// `APIClient` fetches.
 @Observable
 @MainActor
 final class SleepViewModel {
+    private let store: Store
+
     var status: SleepStatusResponse?
     var episodes: [EpisodeQueueItem] = []
     var schedule: ScheduleConfig = ScheduleConfig(enabled: false, hour: 3, minute: 0)
-    var isLoading = false
     var errorMessage: String?
 
     /// Hook fired exactly once when a cycle transitions ``running`` -> ``idle``
@@ -25,6 +36,15 @@ final class SleepViewModel {
     var onStatusChanged: (@MainActor (SleepStatusResponse) -> Void)?
 
     private var pollTask: Task<Void, Never>?
+
+    init(store: Store) {
+        self.store = store
+    }
+
+    /// `/sleep/status` isn't a Store domain, so this mirrors the Store's
+    /// `.status` loading state as the closest available signal (both come
+    /// from the same "how healthy is my view of Sleep" question).
+    var isLoading: Bool { store.status.isEmpty && store.status.isRefreshing }
 
     var isRunning: Bool { status?.status == "running" }
 
@@ -46,15 +66,16 @@ final class SleepViewModel {
     /// Load everything the Sleep dashboard needs: current status, the full
     /// episode list (queued + processed), and the persisted schedule.
     ///
-    /// If the snapshot reveals that a cycle is already running — either
-    /// because the user triggered it from elsewhere, or because the APScheduler
-    /// daily cron fired while the app was closed — we start polling so the
-    /// dashboard becomes a *live* view instead of a stale snapshot. Without
-    /// this, a scheduled run would render frozen until the user clicked
-    /// "Run now" manually, defeating the entire point of the page.
+    /// If the Store's own `/status` snapshot already shows a cycle running
+    /// (pushed over SSE, or hydrated from disk), start polling immediately
+    /// rather than waiting on this function's own `/sleep/status` round-trip
+    /// — a scheduled run that started while the app was closed becomes live
+    /// the instant this view appears, not one network round-trip later.
     func load() async {
-        isLoading = true
-        defer { isLoading = false }
+        errorMessage = nil
+        if store.status.value?.sleep.status == "running" {
+            startPolling()
+        }
 
         async let statusTask = APIClient.shared.fetchSleepStatus()
         async let episodesTask = APIClient.shared.fetchEpisodeQueue()
@@ -79,7 +100,7 @@ final class SleepViewModel {
         // If a cycle is already running (e.g. started by the daily cron
         // before the user opened the page), attach to it. startPolling()
         // cancels any prior poll task so this is idempotent.
-        if status?.status == "running" {
+        if isRunning {
             startPolling()
         }
     }
@@ -117,7 +138,12 @@ final class SleepViewModel {
                     // Feed live sleep progress to the menu-bar bookworm so its
                     // stage dots advance at the 1s poll cadence.
                     self.onStatusChanged?(next)
-                    if next.status == "idle" {
+                    // Stop on whichever signal says idle first: this poll's
+                    // own fetch, or the Store's SSE-pushed status/sleepEvent
+                    // (can beat a 1s-cadence poll by a beat).
+                    let storeIdle = self.store.status.value?.sleep.status == "idle"
+                        || self.store.sleepEvent?.status == "idle"
+                    if next.status == "idle" || storeIdle {
                         // Refresh the queue once the cycle finishes so the
                         // UI shows the post-cycle state.
                         await self.load()

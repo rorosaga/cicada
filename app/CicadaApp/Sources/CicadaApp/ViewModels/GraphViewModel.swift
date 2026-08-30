@@ -1,18 +1,34 @@
 import Foundation
+import Observation
 import SwiftUI
 
 enum ZoomAction {
     case zoomIn, out, reset, fit
 }
 
+/// Thin projection over `Store.graph` (§5.5). Nodes/edges/rosters are synced
+/// from the store's snapshot rather than fetched independently — `loadGraph()`
+/// just asks the Store to refresh; the actual data always comes from
+/// `store.graph.value`, so a tab switch that recreates this VM's view renders
+/// from whatever the Store already has in memory, instantly.
 @Observable
+@MainActor
 final class GraphViewModel {
-    var entities: [Entity] = []
-    var nodes: [GraphNode] = []
-    var edges: [GraphEdge] = []
+    private let store: Store
+
+    /// Keyed on `store.graph.loadedAt` so a re-render doesn't re-map every
+    /// node into an `Entity` stub on every access. `syncFromStore()` is the
+    /// only place these are written.
+    private(set) var entities: [Entity] = []
+    private(set) var nodes: [GraphNode] = []
+    private(set) var edges: [GraphEdge] = []
     /// Distinct observer wire-strings present in the graph (from `GET /graph`'s
     /// top-level `observers` roster). Drives the §3 observer filter bar.
-    var observerRoster: [String] = []
+    private(set) var observerRoster: [String] = []
+    /// Distinct contexts present across nodes/edges. Drives the §2 context
+    /// legend. Derived client-side from the loaded graph.
+    private(set) var contextRoster: [String] = []
+    private var lastSyncedLoadedAt: Date?
 
     /// True only when the graph has more than one distinct observer. A
     /// single-observer graph (e.g. everything asserted by `agent`) can't be
@@ -22,17 +38,24 @@ final class GraphViewModel {
     var hasObserverDiversity: Bool {
         observerRoster.count > 1
     }
-    /// Distinct contexts present across nodes/edges. Drives the §2 context
-    /// legend. Derived client-side from the loaded graph.
-    var contextRoster: [String] = []
     var selectedEntity: Entity?
     var isGraphReady = false
     var zoomAction: ZoomAction?
     var showFilterPopover = false
     var pendingFilterUpdate = false
+    /// Flips true whenever a fresh graph snapshot lands (initial load, a
+    /// Sleep cycle, an SSE-driven refresh) so `GraphView.updateNSView` knows
+    /// to push `graphDataJSON` into the WKWebView. Set by `syncFromStore()`,
+    /// which is called both explicitly from `loadGraph()` and reactively via
+    /// an `withObservationTracking` loop registered in `init`, so a currently
+    /// -mounted Graph tab picks up a store-driven refresh even if nothing
+    /// local called `loadGraph()`.
     var pendingGraphUpdate = false
-    var isLoading = false
     var errorMessage: String?
+
+    /// `store.graph.isEmpty && store.graph.isRefreshing` — true only while
+    /// there is genuinely nothing to show yet.
+    var isLoading: Bool { store.graph.isEmpty && store.graph.isRefreshing }
 
     /// Shared filter state for the Graph and Topics tabs. Any mutation pushes
     /// `applyFilters` to graph.js on the next update pass — filtering happens
@@ -43,6 +66,71 @@ final class GraphViewModel {
 
     var filteredEntities: [Entity] {
         entities.filter { filter.matches($0) }
+    }
+
+    init(store: Store) {
+        self.store = store
+        syncFromStore()
+        observeStore()
+    }
+
+    /// Registers a one-shot `withObservationTracking` on `store.graph.loadedAt`
+    /// and re-registers itself after every fire, so this VM stays in sync with
+    /// the Store for as long as it exists — not just while a view happens to
+    /// call `loadGraph()`.
+    private func observeStore() {
+        withObservationTracking {
+            _ = store.graph.loadedAt
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.syncFromStore()
+                self?.observeStore()
+            }
+        }
+    }
+
+    /// Re-derive `nodes`/`edges`/rosters/`entities` from `store.graph.value`
+    /// if the snapshot actually moved since the last sync. No-op on a 304 or
+    /// an unrelated store refresh.
+    private func syncFromStore() {
+        guard store.graph.loadedAt != lastSyncedLoadedAt else { return }
+        lastSyncedLoadedAt = store.graph.loadedAt
+        guard let response = store.graph.value else { return }
+
+        nodes = response.nodes
+        if !response.observers.isEmpty {
+            observerRoster = response.observers
+        } else {
+            observerRoster = Array(Set(response.nodes.flatMap { $0.observers })).sorted()
+        }
+        var ctxs = Set(response.nodes.flatMap { $0.contexts })
+        for n in response.nodes { if let c = n.context { ctxs.insert(c) } }
+        for e in response.links { if let c = e.context { ctxs.insert(c) } }
+        contextRoster = ctxs.sorted()
+        entities = response.nodes.map { node in
+            // Stub entity: full markdown body is loaded lazily via
+            // `selectEntity`/`store.entity(_:)`. §5.7 (next task) will seed
+            // this from a `node.summary` placeholder field the backend
+            // doesn't emit yet.
+            Entity(
+                id: node.id,
+                name: node.name,
+                type: node.type,
+                status: node.status,
+                confidence: node.confidence,
+                created: "",
+                lastReferenced: "",
+                decayRate: 0,
+                sourceEpisodes: [],
+                tags: node.tags,
+                related: [],
+                version: 0,
+                markdownContent: "",
+                history: []
+            )
+        }
+        edges = response.links
+        pendingGraphUpdate = true
     }
 
     func toggleType(_ type: EntityType) {
@@ -129,11 +217,9 @@ final class GraphViewModel {
         if let existing = entities.first(where: { $0.id == id }) {
             selectedEntity = existing
         }
-        // Then fetch full entity data from API. Pin the follow-up to the
-        // main actor — @Observable writes from a background thread don't
-        // reliably trigger SwiftUI re-renders, which is why the detail
-        // card was stuck showing the placeholder with empty markdown.
-        Task { @MainActor in
+        // Then fetch full entity data from the Store's memoised entity cache.
+        // No manual main-actor hop needed — the whole VM is already @MainActor.
+        Task {
             await loadFullEntity(id: id)
         }
     }
@@ -142,62 +228,25 @@ final class GraphViewModel {
         selectedEntity = nil
     }
 
+    /// Ask the Store to refresh the graph domain. `syncFromStore()` picks up
+    /// the new snapshot either here (on return) or reactively via the
+    /// `observeStore()` loop if some other refresh beat this one to it.
     func loadGraph() async {
-        isLoading = true
         errorMessage = nil
-        do {
-            let response = try await APIClient.shared.fetchGraph()
-            nodes = response.nodes
-            // Observer roster: prefer the server-supplied top-level list; fall
-            // back to the distinct observers across nodes if absent.
-            if !response.observers.isEmpty {
-                observerRoster = response.observers
-            } else {
-                observerRoster = Array(Set(response.nodes.flatMap { $0.observers })).sorted()
-            }
-            // Context roster: distinct contexts across node facets + edges.
-            var ctxs = Set(response.nodes.flatMap { $0.contexts })
-            for n in response.nodes { if let c = n.context { ctxs.insert(c) } }
-            for e in response.links { if let c = e.context { ctxs.insert(c) } }
-            contextRoster = ctxs.sorted()
-            entities = response.nodes.map { node in
-                Entity(
-                    id: node.id,
-                    name: node.name,
-                    type: node.type,
-                    status: node.status,
-                    confidence: node.confidence,
-                    created: "",
-                    lastReferenced: "",
-                    decayRate: 0,
-                    sourceEpisodes: [],
-                    tags: node.tags,
-                    related: [],
-                    version: 0,
-                    markdownContent: "",
-                    history: []
-                )
-            }
-            edges = response.links
-            pendingGraphUpdate = true
-        } catch {
-            errorMessage = error.localizedDescription
+        await store.refresh([.graph])
+        syncFromStore()
+        if store.graph.value == nil {
+            errorMessage = store.toast
         }
-        isLoading = false
     }
 
-    @MainActor
     private func loadFullEntity(id: String) async {
-        do {
-            let fullEntity = try await APIClient.shared.fetchEntity(id: id)
-            if let idx = entities.firstIndex(where: { $0.id == id }) {
-                entities[idx] = fullEntity
-            }
-            if selectedEntity?.id == id {
-                selectedEntity = fullEntity
-            }
-        } catch {
-            print("Failed to load entity \(id): \(error)")
+        guard let fullEntity = await store.entity(id) else { return }
+        if let idx = entities.firstIndex(where: { $0.id == id }) {
+            entities[idx] = fullEntity
+        }
+        if selectedEntity?.id == id {
+            selectedEntity = fullEntity
         }
     }
 }

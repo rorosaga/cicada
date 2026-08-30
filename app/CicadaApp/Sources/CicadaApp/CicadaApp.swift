@@ -17,15 +17,20 @@ final class FirstMouseAcceptingView: NSView {
 
 @main
 struct CicadaApp: App {
-    @State private var graphVM = GraphViewModel()
-    @State private var inboxVM = InboxViewModel()
-    @State private var sleepVM = SleepViewModel()
-    @State private var banksVM = BanksViewModel()
+    /// Single source of truth for every screen (§5.1). Hydrated from disk on
+    /// appear, then kept live by its `SyncEngine`. Every view model below is
+    /// constructed in `init()` as a thin projection over this same instance
+    /// (§5.5) rather than fetching independently.
+    @State private var store: Store
+    @State private var graphVM: GraphViewModel
+    @State private var inboxVM: InboxViewModel
+    @State private var sleepVM: SleepViewModel
+    @State private var banksVM: BanksViewModel
+    @State private var feedVM: FeedViewModel
+    @State private var contributorsVM: ContributorsViewModel
+    @State private var connectionsVM: ConnectionsViewModel
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
-    /// Single source of truth for every screen (§5.1). Hydrated from disk on
-    /// appear, then kept live by its `SyncEngine`.
-    @State private var store = Store()
 
     // Theme: persisted mode driving both the SwiftUI environment
     // (`.preferredColorScheme`, so system materials/controls follow) and the
@@ -43,6 +48,22 @@ struct CicadaApp: App {
         // bug. Explicitly requesting .regular activation fixes it.
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
+
+        // Build the Store as a plain local value first — referencing `self`
+        // (which `store` would, via the property wrapper) isn't allowed yet
+        // because the view-model `@State` properties below aren't
+        // initialised. Every view model is then constructed as a thin
+        // projection over that single Store (§5.5) instead of fetching
+        // independently.
+        let store = Store()
+        _store = State(initialValue: store)
+        _graphVM = State(initialValue: GraphViewModel(store: store))
+        _inboxVM = State(initialValue: InboxViewModel(store: store))
+        _sleepVM = State(initialValue: SleepViewModel(store: store))
+        _banksVM = State(initialValue: BanksViewModel(store: store))
+        _feedVM = State(initialValue: FeedViewModel(store: store))
+        _contributorsVM = State(initialValue: ContributorsViewModel(store: store))
+        _connectionsVM = State(initialValue: ConnectionsViewModel(store: store))
     }
 
     var body: some Scene {
@@ -52,6 +73,9 @@ struct CicadaApp: App {
                 .environment(inboxVM)
                 .environment(sleepVM)
                 .environment(banksVM)
+                .environment(feedVM)
+                .environment(contributorsVM)
+                .environment(connectionsVM)
                 .environment(store)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, newValue in

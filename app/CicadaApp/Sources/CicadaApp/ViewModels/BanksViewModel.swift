@@ -2,17 +2,27 @@ import Foundation
 import Observation
 
 /// Backs the memory-bank "Projects" dropdown (M6) and the import target selector
-/// (M7). Loads banks from `GET /banks`, tracks the active one, and drives
-/// switch / create / duplicate. Mutating actions reload the roster so the
-/// dropdown reflects the new state; the caller is responsible for reloading the
-/// graph after an activate (`graphVM.loadGraph()`).
+/// (M7). Thin projection over `Store.banks` (§5.5): `banks`/`activeName` read
+/// straight from the snapshot. Mutating actions (`activate`/`create`/`rename`/
+/// `duplicate`) still go through `APIClient` directly — they aren't reads —
+/// then ask the Store to refresh `.banks` (which, for `activate`, re-hydrates
+/// every other domain from the new bank's cache; see `Store.refresh`).
 @Observable
 @MainActor
 final class BanksViewModel {
-    var banks: [MemoryBank] = []
-    var activeName: String?
-    var isLoading = false
+    private let store: Store
+
     var errorMessage: String?
+
+    init(store: Store) {
+        self.store = store
+    }
+
+    var banks: [MemoryBank] { store.banks.value?.banks ?? [] }
+    var activeName: String? {
+        store.banks.value?.active ?? banks.first(where: { $0.active })?.name
+    }
+    var isLoading: Bool { store.banks.isEmpty && store.banks.isRefreshing }
 
     /// The currently-active bank object, if present in the roster.
     var activeBank: MemoryBank? {
@@ -23,16 +33,11 @@ final class BanksViewModel {
     }
 
     func load() async {
-        isLoading = true
         errorMessage = nil
-        do {
-            let resp = try await APIClient.shared.fetchBanks()
-            banks = resp.banks
-            activeName = resp.active ?? resp.banks.first(where: { $0.active })?.name
-        } catch {
-            errorMessage = error.localizedDescription
+        await store.refresh([.banks])
+        if store.banks.value == nil {
+            errorMessage = store.toast
         }
-        isLoading = false
     }
 
     /// Switch the active bank, then reload the roster. Returns true on success

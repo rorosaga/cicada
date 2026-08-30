@@ -11,6 +11,11 @@ import Foundation
 /// manual front door onto that same pipeline, not a separate one.
 struct SourcesView: View {
     @Environment(SleepViewModel.self) private var sleepVM
+    /// §5.5: `feeds`/`calendars`/`origins`/`status` below read straight from
+    /// these Store snapshots instead of holding a local copy populated by a
+    /// per-view fetch — the Store already hydrates them from disk and keeps
+    /// them live via SSE, so this page renders instantly on every revisit.
+    @Environment(Store.self) private var store
 
     // Import section
     @State private var isImporting = false
@@ -31,8 +36,6 @@ struct SourcesView: View {
     @State private var syncNotesError: String?
 
     // RSS subscriptions section
-    @State private var feeds: [FeedSubscription] = []
-    @State private var feedsLoading = false
     @State private var feedsError: String?
     @State private var newFeedURL = ""
     @State private var isSubscribing = false
@@ -44,8 +47,6 @@ struct SourcesView: View {
     @State private var pollSkippedNoNetwork = false
 
     // Calendar subscriptions section
-    @State private var calendars: [CalendarSubscription] = []
-    @State private var calendarsLoading = false
     @State private var calendarsError: String?
     @State private var newCalendarURL = ""
     @State private var isSubscribingCalendar = false
@@ -57,13 +58,20 @@ struct SourcesView: View {
     @State private var pollCalendarsSkippedNoNetwork = false
 
     // Origins strip section
-    @State private var origins: [OriginStat] = []
     @State private var originsError: String?
 
     // Queue section
-    @State private var status: StatusSnapshot?
-    @State private var statusLoading = false
     @State private var statusError: String?
+
+    // MARK: - Store projections (§5.5)
+
+    private var feeds: [FeedSubscription] { store.feeds.value ?? [] }
+    private var feedsLoading: Bool { store.feeds.isEmpty && store.feeds.isRefreshing }
+    private var calendars: [CalendarSubscription] { store.calendars.value ?? [] }
+    private var calendarsLoading: Bool { store.calendars.isEmpty && store.calendars.isRefreshing }
+    private var origins: [OriginStat] { store.origins.value ?? [] }
+    private var status: StatusSnapshot? { store.status.value }
+    private var statusLoading: Bool { store.status.isEmpty && store.status.isRefreshing }
 
     private enum InlineImport {
         case rss, pasteURL
@@ -90,13 +98,11 @@ struct SourcesView: View {
             }
         }
         .background(CicadaTheme.background)
-        .task {
-            async let s: () = loadStatus()
-            async let f: () = loadFeeds()
-            async let c: () = loadCalendars()
-            async let o: () = loadOrigins()
-            _ = await (s, f, c, o)
-        }
+        // No `.task { load... }` here: feeds/calendars/origins/status all
+        // read straight from the Store (§5.5), which already hydrates them
+        // from disk and keeps them live via SSE — this page renders
+        // instantly on every revisit. The per-section "Retry" buttons still
+        // call the `load*` functions below explicitly.
         .onChange(of: sleepVM.isRunning) { _, running in
             // A cycle kicked off from the Consolidate button (or anywhere else
             // in the app) just finished — the queue count this page shows is
@@ -653,21 +659,12 @@ struct SourcesView: View {
         }
     }
 
+    /// `feeds` reads `store.feeds` directly (§5.5); this just asks the Store
+    /// to refresh that domain — used by the section's "Retry" button and
+    /// after subscribe/unsubscribe/poll actions.
     private func loadFeeds() async {
-        feedsLoading = true
-        do {
-            let f = try await APIClient.shared.fetchFeeds()
-            await MainActor.run {
-                feeds = f
-                feedsError = nil
-                feedsLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                feedsError = Self.friendlyError(error)
-                feedsLoading = false
-            }
-        }
+        await store.refresh([.feeds])
+        feedsError = store.feeds.value == nil ? (store.toast ?? feedsError) : nil
     }
 
     private func subscribeFeedNow() {
@@ -885,21 +882,11 @@ struct SourcesView: View {
         }
     }
 
+    /// `calendars` reads `store.calendars` directly (§5.5); this just asks
+    /// the Store to refresh that domain.
     private func loadCalendars() async {
-        calendarsLoading = true
-        do {
-            let c = try await APIClient.shared.fetchCalendars()
-            await MainActor.run {
-                calendars = c
-                calendarsError = nil
-                calendarsLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                calendarsError = Self.friendlyError(error)
-                calendarsLoading = false
-            }
-        }
+        await store.refresh([.calendars])
+        calendarsError = store.calendars.value == nil ? (store.toast ?? calendarsError) : nil
     }
 
     private func subscribeCalendarNow() {
@@ -1001,18 +988,11 @@ struct SourcesView: View {
         // else: no origins yet and no error — nothing to show, strip stays hidden.
     }
 
+    /// `origins` reads `store.origins` directly (§5.5); this just asks the
+    /// Store to refresh that domain.
     private func loadOrigins() async {
-        do {
-            let o = try await APIClient.shared.fetchOrigins()
-            await MainActor.run {
-                origins = o
-                originsError = nil
-            }
-        } catch {
-            await MainActor.run {
-                originsError = Self.friendlyError(error)
-            }
-        }
+        await store.refresh([.origins])
+        originsError = store.origins.value == nil ? (store.toast ?? originsError) : nil
     }
 
     // MARK: - Queue
@@ -1112,21 +1092,11 @@ struct SourcesView: View {
         return f.string(from: date)
     }
 
+    /// `status` reads `store.status` directly (§5.5); this just asks the
+    /// Store to refresh that domain.
     private func loadStatus() async {
-        statusLoading = true
-        do {
-            let s = try await APIClient.shared.fetchStatus()
-            await MainActor.run {
-                status = s
-                statusError = nil
-                statusLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                statusError = Self.friendlyError(error)
-                statusLoading = false
-            }
-        }
+        await store.refresh([.status])
+        statusError = store.status.value == nil ? (store.toast ?? statusError) : nil
     }
 
     // MARK: - Shared
