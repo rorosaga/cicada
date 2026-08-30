@@ -30,9 +30,15 @@ private let statusJSON = """
 // MARK: - Fake API
 
 /// Records which conditional fetches the Store issued and hands back canned
-/// answers. `@unchecked Sendable` is safe here: XCTest drives it serially and
-/// every touch happens from the Store's main-actor context.
-final class FakeSyncAPI: SyncAPI, @unchecked Sendable {
+/// answers.
+///
+/// `@MainActor`-isolated on purpose: the gated tests below genuinely run the
+/// test body and an in-flight fetch concurrently, and a plain
+/// `@unchecked Sendable` class had its `calls`/`gates` collections mutated from
+/// two executors at once (intermittent segfaults / task-allocator aborts).
+/// Isolation makes every touch serialize with the `@MainActor` Store.
+@MainActor
+final class FakeSyncAPI: SyncAPI {
     enum Reply {
         case value(Any)          // a fresh payload
         case notModified
@@ -44,14 +50,19 @@ final class FakeSyncAPI: SyncAPI, @unchecked Sendable {
     /// Replies consumed one per call, ahead of `replies` — lets a test make a
     /// domain fail once and succeed afterwards.
     var onceReplies: [SyncDomain: [Reply]] = [:]
-    /// When set, `/inbox` parks here until `releaseGate()` so a test can hold a
-    /// fetch in flight and prove that overlapping requests coalesce.
-    var gateEnabled = false
-    var gate: CheckedContinuation<Void, Never>?
+    /// Domains whose fetch parks until `releaseGate(_:)` — lets a test hold a
+    /// request in flight and inspect the Store mid-reconcile.
+    var gatedDomains: Set<SyncDomain> = []
+    var gates: [SyncDomain: CheckedContinuation<Void, Never>] = [:]
 
-    func releaseGate() {
-        let g = gate
-        gate = nil
+    fileprivate func gateIfNeeded(_ domain: SyncDomain) async {
+        guard gatedDomains.contains(domain) else { return }
+        await withCheckedContinuation { self.gates[domain] = $0 }
+    }
+
+    func releaseGate(_ domain: SyncDomain) {
+        let g = gates[domain]
+        gates[domain] = nil
         g?.resume()
     }
     var syncVersion = VersionVector(version: "v0", components: [:])
@@ -74,11 +85,13 @@ final class FakeSyncAPI: SyncAPI, @unchecked Sendable {
     }
 
     func fetchGraph(etag: String?) async throws -> Conditional<GraphResponse> {
-        try answer(.graph, fallback: try decodeFixture(graphJSON))
+        let result = try answer(.graph, fallback: try decodeFixture(graphJSON) as GraphResponse)
+        await gateIfNeeded(.graph)
+        return result
     }
     func fetchInbox(etag: String?) async throws -> Conditional<[InboxItem]> {
         let result = try answer(.inbox, fallback: try decodeFixture(inboxJSON) as [InboxItem])
-        if gateEnabled { await withCheckedContinuation { self.gate = $0 } }
+        await gateIfNeeded(.inbox)
         return result
     }
     func fetchBanks(etag: String?) async throws -> Conditional<BanksResponse> {
@@ -295,22 +308,76 @@ final class StoreTests: XCTestCase {
     /// then exactly one re-run for the request that arrived meanwhile.
     func testOverlappingRefreshCoalesces() async throws {
         let api = FakeSyncAPI()
-        api.gateEnabled = true
+        api.gatedDomains = [.inbox]
         let store = Store(cache: tempCache(), api: api)
 
         let inFlight = Task { await store.refresh([.inbox]) }
-        var spins = 0
-        while api.gate == nil, spins < 10_000 { await Task.yield(); spins += 1 }
+        await waitForGate(api, .inbox)
         XCTAssertEqual(api.calls.count, 1)
 
         await store.refresh([.inbox])   // coalesced — must not issue a second GET
         XCTAssertEqual(api.calls.count, 1, "an in-flight domain must not be fetched twice")
 
-        api.gateEnabled = false
-        api.releaseGate()
+        api.gatedDomains = []
+        api.releaseGate(.inbox)
         await inFlight.value
         XCTAssertEqual(api.calls.count, 2, "the coalesced request re-runs exactly once")
         XCTAssertEqual(store.inbox.value?.count, 1)
         XCTAssertFalse(store.inbox.isRefreshing)
+    }
+
+    /// Spin the main actor until the fake has parked on `domain`'s gate.
+    private func waitForGate(_ api: FakeSyncAPI, _ domain: SyncDomain) async {
+        var spins = 0
+        while api.gates[domain] == nil, spins < 100_000 {
+            await Task.yield()
+            spins += 1
+        }
+        XCTAssertNotNil(api.gates[domain], "the fake never reached the \(domain.rawValue) gate")
+    }
+
+    /// A bank switch must not leave the previous bank's data on screen under
+    /// the new bank's label. Bank B has no cached graph, so `graph` must go
+    /// empty the moment we switch — not linger as A's graph until the
+    /// sequential reconcile happens to reach it.
+    func testBankSwitchDoesNotBleedSnapshots() async throws {
+        let cache = tempCache()
+        let rosterA: BanksResponse = try decodeFixture(
+            #"{"banks":[{"name":"A"},{"name":"B"}],"active":"A"}"#)
+        let rosterB: BanksResponse = try decodeFixture(
+            #"{"banks":[{"name":"A"},{"name":"B"}],"active":"B"}"#)
+        let graphA: GraphResponse = try decodeFixture(graphJSON)
+        let inboxItems: [InboxItem] = try decodeFixture(inboxJSON)
+        await cache.save(rosterA, etag: "\"a\"", domain: .banks, bank: Store.rosterBank)
+        await cache.save(graphA, etag: "\"ga\"", domain: .graph, bank: "A")
+        await cache.save(inboxItems, etag: "\"ia\"", domain: .inbox, bank: "A")
+        // Bank B has an inbox cached but NO graph.
+        await cache.save(inboxItems, etag: "\"ib\"", domain: .inbox, bank: "B")
+        await cache.flush()
+
+        let api = FakeSyncAPI()
+        api.replies[.banks] = .value(rosterA)
+        let store = Store(cache: cache, api: api)
+        await store.bootstrap()
+        XCTAssertEqual(store.bank, "A")
+        XCTAssertNotNil(store.graph.value, "bank A has a graph")
+
+        // Switch to B, holding the post-switch graph refresh in flight so we can
+        // observe the window between hydrate and reconcile.
+        api.gatedDomains = [.graph]
+        api.replies[.banks] = .value(rosterB)
+        let switching = Task { await store.refresh([.banks]) }
+        await waitForGate(api, .graph)
+
+        XCTAssertEqual(store.bank, "B")
+        XCTAssertNil(store.graph.value, "bank A's graph must not render under bank B")
+        XCTAssertNil(store.graph.etag, "and A's etag must not be sent to B (a 304 would hide B's data)")
+        XCTAssertEqual(store.inbox.etag, "\"ib\"", "B's own cached inbox is kept")
+        XCTAssertEqual(store.inbox.value?.count, 1)
+
+        api.gatedDomains = []
+        api.releaseGate(.graph)
+        await switching.value
+        XCTAssertNotNil(store.graph.value, "the reconcile then fills B's graph in")
     }
 }

@@ -120,12 +120,24 @@ final class Store {
             }
         }
         var loaded: [String] = banks.value == nil ? [] : ["banks"]
-        func take<T: Codable>(_ domain: SyncDomain, _ kp: ReferenceWritableKeyPath<Store, Snapshot<T>>) async {
-            guard let hit = await cache.load(domain, bank: bank, as: T.self) else { return }
+        /// Load one domain for `bank`. On a MISS the snapshot is **reset**, not
+        /// left alone: after a bank switch the in-memory value belongs to the
+        /// previous bank, and keeping it would render A's graph under B's label
+        /// (and send A's etag to B, earning a 304 that hides the real data)
+        /// for the whole window until the sequential reconcile catches up.
+        /// An empty snapshot makes views show their own empty/loading state.
+        @discardableResult
+        func take<T: Codable>(_ domain: SyncDomain, _ kp: ReferenceWritableKeyPath<Store, Snapshot<T>>) async -> Bool {
+            guard let hit = await cache.load(domain, bank: bank, as: T.self) else {
+                self[keyPath: kp] = Snapshot<T>()
+                return false
+            }
             self[keyPath: kp].value = hit.value
             self[keyPath: kp].etag = hit.etag
             self[keyPath: kp].loadedAt = Date()
+            self[keyPath: kp].isRefreshing = false
             loaded.append(domain.rawValue)
+            return true
         }
         await take(.graph, \.graph)
         await take(.inbox, \.inbox)
@@ -135,8 +147,10 @@ final class Store {
         await take(.contributors, \.contributors)
         await take(.origins, \.origins)
         await take(.connections, \.connections)
-        await take(.status, \.status)
-        if let s = status.value { pushStatus(s) }
+        // Only feed the menu bar when this bank actually had a cached status —
+        // otherwise the bookworm would render the previous bank's mood.
+        let hasStatus = await take(.status, \.status)
+        if hasStatus, let s = status.value { pushStatus(s) }
         let summary = "hydrate bank=\(bank) loaded=[\(loaded.joined(separator: ","))]"
         Self.logger.notice("\(summary, privacy: .public)")
     }
@@ -187,35 +201,41 @@ final class Store {
     /// Coalescing: a request for a domain already in flight does not issue a
     /// second GET — it records `wantsRefresh` and the in-flight call re-runs
     /// itself once, so the newest state is still picked up exactly once.
+    ///
+    /// `fetch` is `@escaping` and the re-run is a loop rather than recursion:
+    /// suspending inside a *non-escaping* async closure parameter and resuming
+    /// it from another task tripped Swift's task allocator ("freed pointer was
+    /// not the last allocation") intermittently.
     private func refreshOne<T: Codable>(
         _ domain: SyncDomain,
         _ kp: ReferenceWritableKeyPath<Store, Snapshot<T>>,
-        fetch: (String?) async throws -> Conditional<T>
+        fetch: @escaping (String?) async throws -> Conditional<T>
     ) async {
         guard !self[keyPath: kp].isRefreshing else {
             wantsRefresh.insert(domain)
             return
         }
         self[keyPath: kp].isRefreshing = true
-        do {
-            let result = try await fetch(self[keyPath: kp].etag)
-            if !result.notModified, let value = result.value {
-                self[keyPath: kp].value = value
-                self[keyPath: kp].etag = result.etag
-                self[keyPath: kp].loadedAt = Date()
-                await cache.save(value, etag: result.etag,
-                                 domain: domain, bank: domain == .banks ? Self.rosterBank : bank)
+        repeat {
+            do {
+                let result = try await fetch(self[keyPath: kp].etag)
+                if !result.notModified, let value = result.value {
+                    self[keyPath: kp].value = value
+                    self[keyPath: kp].etag = result.etag
+                    self[keyPath: kp].loadedAt = Date()
+                    await cache.save(value, etag: result.etag,
+                                     domain: domain, bank: domain == .banks ? Self.rosterBank : bank)
+                }
+                // 200 and 304 both mean "we are in sync with the server".
+                pendingDomains.remove(domain)
+            } catch {
+                if self[keyPath: kp].isEmpty { toast = "Couldn't load \(domain.rawValue)" }
+                Self.logger.debug("refresh \(domain.rawValue, privacy: .public) failed: \(String(describing: error))")
             }
-            // 200 and 304 both mean "we are in sync with the server".
-            pendingDomains.remove(domain)
-        } catch {
-            if self[keyPath: kp].isEmpty { toast = "Couldn't load \(domain.rawValue)" }
-            Self.logger.debug("refresh \(domain.rawValue, privacy: .public) failed: \(String(describing: error))")
-        }
+            // `isRefreshing` stays true across the re-run so requests arriving
+            // mid-loop keep coalescing instead of starting a parallel fetch.
+        } while wantsRefresh.remove(domain) != nil
         self[keyPath: kp].isRefreshing = false
-        if wantsRefresh.remove(domain) != nil {
-            await refreshOne(domain, kp, fetch: fetch)
-        }
     }
 
     /// `/status` is small and volatile — plain GET, no etag.
@@ -225,18 +245,19 @@ final class Store {
             return
         }
         status.isRefreshing = true
-        do {
-            let snapshot = try await api.fetchStatus()
-            status.value = snapshot
-            status.loadedAt = Date()
-            await cache.save(snapshot, etag: nil, domain: .status, bank: bank)
-            pendingDomains.remove(.status)
-            pushStatus(snapshot)
-        } catch {
-            if status.isEmpty { toast = "Couldn't load status" }
-        }
+        repeat {
+            do {
+                let snapshot = try await api.fetchStatus()
+                status.value = snapshot
+                status.loadedAt = Date()
+                await cache.save(snapshot, etag: nil, domain: .status, bank: bank)
+                pendingDomains.remove(.status)
+                pushStatus(snapshot)
+            } catch {
+                if status.isEmpty { toast = "Couldn't load status" }
+            }
+        } while wantsRefresh.remove(.status) != nil
         status.isRefreshing = false
-        if wantsRefresh.remove(.status) != nil { await refreshStatus() }
     }
 
     /// Tracks the sleep running→idle edge (so the bookworm can `digest`) and
