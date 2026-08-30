@@ -111,9 +111,8 @@ private struct ConnectionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(spacing: CicadaTheme.spacingMD) {
-                if let logo, let url = Bundle.module.url(forResource: logo, withExtension: "png", subdirectory: "Resources/logos"),
-                   let img = NSImage(contentsOf: url) {
-                    Image(nsImage: img).resizable().frame(width: 28, height: 28).cornerRadius(6)
+                if let logo {
+                    LogoImage(name: logo, size: 28).cornerRadius(6)
                 } else {
                     Image(systemName: connection.isKeyBased ? "key.fill" : "cpu").frame(width: 28, height: 28)
                 }

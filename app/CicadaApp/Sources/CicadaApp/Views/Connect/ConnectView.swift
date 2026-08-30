@@ -371,11 +371,8 @@ private struct AgentTile: View {
 
     var body: some View {
         Group {
-            if let logo = Self.logo(for: agent.id) {
-                Image(nsImage: logo)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
+            if LogoImage.exists(name: agent.id) {
+                LogoImage(name: agent.id, size: 44)
                     .padding(6)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.92)))
             } else {
@@ -395,13 +392,6 @@ private struct AgentTile: View {
         }
         .frame(width: 44, height: 44)
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(CicadaTheme.border, lineWidth: 1))
-    }
-
-    private static func logo(for id: String) -> NSImage? {
-        guard let url = Bundle.module.url(
-            forResource: id, withExtension: "png", subdirectory: "Resources/logos"
-        ) else { return nil }
-        return NSImage(contentsOf: url)
     }
 }
 

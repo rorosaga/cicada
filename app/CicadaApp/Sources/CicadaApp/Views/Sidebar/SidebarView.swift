@@ -68,16 +68,7 @@ struct SidebarView: View {
                         .padding(.leading, CicadaTheme.spacingSM)
 
                     ForEach(section.tabs, id: \.self) { tab in
-                        SidebarRow(
-                            tab: tab,
-                            isSelected: selectedTab == tab,
-                            badgeCount: badgeCount(for: tab)
-                        )
-                        .onTapGesture {
-                            withAnimation(.spring(duration: 0.25)) {
-                                selectedTab = tab
-                            }
-                        }
+                        sidebarButton(for: tab)
                     }
                 }
             }
@@ -107,6 +98,36 @@ struct SidebarView: View {
         switch tab {
         case .graph, .clusters, .feed, .sleep, .contributors, .connections, .connect, .sources: 0
         case .inbox: inboxCount
+        }
+    }
+
+    /// Wraps `SidebarRow` in a real `Button` so VoiceOver and UI-automation
+    /// tools (which drive the accessibility tree, not gesture recognizers)
+    /// can activate a tab, and attaches ⌘1…⌘9 to the first nine tabs in
+    /// `AppTab`'s stable declaration order (not per-section order, so the
+    /// shortcut a user learns for a tab doesn't shift if a section is
+    /// reordered without touching the tab list itself).
+    @ViewBuilder
+    private func sidebarButton(for tab: AppTab) -> some View {
+        let count = badgeCount(for: tab)
+        let isSelected = selectedTab == tab
+        let label = count > 0 ? "\(tab.rawValue), \(count) pending" : tab.rawValue
+
+        let button = Button {
+            withAnimation(.spring(duration: 0.25)) {
+                selectedTab = tab
+            }
+        } label: {
+            SidebarRow(tab: tab, isSelected: isSelected, badgeCount: count)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+
+        if let globalIndex = AppTab.allCases.firstIndex(of: tab), globalIndex < 9 {
+            button.keyboardShortcut(KeyEquivalent(Character("\(globalIndex + 1)")), modifiers: .command)
+        } else {
+            button
         }
     }
 }
