@@ -65,7 +65,10 @@ protocol SyncAPI: Sendable {
     /// `GET /sync/version` — the current version vector.
     func fetchSyncVersion() async throws -> VersionVector
     /// `GET /sync/events` — a long-lived SSE line stream (bearer attached).
-    func syncEventLines() async throws -> (AsyncLineSequence<URLSession.AsyncBytes>, HTTPURLResponse)
+    ///
+    /// Lines are produced by `SSELineSplitter`, not `AsyncBytes.lines`: the
+    /// latter drops empty lines, which are SSE's frame terminators.
+    func syncEventLines() async throws -> (AsyncThrowingStream<String, any Error>, HTTPURLResponse)
 }
 
 /// The `event: sleep` payload pushed over `/sync/events`. Decode-tolerant so a

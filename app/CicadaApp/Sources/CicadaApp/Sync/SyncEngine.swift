@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Change detection for the app (§5.3).
 ///
@@ -13,6 +14,8 @@ import Foundation
 /// stale even with SSE unavailable.
 @MainActor
 final class SyncEngine {
+    private static let logger = Logger(subsystem: "com.cicada.app", category: "sync")
+
     private let api: any SyncAPI
     private unowned var store: Store!
     private var task: Task<Void, Never>?
@@ -80,6 +83,11 @@ final class SyncEngine {
         switch event.name {
         case "version":
             guard let version = try? JSONDecoder().decode(VersionVector.self, from: data) else { return }
+            let changed = version.changedDomains(since: store.version)
+                .map(\.rawValue).sorted().joined(separator: ",")
+            let line = "sse version=\(version.version) changed=[\(changed)]"
+            Self.logger.notice("\(line, privacy: .public)")
+            FileHandle.standardError.write(Data("[sync] \(line)\n".utf8))
             await store.apply(version: version)
         case "sleep":
             guard let payload = try? JSONDecoder().decode(SleepEventPayload.self, from: data) else { return }

@@ -1474,7 +1474,7 @@ extension APIClient: SyncAPI {
     /// Opens the long-lived `GET /sync/events` SSE stream. The 1-hour timeout
     /// is a backstop only — the server pings every 15 s, and `SyncEngine`
     /// reconnects with backoff whenever the sequence ends for any reason.
-    func syncEventLines() async throws -> (AsyncLineSequence<URLSession.AsyncBytes>, HTTPURLResponse) {
+    func syncEventLines() async throws -> (AsyncThrowingStream<String, any Error>, HTTPURLResponse) {
         var request = makeRequest("/sync/events", method: "GET", json: false)
         request.timeoutInterval = 3600
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -1484,6 +1484,8 @@ extension APIClient: SyncAPI {
             if http.statusCode == 401 { Self.invalidateToken() }
             throw APIError.httpError(http.statusCode, "sync/events")
         }
-        return (bytes.lines, http)
+        // NOT `bytes.lines`: Foundation's AsyncLineSequence swallows empty
+        // lines, and an empty line is what terminates an SSE frame.
+        return (SSELineSplitter.lines(from: bytes), http)
     }
 }

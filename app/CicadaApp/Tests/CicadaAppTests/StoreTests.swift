@@ -218,7 +218,7 @@ final class FakeSyncAPI: SyncAPI {
         return e
     }
     func fetchSyncVersion() async throws -> VersionVector { syncVersion }
-    func syncEventLines() async throws -> (AsyncLineSequence<URLSession.AsyncBytes>, HTTPURLResponse) {
+    func syncEventLines() async throws -> (AsyncThrowingStream<String, any Error>, HTTPURLResponse) {
         throw APIError.serverUnreachable
     }
 }
