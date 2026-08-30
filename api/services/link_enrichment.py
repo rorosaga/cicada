@@ -239,8 +239,15 @@ async def default_summarize(title: str, url: str, settings) -> str | None:
         logger.warning(f"link fetch failed for {url}: {type(e).__name__}: {e}")
         return None
 
+    return await _summarize_excerpt(title, excerpt, url, settings)
+
+
+async def _summarize_excerpt(title: str, excerpt: str, url: str, settings) -> str | None:
+    """One bounded mini-model call over an already-fetched excerpt."""
     try:
         import litellm
+
+        from api.services.providers import resolve_llm_fn
 
         prompt = (
             "You are summarizing a web page for a personal memory system.\n"
@@ -249,8 +256,13 @@ async def default_summarize(title: str, url: str, settings) -> str | None:
             'topic. Be concise. Do not start with "This site" or "This page".\n\n'
             f"Title: {title}\nExcerpt:\n{excerpt}\n\nDescription (1-2 sentences):"
         )
-        response = await litellm.acompletion(
+        llm_fn = resolve_llm_fn(
+            settings,
             model=getattr(settings, "litellm_model", "") or "gpt-5.4-mini",
+            completion=litellm.acompletion,
+            stage="enrichment",
+        )
+        response = await llm_fn(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=100,
             temperature=0,
