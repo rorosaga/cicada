@@ -14,7 +14,7 @@ from pathlib import Path
 
 from fastapi import Request, Response
 
-from api.services import bank_index, logo_service, markdown_parser
+from api.services import bank_index, logo_service, markdown_parser, telemetry
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
 from api.services.graph_builder import dir_mtime, file_mtime, inbox_mtime
@@ -133,6 +133,12 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # `has_logo` into every node's `content_hash`. Without this the app's
         # conditional GET 304s and the node keeps painting a monogram forever.
         "logos": f"{file_mtime(logo_service.meta_path(logo_service.bank_name(mp))):.6f}",
+        # The consumption ledger lives at `$CICADA_HOME/telemetry/events-YYYY-MM.jsonl`,
+        # *outside* the memory bank (it's machine-global, not per-bank), so no other
+        # component notices a new usage event landing. Modelled on "logos" above for
+        # the same reason. Only the current month's file is watched: a new LLM call,
+        # sleep run, or agentic write always appends to it.
+        "telemetry": f"{file_mtime(telemetry.telemetry_dir() / f'events-{date.today():%Y-%m}.jsonl'):.6f}",
         "git_head": git_head(mp),
         "bank": mp.name,
         "sleep": f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}",

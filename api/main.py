@@ -17,6 +17,7 @@ from api.routers import (
     claims,
     clarifications,
     connections,
+    consumption,
     contributors,
     conversations,
     entities,
@@ -164,3 +165,4 @@ app.include_router(capture.router, tags=["capture"])
 app.include_router(maintenance.router, tags=["maintenance"])
 app.include_router(connections.router, tags=["connections"])
 app.include_router(sync.router, tags=["sync"])
+app.include_router(consumption.router, tags=["consumption"])
