@@ -22,6 +22,6 @@ final class VersionVectorTests: XCTestCase {
         let base = ["sources": "a", "bank": "x"]
         let old = VersionVector(version: "1", components: base)
         let new = VersionVector(version: "2", components: ["sources": "b", "bank": "x"])
-        XCTAssertEqual(new.changedDomains(since: old), [.sources, .feeds, .calendars])
+        XCTAssertEqual(new.changedDomains(since: old), [.sources, .feeds, .calendars, .channels])
     }
 }

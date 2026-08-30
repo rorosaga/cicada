@@ -26,6 +26,7 @@ final class Store {
     var inbox = Snapshot<[InboxItem]>()
     var banks = Snapshot<BanksResponse>()
     var sources = Snapshot<[MediaFeedItem]>()
+    var channels = Snapshot<[SourceChannel]>()
     var feeds = Snapshot<[FeedSubscription]>()
     var calendars = Snapshot<[CalendarSubscription]>()
     var contributors = Snapshot<[Contributor]>()
@@ -168,6 +169,7 @@ final class Store {
         await take(.graph, \.graph)
         await take(.inbox, \.inbox)
         await take(.sources, \.sources)
+        await take(.channels, \.channels)
         await take(.feeds, \.feeds)
         await take(.calendars, \.calendars)
         await take(.contributors, \.contributors)
@@ -212,6 +214,7 @@ final class Store {
             case .graph: await refreshOne(domain, \.graph) { [api] e in try await api.fetchGraph(etag: e) }
             case .inbox: await refreshOne(domain, \.inbox) { [api] e in try await api.fetchInbox(etag: e) }
             case .sources: await refreshOne(domain, \.sources) { [api] e in try await api.fetchSources(etag: e) }
+            case .channels: await refreshOne(domain, \.channels) { [api] e in try await api.fetchChannels(etag: e) }
             case .feeds: await refreshOne(domain, \.feeds) { [api] e in try await api.fetchFeeds(etag: e) }
             case .calendars: await refreshOne(domain, \.calendars) { [api] e in try await api.fetchCalendars(etag: e) }
             case .contributors: await refreshOne(domain, \.contributors) { [api] e in try await api.fetchContributors(etag: e) }
@@ -423,6 +426,7 @@ final class Store {
         inbox.isRefreshing = false
         banks.isRefreshing = false
         sources.isRefreshing = false
+        channels.isRefreshing = false
         feeds.isRefreshing = false
         calendars.isRefreshing = false
         contributors.isRefreshing = false

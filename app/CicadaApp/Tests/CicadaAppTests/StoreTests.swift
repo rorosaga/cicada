@@ -199,6 +199,9 @@ final class FakeSyncAPI: SyncAPI {
     func fetchSources(etag: String?) async throws -> Conditional<[MediaFeedItem]> {
         try answer(.sources, fallback: [])
     }
+    func fetchChannels(etag: String?) async throws -> Conditional<[SourceChannel]> {
+        try answer(.channels, fallback: [])
+    }
     func fetchFeeds(etag: String?) async throws -> Conditional<[FeedSubscription]> {
         try answer(.feeds, fallback: [])
     }

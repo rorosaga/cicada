@@ -1450,6 +1450,15 @@ extension APIClient: SyncAPI {
         }
     }
 
+    func fetchChannels(etag: String?) async throws -> Conditional<[SourceChannel]> {
+        do {
+            let c: Conditional<SourceChannelsResponse> = try await getConditional("/sources/channels", etag: etag)
+            return c.map(\.channels)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
     func fetchFeeds(etag: String?) async throws -> Conditional<[FeedSubscription]> {
         do {
             let c: Conditional<FeedListResponse> = try await getConditional("/sources/feeds", etag: etag)

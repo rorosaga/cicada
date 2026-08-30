@@ -6,10 +6,11 @@ struct VersionVector: Codable, Equatable {
 
     static let mapping: [String: Set<SyncDomain>] = [
         "entities": [.graph, .contributors, .origins], "edges": [.graph, .contributors, .origins], "hubs": [.graph, .contributors, .origins],
-        "inbox": [.inbox, .graph, .status], "episodes": [.status, .origins, .sources],
-        // The `sources` component folds in `feeds.yaml` and `calendars.yaml`
-        // (see `sync_service.components`), so all three domains ride it.
-        "sources": [.sources, .feeds, .calendars], "git_head": [.contributors], "sleep": [.status],
+        "inbox": [.inbox, .graph, .status], "episodes": [.status, .origins, .sources, .channels],
+        // The `sources` component folds in `feeds.yaml`, `calendars.yaml` and
+        // `sync_state.json` (see `sync_service.components`), so the feed,
+        // calendar and capture-channel lists all ride it.
+        "sources": [.sources, .feeds, .calendars, .channels], "git_head": [.contributors], "sleep": [.status],
     ]
 
     func changedDomains(since old: VersionVector?) -> Set<SyncDomain> {
