@@ -19,14 +19,17 @@ Everything here is hermetically testable: ``resolve_llm_fn`` takes an injectable
 
 from __future__ import annotations
 
+import inspect
 import os
 import threading
+import time
 from typing import Any, Callable
 
 import numpy as np
 from loguru import logger
 
 from api.config import Settings
+from api.services import pricing, telemetry
 
 # ``embed_fn(texts, *, is_query=False) -> np.ndarray`` (float32, 2-D). The same
 # contract the sqlite-vec index has always expected.
@@ -134,6 +137,9 @@ def resolve_llm_fn(
     *,
     model: str | None = None,
     completion: LlmFn | None = None,
+    stage: str | None = None,
+    sink: Callable[[telemetry.UsageEvent], None] | None = None,
+    bank: str | None = None,
 ) -> LlmFn:
     """Resolve a model spec -> a callable bound to that model.
 
@@ -147,6 +153,12 @@ def resolve_llm_fn(
         completion: the underlying completion callable; defaults to
             ``litellm.completion``. Injected as a fake in tests so no network
             is touched.
+        stage: label recorded on every emitted ``UsageEvent`` (e.g. ``"ask"``,
+            ``"extraction"``); defaults to ``"unknown"`` when not supplied.
+        sink: ``Callable[[UsageEvent], None]`` receiving one event per call;
+            defaults to ``telemetry.record`` (the on-disk ledger).
+        bank: label recorded on the event; defaults to
+            ``telemetry.bank_name(settings)``.
 
     Returns:
         ``fn(messages, *, response_format=None, **kw)`` forwarding to
@@ -157,12 +169,19 @@ def resolve_llm_fn(
         (litellm's Ollama routing prefix) and ``api_base`` is set to
         ``settings.ollama_base_url`` — no API key required. This leaves the
         byok/openrouter path byte-identical when ``llm_mode != "local"``.
+
+        Every call is timed and reported as one ``UsageEvent`` to ``sink``
+        (default: the telemetry ledger) tagged with ``stage`` — the single
+        interception point for the consumption dashboard.
     """
     resolved_model = (model or settings.litellm_model).strip()
     if completion is None:
         import litellm
 
         completion = litellm.completion
+    if sink is None:
+        sink = telemetry.record
+    bank_label = bank or telemetry.bank_name(settings)
 
     is_local = settings.llm_mode == "local" or resolved_model.startswith("ollama/")
     if is_local and not resolved_model.startswith("ollama/"):
@@ -170,6 +189,24 @@ def resolve_llm_fn(
 
     is_openrouter = resolved_model.startswith("openrouter/")
     headers = _openrouter_headers(settings) if is_openrouter else None
+    connection, billing = telemetry.connection_for_model(resolved_model)
+
+    def _emit(resp, started: float, ok: bool) -> None:
+        usage = telemetry.usage_from_response(resp) if ok else telemetry.usage_from_response(None)
+        cost = None if billing == "free" else usage["cost_usd"]
+        equiv = pricing.estimate_cost(resolved_model, usage["input_tokens"], usage["output_tokens"],
+                                      usage["cache_read_tokens"], usage["cache_write_tokens"])
+        try:
+            sink(telemetry.UsageEvent(
+                kind="llm_call", stage=stage or "unknown", connection=connection, engine="litellm",
+                model=resolved_model, bank=bank_label, billing=billing,
+                input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
+                cache_read_tokens=usage["cache_read_tokens"], cache_write_tokens=usage["cache_write_tokens"],
+                cost_usd=cost, equiv_cost_usd=equiv if equiv is not None else cost,
+                duration_ms=int((time.perf_counter() - started) * 1000), ok=ok,
+            ))
+        except Exception as exc:  # a sink must never break an LLM call
+            logger.warning(f"telemetry sink failed: {exc}")
 
     def _call(*, messages, response_format=None, **kw):
         call_kw: dict[str, Any] = {"model": resolved_model, "messages": messages, **kw}
@@ -179,7 +216,25 @@ def resolve_llm_fn(
             call_kw["extra_headers"] = headers
         if is_local and "api_base" not in call_kw:
             call_kw["api_base"] = settings.ollama_base_url
-        return completion(**call_kw)
+        started = time.perf_counter()
+        try:
+            result = completion(**call_kw)
+        except Exception:
+            _emit(None, started, ok=False)
+            raise
+        if inspect.isawaitable(result):
+            async def _awaited():
+                try:
+                    resp = await result
+                except Exception:
+                    _emit(None, started, ok=False)
+                    raise
+                _emit(resp, started, ok=True)
+                return resp
+
+            return _awaited()
+        _emit(result, started, ok=True)
+        return result
 
     return _call
 

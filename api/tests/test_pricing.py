@@ -37,3 +37,24 @@ def test_labels():
 def test_chatgpt_free_is_zero():
     assert pricing.price_for("chatgpt-plan", "free") == (0.0, f"verified {pricing.PRICES_VERIFIED}")
     assert pricing.plan_label("chatgpt-plan", "free", None) == "ChatGPT Free"
+
+
+def test_estimate_cost_uses_cost_fn_and_strips_prefix_on_retry():
+    calls = []
+
+    def cost_fn(**kw):
+        calls.append(kw["model"])
+        if kw["model"].startswith("openrouter/"):
+            raise ValueError("unknown model")
+        return (0.001, 0.0005)
+
+    usd = pricing.estimate_cost("openrouter/z-ai/glm-5.2", 1000, 100, cost_fn=cost_fn)
+    assert usd == 0.0015 and calls == ["openrouter/z-ai/glm-5.2", "z-ai/glm-5.2"]
+
+
+def test_estimate_cost_unknown_model_is_none():
+    def cost_fn(**kw):
+        raise ValueError("nope")
+
+    assert pricing.estimate_cost("mystery", 10, 10, cost_fn=cost_fn) is None
+    assert pricing.estimate_cost("gpt-5.4-mini", 0, 0, cost_fn=cost_fn) is None

@@ -49,3 +49,45 @@ def plan_label(connection_id: str, plan: str | None, tier: str | None) -> str | 
     if tier and TIERED.get((connection_id, plan.lower())):
         label += f" {tier}"
     return label
+
+
+def estimate_cost(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    *,
+    cost_fn=None,
+) -> float | None:
+    """API list-price estimate via litellm's bundled price table (offline).
+
+    Tries the model id as given, then with its provider prefix stripped
+    (``openrouter/x/y`` -> ``x/y``). ``None`` when the model is unknown or no
+    tokens were reported — the UI shows "n/a", never a made-up number.
+    """
+    if not model or (input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) == 0:
+        return None
+    if cost_fn is None:
+        import litellm
+
+        cost_fn = litellm.cost_per_token
+    candidates = [model]
+    if "/" in model:
+        candidates.append(model.split("/", 1)[1])
+    for candidate in candidates:
+        try:
+            try:
+                prompt_cost, completion_cost = cost_fn(
+                    model=candidate, prompt_tokens=input_tokens, completion_tokens=output_tokens,
+                    cache_read_input_tokens=cache_read_tokens, cache_creation_input_tokens=cache_write_tokens,
+                )
+            except TypeError:  # older litellm without cache kwargs
+                prompt_cost, completion_cost = cost_fn(
+                    model=candidate, prompt_tokens=input_tokens + cache_read_tokens + cache_write_tokens,
+                    completion_tokens=output_tokens,
+                )
+            return round(float(prompt_cost) + float(completion_cost), 6)
+        except Exception:
+            continue
+    return None
