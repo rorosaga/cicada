@@ -1169,6 +1169,15 @@ actor APIClient {
         return try await post("/sleep/trigger")
     }
 
+    // MARK: - Ask (G52)
+
+    /// `POST /ask` — grounded NL synthesis over the graph
+    /// (`api/routers/ask.py`). `topK` defaults to the same 6 the server uses
+    /// when the field is omitted.
+    func ask(query: String, topK: Int = 6) async throws -> AskResponse {
+        return try await post("/ask", body: ["query": query, "topK": topK])
+    }
+
     func fetchEpisodeQueue() async throws -> [EpisodeQueueItem] {
         return try await get("/sleep/episodes")
     }

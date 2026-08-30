@@ -208,6 +208,13 @@ final class Store {
             case .origins: await refreshOne(domain, \.origins) { [api] e in try await api.fetchOrigins(etag: e) }
             case .connections: await refreshOne(domain, \.connections) { [api] e in try await api.fetchConnections(etag: e) }
             case .status: await refreshStatus()
+            // Ask (G52) history has no server endpoint to reconcile against —
+            // `AskViewModel` owns its own read/write through `store.cache`
+            // directly. Nothing to do here; just don't let it fall through
+            // to a case that doesn't exist.
+            case .askHistory:
+                pendingDomains.remove(.askHistory)
+                continue
             }
         }
     }

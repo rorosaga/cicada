@@ -8,6 +8,8 @@ struct ContentView: View {
     // don't re-trigger it on every launch.
     @AppStorage("cicada.hasSeenConnectGuide") private var hasSeenConnectGuide = false
     @State private var showOnboarding = false
+    // ⌘K Ask panel (G52, spec §5.9).
+    @State private var showAskPanel = false
 
     // Theme: mirrors the persisted mode into `CicadaTheme.mode` (see
     // Theme/CicadaTheme.swift) on every render, before Sidebar/detail are
@@ -67,6 +69,23 @@ struct ContentView: View {
             }
             .frame(width: 780, height: 640)
         }
+        // ⌘K opens the Ask panel (G52) from anywhere in the app — a hidden
+        // button is the standard SwiftUI way to attach a global keyboard
+        // shortcut that isn't tied to a visible control.
+        .background {
+            Button("") { showAskPanel = true }
+                .keyboardShortcut("k", modifiers: .command)
+                .buttonStyle(.plain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+        }
+        .sheet(isPresented: $showAskPanel) {
+            AskPanel { entityId in
+                withAnimation(.spring(duration: 0.25)) { selectedTab = .graph }
+                graphVM.selectEntity(id: entityId)
+                showAskPanel = false
+            }
+        }
     }
 
     /// Transient capsule for `store.toast`, auto-clearing after 4 s. Keyed on
@@ -99,7 +118,7 @@ struct ContentView: View {
     private var detailContent: some View {
         switch selectedTab {
         case .graph:
-            GraphContainerView(selectedTab: $selectedTab)
+            GraphContainerView(selectedTab: $selectedTab, showAskPanel: $showAskPanel)
         case .clusters:
             TopicsView(selectedTab: $selectedTab)
         case .feed:
@@ -124,6 +143,7 @@ struct ContentView: View {
 
 struct GraphContainerView: View {
     @Binding var selectedTab: AppTab
+    @Binding var showAskPanel: Bool
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(BanksViewModel.self) private var banksVM
     @State private var showUploadOverlay = false
@@ -133,14 +153,17 @@ struct GraphContainerView: View {
             GraphView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Top-right: Sleep + Upload + Help buttons
+            // Top-right: Ask + Sleep + Upload + Help buttons
             VStack {
                 HStack {
                     Spacer()
-                    TopBarControls(
-                        selectedTab: $selectedTab,
-                        showUploadOverlay: $showUploadOverlay
-                    )
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        AskButton(showAskPanel: $showAskPanel)
+                        TopBarControls(
+                            selectedTab: $selectedTab,
+                            showUploadOverlay: $showUploadOverlay
+                        )
+                    }
                     .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
@@ -347,6 +370,36 @@ struct ZoomControls: View {
             ZoomButton(icon: "arrow.down.left.and.arrow.up.right", action: { graphVM.zoomAction = .fit })
         }
         .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+    }
+}
+
+// MARK: - Ask Button (G52)
+
+/// Toolbar entry point for the ⌘K Ask panel — the keyboard shortcut works
+/// from anywhere in `ContentView`, this just gives it a discoverable button
+/// alongside Sleep/Upload/Help.
+struct AskButton: View {
+    @Binding var showAskPanel: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            showAskPanel = true
+        } label: {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Image(systemName: "sparkle.magnifyingglass")
+                    .font(.system(size: 12))
+                Text("Ask")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.accent)
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .padding(.vertical, CicadaTheme.spacingSM)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+        .help("Ask your memory (⌘K)")
     }
 }
 

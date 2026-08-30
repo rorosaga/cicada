@@ -310,7 +310,10 @@ final class MutationTests: XCTestCase {
 
         let ok = await store.perform(ActivateBank(name: "B"))
         XCTAssertTrue(ok)
-        XCTAssertEqual(Set(api.calls), Set(SyncDomain.allCases),
+        // `.askHistory` (G52) has no server endpoint to reconcile against —
+        // `Store.refresh` skips it explicitly — so it never generates an API
+        // call even though it's part of `allCases`.
+        XCTAssertEqual(Set(api.calls), Set(SyncDomain.allCases).subtracting([.askHistory]),
                        "a successful activate reconciles the whole bank")
         XCTAssertEqual(api.calls.first, .banks, "the roster is refreshed first")
     }
