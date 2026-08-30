@@ -64,11 +64,18 @@ class ClaudePlanAdapter:
             usd, note = None, "plan not detected — run the CLI once to refresh"
         else:
             usd, note = pricing.price_for(self.id, plan, self._tier)
+        account = info.get("email")
+        who = f"as `{account}`" if account else "on your Claude account"
         return self._base(
             available=True, connected=True, plan=plan, engine_role="subscription-cli",
             plan_label=pricing.plan_label(self.id, plan, self._tier),
-            account=info.get("email"), price_usd_month=usd, price_note=note,
+            account=account, price_usd_month=usd, price_note=note,
             detail=info.get("orgName"),
+            how=(
+                f"Signed in to Claude Code on this Mac {who}. Cicada runs its "
+                "memory work through the `claude` CLI on your plan — it never "
+                "sees your token."
+            ),
         )
 
     async def begin_login(self) -> LoginSession:

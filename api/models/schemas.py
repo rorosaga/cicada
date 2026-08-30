@@ -995,6 +995,15 @@ class ConnectionStatus(CamelModel):
     billing: str = "usage"  # subscription | usage | free
     engine_role: Optional[str] = None
     detail: Optional[str] = None
+    # G63: one sentence explaining *why this card says Connected*, authored
+    # next to the probe that decided it so the copy can never drift from the
+    # check. None when the connection isn't connected — there is nothing to
+    # explain yet, and `detail` already carries the "here's how to connect" hint.
+    how: Optional[str] = None
+    # What this connection currently does for Cicada. The registry assigns
+    # these across the probed set (only one adapter is the engine at a time),
+    # so an adapter can't know its own answer.
+    powers: list[str] = []
     login: Optional[LoginHint] = None
 
 

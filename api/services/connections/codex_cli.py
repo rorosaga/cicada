@@ -123,6 +123,10 @@ class CodexPlanAdapter:
             available=True, connected=True, plan=plan, engine_role="subscription-cli",
             plan_label=pricing.plan_label(self.id, plan, self._tier),
             account=email, price_usd_month=usd, price_note=note,
+            how=(
+                "Signed in to Codex CLI on this Mac. Cicada runs through "
+                "`codex exec` on your ChatGPT plan."
+            ),
         )
 
     async def begin_login(self) -> LoginSession:
