@@ -250,16 +250,21 @@ The user-facing interface for inspecting, managing, and curating the knowledge g
 ### Backend Process Management
 SwiftUI app spawns the FastAPI server as a child process on launch using Swift's `Process()` API (`uvicorn api.main:app --port 8000`). User never manually starts the backend. On app quit, child process is terminated.
 
+### Sync engine
+A single `Store` holds one `Snapshot` per domain (graph, inbox, sources, contributors, origins, status, banks, feeds, calendars, connections), hydrated instantly from a per-bank on-disk `SnapshotCache` (`~/Library/Application Support/Cicada/cache/<bank>/`) before the first network round-trip, so the app renders real data cold, even with the backend down. A `SyncEngine` holds one long-lived SSE connection to `GET /sync/events`, reconnecting with backoff and falling back to polling `GET /sync/version` while disconnected; each `version` event diffs against the last-seen vector and refreshes only the changed domains, every refresh sending `If-None-Match` so an unchanged domain costs a 304. View models are thin projections over `Store` snapshots (never blank — always the last-known-good data). Writes go through a `Mutation` protocol: optimistic apply to the local snapshot, rollback with a toast on failure. The graph view receives **deltas** (added/updated/removed node ids, each keyed by a `content_hash`) rather than a full re-layout, so d3 node positions are preserved across a Sleep cycle or a live edit. The sidebar's primary views are reachable via ⌘1–9 (with matching accessibility labels), entity logos are cached on disk, and ⌘K opens an Ask panel (G52) that sends a question to `POST /ask` and renders the answer with clickable wikilink citations.
+
 ---
 
 ## API Design
 
-Grew past "one endpoint per screen" as the companion app matured. 18 routers currently mounted
+Grew past "one endpoint per screen" as the companion app matured. 19 routers currently mounted
 in `api/main.py` (`graph`, `search`, `ask`, `inbox`, `status`, `nudges`, `clarifications`,
 `entities`, `claims`, `contributors`, `origins`, `sleep`, `conversations`, `sources`, `banks`,
-`local_refs`, `capture`, `connections`), plus repo-context and maintenance endpoints:
+`local_refs`, `capture`, `connections`, `sync`), plus repo-context and maintenance endpoints:
 
 Every endpoint except `GET /healthz` and `POST /capture/telegram` requires `Authorization: Bearer <token>` — the token lives at `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests). The Telegram webhook is exempt because Telegram's servers cannot send the header; today it is gated only by Telegram being configured (`CICADA_TELEGRAM_BOT_TOKEN`), not by a per-request secret — see G57.
+
+`/graph`, `/inbox`, `/contributors`, `/sources`, `/origins`, and `/banks` all support ETags: each response carries an `ETag` header, and a request sent with `If-None-Match` gets back a `304 Not Modified` (empty body) whenever nothing in that domain changed, letting the app skip re-parsing and re-rendering large payloads (`/graph` on the live bank is ~1.8 MB).
 
 ```
 GET  /graph                               → nodes + edges JSON for d3 (incl. synthetic repo: nodes)
@@ -304,6 +309,8 @@ POST /connections/{id}/login|logout        → start the vendor CLI's own login 
 GET  /connections/{id}/login/{sid}         → device-code login progress (ChatGPT/Codex)
 PUT/DELETE /connections/{id}/key           → BYOK key into ~/.cicada/secrets.env (0600)
 PUT  /connections/{id}/prefs               → tier override (Claude Max 5x/20x), enabled flag
+GET  /sync/version                        → mtime + git-HEAD version vector for change detection (<10 ms)
+GET  /sync/events                         → SSE stream of `version` (on change, polled server-side every 1 s), `sleep` (sleep state on change), and `ping` (every 15 s) events
 ```
 
 The API reads and writes the same markdown files and git repo that the Sleep cycle operates on. **There's no separate database — the filesystem is the single source of truth.**
