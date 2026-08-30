@@ -19,7 +19,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import markdown_parser
+from api.services import git_service, markdown_parser
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 _DUPLICATE_PREFIX = "possible duplicate"
@@ -213,6 +213,103 @@ def _commit_migration(memory_path: Path, moved: int) -> None:
     )
     subprocess.run(
         ["git", "commit", "-m", message, "--", *paths],
+        cwd=str(memory_path),
+        check=True,
+    )
+
+
+_DEDUP_MARKER = ".deduped"
+
+
+def dedup_open_items(memory_path: Path) -> int:
+    """Collapse pre-existing duplicate OPEN inbox items (G60 §2.2). Idempotent.
+
+    Groups every ``status: pending`` item by ``(kind, dedup_key)``, keeps the
+    one with the lowest inbox number (the oldest question, so ``created_date``
+    and any user-visible history survive), merges every other member's options
+    into it with :func:`inbox_generator.merge_options_into`, and deletes the
+    rest. Commits scoped to ``inbox/`` only — never ``git add -A``.
+
+    Never raises: a failure is logged and boot continues. Returns the number of
+    duplicate files removed.
+    """
+    from api.services.inbox_generator import dedup_key, merge_options_into
+
+    memory_path = Path(memory_path)
+    inbox = memory_path / "inbox"
+    if not inbox.exists():
+        return 0
+    marker = inbox / _DEDUP_MARKER
+    if marker.exists():
+        return 0
+
+    try:
+        groups: dict[tuple[str, tuple[str, str]], list[Path]] = {}
+        for filepath in sorted(inbox.glob("inbox-*.md")):
+            try:
+                fm = markdown_parser.parse(filepath).frontmatter
+            except Exception:
+                continue
+            if str(fm.get("status", "pending") or "pending") != "pending":
+                continue
+            kind = str(fm.get("kind", "") or "")
+            if kind not in ("conflict", "clarification", "merge_suggestion"):
+                continue
+            groups.setdefault((kind, dedup_key(kind, fm)), []).append(filepath)
+
+        removed = 0
+        today = str(date.today())
+        for (kind, _key), members in groups.items():
+            if len(members) < 2:
+                continue
+            survivor, duplicates = members[0], members[1:]
+            for dup in duplicates:
+                try:
+                    dup_fm = markdown_parser.parse(dup).frontmatter
+                except Exception:
+                    dup_fm = {}
+                if kind == "conflict":
+                    merge_options_into(survivor, dup_fm.get("options") or [], today)
+                else:
+                    parsed = markdown_parser.parse(survivor)
+                    parsed.frontmatter["updated_date"] = today
+                    markdown_parser.write(survivor, parsed.frontmatter, parsed.body)
+                dup.unlink()
+                removed += 1
+    except Exception as e:
+        logger.error(f"Inbox dedup FAILED — leaving inbox/ untouched: {e}")
+        return 0
+
+    if removed:
+        try:
+            _commit_dedup(memory_path, removed)
+        except Exception as e:
+            # Files are collapsed on disk but the commit failed (or this isn't
+            # a git repo). Do NOT write the marker so a later boot retries; the
+            # collapse itself is idempotent (0 duplicates left => 0 next time).
+            logger.warning(f"Inbox dedup commit skipped: {e}")
+            return removed
+
+    marker.write_text("v1")
+    return removed
+
+
+def _commit_dedup(memory_path: Path, removed: int) -> None:
+    """Commit the dedup scoped to ONLY inbox/ (never ``git add -A``)."""
+    subprocess.run(["git", "add", "--", "inbox"], cwd=str(memory_path), check=True)
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--", "inbox"],
+        cwd=str(memory_path), check=True, capture_output=True, text=True,
+    )
+    if not status.stdout.strip():
+        return
+    message = git_service.build_commit_message(
+        "Collapse duplicate open inbox questions",
+        [f"inbox/: {removed} duplicate item(s) merged into their oldest sibling (trigger: inbox/dedup)"],
+        authors=["cicada"],
+    )
+    subprocess.run(
+        ["git", "commit", "-m", message, "--", "inbox"],
         cwd=str(memory_path),
         check=True,
     )
