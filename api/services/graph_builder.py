@@ -39,6 +39,20 @@ def content_hash(fm: dict, body: str) -> str:
     return hashlib.sha1((json.dumps(fm, sort_keys=True, default=str) + "\n" + (body or "")).encode()).hexdigest()[:12]
 
 
+def synthetic_hash(*parts) -> str:
+    """Deterministic 12-hex fingerprint for a node with no file behind it.
+
+    ``hub:*`` and ``repo:*`` nodes are derived at read time, so they have no
+    frontmatter/body to hash — they used to ship ``content_hash=""``. The
+    companion app's diff treats an empty hash as "assume changed" (the safe
+    degradation path for an older backend), so every one of them was re-pushed
+    in every single delta. Hashing their defining fields instead means they
+    change exactly when they change.
+    """
+    joined = "\x1f".join("" if p is None else str(p) for p in parts)
+    return hashlib.sha1(joined.encode()).hexdigest()[:12]
+
+
 # Module-level mtime cache. The full (unfiltered) graph is expensive to build
 # over ~1882 entities; keying on the entities-dir + edges-file + inbox mtimes
 # means the first GET after a sleep cycle pays the scan once and every repeat is
@@ -108,6 +122,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
     # pointing at the same checkout share a single node with an edge from each
     # owner (mirrors the hub: injection just below).
     repo_node_names: dict[str, str] = {}  # "repo:<slug>" -> display name
+    repo_node_paths: dict[str, set[str]] = {}  # "repo:<slug>" -> declared paths
     repo_links: list[GraphLink] = []
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
@@ -157,9 +172,12 @@ def _build_full(memory_path: Path) -> GraphResponse:
             display_name = Path(repo_path).name or repo_path
             repo_id = f"repo:{sanitize_id(display_name)}"
             repo_node_names.setdefault(repo_id, display_name)
+            repo_node_paths.setdefault(repo_id, set()).add(repo_path)
             repo_links.append(GraphLink(source=eid, target=repo_id, label="has repo"))
 
     for repo_id, display_name in repo_node_names.items():
+        # Paths are sorted so the hash does not depend on entity scan order.
+        paths = sorted(repo_node_paths.get(repo_id, set()))
         nodes.append(
             GraphNode(
                 id=repo_id,
@@ -167,6 +185,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 type="repo",
                 status="active",
                 confidence=1.0,
+                content_hash=synthetic_hash("repo", repo_id, display_name, *paths),
             )
         )
 
@@ -195,6 +214,14 @@ def _build_full(memory_path: Path) -> GraphResponse:
                     is_hub=True,
                     member_count=int(fm.get("member_count", len(members)) or 0),
                     hub_kind=fm.get("hub_kind"),
+                    content_hash=synthetic_hash(
+                        "hub",
+                        hub_id,
+                        fm.get("name", filepath.stem),
+                        fm.get("hub_kind"),
+                        int(fm.get("member_count", len(members)) or 0),
+                        len(members),
+                    ),
                 )
             )
             for m in members:
@@ -255,6 +282,14 @@ def _build_full(memory_path: Path) -> GraphResponse:
                     is_facet=True,
                     parent_id=subject,
                     context=ctx,
+                    # Facets are synthetic too — derived from the parent's
+                    # claim contexts, with no file of their own. Fold the
+                    # parent's own hash in so a facet moves when its subject
+                    # does. (Same empty-hash re-push problem as hub:/repo:.)
+                    content_hash=synthetic_hash(
+                        "facet", subject, ctx, parent.type, parent.status,
+                        parent.confidence, parent.content_hash,
+                    ),
                 )
             )
             facet_links.append(
