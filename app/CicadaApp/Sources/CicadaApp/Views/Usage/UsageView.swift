@@ -73,7 +73,7 @@ struct UsageView: View {
             switch c.billing {
             case "subscription": c.priceUsdMonth.map { "\(c.label) · $\(Int($0))/mo" } ?? c.label
             case "free": "\(c.label) · free"
-            default: "\(c.label) · \(UsageFormat.usd(c.costUsd ?? 0)) \(viewModel.range == "month" ? "this month" : "in range")"
+            default: "\(c.label) · \(UsageFormat.usd(c.costUsd)) \(viewModel.range == "month" ? "this month" : "in range")"
             }
         }
         return Text(parts.isEmpty ? "No connections yet — set one up under Setup › Connections." : "Connections: " + parts.joined(separator: " · "))

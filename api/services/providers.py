@@ -192,11 +192,11 @@ def resolve_llm_fn(
     connection, billing = telemetry.connection_for_model(resolved_model)
 
     def _emit(resp, started: float, ok: bool) -> None:
-        usage = telemetry.usage_from_response(resp) if ok else telemetry.usage_from_response(None)
-        cost = None if billing == "free" else usage["cost_usd"]
-        equiv = pricing.estimate_cost(resolved_model, usage["input_tokens"], usage["output_tokens"],
-                                      usage["cache_read_tokens"], usage["cache_write_tokens"])
         try:
+            usage = telemetry.usage_from_response(resp) if ok else telemetry.usage_from_response(None)
+            cost = None if billing == "free" else usage["cost_usd"]
+            equiv = pricing.estimate_cost(resolved_model, usage["input_tokens"], usage["output_tokens"],
+                                          usage["cache_read_tokens"], usage["cache_write_tokens"])
             sink(telemetry.UsageEvent(
                 kind="llm_call", stage=stage or "unknown", connection=connection, engine="litellm",
                 model=resolved_model, bank=bank_label, billing=billing,

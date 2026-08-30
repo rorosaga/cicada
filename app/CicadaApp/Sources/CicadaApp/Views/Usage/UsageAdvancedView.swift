@@ -46,7 +46,7 @@ struct UsageAdvancedView: View {
                                 Text(m.name).font(CicadaTheme.monoFont)
                                 Spacer()
                                 Text("\(UsageFormat.tokens(m.tokens)) tok")
-                                Text(c.billing == "usage" ? UsageFormat.usd(m.costUsd ?? 0) : "≈ \(UsageFormat.usd(m.equivCostUsd ?? 0))").frame(width: 90, alignment: .trailing)
+                                Text(c.billing == "usage" ? UsageFormat.usd(m.costUsd) : "≈ \(UsageFormat.usd(m.equivCostUsd))").frame(width: 90, alignment: .trailing)
                             }
                             .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                         }
@@ -61,13 +61,13 @@ struct UsageAdvancedView: View {
         switch c.billing {
         case "subscription": c.priceUsdMonth.map { "$\(Int($0))/mo" } ?? "plan"
         case "free": "free"
-        default: UsageFormat.usd(c.costUsd ?? 0) + " spent"
+        default: UsageFormat.usd(c.costUsd) + " spent"
         }
     }
 
     private func detailText(_ c: ConnectionConsumption) -> String {
         switch c.billing {
-        case "subscription": "\(c.invocations) invocations · \(UsageFormat.tokens(c.tokens)) tokens · ≈ \(UsageFormat.usd(c.equivCostUsd ?? 0)) at API list price (estimate — not billed)"
+        case "subscription": "\(c.invocations) invocations · \(UsageFormat.tokens(c.tokens)) tokens · ≈ \(UsageFormat.usd(c.equivCostUsd)) at API list price (estimate — not billed)"
         case "free": "\(c.invocations) invocations · \(UsageFormat.tokens(c.tokens)) tokens · on-device"
         default: "\(c.invocations) invocations · \(UsageFormat.tokens(c.tokens)) tokens · real cost from provider list prices"
         }
@@ -137,8 +137,8 @@ struct UsageAdvancedView: View {
                         Text(UsageFormat.tokens(r.inputTokens))
                         Text(UsageFormat.tokens(r.outputTokens))
                         Text(UsageFormat.tokens(r.cacheReadTokens + r.cacheWriteTokens))
-                        Text(UsageFormat.usd(r.costUsd ?? 0))
-                        Text(UsageFormat.usd(r.equivCostUsd ?? 0))
+                        Text(UsageFormat.usd(r.costUsd))
+                        Text(UsageFormat.usd(r.equivCostUsd))
                     }
                     .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 }
