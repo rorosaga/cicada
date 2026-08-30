@@ -650,9 +650,7 @@ private struct TopicRowListItem: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: CicadaTheme.spacingMD) {
-                Circle()
-                    .fill(CicadaTheme.entityColor(for: entity.type))
-                    .frame(width: 10, height: 10)
+                LogoImage(entityId: entity.id, name: entity.name, type: entity.type, size: 20)
 
                 Text(entity.name)
                     .font(.system(size: 13, weight: .medium))
