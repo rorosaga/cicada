@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import GraphResponse
+from api.services import sync_service
 from api.services.graph_builder import build_graph
 
 router = APIRouter()
@@ -16,6 +18,8 @@ def _split(value: str | None) -> set[str] | None:
 
 @router.get("/graph", response_model=GraphResponse)
 async def get_graph(
+    request: Request,
+    response: Response,
     types: str | None = None,
     statuses: str | None = None,
     min_confidence: float = 0.0,
@@ -24,7 +28,14 @@ async def get_graph(
     hubs_only: bool = False,
     settings: Settings = Depends(get_settings),
 ):
-    return build_graph(
+    extra = f"{types}|{statuses}|{min_confidence}|{tags}|{include_hubs}|{hubs_only}"
+    etag = sync_service.etag_for(
+        settings.memory_path, "entities", "edges", "hubs", "inbox", extra=extra
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    return await run_in_threadpool(
+        build_graph,
         settings.memory_path,
         types=_split(types),
         statuses=_split(statuses),

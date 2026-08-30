@@ -2,24 +2,31 @@ import Foundation
 import Observation
 
 // M3 (backlog A2): repo-wide model/user attribution.
-// NOT BUILD-VERIFIED — needs Rodrigo to compile in Xcode.
+/// Thin projection over `Store.contributors` (§5.5). Moved from a per-view
+/// `@State` to an app-level, environment-injected VM in Task 7 so switching
+/// away from and back to this tab no longer re-fetches or blanks the list.
 @Observable
 @MainActor
 final class ContributorsViewModel {
-    var contributors: [Contributor] = []
-    var isLoading = false
+    private let store: Store
+
     var errorMessage: String?
+
+    init(store: Store) {
+        self.store = store
+    }
+
+    var contributors: [Contributor] { store.contributors.value ?? [] }
+
+    var isLoading: Bool { store.contributors.isEmpty && store.contributors.isRefreshing }
 
     var totalCommits: Int { contributors.reduce(0) { $0 + $1.commitCount } }
 
     func load() async {
-        isLoading = true
-        defer { isLoading = false }
         errorMessage = nil
-        do {
-            contributors = try await APIClient.shared.fetchContributors()
-        } catch {
-            errorMessage = error.localizedDescription
+        await store.refresh([.contributors])
+        if store.contributors.value == nil {
+            errorMessage = store.toast
         }
     }
 }

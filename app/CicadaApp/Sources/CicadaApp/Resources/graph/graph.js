@@ -441,6 +441,125 @@ function updateGraph(dataStr) {
     scheduleRedraw();
 }
 
+// Incremental *delta* update (§5.6). The Swift side diffs two /graph snapshots
+// by node id + contentHash and sends only what moved:
+//   { added: [node], updated: [node], removed: [id], links?: [link] }
+// Unlike updateGraph, this never rebuilds the node array from the payload — it
+// mutates the live objects the simulation already holds, so every untouched
+// node keeps its exact x/y/vx/vy and the layout doesn't re-explode after a
+// Sleep cycle that changed one entity. `links` is present only when the link
+// set actually changed; absent means "leave the links alone".
+// Keys the Swift encoder omits when empty/false, so `updateGraphDelta` has to
+// clear them explicitly before merging an updated node (see below).
+const DELTA_OPTIONAL_KEYS = ["hubId", "observers", "contexts", "isFacet", "parentId", "context"];
+
+function updateGraphDelta(dataStr) {
+    const data = typeof dataStr === "string" ? JSON.parse(dataStr) : dataStr;
+
+    // A delta is only meaningful on top of an existing simulation. A full
+    // payload, or a first paint, goes down the full path — reshaped so nothing
+    // is lost: a delta payload has no `nodes` key, so handing it to
+    // updateGraph verbatim would wipe the canvas.
+    if (data.isFull || !nodes.length) {
+        return updateGraph(Array.isArray(data.nodes) ? data : {
+            nodes: [...(data.added || []), ...(data.updated || [])],
+            links: data.links || [],
+        });
+    }
+
+    resizeCanvas();
+
+    const added = (data.added || []).slice();
+    const updated = data.updated || [];
+    const removed = data.removed || [];
+
+    // 1. Removals — drop the nodes, plus any link left dangling by them.
+    if (removed.length) {
+        const gone = new Set(removed);
+        nodes = nodes.filter(n => !gone.has(n.id));
+        links = links.filter(l => {
+            const sid = typeof l.source === "object" ? l.source.id : l.source;
+            const tid = typeof l.target === "object" ? l.target.id : l.target;
+            return !gone.has(sid) && !gone.has(tid);
+        });
+        for (const id of removed) prevPositions.delete(id);
+        if (focusNodeId && gone.has(focusNodeId)) focusNodeId = null;
+    }
+
+    // 2. Updates — copy the new fields onto the *existing* object so its
+    // simulation state (x/y/vx/vy, any drag pin, d3's index) survives. An
+    // "updated" node we don't actually have is treated as an addition.
+    if (updated.length) {
+        const byId = new Map(nodes.map(n => [n.id, n]));
+        for (const u of updated) {
+            const cur = byId.get(u.id);
+            if (!cur) { added.push(u); continue; }
+            const x = cur.x, y = cur.y, vx = cur.vx, vy = cur.vy;
+            const fx = cur.fx, fy = cur.fy, index = cur.index;
+            // Object.assign can only add or overwrite keys, so a field the
+            // Swift encoder omits when empty/false would keep its stale value
+            // (a node that stops being a facet, or loses its hub, would keep
+            // the old parentId/hubId until the next full push). Clear the
+            // known-optional keys first; the payload re-supplies whatever is
+            // still true.
+            for (const k of DELTA_OPTIONAL_KEYS) delete cur[k];
+            Object.assign(cur, u);
+            cur.x = x; cur.y = y; cur.vx = vx; cur.vy = vy;
+            cur.fx = fx; cur.fy = fy; cur.index = index;
+        }
+    }
+
+    // 3. Links — replaced wholesale when the payload carries them. Fresh
+    // objects with *string* endpoints, exactly like updateGraph: d3.forceLink
+    // rewrites endpoints into node references once the sim starts, and reusing
+    // those stale references would resurrect removed nodes.
+    if (Array.isArray(data.links)) {
+        links = data.links.map(l => ({
+            ...l,
+            source: typeof l.source === "object" ? l.source.id : l.source,
+            target: typeof l.target === "object" ? l.target.id : l.target,
+        }));
+    }
+
+    // 4. Additions — append, then (after the hub index is rebuilt, so anchors
+    // exist) seed each one near its hub or type cluster.
+    if (added.length) {
+        const present = new Set(nodes.map(n => n.id));
+        for (const a of added) {
+            if (present.has(a.id)) continue;
+            present.add(a.id);
+            nodes.push(a);
+        }
+    }
+
+    computeDegree();
+    buildHubIndex();
+
+    for (const a of added) {
+        const n = nodes.find(x => x.id === a.id);
+        if (!n || n.x != null) continue;
+        const p = prevPositions.get(n.id);
+        if (p) { n.x = p.x; n.y = p.y; n.vx = p.vx || 0; n.vy = p.vy || 0; }
+        else { const s = seedPositionFor(n); n.x = s.x; n.y = s.y; n.vx = 0; n.vy = 0; }
+    }
+
+    // Keep the position cache current for the touched nodes, so a later FULL
+    // updateGraph (bank switch back, forced full push) re-seeds them where they
+    // are now instead of throwing them back at their type anchor.
+    for (const t of [...added, ...updated]) {
+        const n = nodes.find(x => x.id === t.id);
+        if (n && n.x != null) prevPositions.set(n.id, { x: n.x, y: n.y, vx: n.vx || 0, vy: n.vy || 0 });
+    }
+
+    rebuildVisible();
+    rebuildNeighborsIndex();
+    // Always a low reheat: a delta by definition sits on a settled layout.
+    startSimulation({ reheat: 0.3 });
+
+    if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
+    scheduleRedraw();
+}
+
 // Degree from links. This has to run BEFORE d3.forceLink mutates the link
 // objects (it replaces the string id endpoints with node refs). The server
 // degree is authoritative for sizing once present, but the JS recompute is

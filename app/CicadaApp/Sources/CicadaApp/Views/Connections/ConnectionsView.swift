@@ -4,7 +4,7 @@ import SwiftUI
 /// G50 — one card per provider connection. Subscriptions are probed through the
 /// vendor CLI (Cicada never holds a token); API keys go to ~/.cicada/secrets.env.
 struct ConnectionsView: View {
-    @State private var viewModel = ConnectionsViewModel()
+    @Environment(ConnectionsViewModel.self) private var viewModel
     @State private var keyDrafts: [String: String] = [:]
     @State private var confirmDisconnect: ConnectionStatus?
     @State private var terminalFallback = false
@@ -44,7 +44,9 @@ struct ConnectionsView: View {
             Spacer()
         }
         .padding(CicadaTheme.spacingLG)
-        .task { await viewModel.load(); viewModel.startPolling() }
+        // No `.task { load() }`: `ConnectionsViewModel` is a thin projection
+        // over `Store.connections`, already hydrated + kept live by the
+        // Store — this tab renders instantly from the snapshot on revisit.
         .onDisappear { viewModel.stopPolling() }
         .confirmationDialog("Disconnect \(confirmDisconnect?.label ?? "")?",
                             isPresented: Binding(get: { confirmDisconnect != nil }, set: { if !$0 { confirmDisconnect = nil } }),
@@ -109,9 +111,8 @@ private struct ConnectionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(spacing: CicadaTheme.spacingMD) {
-                if let logo, let url = Bundle.module.url(forResource: logo, withExtension: "png", subdirectory: "Resources/logos"),
-                   let img = NSImage(contentsOf: url) {
-                    Image(nsImage: img).resizable().frame(width: 28, height: 28).cornerRadius(6)
+                if let logo {
+                    LogoImage(name: logo, size: 28).cornerRadius(6)
                 } else {
                     Image(systemName: connection.isKeyBased ? "key.fill" : "cpu").frame(width: 28, height: 28)
                 }

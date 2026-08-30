@@ -170,3 +170,15 @@ def test_get_origins_endpoint_empty_memory(tmp_path, monkeypatch):
     resp = client.get("/origins")
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"origins": []}
+
+
+def test_aggregate_origins_uses_index_not_reparse(tmp_path, monkeypatch):
+    from api.services import bank_index, origin_stats
+    bank_index.invalidate()
+    (tmp_path / "episodes").mkdir(); (tmp_path / "entities").mkdir()
+    (tmp_path / "episodes" / "ep1.md").write_text("---\nid: ep1\norigin: claude-code\ntimestamp: '2026-08-01'\n---\nx\n")
+    (tmp_path / "entities" / "a.md").write_text("---\nid: a\nsource_episodes: [ep1]\n---\nx\n")
+    first = origin_stats.aggregate_origins(tmp_path)
+    before = bank_index.parse_count
+    second = origin_stats.aggregate_origins(tmp_path)
+    assert first == second and bank_index.parse_count == before

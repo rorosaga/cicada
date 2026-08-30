@@ -32,3 +32,8 @@ def test_labels():
     assert pricing.plan_label("claude-plan", "max", None) == "Claude Max"
     assert pricing.plan_label("chatgpt-plan", "plus", None) == "ChatGPT Plus"
     assert pricing.plan_label("chatgpt-plan", None, None) is None
+
+
+def test_chatgpt_free_is_zero():
+    assert pricing.price_for("chatgpt-plan", "free") == (0.0, f"verified {pricing.PRICES_VERIFIED}")
+    assert pricing.plan_label("chatgpt-plan", "free", None) == "ChatGPT Free"

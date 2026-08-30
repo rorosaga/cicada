@@ -7,7 +7,7 @@ import SwiftUI
 // the app's existing @Observable + APIClient + CicadaTheme conventions but needs
 // Rodrigo to verify it builds and to wire it into the sidebar navigation.
 struct ContributorsView: View {
-    @State private var viewModel = ContributorsViewModel()
+    @Environment(ContributorsViewModel.self) private var viewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
@@ -36,7 +36,9 @@ struct ContributorsView: View {
             Spacer()
         }
         .padding(CicadaTheme.spacingLG)
-        .task { await viewModel.load() }
+        // No `.task { load() }`: `ContributorsViewModel` is a thin projection
+        // over `Store.contributors`, already hydrated + kept live by the
+        // Store — this tab renders instantly from the snapshot on revisit.
     }
 
     private var header: some View {

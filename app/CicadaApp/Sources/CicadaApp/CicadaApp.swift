@@ -17,13 +17,20 @@ final class FirstMouseAcceptingView: NSView {
 
 @main
 struct CicadaApp: App {
-    @State private var graphVM = GraphViewModel()
-    @State private var inboxVM = InboxViewModel()
-    @State private var sleepVM = SleepViewModel()
-    @State private var banksVM = BanksViewModel()
+    /// Single source of truth for every screen (§5.1). Hydrated from disk on
+    /// appear, then kept live by its `SyncEngine`. Every view model below is
+    /// constructed in `init()` as a thin projection over this same instance
+    /// (§5.5) rather than fetching independently.
+    @State private var store: Store
+    @State private var graphVM: GraphViewModel
+    @State private var inboxVM: InboxViewModel
+    @State private var sleepVM: SleepViewModel
+    @State private var banksVM: BanksViewModel
+    @State private var feedVM: FeedViewModel
+    @State private var contributorsVM: ContributorsViewModel
+    @State private var connectionsVM: ConnectionsViewModel
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
-    @State private var menuPollTask: Task<Void, Never>?
 
     // Theme: persisted mode driving both the SwiftUI environment
     // (`.preferredColorScheme`, so system materials/controls follow) and the
@@ -41,6 +48,22 @@ struct CicadaApp: App {
         // bug. Explicitly requesting .regular activation fixes it.
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
+
+        // Build the Store as a plain local value first — referencing `self`
+        // (which `store` would, via the property wrapper) isn't allowed yet
+        // because the view-model `@State` properties below aren't
+        // initialised. Every view model is then constructed as a thin
+        // projection over that single Store (§5.5) instead of fetching
+        // independently.
+        let store = Store()
+        _store = State(initialValue: store)
+        _graphVM = State(initialValue: GraphViewModel(store: store))
+        _inboxVM = State(initialValue: InboxViewModel(store: store))
+        _sleepVM = State(initialValue: SleepViewModel(store: store))
+        _banksVM = State(initialValue: BanksViewModel(store: store))
+        _feedVM = State(initialValue: FeedViewModel(store: store))
+        _contributorsVM = State(initialValue: ContributorsViewModel(store: store))
+        _connectionsVM = State(initialValue: ConnectionsViewModel(store: store))
     }
 
     var body: some Scene {
@@ -50,6 +73,10 @@ struct CicadaApp: App {
                 .environment(inboxVM)
                 .environment(sleepVM)
                 .environment(banksVM)
+                .environment(feedVM)
+                .environment(contributorsVM)
+                .environment(connectionsVM)
+                .environment(store)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, newValue in
                     let mode = AppColorScheme(rawValue: newValue) ?? .dark
@@ -104,26 +131,21 @@ struct CicadaApp: App {
                         menuBarManager.applySleep(next)
                     }
 
-                    // Single long-lived 30s poll that drives the tamagotchi and
-                    // tracks the running -> idle edge to fire `digesting`.
-                    menuPollTask = Task { @MainActor in
-                        var wasRunning = false
-                        var justFinishedAt: Date? = nil
-                        while !Task.isCancelled {
-                            if let snap = await StatusService.shared.fetch() {
-                                let nowRunning = snap.sleep.status == "running"
-                                if wasRunning && !nowRunning { justFinishedAt = Date() }
-                                wasRunning = nowRunning
-                                menuBarManager.apply(snapshot: snap, justFinishedAt: justFinishedAt)
-                            }
-                            try? await Task.sleep(for: .seconds(30))
-                        }
+                    // The menu-bar bookworm is now driven by the Store's status
+                    // snapshot (SSE-pushed + refreshed on every version bump)
+                    // instead of a 30s poll. The Store tracks the sleep
+                    // running -> idle edge itself and hands us the timestamp
+                    // that makes the worm `digest`.
+                    store.onStatus = { [menuBarManager] snapshot, justFinishedAt in
+                        menuBarManager.apply(snapshot: snapshot, justFinishedAt: justFinishedAt)
                     }
+
+                    // Disk first (instant frame), network second, then live.
+                    Task { @MainActor in await store.bootstrap() }
                 }
-                .onDisappear {
-                    menuPollTask?.cancel()
-                    menuPollTask = nil
-                }
+                // NOTE: no `.onDisappear` teardown — closing the window must
+                // not stop the sync engine. The app lives on in the menu bar,
+                // and the bookworm is fed by the Store's status snapshot.
         }
         .defaultSize(width: 1200, height: 800)
     }

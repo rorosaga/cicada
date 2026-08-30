@@ -6,7 +6,7 @@ import SwiftUI
 /// the Topics screen's list + TopBarControls layout and the app's CicadaTheme.
 struct FeedView: View {
     @Binding var selectedTab: AppTab
-    @State private var viewModel = FeedViewModel()
+    @Environment(FeedViewModel.self) private var viewModel
     @State private var showUploadOverlay = false
 
     var body: some View {
@@ -54,7 +54,10 @@ struct FeedView: View {
                     .transition(.opacity)
             }
         }
-        .task { await viewModel.load() }
+        // No `.task { load() }` here: `FeedViewModel` is a thin projection
+        // over `Store.sources`, which the Store already hydrates from disk
+        // and keeps live via SSE — this tab renders instantly from whatever
+        // the Store already has, on every revisit, with no per-view refetch.
         .onChange(of: showUploadOverlay) { _, isShowing in
             // Refresh after the upload overlay closes — newly saved items appear.
             if !isShowing { Task { await viewModel.load() } }
@@ -75,7 +78,10 @@ struct FeedView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12))
                     .foregroundStyle(CicadaTheme.textTertiary)
-                TextField("Search saved media...", text: $viewModel.searchText)
+                TextField("Search saved media...", text: Binding(
+                    get: { viewModel.searchText },
+                    set: { viewModel.searchText = $0 }
+                ))
                     .textFieldStyle(.plain)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -92,7 +98,10 @@ struct FeedView: View {
             .padding(.vertical, CicadaTheme.spacingSM)
             .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
 
-            Picker("", selection: $viewModel.sort) {
+            Picker("", selection: Binding(
+                get: { viewModel.sort },
+                set: { viewModel.sort = $0 }
+            )) {
                 ForEach(FeedViewModel.SortMode.allCases) { mode in
                     Text(mode.label).tag(mode)
                 }

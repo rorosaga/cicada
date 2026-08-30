@@ -517,7 +517,18 @@ class _FakeSettings:
         self.memory_path = memory_path
 
 
+class _FakeRequest:
+    """Minimal stand-in for ``fastapi.Request`` — only ``.headers.get`` is used
+    by ``sync_service.conditional`` when a router is called directly (no live
+    app), bypassing FastAPI's dependency injection."""
+
+    def __init__(self):
+        self.headers: dict[str, str] = {}
+
+
 def test_contributors_router_returns_response(repo):
+    from fastapi import Response
+
     from api.routers import contributors as contributors_router
 
     _write_entity(repo, "alpha", "v1")
@@ -527,7 +538,11 @@ def test_contributors_router_returns_response(repo):
             "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
         ),
     )
-    resp = run(contributors_router.get_contributors(settings=_FakeSettings(repo)))
+    resp = run(
+        contributors_router.get_contributors(
+            request=_FakeRequest(), response=Response(), settings=_FakeSettings(repo)
+        )
+    )
     assert [c.author for c in resp.contributors] == ["gpt-5.4-mini"]
 
 

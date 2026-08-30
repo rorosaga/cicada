@@ -10,7 +10,7 @@ PRICES_VERIFIED = "2026-08-28"
 
 SUBSCRIPTION_PRICES: dict[str, dict[str, float]] = {
     "claude-plan": {"pro": 20.0, "max-5x": 100.0, "max-20x": 200.0},
-    "chatgpt-plan": {"go": 8.0, "plus": 20.0, "pro-5x": 100.0, "pro-20x": 200.0},
+    "chatgpt-plan": {"free": 0.0, "go": 8.0, "plus": 20.0, "pro-5x": 100.0, "pro-20x": 200.0},
     "gemini-plan": {"pro": 19.99, "ultra-5x": 99.99, "ultra-20x": 199.99},
     "copilot-plan": {"pro": 10.0, "pro-plus": 39.0, "max": 100.0},
 }

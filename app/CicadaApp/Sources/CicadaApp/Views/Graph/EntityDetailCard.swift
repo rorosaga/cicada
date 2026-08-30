@@ -238,6 +238,13 @@ struct EntityDetailCard: View {
             // needed.
             locationListing = nil
             repoContexts = []
+            // §5.7 — the card opened on the graph-node stub, whose
+            // `markdownContent` is the server's short `summary` (already
+            // rendered above, so there is never an empty card). Upgrade it to
+            // the full entity through the Store's memoised cache; the swap
+            // lands via `graphVM.selectedEntity`/`entities`, which is what
+            // feeds this view its `entity`.
+            await graphVM.loadFullEntity(id: entity.id)
             // Only location entities have a directory listing to fetch.
             if entity.type == .location {
                 locationListing = try? await APIClient.shared.fetchLocationListing(id: entity.id)
