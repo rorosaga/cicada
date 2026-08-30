@@ -497,4 +497,68 @@ final class StoreTests: XCTestCase {
         XCTAssertNil(store.graph.etag, "and A's etag must not be sent to B")
         XCTAssertFalse(store.graph.isRefreshing, "the discarded refresh still clears its flag")
     }
+
+    /// A parked request must not make its domain permanently unrefreshable.
+    ///
+    /// This is the backend-restart stall: a `/graph` request issued against a
+    /// connection that never answers holds `graph.isRefreshing`, so every
+    /// later version event coalesces into it and issues no GET at all. The SSE
+    /// reconnect calls `resetInFlight()`, which must break that hold.
+    func testResetInFlightUnblocksAParkedDomain() async throws {
+        let api = FakeSyncAPI()
+        api.gatedDomains = [.graph]
+        let store = Store(cache: tempCache(), api: api)
+
+        let parked = Task { await store.refresh([.graph]) }
+        await waitForGate(api, .graph)
+        XCTAssertEqual(api.calls.count, 1)
+        XCTAssertTrue(store.graph.isRefreshing)
+
+        // The bug, pinned: while the request is parked, nothing gets through.
+        await store.refresh([.graph])
+        XCTAssertEqual(api.calls.count, 1, "a parked domain swallows every later refresh")
+
+        // The reconnect clears the decks.
+        store.resetInFlight()
+        XCTAssertFalse(store.graph.isRefreshing)
+
+        api.gatedDomains = []
+        await store.refresh([.graph])
+        XCTAssertEqual(api.calls.count, 2, "after resetInFlight the domain is fetchable again")
+        XCTAssertEqual(store.graph.value?.nodes.count, 1)
+
+        // The abandoned request finally unwinds: it must not clear the flag or
+        // steal the queue from the attempt that replaced it.
+        api.releaseGate(.graph)
+        await parked.value
+        XCTAssertEqual(api.calls.count, 2, "the abandoned loop must not re-run itself")
+        XCTAssertFalse(store.graph.isRefreshing)
+    }
+
+    /// `resetInFlight()` re-arms what the abandoned requests owed, so the next
+    /// version event refreshes them even when the vector itself did not move.
+    func testResetInFlightReArmsCoalescedDomains() async throws {
+        let api = FakeSyncAPI()
+        api.gatedDomains = [.graph]
+        let store = Store(cache: tempCache(), api: api)
+
+        let parked = Task { await store.refresh([.graph]) }
+        await waitForGate(api, .graph)
+        await store.refresh([.graph])          // queued behind the parked one
+        XCTAssertEqual(api.calls.count, 1)
+
+        store.resetInFlight()
+        api.gatedDomains = []
+
+        // Same version vector as the Store already holds: `changedDomains` is
+        // empty, so only the re-armed pending set can drive this refresh.
+        store.version = VersionVector(version: "v0", components: [:])
+        await store.apply(version: VersionVector(version: "v0", components: [:]))
+        XCTAssertTrue(api.calls.contains(.graph))
+        XCTAssertEqual(api.calls.count, 2, "the re-armed domain is fetched exactly once")
+
+        api.releaseGate(.graph)
+        await parked.value
+        XCTAssertFalse(store.graph.isRefreshing)
+    }
 }

@@ -76,6 +76,11 @@ final class Store {
     /// Domains whose refresh was coalesced into an in-flight one and must
     /// re-run once it finishes.
     @ObservationIgnored private var wantsRefresh: Set<SyncDomain> = []
+    /// Bumped by `resetInFlight()`. A `refreshOne`/`refreshStatus` loop that
+    /// started in an older epoch has been abandoned: when it finally returns
+    /// it must not clear an `isRefreshing` flag or consume a `wantsRefresh`
+    /// marker that now belong to a newer attempt.
+    @ObservationIgnored private var refreshEpoch = 0
 
     // MARK: Collaborators
 
@@ -239,6 +244,7 @@ final class Store {
             return
         }
         self[keyPath: kp].isRefreshing = true
+        let startEpoch = refreshEpoch
         repeat {
             // The bank this request belongs to. A GET issued for bank A can
             // land after the user switched to B; writing A's payload (and A's
@@ -247,6 +253,11 @@ final class Store {
             let epoch = bank
             do {
                 let result = try await fetch(self[keyPath: kp].etag)
+                // Abandoned by `resetInFlight()` while we were suspended: a
+                // newer attempt owns this domain's flag now, so drop the
+                // response rather than write bookkeeping out from under it.
+                // The domain stays in `pendingDomains`, so it is refetched.
+                guard refreshEpoch == startEpoch else { return }
                 // `.banks` is global (cached under `rosterBank`) — a roster
                 // response is valid whichever bank is active, and discarding
                 // it would strand the switch that this very response reports.
@@ -267,8 +278,9 @@ final class Store {
                 // 200 and 304 both mean "we are in sync with the server".
                 pendingDomains.remove(domain)
             } catch {
+                guard refreshEpoch == startEpoch else { return }
                 if self[keyPath: kp].isEmpty { toast = "Couldn't load \(domain.rawValue)" }
-                Self.logger.debug("refresh \(domain.rawValue, privacy: .public) failed: \(String(describing: error))")
+                Self.logger.notice("refresh \(domain.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
             // `isRefreshing` stays true across the re-run so requests arriving
             // mid-loop keep coalescing instead of starting a parallel fetch.
@@ -283,10 +295,12 @@ final class Store {
             return
         }
         status.isRefreshing = true
+        let startEpoch = refreshEpoch
         repeat {
             let epoch = bank
             do {
                 let snapshot = try await api.fetchStatus()
+                guard refreshEpoch == startEpoch else { return }
                 // Same epoch guard as `refreshOne`: a status fetched for the
                 // previous bank must not feed the menu-bar bookworm the wrong
                 // bank's mood after a switch.
@@ -301,6 +315,7 @@ final class Store {
                 pendingDomains.remove(.status)
                 pushStatus(snapshot)
             } catch {
+                guard refreshEpoch == startEpoch else { return }
                 if status.isEmpty { toast = "Couldn't load status" }
             }
         } while wantsRefresh.remove(.status) != nil
@@ -382,6 +397,43 @@ final class Store {
     private func pruneHiddenInboxIds() {
         guard !hiddenInboxIds.isEmpty, let items = inbox.value else { return }
         hiddenInboxIds.formIntersection(Set(items.map(\.id)))
+    }
+
+    /// Abandon every in-flight refresh and re-arm the domains they covered.
+    ///
+    /// Called by `SyncEngine` on each SSE (re)connect. A request that hangs
+    /// holds its domain's `isRefreshing` flag, and `refreshOne` coalesces —
+    /// so one parked request makes the app deaf to every later version event
+    /// for that domain until the request finally gives up. Losing the stream
+    /// is exactly the signal that in-flight requests may be parked against a
+    /// backend that is no longer there, so a reconnect clears the decks: no
+    /// stale flag can outlive the connection that produced it.
+    ///
+    /// Nothing is cancelled — the abandoned tasks are left to unwind on their
+    /// own (they are bounded by `timeoutIntervalForRequest`); the epoch bump
+    /// is what makes them harmless.
+    func resetInFlight() {
+        refreshEpoch &+= 1
+        graph.isRefreshing = false
+        inbox.isRefreshing = false
+        banks.isRefreshing = false
+        sources.isRefreshing = false
+        feeds.isRefreshing = false
+        calendars.isRefreshing = false
+        contributors.isRefreshing = false
+        origins.isRefreshing = false
+        connections.isRefreshing = false
+        status.isRefreshing = false
+        // Anything queued behind an abandoned request still owes us a
+        // reconcile, and so does anything already pending. Fold the queue into
+        // `pendingDomains` so the next `apply(version:)` re-requests it even
+        // if the version vector itself did not move.
+        pendingDomains.formUnion(wantsRefresh)
+        wantsRefresh.removeAll()
+        if !pendingDomains.isEmpty {
+            let list = pendingDomains.map(\.rawValue).sorted().joined(separator: ",")
+            Self.logger.notice("resetInFlight re-armed [\(list, privacy: .public)]")
+        }
     }
 
     // MARK: - Version diffing

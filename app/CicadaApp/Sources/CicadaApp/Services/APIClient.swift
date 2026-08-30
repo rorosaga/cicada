@@ -597,6 +597,14 @@ actor APIClient {
         let config = URLSessionConfiguration.default
         config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // Bound every ordinary request. Without this the default is 60 s, and
+        // a request parked that long holds `Snapshot.isRefreshing` — which
+        // makes `Store.refreshOne` coalesce every later refresh of that domain
+        // into it, so the app goes deaf for the whole window. Verified: this
+        // config value wins over `URLRequest`'s own 60 s default, while a
+        // request that sets `timeoutInterval` explicitly (the SSE stream's
+        // 3600) still wins over this — so `/sync/events` is unaffected.
+        config.timeoutIntervalForRequest = 30
         return URLSession(configuration: config)
     }()
 

@@ -45,6 +45,13 @@ final class SyncEngine {
                 guard let self else { return }
                 do {
                     let (lines, _) = try await self.api.syncEventLines()
+                    // Losing the stream means requests issued against the old
+                    // connection may be parked. A parked request holds its
+                    // domain's `isRefreshing` flag and `refreshOne` coalesces
+                    // into it, so the app would stay deaf to every version
+                    // event for that domain until the request timed out.
+                    // Clear the decks on every (re)connect.
+                    self.store.resetInFlight()
                     self.store.isConnected = true
                     backoff = self.minBackoff
                     var parser = SSEParser()
