@@ -37,8 +37,25 @@ final class SleepViewModel {
 
     private var pollTask: Task<Void, Never>?
 
-    init(store: Store) {
+    /// Set the first time the poll loop's *own* fetch (never the Store's)
+    /// observes `status == "running"`. `onCycleCompleted` fires exactly once,
+    /// when this is `true` and a later self-fetched tick reports `"idle"` —
+    /// this is what makes the loop immune to a Store snapshot that is still
+    /// reporting the previous cycle's "idle" the instant a new one starts.
+    private var hasSeenRunning = false
+
+    /// Injectable so tests can feed a deterministic running/running/idle
+    /// sequence without a live backend. Defaults to the real network call.
+    private let fetchSleepStatus: () async throws -> SleepStatusResponse
+
+    init(
+        store: Store,
+        fetchSleepStatus: @escaping () async throws -> SleepStatusResponse = {
+            try await APIClient.shared.fetchSleepStatus()
+        }
+    ) {
         self.store = store
+        self.fetchSleepStatus = fetchSleepStatus
     }
 
     /// `/sleep/status` isn't a Store domain, so this mirrors the Store's
@@ -73,11 +90,15 @@ final class SleepViewModel {
     /// the instant this view appears, not one network round-trip later.
     func load() async {
         errorMessage = nil
-        if store.status.value?.sleep.status == "running" {
+        // Never re-arm the poll loop while one is already alive: `hasSeenRunning`
+        // and the running→idle edge live only inside that loop's own task, and
+        // starting a second one here would race it (and could re-fire
+        // `onCycleCompleted` off a fresh, reset `hasSeenRunning`).
+        if pollTask == nil, store.status.value?.sleep.status == "running" {
             startPolling()
         }
 
-        async let statusTask = APIClient.shared.fetchSleepStatus()
+        async let statusTask = fetchSleepStatus()
         async let episodesTask = APIClient.shared.fetchEpisodeQueue()
         async let scheduleTask = APIClient.shared.fetchSchedule()
 
@@ -98,9 +119,9 @@ final class SleepViewModel {
         }
 
         // If a cycle is already running (e.g. started by the daily cron
-        // before the user opened the page), attach to it. startPolling()
-        // cancels any prior poll task so this is idempotent.
-        if isRunning {
+        // before the user opened the page), attach to it — but only if
+        // nothing is polling yet (see the guard above).
+        if pollTask == nil, isRunning {
             startPolling()
         }
     }
@@ -128,22 +149,30 @@ final class SleepViewModel {
     /// know "is a cycle running?" reads this view model.
     private func startPolling() {
         pollTask?.cancel()
+        hasSeenRunning = false
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self else { return }
                 do {
-                    let next = try await APIClient.shared.fetchSleepStatus()
+                    let next = try await self.fetchSleepStatus()
                     self.status = next
                     // Feed live sleep progress to the menu-bar bookworm so its
                     // stage dots advance at the 1s poll cadence.
                     self.onStatusChanged?(next)
-                    // Stop on whichever signal says idle first: this poll's
-                    // own fetch, or the Store's SSE-pushed status/sleepEvent
-                    // (can beat a 1s-cadence poll by a beat).
-                    let storeIdle = self.store.status.value?.sleep.status == "idle"
-                        || self.store.sleepEvent?.status == "idle"
-                    if next.status == "idle" || storeIdle {
+                    // The running→idle edge is decided ONLY from this loop's
+                    // own fetch — never from `store.status`/`store.sleepEvent`.
+                    // Right after `triggerManually()`, the Store can still be
+                    // reporting the *previous* cycle's "idle" for up to one
+                    // SSE round-trip; trusting it here would fire
+                    // `onCycleCompleted` after a single "running" tick. The
+                    // Store may only ever *start* a poll early (see `load()`),
+                    // never stop one.
+                    if next.status == "running" {
+                        self.hasSeenRunning = true
+                    }
+                    if self.hasSeenRunning && next.status == "idle" {
+                        self.pollTask = nil
                         // Refresh the queue once the cycle finishes so the
                         // UI shows the post-cycle state.
                         await self.load()

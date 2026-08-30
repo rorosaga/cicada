@@ -65,12 +65,6 @@ final class ConnectionsViewModel {
         }
     }
 
-    /// No-op: the old 30 s background-refresh timer duplicated what the
-    /// Store already does (SSE-pushed + refreshed on every version bump).
-    /// Kept as a method — rather than removed — so `ConnectionsView`'s
-    /// `.task { … ; viewModel.startPolling() }` still compiles unchanged.
-    func startPolling() {}
-
     func stopPolling() {
         loginTask?.cancel(); loginTask = nil
     }

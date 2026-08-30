@@ -95,7 +95,23 @@ final class GraphViewModel {
     private func syncFromStore() {
         guard store.graph.loadedAt != lastSyncedLoadedAt else { return }
         lastSyncedLoadedAt = store.graph.loadedAt
-        guard let response = store.graph.value else { return }
+        guard let response = store.graph.value else {
+            // The Store reset the graph snapshot to nil — this happens on a
+            // bank switch (`Store.refresh` clears every domain before
+            // re-hydrating the new bank). Without this branch the VM kept
+            // rendering the *previous* bank's nodes/edges/rosters until the
+            // new bank's `/graph` fetch landed, so switching banks looked
+            // like nothing happened for a beat, or briefly showed a graph
+            // that belongs to a different bank entirely.
+            nodes = []
+            edges = []
+            entities = []
+            observerRoster = []
+            contextRoster = []
+            selectedEntity = nil
+            pendingGraphUpdate = true
+            return
+        }
 
         nodes = response.nodes
         if !response.observers.isEmpty {

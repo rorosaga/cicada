@@ -56,7 +56,6 @@ struct InboxListView: View {
         // ignoreSafeArea here — combined with maxHeight:.infinity that extended the
         // content under the menu bar and stretched the whole window to full height.
         .background(CicadaTheme.background)
-        .task { await viewModel.loadInbox() }
     }
 
     // MARK: - Header (title + kind filter chips)
