@@ -241,6 +241,7 @@ def write_claim(
     object_kind: str = "node",
     text: str | None = None,
     force_new_entity: bool = False,
+    sources: list[str] | None = None,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
@@ -360,6 +361,21 @@ def write_claim(
         new_body = write_claims(parsed.body, reconciled_claims)
         if new_body != parsed.body:
             markdown_parser.write(page, parsed.frontmatter, new_body)
+
+        # G61 — "here's where to check this fact". Attributed to the same
+        # author the claim carries, so the entity page records WHO said to
+        # look there.
+        if sources:
+            from api.services import fact_sources
+
+            for ref in sources:
+                fact_sources.add_source(
+                    memory_path,
+                    entity_id,
+                    ref,
+                    predicate=predicate_slug,
+                    added_by=(new_claim.authored_by or "agent"),
+                )
 
         return {
             "subject": subject_raw,

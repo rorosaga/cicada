@@ -32,11 +32,15 @@ struct InboxListView: View {
                 ScrollView {
                     LazyVStack(spacing: CicadaTheme.spacingSM) {
                         ForEach(visibleItems) { item in
-                            InboxCardView(item: item) { action, answer, mergeTarget, mergeSurvivor in
+                            InboxCardView(item: item) { resolution in
                                 await viewModel.resolve(
-                                    id: item.id, action: action,
-                                    answer: answer, mergeTarget: mergeTarget,
-                                    mergeSurvivor: mergeSurvivor
+                                    id: item.id,
+                                    action: resolution.action,
+                                    answer: resolution.answer,
+                                    optionKey: resolution.optionKey,
+                                    remindDays: resolution.remindDays,
+                                    mergeTarget: resolution.mergeTarget,
+                                    mergeSurvivor: resolution.mergeSurvivor
                                 )
                             }
                             .transition(.asymmetric(

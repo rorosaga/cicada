@@ -520,6 +520,22 @@ async def commit_changes(memory_path: Path, message: str) -> None:
     await _run_git(memory_path, "commit", "-m", message)
 
 
+async def commit_paths(memory_path: Path, message: str, paths: list[str]) -> None:
+    """Stage and commit ONLY ``paths`` (memory-relative), never ``git add -A``.
+
+    A targeted write (adding a fact source, deferring one inbox item) must not
+    sweep unrelated dirty files in ``memory/`` into its commit — that would
+    attribute someone else's change to this action's trigger and author.
+    """
+    if not paths:
+        return
+    await _run_git(memory_path, "add", "--", *paths)
+    status = await _run_git(memory_path, "status", "--porcelain", "--", *paths)
+    if not status.strip():
+        return  # Nothing to commit
+    await _run_git(memory_path, "commit", "-m", message, "--", *paths)
+
+
 async def porcelain_status(memory_path: Path) -> str:
     """Return ``git status --porcelain`` output (or empty on error)."""
     try:
@@ -528,12 +544,18 @@ async def porcelain_status(memory_path: Path) -> str:
         return ""
 
 
-async def commit_resolution(memory_path: Path, entity_id: str, trigger: str) -> None:
+async def commit_resolution(
+    memory_path: Path,
+    entity_id: str,
+    trigger: str,
+    extra_lines: list[str] | None = None,
+) -> None:
     """Commit after an inbox (nudge/clarification/conflict) resolution.
 
     Emits a structured "Inbox resolution <date>" subject so the resolution
     surfaces in ``get_sleep_history`` (the Sleep dashboard) — the old
-    single-line subject was never matched by the history filter.
+    single-line subject was never matched by the history filter. ``extra_lines``
+    appends further per-file manifest lines (G60: one per closed claim's page).
     """
     date_str = date.today().isoformat()
     # trigger is "inbox/<kind>/resolved" — tag the kind into the subject so the
@@ -546,10 +568,12 @@ async def commit_resolution(memory_path: Path, entity_id: str, trigger: str) -> 
         f"Inbox resolution ({kind}) {date_str}" if kind
         else f"Inbox resolution {date_str}"
     )
+    body_lines = [f"entities/{entity_id}.md: updated (trigger: {trigger})"]
+    # The manifest is a SET of file lines: a caller that closes N claims on one
+    # page must not repeat that page's line N times.
+    for line in extra_lines or []:
+        if line not in body_lines:
+            body_lines.append(line)
     # An inbox resolution is a user/companion-app action -> attribute to "user".
-    message = build_commit_message(
-        subject,
-        [f"entities/{entity_id}.md: updated (trigger: {trigger})"],
-        authors=["user"],
-    )
+    message = build_commit_message(subject, body_lines, authors=["user"])
     await commit_changes(memory_path, message)

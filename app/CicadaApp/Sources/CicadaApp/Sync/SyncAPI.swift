@@ -62,6 +62,7 @@ protocol SyncAPI: Sendable {
     // with the follow-up refresh.
 
     func resolveInbox(id: String, action: String, answer: String?,
+                      optionKey: String?, remindDays: Int?,
                       mergeTarget: String?, mergeSurvivor: String?) async throws
     func setConnectionTier(_ id: String, tier: String?) async throws -> ConnectionStatus
     func setConnectionKey(_ id: String, key: String) async throws -> ConnectionStatus

@@ -23,6 +23,11 @@ struct EntityDetailCard: View {
     // all three cases (see `fetchEntityRepos`).
     @State private var repoContexts: [RepoContext] = []
 
+    // Fact sources (G61) — "where to look this fact up" refresh references.
+    // Loaded on every entity (unlike repos/location, not gated by entity type).
+    @State private var sources: [EntitySource] = []
+    @State private var newSourceRef = ""
+
     struct TimelineKey: Identifiable, Hashable {
         let predicate: String
         let context: String
@@ -228,16 +233,22 @@ struct EntityDetailCard: View {
             }
 
             Divider().background(CicadaTheme.border)
+            sourcesSection
+
+            Divider().background(CicadaTheme.border)
             metadataSection
         }
         .padding(CicadaTheme.spacingLG)
         .task(id: entity.id) {
             // Reset before (re)fetching so swapping between entities can't show
-            // a previous entity's location/repo data. `.task(id:)` already
-            // guarantees this runs once per id, so no extra "loaded" guard is
-            // needed.
+            // a previous entity's location/repo/sources data. `.task(id:)`
+            // already guarantees this runs once per id, so no extra "loaded"
+            // guard is needed.
             locationListing = nil
             repoContexts = []
+            sources = []
+            newSourceRef = ""
+            sources = (try? await APIClient.shared.fetchEntitySources(entityId: entity.id)) ?? []
             // §5.7 — the card opened on the graph-node stub, whose
             // `markdownContent` is the server's short `summary` (already
             // rendered above, so there is never an empty card). Upgrade it to
@@ -527,6 +538,96 @@ struct EntityDetailCard: View {
         .padding(.vertical, 2)
         .background(color.opacity(0.12))
         .clipShape(Capsule())
+    }
+
+    // MARK: - Sources Section (G61)
+
+    /// "Where to look this fact up" — a URL, a path, or a plain-English note.
+    /// Distinct from `source_episodes` (where a belief came from): a source is
+    /// a cheat-sheet for REFRESHING a fact.
+    private var sourcesSection: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text("Sources")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+
+            ForEach(Array(sources.enumerated()), id: \.element.id) { pair in
+                sourceRow(pair.element, index: pair.offset)
+            }
+
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: "plus.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                TextField("Add a URL, a path, or a note…", text: $newSourceRef)
+                    .textFieldStyle(.plain)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .onSubmit {
+                        let ref = newSourceRef.trimmed
+                        guard !ref.isEmpty else { return }
+                        newSourceRef = ""
+                        Task {
+                            if let updated = try? await APIClient.shared.addEntitySource(
+                                entityId: entity.id, ref: ref
+                            ) {
+                                sources = updated
+                            }
+                        }
+                    }
+            }
+            .padding(CicadaTheme.spacingSM)
+            .background(CicadaTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                    .stroke(CicadaTheme.border, lineWidth: 1)
+            )
+        }
+    }
+
+    private func sourceRow(_ source: EntitySource, index: Int) -> some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Image(systemName: source.icon)
+                .font(.system(size: 11))
+                .foregroundStyle(CicadaTheme.textTertiary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(source.ref)
+                    .font(.system(size: 12))
+                    .foregroundStyle(source.url == nil ? CicadaTheme.textSecondary : CicadaTheme.accent)
+                    .lineLimit(2)
+                Text([source.predicate, "added by \(source.addedBy)", source.addedAt]
+                        .compactMap { $0 }.joined(separator: " · "))
+                    .font(.system(size: 10))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            Spacer()
+            if let url = source.url {
+                Button { NSWorkspace.shared.open(url) } label: {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 11))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Open")
+            }
+            Button {
+                Task {
+                    if let updated = try? await APIClient.shared.deleteEntitySource(
+                        entityId: entity.id, index: index
+                    ) {
+                        sources = updated
+                    }
+                }
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .help("Remove source")
+        }
+        .padding(.vertical, 2)
     }
 
     private func relativeDate(_ date: Date) -> String {

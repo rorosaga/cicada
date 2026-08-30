@@ -61,15 +61,29 @@ class ClarificationManager:
         consistent with the resolver/conflict pipeline, which uses the source
         episode timestamps to set ``created`` and ``last_referenced``.
         """
-        if self._existing_for(entity_name):
-            return None
+        from api.services.inbox_generator import find_open
 
-        clar_id = self._next_id()
-        confidence = round(float(suggested_confidence), 2)
         is_duplicate = (uncertainty_type or "").strip().lower().startswith(
             _DUPLICATE_PREFIX
         )
         kind = "merge_suggestion" if is_duplicate else "clarification"
+        # §2.2 dedup key: (entity_id, uncertainty_type) for a clarification,
+        # the sorted entity pair for a merge suggestion. A collision is a
+        # RE-ASK of the same question — bump `updated_date` and write nothing.
+        second = (
+            self._merge_target_hint(uncertainty_type) or ""
+            if is_duplicate
+            else (uncertainty_type or "")
+        )
+        open_path = find_open(self.memory_path, kind, sanitize_id(entity_name), second)
+        if open_path is not None:
+            parsed = markdown_parser.parse(open_path)
+            parsed.frontmatter["updated_date"] = str(date.today())
+            markdown_parser.write(open_path, parsed.frontmatter, parsed.body)
+            return None
+
+        clar_id = self._next_id()
+        confidence = round(float(suggested_confidence), 2)
         required_input = "merge" if is_duplicate else "freetext"
         frontmatter: dict = {
             "kind": kind,

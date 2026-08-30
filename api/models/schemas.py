@@ -219,6 +219,32 @@ class LocationListing(CamelModel):
     entries: list[LocationEntry] = []
 
 
+# --- Fact sources (G61 — "where to look this up") ---
+
+
+class EntitySource(CamelModel):
+    """One declared refresh source on an entity page's ``sources:`` key."""
+
+    ref: str
+    kind: str = "note"          # url | path | note
+    predicate: Optional[str] = None
+    added_by: str = "user"      # model id, or "user"
+    added_at: str = ""
+
+
+class EntitySourceCreate(CamelModel):
+    """``POST /entities/{id}/sources`` body. ``kind`` is inferred when omitted."""
+
+    ref: str
+    kind: Optional[str] = None
+    predicate: Optional[str] = None
+
+
+class EntitySourceList(CamelModel):
+    entity_id: str
+    sources: list[EntitySource] = []
+
+
 # --- Repo links (backlog G-repo) ---
 #
 # Deliberately plain BaseModel (NOT CamelModel) — the G-repo shared contract
@@ -558,6 +584,22 @@ class RequiredInput(str, Enum):
     merge = "merge"
 
 
+class InboxOption(CamelModel):
+    """One answerable option on an inbox question (AskUserQuestion shape).
+
+    ``age_days`` is derived at read time from ``last_referenced`` (falling back
+    to ``observed_at``) — it is never persisted into the item file.
+    """
+
+    key: str
+    label: str
+    description: Optional[str] = None
+    claim_id: Optional[str] = None
+    observed_at: Optional[str] = None
+    last_referenced: Optional[str] = None
+    age_days: Optional[int] = None
+
+
 class InboxItem(CamelModel):
     id: str
     kind: InboxKind
@@ -568,8 +610,16 @@ class InboxItem(CamelModel):
     entity_name: str = ""
     title: str
     body: str
-    options: Optional[list[str]] = None
+    options: list[InboxOption] = []
     created_date: str = ""
+    # G60 question object
+    question: Optional[str] = None
+    allow_other: bool = False
+    allow_defer: bool = False
+    predicate: Optional[str] = None
+    hint: Optional[str] = None
+    remind_after: Optional[str] = None
+    updated_date: Optional[str] = None
     # clarification/merge extras (only populated for those kinds)
     uncertainty_type: Optional[str] = None
     suggested_classification: Optional[str] = None
@@ -580,6 +630,12 @@ class InboxItem(CamelModel):
 class InboxResolveRequest(CamelModel):
     action: str
     answer: Optional[str] = None
+    # G60: the stable key of the chosen option ("a", "b", "both", "neither").
+    # ``answer`` stays the free-text channel; both may be sent together when the
+    # user picks "neither" AND types what is actually true.
+    option_key: Optional[str] = None
+    # G60 defer: how far out to push `remind_after` (default: settings).
+    remind_days: Optional[int] = None
     merge_target: Optional[str] = None
     # #1 merge direction: the id/name the user wants to KEEP as the canonical
     # survivor. When absent (or equal to ``merge_target``), the legacy behavior
@@ -667,6 +723,9 @@ class SleepStatusResponse(CamelModel):
     # ``episodes_requeued`` > 0 means "completed, but re-run Sleep to finish".
     episodes_processed: int = 0
     episodes_requeued: int = 0
+    # G60 — open-question re-scoring outcomes for the Sleep dashboard.
+    questions_refreshed: int = 0
+    organic_resolutions: int = 0
 
 
 class SleepHistoryEntry(CamelModel):

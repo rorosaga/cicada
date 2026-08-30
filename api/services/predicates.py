@@ -196,3 +196,84 @@ def is_single_valued(memory_path: Path | None, predicate: str) -> bool:
 def normalize_predicate(memory_path: Path, label: str) -> str:
     """One-shot convenience: build the normalizer and apply it to ``label``."""
     return load_normalizer(memory_path)(label)
+
+
+# --------------------------------------------------------------------------- #
+# G60 — predicate -> user-facing question template
+# --------------------------------------------------------------------------- #
+
+# Hand-written question phrasings for the canonical predicates that actually
+# produce single-valued conflicts (see ``single_valued`` in predicates-seed.yaml)
+# plus a few high-frequency multi-valued ones. Keyed by canonical predicate;
+# ``{name}`` is the entity's display name. Anything absent falls back to the
+# generic template — under-specifying is safe, a wrong verb is not.
+PREDICATE_QUESTIONS: dict[str, str] = {
+    "works-at": "Where does {name} work now?",
+    "works-on": "What is {name} working on now?",
+    "works-with": "Who does {name} work with now?",
+    "located-in": "Where is {name} located now?",
+    "takes-place-in": "Where does {name} take place?",
+    "uses": "What does {name} use now?",
+    "runs-on": "What does {name} run on now?",
+    "depends-on": "What does {name} depend on now?",
+    "part-of": "What is {name} part of now?",
+    "is-a": "What kind of thing is {name}?",
+    "implements": "What does {name} implement now?",
+    "hosts": "What does {name} host now?",
+    "provides": "What does {name} provide now?",
+    "prefers": "What does {name} prefer now?",
+    "description": "What is currently true about {name}?",
+}
+
+_GENERIC_QUESTION = "Which is true about {name} ({predicate})?"
+
+
+def predicate_question(predicate: str, name: str) -> str:
+    """One-sentence question for a ``(name, predicate)`` conflict.
+
+    Template-only by design (§3 of the spec: no LLM call on the claim path).
+    An unknown predicate gets the generic phrasing rather than a guessed verb.
+    """
+    key = (predicate or "").strip().lower()
+    template = PREDICATE_QUESTIONS.get(key)
+    if template:
+        return template.format(name=name)
+    return _GENERIC_QUESTION.format(name=name, predicate=key or "unknown")
+
+
+# Hand-written grammatical sentence templates for the same canonical predicates,
+# used to render a resolved claim as a plain-English sentence ("Rodrigo
+# Sagastegui works at MongoDB") rather than a raw (subject, predicate, object)
+# triple. Keyed the same way as ``PREDICATE_QUESTIONS``; unknown predicates fall
+# back to a generic "{name} — {predicate}: {object}" rendering.
+PREDICATE_PHRASES: dict[str, str] = {
+    "works-at": "{name} works at {obj}",
+    "works-on": "{name} is working on {obj}",
+    "works-with": "{name} works with {obj}",
+    "located-in": "{name} is located in {obj}",
+    "takes-place-in": "{name} takes place in {obj}",
+    "uses": "{name} uses {obj}",
+    "runs-on": "{name} runs on {obj}",
+    "depends-on": "{name} depends on {obj}",
+    "part-of": "{name} is part of {obj}",
+    "is-a": "{name} is a {obj}",
+    "implements": "{name} implements {obj}",
+    "hosts": "{name} hosts {obj}",
+    "provides": "{name} provides {obj}",
+    "prefers": "{name} prefers {obj}",
+    "description": "{name} — {obj}",
+}
+
+
+def predicate_phrase(predicate: str, name: str, obj: str) -> str:
+    """A grammatical sentence for a resolved ``(name, predicate, obj)`` claim.
+
+    E.g. ``predicate_phrase("works-at", "Rodrigo Sagastegui", "MongoDB")`` ->
+    ``"Rodrigo Sagastegui works at MongoDB"``. An unknown predicate falls back
+    to a generic, still-readable rendering rather than guessing a verb.
+    """
+    key = (predicate or "").strip().lower()
+    template = PREDICATE_PHRASES.get(key)
+    if template:
+        return template.format(name=name, obj=obj)
+    return f"{name} — {predicate.replace('-', ' ').replace('_', ' ')}: {obj}"

@@ -593,19 +593,29 @@ actor APIClient {
     /// only patched for itself. We already do our own conditional-GET
     /// caching (`etag`, `Snapshot`, `SnapshotCache`); `URLCache` must never
     /// also intercept these requests.
-    private let session: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.urlCache = nil
-        config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        // NB: deliberately NOT setting `timeoutIntervalForRequest` here. A
-        // session-wide cap would also apply to the long-running writes
-        // (`POST /ask` blocks on an LLM call; `/sources/sync-bookmarks`,
-        // `/sources/poll-feeds`, `/conversations/upload`), where a client-side
-        // timeout makes `Store.perform` roll back and toast "reverted" for
-        // work the server actually completed. The cap belongs on the refresh
-        // path only — see `refreshTimeout`.
-        return URLSession(configuration: config)
-    }()
+    private let session: URLSession
+
+    /// `session` is an init parameter (default: the real, cache-disabled
+    /// configuration below) purely so tests can hand in a
+    /// `URLProtocol`-backed session instead of hitting a real backend on
+    /// 127.0.0.1:8000 — `APIClient.shared` always uses the default.
+    init(session: URLSession? = nil) {
+        if let session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.urlCache = nil
+            config.requestCachePolicy = .reloadIgnoringLocalCacheData
+            // NB: deliberately NOT setting `timeoutIntervalForRequest` here. A
+            // session-wide cap would also apply to the long-running writes
+            // (`POST /ask` blocks on an LLM call; `/sources/sync-bookmarks`,
+            // `/sources/poll-feeds`, `/conversations/upload`), where a client-side
+            // timeout makes `Store.perform` roll back and toast "reverted" for
+            // work the server actually completed. The cap belongs on the refresh
+            // path only — see `refreshTimeout`.
+            self.session = URLSession(configuration: config)
+        }
+    }
 
     /// Timeout for the *refresh* path only (`getConditional`, `fetchStatus`).
     ///
@@ -826,6 +836,25 @@ actor APIClient {
         }
     }
 
+    // MARK: - Fact sources (G61)
+
+    func fetchEntitySources(entityId: String) async throws -> [EntitySource] {
+        let payload: EntitySourceList = try await get("/entities/\(encodedID(entityId))/sources")
+        return payload.sources
+    }
+
+    func addEntitySource(entityId: String, ref: String, predicate: String? = nil) async throws -> [EntitySource] {
+        var body: [String: Any] = ["ref": ref]
+        if let predicate { body["predicate"] = predicate }
+        let data = try await post("/entities/\(encodedID(entityId))/sources", body: body)
+        return try JSONDecoder().decode(EntitySourceList.self, from: data).sources
+    }
+
+    func deleteEntitySource(entityId: String, index: Int) async throws -> [EntitySource] {
+        let data = try await delete("/entities/\(encodedID(entityId))/sources/\(index)")
+        return try JSONDecoder().decode(EntitySourceList.self, from: data).sources
+    }
+
     // MARK: - Claims (CPCG claim layer)
 
     /// `GET /entities/{id}/claims` — the subject's claims. By default only
@@ -936,11 +965,15 @@ actor APIClient {
         id: String,
         action: String,
         answer: String? = nil,
+        optionKey: String? = nil,
+        remindDays: Int? = nil,
         mergeTarget: String? = nil,
         mergeSurvivor: String? = nil
     ) async throws {
         var body: [String: Any] = ["action": action]
         if let answer { body["answer"] = answer }
+        if let optionKey { body["optionKey"] = optionKey }
+        if let remindDays { body["remindDays"] = remindDays }
         if let mergeTarget { body["mergeTarget"] = mergeTarget }
         if let mergeSurvivor { body["mergeSurvivor"] = mergeSurvivor }
         try await post("/inbox/\(id)/resolve", body: body)
@@ -1478,8 +1511,10 @@ extension APIClient: SyncAPI {
     // protocol's connection/inbox names a home; each forwards verbatim.
 
     func resolveInbox(id: String, action: String, answer: String?,
+                      optionKey: String?, remindDays: Int?,
                       mergeTarget: String?, mergeSurvivor: String?) async throws {
         try await resolveInboxItem(id: id, action: action, answer: answer,
+                                   optionKey: optionKey, remindDays: remindDays,
                                    mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
     }
 

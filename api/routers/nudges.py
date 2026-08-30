@@ -23,7 +23,7 @@ async def list_nudges(response: Response, settings: Settings = Depends(get_setti
             type=item.kind.value,
             short_description=item.title,
             full_context=item.body,
-            options=item.options,
+            options=[o.label for o in item.options] or None,
             created_date=item.created_date,
         )
         for item in items

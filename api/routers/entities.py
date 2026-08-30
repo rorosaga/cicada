@@ -14,6 +14,9 @@ from api.models.schemas import (
     EntityHistoryEntry,
     EntityMedia,
     EntityResponse,
+    EntitySource,
+    EntitySourceCreate,
+    EntitySourceList,
     LocationEntry,
     LocationListing,
     RepoContext,
@@ -21,7 +24,7 @@ from api.models.schemas import (
     RepoInput,
     RepoUpdateRequest,
 )
-from api.services import git_service, markdown_parser, repo_context
+from api.services import fact_sources, git_service, markdown_parser, repo_context
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
@@ -335,6 +338,83 @@ async def update_entity_repos(
         if isinstance(decl, dict) and decl.get("path")
     ]
     return RepoContextList(entity_id=entity_id, repos=contexts)
+
+
+def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
+    return EntitySourceList(
+        entity_id=entity_id,
+        sources=[EntitySource(**s) for s in fact_sources.list_sources(memory_path, entity_id)],
+    )
+
+
+async def _commit_sources(memory_path: Path, entity_id: str, verb: str) -> None:
+    message = git_service.build_commit_message(
+        f"{verb} fact source {date.today().isoformat()}",
+        [f"entities/{entity_id}.md: updated (trigger: user/companion_app)"],
+        authors=["user"],
+    )
+    # Scoped, never ``git add -A``: adding one fact source must not sweep an
+    # unrelated dirty file in memory/ into an "Add fact source" commit.
+    await git_service.commit_paths(
+        memory_path, message, [f"entities/{entity_id}.md"]
+    )
+
+
+@router.get("/entities/{entity_id}/sources", response_model=EntitySourceList)
+async def get_entity_sources(
+    entity_id: str,
+    settings: Settings = Depends(get_settings),
+):
+    """List an entity's declared refresh sources (G61).
+
+    404 only when the entity file itself is missing; an entity with no
+    ``sources:`` key returns ``sources: []`` at 200.
+    """
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    return _sources_payload(settings.memory_path, entity_id)
+
+
+@router.post("/entities/{entity_id}/sources", response_model=EntitySourceList)
+async def add_entity_source(
+    entity_id: str,
+    request: EntitySourceCreate,
+    settings: Settings = Depends(get_settings),
+):
+    """Append one source. ``kind`` is inferred from ``ref`` when not supplied."""
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    if not (request.ref or "").strip():
+        raise HTTPException(400, "ref is required")
+
+    fact_sources.add_source(
+        settings.memory_path,
+        entity_id,
+        request.ref,
+        kind=request.kind,
+        predicate=request.predicate,
+        added_by="user",
+    )
+    await _commit_sources(settings.memory_path, entity_id, "Add")
+    return _sources_payload(settings.memory_path, entity_id)
+
+
+@router.delete("/entities/{entity_id}/sources/{index}", response_model=EntitySourceList)
+async def delete_entity_source(
+    entity_id: str,
+    index: int,
+    settings: Settings = Depends(get_settings),
+):
+    """Remove the source at ``index`` (0-based, file order)."""
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    if not fact_sources.delete_source(settings.memory_path, entity_id, index):
+        raise HTTPException(404, f"No source at index {index} on {entity_id}")
+    await _commit_sources(settings.memory_path, entity_id, "Remove")
+    return _sources_payload(settings.memory_path, entity_id)
 
 
 @router.get("/entities/{entity_id}/context", response_model=EntityContextResponse)

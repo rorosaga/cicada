@@ -9,12 +9,10 @@ import SwiftUI
 ///   - `.none`      → simple Dismiss
 struct InboxCardView: View {
     let item: InboxItem
-    /// (action, answer?, mergeTarget?, mergeSurvivor?) — forwarded to
-    /// `InboxViewModel.resolve`. `mergeSurvivor` (issue #1) is the id the user
-    /// chose to keep as the canonical entity; nil for non-merge actions.
-    /// Returns whether the resolve succeeded — `fire()` uses this to reset
-    /// `resolving` on failure instead of leaving the card dimmed forever.
-    let onResolve: (String, String?, String?, String?) async -> Bool
+    /// One resolution value (action + answer/optionKey/remindDays/merge fields),
+    /// forwarded to `InboxViewModel.resolve`. Returns whether the resolve
+    /// succeeded — `fire()` uses this to reset `resolving` on failure.
+    let onResolve: (QuestionResolution) async -> Bool
 
     @State private var isExpanded = false
     @State private var isHovered = false
@@ -61,12 +59,12 @@ struct InboxCardView: View {
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.displayName)
+                Text(item.kind == .conflict ? item.questionText : item.displayName)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(CicadaTheme.textPrimary)
-                    .lineLimit(1)
+                    .lineLimit(isExpanded ? nil : 1)
 
-                Text(item.title)
+                Text(item.kind == .conflict ? item.displayName : item.title)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .lineLimit(isExpanded ? nil : 1)
@@ -160,51 +158,38 @@ struct InboxCardView: View {
 
     @ViewBuilder
     private var actionRow: some View {
-        switch item.requiredInput {
-        case .choice:
-            choiceActions
-        case .freetext:
-            freetextActions
-        case .merge:
-            mergeActions
-        case .none:
-            HStack {
-                Spacer()
-                InboxActionButton(title: "Dismiss", icon: "xmark", color: 0x6B7280) {
-                    fire("dismiss")
+        if item.kind == .decay {
+            decayActions
+        } else if !item.options.isEmpty || item.question != nil {
+            QuestionView(item: item) { resolution in
+                fire(resolution)
+            }
+        } else {
+            switch item.requiredInput {
+            case .freetext: freetextActions
+            case .merge: mergeActions
+            default:
+                HStack {
+                    Spacer()
+                    InboxActionButton(title: "Dismiss", icon: "xmark", color: 0x6B7280) {
+                        fire(QuestionResolution(action: "dismiss"))
+                    }
                 }
             }
         }
     }
 
-    /// Decay → keep/archive/snooze. Conflict → one button per option (sends
-    /// `action:"resolve", answer:<option>`).
-    @ViewBuilder
-    private var choiceActions: some View {
-        switch item.kind {
-        case .decay:
-            HStack(spacing: CicadaTheme.spacingSM) {
-                InboxActionButton(title: "Keep Active", icon: "checkmark", color: 0x22C55E) {
-                    fire("keep_active")
-                }
-                InboxActionButton(title: "Archive", icon: "archivebox", color: 0x6B7280) {
-                    fire("archive")
-                }
-                InboxActionButton(title: "Remind Later", icon: "clock", color: 0xF59E0B) {
-                    fire("remind_later")
-                }
+    /// Decay keeps its three buttons verbatim (out of scope for G60 §3).
+    private var decayActions: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            InboxActionButton(title: "Keep Active", icon: "checkmark", color: 0x22C55E) {
+                fire(QuestionResolution(action: "keep_active"))
             }
-        default:
-            // conflict (and any other choice kind): one full-width button per option.
-            VStack(spacing: CicadaTheme.spacingSM) {
-                ForEach(item.options ?? [], id: \.self) { option in
-                    InboxActionButton(
-                        title: option, icon: "arrow.right.circle",
-                        color: 0x7C8FFF, fullWidth: true
-                    ) {
-                        fire("resolve", answer: option)
-                    }
-                }
+            InboxActionButton(title: "Archive", icon: "archivebox", color: 0x6B7280) {
+                fire(QuestionResolution(action: "archive"))
+            }
+            InboxActionButton(title: "Remind Later", icon: "clock", color: 0xF59E0B) {
+                fire(QuestionResolution(action: "remind_later"))
             }
         }
     }
@@ -218,14 +203,14 @@ struct InboxCardView: View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 InboxActionButton(title: "Answer", icon: "paperplane", color: 0x22C55E,
                                   disabled: answerText.trimmed.isEmpty) {
-                    fire("answer", answer: answerText.trimmed)
+                    fire(QuestionResolution(action: "answer", answer: answerText.trimmed))
                 }
                 Spacer()
                 InboxActionButton(title: "Dismiss", icon: "xmark", color: 0x6B7280) {
-                    fire("dismiss")
+                    fire(QuestionResolution(action: "dismiss"))
                 }
                 InboxActionButton(title: "Skip", icon: "arrow.right", color: 0x999999) {
-                    fire("skip")
+                    fire(QuestionResolution(action: "skip"))
                 }
             }
         }
@@ -270,21 +255,22 @@ struct InboxCardView: View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 InboxActionButton(title: "Answer", icon: "paperplane", color: 0x22C55E,
                                   disabled: answerText.trimmed.isEmpty) {
-                    fire("answer", answer: answerText.trimmed)
+                    fire(QuestionResolution(action: "answer", answer: answerText.trimmed))
                 }
                 InboxActionButton(title: "Merge", icon: "arrow.triangle.merge", color: 0x4A9EFF,
                                   disabled: mergeText.trimmed.isEmpty) {
                     // Data source is always the existing target; the survivor id
                     // is whichever name the user chose to keep.
                     let survivor = mergeSurvivor == .mention ? mentionName : existingName
-                    fire("merge", mergeTarget: mergeText.trimmed, mergeSurvivor: survivor)
+                    fire(QuestionResolution(action: "merge", mergeTarget: mergeText.trimmed,
+                                            mergeSurvivor: survivor))
                 }
                 Spacer()
                 InboxActionButton(title: "Dismiss", icon: "xmark", color: 0x6B7280) {
-                    fire("dismiss")
+                    fire(QuestionResolution(action: "dismiss"))
                 }
                 InboxActionButton(title: "Skip", icon: "arrow.right", color: 0x999999) {
-                    fire("skip")
+                    fire(QuestionResolution(action: "skip"))
                 }
             }
         }
@@ -366,7 +352,9 @@ struct InboxCardView: View {
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
             .onSubmit {
-                if !answerText.trimmed.isEmpty { fire("answer", answer: answerText.trimmed) }
+                if !answerText.trimmed.isEmpty {
+                    fire(QuestionResolution(action: "answer", answer: answerText.trimmed))
+                }
             }
     }
 
@@ -376,17 +364,12 @@ struct InboxCardView: View {
     /// card from the list entirely — `resolving` never needs to be unset. On
     /// failure the card survives (the item stays in the list), so `resolving`
     /// MUST be reset here or the card stays frozen at 50% opacity forever.
-    private func fire(
-        _ action: String,
-        answer: String? = nil,
-        mergeTarget: String? = nil,
-        mergeSurvivor: String? = nil
-    ) {
-        if action != "skip" {
+    private func fire(_ resolution: QuestionResolution) {
+        if resolution.action != "skip" {
             withAnimation(.spring(duration: 0.2)) { resolving = true }
         }
         Task {
-            let succeeded = await onResolve(action, answer, mergeTarget, mergeSurvivor)
+            let succeeded = await onResolve(resolution)
             if !succeeded {
                 withAnimation(.spring(duration: 0.2)) { resolving = false }
             }
@@ -427,8 +410,4 @@ struct InboxActionButton: View {
         .onHover { isHovered = $0 }
         .animation(.spring(duration: 0.15), value: isHovered)
     }
-}
-
-private extension String {
-    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 }

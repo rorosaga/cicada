@@ -124,6 +124,14 @@ class Settings(BaseSettings):
     decay_nudge_threshold: float = 0.4
     archive_threshold: float = 0.2
 
+    # G60 — open-question re-scoring. An open conflict every one of whose
+    # options has been silent for this many days is escalated (question
+    # rewritten, a "Neither anymore" option inserted, priority dropped).
+    inbox_stale_after_days: int = 90     # CICADA_INBOX_STALE_AFTER_DAYS
+    # How far out a "Not sure — remind me later" pushes `remind_after` when the
+    # request does not name a number of days.
+    inbox_defer_days: int = 30           # CICADA_INBOX_DEFER_DAYS
+
     # Stage 5.57 link-enrichment (M5f) — bounded, offline-safe media-link
     # description enrichment into CPCG `describes`/`recommends` claims.
     link_enrich_enabled: bool = True          # CICADA_LINK_ENRICH_ENABLED kill switch

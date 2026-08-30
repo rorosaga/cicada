@@ -35,7 +35,7 @@ from api.routers import (
 from api.services import bank_registry, sleep_scheduler
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
-from api.services.inbox_migration import migrate_to_inbox
+from api.services.inbox_migration import dedup_open_items, migrate_to_inbox
 
 # --- Logging setup ---
 # Remove loguru default handler and add our own format
@@ -103,6 +103,12 @@ async def lifespan(app: FastAPI):
     moved = migrate_to_inbox(settings.memory_path)
     if moved:
         logger.info(f"Migrated {moved} legacy items into inbox/")
+
+    # G60: one-time collapse of duplicate open questions written before dedup
+    # existed. Same never-crash-boot contract; marker-guarded.
+    deduped = dedup_open_items(settings.memory_path)
+    if deduped:
+        logger.info(f"Collapsed {deduped} duplicate open inbox item(s)")
 
     entities_count = len(list((settings.memory_path / "entities").glob("*.md")))
     episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))

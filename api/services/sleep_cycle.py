@@ -42,6 +42,11 @@ class SleepState:
     # means "completed, but re-run Sleep to finish the rest".
     episodes_processed: int = 0
     episodes_requeued: int = 0
+    # G60 — open-question re-scoring (Stage 5.56). ``questions_refreshed`` counts
+    # items whose options were bumped or escalated; ``organic_resolutions`` counts
+    # questions answered by later conversation and closed without the user acting.
+    questions_refreshed: int = 0
+    organic_resolutions: int = 0
 
 
 _state = SleepState()
@@ -72,6 +77,8 @@ async def run(settings: Settings, cycle_id: str) -> None:
     _state.skills_detected = 0
     _state.episodes_processed = 0
     _state.episodes_requeued = 0
+    _state.questions_refreshed = 0
+    _state.organic_resolutions = 0
 
     memory_path = settings.memory_path
     logger.info(f"Sleep cycle {cycle_id} started — model: {settings.litellm_model}")
@@ -196,16 +203,42 @@ async def run(settings: Settings, cycle_id: str) -> None:
         # above keeps working untouched; claims are emitted (Stage 1 projection),
         # trust-reconciled (Stage 3 — no agent claim can close a human claim), and
         # written into the same editable pages (Stage 5 — human prose preserved).
+        # `organic_resolution_paths` is threaded to `_finalize` (below) so those
+        # exact deletions get the specific `inbox/organic_resolution` trigger.
+        organic_resolution_paths: set[str] = set()
         try:
             from api.services.claim_pipeline import run_claim_pipeline
             from api.services.inbox_generator import write_claim_nudges
             claim_result = run_claim_pipeline(extracted, existing, memory_path, settings)
-            n_nudges = write_claim_nudges(claim_result.get("nudges", []), memory_path)
+            nudge_result = write_claim_nudges(claim_result.get("nudges", []), memory_path)
+
+            # G60 §2.3 — re-score the OPEN questions against the freshly-written
+            # claims (bump/re-order, organic resolution, stale escalation). Runs
+            # AFTER write_claim_nudges so this cycle's new competing values are
+            # already merged into their open question.
+            from api.services import inbox_questions
+            from api.services.claim_pipeline import _load_existing_claims_by_subject
+
+            refresh = inbox_questions.refresh_open_questions(
+                memory_path,
+                _load_existing_claims_by_subject(memory_path),
+                str(datetime.now().date()),
+                stale_after_days=settings.inbox_stale_after_days,
+            )
+            _state.questions_refreshed = refresh["bumped"] + refresh["escalated"]
+            _state.organic_resolutions = refresh["organic_resolutions"]
+            organic_resolution_paths = set(refresh.get("resolved_paths") or [])
+            logger.info(
+                f"Stage 5.56: refreshed {refresh['bumped']} question(s), "
+                f"escalated {refresh['escalated']}, "
+                f"organically resolved {refresh['organic_resolutions']}"
+            )
             logger.info(
                 f"Stage 5.56: claim layer wrote {claim_result.get('claims_written', 0)} "
                 f"claims across {claim_result.get('subjects_written', 0)} pages "
                 f"({claim_result.get('subjects_skipped', 0)} page-less), "
-                f"{n_nudges} claim nudges"
+                f"{nudge_result.get('written', 0)} claim nudges written, "
+                f"{nudge_result.get('merged', 0)} merged into open items"
             )
         except Exception as e:
             logger.warning(f"Stage 5.56 claim pipeline failed: {type(e).__name__}: {e}")
@@ -308,7 +341,13 @@ async def run(settings: Settings, cycle_id: str) -> None:
             _state.index_warning = "; ".join(index_warnings)
 
         # Commit
-        await _finalize(memory_path, cycle_id, changes, settings)
+        await _finalize(
+            memory_path,
+            cycle_id,
+            changes,
+            settings,
+            organic_resolution_paths=organic_resolution_paths,
+        )
         requeue_note = (
             f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
             if _state.episodes_requeued else ""
@@ -454,7 +493,12 @@ def _mark_episodes_processed(episodes: list[dict]) -> None:
 
 
 async def _finalize(
-    memory_path: Path, cycle_id: str, changes: list, settings: Settings | None = None
+    memory_path: Path,
+    cycle_id: str,
+    changes: list,
+    settings: Settings | None = None,
+    *,
+    organic_resolution_paths: set[str] | None = None,
 ) -> None:
     """Commit all changes from the sleep cycle with a structured message.
 
@@ -463,6 +507,12 @@ async def _finalize(
     ``git status`` so the commit message remains a complete manifest. The
     authoring model(s) for this cycle (main + disambiguation, per ``settings``)
     are recorded as ``Cicada-Author:`` trailers for repo-wide attribution.
+
+    ``organic_resolution_paths`` (G60 fix round 1): the exact inbox file paths
+    ``refresh_open_questions`` deleted this cycle because a later conversation
+    answered the question organically. Those paths get the specific
+    ``inbox/organic_resolution`` trigger instead of the generic
+    ``sleep/inbox_generation`` every other ``inbox/`` write is tagged with.
     """
     date_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -497,7 +547,10 @@ async def _finalize(
             continue
         status_code = raw[:2].strip()
         action = _porcelain_action(status_code)
-        trigger = _infer_trigger_for_path(path)
+        if organic_resolution_paths and path in organic_resolution_paths:
+            trigger = "inbox/organic_resolution"
+        else:
+            trigger = _infer_trigger_for_path(path)
         extra_lines.append(f"{path}: {action} (trigger: {trigger})")
 
     body_lines = entity_lines + extra_lines

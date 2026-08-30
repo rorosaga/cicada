@@ -35,7 +35,7 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import predicates
+from api.services import inbox_questions, predicates
 from api.services.claims import Claim
 
 # A cardinality oracle: predicate -> True (single-valued) | False (multi-valued).
@@ -218,19 +218,52 @@ def _entity_name(claim: Claim) -> str:
     return claim.subject.replace("-", " ").title()
 
 
-def _conflict_nudge(existing: Claim, new: Claim) -> dict:
+def _claim_option(key: str, claim: Claim, today: str) -> dict:
+    """One question option backed by a claim, description led by its age."""
+    observed = claim.valid_from or claim.recorded_at
+    parts = [f"Last mentioned {observed or 'unknown'}", inbox_questions.humanize_age(observed, today)]
+    episode = (claim.source_episodes or [""])[0]
+    if episode:
+        parts.append(f"extracted from {episode}")
+    return {
+        "key": key,
+        "label": claim.object,
+        "description": " · ".join(parts),
+        "claim_id": claim.id,
+        "observed_at": observed,
+        "last_referenced": observed,
+    }
+
+
+def _conflict_nudge(existing: Claim, new: Claim, today: str) -> dict:
+    """A conflict nudge carrying the G60 question object.
+
+    ``today`` is the reconciliation reference date, so the age phrases in each
+    option's description are computed once at generation time (``age_days`` is
+    re-derived at read time by ``inbox_service``).
+    """
+    name = _entity_name(new)
     return {
         "id": new.subject,
         "action": "conflict_nudge",
-        "entity": {"name": _entity_name(new)},
+        "entity": {"name": name},
+        "predicate": new.predicate,
+        "question": predicates.predicate_question(new.predicate, name),
+        "allow_other": True,
+        "allow_defer": True,
         "conflict_context": (
-            f"Conflicting beliefs about {_entity_name(new)} "
+            f"Conflicting beliefs about {name} "
             f"({new.predicate}): '{existing.object}' vs '{new.object}'."
         ),
         "options": [
-            f"{existing.object}",
-            f"{new.object}",
-            "Both are true (different contexts)",
+            _claim_option("a", existing, today),
+            _claim_option("b", new, today),
+            {
+                "key": "both",
+                "label": "Both are true (different contexts)",
+                "description": "Keep both claims, each tagged with its context",
+                "claim_id": None,
+            },
         ],
         "source_episode": (new.source_episodes or [""])[0],
         "trigger": "sleep/conflict_resolution",
@@ -368,7 +401,7 @@ def reconcile_stage3(
             slot.append(_stamp_new(new, settings, today=today, status_note="shadowed_by_human"))
             nudges.append(_divergence_nudge(existing, new))
         elif action == "CONFLICT_NUDGE":
-            nudges.append(_conflict_nudge(existing, new))
+            nudges.append(_conflict_nudge(existing, new, today))
         elif action == "REJECT":
             audit.append({"action": "rejected", "kept": existing.id, "dropped": new.id})
         elif action == "KEEP_BOTH":

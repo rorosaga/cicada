@@ -7,15 +7,18 @@ loads them into ``InboxItem`` and resolves them by routing on ``kind``.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import HTTPException
 
 from api.config import Settings
-from api.models.schemas import InboxItem, InboxResolveRequest
-from api.services import markdown_parser
+from api.models.schemas import InboxItem, InboxOption, InboxResolveRequest
+from api.services import inbox_questions, markdown_parser
 from api.services.id_utils import resolve_entity_file, sanitize_id
+
+logger = logging.getLogger(__name__)
 
 
 # ---------- Loading ----------
@@ -46,11 +49,29 @@ def _required_input_for(kind: str) -> str:
     return "freetext"
 
 
-def _item_from_file(filepath: Path) -> InboxItem:
+def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
     parsed = markdown_parser.parse(filepath)
     fm = parsed.frontmatter
     kind = str(fm.get("kind", "decay"))
     required_input = str(fm.get("required_input", "") or _required_input_for(kind))
+    now = today or str(date.today())
+
+    options: list[InboxOption] = []
+    for raw in inbox_questions.normalize_options(fm.get("options")):
+        observed = _opt_str(raw.get("observed_at"))
+        last_ref = _opt_str(raw.get("last_referenced")) or observed
+        options.append(
+            InboxOption(
+                key=str(raw.get("key", "")),
+                label=str(raw.get("label", "")),
+                description=_opt_str(raw.get("description")),
+                claim_id=_opt_str(raw.get("claim_id")),
+                observed_at=observed,
+                last_referenced=last_ref,
+                age_days=inbox_questions.age_days(last_ref, now),
+            )
+        )
+
     return InboxItem(
         id=filepath.stem,
         kind=kind,
@@ -61,8 +82,18 @@ def _item_from_file(filepath: Path) -> InboxItem:
         entity_name=str(fm.get("entity_name", "") or ""),
         title=str(fm.get("title", "") or fm.get("entity_name", "") or ""),
         body=parsed.body,
-        options=fm.get("options"),
+        options=options,
         created_date=str(fm.get("created_date", "") or ""),
+        question=_opt_str(fm.get("question")),
+        # Conflicts and clarifications always accept a free-text answer and a
+        # deferral on the resolve path, so legacy items (written before G60,
+        # no allow_* keys) must not lock the user into the closed option set.
+        allow_other=bool(fm.get("allow_other", kind in ("conflict", "clarification"))),
+        allow_defer=bool(fm.get("allow_defer", kind in ("conflict", "clarification"))),
+        predicate=_opt_str(fm.get("predicate")),
+        hint=_opt_str(fm.get("hint")),
+        remind_after=_opt_str(fm.get("remind_after")),
+        updated_date=_opt_str(fm.get("updated_date")),
         uncertainty_type=fm.get("uncertainty_type"),
         suggested_classification=fm.get("suggested_classification"),
         suggested_confidence=fm.get("suggested_confidence"),
@@ -70,15 +101,34 @@ def _item_from_file(filepath: Path) -> InboxItem:
     )
 
 
-def load_inbox(memory_path: Path) -> list[InboxItem]:
-    """Load all inbox items, sorted: pending first, then priority desc, date desc."""
+def _opt_str(value: object) -> str | None:
+    """Normalize an optional YAML scalar to ``str`` (YAML may parse dates)."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[InboxItem]:
+    """Load inbox items, sorted: pending first, then priority desc, date desc.
+
+    Deferred items (``remind_after`` still in the future, §2.3-4) are hidden by
+    default — the file stays on disk and the card returns on its own the day the
+    date passes. ``include_deferred=True`` is for maintenance callers.
+    """
     inbox_dir = _inbox_dir(memory_path)
+    today = str(date.today())
     items: list[InboxItem] = []
     for filepath in sorted(inbox_dir.glob("inbox-*.md")):
         try:
-            items.append(_item_from_file(filepath))
+            item = _item_from_file(filepath, today=today)
         except Exception:
             continue
+        if not include_deferred and item.remind_after and inbox_questions.is_deferred(
+            {"remind_after": item.remind_after}, today
+        ):
+            continue
+        items.append(item)
     # pending first, then priority desc, then created_date desc.
     items.sort(
         key=lambda i: (
@@ -169,10 +219,18 @@ async def resolve(
     parsed = markdown_parser.parse(path)
     kind = str(parsed.frontmatter.get("kind", "decay"))
 
+    # G60 §2.4 — `defer` is kind-agnostic: it never touches claims or the entity
+    # page, it just pushes the item out of sight until `remind_after`.
+    if request.action == "defer":
+        return await _defer(path, parsed, request, settings, item_id)
+
+    extra_lines: list[str] = []
     if kind == "decay":
         entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
     elif kind == "conflict":
-        entity_id, skipped = await _resolve_conflict(path, parsed, request, settings)
+        entity_id, skipped, extra_lines = await _resolve_conflict(
+            path, parsed, request, settings
+        )
     elif kind in ("clarification", "merge_suggestion"):
         entity_id, skipped = await _resolve_clarification(
             path, parsed, request, settings
@@ -187,9 +245,39 @@ async def resolve(
     from api.services import git_service
 
     await git_service.commit_resolution(
-        settings.memory_path, entity_id, f"inbox/{kind}/resolved"
+        settings.memory_path, entity_id, f"inbox/{kind}/resolved", extra_lines
     )
     return {"status": "resolved", "id": item_id}
+
+
+async def _defer(path, parsed, request, settings, item_id: str) -> dict:
+    """Push an item's ``remind_after`` into the future; the file stays.
+
+    The rewritten item is committed here (scoped to the one inbox file) so the
+    deferral never lingers as an uncommitted change waiting for the next Sleep
+    cycle to sweep it in under an inferred trigger.
+    """
+    from api.services import git_service
+
+    days = request.remind_days
+    if days is None:
+        days = int(getattr(settings, "inbox_defer_days", 30) or 30)
+    remind_after = str(date.today() + timedelta(days=max(1, int(days))))
+    parsed.frontmatter["remind_after"] = remind_after
+    parsed.frontmatter["updated_date"] = str(date.today())
+    markdown_parser.write(path, parsed.frontmatter, parsed.body)
+
+    rel = f"inbox/{path.name}"
+    message = git_service.build_commit_message(
+        f"Inbox deferral {date.today().isoformat()}",
+        [f"{rel}: deferred until {remind_after} (trigger: inbox/deferred)"],
+        authors=["user"],
+    )
+    try:
+        await git_service.commit_paths(settings.memory_path, message, [rel])
+    except Exception as exc:  # pragma: no cover - non-git workspace
+        logger.warning(f"Inbox defer commit skipped: {exc}")
+    return {"status": "deferred", "id": item_id, "remindAfter": remind_after}
 
 
 async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
@@ -232,32 +320,180 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
     return entity_id, False
 
 
-async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool]:
-    """Conflict adjudication — LLM-synthesize the answer into the entity body.
+def _user_claim_id(entity_id: str, predicate: str, obj: str, today: str) -> str:
+    """Stable id for a user-authored resolution claim (mirrors agentic_write)."""
+    import hashlib
 
-    The user's chosen option (or free text) becomes the authoritative
-    description; ``conflict_resolver._synthesize_entity_update`` integrates it
-    coherently instead of accreting a disconnected paragraph (the old bug). A
-    non-LLM dedup fallback keeps the resolve path working without an API key.
+    digest = hashlib.sha1(
+        f"{entity_id}\x00{predicate}\x00{obj}\x00user\x00{today}".encode("utf-8")
+    ).hexdigest()[:8]
+    return f"clm_{today}_user_{digest}"
+
+
+def _close_today(old, *, by, today: str) -> None:
+    """Bi-temporally close ``old`` in favor of ``by``, but with ``valid_to``
+    pinned to *today* (the resolution date) rather than ``_close``'s default of
+    the winner's ``valid_from`` — a user resolving a conflict today closes the
+    old belief today, regardless of when the winning claim was first observed.
     """
+    from api.services.claim_reconciler import _close
+
+    _close(old, by=by)
+    old.valid_to = today
+
+
+async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
+    """Claim-aware conflict adjudication (§2.4).
+
+    The chosen option decides what happens in the ``claims`` block FIRST — a
+    winning claim is reinforced and every loser is bi-temporally closed, "both"
+    keeps them all open with a context qualifier, and "neither"/free text writes
+    a ``user_stated`` claim that closes them. Only then is a full sentence (not
+    a raw button label — the old bug) fed to the LLM body rewrite.
+    """
+    from api.services import predicates
+    from api.services.claims import Claim, parse_claims, write_claims
     from api.services.conflict_resolver import _synthesize_entity_update
 
-    entity_id = parsed.frontmatter.get("entity_id", "")
-    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
-    answer = (request.answer or "").strip()
+    fm_item = parsed.frontmatter
+    entity_id = str(fm_item.get("entity_id", "") or "")
 
-    if entity_path.exists() and answer:
-        entity = markdown_parser.parse(entity_path)
-        fm = entity.frontmatter
-        new_body = None
+    if request.action == "skip":
+        return entity_id, True, []
+
+    predicate_raw = str(fm_item.get("predicate", "") or "description")
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    options = inbox_questions.normalize_options(fm_item.get("options"))
+    option_key = (request.option_key or "").strip()
+    answer = (request.answer or "").strip()
+    today = str(date.today())
+    extra_lines: list[str] = []
+
+    if not entity_path.exists():
+        # Nothing to write into; clear the question rather than stranding it.
+        path.unlink()
+        return entity_id, False, extra_lines
+
+    entity = markdown_parser.parse(entity_path)
+    fm = entity.frontmatter
+    name = str(fm.get("name", entity_id) or entity_id)
+    normalize_predicate = predicates.load_normalizer(settings.memory_path)
+    predicate = normalize_predicate(predicate_raw) or predicate_raw
+
+    try:
+        claim_list = parse_claims(entity.body, strict=True)
+    except Exception:
+        # A corrupt claims block must never be silently overwritten.
+        claim_list = None
+
+    by_id = {c.id: c for c in (claim_list or [])}
+    option_claims = [
+        by_id[str(o["claim_id"])]
+        for o in options
+        if o.get("claim_id") and str(o["claim_id"]) in by_id
+    ]
+    chosen = next((o for o in options if str(o.get("key")) == option_key), None)
+
+    sentence = answer or ""
+
+    # Picking a real option is an AFFIRMATIVE choice whether or not that option
+    # is claim-backed. Legacy (pre-G60) conflicts and every entity-path question
+    # built by `conflict_resolver.build_entity_question` carry `claim_id: None`
+    # on all options; requiring a claim id here used to drop those picks into
+    # the neither/free-text branch below, which stamped "none of these are
+    # current" onto the page — the exact opposite of what the user said.
+    if chosen is not None and option_key not in ("both", "neither"):
+        winner = by_id.get(str(chosen.get("claim_id") or ""))
+        if claim_list is not None:
+            if winner is not None:
+                winner.confidence = max(winner.confidence, 0.9)
+            for loser in option_claims:
+                if winner is not None and loser.id == winner.id:
+                    continue
+                if loser.valid_to is None:
+                    if winner is not None:
+                        _close_today(loser, by=winner, today=today)
+                    else:
+                        # The pick is claim-less, so there is no claim to point
+                        # the supersession at — but the losing values are still
+                        # no longer current, and leaving them open would just
+                        # regenerate this question next cycle.
+                        loser.valid_to = today
+                    line = (
+                        f"entities/{entity_id}.md: updated "
+                        f"(source: {path.stem}, trigger: inbox/conflict/resolved)"
+                    )
+                    # The manifest is a set of paths, not a per-claim tally.
+                    if line not in extra_lines:
+                        extra_lines.append(line)
+        # The chosen label IS the answer, claim-backed or not.
+        sentence = (
+            f"{predicates.predicate_phrase(predicate, name, chosen['label'])} "
+            f"(confirmed by user on {today})."
+        )
+
+    elif claim_list is not None:
+        if option_key == "both":
+            labels = []
+            for claim in option_claims:
+                if claim.context == "general":
+                    claim.context = f"as of {claim.valid_from or today}"
+                labels.append(claim.object)
+            sentence = (
+                f"Both are true: {' and '.join(labels)} (confirmed by user on {today})."
+                if labels else sentence
+            )
+
+        else:
+            # `neither`, or free text with no option key.
+            if answer:
+                new_claim = Claim(
+                    id=_user_claim_id(entity_id, predicate, answer, today),
+                    text=f"{predicates.predicate_phrase(predicate, name, answer)}.",
+                    subject=entity_id,
+                    predicate=predicate,
+                    object=answer,
+                    # Keep the SAME belief slot (observer) as the claims being
+                    # replaced so future reconciliation sees one lineage.
+                    observer=option_claims[0].observer if option_claims else "rodrigo",
+                    context=option_claims[0].context if option_claims else "general",
+                    source_trust="user_stated",
+                    origin="clarification",
+                    authored_by="user",
+                    confidence=0.95,
+                    valid_from=today,
+                    recorded_at=today,
+                )
+                for loser in option_claims:
+                    if loser.valid_to is None:
+                        _close_today(loser, by=new_claim, today=today)
+                claim_list.append(new_claim)
+                sentence = (
+                    f"{predicates.predicate_phrase(predicate, name, answer)} "
+                    f"(stated by user on {today})."
+                )
+            else:
+                for loser in option_claims:
+                    if loser.valid_to is None:
+                        loser.valid_to = today
+                sentence = (
+                    f"None of the previously recorded values for "
+                    f"'{predicate}' are current as of {today}."
+                )
+
+    if claim_list is not None:
+        entity.body = write_claims(entity.body, claim_list)
+
+    new_body = None
+    if sentence:
         try:
             new_body = await _synthesize_entity_update(
-                entity_name=fm.get("name", entity_id),
+                entity_name=name,
                 entity_type=fm.get("type", "concept"),
                 existing_body=entity.body,
-                new_description=answer,
+                new_description=sentence,
                 new_history_entries=[],
-                source_reference_date=str(date.today()),
+                source_reference_date=today,
                 settings=settings,
             )
         except Exception:
@@ -265,16 +501,22 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool]
         if not new_body:
             # Safe fallback: dedup guard instead of blind append.
             new_body = (
-                entity.body.rstrip() + f"\n\n{answer}"
-                if answer not in entity.body
+                entity.body.rstrip() + f"\n\n{sentence}"
+                if sentence not in entity.body
                 else entity.body
             )
-        fm["last_referenced"] = str(date.today())
-        fm["version"] = int(fm.get("version", 1) or 1) + 1
-        markdown_parser.write(entity_path, fm, new_body)
+
+    if claim_list is not None and new_body is not None:
+        # The synthesizer only ever returns prose; re-attach the machine layer
+        # so an LLM rewrite can never drop the claims block.
+        new_body = write_claims(new_body, claim_list)
+
+    fm["last_referenced"] = today
+    fm["version"] = int(fm.get("version", 1) or 1) + 1
+    markdown_parser.write(entity_path, fm, new_body or entity.body)
 
     path.unlink()
-    return entity_id, False
+    return entity_id, False, extra_lines
 
 
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool]:
@@ -283,6 +525,11 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
     Lifted verbatim — the source_date/_max_date chronology handling is already
     correct. Returns ``(entity_id, skipped)``; ``skipped`` short-circuits the
     commit in :func:`resolve`.
+
+    ``resolve`` is accepted as an alias for ``answer`` (G60 §2.1): the MCP tool
+    and the app's ``QuestionView`` send one verb for *every* kind carrying a
+    question object, so a clarification that grew a question must not 400. A
+    ``option_key`` with no free text resolves to that option's label.
     """
     entity_mention = parsed.frontmatter.get("entity_name", "") or parsed.frontmatter.get(
         "entity_mention", ""
@@ -299,8 +546,26 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         _extract_date(source_timestamp) or _extract_date(clar_created) or today
     )
 
-    if request.action == "answer":
-        answer_text = (request.answer or "").strip()
+    action = request.action
+    answer_text = (request.answer or "").strip()
+    if action == "resolve":
+        option_key = (request.option_key or "").strip()
+        if not answer_text and option_key:
+            chosen = next(
+                (
+                    o
+                    for o in inbox_questions.normalize_options(
+                        parsed.frontmatter.get("options")
+                    )
+                    if str(o.get("key")) == option_key
+                ),
+                None,
+            )
+            if chosen is not None:
+                answer_text = str(chosen.get("label") or "").strip()
+        action = "answer"
+
+    if action == "answer":
         if not answer_text:
             raise HTTPException(400, "answer is required when action is 'answer'")
 
@@ -342,10 +607,10 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             markdown_parser.write(entity_path, frontmatter, answer_text)
         path.unlink()
 
-    elif request.action == "dismiss":
+    elif action == "dismiss":
         path.unlink()
 
-    elif request.action == "merge" and request.merge_target:
+    elif action == "merge" and request.merge_target:
         # Tolerant lookup: merge_target may arrive as a slug or a display name.
         # ``merge_target`` is always the existing entity that holds the real data
         # (frontmatter/body/history); it is the merge data SOURCE regardless of
@@ -447,7 +712,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             path.unlink()
             entity_id = survivor_slug
 
-    elif request.action == "skip":
+    elif action == "skip":
         return entity_id, True
 
     else:
