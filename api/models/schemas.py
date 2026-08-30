@@ -1031,3 +1031,74 @@ class ConnectionsResponse(CamelModel):
 class StatusConnections(CamelModel):
     connected: list[str] = []
     engine: Optional[str] = None
+
+
+# --- Consumption / traceability (G51) ---
+
+
+class ConsumptionSummary(CamelModel):
+    cost_usd: float = 0.0
+    equiv_cost_usd: float = 0.0
+    invocations: int = 0
+    tokens: int = 0
+    memory_writes: int = 0
+    sleep_runs: int = 0
+    agentic_writes: int = 0
+    streak_current: int = 0
+    streak_best: int = 0
+    range: str
+    since: Optional[str] = None
+
+
+class CalendarDay(CamelModel):
+    date: str
+    memory_writes: int = 0
+    events: int = 0
+    tokens: int = 0
+    cost_usd: float = 0.0
+    equiv_cost_usd: float = 0.0
+    level: int = 0
+
+
+class ConsumptionCalendar(CamelModel):
+    days: list[CalendarDay]
+    weeks: int
+
+
+class ConsumptionStats(CamelModel):
+    by_model: list[dict]
+    by_stage: list[dict]
+    by_connection: list[dict]
+    by_bank: list[dict]
+    hour_histogram: list[int]
+    peak_day: Optional[dict] = None
+    longest_sleep_run: Optional[dict] = None
+    favorite_model: Optional[str] = None
+    lifetime_tokens: int = 0
+    first_event: Optional[str] = None
+    series: list[dict]
+    range: str
+
+
+class ConnectionConsumption(CamelModel):
+    id: str
+    label: str
+    billing: str
+    connected: bool = False
+    price_usd_month: Optional[float] = None
+    cost_usd: Optional[float] = None
+    equiv_cost_usd: Optional[float] = None
+    invocations: int = 0
+    tokens: int = 0
+    throttle_events: int = 0
+    by_model: list[dict] = []
+
+
+class ConsumptionConnections(CamelModel):
+    connections: list[ConnectionConsumption]
+    range: str
+
+
+class HarnessStats(CamelModel):
+    claude_code: Optional[dict] = None
+    codex: Optional[dict] = None

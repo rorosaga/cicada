@@ -510,14 +510,16 @@ async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:
     return entries
 
 
-async def commit_changes(memory_path: Path, message: str) -> None:
-    """Stage all changes and commit."""
+async def commit_changes(memory_path: Path, message: str) -> str | None:
+    """Stage all changes and commit. Returns the new commit hash, or ``None``
+    when there was nothing to commit."""
     await _run_git(memory_path, "add", "-A")
     # Check if there's anything to commit first
     status = await _run_git(memory_path, "status", "--porcelain")
     if not status.strip():
-        return  # Nothing to commit
+        return None  # Nothing to commit
     await _run_git(memory_path, "commit", "-m", message)
+    return (await _run_git(memory_path, "rev-parse", "HEAD")).strip()
 
 
 async def commit_paths(memory_path: Path, message: str, paths: list[str]) -> None:

@@ -33,6 +33,9 @@ final class Store {
     var origins = Snapshot<[OriginStat]>()
     var connections = Snapshot<[ConnectionStatus]>()
     var status = Snapshot<StatusSnapshot>()
+    /// Usage dashboard (G51) default view. Machine-global, cached under
+    /// `Self.rosterBank` like `banks` — see `hydrate()`/`refreshOne`.
+    var consumption = Snapshot<ConsumptionBundle>()
 
     /// Full entity bodies, memoised. Bounded to `entityCacheLimit` in LRU order.
     var entities: [String: Entity] = [:]
@@ -175,6 +178,17 @@ final class Store {
         await take(.contributors, \.contributors)
         await take(.origins, \.origins)
         await take(.connections, \.connections)
+        // Machine-global like the banks roster above (see the `consumption`
+        // property comment) — read from `rosterBank`, not the per-bank `take()`.
+        if let hit = await cache.load(.consumption, bank: Self.rosterBank, as: ConsumptionBundle.self) {
+            consumption.value = hit.value
+            consumption.etag = hit.etag
+            consumption.loadedAt = Date()
+            consumption.isRefreshing = false
+            loaded.append(SyncDomain.consumption.rawValue)
+        } else {
+            consumption = Snapshot<ConsumptionBundle>()
+        }
         // Only feed the menu bar when this bank actually had a cached status —
         // otherwise the bookworm would render the previous bank's mood.
         let hasStatus = await take(.status, \.status)
@@ -220,6 +234,7 @@ final class Store {
             case .contributors: await refreshOne(domain, \.contributors) { [api] e in try await api.fetchContributors(etag: e) }
             case .origins: await refreshOne(domain, \.origins) { [api] e in try await api.fetchOrigins(etag: e) }
             case .connections: await refreshOne(domain, \.connections) { [api] e in try await api.fetchConnections(etag: e) }
+            case .consumption: await refreshOne(domain, \.consumption) { [api] e in try await api.fetchConsumption(etag: e) }
             case .status: await refreshStatus()
             // Ask (G52) history has no server endpoint to reconcile against —
             // `AskViewModel` owns its own read/write through `store.cache`
@@ -266,10 +281,12 @@ final class Store {
                 // response rather than write bookkeeping out from under it.
                 // The domain stays in `pendingDomains`, so it is refetched.
                 guard refreshEpoch == startEpoch else { return }
-                // `.banks` is global (cached under `rosterBank`) — a roster
-                // response is valid whichever bank is active, and discarding
-                // it would strand the switch that this very response reports.
-                if domain != .banks, bank != epoch {
+                // `.banks` and `.consumption` are global (cached under
+                // `rosterBank`) — their responses are valid whichever bank is
+                // active, and discarding one would strand the switch that
+                // this very response reports (`.banks`) or blank the
+                // dashboard on every bank change (`.consumption`).
+                if domain != .banks, domain != .consumption, bank != epoch {
                     Self.logger.debug("discarding stale \(domain.rawValue, privacy: .public) response from bank \(epoch, privacy: .public)")
                     self[keyPath: kp].isRefreshing = false
                     wantsRefresh.remove(domain)
@@ -281,7 +298,7 @@ final class Store {
                     self[keyPath: kp].loadedAt = Date()
                     if domain == .inbox { pruneHiddenInboxIds() }
                     await cache.save(value, etag: result.etag,
-                                     domain: domain, bank: domain == .banks ? Self.rosterBank : bank)
+                                     domain: domain, bank: (domain == .banks || domain == .consumption) ? Self.rosterBank : bank)
                 }
                 // 200 and 304 both mean "we are in sync with the server".
                 pendingDomains.remove(domain)
@@ -432,6 +449,7 @@ final class Store {
         contributors.isRefreshing = false
         origins.isRefreshing = false
         connections.isRefreshing = false
+        consumption.isRefreshing = false
         status.isRefreshing = false
         // Anything queued behind an abandoned request still owes us a
         // reconcile, and so does anything already pending. Fold the queue into

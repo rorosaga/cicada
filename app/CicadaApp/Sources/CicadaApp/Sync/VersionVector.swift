@@ -15,6 +15,12 @@ struct VersionVector: Codable, Equatable {
         // fetch changes `/graph`'s `hasLogo` and nothing else, so it needs its
         // own key or the node keeps painting a monogram.
         "logos": [.graph],
+        // The telemetry ledger and the consumption endpoints' etags all move
+        // together with the current `events-YYYY-MM.jsonl` mtime (see
+        // `sync_service.components`'s "telemetry" key) — one component so the
+        // dashboard live-refreshes off SSE instead of going stale until a
+        // bank write happens to touch a different component.
+        "telemetry": [.consumption],
     ]
 
     func changedDomains(since old: VersionVector?) -> Set<SyncDomain> {

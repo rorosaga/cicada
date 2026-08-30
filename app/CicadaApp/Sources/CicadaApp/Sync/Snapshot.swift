@@ -10,6 +10,10 @@ struct Snapshot<T: Codable> {
 
 enum SyncDomain: String, CaseIterable, Codable {
     case graph, inbox, banks, sources, channels, feeds, calendars, contributors, origins, connections, status
+    /// Usage dashboard (G51). Machine-global like `banks` — cached under
+    /// `Store.rosterBank`, not the active bank — so switching banks doesn't
+    /// blank the dashboard (per-bank breakdowns live inside the payload).
+    case consumption
     /// Per-bank Ask (G52) history. Persisted via `SnapshotCache` like every
     /// other domain, but it has no server-side counterpart — nothing to GET,
     /// no etag, no version-vector mapping — so `Store.refresh`/`refreshAll`

@@ -231,8 +231,12 @@ async def _extract_chunk(
     reasoning model that wraps the object in fences or prose.
     """
     try:
-        response = await litellm.acompletion(
-            model=settings.litellm_model,
+        from api.services.providers import resolve_llm_fn
+
+        llm_fn = resolve_llm_fn(
+            settings, model=settings.litellm_model, completion=litellm.acompletion, stage="extraction"
+        )
+        response = await llm_fn(
             messages=[
                 {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
                 {"role": "user", "content": chunk},

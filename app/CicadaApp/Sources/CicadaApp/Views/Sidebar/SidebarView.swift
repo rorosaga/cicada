@@ -10,6 +10,7 @@ enum AppTab: String, CaseIterable {
     case connections = "Connections"
     case connect = "Connect"
     case sources = "Capture"
+    case usage = "Usage"
 
     var icon: String {
         switch self {
@@ -22,6 +23,7 @@ enum AppTab: String, CaseIterable {
         case .connections: "person.crop.circle.badge.checkmark"
         case .connect: "cable.connector"
         case .sources: "tray.and.arrow.down"
+        case .usage: "chart.bar.xaxis"
         }
     }
 
@@ -52,7 +54,7 @@ private enum SidebarSection: String, CaseIterable {
         case .workspace: [.graph, .clusters, .feed]
         case .capture: [.sources]
         case .maintenance: [.sleep, .inbox]
-        case .provenance: [.contributors]
+        case .provenance: [.contributors, .usage]
         case .setup: [.connections, .connect]
         }
     }
@@ -108,7 +110,7 @@ struct SidebarView: View {
 
     private func badgeCount(for tab: AppTab) -> Int {
         switch tab {
-        case .graph, .clusters, .feed, .sleep, .contributors, .connections, .connect, .sources: 0
+        case .graph, .clusters, .feed, .sleep, .contributors, .connections, .connect, .sources, .usage: 0
         case .inbox: inboxCount
         }
     }

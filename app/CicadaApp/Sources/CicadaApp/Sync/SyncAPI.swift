@@ -48,6 +48,10 @@ protocol SyncAPI: Sendable {
     func fetchContributors(etag: String?) async throws -> Conditional<[Contributor]>
     func fetchOrigins(etag: String?) async throws -> Conditional<[OriginStat]>
     func fetchConnections(etag: String?) async throws -> Conditional<[ConnectionStatus]>
+    /// Usage dashboard (G51) default view — fans out to all five
+    /// `/consumption/*` endpoints and folds them into one bundle. See
+    /// `ConsumptionBundle`.
+    func fetchConsumption(etag: String?) async throws -> Conditional<ConsumptionBundle>
 
     func fetchStatus() async throws -> StatusSnapshot
     func fetchEntity(id: String) async throws -> Entity

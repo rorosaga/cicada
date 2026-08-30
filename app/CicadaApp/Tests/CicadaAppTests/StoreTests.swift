@@ -20,6 +20,14 @@ private let banksJSON = """
 {"banks":[{"id":"work","name":"work"}],"active":"work"}
 """
 
+private let consumptionJSON = """
+{"summary":{"costUsd":1.5,"equivCostUsd":3.0,"range":"month"},
+ "calendar":{"days":[],"weeks":53},
+ "stats":{"byModel":[],"byStage":[],"byConnection":[],"byBank":[],"hourHistogram":[0],"series":[],"range":"month"},
+ "connections":{"connections":[],"range":"month"},
+ "harness":{}}
+"""
+
 private let statusJSON = """
 {"sleep":{"status":"idle","stage":0,"totalStages":5,"cycleId":null,"error":null},
  "inbox":{"total":2,"byKind":{"decay":2}},
@@ -217,6 +225,9 @@ final class FakeSyncAPI: SyncAPI {
     }
     func fetchConnections(etag: String?) async throws -> Conditional<[ConnectionStatus]> {
         try answer(.connections, fallback: [])
+    }
+    func fetchConsumption(etag: String?) async throws -> Conditional<ConsumptionBundle> {
+        try answer(.consumption, fallback: try decodeFixture(consumptionJSON) as ConsumptionBundle)
     }
     func fetchStatus() async throws -> StatusSnapshot {
         calls.append(.status)
@@ -665,5 +676,45 @@ final class StoreTests: XCTestCase {
         api.releaseGate(.graph)
         await parked.value
         XCTAssertFalse(store.graph.isRefreshing)
+    }
+
+    /// The usage dashboard (G51) is machine-global like the banks roster —
+    /// it must persist under `Store.rosterBank`, not whichever bank is
+    /// active, and must survive a bank switch instead of going blank like
+    /// `graph` does (see `testBankSwitchDoesNotBleedSnapshots`).
+    func testConsumptionIsCachedGloballyAndSurvivesABankSwitch() async throws {
+        let cache = tempCache()
+        let bundle: ConsumptionBundle = try decodeFixture(consumptionJSON)
+        let rosterA: BanksResponse = try decodeFixture(
+            #"{"banks":[{"name":"A"},{"name":"B"}],"active":"A"}"#)
+        let api = FakeSyncAPI()
+        api.replies[.banks] = .value(rosterA)
+        api.replies[.consumption] = .value(bundle)
+        // `hydrate()` + `refresh()` directly, not `bootstrap()` — `bootstrap()`
+        // also starts the live `SyncEngine`, whose background version check
+        // (`store.version` starts nil, so `changedDomains(since: nil)` is
+        // everything) races a second reconcile against this test's own
+        // `cache.flush()`, cancelling the first save before it lands.
+        let store = Store(cache: cache, api: api)
+        await store.hydrate()
+        await store.refreshAll()
+        XCTAssertEqual(store.bank, "A")
+        XCTAssertEqual(store.consumption.value?.summary.costUsd, 1.5)
+
+        // Persisted under the global pseudo-bank, not "A".
+        await cache.flush()
+        let onDisk = await cache.load(.consumption, bank: Store.rosterBank, as: ConsumptionBundle.self)
+        XCTAssertEqual(onDisk?.value.summary.costUsd, 1.5)
+        let underA = await cache.load(.consumption, bank: "A", as: ConsumptionBundle.self)
+        XCTAssertNil(underA, "consumption must not be written under the active bank")
+
+        // Switching banks must not blank it (unlike `graph`, which has no
+        // cached value for bank B in this test and goes nil).
+        let rosterB: BanksResponse = try decodeFixture(
+            #"{"banks":[{"name":"A"},{"name":"B"}],"active":"B"}"#)
+        api.replies[.banks] = .value(rosterB)
+        await store.refresh([.banks])
+        XCTAssertEqual(store.bank, "B")
+        XCTAssertEqual(store.consumption.value?.summary.costUsd, 1.5, "consumption survives the bank switch")
     }
 }

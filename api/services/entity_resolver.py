@@ -687,8 +687,12 @@ async def _llm_judge_same_entity(
         getattr(settings, "litellm_disambiguation_model", "") or settings.litellm_model
     )
     try:
-        response = await litellm.acompletion(
-            model=disambig_model,
+        from api.services.providers import resolve_llm_fn
+
+        llm_fn = resolve_llm_fn(
+            settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation"
+        )
+        response = await llm_fn(
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             # Disable provider-side reasoning + cap the call: a same/different

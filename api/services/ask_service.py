@@ -249,16 +249,17 @@ def _gap_response(query: str) -> dict:
 
 
 def _default_llm_fn() -> LlmFn:
-    """Production LLM call: litellm JSON-mode per Settings (mirrors extractor)."""
+    """Production LLM call: litellm JSON-mode per Settings, via the provider seam."""
     import litellm
 
     from api.config import get_settings
+    from api.services.providers import resolve_llm_fn
 
     settings = get_settings()
+    llm_fn = resolve_llm_fn(settings, model=settings.litellm_model, completion=litellm.completion, stage="ask")
 
     def _call(prompt: str) -> str:
-        response = litellm.completion(
-            model=settings.litellm_model,
+        response = llm_fn(
             messages=[
                 {"role": "system", "content": ASK_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},

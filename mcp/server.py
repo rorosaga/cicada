@@ -18,6 +18,11 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# Hoisted to module level (not lazy-local like most api.services imports below)
+# so tests can monkeypatch `server.agentic_write.write_claim` — the name
+# binding lives here, but handle_write_claim's body still calls through it.
+from api.services import agentic_write  # noqa: E402
+
 # MCP protocol uses JSON-RPC 2.0 over stdin/stdout
 
 # Tool list advertised via `tools/list` and dispatched via `tools/call`. Kept at
@@ -963,8 +968,6 @@ def handle_write_claim(
     sources: list | None = None,
 ) -> str:
     """Write one atomic fact as an observer-tagged claim (agentic write path)."""
-    from api.services import agentic_write
-
     result = agentic_write.write_claim(
         get_memory_path(),
         subject,
@@ -992,6 +995,19 @@ def handle_write_claim(
 
     if result.get("action") == "error" or result.get("error"):
         return f"Could not write claim: {result.get('error', 'unknown error')}"
+
+    from api.services import telemetry
+
+    telemetry.record(telemetry.UsageEvent(
+        kind="agentic_write", stage="driver", connection="session", engine="mcp-client",
+        model=None, bank=get_memory_path().name, billing="subscription", invocations=1,
+        refs={
+            "entity_id": result.get("entity_id"),
+            "claim_id": result.get("claim_id"),
+            "episode_id": source_episode,
+            "action": result.get("action"),
+        },
+    ))
 
     action = result.get("action")
     verb = {

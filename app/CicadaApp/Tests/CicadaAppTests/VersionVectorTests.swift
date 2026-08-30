@@ -33,4 +33,13 @@ final class VersionVectorTests: XCTestCase {
         let new = VersionVector(version: "2", components: ["sources": "b", "bank": "x"])
         XCTAssertEqual(new.changedDomains(since: old), [.sources, .feeds, .calendars, .channels])
     }
+
+    /// `sync_service.components`'s `"telemetry"` key tracks the ledger's
+    /// current `events-YYYY-MM.jsonl` mtime — a bump there must refresh the
+    /// usage dashboard's `consumption` domain (G51).
+    func testTelemetryComponentRefreshesConsumption() {
+        let old = VersionVector(version: "1", components: ["telemetry": "a", "bank": "x"])
+        let new = VersionVector(version: "2", components: ["telemetry": "b", "bank": "x"])
+        XCTAssertEqual(new.changedDomains(since: old), [.consumption])
+    }
 }
