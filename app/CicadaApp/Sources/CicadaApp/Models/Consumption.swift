@@ -65,6 +65,15 @@ struct CalendarDay: Codable, Identifiable {
 struct ConsumptionCalendar: Codable {
     let days: [CalendarDay]
     let weeks: Int
+
+    init(days: [CalendarDay], weeks: Int) { self.days = days; self.weeks = weeks }
+
+    // Decode-tolerant like every sibling: missing keys degrade, never throw.
+    init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        days = (try? c?.decodeIfPresent([CalendarDay].self, forKey: .days)) ?? []
+        weeks = (try? c?.decodeIfPresent(Int.self, forKey: .weeks)) ?? 53
+    }
 }
 
 /// One row of a by-model / by-stage / by-connection / by-bank table. The
@@ -201,6 +210,14 @@ struct ConnectionConsumption: Codable, Identifiable {
 struct ConsumptionConnections: Codable {
     let connections: [ConnectionConsumption]
     let range: String
+
+    init(connections: [ConnectionConsumption], range: String) { self.connections = connections; self.range = range }
+
+    init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        connections = (try? c?.decodeIfPresent([ConnectionConsumption].self, forKey: .connections)) ?? []
+        range = (try? c?.decodeIfPresent(String.self, forKey: .range)) ?? "month"
+    }
 }
 
 struct HarnessStats: Codable {
