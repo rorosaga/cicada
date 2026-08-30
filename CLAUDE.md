@@ -189,6 +189,9 @@ card's "Source to check" hint. Nothing is fetched in this slice.
 ### sqlite-vec (Vector Index)
 Lightweight on-device semantic search (`api/services/vector_index.py`, replaces the earlier LEANN wrapper — `leann_indexer.py` has been deleted). Embeddings are stored, not recomputed at query time, so search is a single in-process ANN lookup with no latency tax. Default backend is **EmbeddingGemma-300M** (768-dim, on-device, gated HF model) with asymmetric query/document embedding prompts; the index is *derived and disposable* — rebuilt from entity/episode markdown by the Sleep cycle, and can be deleted and regenerated at any time (see the Thesis Benchmarks note below on `benchmarks.rebuild_leann`'s historical name). Runs locally, zero cloud costs for the default backend.
 
+### Telemetry ledger (`~/.cicada/telemetry/`)
+Append-only JSONL under `~/.cicada/telemetry/events-YYYY-MM.jsonl` (machine-global, never in a bank or git), fed by `providers.resolve_llm_fn` (every LLM call is now routed through it), Sleep `_finalize`, and MCP `cicada_write_claim`. `CICADA_TELEMETRY=off` disables recording.
+
 ### Entity logos (`~/.cicada/logos/<bank>/`)
 `api/services/logo_service.py` resolves an entity page to a domain (explicit
 `logo:` frontmatter → a `url`-kind `sources:` entry → the first `## Links` URL →
@@ -353,6 +356,8 @@ PUT/DELETE /connections/{id}/key           → BYOK key into ~/.cicada/secrets.e
 PUT  /connections/{id}/prefs               → tier override (Claude Max 5x/20x), enabled flag
 GET  /sync/version                        → mtime + git-HEAD version vector for change detection (<10 ms)
 GET  /sync/events                         → SSE stream of `version` (on change, polled server-side every 1 s), `sleep` (sleep state on change), and `ping` (every 15 s) events
+GET  /consumption/summary|calendar|stats|connections|harness → consumption/traceability dashboard (G51);
+                                            ledger at ~/.cicada/telemetry/events-YYYY-MM.jsonl (CICADA_TELEMETRY=off disables)
 ```
 
 The API reads and writes the same markdown files and git repo that the Sleep cycle operates on. **There's no separate database — the filesystem is the single source of truth.**
