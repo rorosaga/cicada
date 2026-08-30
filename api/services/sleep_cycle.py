@@ -1,4 +1,5 @@
 import asyncio
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,11 @@ class SleepState:
     status: str = "idle"
     cycle_id: str | None = None
     started_at: str | None = None
+    # Monotonic start time for this cycle, used to compute the ``sleep_run``
+    # telemetry event's ``duration_ms`` without being affected by wall-clock
+    # adjustments (NTP, DST). Distinct from ``started_at``, which is the
+    # human-readable timestamp shown in the Sleep dashboard.
+    started_monotonic: float | None = None
     progress: str | None = None
     # Set to a string when the most recent run hit an exception. The benchmark
     # harness reads this to distinguish a real success from a swallowed
@@ -82,6 +88,7 @@ async def run(settings: Settings, cycle_id: str) -> None:
     _state.status = "running"
     _state.cycle_id = cycle_id
     _state.started_at = datetime.now().isoformat()
+    _state.started_monotonic = time.monotonic()
     _state.progress = "Starting..."
     _state.error = None
     _state.index_warning = None
@@ -368,6 +375,7 @@ async def run(settings: Settings, cycle_id: str) -> None:
             changes,
             settings,
             organic_resolution_paths=organic_resolution_paths,
+            started=_state.started_monotonic,
         )
         requeue_note = (
             f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
@@ -520,6 +528,8 @@ async def _finalize(
     settings: Settings | None = None,
     *,
     organic_resolution_paths: set[str] | None = None,
+    started: float | None = None,
+    engine: str = "litellm",
 ) -> None:
     """Commit all changes from the sleep cycle with a structured message.
 
@@ -590,7 +600,30 @@ async def _finalize(
         f"Sleep cycle {date_str}", body_lines, authors=authors
     )
     async with _lock:
-        await git_service.commit_changes(memory_path, message)
+        commit = await git_service.commit_changes(memory_path, message)
+
+    from api.services import telemetry
+
+    duration_ms = int((time.monotonic() - started) * 1000) if started is not None else None
+    model = authors[0] if authors else None
+    connection, billing = telemetry.connection_for_model(model) if model else (None, "free")
+    telemetry.record(telemetry.UsageEvent(
+        kind="sleep_run", stage="structural", engine=engine,
+        connection=connection,
+        model=model,
+        bank=telemetry.bank_name(settings) if settings is not None else memory_path.name,
+        billing=billing,
+        invocations=0, duration_ms=duration_ms, ok=True,
+        refs={
+            "cycle_id": cycle_id,
+            "commit": commit,
+            "episodes_processed": _state.episodes_processed,
+            "episodes_requeued": _state.episodes_requeued,
+            "entities_created": _state.entities_created,
+            "entities_updated": _state.entities_updated,
+            "skills_detected": _state.skills_detected,
+        },
+    ))
 
 
 def _porcelain_action(status_code: str) -> str:
