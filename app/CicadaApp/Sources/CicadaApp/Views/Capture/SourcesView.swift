@@ -171,13 +171,16 @@ struct SourcesView: View {
         await store.refresh([.channels, .status, .sources, .feeds, .calendars])
     }
 
+    private static let fetchDisabledHint =
+        "Live fetch is disabled on this backend — set CICADA_ALLOW_FEED_FETCH=1 and restart."
+
     private static func poll(_ channel: SourceChannel) async throws -> String {
         if channel.id == "calendar" {
             let r = try await APIClient.shared.pollCalendars()
-            return "\(r.new) new event(s)"
+            return r.skippedNoNetwork > 0 ? Self.fetchDisabledHint : "\(r.new) new event(s)"
         }
         let r = try await APIClient.shared.pollFeeds()
-        return "\(r.new) new item(s)"
+        return r.skippedNoNetwork > 0 ? Self.fetchDisabledHint : "\(r.new) new item(s)"
     }
 
     private static func sync(_ channel: SourceChannel) async throws -> String {
