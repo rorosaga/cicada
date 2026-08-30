@@ -381,6 +381,37 @@ final class StoreTests: XCTestCase {
         XCTAssertNil(store.toast)
     }
 
+    /// (F6) `/banks` is not exempt: an empty roster is indistinguishable from a
+    /// real one, so a 404 there would blank the dropdown *and* persist the blank
+    /// under `_roster` — and `BanksViewModel.load()`, which reads a missing
+    /// roster as its error path, would never surface the failure.
+    func testNotFoundKeepsExistingBanksRoster() async throws {
+        let cache = tempCache()
+        let api = FakeSyncAPI()
+        let store = Store(cache: cache, api: api)
+
+        await store.refresh([.banks])
+        XCTAssertEqual(store.banks.value?.active, "work")
+        let etag = store.banks.etag
+        await cache.flush()
+        let saved: (value: BanksResponse, etag: String?)? =
+            await cache.load(.banks, bank: Store.rosterBank, as: BanksResponse.self)
+        XCTAssertEqual(saved?.value.active, "work")
+
+        api.replies[.banks] = .notFound
+        await store.refresh([.banks])
+
+        XCTAssertEqual(store.banks.value?.active, "work", "a 404 must not blank the roster")
+        XCTAssertEqual(store.banks.value?.banks.count, saved?.value.banks.count)
+        XCTAssertEqual(store.banks.etag, etag)
+        XCTAssertNil(store.toast)
+
+        await cache.flush()
+        let after: (value: BanksResponse, etag: String?)? =
+            await cache.load(.banks, bank: Store.rosterBank, as: BanksResponse.self)
+        XCTAssertEqual(after?.value.active, "work", "nothing empty may be persisted under _roster")
+    }
+
     /// (F6) The helper every 404 branch in `APIClient` returns.
     func testConditionalUnavailableIsANoChange() {
         let c = Conditional<[FeedSubscription]>.unavailable(etag: "\"e\"")

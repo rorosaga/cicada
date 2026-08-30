@@ -669,14 +669,15 @@ actor APIClient {
         return name.addingPercentEncoding(withAllowedCharacters: allowed) ?? name
     }
 
-    /// `GET /banks` → all banks plus the active one. Returns an empty roster on
-    /// a 404 so the dropdown degrades gracefully on a pre-M6 backend.
+    /// `GET /banks` → all banks plus the active one.
+    ///
+    /// A 404 propagates. It used to be swallowed into an empty roster, but an
+    /// empty roster is indistinguishable from a real one and every caller reads
+    /// it as truth — `BanksViewModel.load()` treats a *missing* roster as its
+    /// error path, so degrading turned an honest failure into a silently empty
+    /// dropdown with no explanation.
     func fetchBanks() async throws -> BanksResponse {
-        do {
-            return try await get("/banks")
-        } catch APIError.httpError(404, _) {
-            return BanksResponse(banks: [], active: nil)
-        }
+        try await get("/banks")
     }
 
     /// `POST /banks` `{name, description?}` → create a NEW EMPTY bank. Returns
@@ -1395,13 +1396,15 @@ extension APIClient: SyncAPI {
         try await getConditional("/inbox", etag: etag)
     }
 
-    /// A pre-M6 backend has no `/banks`; degrade to an empty roster exactly as
-    /// `fetchBanks()` does rather than toasting an error every refresh.
+    /// Same rule as every other conditional fetch: a 404 is "no such endpoint",
+    /// not "no banks". An empty roster here would overwrite the real one *and*
+    /// persist it under `_roster`, so the dropdown would come up empty on the
+    /// next launch too.
     func fetchBanks(etag: String?) async throws -> Conditional<BanksResponse> {
         do {
             return try await getConditional("/banks", etag: etag)
         } catch APIError.httpError(404, _) {
-            return Conditional(value: BanksResponse(banks: [], active: nil), etag: nil, notModified: false)
+            return .unavailable(etag: etag)
         }
     }
 
