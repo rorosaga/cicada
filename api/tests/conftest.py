@@ -35,3 +35,8 @@ def _disable_logo_fetch(monkeypatch):
 @pytest.fixture(autouse=True)
 def _default_public_logo_resolver(monkeypatch):
     monkeypatch.setattr(logo_service, "_resolve_host", lambda host: ["93.184.216.34"])
+
+
+@pytest.fixture(autouse=True)
+def _disable_telemetry(monkeypatch):
+    monkeypatch.setenv("CICADA_TELEMETRY", "off")
