@@ -189,6 +189,20 @@ card's "Source to check" hint. Nothing is fetched in this slice.
 ### sqlite-vec (Vector Index)
 Lightweight on-device semantic search (`api/services/vector_index.py`, replaces the earlier LEANN wrapper — `leann_indexer.py` has been deleted). Embeddings are stored, not recomputed at query time, so search is a single in-process ANN lookup with no latency tax. Default backend is **EmbeddingGemma-300M** (768-dim, on-device, gated HF model) with asymmetric query/document embedding prompts; the index is *derived and disposable* — rebuilt from entity/episode markdown by the Sleep cycle, and can be deleted and regenerated at any time (see the Thesis Benchmarks note below on `benchmarks.rebuild_leann`'s historical name). Runs locally, zero cloud costs for the default backend.
 
+### Entity logos (`~/.cicada/logos/<bank>/`)
+`api/services/logo_service.py` resolves an entity page to a domain (explicit
+`logo:` frontmatter → a `url`-kind `sources:` entry → the first `## Links` URL →
+`media.url` → a `website` claim or a single-token-name `.com` guess, and never
+for a `person`), fetches an icon keylessly (`apple-touch-icon` → the homepage's
+`<link rel=icon>` → DuckDuckGo's icon service, 4 s, ≤ 512 KB, ≥ 16 px), and
+caches the result — hits for 30 days, misses for 7 — under
+`$CICADA_HOME/logos/<bank>/` with a `meta.json` index. **Never inside a bank:**
+a logo is a derived artifact of the outside world, not versioned memory.
+`GET /entities/{id}/logo` serves it (first request fetches, bounded by a
+semaphore of 4); `GET /graph` only reads the index to set `has_logo` and never
+touches the network. `CICADA_ALLOW_LOGO_FETCH=off` disables fetching entirely —
+the test suite runs that way and injects fetchers instead.
+
 ### Git (Versioning & Provenance)
 Every Sleep cycle commits with **structured commit messages** for machine-parseable provenance:
 
@@ -274,7 +288,7 @@ The user-facing interface for inspecting, managing, and curating the knowledge g
 SwiftUI app spawns the FastAPI server as a child process on launch using Swift's `Process()` API (`uvicorn api.main:app --port 8000`). User never manually starts the backend. On app quit, child process is terminated.
 
 ### Sync engine
-A single `Store` holds one `Snapshot` per domain (graph, inbox, sources, contributors, origins, status, banks, feeds, calendars, connections), hydrated instantly from a per-bank on-disk `SnapshotCache` (`~/Library/Application Support/Cicada/cache/<bank>/`) before the first network round-trip, so the app renders real data cold, even with the backend down. A `SyncEngine` holds one long-lived SSE connection to `GET /sync/events`, reconnecting with backoff and falling back to polling `GET /sync/version` while disconnected; each `version` event diffs against the last-seen vector and refreshes only the changed domains, every refresh sending `If-None-Match` so an unchanged domain costs a 304. View models are thin projections over `Store` snapshots (never blank — always the last-known-good data). Writes go through a `Mutation` protocol: optimistic apply to the local snapshot, rollback with a toast on failure. The graph view receives **deltas** (added/updated/removed node ids, each keyed by a `content_hash`) rather than a full re-layout, so d3 node positions are preserved across a Sleep cycle or a live edit. The sidebar's primary views are reachable via ⌘1–9 (with matching accessibility labels), entity logos are cached on disk, and ⌘K opens an Ask panel (G52) that sends a question to `POST /ask` and renders the answer with clickable wikilink citations.
+A single `Store` holds one `Snapshot` per domain (graph, inbox, sources, channels, contributors, origins, status, banks, feeds, calendars, connections), hydrated instantly from a per-bank on-disk `SnapshotCache` (`~/Library/Application Support/Cicada/cache/<bank>/`) before the first network round-trip, so the app renders real data cold, even with the backend down. A `SyncEngine` holds one long-lived SSE connection to `GET /sync/events`, reconnecting with backoff and falling back to polling `GET /sync/version` while disconnected; each `version` event diffs against the last-seen vector and refreshes only the changed domains, every refresh sending `If-None-Match` so an unchanged domain costs a 304. View models are thin projections over `Store` snapshots (never blank — always the last-known-good data). Writes go through a `Mutation` protocol: optimistic apply to the local snapshot, rollback with a toast on failure. The graph view receives **deltas** (added/updated/removed node ids, each keyed by a `content_hash`) rather than a full re-layout, so d3 node positions are preserved across a Sleep cycle or a live edit. The sidebar's primary views are reachable via ⌘1–9 (with matching accessibility labels), entity logos are cached on disk, and ⌘K opens an Ask panel (G52) that sends a question to `POST /ask` and renders the answer with clickable wikilink citations.
 
 ---
 
@@ -287,10 +301,10 @@ in `api/main.py` (`graph`, `search`, `ask`, `inbox`, `status`, `nudges`, `clarif
 
 Every endpoint except `GET /healthz` and `POST /capture/telegram` requires `Authorization: Bearer <token>` — the token lives at `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests). The Telegram webhook is exempt because Telegram's servers cannot send the header; today it is gated only by Telegram being configured (`CICADA_TELEGRAM_BOT_TOKEN`), not by a per-request secret — see G57.
 
-`/graph`, `/inbox`, `/contributors`, `/sources`, `/origins`, and `/banks` all support ETags: each response carries an `ETag` header, and a request sent with `If-None-Match` gets back a `304 Not Modified` (empty body) whenever nothing in that domain changed, letting the app skip re-parsing and re-rendering large payloads (`/graph` on the live bank is ~1.8 MB).
+`/graph`, `/inbox`, `/contributors`, `/sources`, `/sources/channels`, `/origins`, and `/banks` all support ETags: each response carries an `ETag` header, and a request sent with `If-None-Match` gets back a `304 Not Modified` (empty body) whenever nothing in that domain changed, letting the app skip re-parsing and re-rendering large payloads (`/graph` on the live bank is ~1.8 MB).
 
 ```
-GET  /graph                               → nodes + edges JSON for d3 (incl. synthetic repo: nodes)
+GET  /graph                               → nodes + edges JSON for d3 (incl. synthetic repo: nodes, has_logo)
 GET  /search                              → cross-graph search (entities + episodes)
 POST /ask                                 → grounded NL answer over the graph, with citations + gap analysis
 GET  /inbox                               → unified pending-item queue (nudges + clarifications + merge suggestions)
@@ -308,6 +322,7 @@ GET  /entities/{id}/location              → directory-entity listing
 GET  /entities/{id}/context               → entity + related context bundle
 GET  /entities/{id}/repos                 → declared repos: frontmatter + live-resolved git context per repo
 PATCH /entities/{id}/repos                → rewrite the repos: frontmatter key
+GET  /entities/{id}/logo                  → cached entity logo image (ETag, max-age=86400; 404 = draw a monogram)
 GET  /entities/{id}/sources               → declared "where to check this fact" sources (G61)
 POST /entities/{id}/sources               → append a source {ref, kind?, predicate?}; kind inferred
 DELETE /entities/{id}/sources/{index}     → remove one source
@@ -324,6 +339,7 @@ POST /conversations/upload                → ingest a conversation export file
 POST /sources/save, /sources/upload,
      /sources/rss, /sources/sync-bookmarks → capture links/files/RSS/bookmarks into memory
 GET  /sources                             → list ingested sources
+GET  /sources/channels                    → capture channels + whether each is actually connected (G62)
 GET/POST/DELETE /sources/feeds            → RSS feed subscription management
 POST /sources/poll-feeds                  → on-demand RSS poll
 GET/POST /banks, POST /banks/{name}/activate|duplicate|rename|import → memory-bank management
