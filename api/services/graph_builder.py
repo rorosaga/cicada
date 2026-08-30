@@ -93,6 +93,10 @@ def _build_full(memory_path: Path) -> GraphResponse:
         _mtime(edges_file),
         _dir_mtime(hubs_dir),
         _inbox_mtime(memory_path),
+        # G59: the logo cache lives outside the bank, so a warm-up or an
+        # on-demand fetch moves no other key here — without this the cached
+        # response keeps every node's stale `has_logo` (and `content_hash`).
+        _mtime(logo_service.meta_path(logo_service.bank_name(memory_path))),
     )
     if _CACHE["key"] == key:
         return _CACHE["value"]

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, UploadFile
+from starlette.concurrency import run_in_threadpool
 from loguru import logger
 from pydantic import BaseModel
 
@@ -386,8 +387,13 @@ async def list_source_channels(
     etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
-    channels = channel_registry.build_channels(
-        memory_path, telegram_enabled=settings.telegram_enabled
+    # Off the event loop: `build_channels` runs the same full episode+entity
+    # origin scan `/origins` does, which on a cold `bank_index` re-parses every
+    # frontmatter inline and would stall the SSE stream (see `/origins`).
+    channels = await run_in_threadpool(
+        channel_registry.build_channels,
+        memory_path,
+        telegram_enabled=settings.telegram_enabled,
     )
     return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
 

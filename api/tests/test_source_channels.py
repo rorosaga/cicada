@@ -183,3 +183,27 @@ def test_sync_notes_endpoint_records_sync_state(client):
     notes_state = sync_state.read_sync_state(memory).get("notes", {})
     assert notes_state.get("last_sync")
     assert notes_state.get("count") == 0
+
+
+def test_build_channels_runs_off_the_event_loop(client, monkeypatch):
+    """MED-2: `build_channels` runs the same full episode+entity origin scan
+    `/origins` does, so it must go through `run_in_threadpool` — running it
+    inline stalls the SSE stream and every concurrent request."""
+    import asyncio
+
+    from api.routers import sources as sources_router
+
+    real = sources_router.channel_registry.build_channels
+    seen: list[bool] = []
+
+    def spy(memory_path, **kwargs):
+        try:
+            asyncio.get_running_loop()
+            seen.append(True)  # called on the event loop thread
+        except RuntimeError:
+            seen.append(False)  # called on a worker thread — correct
+        return real(memory_path, **kwargs)
+
+    monkeypatch.setattr(sources_router.channel_registry, "build_channels", spy)
+    assert client[0].get("/sources/channels").status_code == 200
+    assert seen == [False], "build_channels must not run on the event loop"

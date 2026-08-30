@@ -35,6 +35,7 @@ headers directly so a 1×1 tracking pixel is rejected without a decode.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import os
@@ -426,23 +427,45 @@ async def fetch_logo(
 # --- cache ------------------------------------------------------------------
 
 
-def _meta_path(bank: str) -> Path:
-    return logos_dir(bank) / META_FILENAME
+def meta_path(bank: str) -> Path:
+    """This bank's logo index, **without creating anything**.
+
+    ``logos_dir`` mkdirs; this doesn't, because ``sync_service.components``
+    stats it on every version poll (~1/s) and must not conjure a cache
+    directory for a bank that has never had a logo fetched. Honours the same
+    ``$CICADA_HOME`` override ``auth.cicada_home`` uses.
+    """
+    raw = os.environ.get("CICADA_HOME") or str(Path.home() / ".cicada")
+    return Path(raw).expanduser() / CACHE_DIR_NAME / (bank or "default") / META_FILENAME
 
 
 def read_meta(bank: str) -> dict:
     try:
-        data = json.loads(_meta_path(bank).read_text(encoding="utf-8"))
+        data = json.loads(meta_path(bank).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
 
 
 def write_meta(bank: str, meta: dict) -> None:
+    """Replace the index atomically (tmp + ``os.replace``).
+
+    Callers inside this process are serialised by ``_lock("meta")``; the atomic
+    rename is for the cross-process case (the CLI sleep cycle and the running
+    API server share one cache), so a concurrent reader never sees a half-
+    written file.
+    """
+    path = logos_dir(bank) / META_FILENAME  # mkdirs; the write needs the dir
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
-        _meta_path(bank).write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        tmp.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
     except OSError as exc:
         logger.warning(f"Could not write logo meta for {bank}: {type(exc).__name__}: {exc}")
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
 
 
 def is_fresh(entry: dict, *, now: datetime | None = None) -> bool:
@@ -485,12 +508,55 @@ def cached_ids(bank: str) -> set[str]:
     }
 
 
+# --- concurrency -------------------------------------------------------------
+#
+# `_lock("meta")` serialises the read-modify-write of a bank's `meta.json` so
+# a fetch that finishes second can't drop the entry the first one wrote — its
+# image would sit on disk unreferenced, silently re-fetched next request while
+# `has_logo` flickers. (Within one loop the read and the write are adjacent, so
+# the window opens when a second loop or a second process — the CLI sleep cycle
+# beside the running server — writes the same index; `write_meta`'s atomic
+# rename covers the rest of that case.)
+#
+# `_lock(f"entity:{bank}/{id}")` makes two concurrent requests for the same
+# entity run the three-rung fetch ladder once: the loser waits and then finds a
+# fresh cache entry. (The inbox row and the detail card for one entity render
+# together, so this is the common case, not a corner one.)
+#
+# Locks are cached per running loop rather than created at import: an
+# `asyncio.Lock` binds to the first loop that contends on it, and this process
+# runs more than one loop over its life (the CLI sleep cycle, and every
+# `asyncio.run` in the test suite). The cache is dropped wholesale when the
+# running loop changes, so it holds a strong reference to at most one loop and
+# never grows without bound.
+_locks: dict[str, asyncio.Lock] = {}
+_lock_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _lock(name: str) -> asyncio.Lock:
+    global _lock_loop
+    loop = asyncio.get_running_loop()
+    if loop is not _lock_loop:
+        _lock_loop = loop
+        _locks.clear()
+    lock = _locks.get(name)
+    if lock is None:
+        lock = _locks[name] = asyncio.Lock()
+    return lock
+
+
 async def ensure_logo(memory_path: Path, entity_id: str, *, fetcher: Fetcher | None = None) -> Path | None:
     """Resolve → cache-check → fetch → store. Returns the file, or None for a
     page with no resolvable domain, a fetch miss, or a gated-off fetch."""
     memory_path = Path(memory_path)
     bank = bank_name(memory_path)
+    async with _lock(f"entity:{bank}/{entity_id}"):
+        return await _ensure_logo_locked(memory_path, bank, entity_id, fetcher=fetcher)
 
+
+async def _ensure_logo_locked(
+    memory_path: Path, bank: str, entity_id: str, *, fetcher: Fetcher | None = None
+) -> Path | None:
     entry = read_meta(bank).get(entity_id)
     if entry and is_fresh(entry):
         return cached_path(bank, entity_id)
@@ -514,11 +580,12 @@ async def ensure_logo(memory_path: Path, entity_id: str, *, fetcher: Fetcher | N
 
     result = await fetch_logo(domain, fetcher=fetcher)
     now = datetime.now(timezone.utc).isoformat()
-    meta = read_meta(bank)
 
     if result is None:
-        meta[entity_id] = {"fetched_at": now, "domain": domain, "miss": True, "etag": None, "ext": None}
-        write_meta(bank, meta)
+        await _record_meta(
+            bank, entity_id,
+            {"fetched_at": now, "domain": domain, "miss": True, "etag": None, "ext": None},
+        )
         return None
 
     body, ext, etag = result
@@ -528,9 +595,23 @@ async def ensure_logo(memory_path: Path, entity_id: str, *, fetcher: Fetcher | N
     except OSError as exc:
         logger.warning(f"Could not cache logo for {entity_id}: {type(exc).__name__}: {exc}")
         return None
-    meta[entity_id] = {"fetched_at": now, "domain": domain, "miss": False, "etag": etag, "ext": ext}
-    write_meta(bank, meta)
+    await _record_meta(
+        bank, entity_id,
+        {"fetched_at": now, "domain": domain, "miss": False, "etag": etag, "ext": ext},
+    )
     return path
+
+
+async def _record_meta(bank: str, entity_id: str, entry: dict) -> None:
+    """Read-modify-write one entry under ``_lock("meta")``.
+
+    The re-read *inside* the lock is the point: the copy this coroutine loaded
+    before its ``await``ed fetch is stale by now.
+    """
+    async with _lock("meta"):
+        meta = read_meta(bank)
+        meta[entity_id] = entry
+        write_meta(bank, meta)
 
 
 async def warm_logos(memory_path: Path, *, limit: int = 50, fetcher: Fetcher | None = None) -> int:

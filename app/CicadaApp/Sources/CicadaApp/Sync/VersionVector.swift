@@ -11,6 +11,10 @@ struct VersionVector: Codable, Equatable {
         // `sync_state.json` (see `sync_service.components`), so the feed,
         // calendar and capture-channel lists all ride it.
         "sources": [.sources, .feeds, .calendars, .channels], "git_head": [.contributors], "sleep": [.status],
+        // The logo cache sits outside the bank; a Sleep warm-up or an on-demand
+        // fetch changes `/graph`'s `hasLogo` and nothing else, so it needs its
+        // own key or the node keeps painting a monogram.
+        "logos": [.graph],
     ]
 
     func changedDomains(since old: VersionVector?) -> Set<SyncDomain> {

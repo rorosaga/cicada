@@ -111,3 +111,29 @@ def test_graph_never_fetches(client, monkeypatch):
 
     monkeypatch.setattr(logo_service, "_http_get", explode)
     assert c.get("/graph").status_code == 200
+
+
+def test_warming_a_logo_moves_the_graph_etag_and_the_version_vector(client):
+    """HIGH-1: the logo cache lives outside the bank, so nothing in `memory/`
+    moves when a logo is warmed. Without a `logos` component the app's
+    conditional GET 304s forever and the node keeps painting a monogram."""
+    c, memory = client
+    write_entity(memory, "acme", ["name: Acme", "type: company", "logo: https://acme.example/x.png"])
+    bank_index.invalidate()
+
+    first = c.get("/graph")
+    etag = first.headers["ETag"]
+    assert first.json()["nodes"][0]["hasLogo"] is False
+    version = c.get("/sync/version").json()["version"]
+    assert c.get("/graph", headers={"If-None-Match": etag}).status_code == 304
+
+    assert seed_cached_logo(memory, "acme") is not None
+    # Deliberately no bank_index/graph cache busting: the fix has to work with
+    # every cache in place, exactly as it does in the running app.
+
+    after = c.get("/graph", headers={"If-None-Match": etag})
+    assert after.status_code == 200, "the warmed logo must invalidate /graph's ETag"
+    assert after.headers["ETag"] != etag
+    assert after.json()["nodes"][0]["hasLogo"] is True
+    assert c.get("/sync/version").json()["version"] != version
+    assert "logos" in c.get("/sync/version").json()["components"]

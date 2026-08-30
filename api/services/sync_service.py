@@ -14,7 +14,7 @@ from pathlib import Path
 
 from fastapi import Request, Response
 
-from api.services import bank_index, markdown_parser
+from api.services import bank_index, logo_service, markdown_parser
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
 from api.services.graph_builder import dir_mtime, file_mtime, inbox_mtime
@@ -127,6 +127,12 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
             f":{file_mtime(mp / CALENDARS_FILENAME):.6f}"
             f":{file_mtime(mp / SYNC_STATE_FILENAME):.6f}"
         ),
+        # The logo cache lives at `$CICADA_HOME/logos/<bank>/`, *outside* the
+        # memory bank, so no other component notices when a warm-up or an
+        # on-demand fetch flips an entity to "has a logo" — and `/graph` bakes
+        # `has_logo` into every node's `content_hash`. Without this the app's
+        # conditional GET 304s and the node keeps painting a monogram forever.
+        "logos": f"{file_mtime(logo_service.meta_path(logo_service.bank_name(mp))):.6f}",
         "git_head": git_head(mp),
         "bank": mp.name,
         "sleep": f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}",

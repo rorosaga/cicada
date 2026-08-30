@@ -30,7 +30,9 @@ async def get_graph(
 ):
     extra = f"{types}|{statuses}|{min_confidence}|{tags}|{include_hubs}|{hubs_only}"
     etag = sync_service.etag_for(
-        settings.memory_path, "entities", "edges", "hubs", "inbox", extra=extra
+        # "logos": `has_logo` rides every node's content_hash but lives in the
+        # machine-global logo cache, not in the bank — see sync_service.
+        settings.memory_path, "entities", "edges", "hubs", "inbox", "logos", extra=extra
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early

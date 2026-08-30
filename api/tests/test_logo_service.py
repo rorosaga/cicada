@@ -380,3 +380,86 @@ def test_ensure_logo_refuses_a_file_scheme_logo_frontmatter(workspace):
     calls: list[str] = []
     assert run(logo_service.ensure_logo(workspace, "rodrigo", fetcher=make_fetcher({}, calls))) is None
     assert calls == [], "a file:// value has no host and must never reach the fetcher"
+
+
+def test_concurrent_fetches_for_two_entities_both_land_in_the_index(workspace):
+    """MED-1: `ensure_logo` reads the whole index *after* an awaited fetch. Two
+    in-flight fetches must not clobber each other's entry — the loser's image
+    would sit on disk unreferenced and `has_logo` would flicker."""
+    for eid, host in (("mongodb", "mongodb.com"), ("acme", "acme.example")):
+        write_entity(workspace, eid, [f"name: {eid}", "type: tool", f"logo: https://{host}/x.png"])
+
+    started = asyncio.Event()
+
+    def slow_fetcher(host):
+        async def fetcher(url):
+            if url == f"https://{host}/apple-touch-icon.png":
+                # Both fetches are in flight before either writes the index.
+                started.set()
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+                return logo_service.FetchResult(200, png_bytes(180, 180), "image/png")
+            return logo_service.FetchResult(404, b"", "text/html")
+        return fetcher
+
+    async def both():
+        return await asyncio.gather(
+            logo_service.ensure_logo(workspace, "mongodb", fetcher=slow_fetcher("mongodb.com")),
+            logo_service.ensure_logo(workspace, "acme", fetcher=slow_fetcher("acme.example")),
+        )
+
+    paths = asyncio.run(both())
+    assert all(p is not None and p.exists() for p in paths)
+    assert started.is_set()
+    meta = logo_service.read_meta("claude-chats")
+    assert set(meta) == {"mongodb", "acme"}, "a concurrent write dropped an entry"
+    assert logo_service.cached_ids("claude-chats") == {"mongodb", "acme"}
+
+
+def test_concurrent_requests_for_one_entity_run_the_ladder_once(workspace):
+    """MED-3: the second caller for the same entity must wait on the first and
+    then be served from the cache, not re-run the three-rung ladder."""
+    write_entity(workspace, "mongodb",
+                 ["name: MongoDB", "type: tool", "logo: https://mongodb.com/x.png"])
+    calls: list[str] = []
+
+    async def fetcher(url):
+        calls.append(url)
+        await asyncio.sleep(0)
+        if url == "https://mongodb.com/apple-touch-icon.png":
+            return logo_service.FetchResult(200, png_bytes(180, 180), "image/png")
+        return logo_service.FetchResult(404, b"", "text/html")
+
+    async def twice():
+        return await asyncio.gather(
+            logo_service.ensure_logo(workspace, "mongodb", fetcher=fetcher),
+            logo_service.ensure_logo(workspace, "mongodb", fetcher=fetcher),
+        )
+
+    first, second = asyncio.run(twice())
+    assert first is not None and first == second
+    assert calls == ["https://mongodb.com/apple-touch-icon.png"], (
+        f"the ladder ran more than once for one entity: {calls}")
+
+
+def test_write_meta_never_corrupts_the_index_when_a_write_fails(workspace, monkeypatch):
+    """MED-1 (the reachable half): the index is replaced by rename, so a failed
+    or interrupted write — the CLI sleep cycle and the server share one cache
+    file across processes — can never leave a truncated `meta.json` behind."""
+    good = {"mongodb": {"fetched_at": datetime.now(timezone.utc).isoformat(),
+                        "domain": "mongodb.com", "miss": False, "etag": None, "ext": "png"}}
+    logo_service.write_meta("claude-chats", good)
+    assert logo_service.read_meta("claude-chats") == good
+
+    real_write_text = logo_service.Path.write_text
+
+    def half_a_write(self, data, *args, **kwargs):
+        real_write_text(self, data[: len(data) // 2], *args, **kwargs)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(logo_service.Path, "write_text", half_a_write)
+    logo_service.write_meta("claude-chats", {**good, "acme": dict(good["mongodb"])})
+
+    assert logo_service.read_meta("claude-chats") == good, "a failed write corrupted the index"
+    leftovers = list(logo_service.logos_dir("claude-chats").glob("meta.json.*"))
+    assert leftovers == [], f"a failed write left a temp file behind: {leftovers}"

@@ -135,3 +135,28 @@ def test_powers_are_empty_when_nothing_is_connected():
     statuses = [ConnectionStatus(id="ollama-local", label="Ollama", kind=ConnectionKind.local)]
     registry.Registry.assign_powers(statuses)
     assert statuses[0].powers == []
+
+
+def test_single_connection_status_carries_the_same_powers_as_the_full_set():
+    """MED-4: `GET /connections/{id}` (and the login poll, and every mutation)
+    used to return `powers: []` because only `statuses()` assigned them — the
+    app writes that row straight into its store, so a card visibly lost its
+    "Powers" line for the whole 5 minutes of login polling."""
+    from api.models.schemas import ConnectionKind, ConnectionStatus
+
+    class FakeAdapter:
+        def __init__(self, cid, connected):
+            self.id, self._connected = cid, connected
+
+        async def status(self):
+            return ConnectionStatus(id=self.id, label=self.id, kind=ConnectionKind.subscription,
+                                    available=True, connected=self._connected)
+
+    reg = registry.Registry(Settings(memory_path="/tmp/does-not-exist"))
+    reg.adapters = lambda: [FakeAdapter("claude-plan", True),
+                            FakeAdapter("chatgpt-plan", True),
+                            FakeAdapter("byok-openai", False)]
+
+    assert run(reg.status_with_powers("claude-plan")).powers == registry.ENGINE_POWERS
+    assert run(reg.status_with_powers("chatgpt-plan")).powers == registry.STANDBY_POWERS
+    assert run(reg.status_with_powers("byok-openai")).powers == []

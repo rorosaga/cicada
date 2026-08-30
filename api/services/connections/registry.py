@@ -109,6 +109,23 @@ class Registry:
         self._cache[connection_id] = (now, status)
         return status
 
+    async def status_with_powers(self, connection_id: str, fresh: bool = False) -> ConnectionStatus:
+        """One connection's status, carrying the same ``powers`` the full set
+        would give it.
+
+        ``powers`` is a property of the *set*, not of an adapter — only the
+        first connected adapter is the engine — so a single probe can't derive
+        it and ``status()`` leaves it ``[]``. Single-connection responses go
+        straight into the app's store (``ConnectionsViewModel.pollUntilConnected``
+        writes the row it polls), so returning ``[]`` visibly drops a card's
+        "Powers" line. Probe the whole ordered set (warm-cached per adapter,
+        so this is usually free) and return the requested row from it.
+        """
+        for status in await self.statuses(fresh=fresh):
+            if status.id == connection_id:
+                return status
+        return await self.status(connection_id, fresh=fresh)
+
     async def statuses(self, fresh: bool = False) -> list[ConnectionStatus]:
         """Probe every adapter concurrently, preserving adapter order.
 
