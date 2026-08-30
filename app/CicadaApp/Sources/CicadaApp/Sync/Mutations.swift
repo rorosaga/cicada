@@ -128,14 +128,33 @@ enum ClientPricing {
     }
 }
 
-/// Base for the four connection mutations: each replaces one row in
-/// `store.connections` and restores the whole previous array on failure.
+/// Base for the four connection mutations: replaces one row in
+/// `store.connections`, returning the row as it was so `rollback` can put
+/// *that row* back without touching the rest of the array.
+///
+/// Restoring the whole memoised array would clobber anything that landed while
+/// the request was in flight (an SSE-driven refresh, another mutation) — the
+/// rollback must be as narrow as the optimistic change was.
 @MainActor
+@discardableResult
 private func patchConnection(_ store: Store, id: String,
-                             _ transform: (ConnectionStatus) -> ConnectionStatus) {
+                             _ transform: (ConnectionStatus) -> ConnectionStatus) -> ConnectionStatus? {
     guard var rows = store.connections.value,
-          let index = rows.firstIndex(where: { $0.id == id }) else { return }
+          let index = rows.firstIndex(where: { $0.id == id }) else { return nil }
+    let before = rows[index]
     rows[index] = transform(rows[index])
+    store.connections.value = rows
+    return before
+}
+
+/// Put one row back exactly as it was, leaving every other row alone. A row
+/// that vanished from the array meanwhile (a refresh dropped it) is not
+/// resurrected — the follow-up reconcile in `Store.perform` is authoritative.
+@MainActor
+private func restoreConnection(_ store: Store, _ row: ConnectionStatus?) {
+    guard let row, var rows = store.connections.value,
+          let index = rows.firstIndex(where: { $0.id == row.id }) else { return }
+    rows[index] = row
     store.connections.value = rows
 }
 
@@ -144,7 +163,7 @@ private func patchConnection(_ store: Store, id: String,
 struct SetConnectionTier: Mutation {
     let id: String
     let tier: String?
-    private let memo = MutationMemo<[ConnectionStatus]>()
+    private let memo = MutationMemo<ConnectionStatus>()
 
     init(id: String, tier: String?) {
         self.id = id
@@ -152,8 +171,7 @@ struct SetConnectionTier: Mutation {
     }
 
     func optimistic(_ store: Store) async {
-        memo.value = store.connections.value
-        patchConnection(store, id: id) { row in
+        memo.value = patchConnection(store, id: id) { row in
             row.patching(
                 tier: .some(tier),
                 planLabel: .some(ClientPricing.planLabel(id, plan: row.plan, tier: tier)),
@@ -168,17 +186,21 @@ struct SetConnectionTier: Mutation {
     }
 
     func rollback(_ store: Store) async {
-        if let previous = memo.value { store.connections.value = previous }
+        restoreConnection(store, memo.value)
     }
 
     var failureMessage: String { "Couldn't change the plan tier — reverted" }
+    /// Reconciled on both paths: on success the server's real row (account,
+    /// price note) replaces the locally-painted one; on failure it settles
+    /// whatever else moved while the write was in flight.
+    var refreshDomains: Set<SyncDomain> { [.connections] }
 }
 
 /// Save an API key for a key-based connection: it reads as connected at once.
 struct SetConnectionKey: Mutation {
     let id: String
     let key: String
-    private let memo = MutationMemo<[ConnectionStatus]>()
+    private let memo = MutationMemo<ConnectionStatus>()
 
     init(id: String, key: String) {
         self.id = id
@@ -186,8 +208,7 @@ struct SetConnectionKey: Mutation {
     }
 
     func optimistic(_ store: Store) async {
-        memo.value = store.connections.value
-        patchConnection(store, id: id) { $0.patching(connected: true) }
+        memo.value = patchConnection(store, id: id) { $0.patching(connected: true) }
     }
 
     func request(_ api: any SyncAPI) async throws {
@@ -195,21 +216,24 @@ struct SetConnectionKey: Mutation {
     }
 
     func rollback(_ store: Store) async {
-        if let previous = memo.value { store.connections.value = previous }
+        restoreConnection(store, memo.value)
     }
 
     var failureMessage: String { "Couldn't save that key — reverted" }
+    /// Reconciled on both paths: on success the server's real row (account,
+    /// price note) replaces the locally-painted one; on failure it settles
+    /// whatever else moved while the write was in flight.
+    var refreshDomains: Set<SyncDomain> { [.connections] }
 }
 
 struct RemoveConnectionKey: Mutation {
     let id: String
-    private let memo = MutationMemo<[ConnectionStatus]>()
+    private let memo = MutationMemo<ConnectionStatus>()
 
     init(id: String) { self.id = id }
 
     func optimistic(_ store: Store) async {
-        memo.value = store.connections.value
-        patchConnection(store, id: id) { $0.patching(connected: false) }
+        memo.value = patchConnection(store, id: id) { $0.patching(connected: false) }
     }
 
     func request(_ api: any SyncAPI) async throws {
@@ -217,21 +241,24 @@ struct RemoveConnectionKey: Mutation {
     }
 
     func rollback(_ store: Store) async {
-        if let previous = memo.value { store.connections.value = previous }
+        restoreConnection(store, memo.value)
     }
 
     var failureMessage: String { "Couldn't remove that key — reverted" }
+    /// Reconciled on both paths: on success the server's real row (account,
+    /// price note) replaces the locally-painted one; on failure it settles
+    /// whatever else moved while the write was in flight.
+    var refreshDomains: Set<SyncDomain> { [.connections] }
 }
 
 struct LogoutConnection: Mutation {
     let id: String
-    private let memo = MutationMemo<[ConnectionStatus]>()
+    private let memo = MutationMemo<ConnectionStatus>()
 
     init(id: String) { self.id = id }
 
     func optimistic(_ store: Store) async {
-        memo.value = store.connections.value
-        patchConnection(store, id: id) { $0.patching(connected: false) }
+        memo.value = patchConnection(store, id: id) { $0.patching(connected: false) }
     }
 
     func request(_ api: any SyncAPI) async throws {
@@ -239,10 +266,14 @@ struct LogoutConnection: Mutation {
     }
 
     func rollback(_ store: Store) async {
-        if let previous = memo.value { store.connections.value = previous }
+        restoreConnection(store, memo.value)
     }
 
     var failureMessage: String { "Couldn't disconnect — reverted" }
+    /// Reconciled on both paths: on success the server's real row (account,
+    /// price note) replaces the locally-painted one; on failure it settles
+    /// whatever else moved while the write was in flight.
+    var refreshDomains: Set<SyncDomain> { [.connections] }
 }
 
 // MARK: - Feeds & calendars
@@ -391,7 +422,12 @@ struct ActivateBank: Mutation {
     }
 
     var failureMessage: String { "Couldn't switch project — reverted" }
-    var refreshDomains: Set<SyncDomain> { [.banks] }
+    /// Every domain, not just `.banks`. `Store.refresh`'s own bank-switch
+    /// fan-out keys off `active != previous`, and `optimistic` already moved
+    /// `store.bank`, so that branch can never fire here — this mutation owns
+    /// the post-switch reconcile itself. `refresh` walks `SyncDomain.allCases`
+    /// with `.banks` first, exactly as `refreshAll` does.
+    var refreshDomains: Set<SyncDomain> { Set(SyncDomain.allCases) }
 }
 
 // MARK: - Sleep
@@ -400,12 +436,16 @@ struct ActivateBank: Mutation {
 /// dashboard and the menu-bar bookworm react on the click, not on the first
 /// poll tick.
 struct TriggerSleep: Mutation {
-    private let memo = MutationMemo<StatusSnapshot?>()
+    /// Only the sleep *status string* is memoised, not the whole snapshot: a
+    /// `/status` refresh or an SSE sleep event can land while the POST is in
+    /// flight, and restoring a whole stale snapshot would throw its inbox and
+    /// episode counts away too.
+    private let memo = MutationMemo<String>()
 
     init() {}
 
     func optimistic(_ store: Store) async {
-        memo.value = store.status.value
+        memo.value = store.status.value?.sleep.status
         store.status.value?.sleep.status = "running"
     }
 
@@ -414,7 +454,11 @@ struct TriggerSleep: Mutation {
     }
 
     func rollback(_ store: Store) async {
-        if let previous = memo.value { store.status.value = previous }
+        // Only un-flip our own change, and only if nothing else has moved the
+        // status on in the meantime.
+        if let previous = memo.value, store.status.value?.sleep.status == "running" {
+            store.status.value?.sleep.status = previous
+        }
     }
 
     var failureMessage: String { "Couldn't start the sleep cycle — reverted" }

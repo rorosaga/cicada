@@ -33,6 +33,9 @@ final class MutationTests: XCTestCase {
         let store = Store(cache: tempCache(), api: api)
         store.inbox.value = try inboxItems(["a", "b", "c"])
 
+        // `Store.perform` reconciles on the failure path too; answer it 304 so
+        // what we observe is exactly what `rollback` left behind.
+        api.replies[.inbox] = .notModified
         api.gateWrites = true
         api.failWrites = true
         let inFlight = Task { await store.perform(InboxResolve(id: "b", action: "archive")) }
@@ -121,6 +124,7 @@ final class MutationTests: XCTestCase {
     func testTierChangeRollsBackToThePreviousRow() async throws {
         let api = FakeSyncAPI()
         api.failWrites = true
+        api.replies[.connections] = .notModified
         let store = Store(cache: tempCache(), api: api)
         store.connections.value = [connection(id: "claude-plan", plan: "max", tier: "5x")]
 
@@ -135,6 +139,7 @@ final class MutationTests: XCTestCase {
         let api = FakeSyncAPI()
         let store = Store(cache: tempCache(), api: api)
         store.connections.value = [connection(id: "claude-plan", plan: "max", tier: "20x")]
+        api.replies[.connections] = .notModified
 
         api.gateWrites = true
         api.failWrites = true
@@ -153,6 +158,7 @@ final class MutationTests: XCTestCase {
     func testSubscribeFeedAppendsThenRollsBack() async throws {
         let api = FakeSyncAPI()
         api.failWrites = true
+        api.replies[.feeds] = .notModified
         let store = Store(cache: tempCache(), api: api)
         store.feeds.value = [FeedSubscription(url: "https://a.example/rss")]
 
@@ -165,6 +171,7 @@ final class MutationTests: XCTestCase {
     func testUnsubscribeCalendarReinsertsAtTheSameIndex() async throws {
         let api = FakeSyncAPI()
         api.failWrites = true
+        api.replies[.calendars] = .notModified
         let store = Store(cache: tempCache(), api: api)
         store.calendars.value = [
             CalendarSubscription(url: "webcal://one"),
@@ -201,6 +208,9 @@ final class MutationTests: XCTestCase {
         XCTAssertEqual(store.bank, "A")
         XCTAssertEqual(store.inbox.value?.map(\.id), ["a1"])
 
+        // The reconcile that follows (success or failure) must not overwrite
+        // the hydrated inbox with the fake's default fixture.
+        api.replies[.inbox] = .notModified
         api.gateWrites = true
         let inFlight = Task { await store.perform(ActivateBank(name: "B")) }
         await api.waitForParkedWrite()
@@ -227,6 +237,9 @@ final class MutationTests: XCTestCase {
     func testTriggerSleepFlipsStatusRunningAndRollsBack() async throws {
         let api = FakeSyncAPI()
         api.failWrites = true
+        // `/status` is unconditional (no 304); make the failure-path reconcile
+        // throw instead, which leaves the snapshot untouched.
+        api.replies[.status] = .failure
         let store = Store(cache: tempCache(), api: api)
         store.status.value = StatusSnapshot(
             sleep: .init(status: "idle", stage: 0, totalStages: 5, cycleId: nil, error: nil),
@@ -244,5 +257,130 @@ final class MutationTests: XCTestCase {
         XCTAssertFalse(ok)
         XCTAssertEqual(store.status.value?.sleep.status, "idle", "a failed trigger restores the status")
         XCTAssertEqual(store.toast, "Couldn't start the sleep cycle — reverted")
+    }
+
+    // MARK: - Review fixes
+
+    /// Inbox ids are only unique within a bank (`inbox-001` exists in every
+    /// one), so an optimistic hide must not survive a bank switch — otherwise
+    /// resolving A's `inbox-001` permanently blanks B's.
+    func testHiddenInboxIdsDoNotSurviveABankSwitch() async throws {
+        let cache = tempCache()
+        let shared = try inboxItems(["inbox-001", "inbox-002"])
+        await cache.save(shared, etag: "\"ib\"", domain: .inbox, bank: "B")
+        await cache.flush()
+
+        let api = FakeSyncAPI()
+        let store = Store(cache: cache, api: api)
+        await store.hydrate(bank: "A")
+        store.inbox.value = shared
+        store.hiddenInboxIds.insert("inbox-001")
+        XCTAssertEqual(store.visibleInbox.map(\.id), ["inbox-002"])
+
+        await store.hydrate(bank: "B")
+
+        XCTAssertTrue(store.hiddenInboxIds.isEmpty, "hides are per-bank")
+        XCTAssertEqual(store.visibleInbox.map(\.id), ["inbox-001", "inbox-002"],
+                       "bank B's own item with the same id must be visible")
+    }
+
+    /// `optimistic` moves `store.bank` before the `.banks` refresh runs, so
+    /// `Store.refresh`'s own `active != previous` fan-out can never fire for an
+    /// activate — the mutation has to ask for every domain itself.
+    func testActivateBankReconcilesEveryDomain() async throws {
+        let cache = tempCache()
+        let roster: BanksResponse = try JSONDecoder().decode(
+            BanksResponse.self,
+            from: Data(#"{"banks":[{"name":"A","active":true},{"name":"B"}],"active":"A"}"#.utf8))
+        await cache.save(roster, etag: "\"r\"", domain: .banks, bank: Store.rosterBank)
+        await cache.flush()
+
+        let api = FakeSyncAPI()
+        api.replies[.banks] = .value(roster)
+        let store = Store(cache: cache, api: api)
+        await store.hydrate()
+
+        // The server agrees B is active by the time the reconcile asks, so
+        // `Store.refresh`'s own `active != previous` fan-out stays silent —
+        // whatever gets fetched here is what this mutation asked for.
+        api.replies[.banks] = .value(try JSONDecoder().decode(
+            BanksResponse.self,
+            from: Data(#"{"banks":[{"name":"A"},{"name":"B","active":true}],"active":"B"}"#.utf8)))
+        api.calls.removeAll()
+
+        let ok = await store.perform(ActivateBank(name: "B"))
+        XCTAssertTrue(ok)
+        XCTAssertEqual(Set(api.calls), Set(SyncDomain.allCases),
+                       "a successful activate reconciles the whole bank")
+        XCTAssertEqual(api.calls.first, .banks, "the roster is refreshed first")
+    }
+
+    /// A refresh landing while the write is parked must survive the rollback:
+    /// only the row this mutation touched is put back, and `perform` reconciles
+    /// `.connections` afterwards so the server has the last word either way.
+    func testRollbackKeepsConcurrentServerStateAndRefreshes() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        store.connections.value = [connection(id: "claude-plan", plan: "max", tier: "5x")]
+
+        api.gateWrites = true
+        api.failWrites = true
+        let inFlight = Task { await store.perform(SetConnectionTier(id: "claude-plan", tier: "20x")) }
+        await api.waitForParkedWrite()
+        XCTAssertEqual(store.connections.value?.first?.tier, "20x")
+
+        // An SSE-driven refresh lands mid-flight: a newer array, with a row
+        // this mutation knows nothing about.
+        api.replies[.connections] = .value([
+            connection(id: "claude-plan", plan: "max", tier: "20x"),
+            connection(id: "chatgpt-plan", plan: "pro", tier: "5x"),
+        ])
+        await store.refresh([.connections])
+        XCTAssertEqual(store.connections.value?.count, 2)
+
+        // Now fail the write. The post-rollback reconcile is answered 304, so
+        // what we observe is exactly what the rollback left behind.
+        api.replies[.connections] = .notModified
+        let callsBefore = api.calls.filter { $0 == .connections }.count
+        api.releaseWriteGate()
+        let ok = await inFlight.value
+
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.connections.value?.count, 2,
+                       "the row that arrived mid-flight must not be clobbered")
+        XCTAssertEqual(store.connections.value?.first(where: { $0.id == "chatgpt-plan" })?.tier, "5x")
+        XCTAssertEqual(store.connections.value?.first(where: { $0.id == "claude-plan" })?.tier, "5x",
+                       "only the affected row is reverted, to its pre-mutation value")
+        XCTAssertGreaterThan(api.calls.filter { $0 == .connections }.count, callsBefore,
+                             "the failure path reconciles with the server")
+    }
+
+    /// The same narrowness for the sleep status: a `/status` refresh that
+    /// landed mid-flight keeps its inbox/episode counters through the rollback.
+    func testTriggerSleepRollbackKeepsTheRestOfTheSnapshot() async throws {
+        let api = FakeSyncAPI()
+        api.replies[.status] = .failure
+        let store = Store(cache: tempCache(), api: api)
+        store.status.value = StatusSnapshot(
+            sleep: .init(status: "idle", stage: 0, totalStages: 5, cycleId: nil, error: nil),
+            inbox: .init(total: 0, byKind: [:]),
+            episodes: .init(unprocessed: 0, lastIngestedAt: nil),
+            lastSleepAt: nil, nextSleepAt: nil)
+
+        api.gateWrites = true
+        api.failWrites = true
+        let inFlight = Task { await store.perform(TriggerSleep()) }
+        await api.waitForParkedWrite()
+
+        // A newer status lands while the trigger is in flight.
+        store.status.value?.episodes.unprocessed = 7
+
+        api.releaseWriteGate()
+        let ok = await inFlight.value
+
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.status.value?.sleep.status, "idle", "our own flip is undone")
+        XCTAssertEqual(store.status.value?.episodes.unprocessed, 7,
+                       "everything else the snapshot learned meanwhile is kept")
     }
 }

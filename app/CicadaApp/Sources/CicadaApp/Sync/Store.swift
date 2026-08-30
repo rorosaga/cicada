@@ -120,6 +120,10 @@ final class Store {
     /// fetched is still sitting in the cache's 500 ms debounce and reading
     /// past it would flip `bank` straight back to the previous one.
     func hydrate(bank explicitBank: String? = nil) async {
+        // Optimistic inbox hides are per-bank: ids are only unique *within* a
+        // bank (`inbox-001` exists in every one), so a hide carried across a
+        // switch would blank an unrelated item in the new bank.
+        hiddenInboxIds.removeAll()
         if let explicitBank {
             bank = explicitBank
         } else {
@@ -355,6 +359,12 @@ final class Store {
             await mutation.rollback(self)
             toast = mutation.failureMessage
             Self.logger.debug("mutation failed: \(String(describing: error))")
+            // The rollback restores what this mutation changed, but it cannot
+            // know what else moved while the request was in flight (an SSE
+            // refresh, another mutation). Reconcile the same domains so the
+            // server's view wins within one round-trip either way.
+            let domains = mutation.refreshDomains
+            if !domains.isEmpty { await refresh(domains) }
             return false
         }
     }

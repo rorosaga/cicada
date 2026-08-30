@@ -129,4 +129,51 @@ final class SleepViewModelTests: XCTestCase {
         try await Task.sleep(for: .seconds(5.5))
         XCTAssertEqual(completedCount, 1, "exactly one completion, then the poll stops")
     }
+
+    /// A `Store` whose `/status` reports a running cycle — `load()` re-arms the
+    /// poll whenever it sees no poll in flight *and* this says "running", which
+    /// is the path a wrongly-nilled `pollTask` opens up.
+    private func runningStore() -> Store {
+        let api = FakeSyncAPI()
+        api.replies[.status] = .value(StatusSnapshot(
+            sleep: .init(status: "running", stage: 2, totalStages: 5, cycleId: "c1", error: nil),
+            inbox: .init(total: 0, byKind: [:]),
+            episodes: .init(unprocessed: 0, lastIngestedAt: nil),
+            lastSleepAt: nil, nextSleepAt: nil))
+        return Store(cache: tempCache(), api: api)
+    }
+
+    /// Review fix: a loop closing out must clear `pollTask` only if it is still
+    /// *its own* task. The interleaving: the user hits Run again exactly while
+    /// the finishing loop is inside its close-out `load()`. Nilling the newer
+    /// poll's handle would let the next `load()` re-arm a second, concurrent
+    /// poll for the same cycle — and fire the completion hook twice for it.
+    func test_closeOut_doesNotNilANewerPoll() async throws {
+        let store = runningStore()
+        var calls = 0
+        var vm: SleepViewModel!
+        let fetch: () async throws -> SleepStatusResponse = {
+            calls += 1
+            if calls == 1 { return try self.sleepStatus(status: "running", stage: 2) }
+            if calls == 3 {
+                // We are inside the finishing loop's close-out `load()`.
+                await vm.triggerManually()
+            }
+            return try self.sleepStatus(status: "idle", stage: 5)
+        }
+        vm = SleepViewModel(store: store, fetchSleepStatus: fetch)
+
+        var completedCount = 0
+        vm.onCycleCompleted = { completedCount += 1 }
+
+        await vm.triggerManually()
+        // First cycle closes out around t=2s; the second poll reaches its idle
+        // bound around t=7s and closes out too. A wrongly-nilled handle lets
+        // *that* close-out's `load()` re-arm a third poll, which would fire
+        // again around t=12s — so the window has to reach past it.
+        try await Task.sleep(for: .seconds(15))
+
+        XCTAssertEqual(completedCount, 2,
+                       "one completion per cycle — a duplicate poll would add a third")
+    }
 }

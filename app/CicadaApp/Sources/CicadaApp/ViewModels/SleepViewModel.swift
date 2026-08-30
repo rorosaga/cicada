@@ -37,6 +37,14 @@ final class SleepViewModel {
 
     private var pollTask: Task<Void, Never>?
 
+    /// Bumped by every `startPolling()`. A finishing loop clears `pollTask`
+    /// only if this still matches the generation it was started with, so a
+    /// newer poll (started while the old one was closing out) is never nilled
+    /// out from under itself. A counter rather than `Task` identity because a
+    /// `@Sendable` task closure can't capture the mutable local it is being
+    /// assigned to.
+    private var pollGeneration = 0
+
     /// Set the first time the poll loop's *own* fetch (never the Store's)
     /// observes `status == "running"`. `onCycleCompleted` fires exactly once,
     /// when this is `true` and a later self-fetched tick reports `"idle"` —
@@ -163,6 +171,8 @@ final class SleepViewModel {
         pollTask?.cancel()
         hasSeenRunning = false
         idleTicksSinceStart = 0
+        pollGeneration += 1
+        let generation = pollGeneration
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
@@ -199,7 +209,7 @@ final class SleepViewModel {
                         // restart this loop (and, on the `boundReached` path,
                         // re-fire the hook every 5 ticks forever).
                         await self.load()
-                        self.pollTask = nil
+                        if self.pollGeneration == generation { self.pollTask = nil }
                         // Fire the post-cycle hook exactly once. We do not
                         // refresh the graph if the cycle ended in error
                         // (Sleep crashed mid-pipeline → markdown graph could
