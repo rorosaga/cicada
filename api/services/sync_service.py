@@ -14,6 +14,8 @@ from pathlib import Path
 from fastapi import Request, Response
 
 from api.services import bank_index
+from api.services.calendar_registry import CALENDARS_FILENAME
+from api.services.feed_registry import FEEDS_FILENAME
 from api.services.graph_builder import dir_mtime, file_mtime, inbox_mtime
 
 
@@ -56,7 +58,16 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         "hubs": f"{dir_mtime(mp / 'hubs'):.6f}",
         "inbox": f"{inbox_mtime(mp):.6f}",
         "episodes": f"{ep_count}:{ep_max}",
-        "sources": f"{src_count}:{src_max}:{file_mtime(mp / 'sources' / 'url_index.json'):.6f}",
+        # `feeds.yaml` / `calendars.yaml` (the RSS + ICS subscription registries)
+        # ride the `sources` component: subscribing or unsubscribing changes
+        # neither the sources dir nor the url index, so without them the app's
+        # feed/calendar lists never learned they were stale.
+        "sources": (
+            f"{src_count}:{src_max}"
+            f":{file_mtime(mp / 'sources' / 'url_index.json'):.6f}"
+            f":{file_mtime(mp / FEEDS_FILENAME):.6f}"
+            f":{file_mtime(mp / CALENDARS_FILENAME):.6f}"
+        ),
         "git_head": git_head(mp),
         "bank": mp.name,
         "sleep": f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}",

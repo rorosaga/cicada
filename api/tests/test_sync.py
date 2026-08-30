@@ -137,3 +137,22 @@ def test_status_does_not_spawn_git_twice_when_head_unchanged(client, monkeypatch
         f"expected no additional git calls on the second /status with HEAD unchanged "
         f"({after_first} -> {calls['n']})"
     )
+
+
+def test_sources_component_covers_feeds_and_calendars(tmp_path):
+    """Subscribing to an RSS feed or an ICS calendar rewrites `feeds.yaml` /
+    `calendars.yaml` — neither of which lives under `sources/` — so without them
+    in the vector the app's feed/calendar lists never learn they are stale."""
+    (tmp_path / "entities").mkdir()
+    (tmp_path / "sources").mkdir()
+
+    before = sync_service.components(tmp_path)
+    time.sleep(0.01)
+    (tmp_path / "feeds.yaml").write_text("feeds:\n  - url: https://example.com/rss\n")
+    with_feed = sync_service.components(tmp_path)
+    assert with_feed["sources"] != before["sources"]
+
+    time.sleep(0.01)
+    (tmp_path / "calendars.yaml").write_text("calendars:\n  - url: https://example.com/c.ics\n")
+    with_cal = sync_service.components(tmp_path)
+    assert with_cal["sources"] != with_feed["sources"]

@@ -246,6 +246,20 @@ def _build_full(memory_path: Path) -> GraphResponse:
         if node.id in member_to_hub:
             node.hub_id = member_to_hub[node.id]
 
+    # Fold the server-derived fields into each entity node's content hash.
+    # `degree`, `has_pending` and `hub_id` are computed here, not stored in the
+    # entity file, so a change in any of them leaves `content_hash(fm, body)`
+    # identical — and the companion app's `GraphDiff` would never report the
+    # node as updated (the pending-clarification pulse never appeared live).
+    # The file hash stays the base; the extras are folded in deterministically.
+    # Runs after hub injection (so `hub_id` is known) and before facet nodes are
+    # built (they fold the parent's hash in, so they follow their subject).
+    for node in nodes:
+        if node.id in entity_ids:
+            node.content_hash = synthetic_hash(
+                node.content_hash, node.degree, node.has_pending, node.hub_id
+            )
+
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).
     # repo:<slug> ids join valid_ids so `has repo` edges survive filtering too.
     valid_ids = entity_ids | {n.id for n in nodes if n.is_hub} | set(repo_node_names)

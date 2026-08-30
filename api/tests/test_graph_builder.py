@@ -123,3 +123,48 @@ def test_no_graph_node_ships_an_empty_content_hash(tmp_path):
     # above passes vacuously.
     facets = [n.id for n in g.nodes if n.is_facet]
     assert sorted(facets) == ["c#career", "c#personal"], facets
+
+
+def test_content_hash_covers_server_derived_fields(tmp_path):
+    """`degree` / `has_pending` / `hub_id` are computed at read time, not stored
+    in the entity file, so folding them into `content_hash` is the only way the
+    app's `GraphDiff` can report the node as updated (e.g. the pending
+    clarification pulse appearing live)."""
+    import time
+
+    from api.services import bank_index
+    from api.services.graph_builder import build_graph
+
+    bank_index.invalidate()
+    (tmp_path / "entities").mkdir()
+    (tmp_path / "entities" / "a.md").write_text("---\nname: A\ntype: concept\n---\nbody\n")
+    (tmp_path / "entities" / "b.md").write_text("---\nname: B\ntype: concept\n---\nbody\n")
+    base = next(n for n in build_graph(tmp_path).nodes if n.id == "a")
+    assert base.degree == 0 and not base.has_pending
+
+    # 1. An edge changes `degree` without touching a.md.
+    time.sleep(0.01)
+    bank_index.invalidate()
+    (tmp_path / "graph_edges.yaml").write_text(
+        "edges:\n  - source: a\n    target: b\n    label: relates to\n"
+    )
+    with_edge = next(n for n in build_graph(tmp_path).nodes if n.id == "a")
+    assert with_edge.degree == 1
+    assert with_edge.content_hash != base.content_hash, "degree change must move the hash"
+
+    # 2. A pending inbox item changes `has_pending` without touching a.md.
+    time.sleep(0.01)
+    bank_index.invalidate()
+    (tmp_path / "inbox").mkdir()
+    (tmp_path / "inbox" / "inbox-001.md").write_text(
+        "---\nid: inbox-001\nkind: clarification\nstatus: pending\nentity_id: a\n---\nWho?\n"
+    )
+    pending = next(n for n in build_graph(tmp_path).nodes if n.id == "a")
+    assert pending.has_pending is True
+    assert pending.content_hash != with_edge.content_hash, "pending flag must move the hash"
+
+    # 3. Nothing changed → the hash is stable (no spurious re-push every poll).
+    time.sleep(0.01)
+    bank_index.invalidate()
+    again = next(n for n in build_graph(tmp_path).nodes if n.id == "a")
+    assert again.content_hash == pending.content_hash
