@@ -124,3 +124,60 @@ final class InboxQuestionTests: XCTestCase {
         XCTAssertTrue(api.writes.contains("resolveInbox:inbox-001:defer:nil:14"))
     }
 }
+
+final class QuestionSelectionTests: XCTestCase {
+
+    func testStartsOnTheFirstOption() {
+        let s = QuestionSelection(optionCount: 3, allowOther: true)
+        XCTAssertEqual(s.index, 0)
+        XCTAssertEqual(s.rowCount, 4)   // 3 options + the Other… row
+        XCTAssertFalse(s.isOtherRow)
+    }
+
+    func testMoveDownAndUpWrapAround() {
+        var s = QuestionSelection(optionCount: 3, allowOther: false)
+        s.moveDown(); s.moveDown()
+        XCTAssertEqual(s.index, 2)
+        s.moveDown()
+        XCTAssertEqual(s.index, 0, "wraps to the top")
+        s.moveUp()
+        XCTAssertEqual(s.index, 2, "wraps to the bottom")
+    }
+
+    func testTheOtherRowIsTheLastRowWhenAllowed() {
+        var s = QuestionSelection(optionCount: 2, allowOther: true)
+        s.moveDown(); s.moveDown()
+        XCTAssertTrue(s.isOtherRow)
+        XCTAssertEqual(s.activate(), .openOther)
+        XCTAssertTrue(s.otherExpanded)
+    }
+
+    func testActivateOnAnOptionPicksIt() {
+        var s = QuestionSelection(optionCount: 3, allowOther: true)
+        s.moveDown()
+        XCTAssertEqual(s.activate(), .pick(1))
+        XCTAssertFalse(s.otherExpanded)
+    }
+
+    func testOpenOtherJumpsToTheOtherRow() {
+        var s = QuestionSelection(optionCount: 3, allowOther: true)
+        s.openOther()
+        XCTAssertTrue(s.isOtherRow)
+        XCTAssertTrue(s.otherExpanded)
+    }
+
+    func testOpenOtherIsANoOpWhenNotAllowed() {
+        var s = QuestionSelection(optionCount: 3, allowOther: false)
+        s.openOther()
+        XCTAssertFalse(s.otherExpanded)
+        XCTAssertEqual(s.index, 0)
+    }
+
+    func testNoOptionsAndNoOtherIsInert() {
+        var s = QuestionSelection(optionCount: 0, allowOther: false)
+        XCTAssertEqual(s.rowCount, 0)
+        s.moveDown()
+        XCTAssertEqual(s.index, 0)
+        XCTAssertNil(s.activate())
+    }
+}

@@ -593,19 +593,29 @@ actor APIClient {
     /// only patched for itself. We already do our own conditional-GET
     /// caching (`etag`, `Snapshot`, `SnapshotCache`); `URLCache` must never
     /// also intercept these requests.
-    private let session: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.urlCache = nil
-        config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        // NB: deliberately NOT setting `timeoutIntervalForRequest` here. A
-        // session-wide cap would also apply to the long-running writes
-        // (`POST /ask` blocks on an LLM call; `/sources/sync-bookmarks`,
-        // `/sources/poll-feeds`, `/conversations/upload`), where a client-side
-        // timeout makes `Store.perform` roll back and toast "reverted" for
-        // work the server actually completed. The cap belongs on the refresh
-        // path only — see `refreshTimeout`.
-        return URLSession(configuration: config)
-    }()
+    private let session: URLSession
+
+    /// `session` is an init parameter (default: the real, cache-disabled
+    /// configuration below) purely so tests can hand in a
+    /// `URLProtocol`-backed session instead of hitting a real backend on
+    /// 127.0.0.1:8000 — `APIClient.shared` always uses the default.
+    init(session: URLSession? = nil) {
+        if let session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.urlCache = nil
+            config.requestCachePolicy = .reloadIgnoringLocalCacheData
+            // NB: deliberately NOT setting `timeoutIntervalForRequest` here. A
+            // session-wide cap would also apply to the long-running writes
+            // (`POST /ask` blocks on an LLM call; `/sources/sync-bookmarks`,
+            // `/sources/poll-feeds`, `/conversations/upload`), where a client-side
+            // timeout makes `Store.perform` roll back and toast "reverted" for
+            // work the server actually completed. The cap belongs on the refresh
+            // path only — see `refreshTimeout`.
+            self.session = URLSession(configuration: config)
+        }
+    }
 
     /// Timeout for the *refresh* path only (`getConditional`, `fetchStatus`).
     ///
@@ -824,6 +834,25 @@ actor APIClient {
         } catch {
             return []
         }
+    }
+
+    // MARK: - Fact sources (G61)
+
+    func fetchEntitySources(entityId: String) async throws -> [EntitySource] {
+        let payload: EntitySourceList = try await get("/entities/\(encodedID(entityId))/sources")
+        return payload.sources
+    }
+
+    func addEntitySource(entityId: String, ref: String, predicate: String? = nil) async throws -> [EntitySource] {
+        var body: [String: Any] = ["ref": ref]
+        if let predicate { body["predicate"] = predicate }
+        let data = try await post("/entities/\(encodedID(entityId))/sources", body: body)
+        return try JSONDecoder().decode(EntitySourceList.self, from: data).sources
+    }
+
+    func deleteEntitySource(entityId: String, index: Int) async throws -> [EntitySource] {
+        let data = try await delete("/entities/\(encodedID(entityId))/sources/\(index)")
+        return try JSONDecoder().decode(EntitySourceList.self, from: data).sources
     }
 
     // MARK: - Claims (CPCG claim layer)
