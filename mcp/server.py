@@ -1499,6 +1499,8 @@ def handle_resolve_inbox(
 
 
 def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
+    from api.services import inbox_questions
+
     q = query.lower()
     blurbs: list[str] = []
     for filepath in _inbox_files(memory_path):
@@ -1512,6 +1514,11 @@ def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
             f"{body}"
         ).lower()
         if not _topic_matches(q, haystack):
+            continue
+        # A deferred item is hidden everywhere it could be surfaced, the
+        # proactive recall block included — the user asked to be reminded
+        # later, not on the next unrelated question.
+        if inbox_questions.is_deferred(fm, str(date.today())):
             continue
         blurbs.append(_format_inbox_blurb(fm, body))
     return blurbs

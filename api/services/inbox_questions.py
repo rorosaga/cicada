@@ -143,10 +143,12 @@ def refresh_open_questions(
        option claims has been closed (``valid_to`` set) by the reconciler, the
        question is answered — the item file is removed. The caller commits with
        trigger ``inbox/organic_resolution``.
-    3. **Stale escalation.** When EVERY option is older than ``stale_after_days``,
-       the question is rewritten to the stale template, a ``neither`` option is
-       inserted first, and priority drops to 0.6 so fresh conflicts sort above it.
-       Idempotent: an item that already carries ``neither`` is not re-escalated.
+    3. **Stale escalation.** When EVERY option is older than ``stale_after_days``
+       — an option with no dates of its own is aged from the item's own
+       ``created_date`` — the question is rewritten to the stale template, a
+       ``neither`` option is inserted first, and priority drops to 0.6 so fresh
+       conflicts sort above it. Idempotent: an item that already carries
+       ``neither`` is not re-escalated.
     4. Deferred items are skipped entirely.
 
     Returns ``{"bumped": n, "organic_resolutions": n, "escalated": n,
@@ -156,8 +158,6 @@ def refresh_open_questions(
     the ``inbox/organic_resolution`` commit trigger instead of the generic
     ``sleep/inbox_generation`` one every other ``inbox/`` write gets.
     """
-    from api.services import markdown_parser
-
     inbox = Path(memory_path) / "inbox"
     counts = {"bumped": 0, "organic_resolutions": 0, "escalated": 0, "resolved_paths": []}
     if not inbox.exists():
@@ -165,98 +165,142 @@ def refresh_open_questions(
 
     for filepath in sorted(inbox.glob("inbox-*.md")):
         try:
-            parsed = markdown_parser.parse(filepath)
+            _refresh_one(filepath, claims_by_subject, today, stale_after_days, counts)
         except Exception:
+            # A file removed or rewritten by a concurrent resolve must not abort
+            # the whole sweep — skip it and carry on with the rest of the inbox.
             continue
-        fm = parsed.frontmatter
-        if str(fm.get("kind", "")) != "conflict":
-            continue
-        if str(fm.get("status", "pending") or "pending") != "pending":
-            continue
-        if is_deferred(fm, today):
-            continue
-
-        subject = str(fm.get("entity_id", "") or "")
-        predicate = str(fm.get("predicate", "") or "description")
-        subject_claims = list(claims_by_subject.get(subject, []) or [])
-        by_id = {c.id: c for c in subject_claims}
-        options = normalize_options(fm.get("options"))
-        option_claim_ids = [
-            str(o["claim_id"]) for o in options if o.get("claim_id")
-        ]
-
-        # --- 2. organic resolution -----------------------------------------
-        human_answer = any(
-            c.predicate == predicate
-            and c.source_trust == "user_stated"
-            and c.valid_to is None
-            and str(c.valid_from or "") > str(fm.get("created_date", "") or "")
-            for c in subject_claims
-        )
-        superseded = any(
-            by_id.get(cid) is not None and by_id[cid].valid_to is not None
-            for cid in option_claim_ids
-        )
-        if human_answer or (option_claim_ids and superseded):
-            filepath.unlink()
-            counts["organic_resolutions"] += 1
-            counts["resolved_paths"].append(f"inbox/{filepath.name}")
-            continue
-
-        changed = False
-
-        # --- 1. bump + re-order --------------------------------------------
-        bumped_any = False
-        for option in options:
-            claim = by_id.get(str(option.get("claim_id") or ""))
-            if claim is None:
-                continue
-            seen = str(claim.recorded_at or claim.valid_from or "")
-            current = str(option.get("last_referenced") or option.get("observed_at") or "")
-            if seen and seen > current:
-                option["last_referenced"] = seen
-                bumped_any = True
-        if bumped_any:
-            counts["bumped"] += 1
-            changed = True
-
-        real = [o for o in options if str(o.get("key")) not in {"both", "neither"}]
-        synthetic = [o for o in options if str(o.get("key")) in {"both", "neither"}]
-        real.sort(
-            key=lambda o: str(o.get("last_referenced") or o.get("observed_at") or ""),
-            reverse=True,
-        )
-        neither = [o for o in synthetic if str(o.get("key")) == "neither"]
-        both = [o for o in synthetic if str(o.get("key")) == "both"]
-        options = neither + real + both
-
-        # --- 3. stale escalation -------------------------------------------
-        already_escalated = bool(neither)
-        answerable = [o for o in options if str(o.get("key")) not in {"both", "neither"}]
-        ages = [
-            age_days(o.get("last_referenced") or o.get("observed_at"), today)
-            for o in answerable
-        ]
-        all_stale = bool(ages) and all(a is not None and a >= stale_after_days for a in ages)
-        if all_stale and not already_escalated:
-            # Phrase the window from the FRESHEST option — "it's been 6 months
-            # since EITHER came up" must be true of the most recent one.
-            freshest = min((a for a in ages if a is not None), default=None)
-            phrase = humanize_age(
-                None if freshest is None else _shift(today, freshest), today
-            )
-            fm["question"] = _stale_question(
-                str(fm.get("entity_name", "") or subject), phrase
-            )
-            fm["title"] = fm["question"]
-            fm["priority"] = _STALE_PRIORITY
-            options = [dict(_NEITHER_OPTION)] + options
-            counts["escalated"] += 1
-            changed = True
-
-        if changed:
-            fm["options"] = options
-            fm["updated_date"] = today
-            markdown_parser.write(filepath, fm, parsed.body)
 
     return counts
+
+
+def _refresh_one(
+    filepath: Path,
+    claims_by_subject: dict,
+    today: str,
+    stale_after_days: int,
+    counts: dict,
+) -> None:
+    """Re-score ONE open conflict question (the per-file body of the sweep)."""
+    from api.services import markdown_parser
+
+    parsed = markdown_parser.parse(filepath)
+    fm = parsed.frontmatter
+    if str(fm.get("kind", "")) != "conflict":
+        return
+    if str(fm.get("status", "pending") or "pending") != "pending":
+        return
+    if is_deferred(fm, today):
+        return
+
+    subject = str(fm.get("entity_id", "") or "")
+    predicate = str(fm.get("predicate", "") or "description")
+    subject_claims = list(claims_by_subject.get(subject, []) or [])
+    by_id = {c.id: c for c in subject_claims}
+    options = normalize_options(fm.get("options"))
+    option_claim_ids = [str(o["claim_id"]) for o in options if o.get("claim_id")]
+
+    # --- 2. organic resolution ---------------------------------------------
+    human_answer = any(
+        c.predicate == predicate
+        and c.source_trust == "user_stated"
+        and c.valid_to is None
+        and str(c.valid_from or "") > str(fm.get("created_date", "") or "")
+        for c in subject_claims
+    )
+    superseded = _really_superseded(options, by_id)
+    if human_answer or (option_claim_ids and superseded):
+        filepath.unlink()
+        counts["organic_resolutions"] += 1
+        counts["resolved_paths"].append(f"inbox/{filepath.name}")
+        return
+
+    changed = False
+
+    # --- 1. bump + re-order ------------------------------------------------
+    bumped_any = False
+    for option in options:
+        claim = by_id.get(str(option.get("claim_id") or ""))
+        if claim is None:
+            continue
+        seen = str(claim.recorded_at or claim.valid_from or "")
+        current = str(option.get("last_referenced") or option.get("observed_at") or "")
+        if seen and seen > current:
+            option["last_referenced"] = seen
+            bumped_any = True
+    if bumped_any:
+        counts["bumped"] += 1
+        changed = True
+
+    real = [o for o in options if str(o.get("key")) not in {"both", "neither"}]
+    synthetic = [o for o in options if str(o.get("key")) in {"both", "neither"}]
+    real.sort(
+        key=lambda o: str(o.get("last_referenced") or o.get("observed_at") or ""),
+        reverse=True,
+    )
+    neither = [o for o in synthetic if str(o.get("key")) == "neither"]
+    both = [o for o in synthetic if str(o.get("key")) == "both"]
+    options = neither + real + both
+
+    # --- 3. stale escalation -----------------------------------------------
+    already_escalated = bool(neither)
+    answerable = [o for o in options if str(o.get("key")) not in {"both", "neither"}]
+    # A dateless option (every legacy pre-G60 option, and every entity-path
+    # option) falls back to the item's own created_date: the question has been
+    # sitting open, unanswered, since then, so that IS the age of the value it
+    # offers. Without this fallback `all_stale` could never be true on exactly
+    # the items the "Neither anymore" escalation was written for.
+    item_date = str(fm.get("created_date", "") or "") or str(
+        fm.get("updated_date", "") or ""
+    )
+    ages = [
+        age_days(
+            o.get("last_referenced") or o.get("observed_at") or item_date, today
+        )
+        for o in answerable
+    ]
+    all_stale = bool(ages) and all(a is not None and a >= stale_after_days for a in ages)
+    if all_stale and not already_escalated:
+        # Phrase the window from the FRESHEST option — "it's been 6 months
+        # since EITHER came up" must be true of the most recent one.
+        freshest = min((a for a in ages if a is not None), default=None)
+        phrase = humanize_age(
+            None if freshest is None else _shift(today, freshest), today
+        )
+        fm["question"] = _stale_question(
+            str(fm.get("entity_name", "") or subject), phrase
+        )
+        fm["title"] = fm["question"]
+        fm["priority"] = _STALE_PRIORITY
+        options = [dict(_NEITHER_OPTION)] + options
+        counts["escalated"] += 1
+        changed = True
+
+    if changed:
+        fm["options"] = options
+        fm["updated_date"] = today
+        markdown_parser.write(filepath, fm, parsed.body)
+
+
+def _really_superseded(options: list[dict], by_id: dict) -> bool:
+    """True when an option's claim was closed by a claim carrying a DIFFERENT value.
+
+    Stage-1 claim ids are date-keyed, so the *same* value re-extracted on a
+    later day arrives as a new claim that supersedes its own predecessor. That
+    is not an answer to the question — it is the same belief, restated — so it
+    must not close the question as "organically resolved".
+    """
+    for option in options:
+        cid = str(option.get("claim_id") or "")
+        if not cid:
+            continue
+        claim = by_id.get(cid)
+        if claim is None or claim.valid_to is None:
+            continue
+        successor = by_id.get(str(getattr(claim, "superseded_by", "") or ""))
+        if successor is not None and str(successor.object).strip().lower() == str(
+            option.get("label", "")
+        ).strip().lower():
+            continue  # same value, later id — nothing was answered
+        return True
+    return False

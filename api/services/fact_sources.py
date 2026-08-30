@@ -136,8 +136,10 @@ def delete_source(memory_path: Path, entity_id: str, index: int) -> bool:
 def hint_for(memory_path: Path, entity_id: str, predicate: str | None) -> str | None:
     """The conflict-card hint: which source refreshes this fact (§2.5).
 
-    Prefers a source whose ``predicate`` matches; otherwise the first ``url``
-    source. ``note``-only sources produce no hint — there is nothing to open.
+    Prefers a source whose ``predicate`` matches — of ANY kind, a predicate-
+    matched ``note`` included, since the user pointed at it for exactly this
+    fact. With no predicate match, falls back to the first ``url`` source; a
+    bare ``note`` with no matching predicate yields no hint.
     """
     sources = list_sources(memory_path, entity_id)
     if not sources:

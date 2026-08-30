@@ -210,7 +210,11 @@ authored it* as one or more `Cicada-Author:` git trailers appended after a blank
 end of the commit body. The value is a **model id** (e.g. `gpt-5.4-mini`; the Stage-2
 disambiguation model is recorded too when distinct) for sleep-cycle/agent writes, or the
 literal **`user`** for manual/companion-app/media-save writes; legacy untrailered commits
-are attributed to **`unknown`**. The trailer carries no entity id, so it is **inert to the
+are attributed to **`unknown`**. A third literal, **`cicada`**, is reserved for *system
+maintenance* writes the system performs on its own behalf with no model and no user in the
+loop — currently only the one-shot inbox dedup migration (`inbox_migration._commit_dedup`,
+trigger `inbox/dedup`). It classifies as an author like any other, so it shows up in
+`GET /contributors` as a distinct, provider-less contributor. The trailer carries no entity id, so it is **inert to the
 entity-line parsing** above — extend it, don't break it. Built by
 `git_service.build_commit_message(subject, body_lines, authors=...)` and parsed by
 `git_service._parse_authors`. This powers `GET /contributors` (repo-wide per-author

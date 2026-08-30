@@ -353,7 +353,11 @@ async def _commit_sources(memory_path: Path, entity_id: str, verb: str) -> None:
         [f"entities/{entity_id}.md: updated (trigger: user/companion_app)"],
         authors=["user"],
     )
-    await git_service.commit_changes(memory_path, message)
+    # Scoped, never ``git add -A``: adding one fact source must not sweep an
+    # unrelated dirty file in memory/ into an "Add fact source" commit.
+    await git_service.commit_paths(
+        memory_path, message, [f"entities/{entity_id}.md"]
+    )
 
 
 @router.get("/entities/{entity_id}/sources", response_model=EntitySourceList)

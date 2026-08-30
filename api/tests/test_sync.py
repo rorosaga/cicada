@@ -231,3 +231,46 @@ def test_inbox_component_stable_across_days_with_no_deferred_items(tmp_path):
         sync_service_module.date = orig_date
 
     assert comps_day1["inbox"] == comps_day2["inbox"]
+
+
+def test_pending_defer_scan_is_cached_on_the_inbox_mtime(tmp_path, monkeypatch):
+    """H1 — `components()` is polled once a second by the SSE loop and called by
+    every ETag check, so the inbox YAML scan must run only when the inbox moves.
+    """
+    (tmp_path / "entities").mkdir()
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "inbox-001.md").write_text(
+        "---\nkind: conflict\nstatus: pending\n---\nx\n"
+    )
+
+    sync_service._DEFER_CACHE.clear()
+    calls = {"n": 0}
+    real_scan = sync_service._scan_inbox_for_pending_defer
+
+    def _counting(mp):
+        calls["n"] += 1
+        return real_scan(mp)
+
+    monkeypatch.setattr(sync_service, "_scan_inbox_for_pending_defer", _counting)
+
+    for _ in range(5):
+        comps = sync_service.components(tmp_path)
+    assert calls["n"] == 1, "a quiet inbox must not be re-parsed per call"
+    assert ":" not in comps["inbox"]
+
+    # A defer rewrites the file -> the mtime moves -> the cache re-validates.
+    time.sleep(0.01)
+    (inbox / "inbox-001.md").write_text(
+        "---\nkind: conflict\nstatus: pending\nremind_after: '2099-01-01'\n---\nx\n"
+    )
+    comps2 = sync_service.components(tmp_path)
+    assert calls["n"] == 2
+    assert ":" in comps2["inbox"], "the daily re-validate marker is back"
+
+    # And an un-defer (file removed / rewritten) invalidates it again.
+    time.sleep(0.01)
+    (inbox / "inbox-001.md").unlink()
+    comps3 = sync_service.components(tmp_path)
+    assert calls["n"] == 3
+    assert ":" not in comps3["inbox"]

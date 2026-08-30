@@ -257,3 +257,29 @@ def test_merge_on_collision_refreshes_the_hint_on_the_open_item(tmp_path):
 
     fm_after = markdown_parser.parse(memory / "inbox" / "inbox-001.md").frontmatter
     assert fm_after["hint"] == "You said https://linkedin.example/rodrigo is where to check this"
+
+
+def test_adding_a_source_commits_only_that_entity_file(tmp_path):
+    """M5 — a targeted write must not sweep unrelated dirty files in memory/
+    into an "Add fact source" commit under the user/companion_app trigger.
+    """
+    repo = _git_memory(tmp_path)
+    (repo / "entities" / "stray.md").write_text("---\nname: Stray\n---\n\nunrelated\n")
+
+    run(entities_router.add_entity_source(
+        "rodrigo",
+        EntitySourceCreate(ref="https://linkedin.example/rodrigo", predicate="works-at"),
+        settings=_FakeSettings(repo),
+    ))
+
+    files = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"], cwd=str(repo),
+        check=True, capture_output=True, text=True,
+    ).stdout.split()
+    assert files == ["entities/rodrigo.md"]
+    # The stray file is still dirty/untracked — untouched by this commit.
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=str(repo),
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert "entities/stray.md" in status

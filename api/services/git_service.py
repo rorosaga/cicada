@@ -520,6 +520,22 @@ async def commit_changes(memory_path: Path, message: str) -> None:
     await _run_git(memory_path, "commit", "-m", message)
 
 
+async def commit_paths(memory_path: Path, message: str, paths: list[str]) -> None:
+    """Stage and commit ONLY ``paths`` (memory-relative), never ``git add -A``.
+
+    A targeted write (adding a fact source, deferring one inbox item) must not
+    sweep unrelated dirty files in ``memory/`` into its commit — that would
+    attribute someone else's change to this action's trigger and author.
+    """
+    if not paths:
+        return
+    await _run_git(memory_path, "add", "--", *paths)
+    status = await _run_git(memory_path, "status", "--porcelain", "--", *paths)
+    if not status.strip():
+        return  # Nothing to commit
+    await _run_git(memory_path, "commit", "-m", message, "--", *paths)
+
+
 async def porcelain_status(memory_path: Path) -> str:
     """Return ``git status --porcelain`` output (or empty on error)."""
     try:
@@ -553,7 +569,11 @@ async def commit_resolution(
         else f"Inbox resolution {date_str}"
     )
     body_lines = [f"entities/{entity_id}.md: updated (trigger: {trigger})"]
-    body_lines.extend(extra_lines or [])
+    # The manifest is a SET of file lines: a caller that closes N claims on one
+    # page must not repeat that page's line N times.
+    for line in extra_lines or []:
+        if line not in body_lines:
+            body_lines.append(line)
     # An inbox resolution is a user/companion-app action -> attribute to "user".
     message = build_commit_message(subject, body_lines, authors=["user"])
     await commit_changes(memory_path, message)

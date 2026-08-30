@@ -98,7 +98,15 @@ def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
             if bumped and str(bumped) > str(current.get("last_referenced") or ""):
                 current["last_referenced"] = str(bumped)
                 changed = True
-            if incoming.get("claim_id") and not current.get("claim_id"):
+            # Always adopt the incoming claim id, never only when missing:
+            # Stage-1 claim ids are date-keyed, so the same value re-mentioned
+            # on a later day arrives as a DIFFERENT open claim. Keeping the old
+            # (often already-closed) id would leave the option ageing forever
+            # while being mentioned daily, and would make a later resolution
+            # close a dead claim while the live one stayed open.
+            if incoming.get("claim_id") and incoming["claim_id"] != current.get(
+                "claim_id"
+            ):
                 current["claim_id"] = incoming["claim_id"]
                 changed = True
             continue

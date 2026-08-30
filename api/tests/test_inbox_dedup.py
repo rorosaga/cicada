@@ -287,3 +287,33 @@ def test_a_different_uncertainty_about_the_same_mention_is_a_new_question(tmp_pa
     )
     assert second == "inbox-002"
     assert len(list((memory / "inbox").glob("inbox-*.md"))) == 2
+
+
+def test_merge_on_collision_adopts_the_new_date_keyed_claim_id(tmp_path):
+    """H3 — Stage-1 claim ids are date-keyed, so the same value re-mentioned
+    later arrives as a DIFFERENT open claim. The option must point at the live
+    id, or it ages forever while being mentioned daily and a later resolution
+    closes a claim that is already dead.
+    """
+    memory = tmp_path / "memory"
+    path = _write_conflict(
+        memory, "inbox-001", "rodrigo", "works-at",
+        [
+            {"key": "a", "label": "mongodb", "claim_id": "clm_2026-02-18_old",
+             "observed_at": "2026-02-18", "last_referenced": "2026-02-18"},
+        ],
+    )
+
+    changed = inbox_generator.merge_options_into(
+        path,
+        [{"key": "a", "label": "MongoDB", "claim_id": "clm_2026-08-30_new",
+          "observed_at": "2026-08-30", "last_referenced": "2026-08-30"}],
+        today="2026-08-30",
+    )
+
+    assert changed is True
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["options"][0]["claim_id"] == "clm_2026-08-30_new"
+    assert fm["options"][0]["last_referenced"] == "2026-08-30"
+    # The label the user already saw is preserved (match is case-insensitive).
+    assert fm["options"][0]["label"] == "mongodb"

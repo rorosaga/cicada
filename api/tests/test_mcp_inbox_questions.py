@@ -125,3 +125,21 @@ def test_resolve_inbox_tool_is_registered(server):
     assert set(tool["inputSchema"]["properties"]) == {
         "id", "option_key", "answer", "defer", "remind_days",
     }
+
+
+def test_relevant_inbox_hides_deferred_items(server, tmp_path):
+    """L3 — the proactive recall block honours a deferral just like
+    `cicada_check_nudges` does: "remind me later" means everywhere.
+    """
+    from api.services import markdown_parser
+
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True)
+    markdown_parser.write(memory / "inbox" / "inbox-001.md", dict(QUESTION_FM), "ctx")
+    deferred = dict(QUESTION_FM)
+    deferred["remind_after"] = "2099-01-01"
+    markdown_parser.write(memory / "inbox" / "inbox-002.md", deferred, "ctx")
+
+    blurbs = server._relevant_inbox(memory, "Rodrigo")
+    assert len(blurbs) == 1
+    assert all("Rodrigo" in b for b in blurbs)

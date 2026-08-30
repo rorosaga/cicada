@@ -365,3 +365,83 @@ def test_location_listing_path_must_be_directory_not_file(tmp_path):
     # A file is not a listable directory -> exists False, no entries.
     assert resp.exists is False
     assert resp.entries == []
+
+
+# --- H4: `resolve` is a valid verb on non-conflict kinds --------------------
+
+
+def _write_clarification(repo: Path, item_id: str, mention: str, **extra) -> Path:
+    fm = {
+        "kind": "clarification",
+        "required_input": "freetext",
+        "status": "pending",
+        "entity_name": mention,
+        "entity_id": inbox_service.sanitize_id(mention),
+        "uncertainty_type": "unknown_person",
+        "suggested_classification": "person",
+        "suggested_confidence": 0.4,
+        "source_episode": "ep_2026-06-17_001",
+        "source_episode_timestamp": "2026-06-17T10:00:00",
+        "created_date": "2026-06-17",
+    }
+    fm.update(extra)
+    path = repo / "inbox" / f"{item_id}.md"
+    markdown_parser.write(path, fm, "Who is this?")
+    return path
+
+
+def test_resolve_with_free_text_answers_a_clarification(tmp_path):
+    """The MCP tool and the app's QuestionView send one verb — `resolve` — for
+    every kind that carries a question. It must not 400 on a clarification.
+    """
+    repo = _init_memory(tmp_path)
+    item = _write_clarification(repo, "inbox-001", "Francesco")
+    _commit_all(repo)
+
+    res = run(inbox_service.resolve(
+        "inbox-001",
+        InboxResolveRequest(action="resolve", answer="A teammate from the lab."),
+        _Settings(repo),
+    ))
+
+    assert res["status"] == "resolved"
+    assert not item.exists()
+    created = markdown_parser.parse(repo / "entities" / "francesco.md")
+    assert "A teammate from the lab." in created.body
+
+
+def test_resolve_with_an_option_key_answers_with_that_options_label(tmp_path):
+    repo = _init_memory(tmp_path)
+    item = _write_clarification(
+        repo, "inbox-001", "Francesco",
+        question="Who is Francesco?",
+        options=[
+            {"key": "a", "label": "A teammate from the lab"},
+            {"key": "b", "label": "A recruiter"},
+        ],
+    )
+    _commit_all(repo)
+
+    res = run(inbox_service.resolve(
+        "inbox-001", InboxResolveRequest(action="resolve", optionKey="b"), _Settings(repo)
+    ))
+
+    assert res["status"] == "resolved"
+    assert not item.exists()
+    created = markdown_parser.parse(repo / "entities" / "francesco.md")
+    assert "A recruiter" in created.body
+
+
+def test_resolve_with_neither_text_nor_option_still_400s(tmp_path):
+    import pytest
+    from fastapi import HTTPException
+
+    repo = _init_memory(tmp_path)
+    _write_clarification(repo, "inbox-001", "Francesco")
+    _commit_all(repo)
+
+    with pytest.raises(HTTPException) as exc:
+        run(inbox_service.resolve(
+            "inbox-001", InboxResolveRequest(action="resolve"), _Settings(repo)
+        ))
+    assert exc.value.status_code == 400

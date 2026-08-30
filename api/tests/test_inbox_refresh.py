@@ -286,3 +286,110 @@ def test_finalize_still_infers_the_generic_trigger_for_other_inbox_writes(tmp_pa
     ).stdout
 
     assert "inbox/inbox-003.md: created (trigger: sleep/inbox_generation)" in message
+
+
+def test_refresh_escalates_a_dateless_legacy_item_from_its_created_date(tmp_path):
+    """H2 — options with no dates (every legacy pre-G60 item, and every
+    entity-path question) must still be able to go stale: the item has been
+    sitting open since ``created_date``, so that is the age of what it offers.
+    """
+    memory = tmp_path / "memory"
+    path = _write_conflict(
+        memory,
+        "inbox-001",
+        created="2026-02-20",
+        options=[{"key": "a", "label": "mongodb"}, {"key": "b", "label": "supahost"}],
+    )
+
+    result = inbox_questions.refresh_open_questions(
+        memory, {}, "2026-08-30", stale_after_days=90
+    )
+
+    assert result["escalated"] == 1
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["options"][0]["key"] == "neither"
+    assert fm["priority"] == 0.6
+
+
+def test_refresh_does_not_escalate_a_dateless_item_created_recently(tmp_path):
+    memory = tmp_path / "memory"
+    path = _write_conflict(
+        memory,
+        "inbox-001",
+        created="2026-08-20",
+        options=[{"key": "a", "label": "mongodb"}, {"key": "b", "label": "supahost"}],
+    )
+
+    result = inbox_questions.refresh_open_questions(
+        memory, {}, "2026-08-30", stale_after_days=90
+    )
+
+    assert result["escalated"] == 0
+    fm = markdown_parser.parse(path).frontmatter
+    assert [o["key"] for o in fm["options"]] == ["a", "b"]
+
+
+def test_refresh_ignores_a_supersession_by_the_same_value(tmp_path):
+    """M1 — claim ids are date-keyed, so the SAME value re-extracted later
+    supersedes its own predecessor. Nothing was answered; the question stays.
+    """
+    memory = tmp_path / "memory"
+    path = _write_conflict(memory, "inbox-001", created="2026-08-25")
+    closed = _claim("clm_a", "mongodb", valid_from="2026-02-18", valid_to="2026-08-28")
+    closed.superseded_by = "clm_a2"
+    claims = {"rodrigo": [
+        closed,
+        _claim("clm_a2", "mongodb", valid_from="2026-08-28"),
+        _claim("clm_b", "supahost", valid_from="2026-02-18"),
+    ]}
+
+    result = inbox_questions.refresh_open_questions(memory, claims, "2026-08-30")
+
+    assert result["organic_resolutions"] == 0
+    assert path.exists()
+
+
+def test_refresh_still_resolves_when_a_different_value_supersedes(tmp_path):
+    memory = tmp_path / "memory"
+    path = _write_conflict(memory, "inbox-001", created="2026-08-25")
+    closed = _claim("clm_a", "mongodb", valid_from="2026-02-18", valid_to="2026-08-28")
+    closed.superseded_by = "clm_c"
+    claims = {"rodrigo": [
+        closed,
+        _claim("clm_c", "acme", valid_from="2026-08-28"),
+        _claim("clm_b", "supahost", valid_from="2026-02-18"),
+    ]}
+
+    result = inbox_questions.refresh_open_questions(memory, claims, "2026-08-30")
+
+    assert result["organic_resolutions"] == 1
+    assert not path.exists()
+
+
+def test_refresh_survives_a_file_that_vanishes_mid_sweep(tmp_path, monkeypatch):
+    """L5 — a concurrently removed file must not abort the whole sweep."""
+    memory = tmp_path / "memory"
+    _write_conflict(memory, "inbox-001", created="2026-02-20")
+    path2 = _write_conflict(memory, "inbox-002", created="2026-02-20",
+                            predicate="uses")
+
+    real_parse = markdown_parser.parse
+
+    def _flaky(filepath, *args, **kwargs):
+        if filepath.name == "inbox-001.md":
+            raise FileNotFoundError(filepath)
+        return real_parse(filepath, *args, **kwargs)
+
+    monkeypatch.setattr(markdown_parser, "parse", _flaky)
+    claims = {"rodrigo": [
+        _claim("clm_a", "mongodb", valid_from="2026-02-18"),
+        _claim("clm_b", "supahost", valid_from="2026-02-18"),
+    ]}
+
+    result = inbox_questions.refresh_open_questions(
+        memory, claims, "2026-08-30", stale_after_days=90
+    )
+
+    # inbox-001 was skipped; inbox-002 was still escalated.
+    assert result["escalated"] == 1
+    assert path2.exists()
