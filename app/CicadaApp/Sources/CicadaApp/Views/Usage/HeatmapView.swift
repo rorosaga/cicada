@@ -1,0 +1,83 @@
+import SwiftUI
+
+/// GitHub-style 53×7 activity grid. Cells are `CalendarCell`s; the colour is
+/// the backend's quantile `level` through `CicadaTheme.heatRamp`.
+struct HeatmapView: View {
+    let days: [CalendarDay]
+    @Binding var selected: CalendarDay?
+    private let cellSize: CGFloat = 11
+    private let gap: CGFloat = 3
+
+    private var columns: [[CalendarCell?]] { CalendarLayout.columns(days.map(\.cell)) }
+    private var byDate: [String: CalendarDay] { Dictionary(uniqueKeysWithValues: days.map { ($0.date, $0) }) }
+
+    var body: some View {
+        let cols = columns
+        VStack(alignment: .leading, spacing: gap) {
+            monthRow(cols)
+            HStack(alignment: .top, spacing: gap) {
+                weekdayColumn
+                ForEach(Array(cols.enumerated()), id: \.offset) { _, col in
+                    VStack(spacing: gap) {
+                        ForEach(0..<7, id: \.self) { row in
+                            cell(col[row])
+                        }
+                    }
+                }
+            }
+            legend
+        }
+        .padding(CicadaTheme.spacingMD)
+        .glassCard()
+    }
+
+    private func cell(_ c: CalendarCell?) -> some View {
+        RoundedRectangle(cornerRadius: 2)
+            .fill(c.map { CicadaTheme.heatRamp(level: $0.level) } ?? Color.clear)
+            .frame(width: cellSize, height: cellSize)
+            .overlay {
+                if let c, selected?.date == c.date {
+                    RoundedRectangle(cornerRadius: 2).stroke(CicadaTheme.textPrimary, lineWidth: 1)
+                }
+            }
+            .help(c.map(tooltip) ?? "")
+            .onTapGesture { if let c { selected = selected?.date == c.date ? nil : byDate[c.date] } }
+    }
+
+    private func tooltip(_ c: CalendarCell) -> String {
+        "\(c.date) · \(c.memoryWrites) memory write\(c.memoryWrites == 1 ? "" : "s") · \(c.events) event\(c.events == 1 ? "" : "s") · \(UsageFormat.tokens(c.tokens)) tokens"
+    }
+
+    private func monthRow(_ cols: [[CalendarCell?]]) -> some View {
+        let labels = CalendarLayout.monthLabels(cols)
+        return HStack(spacing: 0) {
+            Spacer().frame(width: 28 + gap)
+            ZStack(alignment: .leading) {
+                ForEach(Array(labels.enumerated()), id: \.offset) { _, l in
+                    Text(l.label).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                        .offset(x: CGFloat(l.column) * (cellSize + gap))
+                }
+            }
+            .frame(height: 14, alignment: .leading)
+        }
+    }
+
+    private var weekdayColumn: some View {
+        VStack(spacing: gap) {
+            ForEach(["Mon", "", "Wed", "", "Fri", "", ""], id: \.self) { d in
+                Text(d).font(.system(size: 9)).foregroundStyle(CicadaTheme.textTertiary).frame(width: 28, height: cellSize, alignment: .leading)
+            }
+        }
+    }
+
+    private var legend: some View {
+        HStack(spacing: gap) {
+            Spacer()
+            Text("Less").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+            ForEach(0..<5, id: \.self) { l in
+                RoundedRectangle(cornerRadius: 2).fill(CicadaTheme.heatRamp(level: l)).frame(width: cellSize, height: cellSize)
+            }
+            Text("More").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+        }
+    }
+}

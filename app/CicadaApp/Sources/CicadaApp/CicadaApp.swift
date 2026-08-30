@@ -29,6 +29,7 @@ struct CicadaApp: App {
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
     @State private var connectionsVM: ConnectionsViewModel
+    @State private var usageVM: UsageViewModel
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
 
@@ -64,6 +65,7 @@ struct CicadaApp: App {
         _feedVM = State(initialValue: FeedViewModel(store: store))
         _contributorsVM = State(initialValue: ContributorsViewModel(store: store))
         _connectionsVM = State(initialValue: ConnectionsViewModel(store: store))
+        _usageVM = State(initialValue: UsageViewModel(store: store))
     }
 
     var body: some Scene {
@@ -76,6 +78,7 @@ struct CicadaApp: App {
                 .environment(feedVM)
                 .environment(contributorsVM)
                 .environment(connectionsVM)
+                .environment(usageVM)
                 .environment(store)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, newValue in

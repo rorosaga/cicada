@@ -135,6 +135,8 @@ struct ContentView: View {
             ConnectView()
         case .sources:
             SourcesView()
+        case .usage:
+            UsageView()
         }
     }
 }
