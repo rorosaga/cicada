@@ -936,11 +936,15 @@ actor APIClient {
         id: String,
         action: String,
         answer: String? = nil,
+        optionKey: String? = nil,
+        remindDays: Int? = nil,
         mergeTarget: String? = nil,
         mergeSurvivor: String? = nil
     ) async throws {
         var body: [String: Any] = ["action": action]
         if let answer { body["answer"] = answer }
+        if let optionKey { body["optionKey"] = optionKey }
+        if let remindDays { body["remindDays"] = remindDays }
         if let mergeTarget { body["mergeTarget"] = mergeTarget }
         if let mergeSurvivor { body["mergeSurvivor"] = mergeSurvivor }
         try await post("/inbox/\(id)/resolve", body: body)
@@ -1478,8 +1482,10 @@ extension APIClient: SyncAPI {
     // protocol's connection/inbox names a home; each forwards verbatim.
 
     func resolveInbox(id: String, action: String, answer: String?,
+                      optionKey: String?, remindDays: Int?,
                       mergeTarget: String?, mergeSurvivor: String?) async throws {
         try await resolveInboxItem(id: id, action: action, answer: answer,
+                                   optionKey: optionKey, remindDays: remindDays,
                                    mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
     }
 

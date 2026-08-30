@@ -34,9 +34,35 @@ enum RequiredInput: String, Codable {
     case none, choice, freetext, merge
 }
 
+/// One answerable option on an inbox question. Matches `InboxOption` in
+/// `api/models/schemas.py`. `ageDays` is derived server-side at read time.
+struct InboxOption: Identifiable, Codable, Hashable {
+    var key: String
+    var label: String
+    var description: String?
+    var claimId: String?
+    var observedAt: String?
+    var lastReferenced: String?
+    var ageDays: Int?
+
+    var id: String { key }
+
+    /// A trailing muted capsule: "today", "5 d", "3 wk", "6 mo", "2 y".
+    /// `nil` when the option has no claim behind it (the synthetic rows).
+    var ageCapsule: String? {
+        guard let days = ageDays else { return nil }
+        if days == 0 { return "today" }
+        if days < 14 { return "\(days) d" }
+        if days < 60 { return "\(Int((Double(days) / 7).rounded())) wk" }
+        if days < 365 { return "\(Int((Double(days) / 30).rounded())) mo" }
+        return "\(Int((Double(days) / 365).rounded())) y"
+    }
+}
+
 /// One unified inbox item. Decodes the camelCase payload from `GET /inbox`
-/// (`api/routers/inbox.py` → `InboxItem`). Optional fields are only populated
-/// for clarification / merge kinds.
+/// (`api/routers/inbox.py` → `InboxItem`). `options` decodes both the current
+/// object form and the legacy flat `[String]`, so an item written before G60
+/// still renders.
 struct InboxItem: Identifiable, Codable {
     let id: String
     var kind: InboxKind
@@ -47,8 +73,17 @@ struct InboxItem: Identifiable, Codable {
     var entityName: String
     var title: String
     var body: String
-    var options: [String]?
+    var options: [InboxOption]
     var createdDate: String
+    // G60 question object
+    var question: String?
+    var allowOther: Bool
+    var allowDefer: Bool
+    var predicate: String?
+    var hint: String?
+    var remindAfter: String?
+    var updatedDate: String?
+    // clarification / merge extras
     var uncertaintyType: String?
     var suggestedClassification: String?
     var suggestedConfidence: Double?
@@ -57,6 +92,7 @@ struct InboxItem: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
         case entityId, entityName, title, body, options, createdDate
+        case question, allowOther, allowDefer, predicate, hint, remindAfter, updatedDate
         case uncertaintyType, suggestedClassification, suggestedConfidence, mergeTargetHint
     }
 
@@ -71,8 +107,26 @@ struct InboxItem: Identifiable, Codable {
         entityName = try c.decodeIfPresent(String.self, forKey: .entityName) ?? ""
         title = try c.decode(String.self, forKey: .title)
         body = try c.decodeIfPresent(String.self, forKey: .body) ?? ""
-        options = try c.decodeIfPresent([String].self, forKey: .options)
+        // Object form first; a server or cached payload from before G60 hands
+        // back `["A","B"]`, which becomes positionally-keyed options.
+        if let objects = try? c.decodeIfPresent([InboxOption].self, forKey: .options) {
+            options = objects ?? []
+        } else if let labels = try c.decodeIfPresent([String].self, forKey: .options) {
+            options = labels.enumerated().map {
+                InboxOption(key: "\($0.offset)", label: $0.element, description: nil,
+                            claimId: nil, observedAt: nil, lastReferenced: nil, ageDays: nil)
+            }
+        } else {
+            options = []
+        }
         createdDate = try c.decodeIfPresent(String.self, forKey: .createdDate) ?? ""
+        question = try c.decodeIfPresent(String.self, forKey: .question)
+        allowOther = try c.decodeIfPresent(Bool.self, forKey: .allowOther) ?? false
+        allowDefer = try c.decodeIfPresent(Bool.self, forKey: .allowDefer) ?? false
+        predicate = try c.decodeIfPresent(String.self, forKey: .predicate)
+        hint = try c.decodeIfPresent(String.self, forKey: .hint)
+        remindAfter = try c.decodeIfPresent(String.self, forKey: .remindAfter)
+        updatedDate = try c.decodeIfPresent(String.self, forKey: .updatedDate)
         uncertaintyType = try c.decodeIfPresent(String.self, forKey: .uncertaintyType)
         suggestedClassification = try c.decodeIfPresent(String.self, forKey: .suggestedClassification)
         suggestedConfidence = try c.decodeIfPresent(Double.self, forKey: .suggestedConfidence)
@@ -83,6 +137,12 @@ struct InboxItem: Identifiable, Codable {
     /// entity name is attached (pure clarification with no entity yet).
     var displayName: String {
         entityName.isEmpty ? title : entityName
+    }
+
+    /// What `QuestionView` shows as the question line.
+    var questionText: String {
+        if let question, !question.isEmpty { return question }
+        return title.isEmpty ? body : title
     }
 
     var createdDateValue: Date {

@@ -49,7 +49,7 @@ final class MutationTests: XCTestCase {
         XCTAssertFalse(ok)
         XCTAssertEqual(store.visibleInbox.map(\.id), ["a", "b", "c"], "rollback restores it at its index")
         XCTAssertEqual(store.toast, "Couldn't resolve that item — reverted")
-        XCTAssertEqual(api.writes, ["resolveInbox:b:archive"])
+        XCTAssertEqual(api.writes, ["resolveInbox:b:archive:nil:nil"])
     }
 
     /// `skip` keeps the item in the queue by design — nothing is hidden.

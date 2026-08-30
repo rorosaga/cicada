@@ -63,12 +63,15 @@ final class InboxViewModel {
         id: String,
         action: String,
         answer: String? = nil,
+        optionKey: String? = nil,
+        remindDays: Int? = nil,
         mergeTarget: String? = nil,
         mergeSurvivor: String? = nil
     ) async -> Bool {
         errorMessage = nil
         let ok = await store.perform(InboxResolve(
             id: id, action: action, answer: answer,
+            optionKey: optionKey, remindDays: remindDays,
             mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor
         ))
         if ok {

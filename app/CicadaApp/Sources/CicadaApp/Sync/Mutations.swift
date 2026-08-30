@@ -51,10 +51,16 @@ struct InboxResolve: Mutation {
     let id: String
     let action: String
     var answer: String? = nil
+    /// G60: the key of the option the user picked ("a", "b", "both", "neither").
+    var optionKey: String? = nil
+    /// G60: with `action == "defer"`, how far out to push the reminder.
+    var remindDays: Int? = nil
     var mergeTarget: String? = nil
     var mergeSurvivor: String? = nil
 
     /// `skip` deliberately keeps the item in the queue — nothing to hide.
+    /// `defer` DOES hide: the server sets `remind_after`, so the card is gone
+    /// from the pending list either way.
     private var hides: Bool { action != "skip" }
 
     func optimistic(_ store: Store) async {
@@ -63,6 +69,7 @@ struct InboxResolve: Mutation {
 
     func request(_ api: any SyncAPI) async throws {
         try await api.resolveInbox(id: id, action: action, answer: answer,
+                                   optionKey: optionKey, remindDays: remindDays,
                                    mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
     }
 

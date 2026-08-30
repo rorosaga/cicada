@@ -197,12 +197,12 @@ struct InboxCardView: View {
         default:
             // conflict (and any other choice kind): one full-width button per option.
             VStack(spacing: CicadaTheme.spacingSM) {
-                ForEach(item.options ?? [], id: \.self) { option in
+                ForEach(item.options) { option in
                     InboxActionButton(
-                        title: option, icon: "arrow.right.circle",
+                        title: option.label, icon: "arrow.right.circle",
                         color: 0x7C8FFF, fullWidth: true
                     ) {
-                        fire("resolve", answer: option)
+                        fire("resolve", answer: option.label)
                     }
                 }
             }

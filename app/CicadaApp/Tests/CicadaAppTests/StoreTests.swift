@@ -112,8 +112,11 @@ final class FakeSyncAPI: SyncAPI {
     }
 
     func resolveInbox(id: String, action: String, answer: String?,
+                      optionKey: String?, remindDays: Int?,
                       mergeTarget: String?, mergeSurvivor: String?) async throws {
-        try await record("resolveInbox:\(id):\(action)")
+        try await record(
+            "resolveInbox:\(id):\(action):\(optionKey ?? "nil"):\(remindDays.map(String.init) ?? "nil")"
+        )
     }
     func setConnectionTier(_ id: String, tier: String?) async throws -> ConnectionStatus {
         try await record("setConnectionTier:\(id):\(tier ?? "nil")")
