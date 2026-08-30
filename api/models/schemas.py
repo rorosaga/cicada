@@ -697,6 +697,9 @@ class SleepStatusResponse(CamelModel):
     # ``episodes_requeued`` > 0 means "completed, but re-run Sleep to finish".
     episodes_processed: int = 0
     episodes_requeued: int = 0
+    # G60 — open-question re-scoring outcomes for the Sleep dashboard.
+    questions_refreshed: int = 0
+    organic_resolutions: int = 0
 
 
 class SleepHistoryEntry(CamelModel):

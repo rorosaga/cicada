@@ -103,15 +103,26 @@ def _opt_str(value: object) -> str | None:
     return text or None
 
 
-def load_inbox(memory_path: Path) -> list[InboxItem]:
-    """Load all inbox items, sorted: pending first, then priority desc, date desc."""
+def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[InboxItem]:
+    """Load inbox items, sorted: pending first, then priority desc, date desc.
+
+    Deferred items (``remind_after`` still in the future, §2.3-4) are hidden by
+    default — the file stays on disk and the card returns on its own the day the
+    date passes. ``include_deferred=True`` is for maintenance callers.
+    """
     inbox_dir = _inbox_dir(memory_path)
+    today = str(date.today())
     items: list[InboxItem] = []
     for filepath in sorted(inbox_dir.glob("inbox-*.md")):
         try:
-            items.append(_item_from_file(filepath))
+            item = _item_from_file(filepath, today=today)
         except Exception:
             continue
+        if not include_deferred and item.remind_after and inbox_questions.is_deferred(
+            {"remind_after": item.remind_after}, today
+        ):
+            continue
+        items.append(item)
     # pending first, then priority desc, then created_date desc.
     items.sort(
         key=lambda i: (

@@ -42,6 +42,11 @@ class SleepState:
     # means "completed, but re-run Sleep to finish the rest".
     episodes_processed: int = 0
     episodes_requeued: int = 0
+    # G60 — open-question re-scoring (Stage 5.56). ``questions_refreshed`` counts
+    # items whose options were bumped or escalated; ``organic_resolutions`` counts
+    # questions answered by later conversation and closed without the user acting.
+    questions_refreshed: int = 0
+    organic_resolutions: int = 0
 
 
 _state = SleepState()
@@ -72,6 +77,8 @@ async def run(settings: Settings, cycle_id: str) -> None:
     _state.skills_detected = 0
     _state.episodes_processed = 0
     _state.episodes_requeued = 0
+    _state.questions_refreshed = 0
+    _state.organic_resolutions = 0
 
     memory_path = settings.memory_path
     logger.info(f"Sleep cycle {cycle_id} started — model: {settings.litellm_model}")
@@ -201,6 +208,27 @@ async def run(settings: Settings, cycle_id: str) -> None:
             from api.services.inbox_generator import write_claim_nudges
             claim_result = run_claim_pipeline(extracted, existing, memory_path, settings)
             nudge_result = write_claim_nudges(claim_result.get("nudges", []), memory_path)
+
+            # G60 §2.3 — re-score the OPEN questions against the freshly-written
+            # claims (bump/re-order, organic resolution, stale escalation). Runs
+            # AFTER write_claim_nudges so this cycle's new competing values are
+            # already merged into their open question.
+            from api.services import inbox_questions
+            from api.services.claim_pipeline import _load_existing_claims_by_subject
+
+            refresh = inbox_questions.refresh_open_questions(
+                memory_path,
+                _load_existing_claims_by_subject(memory_path),
+                str(datetime.now().date()),
+                stale_after_days=settings.inbox_stale_after_days,
+            )
+            _state.questions_refreshed = refresh["bumped"] + refresh["escalated"]
+            _state.organic_resolutions = refresh["organic_resolutions"]
+            logger.info(
+                f"Stage 5.56: refreshed {refresh['bumped']} question(s), "
+                f"escalated {refresh['escalated']}, "
+                f"organically resolved {refresh['organic_resolutions']}"
+            )
             logger.info(
                 f"Stage 5.56: claim layer wrote {claim_result.get('claims_written', 0)} "
                 f"claims across {claim_result.get('subjects_written', 0)} pages "
