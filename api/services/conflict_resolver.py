@@ -87,12 +87,18 @@ async def resolve_and_prune(
         if contradiction and contradiction.get("has_unresolvable_contradiction"):
             conflicts_found += 1
             progress.set_postfix_str(f"conflicts={conflicts_found}", refresh=False)
+            today_str = str(date.today())
+            built = build_entity_question(entity_name, contradiction, today_str)
             changes.append({
                 "id": entity_id,
                 "action": "conflict_nudge",
                 "entity": new_entity,
                 "conflict_context": contradiction.get("contradiction", ""),
-                "options": contradiction.get("options", []),
+                "predicate": "description",
+                "question": built["question"],
+                "options": built["options"],
+                "allow_other": True,
+                "allow_defer": True,
                 "source_episode": change.get("source_episode", ""),
                 "trigger": "sleep/conflict_resolution",
             })
@@ -611,10 +617,62 @@ Respond with JSON only:
 {{
   "has_unresolvable_contradiction": true | false,
   "contradiction": "one-sentence description of the contradiction, or empty",
-  "options": ["Option A matching an existing claim", "Option B matching the new claim", "Both are true (different contexts)"]
+  "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does Rodrigo work now?'). Empty when there is no contradiction.",
+  "options": [
+    {{"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"}},
+    {{"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"}},
+    {{"label": "Both are true (different contexts)", "description": "Keep both, each tagged with its context"}}
+  ]
 }}
 
-If there is no contradiction, set has_unresolvable_contradiction to false and options to []."""
+If there is no contradiction, set has_unresolvable_contradiction to false, question to "", and options to []."""
+
+
+_BOTH_OPTION = {
+    "key": "both",
+    "label": "Both are true (different contexts)",
+    "description": "Keep both claims, each tagged with its context",
+    "claim_id": None,
+}
+
+
+def build_entity_question(entity_name: str, raw: dict | None, today: str) -> dict:
+    """Normalize an LLM contradiction payload into the G60 question object.
+
+    The entity path has no claims behind its options (it compares page bodies),
+    so every option carries ``claim_id: None`` and the item keys on the literal
+    predicate ``"description"``. A missing/blank ``question`` or a flat
+    ``options: [str]`` payload degrades to the deterministic template rather
+    than producing a card with no question — under-specifying is safe here.
+    """
+    from api.services import predicates
+
+    raw = raw or {}
+    question = str(raw.get("question", "") or "").strip()
+    if not question:
+        question = predicates.predicate_question("description", entity_name)
+
+    options: list[dict] = []
+    for key, item in zip(("a", "b"), raw.get("options") or []):
+        if isinstance(item, dict):
+            label = str(item.get("label", "") or "").strip()
+            description = str(item.get("description", "") or "").strip()
+        else:
+            label = str(item).strip()
+            description = ""
+        if not label or label == _BOTH_OPTION["label"]:
+            continue
+        options.append({
+            "key": key,
+            "label": label,
+            "description": description or f"Described on the page as of {today}",
+            "claim_id": None,
+            "observed_at": today,
+            "last_referenced": today,
+        })
+
+    options.append(dict(_BOTH_OPTION))
+    return {"question": question, "options": options}
 
 
 async def _detect_contradiction(
