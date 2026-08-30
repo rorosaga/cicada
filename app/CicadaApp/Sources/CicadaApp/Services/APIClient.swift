@@ -1410,7 +1410,7 @@ extension APIClient: SyncAPI {
             let c: Conditional<SourceListResponse> = try await getConditional("/sources?sort=relevance", etag: etag)
             return c.map(\.items)
         } catch APIError.httpError(404, _) {
-            return Conditional(value: [], etag: nil, notModified: false)
+            return .unavailable(etag: etag)
         }
     }
 
@@ -1419,7 +1419,7 @@ extension APIClient: SyncAPI {
             let c: Conditional<FeedListResponse> = try await getConditional("/sources/feeds", etag: etag)
             return c.map(\.feeds)
         } catch APIError.httpError(404, _) {
-            return Conditional(value: [], etag: nil, notModified: false)
+            return .unavailable(etag: etag)
         }
     }
 
@@ -1428,7 +1428,7 @@ extension APIClient: SyncAPI {
             let c: Conditional<CalendarListResponse> = try await getConditional("/sources/calendars", etag: etag)
             return c.map(\.calendars)
         } catch APIError.httpError(404, _) {
-            return Conditional(value: [], etag: nil, notModified: false)
+            return .unavailable(etag: etag)
         }
     }
 
@@ -1437,7 +1437,7 @@ extension APIClient: SyncAPI {
             let c: Conditional<ContributorsResponse> = try await getConditional("/contributors", etag: etag)
             return c.map(\.contributors)
         } catch APIError.httpError(404, _) {
-            return Conditional(value: [], etag: nil, notModified: false)
+            return .unavailable(etag: etag)
         }
     }
 
@@ -1446,7 +1446,7 @@ extension APIClient: SyncAPI {
             let c: Conditional<OriginsResponse> = try await getConditional("/origins", etag: etag)
             return c.map(\.origins)
         } catch APIError.httpError(404, _) {
-            return Conditional(value: [], etag: nil, notModified: false)
+            return .unavailable(etag: etag)
         }
     }
 
@@ -1457,7 +1457,7 @@ extension APIClient: SyncAPI {
             let c: Conditional<ConnectionsResponse> = try await getConditional("/connections", etag: etag)
             return c.map(\.connections)
         } catch APIError.httpError(404, _) {
-            return Conditional(value: [], etag: nil, notModified: false)
+            return .unavailable(etag: etag)
         }
     }
 

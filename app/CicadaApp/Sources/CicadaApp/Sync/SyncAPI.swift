@@ -16,6 +16,18 @@ struct Conditional<T> {
     func map<U>(_ transform: (T) -> U) -> Conditional<U> {
         Conditional<U>(value: value.map(transform), etag: etag, notModified: notModified)
     }
+
+    /// The answer to "this backend doesn't ship that endpoint" (a 404 on a
+    /// conditional fetch).
+    ///
+    /// It must NOT be an empty payload: `Store.refreshOne` writes any non-nil
+    /// value straight into the snapshot *and* persists it, so returning `[]`
+    /// would blank a populated feed/sources/origins list on disk the moment one
+    /// request 404s. Reported as a no-change instead, so the caller keeps
+    /// whatever it already has — exactly like a 304.
+    static func unavailable(etag: String?) -> Conditional<T> {
+        Conditional<T>(value: nil, etag: etag, notModified: true)
+    }
 }
 
 /// The slice of `APIClient` the `Store`/`SyncEngine` depend on. Exists so the

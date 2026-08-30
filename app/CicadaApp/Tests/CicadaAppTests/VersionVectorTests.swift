@@ -14,4 +14,14 @@ final class VersionVectorTests: XCTestCase {
         XCTAssertEqual(bank.changedDomains(since: new), Set(SyncDomain.allCases))
         XCTAssertEqual(new.changedDomains(since: new), [])
     }
+
+    /// `sync_service.components` folds `feeds.yaml` and `calendars.yaml` into
+    /// the `sources` component, so a `sources` bump must refresh the calendar
+    /// list too — subscribing to an ICS feed changes nothing else.
+    func testSourcesComponentAlsoRefreshesFeedsAndCalendars() {
+        let base = ["sources": "a", "bank": "x"]
+        let old = VersionVector(version: "1", components: base)
+        let new = VersionVector(version: "2", components: ["sources": "b", "bank": "x"])
+        XCTAssertEqual(new.changedDomains(since: old), [.sources, .feeds, .calendars])
+    }
 }

@@ -7,7 +7,9 @@ struct VersionVector: Codable, Equatable {
     static let mapping: [String: Set<SyncDomain>] = [
         "entities": [.graph, .contributors, .origins], "edges": [.graph, .contributors, .origins], "hubs": [.graph, .contributors, .origins],
         "inbox": [.inbox, .graph, .status], "episodes": [.status, .origins, .sources],
-        "sources": [.sources, .feeds], "git_head": [.contributors], "sleep": [.status],
+        // The `sources` component folds in `feeds.yaml` and `calendars.yaml`
+        // (see `sync_service.components`), so all three domains ride it.
+        "sources": [.sources, .feeds, .calendars], "git_head": [.contributors], "sleep": [.status],
     ]
 
     func changedDomains(since old: VersionVector?) -> Set<SyncDomain> {

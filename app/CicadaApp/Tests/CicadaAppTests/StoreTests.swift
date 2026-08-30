@@ -43,6 +43,10 @@ final class FakeSyncAPI: SyncAPI {
         case value(Any)          // a fresh payload
         case notModified
         case failure
+        /// What `APIClient`'s `catch APIError.httpError(404, _)` branches now
+        /// hand back — `Conditional.unavailable`, i.e. "endpoint not shipped",
+        /// reported as a no-change rather than as an empty payload.
+        case notFound
     }
 
     var calls: [SyncDomain] = []
@@ -169,6 +173,7 @@ final class FakeSyncAPI: SyncAPI {
         }
         switch reply {
         case .notModified: return Conditional(value: nil, etag: nil, notModified: true)
+        case .notFound: return .unavailable(etag: nil)
         case .failure: throw APIError.serverUnreachable
         case .value(let v): return Conditional(value: (v as! T), etag: "\"\(domain.rawValue)\"", notModified: false)
         case nil: return Conditional(value: fallback, etag: "\"\(domain.rawValue)\"", notModified: false)
@@ -320,6 +325,68 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(first?.id, "n1")
         XCTAssertEqual(second?.id, "n1")
         XCTAssertEqual(api.entityFetches, 1)
+    }
+
+    // MARK: - Final review fixes
+
+    /// (F1) Entity ids are only unique *within* a bank, so a memoised body must
+    /// not survive a bank switch — bank A's `capstone` would otherwise render
+    /// under bank B's node of the same id.
+    func testEntityCacheIsClearedOnBankSwitch() async throws {
+        let api = FakeSyncAPI()
+        let bodyA: Entity = try decodeFixture("""
+        {"id":"x","name":"A's X","type":"project","status":"active","confidence":0.9,
+         "created":"2026-01-01","lastReferenced":"2026-01-02","decayRate":0.05,
+         "markdownContent":"# From bank A"}
+        """)
+        api.entities["x"] = bodyA
+        let store = Store(cache: tempCache(), api: api)
+
+        let readA = await store.entity("x")
+        XCTAssertEqual(readA?.markdownContent, "# From bank A")
+        XCTAssertEqual(api.entityFetches, 1)
+        XCTAssertNotNil(store.entities["x"])
+
+        // Switch banks. `ActivateBank.optimistic` runs `hydrate(bank:)`, which
+        // is where the cache must be dropped.
+        let bodyB: Entity = try decodeFixture("""
+        {"id":"x","name":"B's X","type":"project","status":"active","confidence":0.4,
+         "created":"2026-02-01","lastReferenced":"2026-02-02","decayRate":0.05,
+         "markdownContent":"# From bank B"}
+        """)
+        api.entities["x"] = bodyB
+        _ = await store.perform(ActivateBank(name: "B"))
+
+        XCTAssertTrue(store.entities.isEmpty, "the entity cache must not cross banks")
+        let readB = await store.entity("x")
+        XCTAssertEqual(readB?.markdownContent, "# From bank B")
+        XCTAssertEqual(api.entityFetches, 2, "the post-switch read must refetch")
+    }
+
+    /// (F6) A 404 on a conditional fetch means "this backend has no such
+    /// endpoint", not "the list is empty". It must never blank — or persist an
+    /// empty value over — a populated snapshot.
+    func testNotFoundKeepsExistingValue() async throws {
+        let api = FakeSyncAPI()
+        api.replies[.feeds] = .value([FeedSubscription(url: "https://example.com/rss")])
+        let store = Store(cache: tempCache(), api: api)
+        await store.refresh([.feeds])
+        XCTAssertEqual(store.feeds.value?.count, 1)
+        let etag = store.feeds.etag
+
+        api.replies[.feeds] = .notFound
+        await store.refresh([.feeds])
+        XCTAssertEqual(store.feeds.value?.count, 1, "a 404 must not blank the snapshot")
+        XCTAssertEqual(store.feeds.etag, etag)
+        XCTAssertNil(store.toast)
+    }
+
+    /// (F6) The helper every 404 branch in `APIClient` returns.
+    func testConditionalUnavailableIsANoChange() {
+        let c = Conditional<[FeedSubscription]>.unavailable(etag: "\"e\"")
+        XCTAssertNil(c.value)
+        XCTAssertTrue(c.notModified)
+        XCTAssertEqual(c.etag, "\"e\"")
     }
 
     // MARK: - Review fixes

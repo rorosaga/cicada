@@ -213,12 +213,25 @@ final class GraphViewModel {
                 ? "FULL nodes=\(delta.added.count) links=\(delta.links?.count ?? 0)"
                 : "DELTA added=\(delta.added.count) updated=\(delta.updated.count) removed=\(delta.removed.count) links=\(delta.links.map { String($0.count) } ?? "unchanged")"
             graphLog.info("graph push: \(summary, privacy: .public)")
-            await self?.applyPreparedPush(json: json, isDelta: !delta.isFull, isEmpty: delta.isEmpty)
+            await self?.applyPreparedPush(
+                json: json, isDelta: !delta.isFull, isEmpty: delta.isEmpty,
+                isFull: delta.isFull, updatedIDs: delta.updated.map(\.id)
+            )
         }
     }
 
-    private func applyPreparedPush(json: String, isDelta: Bool, isEmpty: Bool) {
+    private func applyPreparedPush(
+        json: String, isDelta: Bool, isEmpty: Bool, isFull: Bool = false, updatedIDs: [String] = []
+    ) {
         isPreparingPush = false
+        // A node the server re-hashed is a node whose entity page changed, so
+        // the memoised full body in the Store is stale. A full push means the
+        // whole snapshot was replaced (first load, bank switch) — drop the lot.
+        if isFull {
+            store.invalidateAllEntities()
+        } else {
+            for id in updatedIDs { store.invalidateEntity(id) }
+        }
         if !isEmpty {
             pendingPushJSON = json
             pendingPushIsDelta = isDelta

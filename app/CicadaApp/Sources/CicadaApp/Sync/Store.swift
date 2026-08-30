@@ -129,6 +129,11 @@ final class Store {
         // bank (`inbox-001` exists in every one), so a hide carried across a
         // switch would blank an unrelated item in the new bank.
         hiddenInboxIds.removeAll()
+        // Entity bodies are memoised by *id*, and ids are only unique within a
+        // bank (`capstone` exists in more than one), so a body cached before a
+        // switch would render under the new bank's node of the same name.
+        entities.removeAll()
+        entityLRU.removeAll()
         if let explicitBank {
             bank = explicitBank
         } else {
@@ -472,6 +477,13 @@ final class Store {
     func invalidateEntity(_ id: String) {
         entities[id] = nil
         entityLRU.removeAll { $0 == id }
+    }
+
+    /// Drop every cached body — used when the whole graph snapshot is replaced
+    /// (a full push), where per-id invalidation can't tell what changed.
+    func invalidateAllEntities() {
+        entities.removeAll()
+        entityLRU.removeAll()
     }
 
     private func touchEntity(_ id: String) {
