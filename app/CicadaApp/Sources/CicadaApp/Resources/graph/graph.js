@@ -449,12 +449,23 @@ function updateGraph(dataStr) {
 // node keeps its exact x/y/vx/vy and the layout doesn't re-explode after a
 // Sleep cycle that changed one entity. `links` is present only when the link
 // set actually changed; absent means "leave the links alone".
+// Keys the Swift encoder omits when empty/false, so `updateGraphDelta` has to
+// clear them explicitly before merging an updated node (see below).
+const DELTA_OPTIONAL_KEYS = ["hubId", "observers", "contexts", "isFacet", "parentId", "context"];
+
 function updateGraphDelta(dataStr) {
     const data = typeof dataStr === "string" ? JSON.parse(dataStr) : dataStr;
 
     // A delta is only meaningful on top of an existing simulation. A full
-    // payload, or a first paint, goes down the full path.
-    if (data.isFull || !nodes.length) return updateGraph(data);
+    // payload, or a first paint, goes down the full path — reshaped so nothing
+    // is lost: a delta payload has no `nodes` key, so handing it to
+    // updateGraph verbatim would wipe the canvas.
+    if (data.isFull || !nodes.length) {
+        return updateGraph(Array.isArray(data.nodes) ? data : {
+            nodes: [...(data.added || []), ...(data.updated || [])],
+            links: data.links || [],
+        });
+    }
 
     resizeCanvas();
 
@@ -485,6 +496,13 @@ function updateGraphDelta(dataStr) {
             if (!cur) { added.push(u); continue; }
             const x = cur.x, y = cur.y, vx = cur.vx, vy = cur.vy;
             const fx = cur.fx, fy = cur.fy, index = cur.index;
+            // Object.assign can only add or overwrite keys, so a field the
+            // Swift encoder omits when empty/false would keep its stale value
+            // (a node that stops being a facet, or loses its hub, would keep
+            // the old parentId/hubId until the next full push). Clear the
+            // known-optional keys first; the payload re-supplies whatever is
+            // still true.
+            for (const k of DELTA_OPTIONAL_KEYS) delete cur[k];
             Object.assign(cur, u);
             cur.x = x; cur.y = y; cur.vx = vx; cur.vy = vy;
             cur.fx = fx; cur.fy = fy; cur.index = index;
@@ -523,6 +541,14 @@ function updateGraphDelta(dataStr) {
         const p = prevPositions.get(n.id);
         if (p) { n.x = p.x; n.y = p.y; n.vx = p.vx || 0; n.vy = p.vy || 0; }
         else { const s = seedPositionFor(n); n.x = s.x; n.y = s.y; n.vx = 0; n.vy = 0; }
+    }
+
+    // Keep the position cache current for the touched nodes, so a later FULL
+    // updateGraph (bank switch back, forced full push) re-seeds them where they
+    // are now instead of throwing them back at their type anchor.
+    for (const t of [...added, ...updated]) {
+        const n = nodes.find(x => x.id === t.id);
+        if (n && n.x != null) prevPositions.set(n.id, { x: n.x, y: n.y, vx: n.vx || 0, vy: n.vy || 0 });
     }
 
     rebuildVisible();

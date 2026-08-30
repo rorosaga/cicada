@@ -180,7 +180,10 @@ final class GraphViewModel {
     /// Queue a snapshot for the webview. The diff + `JSONSerialization` happen
     /// in a detached task; only the resulting string comes back to the main
     /// actor, where `GraphView.updateNSView` picks it up.
-    private func schedulePush(_ snapshot: GraphResponse) {
+    ///
+    /// Internal rather than private so `GraphPushTests` can drive the push
+    /// pipeline without a webview.
+    func schedulePush(_ snapshot: GraphResponse) {
         queuedSnapshot = snapshot
         prepareGraphPush()
     }
@@ -197,6 +200,11 @@ final class GraphViewModel {
         let old = (forceFullNextPush || pendingPushJSON != nil) ? nil : lastPushedSnapshot
         forceFullNextPush = false
         lastPushedSnapshot = next
+        // The push *after* a blank is always full too: a delta whose `old` is
+        // the empty snapshot is all-`added`, and a payload with no `nodes` key
+        // can't be replayed as a full update by graph.js. This is the bank
+        // switch path (blank, then the new bank's first snapshot).
+        if next.nodes.isEmpty { forceFullNextPush = true }
 
         Task.detached(priority: .userInitiated) { [weak self] in
             let delta = GraphDiff.diff(old: old, new: next)
@@ -204,11 +212,7 @@ final class GraphViewModel {
             let summary = delta.isFull
                 ? "FULL nodes=\(delta.added.count) links=\(delta.links?.count ?? 0)"
                 : "DELTA added=\(delta.added.count) updated=\(delta.updated.count) removed=\(delta.removed.count) links=\(delta.links.map { String($0.count) } ?? "unchanged")"
-            // Both channels on purpose: `log show` for a bundled/launchd run,
-            // stdout for the terminal-launched dev binary (the unified log is
-            // not always readable from a sandboxed shell).
             graphLog.info("graph push: \(summary, privacy: .public)")
-            FileHandle.standardError.write(Data("[graph-push] \(summary)\n".utf8))
             await self?.applyPreparedPush(json: json, isDelta: !delta.isFull, isEmpty: delta.isEmpty)
         }
     }
