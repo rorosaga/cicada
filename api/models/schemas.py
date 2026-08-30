@@ -436,6 +436,11 @@ class GraphNode(CamelModel):
     # without diffing full entity bodies.
     summary: Optional[str] = None
     content_hash: str = ""
+    # G59: does this entity have a *cached* logo right now? Filled from the
+    # on-disk logo index only — `GET /graph` never fetches. Folded into
+    # `content_hash` below so the app's delta repaints the node when a logo
+    # lands (e.g. after a Sleep warm-up).
+    has_logo: bool = False
 
 
 class GraphLink(CamelModel):
@@ -946,6 +951,26 @@ class NotesSyncResponse(CamelModel):
     # Notes dropped by CICADA_NOTES_EXCLUDE_FOLDERS before dedup/ingest.
     excluded: int = 0
 
+# --- Capture channels (G62) --------------------------------------------------
+
+
+class SourceChannel(CamelModel):
+    """One capture channel as the Capture page sees it. `connected` is derived
+    from persisted state only (registries, sync_state.json, env, origin counts)
+    — never from the transient result of a sync/import button press."""
+
+    id: str
+    label: str
+    connected: bool = False
+    count: int = 0
+    last_sync: Optional[str] = None
+    detail: Optional[str] = None
+    actions: list[str] = []
+
+
+class SourceChannelsResponse(CamelModel):
+    channels: list[SourceChannel] = []
+
 # --- Provider connections (G50) ---
 
 
@@ -975,6 +1000,15 @@ class ConnectionStatus(CamelModel):
     billing: str = "usage"  # subscription | usage | free
     engine_role: Optional[str] = None
     detail: Optional[str] = None
+    # G63: one sentence explaining *why this card says Connected*, authored
+    # next to the probe that decided it so the copy can never drift from the
+    # check. None when the connection isn't connected — there is nothing to
+    # explain yet, and `detail` already carries the "here's how to connect" hint.
+    how: Optional[str] = None
+    # What this connection currently does for Cicada. The registry assigns
+    # these across the probed set (only one adapter is the engine at a time),
+    # so an adapter can't know its own answer.
+    powers: list[str] = []
     login: Optional[LoginHint] = None
 
 

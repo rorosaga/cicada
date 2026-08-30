@@ -148,17 +148,20 @@ struct AskPanel: View {
         Button {
             onSelectEntity(citation.entityId)
         } label: {
-            Text("[[\(citation.entityName)]]")
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(CicadaTheme.accent)
-                .padding(.horizontal, CicadaTheme.spacingSM)
-                .padding(.vertical, 4)
-                .background(
-                    Capsule().fill(CicadaTheme.accent.opacity(0.12))
-                )
+            HStack(spacing: 6) {
+                LogoImage(entityId: citation.entityId, name: citation.entityName, size: 20)
+                Text("[[\(citation.entityName)]]")
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(CicadaTheme.accent)
+            }
+            .padding(.leading, 4)
+            .padding(.trailing, CicadaTheme.spacingSM)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(CicadaTheme.accent.opacity(0.12)))
         }
         .buttonStyle(.plain)
         .help(citation.snippet)
+        .accessibilityLabel("Open \(citation.entityName)")
     }
 
     private func confidenceMeter(_ confidence: Double) -> some View {

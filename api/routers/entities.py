@@ -1,9 +1,12 @@
+import asyncio
+import hashlib
 import os
 import re
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
@@ -24,12 +27,21 @@ from api.models.schemas import (
     RepoInput,
     RepoUpdateRequest,
 )
-from api.services import fact_sources, git_service, markdown_parser, repo_context
+from api.services import fact_sources, git_service, logo_service, markdown_parser, repo_context
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
 
 router = APIRouter()
+
+# G59: bound concurrent first-fetches so opening a graph full of new companies
+# can't fan out into dozens of simultaneous outbound requests.
+_LOGO_FETCH_SEMAPHORE = asyncio.Semaphore(4)
+
+_LOGO_MEDIA_TYPES = {
+    "png": "image/png", "jpg": "image/jpeg", "gif": "image/gif",
+    "webp": "image/webp", "svg": "image/svg+xml", "ico": "image/x-icon",
+}
 
 
 @router.get("/entities/{entity_id}", response_model=EntityResponse)
@@ -64,6 +76,42 @@ async def get_entity(
         history=history,
         media=_build_media_block(fm, parsed.body),
     )
+
+
+@router.get("/entities/{entity_id}/logo")
+async def get_entity_logo(
+    entity_id: str,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+):
+    """The entity's logo as an image (G59).
+
+    404 means "no logo" — no resolvable domain, or the fetch ladder came up
+    empty — and the app draws its monogram fallback. The first request for an
+    uncached entity performs the fetch (bounded by a semaphore of 4); every
+    later one is served straight off ``~/.cicada/logos/<bank>/``. ``GET /graph``
+    never comes through here: it reads the cache index only.
+    """
+    memory_path = settings.memory_path
+    if not (memory_path / "entities" / f"{entity_id}.md").exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+
+    bank = logo_service.bank_name(memory_path)
+    path = logo_service.cached_path(bank, entity_id)
+    if path is None:
+        async with _LOGO_FETCH_SEMAPHORE:
+            path = await logo_service.ensure_logo(memory_path, entity_id)
+    if path is None or not path.exists():
+        raise HTTPException(404, "no logo for this entity")
+
+    stat = path.stat()
+    etag = '"' + hashlib.sha1(f"{path.name}:{stat.st_mtime_ns}:{stat.st_size}".encode()).hexdigest()[:16] + '"'
+    headers = {"ETag": etag, "Cache-Control": "max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+
+    media_type = _LOGO_MEDIA_TYPES.get(path.suffix.lstrip("."), "application/octet-stream")
+    return FileResponse(path, media_type=media_type, headers=headers)
 
 
 # Body section whose prose becomes EntityMedia.description (M4 media entities

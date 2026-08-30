@@ -53,6 +53,8 @@ struct InboxCardView: View {
 
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
+            LogoImage(entityId: item.entityId, name: item.displayName, size: 28)
+
             Image(systemName: item.kind.icon)
                 .font(.system(size: 16))
                 .foregroundStyle(item.kind.color)

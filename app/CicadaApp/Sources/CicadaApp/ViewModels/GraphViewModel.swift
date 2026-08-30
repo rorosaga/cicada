@@ -63,6 +63,39 @@ final class GraphViewModel {
     /// full `updateGraph` payload (`false`).
     var pendingPushIsDelta = false
     var errorMessage: String?
+    /// Base64 data URLs for the highest-degree nodes that have a logo, ready
+    /// for `graph.js::setNodeLogos`. Consumed by `GraphView.updateNSView`.
+    var pendingLogoPushJSON: String?
+
+    func clearPendingLogoPush() { pendingLogoPushJSON = nil }
+
+    /// Fetch (from `LogoStore`'s memory/disk cache, or the API once) the marks
+    /// for the busiest logo-bearing nodes and hand them to the canvas.
+    ///
+    /// Bounded by `limit` on purpose: pushing 1800 base64 PNGs through
+    /// `evaluateJavaScript` would be tens of megabytes of string. Only runs
+    /// while the toggle is on — with logos off, nothing is fetched at all.
+    func pushVisibleLogos(limit: Int = 60) async {
+        guard filter.showLogos else { return }
+        let bank = store.bank
+        let candidates = (store.graph.value?.nodes ?? [])
+            .filter(\.hasLogo)
+            .sorted { $0.degree > $1.degree }
+            .prefix(limit)
+        guard !candidates.isEmpty else { return }
+
+        var payload: [String: String] = [:]
+        for node in candidates {
+            if let url = await LogoStore.shared.dataURL(entityId: node.id, bank: bank) {
+                payload[node.id] = url
+            }
+        }
+        guard !payload.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8)
+        else { return }
+        pendingLogoPushJSON = json
+    }
 
     /// The snapshot the webview was last told about — the `old` side of the
     /// next diff. `nil` until the first push, which is therefore always full.
@@ -300,6 +333,7 @@ final class GraphViewModel {
             if let parentId = node.parentId { d["parentId"] = parentId }
         }
         if let context = node.context { d["context"] = context }
+        if node.hasLogo { d["hasLogo"] = true }
         return d
     }
 

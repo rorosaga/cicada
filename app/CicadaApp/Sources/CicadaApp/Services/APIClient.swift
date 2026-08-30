@@ -792,6 +792,22 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))")
     }
 
+    /// `GET /entities/{id}/logo`. Returns nil on 404 — "this entity has no
+    /// logo" is an ordinary answer, not an error, and the caller draws a
+    /// monogram instead.
+    func fetchEntityLogo(id: String) async throws -> Data? {
+        var request = makeRequest("/entities/\(encodedID(id))/logo", method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
     func fetchEntityHistory(id: String, includeDiff: Bool = false) async throws -> [EntityHistoryEntry] {
         // FastAPI query params use the snake_case Python name (not the
         // camelCase body/response alias), so this is include_diff, not includeDiff.
@@ -1445,6 +1461,15 @@ extension APIClient: SyncAPI {
         do {
             let c: Conditional<SourceListResponse> = try await getConditional("/sources?sort=relevance", etag: etag)
             return c.map(\.items)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    func fetchChannels(etag: String?) async throws -> Conditional<[SourceChannel]> {
+        do {
+            let c: Conditional<SourceChannelsResponse> = try await getConditional("/sources/channels", etag: etag)
+            return c.map(\.channels)
         } catch APIError.httpError(404, _) {
             return .unavailable(etag: etag)
         }

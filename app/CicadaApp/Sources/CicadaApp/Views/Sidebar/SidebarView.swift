@@ -24,6 +24,18 @@ enum AppTab: String, CaseIterable {
         case .sources: "tray.and.arrow.down"
         }
     }
+
+    /// The label the user sees. Deliberately separate from `rawValue`, which is
+    /// this tab's stable identifier (persisted state, cache keys, the ⌘-slot
+    /// order in `allCases`) and must not move when the copy changes — G63
+    /// renames Connections → "Plans & keys" and Connect → "Agents".
+    var title: String {
+        switch self {
+        case .connections: "Plans & keys"
+        case .connect: "Agents"
+        default: rawValue
+        }
+    }
 }
 
 /// Linear/Notion-style sidebar sections. Quiet uppercase labels group the flat
@@ -111,7 +123,7 @@ struct SidebarView: View {
     private func sidebarButton(for tab: AppTab) -> some View {
         let count = badgeCount(for: tab)
         let isSelected = selectedTab == tab
-        let label = count > 0 ? "\(tab.rawValue), \(count) pending" : tab.rawValue
+        let label = count > 0 ? "\(tab.title), \(count) pending" : tab.title
 
         let button = Button {
             withAnimation(.spring(duration: 0.25)) {
@@ -145,7 +157,7 @@ private struct SidebarRow: View {
                 .foregroundStyle(isSelected ? CicadaTheme.accent : CicadaTheme.textSecondary)
                 .frame(width: 24)
 
-            Text(tab.rawValue)
+            Text(tab.title)
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(isSelected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
 

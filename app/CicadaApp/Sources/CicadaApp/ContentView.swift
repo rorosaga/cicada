@@ -349,6 +349,17 @@ struct FilterPopoverContent: View {
                 in: 0...1
             )
             .controlSize(.small)
+
+            Divider()
+            Toggle("Show logos", isOn: Binding(
+                get: { graphVM.filter.showLogos },
+                set: { newValue in
+                    graphVM.filter.showLogos = newValue
+                    if newValue { Task { await graphVM.pushVisibleLogos() } }
+                }
+            ))
+            .toggleStyle(.switch)
+            .accessibilityLabel("Show entity logos on graph nodes")
         }
         .padding(CicadaTheme.spacingMD)
         .frame(width: 220)

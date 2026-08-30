@@ -21,6 +21,12 @@ from api.services.connections import base, byok, claude_cli, codex_cli, ollama
 PREFS_FILE_NAME = "connections.json"
 STATUS_TTL_SECONDS = 30
 VALID_TIERS = ("5x", "20x")
+# G63: what the *selected* engine actually does, and what every other connected
+# connection is doing instead. Only one adapter is the engine at a time (see
+# api/routers/status.py, which picks the first connected `engine_role`), so this
+# assignment belongs to the registry — an adapter probing itself cannot know.
+ENGINE_POWERS = ["Sleep extraction", "Ask", "clarification wording"]
+STANDBY_POWERS = ["Standby"]
 
 _ollama_fetch_tags = ollama._http_tags  # patched in tests
 
@@ -70,6 +76,27 @@ class Registry:
         raise KeyError(connection_id)
 
     # --- status (cached) ---------------------------------------------------
+    @staticmethod
+    def assign_powers(statuses: list[ConnectionStatus]) -> list[ConnectionStatus]:
+        """Stamp `powers` across a probed set, in place.
+
+        The first connected adapter in adapter order is the engine — the same
+        rule `GET /status` uses to report `engine` — so it gets the real list
+        and every other connected one reads "Standby". Disconnected adapters
+        keep an empty list: they aren't powering anything.
+        """
+        engine_assigned = False
+        for status in statuses:
+            if not status.connected:
+                status.powers = []
+                continue
+            if not engine_assigned:
+                status.powers = list(ENGINE_POWERS)
+                engine_assigned = True
+            else:
+                status.powers = list(STANDBY_POWERS)
+        return statuses
+
     def invalidate(self) -> None:
         self._cache.clear()
 
@@ -81,6 +108,39 @@ class Registry:
         status = await self.get(connection_id).status()
         self._cache[connection_id] = (now, status)
         return status
+
+    async def status_with_powers(self, connection_id: str, fresh: bool = False) -> ConnectionStatus:
+        """One connection's status, carrying the same ``powers`` the full set
+        would give it.
+
+        ``powers`` is a property of the *set*, not of an adapter — only the
+        first connected adapter is the engine — so a single probe can't derive
+        it and ``status()`` leaves it ``[]``. Single-connection responses go
+        straight into the app's store (``ConnectionsViewModel.pollUntilConnected``
+        writes the row it polls), so returning ``[]`` visibly drops a card's
+        "Powers" line. Probe the whole ordered set (warm-cached per adapter,
+        so this is usually free) and return the requested row from it.
+        """
+        if fresh:
+            # Probe ONLY the requested adapter fresh. The login poll calls
+            # this every 3 s for up to 5 minutes; a full-registry fresh
+            # fan-out would re-shell every vendor CLI on each tick. `powers`
+            # only depends on which adapters are connected (in order), and
+            # the warm per-adapter cache answers that.
+            target = await self.status(connection_id, fresh=True)
+            statuses = [
+                target if status.id == connection_id else status
+                for status in await self.statuses(fresh=False)
+            ]
+            self.assign_powers(statuses)
+            for status in statuses:
+                if status.id == connection_id:
+                    return status
+            return target
+        for status in await self.statuses(fresh=False):
+            if status.id == connection_id:
+                return status
+        return await self.status(connection_id, fresh=False)
 
     async def statuses(self, fresh: bool = False) -> list[ConnectionStatus]:
         """Probe every adapter concurrently, preserving adapter order.
@@ -106,7 +166,7 @@ class Registry:
                     statuses.append(cached[1])
                 continue
             statuses.append(result)
-        return statuses
+        return self.assign_powers(statuses)
 
     def cached_statuses(self) -> list[ConnectionStatus]:
         """Cache-only snapshot, in adapter order — never probes.

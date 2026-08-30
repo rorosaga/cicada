@@ -29,10 +29,14 @@ class ByokAdapter:
 
     async def status(self) -> ConnectionStatus:
         connected = secrets.has_secret(self.env_var)
+        brand = {"openai": "OpenAI", "anthropic": "Anthropic",
+                 "openrouter": "OpenRouter", "gemini": "Gemini"}[self.provider]
         return ConnectionStatus(
             id=self.id, label=self.label, kind=self.kind, available=True, connected=connected,
             billing="usage", engine_role="byok" if connected else None,
             plan_label="usage-based" if connected else None,
+            how=(f"Key stored in {secrets.secrets_path()} (0600); billed per token by {brand}."
+                 if connected else None),
             detail=None if connected else f"Paste a key; it is stored in {secrets.secrets_path()} (0600) and exported as {self.env_var}.",
             login=LoginHint(mode="key"),
         )

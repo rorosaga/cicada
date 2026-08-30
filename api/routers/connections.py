@@ -40,7 +40,7 @@ async def list_connections(fresh: bool = False, reg: Registry = Depends(_registr
 @router.get("/{connection_id}", response_model=ConnectionStatus)
 async def get_connection(connection_id: str, fresh: bool = False, reg: Registry = Depends(_registry)):
     _adapter(reg, connection_id)
-    return await reg.status(connection_id, fresh=fresh)
+    return await reg.status_with_powers(connection_id, fresh=fresh)
 
 
 @router.post("/{connection_id}/login", response_model=LoginSession)
@@ -66,7 +66,7 @@ async def logout(connection_id: str, reg: Registry = Depends(_registry)):
     adapter = _adapter(reg, connection_id)
     await adapter.logout()
     reg.invalidate()
-    return await reg.status(connection_id, fresh=True)
+    return await reg.status_with_powers(connection_id, fresh=True)
 
 
 @router.put("/{connection_id}/key", response_model=ConnectionStatus)
@@ -79,7 +79,7 @@ async def set_key(connection_id: str, body: KeyBody, reg: Registry = Depends(_re
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     reg.invalidate()
-    return await reg.status(connection_id, fresh=True)
+    return await reg.status_with_powers(connection_id, fresh=True)
 
 
 @router.delete("/{connection_id}/key", response_model=ConnectionStatus)
@@ -89,7 +89,7 @@ async def delete_key(connection_id: str, reg: Registry = Depends(_registry)):
         raise HTTPException(status_code=400, detail="only API-key connections hold a key")
     adapter.remove_key()
     reg.invalidate()
-    return await reg.status(connection_id, fresh=True)
+    return await reg.status_with_powers(connection_id, fresh=True)
 
 
 @router.put("/{connection_id}/prefs", response_model=ConnectionStatus)
@@ -101,4 +101,4 @@ async def set_prefs(connection_id: str, body: PrefsBody, reg: Registry = Depends
         reg.set_pref(connection_id, "tier", body.tier)
     if body.enabled is not None:
         reg.set_pref(connection_id, "enabled", body.enabled)
-    return await reg.status(connection_id, fresh=True)
+    return await reg.status_with_powers(connection_id, fresh=True)

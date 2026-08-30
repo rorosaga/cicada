@@ -154,7 +154,35 @@ let filters = {
     minDegree: 1,       // default drops only fully isolated nodes
     contexts: null,     // null = all contexts; otherwise Set<string> — DROPS non-matching edges/facets
     observers: null,    // null = all observers; otherwise Set<string> — DIMS non-matching nodes (kept visible)
+    // G59: draw cached brand marks inside the node discs. Off by default —
+    // drawImage per node costs real frames on a 1800-node graph, and the
+    // colored discs are the primary type signal. Toggled from the Swift
+    // filter popover.
+    showLogos: false,
 };
+
+// G59: id -> { img, ready }. Fed by `setNodeLogos`, which Swift calls with
+// base64 data URLs (the webview can't reach the bearer-authenticated API).
+// Entries are additive and reused: rebuilding an Image restarts its decode and
+// flickers the node on every delta push.
+const logoImages = new Map();
+
+function setNodeLogos(payload) {
+    const data = typeof payload === "string" ? JSON.parse(payload) : payload;
+    let added = 0;
+    for (const [id, src] of Object.entries(data || {})) {
+        const existing = logoImages.get(id);
+        if (existing && existing.img && existing.img.src === src) continue;
+        if (typeof Image !== "function") continue;
+        const entry = { img: new Image(), ready: false };
+        entry.img.onload = () => { entry.ready = true; scheduleRedraw(); };
+        entry.img.onerror = () => { logoImages.delete(id); };
+        entry.img.src = src;
+        logoImages.set(id, entry);
+        added += 1;
+    }
+    if (added) scheduleRedraw();
+}
 
 // Focus / ego mode.
 let focusNodeId = null;         // ego anchor; null = full graph
@@ -1031,6 +1059,22 @@ function draw() {
         ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
         ctx.fill();
 
+        // G59: the entity's own brand mark, clipped to the disc. Only past the
+        // node-label zoom tier — below that the marks smear into indistinct
+        // pixels and cost a drawImage per node for nothing.
+        if (filters.showLogos && n.hasLogo && transform.k >= ZOOM_NODE_LABELS && alpha > 0.2) {
+            const entry = logoImages.get(n.id);
+            if (entry && entry.ready) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+                ctx.clip();
+                ctx.drawImage(entry.img, n.x - r, n.y - r, r * 2, r * 2);
+                ctx.restore();
+                ctx.globalAlpha = alpha;
+            }
+        }
+
         if (n.status === "decaying") {
             ctx.stroke();
             ctx.setLineDash([]);
@@ -1449,6 +1493,9 @@ function applyFilters(payload) {
     if ("minDegree" in f) filters.minDegree = Number(f.minDegree) || 0;
     if ("contexts" in f) filters.contexts = toSet(f.contexts);
     if ("observers" in f) filters.observers = toSet(f.observers);
+    // Not set-affecting: no node enters or leaves the visible set, so this
+    // must not trigger a rebuild + reheat — just a repaint.
+    if ("showLogos" in f) filters.showLogos = Boolean(f.showLogos);
 
     if (nodes.length === 0) { scheduleRedraw(); return; }
 

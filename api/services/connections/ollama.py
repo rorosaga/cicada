@@ -41,6 +41,7 @@ class OllamaAdapter:
         base.available = True
         if model in names or any(n.split(":")[0] == model for n in names):
             base.connected, base.engine_role, base.plan_label = True, "local", model
+            base.how = f"Local models at `{self._settings.ollama_base_url}` — free."
         else:
             base.detail = f"Model not pulled — run `ollama pull {model}`"
         return base

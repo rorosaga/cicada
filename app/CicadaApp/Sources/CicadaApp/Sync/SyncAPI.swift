@@ -42,6 +42,7 @@ protocol SyncAPI: Sendable {
     func fetchInbox(etag: String?) async throws -> Conditional<[InboxItem]>
     func fetchBanks(etag: String?) async throws -> Conditional<BanksResponse>
     func fetchSources(etag: String?) async throws -> Conditional<[MediaFeedItem]>
+    func fetchChannels(etag: String?) async throws -> Conditional<[SourceChannel]>
     func fetchFeeds(etag: String?) async throws -> Conditional<[FeedSubscription]>
     func fetchCalendars(etag: String?) async throws -> Conditional<[CalendarSubscription]>
     func fetchContributors(etag: String?) async throws -> Conditional<[Contributor]>

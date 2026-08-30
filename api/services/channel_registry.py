@@ -1,0 +1,155 @@
+"""Capture-channel derivation for ``GET /sources/channels`` (G62).
+
+One list the Capture page can render from, derived from **persisted state
+only** — never from the transient result of a button press:
+
+* ``rss`` / ``calendar``  -> the subscription registries are non-empty
+* ``bookmarks`` / ``notes`` -> a ``sync_state.json`` entry exists
+* ``telegram``            -> ``CICADA_TELEGRAM_BOT_TOKEN`` is configured
+* ``chat-export:*`` / ``files`` -> origin counts / the saved-URL index
+
+Pure filesystem + one env flag passed in by the router. No network, no LLM,
+never raises: a corrupt registry or a missing directory yields a
+not-connected channel, never an error.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from api.services import (
+    calendar_registry,
+    feed_registry,
+    media_ingestor,
+    origin_stats,
+    sync_state,
+)
+
+# Canonical order; the app sorts the *connected* rows by last_sync itself.
+CHANNEL_IDS = (
+    "chat-export:claude",
+    "chat-export:chatgpt",
+    "bookmarks",
+    "notes",
+    "rss",
+    "calendar",
+    "telegram",
+    "files",
+)
+
+
+def _plural(n: int, singular: str, plural: str | None = None) -> str:
+    return f"{n:,} {singular if n == 1 else (plural or singular + 's')}"
+
+
+def _short_date(iso: str | None) -> str:
+    """`2026-08-29T10:00:00Z` / `2026-08-29` -> `2026-08-29`; '' when absent."""
+    return (iso or "").split("T", 1)[0]
+
+
+def _latest(values: list[str | None]) -> str | None:
+    present = sorted(v for v in values if v)
+    return present[-1] if present else None
+
+
+def _subscription_channel(
+    channel_id: str, label: str, records: list[dict], noun: str
+) -> dict:
+    count = len(records)
+    last = _latest([r.get("last_polled") for r in records if isinstance(r, dict)])
+    detail = None
+    if count:
+        when = f"polled {_short_date(last)}" if last else "not polled yet"
+        detail = f"{_plural(count, noun)} · {when}"
+    return {
+        "id": channel_id,
+        "label": label,
+        "connected": count > 0,
+        "count": count,
+        "last_sync": last,
+        "detail": detail,
+        "actions": ["poll", "manage"],
+    }
+
+
+def _sync_channel(channel_id: str, label: str, state: dict, noun: str) -> dict:
+    entry = state.get(channel_id) or {}
+    last = entry.get("last_sync") or None
+    count = int(entry.get("count") or 0)
+    connected = bool(last)
+    detail = f"{_plural(count, noun)} · synced {_short_date(last)}" if connected else None
+    return {
+        "id": channel_id,
+        "label": label,
+        "connected": connected,
+        "count": count,
+        "last_sync": last,
+        "detail": detail,
+        "actions": ["sync"],
+    }
+
+
+def _origin_channel(
+    channel_id: str, label: str, origin: str, by_origin: dict, noun: str
+) -> dict:
+    stat = by_origin.get(origin) or {}
+    count = int(stat.get("episodeCount") or 0)
+    last = stat.get("lastSeen") or None
+    detail = f"{_plural(count, noun)} · imported {_short_date(last)}" if count else None
+    return {
+        "id": channel_id,
+        "label": label,
+        "connected": count > 0,
+        "count": count,
+        "last_sync": last,
+        "detail": detail,
+        "actions": ["import"],
+    }
+
+
+def build_channels(memory_path: Path, *, telegram_enabled: bool) -> list[dict]:
+    memory_path = Path(memory_path)
+    state = sync_state.read_sync_state(memory_path)
+    by_origin = {o["origin"]: o for o in origin_stats.aggregate_origins(memory_path)}
+
+    try:
+        url_index = media_ingestor.load_url_index(memory_path)
+    except Exception:
+        url_index = {}
+    saved_count = len(url_index)
+
+    telegram_count = int((by_origin.get("telegram") or {}).get("episodeCount") or 0)
+
+    channels = {
+        "chat-export:claude": _origin_channel(
+            "chat-export:claude", "Claude chat export", "claude-export", by_origin, "conversation"),
+        "chat-export:chatgpt": _origin_channel(
+            "chat-export:chatgpt", "ChatGPT chat export", "chatgpt-export", by_origin, "conversation"),
+        "bookmarks": _sync_channel(
+            "bookmarks", "Chrome & Safari bookmarks", state, "bookmark"),
+        "notes": _sync_channel("notes", "Apple Notes", state, "note"),
+        "rss": _subscription_channel(
+            "rss", "RSS feeds", feed_registry.list_feeds(memory_path), "feed"),
+        "calendar": _subscription_channel(
+            "calendar", "Calendars", calendar_registry.list_calendars(memory_path), "calendar"),
+        "telegram": {
+            "id": "telegram",
+            "label": "Telegram bot",
+            "connected": bool(telegram_enabled),
+            "count": telegram_count,
+            "last_sync": (by_origin.get("telegram") or {}).get("lastSeen") or None,
+            "detail": (f"Bot configured · {_plural(telegram_count, 'capture')}"
+                       if telegram_enabled else None),
+            "actions": [],
+        },
+        "files": {
+            "id": "files",
+            "label": "Files & links",
+            "connected": saved_count > 0,
+            "count": saved_count,
+            "last_sync": None,
+            "detail": _plural(saved_count, "saved item") if saved_count else None,
+            "actions": ["import"],
+        },
+    }
+    return [channels[cid] for cid in CHANNEL_IDS]

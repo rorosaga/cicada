@@ -17,11 +17,17 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
     let billing: String         // subscription | usage | free
     let engineRole: String?
     let detail: String?
+    /// G63: why this card says "Connected", authored server-side next to the
+    /// probe that decided it. `nil` when not connected.
+    let how: String?
+    /// What this connection currently does for Cicada ("Sleep extraction",
+    /// "Ask", … for the selected engine; "Standby" for the rest).
+    let powers: [String]
     let login: LoginHint?
 
     enum CodingKeys: String, CodingKey {
         case id, label, kind, available, connected, plan, planLabel, tier, account
-        case priceUsdMonth, priceNote, billing, engineRole, detail, login
+        case priceUsdMonth, priceNote, billing, engineRole, detail, how, powers, login
     }
 
     /// Memberwise init — declaring `init(from:)` below suppresses the
@@ -31,13 +37,15 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
     init(id: String, label: String, kind: String, available: Bool, connected: Bool,
          plan: String?, planLabel: String?, tier: String?, account: String?,
          priceUsdMonth: Double?, priceNote: String?, billing: String,
-         engineRole: String?, detail: String?, login: LoginHint?) {
+         engineRole: String?, detail: String?, how: String? = nil,
+         powers: [String] = [], login: LoginHint?) {
         self.id = id; self.label = label; self.kind = kind
         self.available = available; self.connected = connected
         self.plan = plan; self.planLabel = planLabel; self.tier = tier
         self.account = account; self.priceUsdMonth = priceUsdMonth
         self.priceNote = priceNote; self.billing = billing
-        self.engineRole = engineRole; self.detail = detail; self.login = login
+        self.engineRole = engineRole; self.detail = detail
+        self.how = how; self.powers = powers; self.login = login
     }
 
     /// A copy with only the named fields replaced. `nil` arguments mean
@@ -54,7 +62,8 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
             account: account,
             priceUsdMonth: priceUsdMonth ?? self.priceUsdMonth,
             priceNote: priceNote ?? self.priceNote,
-            billing: billing, engineRole: engineRole, detail: detail, login: login
+            billing: billing, engineRole: engineRole, detail: detail,
+            how: how, powers: powers, login: login
         )
     }
 
@@ -74,11 +83,25 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
         billing = try c.decodeIfPresent(String.self, forKey: .billing) ?? "usage"
         engineRole = try c.decodeIfPresent(String.self, forKey: .engineRole)
         detail = try c.decodeIfPresent(String.self, forKey: .detail)
+        how = try c.decodeIfPresent(String.self, forKey: .how)
+        powers = try c.decodeIfPresent([String].self, forKey: .powers) ?? []
         login = try c.decodeIfPresent(LoginHint.self, forKey: .login)
     }
 
     var isSubscription: Bool { billing == "subscription" }
     var isKeyBased: Bool { login?.mode == "key" }
+
+    /// "Sleep extraction · Ask · clarification wording", or nil when this
+    /// connection isn't powering anything.
+    var powersLine: String? {
+        powers.isEmpty ? nil : powers.joined(separator: " · ")
+    }
+
+    /// The Max tier picker is a **cost-estimate** control, and only Claude
+    /// Max is tiered — showing it anywhere else implied it changed behaviour.
+    var showsTierPicker: Bool {
+        connected && isSubscription && id == "claude-plan" && plan == "max"
+    }
 
     /// "Claude Max 20x · $200/mo", "OpenAI API key · usage-based", "Ollama · free, local".
     var priceLine: String {

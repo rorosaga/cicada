@@ -121,9 +121,12 @@ struct EntityDetailCard: View {
                 }
             }
 
-            Text(entity.name)
-                .font(CicadaTheme.titleFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
+            HStack(spacing: CicadaTheme.spacingMD) {
+                LogoImage(entityId: entity.id, name: entity.name, type: entity.type, size: 40)
+                Text(entity.name)
+                    .font(CicadaTheme.titleFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+            }
 
             // Confidence bar
             HStack(spacing: CicadaTheme.spacingSM) {

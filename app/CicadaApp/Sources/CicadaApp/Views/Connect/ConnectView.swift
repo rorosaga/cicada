@@ -197,8 +197,8 @@ struct ConnectView: View {
     var body: some View {
         VStack(spacing: 0) {
             PageHeader(
-                title: isOnboarding ? "Welcome to Cicada" : "Connect your AI",
-                subtitle: "Cicada is an MCP server — any MCP-compatible agent can read and write your memory."
+                title: isOnboarding ? "Welcome to Cicada" : "Agents",
+                subtitle: "Wire your AI agents into Cicada over MCP so they read and write your memory."
             ) {
                 if isOnboarding {
                     Button {

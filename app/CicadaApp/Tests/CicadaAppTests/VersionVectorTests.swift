@@ -15,6 +15,15 @@ final class VersionVectorTests: XCTestCase {
         XCTAssertEqual(new.changedDomains(since: new), [])
     }
 
+    /// The logo cache lives outside the memory bank, so a Sleep warm-up or an
+    /// on-demand fetch bumps only the `logos` component — and `/graph` is the
+    /// only payload carrying `hasLogo`.
+    func testLogosComponentRefreshesTheGraph() {
+        let old = VersionVector(version: "1", components: ["logos": "a", "bank": "x"])
+        let new = VersionVector(version: "2", components: ["logos": "b", "bank": "x"])
+        XCTAssertEqual(new.changedDomains(since: old), [.graph])
+    }
+
     /// `sync_service.components` folds `feeds.yaml` and `calendars.yaml` into
     /// the `sources` component, so a `sources` bump must refresh the calendar
     /// list too — subscribing to an ICS feed changes nothing else.
@@ -22,6 +31,6 @@ final class VersionVectorTests: XCTestCase {
         let base = ["sources": "a", "bank": "x"]
         let old = VersionVector(version: "1", components: base)
         let new = VersionVector(version: "2", components: ["sources": "b", "bank": "x"])
-        XCTAssertEqual(new.changedDomains(since: old), [.sources, .feeds, .calendars])
+        XCTAssertEqual(new.changedDomains(since: old), [.sources, .feeds, .calendars, .channels])
     }
 }
