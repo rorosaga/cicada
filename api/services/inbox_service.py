@@ -13,8 +13,8 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from api.config import Settings
-from api.models.schemas import InboxItem, InboxResolveRequest
-from api.services import markdown_parser
+from api.models.schemas import InboxItem, InboxOption, InboxResolveRequest
+from api.services import inbox_questions, markdown_parser
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 
@@ -46,11 +46,29 @@ def _required_input_for(kind: str) -> str:
     return "freetext"
 
 
-def _item_from_file(filepath: Path) -> InboxItem:
+def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
     parsed = markdown_parser.parse(filepath)
     fm = parsed.frontmatter
     kind = str(fm.get("kind", "decay"))
     required_input = str(fm.get("required_input", "") or _required_input_for(kind))
+    now = today or str(date.today())
+
+    options: list[InboxOption] = []
+    for raw in inbox_questions.normalize_options(fm.get("options")):
+        observed = _opt_str(raw.get("observed_at"))
+        last_ref = _opt_str(raw.get("last_referenced")) or observed
+        options.append(
+            InboxOption(
+                key=str(raw.get("key", "")),
+                label=str(raw.get("label", "")),
+                description=_opt_str(raw.get("description")),
+                claim_id=_opt_str(raw.get("claim_id")),
+                observed_at=observed,
+                last_referenced=last_ref,
+                age_days=inbox_questions.age_days(last_ref, now),
+            )
+        )
+
     return InboxItem(
         id=filepath.stem,
         kind=kind,
@@ -61,13 +79,28 @@ def _item_from_file(filepath: Path) -> InboxItem:
         entity_name=str(fm.get("entity_name", "") or ""),
         title=str(fm.get("title", "") or fm.get("entity_name", "") or ""),
         body=parsed.body,
-        options=fm.get("options"),
+        options=options,
         created_date=str(fm.get("created_date", "") or ""),
+        question=_opt_str(fm.get("question")),
+        allow_other=bool(fm.get("allow_other", False)),
+        allow_defer=bool(fm.get("allow_defer", False)),
+        predicate=_opt_str(fm.get("predicate")),
+        hint=_opt_str(fm.get("hint")),
+        remind_after=_opt_str(fm.get("remind_after")),
+        updated_date=_opt_str(fm.get("updated_date")),
         uncertainty_type=fm.get("uncertainty_type"),
         suggested_classification=fm.get("suggested_classification"),
         suggested_confidence=fm.get("suggested_confidence"),
         merge_target_hint=fm.get("merge_target_hint"),
     )
+
+
+def _opt_str(value: object) -> str | None:
+    """Normalize an optional YAML scalar to ``str`` (YAML may parse dates)."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def load_inbox(memory_path: Path) -> list[InboxItem]:
