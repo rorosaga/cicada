@@ -91,6 +91,17 @@ struct GraphView: NSViewRepresentable {
                 self.viewModel.pendingFilterUpdate = false
             }
         }
+
+        // G59: hand the canvas the cached logo bitmaps as data URLs. The
+        // webview can't call the bearer-authenticated API itself.
+        if viewModel.isGraphReady, let logoJSON = viewModel.pendingLogoPushJSON {
+            webView.evaluateJavaScript("setNodeLogos(\(logoJSON))") { _, error in
+                if let error { print("Logo push error: \(error)") }
+            }
+            DispatchQueue.main.async {
+                self.viewModel.clearPendingLogoPush()
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator {

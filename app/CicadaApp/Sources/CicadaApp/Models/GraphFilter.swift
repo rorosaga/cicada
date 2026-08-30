@@ -15,6 +15,9 @@ struct GraphFilter: Equatable {
     // "no filter" (all-pass). graph.js dims/drops non-matching nodes/edges.
     var contexts: Set<String> = []
     var observers: Set<String> = []
+    /// G59: draw cached entity logos on graph nodes. Off by default — see the
+    /// perf note in graph.js.
+    var showLogos: Bool = false
 
     var allTypesSelected: Bool {
         types.count == EntityType.selectableCases.count
@@ -42,6 +45,7 @@ struct GraphFilter: Equatable {
         // previous selection instead of silently keeping the old key/value.
         payload["contexts"] = Array(contexts)
         payload["observers"] = Array(observers)
+        payload["showLogos"] = showLogos
         return payload
     }
 

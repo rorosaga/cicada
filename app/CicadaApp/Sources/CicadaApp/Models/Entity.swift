@@ -695,12 +695,15 @@ struct GraphNode: Codable, Sendable {
     /// treated by `GraphDiff` as "changed", never as "equal".
     let summary: String?
     let contentHash: String
+    /// G59: the backend has a cached logo for this entity. Purely a render
+    /// hint — the bytes arrive separately via `setNodeLogos`.
+    let hasLogo: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, tags
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
-        case summary, contentHash
+        case summary, contentHash, hasLogo
     }
 
     init(
@@ -709,7 +712,7 @@ struct GraphNode: Codable, Sendable {
         isHub: Bool = false, hasPending: Bool = false, memberCount: Int = 0,
         hubId: String? = nil, observers: [String] = [], contexts: [String] = [],
         isFacet: Bool = false, parentId: String? = nil, context: String? = nil,
-        summary: String? = nil, contentHash: String = ""
+        summary: String? = nil, contentHash: String = "", hasLogo: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -729,6 +732,7 @@ struct GraphNode: Codable, Sendable {
         self.context = context
         self.summary = summary
         self.contentHash = contentHash
+        self.hasLogo = hasLogo
     }
 
     init(from decoder: Decoder) throws {
@@ -756,5 +760,6 @@ struct GraphNode: Codable, Sendable {
         context = try c.decodeIfPresent(String.self, forKey: .context)
         summary = try c.decodeIfPresent(String.self, forKey: .summary)
         contentHash = try c.decodeIfPresent(String.self, forKey: .contentHash) ?? ""
+        hasLogo = try c.decodeIfPresent(Bool.self, forKey: .hasLogo) ?? false
     }
 }
