@@ -160,3 +160,35 @@ def test_single_connection_status_carries_the_same_powers_as_the_full_set():
     assert run(reg.status_with_powers("claude-plan")).powers == registry.ENGINE_POWERS
     assert run(reg.status_with_powers("chatgpt-plan")).powers == registry.STANDBY_POWERS
     assert run(reg.status_with_powers("byok-openai")).powers == []
+
+
+def test_fresh_single_status_probes_only_its_own_adapter():
+    """Re-review of the final fix wave: `pollUntilConnected` hits
+    `GET /connections/{id}?fresh=true` every 3 s — a fresh call must not
+    fan out a cache-bypassing probe to every vendor CLI, only to its own
+    adapter. The rest of the set may come from the warm cache."""
+    from api.models.schemas import ConnectionKind, ConnectionStatus
+
+    probes: dict[str, int] = {}
+
+    class FakeAdapter:
+        def __init__(self, cid, connected):
+            self.id, self._connected = cid, connected
+
+        async def status(self):
+            probes[self.id] = probes.get(self.id, 0) + 1
+            return ConnectionStatus(id=self.id, label=self.id, kind=ConnectionKind.subscription,
+                                    available=True, connected=self._connected)
+
+    reg = registry.Registry(Settings(memory_path="/tmp/does-not-exist"))
+    reg.adapters = lambda: [FakeAdapter("claude-plan", True),
+                            FakeAdapter("chatgpt-plan", True)]
+
+    # Warm the cache once (one probe each), then a fresh single-id call.
+    run(reg.statuses())
+    before = dict(probes)
+    status = run(reg.status_with_powers("chatgpt-plan", fresh=True))
+
+    assert status.powers == registry.STANDBY_POWERS
+    assert probes["chatgpt-plan"] == before["chatgpt-plan"] + 1
+    assert probes["claude-plan"] == before["claude-plan"]  # cached, not re-probed

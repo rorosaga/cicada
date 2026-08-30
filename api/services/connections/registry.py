@@ -121,10 +121,26 @@ class Registry:
         "Powers" line. Probe the whole ordered set (warm-cached per adapter,
         so this is usually free) and return the requested row from it.
         """
-        for status in await self.statuses(fresh=fresh):
+        if fresh:
+            # Probe ONLY the requested adapter fresh. The login poll calls
+            # this every 3 s for up to 5 minutes; a full-registry fresh
+            # fan-out would re-shell every vendor CLI on each tick. `powers`
+            # only depends on which adapters are connected (in order), and
+            # the warm per-adapter cache answers that.
+            target = await self.status(connection_id, fresh=True)
+            statuses = [
+                target if status.id == connection_id else status
+                for status in await self.statuses(fresh=False)
+            ]
+            self.assign_powers(statuses)
+            for status in statuses:
+                if status.id == connection_id:
+                    return status
+            return target
+        for status in await self.statuses(fresh=False):
             if status.id == connection_id:
                 return status
-        return await self.status(connection_id, fresh=fresh)
+        return await self.status(connection_id, fresh=False)
 
     async def statuses(self, fresh: bool = False) -> list[ConnectionStatus]:
         """Probe every adapter concurrently, preserving adapter order.
