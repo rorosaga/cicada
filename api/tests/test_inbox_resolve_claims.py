@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import date
+
+
 import asyncio
 import subprocess
 from pathlib import Path
@@ -131,7 +134,7 @@ def test_picking_an_option_supersedes_every_other_option_claim(tmp_path):
     claims = _claims(repo)
     assert claims["clm_b"].valid_to is None
     assert claims["clm_b"].confidence >= 0.9
-    assert claims["clm_a"].valid_to is not None
+    assert claims["clm_a"].valid_to == date.today().isoformat()
     assert claims["clm_a"].superseded_by == "clm_b"
     assert claims["clm_b"].supersedes == "clm_a"
 
@@ -166,8 +169,8 @@ def test_neither_with_free_text_writes_a_user_claim_and_closes_both(tmp_path):
     ))
 
     claims = _claims(repo)
-    assert claims["clm_a"].valid_to is not None
-    assert claims["clm_b"].valid_to is not None
+    assert claims["clm_a"].valid_to == date.today().isoformat()
+    assert claims["clm_b"].valid_to == date.today().isoformat()
 
     new = [c for c in claims.values() if c.object == "Acme Robotics"]
     assert len(new) == 1
@@ -191,8 +194,8 @@ def test_neither_without_text_only_closes(tmp_path):
     ))
 
     claims = _claims(repo)
-    assert claims["clm_a"].valid_to is not None
-    assert claims["clm_b"].valid_to is not None
+    assert claims["clm_a"].valid_to == date.today().isoformat()
+    assert claims["clm_b"].valid_to == date.today().isoformat()
     assert len(claims) == 2, "no new claim is written when there is nothing to say"
 
 
