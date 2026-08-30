@@ -62,3 +62,34 @@ final class SourceChannelTests: XCTestCase {
         XCTAssertEqual(hit?.etag, "\"c1\"")
     }
 }
+
+/// The "+" sheet must be able to explain every channel the backend can report
+/// as connected — a channel with no tile is a dead end for the user (the row
+/// appears, "Manage…" opens nothing).
+final class AddSourceCatalogTests: XCTestCase {
+
+    /// Mirrors api/services/channel_registry.py::CHANNEL_IDS.
+    private static let backendChannelIds: Set<String> = [
+        "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
+        "rss", "calendar", "telegram", "files",
+    ]
+
+    func testEveryBackendChannelHasATile() {
+        let covered = Set(AddSourceTile.allCases.flatMap(\.channelIds))
+        XCTAssertEqual(Self.backendChannelIds.subtracting(covered), [],
+                       "backend channels with no tile in the + sheet")
+    }
+
+    func testEveryTileHasTitleAndBlurb() {
+        for tile in AddSourceTile.allCases {
+            XCTAssertFalse(tile.title.isEmpty, tile.rawValue)
+            XCTAssertFalse(tile.blurb.isEmpty, tile.rawValue)
+            XCTAssertFalse(tile.icon.isEmpty, tile.rawValue)
+        }
+    }
+
+    func testChannelIdsAreUniqueAcrossTiles() {
+        let ids = AddSourceTile.allCases.flatMap(\.channelIds)
+        XCTAssertEqual(Set(ids).count, ids.count, "two tiles claim the same channel")
+    }
+}
