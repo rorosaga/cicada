@@ -10,7 +10,7 @@ Cursor) can connect to. Provides tools for:
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 # Allow importing sibling packages (api.services.vector_index) when run as a script
@@ -199,6 +199,11 @@ TOOLS = [
                     "type": "boolean",
                     "description": "Only set true after an 'ambiguous subject' response, when none of the suggested near-match entities is the intended subject — creates a genuinely new entity page despite the near-matches. Default false.",
                 },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional 'where to check this fact' references the user gave you — a URL, a file path, or a plain-English instruction ('ask me, I announce job changes'). Stored on the subject's entity page, attributed to you.",
+                },
             },
             "required": ["subject", "predicate", "object"],
         },
@@ -229,6 +234,36 @@ TOOLS = [
                 },
             },
             "required": ["episode_ids"],
+        },
+    },
+    {
+        "name": "cicada_resolve_inbox",
+        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation. Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'a', 'b', 'both', 'neither'), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The inbox item id, e.g. 'inbox-001' (shown by cicada_check_nudges).",
+                },
+                "option_key": {
+                    "type": "string",
+                    "description": "The key of the option the user chose ('a', 'b', 'both', 'neither', …).",
+                },
+                "answer": {
+                    "type": "string",
+                    "description": "Free-text answer, when none of the options is correct. Recorded as a user-stated claim.",
+                },
+                "defer": {
+                    "type": "boolean",
+                    "description": "True when the user wants to be asked again later. Default false.",
+                },
+                "remind_days": {
+                    "type": "integer",
+                    "description": "With defer=true: how many days out to ask again (default 30).",
+                },
+            },
+            "required": ["id"],
         },
     },
     {
@@ -385,6 +420,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("context"),
             arguments.get("source_episode"),
             bool(arguments.get("force_new_entity", False)),
+            arguments.get("sources"),
         )
     elif name == "cicada_pending":
         return handle_pending(arguments.get("limit"))
@@ -392,6 +428,14 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_mark_processed(arguments.get("episode_ids"))
     elif name == "cicada_repo_context":
         return handle_repo_context(arguments.get("entity_id"), arguments.get("path"))
+    elif name == "cicada_resolve_inbox":
+        return handle_resolve_inbox(
+            arguments.get("id", ""),
+            arguments.get("option_key"),
+            arguments.get("answer"),
+            bool(arguments.get("defer", False)),
+            arguments.get("remind_days"),
+        )
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -916,6 +960,7 @@ def handle_write_claim(
     context: str | None,
     source_episode: str | None,
     force_new_entity: bool = False,
+    sources: list | None = None,
 ) -> str:
     """Write one atomic fact as an observer-tagged claim (agentic write path)."""
     from api.services import agentic_write
@@ -930,6 +975,7 @@ def handle_write_claim(
         context=(context or "general"),
         source_episode=source_episode,
         force_new_entity=force_new_entity,
+        sources=sources,
     )
 
     if result.get("action") == "ambiguous_subject":
@@ -1344,6 +1390,8 @@ def _inbox_files(memory_path: Path):
 def _format_inbox_blurb(fm: dict, body: str) -> str:
     kind = str(fm.get("kind", fm.get("type", "")) or "")
     ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
+    if fm.get("question"):
+        return f"- [{kind or 'item'}] **{ename}**\n" + render_question(fm, body)
     if kind in ("clarification", "merge_suggestion"):
         utype = fm.get("uncertainty_type", "unknown")
         suggestion = fm.get("suggested_classification", "unknown")
@@ -1356,6 +1404,98 @@ def _format_inbox_blurb(fm: dict, body: str) -> str:
     title = fm.get("title", fm.get("short_description", ""))
     label = kind or "item"
     return f"- [{label}] **{ename}** — {title}"
+
+
+def render_question(fm: dict, body: str, today: str | None = None) -> str:
+    """Render an inbox item's question object for an agent to ask in-flow (§2.7).
+
+    Shape:
+
+        Where does Rodrigo work now?
+          a) MongoDB — 6 months ago
+          b) Supahost — 5 days ago
+          both) Both are true (different contexts)
+          Other / Later — reply with any other answer, or ask to be reminded later
+          Source to check: https://…
+
+    Falls back to the item body when there is no question, so legacy items still
+    render something an agent can read out.
+    """
+    from datetime import date as _date
+
+    from api.services import inbox_questions
+
+    now = today or str(_date.today())
+    lines = [str(fm.get("question") or fm.get("title") or "").strip() or (body or "").strip()]
+
+    for option in inbox_questions.normalize_options(fm.get("options")):
+        age = inbox_questions.humanize_age(
+            option.get("last_referenced") or option.get("observed_at"), now
+        )
+        suffix = f" — {age}" if age != "unknown" else ""
+        lines.append(f"  {option.get('key')}) {option.get('label')}{suffix}")
+
+    if fm.get("allow_other") or fm.get("allow_defer"):
+        lines.append(
+            "  Other / Later — reply with any other answer, "
+            "or ask to be reminded later"
+        )
+    if fm.get("hint"):
+        lines.append(f"  Source to check: {fm['hint']}")
+    return "\n".join(line for line in lines if line.strip())
+
+
+def _backend_post(path: str, payload: dict) -> dict:
+    """POST JSON to the local backend and return the decoded response."""
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"http://127.0.0.1:8000{path}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=_backend_headers(),
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def handle_resolve_inbox(
+    item_id: str,
+    option_key: str | None,
+    answer: str | None,
+    defer: bool,
+    remind_days,
+) -> str:
+    """Resolve (or defer) one inbox item through the backend (§2.7)."""
+    item_id = (item_id or "").strip()
+    if not item_id:
+        return "Error: id is required (e.g. 'inbox-001')."
+
+    if defer:
+        payload: dict = {"action": "defer"}
+        if remind_days is not None:
+            payload["remindDays"] = int(remind_days)
+    else:
+        payload = {"action": "resolve"}
+        if option_key:
+            payload["optionKey"] = str(option_key)
+        if answer:
+            payload["answer"] = str(answer)
+        if not option_key and not answer:
+            return "Error: pass option_key, answer, or defer=true."
+
+    try:
+        result = _backend_post(f"/inbox/{item_id}/resolve", payload)
+    except Exception as e:
+        return (
+            f"Could not resolve {item_id} ({type(e).__name__}: {e}). "
+            "Is the Cicada backend running on 127.0.0.1:8000?"
+        )
+
+    status = result.get("status", "unknown")
+    if status == "deferred":
+        return f"Deferred {item_id} until {result.get('remindAfter', 'later')}."
+    return f"Inbox item {item_id}: {status}."
 
 
 def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
@@ -1460,18 +1600,30 @@ def handle_check_nudges(topic: str | None) -> str:
             if not _topic_matches(topic.lower(), combined):
                 continue
 
+        from api.services import inbox_questions
+
+        if inbox_questions.is_deferred(fm, str(date.today())):
+            continue
+
         kind = str(fm.get("kind", fm.get("type", "")) or "")
         ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
-        if kind in ("clarification", "merge_suggestion") or (
+        if fm.get("question"):
+            results.append(
+                f"**{(kind or 'Item').title()}** `{filepath.stem}`: {ename}\n"
+                + render_question(fm, body)
+                + f"\n  Resolve with cicada_resolve_inbox(id=\"{filepath.stem}\", option_key=…)"
+            )
+        elif kind in ("clarification", "merge_suggestion") or (
             not kind and fm.get("uncertainty_type")
         ):
             results.append(
-                f"**Clarification**: {ename} — {fm.get('uncertainty_type', '')}\n  {body[:200]}"
+                f"**Clarification** `{filepath.stem}`: {ename} — "
+                f"{fm.get('uncertainty_type', '')}\n  {body[:200]}"
             )
         else:
             title = fm.get("title", fm.get("short_description", ""))
             results.append(
-                f"**{kind or 'Item'}**: {ename} — {title}\n  {body[:200]}"
+                f"**{kind or 'Item'}** `{filepath.stem}`: {ename} — {title}\n  {body[:200]}"
             )
 
     if not results:
