@@ -200,12 +200,13 @@ async def run(settings: Settings, cycle_id: str) -> None:
             from api.services.claim_pipeline import run_claim_pipeline
             from api.services.inbox_generator import write_claim_nudges
             claim_result = run_claim_pipeline(extracted, existing, memory_path, settings)
-            n_nudges = write_claim_nudges(claim_result.get("nudges", []), memory_path)
+            nudge_result = write_claim_nudges(claim_result.get("nudges", []), memory_path)
             logger.info(
                 f"Stage 5.56: claim layer wrote {claim_result.get('claims_written', 0)} "
                 f"claims across {claim_result.get('subjects_written', 0)} pages "
                 f"({claim_result.get('subjects_skipped', 0)} page-less), "
-                f"{n_nudges} claim nudges"
+                f"{nudge_result.get('written', 0)} claim nudges written, "
+                f"{nudge_result.get('merged', 0)} merged into open items"
             )
         except Exception as e:
             logger.warning(f"Stage 5.56 claim pipeline failed: {type(e).__name__}: {e}")
