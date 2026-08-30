@@ -107,6 +107,7 @@ def test_refresh_resolves_organically_on_a_user_stated_claim(tmp_path):
     result = inbox_questions.refresh_open_questions(memory, claims, "2026-08-30")
 
     assert result["organic_resolutions"] == 1
+    assert result["resolved_paths"] == ["inbox/inbox-001.md"]
     assert not path.exists(), "a human answer in conversation closes the question"
 
 
@@ -184,7 +185,7 @@ def test_refresh_skips_deferred_items(tmp_path):
 
     result = inbox_questions.refresh_open_questions(memory, claims, "2026-08-30")
 
-    assert result == {"bumped": 0, "organic_resolutions": 0, "escalated": 0}
+    assert result == {"bumped": 0, "organic_resolutions": 0, "escalated": 0, "resolved_paths": []}
     assert path.exists()
 
 
@@ -199,7 +200,7 @@ def test_refresh_ignores_non_conflict_kinds(tmp_path):
         "decaying",
     )
     result = inbox_questions.refresh_open_questions(memory, {}, "2026-08-30")
-    assert result == {"bumped": 0, "organic_resolutions": 0, "escalated": 0}
+    assert result == {"bumped": 0, "organic_resolutions": 0, "escalated": 0, "resolved_paths": []}
     assert (inbox / "inbox-001.md").exists()
 
 
@@ -209,3 +210,79 @@ def test_sleep_state_carries_the_new_counters():
     state = SleepState()
     assert state.organic_resolutions == 0
     assert state.questions_refreshed == 0
+
+
+def _git(args, cwd):
+    import subprocess
+
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+
+
+def test_finalize_tags_organic_resolution_deletes_with_their_own_trigger(tmp_path):
+    """G60 fix round 1: `_finalize` must not fall through to the generic
+    `sleep/inbox_generation` trigger for an inbox file `refresh_open_questions`
+    deleted this cycle -- it should carry `inbox/organic_resolution` so the
+    commit-message provenance the spec promises actually shows up.
+    """
+    import asyncio
+    import subprocess
+
+    from api.services.sleep_cycle import _finalize
+
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True)
+    resolved = memory / "inbox" / "inbox-001.md"
+    resolved.write_text("---\nkind: conflict\n---\nresolved\n")
+    kept = memory / "inbox" / "inbox-002.md"
+    kept.write_text("---\nkind: decay\n---\nstill open\n")
+
+    _git(["init", "-q"], cwd=memory)
+    _git(["config", "user.email", "t@t"], cwd=memory)
+    _git(["config", "user.name", "t"], cwd=memory)
+    _git(["add", "-A"], cwd=memory)
+    _git(["commit", "-q", "-m", "seed"], cwd=memory)
+
+    # Simulate what refresh_open_questions did this cycle: delete the
+    # organically-resolved item, leave the other inbox file untouched.
+    resolved.unlink()
+
+    asyncio.run(_finalize(
+        memory, "cyc1", [], None,
+        organic_resolution_paths={"inbox/inbox-001.md"},
+    ))
+
+    message = subprocess.run(
+        ["git", "log", "-1", "--pretty=%B"], cwd=memory,
+        check=True, capture_output=True, text=True,
+    ).stdout
+
+    assert "inbox/inbox-001.md: deleted (trigger: inbox/organic_resolution)" in message
+
+
+def test_finalize_still_infers_the_generic_trigger_for_other_inbox_writes(tmp_path):
+    """A plain inbox write NOT in `organic_resolution_paths` keeps the
+    pre-existing generic `sleep/inbox_generation` trigger."""
+    import asyncio
+    import subprocess
+
+    from api.services.sleep_cycle import _finalize
+
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True)
+    (memory / "inbox" / ".gitkeep").write_text("")
+    _git(["init", "-q"], cwd=memory)
+    _git(["config", "user.email", "t@t"], cwd=memory)
+    _git(["config", "user.name", "t"], cwd=memory)
+    _git(["add", "-A"], cwd=memory)
+    _git(["commit", "-q", "-m", "seed"], cwd=memory)
+
+    (memory / "inbox" / "inbox-003.md").write_text("---\nkind: decay\n---\nnew\n")
+
+    asyncio.run(_finalize(memory, "cyc1", [], None, organic_resolution_paths=set()))
+
+    message = subprocess.run(
+        ["git", "log", "-1", "--pretty=%B"], cwd=memory,
+        check=True, capture_output=True, text=True,
+    ).stdout
+
+    assert "inbox/inbox-003.md: created (trigger: sleep/inbox_generation)" in message

@@ -203,6 +203,9 @@ async def run(settings: Settings, cycle_id: str) -> None:
         # above keeps working untouched; claims are emitted (Stage 1 projection),
         # trust-reconciled (Stage 3 — no agent claim can close a human claim), and
         # written into the same editable pages (Stage 5 — human prose preserved).
+        # `organic_resolution_paths` is threaded to `_finalize` (below) so those
+        # exact deletions get the specific `inbox/organic_resolution` trigger.
+        organic_resolution_paths: set[str] = set()
         try:
             from api.services.claim_pipeline import run_claim_pipeline
             from api.services.inbox_generator import write_claim_nudges
@@ -224,6 +227,7 @@ async def run(settings: Settings, cycle_id: str) -> None:
             )
             _state.questions_refreshed = refresh["bumped"] + refresh["escalated"]
             _state.organic_resolutions = refresh["organic_resolutions"]
+            organic_resolution_paths = set(refresh.get("resolved_paths") or [])
             logger.info(
                 f"Stage 5.56: refreshed {refresh['bumped']} question(s), "
                 f"escalated {refresh['escalated']}, "
@@ -337,7 +341,13 @@ async def run(settings: Settings, cycle_id: str) -> None:
             _state.index_warning = "; ".join(index_warnings)
 
         # Commit
-        await _finalize(memory_path, cycle_id, changes, settings)
+        await _finalize(
+            memory_path,
+            cycle_id,
+            changes,
+            settings,
+            organic_resolution_paths=organic_resolution_paths,
+        )
         requeue_note = (
             f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
             if _state.episodes_requeued else ""
@@ -483,7 +493,12 @@ def _mark_episodes_processed(episodes: list[dict]) -> None:
 
 
 async def _finalize(
-    memory_path: Path, cycle_id: str, changes: list, settings: Settings | None = None
+    memory_path: Path,
+    cycle_id: str,
+    changes: list,
+    settings: Settings | None = None,
+    *,
+    organic_resolution_paths: set[str] | None = None,
 ) -> None:
     """Commit all changes from the sleep cycle with a structured message.
 
@@ -492,6 +507,12 @@ async def _finalize(
     ``git status`` so the commit message remains a complete manifest. The
     authoring model(s) for this cycle (main + disambiguation, per ``settings``)
     are recorded as ``Cicada-Author:`` trailers for repo-wide attribution.
+
+    ``organic_resolution_paths`` (G60 fix round 1): the exact inbox file paths
+    ``refresh_open_questions`` deleted this cycle because a later conversation
+    answered the question organically. Those paths get the specific
+    ``inbox/organic_resolution`` trigger instead of the generic
+    ``sleep/inbox_generation`` every other ``inbox/`` write is tagged with.
     """
     date_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -526,7 +547,10 @@ async def _finalize(
             continue
         status_code = raw[:2].strip()
         action = _porcelain_action(status_code)
-        trigger = _infer_trigger_for_path(path)
+        if organic_resolution_paths and path in organic_resolution_paths:
+            trigger = "inbox/organic_resolution"
+        else:
+            trigger = _infer_trigger_for_path(path)
         extra_lines.append(f"{path}: {action} (trigger: {trigger})")
 
     body_lines = entity_lines + extra_lines

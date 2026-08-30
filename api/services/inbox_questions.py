@@ -149,12 +149,17 @@ def refresh_open_questions(
        Idempotent: an item that already carries ``neither`` is not re-escalated.
     4. Deferred items are skipped entirely.
 
-    Returns ``{"bumped": n, "organic_resolutions": n, "escalated": n}``.
+    Returns ``{"bumped": n, "organic_resolutions": n, "escalated": n,
+    "resolved_paths": [str, ...]}`` — ``resolved_paths`` lists the
+    memory-relative paths (e.g. ``"inbox/inbox-001.md"``) of items removed
+    by organic resolution, so the caller can tag exactly those paths with
+    the ``inbox/organic_resolution`` commit trigger instead of the generic
+    ``sleep/inbox_generation`` one every other ``inbox/`` write gets.
     """
     from api.services import markdown_parser
 
     inbox = Path(memory_path) / "inbox"
-    counts = {"bumped": 0, "organic_resolutions": 0, "escalated": 0}
+    counts = {"bumped": 0, "organic_resolutions": 0, "escalated": 0, "resolved_paths": []}
     if not inbox.exists():
         return counts
 
@@ -195,6 +200,7 @@ def refresh_open_questions(
         if human_answer or (option_claim_ids and superseded):
             filepath.unlink()
             counts["organic_resolutions"] += 1
+            counts["resolved_paths"].append(f"inbox/{filepath.name}")
             continue
 
         changed = False

@@ -156,3 +156,78 @@ def test_sources_component_covers_feeds_and_calendars(tmp_path):
     (tmp_path / "calendars.yaml").write_text("calendars:\n  - url: https://example.com/c.ics\n")
     with_cal = sync_service.components(tmp_path)
     assert with_cal["sources"] != with_feed["sources"]
+
+
+def test_inbox_component_varies_daily_once_a_pending_item_is_deferred(tmp_path):
+    """G60 fix round 1: `is_deferred` (api/services/inbox_service.py) hides an
+    inbox item purely by comparing `remind_after` to `date.today()` -- no file
+    mtime changes the day the date passes. Without folding today's date into
+    the "inbox" ETag component, a client that cached `/inbox` before the due
+    date would keep getting a 304 forever and never learn the item came back.
+    """
+    from datetime import date as real_date
+
+    (tmp_path / "entities").mkdir()
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "inbox-001.md").write_text(
+        "---\nkind: conflict\nstatus: pending\nremind_after: '2099-01-01'\n---\nx\n"
+    )
+
+    class _FrozenDate(real_date):
+        _today = real_date(2026, 8, 30)
+
+        @classmethod
+        def today(cls):
+            return cls._today
+
+    import api.services.sync_service as sync_service_module
+
+    monkeypatch_today = _FrozenDate
+
+    orig_date = sync_service_module.date
+    try:
+        sync_service_module.date = monkeypatch_today
+        comps_day1 = sync_service_module.components(tmp_path)
+
+        monkeypatch_today._today = real_date(2026, 8, 31)
+        comps_day2 = sync_service_module.components(tmp_path)
+    finally:
+        sync_service_module.date = orig_date
+
+    assert comps_day1["inbox"] != comps_day2["inbox"]
+
+
+def test_inbox_component_stable_across_days_with_no_deferred_items(tmp_path):
+    """Sanity check: without any `remind_after`, the inbox component must NOT
+    vary with the day -- otherwise every /inbox response would re-validate
+    daily for no reason."""
+    from datetime import date as real_date
+
+    (tmp_path / "entities").mkdir()
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "inbox-001.md").write_text(
+        "---\nkind: decay\nstatus: pending\n---\nx\n"
+    )
+
+    class _FrozenDate(real_date):
+        _today = real_date(2026, 8, 30)
+
+        @classmethod
+        def today(cls):
+            return cls._today
+
+    import api.services.sync_service as sync_service_module
+
+    orig_date = sync_service_module.date
+    try:
+        sync_service_module.date = _FrozenDate
+        comps_day1 = sync_service_module.components(tmp_path)
+
+        _FrozenDate._today = real_date(2026, 8, 31)
+        comps_day2 = sync_service_module.components(tmp_path)
+    finally:
+        sync_service_module.date = orig_date
+
+    assert comps_day1["inbox"] == comps_day2["inbox"]
