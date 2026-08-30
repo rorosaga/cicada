@@ -11,13 +11,24 @@ from api.models.schemas import (
     MediaSourceItem,
     NotesSyncRequest,
     NotesSyncResponse,
+    SourceChannel,
+    SourceChannelsResponse,
     SourceListResponse,
     SourceRssRequest,
     SourceSaveRequest,
     SourceSaveResponse,
     SourceUploadResponse,
 )
-from api.services import bookmark_sync, calendar_registry, feed_registry, media_ingestor, notes_sync, sync_service
+from api.services import (
+    bookmark_sync,
+    calendar_registry,
+    channel_registry,
+    feed_registry,
+    media_ingestor,
+    notes_sync,
+    sync_service,
+    sync_state,
+)
 from api.services.media_ingestor import MAX_BATCH, RawItem
 
 router = APIRouter()
@@ -271,6 +282,12 @@ async def sync_bookmarks(
     else:
         result = await bookmark_sync.sync_from_local_files(memory_path)
 
+    # G62: the only durable trace that bookmark sync ever ran. `found` is the
+    # number of bookmarks seen this pass (new + already-known), which is what
+    # the Capture row means by "412 bookmarks".
+    found = sum(int(s.get("found") or 0) for s in result.get("sources", []))
+    sync_state.record_sync(memory_path, "bookmarks", count=found)
+
     return BookmarkSyncResponse(**result)
 
 
@@ -349,6 +366,30 @@ async def list_sources(
     else:
         items.sort(key=lambda i: i.saved_at, reverse=True)
     return SourceListResponse(items=items, total=len(items))
+
+
+@router.get("/sources/channels", response_model=SourceChannelsResponse)
+async def list_source_channels(
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """Every capture channel + whether it is actually connected (G62).
+
+    The Capture page renders its "Connected" list straight from this. State is
+    derived from what is on disk (feeds/calendars registries, sync_state.json,
+    origin counts, the saved-URL index) plus the Telegram env flag — nothing
+    here reflects the result of the last button press, so the page is correct
+    on a cold launch.
+    """
+    memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    channels = channel_registry.build_channels(
+        memory_path, telegram_enabled=settings.telegram_enabled
+    )
+    return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
 
 
 # --- Feed subscriptions (registry + poll) -----------------------------------
@@ -478,5 +519,7 @@ async def sync_notes(
         result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump)
     else:
         result = await notes_sync.sync_from_local_notes(memory_path)
+
+    sync_state.record_sync(memory_path, "notes", count=int(result.get("total") or 0))
 
     return NotesSyncResponse(**result)

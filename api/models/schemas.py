@@ -946,6 +946,26 @@ class NotesSyncResponse(CamelModel):
     # Notes dropped by CICADA_NOTES_EXCLUDE_FOLDERS before dedup/ingest.
     excluded: int = 0
 
+# --- Capture channels (G62) --------------------------------------------------
+
+
+class SourceChannel(CamelModel):
+    """One capture channel as the Capture page sees it. `connected` is derived
+    from persisted state only (registries, sync_state.json, env, origin counts)
+    — never from the transient result of a sync/import button press."""
+
+    id: str
+    label: str
+    connected: bool = False
+    count: int = 0
+    last_sync: Optional[str] = None
+    detail: Optional[str] = None
+    actions: list[str] = []
+
+
+class SourceChannelsResponse(CamelModel):
+    channels: list[SourceChannel] = []
+
 # --- Provider connections (G50) ---
 
 
