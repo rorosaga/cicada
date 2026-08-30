@@ -56,6 +56,15 @@ final class Store {
     @ObservationIgnored private var wasSleepRunning = false
     @ObservationIgnored private var justFinishedAt: Date?
 
+    /// Domains that still owe us a successful reconcile. A domain enters on
+    /// every refresh request and only leaves on a 200 or a 304, so a refresh
+    /// that failed is retried by the next version event or poll tick instead
+    /// of being stranded behind an already-committed version vector.
+    @ObservationIgnored private var pendingDomains: Set<SyncDomain> = []
+    /// Domains whose refresh was coalesced into an in-flight one and must
+    /// re-run once it finishes.
+    @ObservationIgnored private var wantsRefresh: Set<SyncDomain> = []
+
     // MARK: Collaborators
 
     @ObservationIgnored let cache: SnapshotCache
@@ -80,6 +89,9 @@ final class Store {
         if !didBootstrap {
             didBootstrap = true
             await hydrate()
+            // The engine starts only AFTER the first full reconcile: an SSE
+            // `version` event arriving mid-`refreshAll` would otherwise race
+            // the same conditional GETs against themselves.
             await refreshAll()
         }
         // Cheap to call again: a window that reappears after `stop()` gets a
@@ -89,12 +101,23 @@ final class Store {
 
     /// Load every domain from disk. Called before the first frame: no network,
     /// no awaiting the backend, so the window opens on real data.
-    func hydrate() async {
-        if let roster = await cache.load(.banks, bank: Self.rosterBank, as: BanksResponse.self) {
-            banks.value = roster.value
-            banks.etag = roster.etag
-            banks.loadedAt = Date()
-            if let active = roster.value.active, !active.isEmpty { bank = active }
+    ///
+    /// Pass `bank:` when the caller already knows which bank to load (the
+    /// bank-switch path does). Without it we read the cached roster to find
+    /// the active bank — and must `flush()` first, because the roster we just
+    /// fetched is still sitting in the cache's 500 ms debounce and reading
+    /// past it would flip `bank` straight back to the previous one.
+    func hydrate(bank explicitBank: String? = nil) async {
+        if let explicitBank {
+            bank = explicitBank
+        } else {
+            await cache.flush()
+            if let roster = await cache.load(.banks, bank: Self.rosterBank, as: BanksResponse.self) {
+                banks.value = roster.value
+                banks.etag = roster.etag
+                banks.loadedAt = Date()
+                if let active = roster.value.active, !active.isEmpty { bank = active }
+            }
         }
         var loaded: [String] = banks.value == nil ? [] : ["banks"]
         func take<T: Codable>(_ domain: SyncDomain, _ kp: ReferenceWritableKeyPath<Store, Snapshot<T>>) async {
@@ -116,7 +139,6 @@ final class Store {
         if let s = status.value { pushStatus(s) }
         let summary = "hydrate bank=\(bank) loaded=[\(loaded.joined(separator: ","))]"
         Self.logger.notice("\(summary, privacy: .public)")
-        FileHandle.standardError.write(Data("[cicada.sync] \(summary)\n".utf8))
     }
 
     // MARK: - Refresh
@@ -129,15 +151,18 @@ final class Store {
     /// the active bank moved, we re-hydrate that bank from disk (instant swap)
     /// and then reconcile every domain against the network.
     func refresh(_ domains: Set<SyncDomain>) async {
+        pendingDomains.formUnion(domains)
         var remaining = domains
         if remaining.remove(.banks) != nil {
             let previous = bank
             await refreshOne(.banks, \.banks) { [api] etag in try await api.fetchBanks(etag: etag) }
             if let active = banks.value?.active, !active.isEmpty, active != previous {
-                bank = active
                 Self.logger.notice("bank switched \(previous, privacy: .public) → \(active, privacy: .public)")
-                await hydrate()
+                // Hydrate the target bank explicitly — re-reading the roster
+                // here would race the debounced write we just queued.
+                await hydrate(bank: active)
                 remaining = Set(SyncDomain.allCases).subtracting([.banks])
+                pendingDomains.formUnion(remaining)
             }
         }
         // Deterministic order keeps test assertions and log lines readable.
@@ -158,44 +183,60 @@ final class Store {
     }
 
     /// One domain: conditional GET → assign → persist. Never blanks a value.
+    ///
+    /// Coalescing: a request for a domain already in flight does not issue a
+    /// second GET — it records `wantsRefresh` and the in-flight call re-runs
+    /// itself once, so the newest state is still picked up exactly once.
     private func refreshOne<T: Codable>(
         _ domain: SyncDomain,
         _ kp: ReferenceWritableKeyPath<Store, Snapshot<T>>,
         fetch: (String?) async throws -> Conditional<T>
     ) async {
+        guard !self[keyPath: kp].isRefreshing else {
+            wantsRefresh.insert(domain)
+            return
+        }
         self[keyPath: kp].isRefreshing = true
         do {
             let result = try await fetch(self[keyPath: kp].etag)
-            defer { self[keyPath: kp].isRefreshing = false }
-            guard !result.notModified, let value = result.value else { return }
-            self[keyPath: kp].value = value
-            self[keyPath: kp].etag = result.etag
-            self[keyPath: kp].loadedAt = Date()
-            await cache.save(value, etag: result.etag,
-                             domain: domain, bank: domain == .banks ? Self.rosterBank : bank)
+            if !result.notModified, let value = result.value {
+                self[keyPath: kp].value = value
+                self[keyPath: kp].etag = result.etag
+                self[keyPath: kp].loadedAt = Date()
+                await cache.save(value, etag: result.etag,
+                                 domain: domain, bank: domain == .banks ? Self.rosterBank : bank)
+            }
+            // 200 and 304 both mean "we are in sync with the server".
+            pendingDomains.remove(domain)
         } catch {
-            let wasEmpty = self[keyPath: kp].isEmpty
-            self[keyPath: kp].isRefreshing = false
-            if wasEmpty { toast = "Couldn't load \(domain.rawValue)" }
+            if self[keyPath: kp].isEmpty { toast = "Couldn't load \(domain.rawValue)" }
             Self.logger.debug("refresh \(domain.rawValue, privacy: .public) failed: \(String(describing: error))")
+        }
+        self[keyPath: kp].isRefreshing = false
+        if wantsRefresh.remove(domain) != nil {
+            await refreshOne(domain, kp, fetch: fetch)
         }
     }
 
     /// `/status` is small and volatile — plain GET, no etag.
     private func refreshStatus() async {
+        guard !status.isRefreshing else {
+            wantsRefresh.insert(.status)
+            return
+        }
         status.isRefreshing = true
         do {
             let snapshot = try await api.fetchStatus()
             status.value = snapshot
             status.loadedAt = Date()
-            status.isRefreshing = false
             await cache.save(snapshot, etag: nil, domain: .status, bank: bank)
+            pendingDomains.remove(.status)
             pushStatus(snapshot)
         } catch {
-            let wasEmpty = status.isEmpty
-            status.isRefreshing = false
-            if wasEmpty { toast = "Couldn't load status" }
+            if status.isEmpty { toast = "Couldn't load status" }
         }
+        status.isRefreshing = false
+        if wantsRefresh.remove(.status) != nil { await refreshStatus() }
     }
 
     /// Tracks the sleep running→idle edge (so the bookworm can `digest`) and
@@ -211,7 +252,10 @@ final class Store {
     /// waiting for the next `/status` fetch.
     func applySleepEvent(_ event: SleepEventPayload) {
         sleepEvent = event
-        guard var snapshot = status.value else { return }
+        // Push on EVERY sleep event, even before the first `/status` landed —
+        // otherwise a cycle that starts and ends between two status refreshes
+        // never shows its running→idle edge and the worm never digests.
+        var snapshot = status.value ?? Self.blankStatus
         snapshot.sleep = StatusSnapshot.Sleep(
             status: event.status,
             stage: event.stage,
@@ -223,16 +267,28 @@ final class Store {
         pushStatus(snapshot)
     }
 
+    /// Neutral snapshot used when a sleep event arrives before `/status` has
+    /// ever resolved. Mirrors `MenuBarManager`'s own unknown snapshot.
+    private static let blankStatus = StatusSnapshot(
+        sleep: .init(status: "idle", stage: 0, totalStages: 5, cycleId: nil, error: nil),
+        inbox: .init(total: 0, byKind: [:]),
+        episodes: .init(unprocessed: 0, lastIngestedAt: nil),
+        lastSleepAt: nil,
+        nextSleepAt: nil
+    )
+
     // MARK: - Version diffing
 
     /// Apply a new version vector: refresh only the domains whose components
     /// moved. A `bank` component change fans out to everything (see
     /// `VersionVector.changedDomains`).
     func apply(version newVersion: VersionVector) async {
-        let changed = newVersion.changedDomains(since: version)
+        pendingDomains.formUnion(newVersion.changedDomains(since: version))
         version = newVersion
-        guard !changed.isEmpty else { return }
-        await refresh(changed)
+        // Domains left over from a failed earlier refresh ride along: the
+        // version is already committed, so this is their only retry path.
+        guard !pendingDomains.isEmpty else { return }
+        await refresh(pendingDomains)
     }
 
     // MARK: - Entities

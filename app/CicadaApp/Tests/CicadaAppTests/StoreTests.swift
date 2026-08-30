@@ -41,13 +41,31 @@ final class FakeSyncAPI: SyncAPI, @unchecked Sendable {
 
     var calls: [SyncDomain] = []
     var replies: [SyncDomain: Reply] = [:]
+    /// Replies consumed one per call, ahead of `replies` — lets a test make a
+    /// domain fail once and succeed afterwards.
+    var onceReplies: [SyncDomain: [Reply]] = [:]
+    /// When set, `/inbox` parks here until `releaseGate()` so a test can hold a
+    /// fetch in flight and prove that overlapping requests coalesce.
+    var gateEnabled = false
+    var gate: CheckedContinuation<Void, Never>?
+
+    func releaseGate() {
+        let g = gate
+        gate = nil
+        g?.resume()
+    }
     var syncVersion = VersionVector(version: "v0", components: [:])
     var entities: [String: Entity] = [:]
     var entityFetches = 0
 
     private func answer<T>(_ domain: SyncDomain, fallback: T) throws -> Conditional<T> {
         calls.append(domain)
-        switch replies[domain] {
+        var reply = replies[domain]
+        if var queued = onceReplies[domain], !queued.isEmpty {
+            reply = queued.removeFirst()
+            onceReplies[domain] = queued
+        }
+        switch reply {
         case .notModified: return Conditional(value: nil, etag: nil, notModified: true)
         case .failure: throw APIError.serverUnreachable
         case .value(let v): return Conditional(value: (v as! T), etag: "\"\(domain.rawValue)\"", notModified: false)
@@ -59,7 +77,9 @@ final class FakeSyncAPI: SyncAPI, @unchecked Sendable {
         try answer(.graph, fallback: try decodeFixture(graphJSON))
     }
     func fetchInbox(etag: String?) async throws -> Conditional<[InboxItem]> {
-        try answer(.inbox, fallback: try decodeFixture(inboxJSON))
+        let result = try answer(.inbox, fallback: try decodeFixture(inboxJSON) as [InboxItem])
+        if gateEnabled { await withCheckedContinuation { self.gate = $0 } }
+        return result
     }
     func fetchBanks(etag: String?) async throws -> Conditional<BanksResponse> {
         try answer(.banks, fallback: try decodeFixture(banksJSON))
@@ -196,5 +216,101 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(first?.id, "n1")
         XCTAssertEqual(second?.id, "n1")
         XCTAssertEqual(api.entityFetches, 1)
+    }
+
+    // MARK: - Review fixes
+
+    /// (1) A bank switch must stick even when the roster we just fetched is
+    /// still inside the cache's 500 ms write debounce. Re-reading the roster
+    /// there used to flip `bank` straight back to the old one.
+    func testBankSwitchSticksOnAWarmCache() async throws {
+        let cache = tempCache()
+        let rosterA: BanksResponse = try decodeFixture(
+            #"{"banks":[{"name":"A"},{"name":"B"}],"active":"A"}"#)
+        let rosterB: BanksResponse = try decodeFixture(
+            #"{"banks":[{"name":"A"},{"name":"B"}],"active":"B"}"#)
+        let inboxA: [InboxItem] = try decodeFixture(inboxJSON)
+        await cache.save(rosterA, etag: "\"a\"", domain: .banks, bank: Store.rosterBank)
+        await cache.save(inboxA, etag: "\"ia\"", domain: .inbox, bank: "A")
+        await cache.save(inboxA, etag: "\"ib\"", domain: .inbox, bank: "B")
+        await cache.flush()
+
+        let api = FakeSyncAPI()
+        api.replies[.banks] = .value(rosterA)
+        let store = Store(cache: cache, api: api)
+        await store.bootstrap()
+        XCTAssertEqual(store.bank, "A")
+
+        // The backend switches the active bank.
+        api.replies[.banks] = .value(rosterB)
+        await store.refresh([.banks])
+
+        XCTAssertEqual(store.bank, "B", "the switch must not be reverted by a stale roster read")
+        await cache.flush()
+        let saved = await cache.load(.inbox, bank: "B", as: [InboxItem].self)
+        XCTAssertEqual(saved?.etag, "\"inbox\"", "post-switch refreshes must persist under bank B")
+    }
+
+    /// (2) A domain whose refresh failed stays pending, so the next version
+    /// event retries it even though the version vector already moved on.
+    func testFailedDomainIsRetriedOnNextVersion() async throws {
+        let api = FakeSyncAPI()
+        api.onceReplies[.graph] = [.failure]
+        let store = Store(cache: tempCache(), api: api)
+        store.version = VersionVector(version: "v1", components: ["entities": "a"])
+
+        await store.apply(version: VersionVector(version: "v2", components: ["entities": "b"]))
+        XCTAssertNil(store.graph.value, "the fetch failed, so there is nothing yet")
+
+        api.calls.removeAll()
+        // Same vector as last time: nothing "changed", but .graph is still owed.
+        await store.apply(version: VersionVector(version: "v2", components: ["entities": "b"]))
+        XCTAssertTrue(api.calls.contains(.graph), "a still-pending domain must be retried")
+        XCTAssertNotNil(store.graph.value)
+
+        // Once it succeeded it stops being retried.
+        api.calls.removeAll()
+        await store.apply(version: VersionVector(version: "v2", components: ["entities": "b"]))
+        XCTAssertFalse(api.calls.contains(.graph))
+    }
+
+    /// (3) The Store is the single owner of the sleep running→idle edge:
+    /// exactly one `justFinishedAt` per finished cycle, none while idle.
+    func testSleepEdgeProducesExactlyOneJustFinished() async throws {
+        let store = Store(cache: tempCache(), api: FakeSyncAPI())
+        var seen: [Date?] = []
+        store.onStatus = { _, justFinishedAt in seen.append(justFinishedAt) }
+
+        store.applySleepEvent(SleepEventPayload(status: "running", stage: 2))
+        store.applySleepEvent(SleepEventPayload(status: "idle"))
+        store.applySleepEvent(SleepEventPayload(status: "idle"))
+
+        XCTAssertEqual(seen.count, 3, "every sleep event must push status")
+        XCTAssertNil(seen[0], "no edge while the cycle is running")
+        XCTAssertNotNil(seen[1], "running -> idle is the edge")
+        XCTAssertEqual(seen[2], seen[1], "idle -> idle must not fire a second edge")
+    }
+
+    /// (4) Overlapping refreshes of one domain coalesce: one GET in flight,
+    /// then exactly one re-run for the request that arrived meanwhile.
+    func testOverlappingRefreshCoalesces() async throws {
+        let api = FakeSyncAPI()
+        api.gateEnabled = true
+        let store = Store(cache: tempCache(), api: api)
+
+        let inFlight = Task { await store.refresh([.inbox]) }
+        var spins = 0
+        while api.gate == nil, spins < 10_000 { await Task.yield(); spins += 1 }
+        XCTAssertEqual(api.calls.count, 1)
+
+        await store.refresh([.inbox])   // coalesced — must not issue a second GET
+        XCTAssertEqual(api.calls.count, 1, "an in-flight domain must not be fetched twice")
+
+        api.gateEnabled = false
+        api.releaseGate()
+        await inFlight.value
+        XCTAssertEqual(api.calls.count, 2, "the coalesced request re-runs exactly once")
+        XCTAssertEqual(store.inbox.value?.count, 1)
+        XCTAssertFalse(store.inbox.isRefreshing)
     }
 }
