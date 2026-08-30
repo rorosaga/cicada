@@ -18,6 +18,16 @@ off for the whole test suite). Results — hits *and* misses — are cached unde
 derived, disposable artifact of the outside world, not part of the user's
 versioned memory.
 
+SSRF guard (G59 round 1): every URL this module ever hands to a fetcher —
+the first request for a rung *and* every redirect hop it bounces through —
+passes ``_is_safe_url``: only ``http``/``https`` schemes are eligible, and the
+host (a literal IP checked directly, a name resolved via an injectable
+``resolver``) must not resolve to anything loopback, private (RFC1918),
+link-local (incl. the ``169.254.169.254`` cloud metadata address),
+unique-local/ULA, unspecified, or multicast. Redirects are never delegated to
+the HTTP client's own follow-redirects — each hop is re-checked here, so a
+legitimate public host cannot bounce this fetcher into an internal service.
+
 Pillow is deliberately not a dependency. Whatever the site serves is stored
 as-is with the right ``Content-Type``; ``min_dimension`` sniffs PNG/GIF/ICO/JPEG
 headers directly so a 1×1 tracking pixel is rejected without a decode.
@@ -25,9 +35,11 @@ headers directly so a 1×1 tracking pixel is rejected without a decode.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
+import socket
 import struct
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -78,9 +90,14 @@ class FetchResult:
     body: bytes
     content_type: str
     etag: str | None = None
+    location: str | None = None  # a 3xx's Location header, for manual redirect-following
 
 
 Fetcher = Callable[[str], Awaitable[FetchResult]]
+Resolver = Callable[[str], list[str]]
+
+_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+MAX_REDIRECTS = 3
 
 
 def fetch_allowed() -> bool:
@@ -96,6 +113,60 @@ def logos_dir(bank: str) -> Path:
 
 def bank_name(memory_path: Path) -> str:
     return Path(memory_path).name or "default"
+
+
+# --- SSRF guard --------------------------------------------------------------
+
+
+def _resolve_host(host: str) -> list[str]:
+    """Default resolver: every address ``host`` resolves to, via the system
+    resolver. An unresolvable host yields ``[]`` (treated as unsafe — a
+    fetcher must never proceed on a host it cannot verify)."""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return []
+    return sorted({info[4][0] for info in infos})
+
+
+def _is_public_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return not (
+        ip.is_loopback
+        or ip.is_private
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_unspecified
+        or ip.is_multicast
+    )
+
+
+def _is_safe_url(url: str, *, resolver: Resolver) -> bool:
+    """``http``/``https`` only, and every address the host resolves to must be
+    public. Checked before the first request for a rung *and* before every
+    redirect hop, so neither a crafted ladder value nor a legitimate public
+    host's own redirect can steer a fetch at loopback/private/link-local/ULA/
+    unspecified/multicast/metadata addresses."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = parsed.hostname
+    if not host:
+        return False
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        return _is_public_ip(str(literal))
+    addresses = resolver(host)
+    return bool(addresses) and all(_is_public_ip(addr) for addr in addresses)
 
 
 # --- domain resolution ------------------------------------------------------
@@ -243,10 +314,16 @@ def ext_for(content_type: str) -> str | None:
 
 
 async def _http_get(url: str) -> FetchResult:
-    """Default fetcher: bounded, keyless, follows redirects."""
+    """Default fetcher: bounded, keyless, a single hop.
+
+    Redirects are deliberately NOT followed here (``follow_redirects=False``)
+    — a 3xx is surfaced via ``location`` and followed by the shared,
+    safety-checked loop in ``fetch_logo`` instead, so a redirect target gets
+    exactly the same host check as the first request.
+    """
     import httpx
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=TIMEOUT_SECONDS) as client:
+    async with httpx.AsyncClient(follow_redirects=False, timeout=TIMEOUT_SECONDS) as client:
         resp = await client.get(url, headers={"User-Agent": USER_AGENT})
         body = resp.content[: MAX_BYTES + 1]
         return FetchResult(
@@ -254,6 +331,7 @@ async def _http_get(url: str) -> FetchResult:
             body=body,
             content_type=resp.headers.get("content-type", ""),
             etag=resp.headers.get("etag"),
+            location=resp.headers.get("location"),
         )
 
 
@@ -280,47 +358,69 @@ def _icon_href(html: bytes, base_url: str) -> str | None:
     return None
 
 
-async def fetch_logo(domain: str, *, fetcher: Fetcher | None = None) -> tuple[bytes, str, str | None] | None:
+async def _get_safely(url: str, *, fetcher: Fetcher, resolver: Resolver) -> FetchResult | None:
+    """One logical GET: validates ``url`` (and every redirect hop, up to
+    ``MAX_REDIRECTS``) against the SSRF host policy before ever calling
+    ``fetcher``. Returns None for an unsafe URL, a fetcher error, or a
+    redirect chain that runs too long — never raises."""
+    current = url
+    for _ in range(MAX_REDIRECTS + 1):
+        if not _is_safe_url(current, resolver=resolver):
+            logger.debug(f"logo fetch refused unsafe URL: {current}")
+            return None
+        try:
+            result = await fetcher(current)
+        except Exception as exc:  # a dead host must never raise into the caller
+            logger.debug(f"logo fetch failed for {current}: {type(exc).__name__}: {exc}")
+            return None
+        if result.status in _REDIRECT_STATUSES and result.location:
+            current = urljoin(current, result.location)
+            continue
+        return result
+    logger.debug(f"logo fetch for {url} exceeded {MAX_REDIRECTS} redirects")
+    return None
+
+
+async def fetch_logo(
+    domain: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
+) -> tuple[bytes, str, str | None] | None:
     """Try the three rungs in order. Returns ``(body, ext, etag)`` or None.
 
     An injected ``fetcher`` always runs (the caller supplied the mechanism, so
     there is nothing left to gate); the default HTTP one is gated by
-    ``CICADA_ALLOW_LOGO_FETCH``.
+    ``CICADA_ALLOW_LOGO_FETCH``. Every request this makes — the first hop of
+    each rung and any redirect it follows — passes the SSRF host check in
+    ``_get_safely``/``_is_safe_url``; an injected ``resolver`` lets tests
+    simulate DNS without touching the network.
     """
     if fetcher is None:
         if not fetch_allowed():
             return None
         fetcher = _http_get
+    resolver = resolver or _resolve_host
 
     homepage = f"https://{domain}/"
     candidates = [f"https://{domain}/apple-touch-icon.png"]
 
     for url in candidates:
-        try:
-            accepted = _accept(await fetcher(url))
-        except Exception as exc:  # a dead host must never raise into the caller
-            logger.debug(f"logo fetch failed for {url}: {type(exc).__name__}: {exc}")
-            accepted = None
+        result = await _get_safely(url, fetcher=fetcher, resolver=resolver)
+        accepted = _accept(result) if result is not None else None
         if accepted:
             return accepted
 
-    try:
-        page = await fetcher(homepage)
-        if page.status == 200 and page.body:
-            href = _icon_href(page.body, homepage)
-            if href:
-                accepted = _accept(await fetcher(href))
-                if accepted:
-                    return accepted
-    except Exception as exc:
-        logger.debug(f"logo homepage parse failed for {domain}: {type(exc).__name__}: {exc}")
+    page = await _get_safely(homepage, fetcher=fetcher, resolver=resolver)
+    if page is not None and page.status == 200 and page.body:
+        href = _icon_href(page.body, homepage)
+        if href:
+            result = await _get_safely(href, fetcher=fetcher, resolver=resolver)
+            accepted = _accept(result) if result is not None else None
+            if accepted:
+                return accepted
 
-    try:
-        accepted = _accept(await fetcher(f"https://icons.duckduckgo.com/ip3/{domain}.ico"))
-    except Exception as exc:
-        logger.debug(f"DDG icon fetch failed for {domain}: {type(exc).__name__}: {exc}")
-        accepted = None
-    return accepted
+    ddg_result = await _get_safely(
+        f"https://icons.duckduckgo.com/ip3/{domain}.ico", fetcher=fetcher, resolver=resolver
+    )
+    return _accept(ddg_result) if ddg_result is not None else None
 
 
 # --- cache ------------------------------------------------------------------

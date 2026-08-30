@@ -1,8 +1,11 @@
 """Entity logo resolution + fetch (G59).
 
 Hermetic: every test builds its own tmp workspace and passes an explicit
-fetcher. ``conftest`` sets ``CICADA_ALLOW_LOGO_FETCH=off`` for the whole suite,
-so nothing here can reach the network even by accident.
+fetcher. ``conftest`` sets ``CICADA_ALLOW_LOGO_FETCH=off`` for the whole suite
+and defaults the SSRF resolver to a fixed public address, so nothing here can
+reach the network even by accident. The SSRF-guard tests below override that
+default resolver explicitly where they need to simulate a private/loopback
+DNS answer.
 """
 
 from __future__ import annotations
@@ -279,3 +282,101 @@ def test_warm_logos_visits_the_highest_degree_company_and_tool_pages(workspace):
     warmed = run(logo_service.warm_logos(workspace, limit=50, fetcher=fetcher))
     assert warmed == 2
     assert logo_service.cached_ids("claude-chats") == {"mongodb", "acme"}
+
+
+# --- SSRF guard (G59 round 1) ------------------------------------------------
+
+
+def test_is_public_ip_rejects_reserved_ranges_and_accepts_a_public_address():
+    refused = [
+        "127.0.0.1",       # loopback
+        "10.0.0.1",        # RFC1918 private
+        "192.168.1.1",     # RFC1918 private
+        "172.16.0.5",      # RFC1918 private
+        "169.254.169.254", # link-local / cloud metadata
+        "0.0.0.0",         # unspecified
+        "::1",             # IPv6 loopback
+        "fc00::1",         # IPv6 unique-local (ULA)
+        "fe80::1",         # IPv6 link-local
+    ]
+    for ip in refused:
+        assert logo_service._is_public_ip(ip) is False, ip
+    assert logo_service._is_public_ip("93.184.216.34") is True
+
+
+def test_fetch_logo_refuses_a_loopback_literal_host():
+    calls: list[str] = []
+    fetcher = make_fetcher({}, calls)
+    assert run(logo_service.fetch_logo("127.0.0.1", fetcher=fetcher)) is None
+    # The DuckDuckGo rung's own host is always icons.duckduckgo.com (fixed,
+    # allowed) — only the loopback-hosted rungs are refused before the
+    # fetcher is ever called for them.
+    assert calls == ["https://icons.duckduckgo.com/ip3/127.0.0.1.ico"]
+
+
+def test_fetch_logo_refuses_a_metadata_literal_host():
+    calls: list[str] = []
+    fetcher = make_fetcher({}, calls)
+    assert run(logo_service.fetch_logo("169.254.169.254", fetcher=fetcher)) is None
+    assert calls == ["https://icons.duckduckgo.com/ip3/169.254.169.254.ico"]
+
+
+def test_fetch_logo_refuses_a_hostname_that_resolves_to_a_private_address():
+    calls: list[str] = []
+    fetcher = make_fetcher({}, calls)
+    resolver = lambda host: ["10.1.2.3"]
+    assert run(logo_service.fetch_logo("internal.corp", fetcher=fetcher, resolver=resolver)) is None
+    assert calls == [], "a fetcher must never be called once the resolved host is refused"
+
+
+def test_fetch_logo_refuses_when_any_resolved_address_is_private():
+    calls: list[str] = []
+    fetcher = make_fetcher({}, calls)
+    resolver = lambda host: ["93.184.216.34", "10.1.2.3"]
+    assert run(logo_service.fetch_logo("multi.example", fetcher=fetcher, resolver=resolver)) is None
+    assert calls == []
+
+
+def test_fetch_logo_refuses_a_redirect_to_a_private_host():
+    calls: list[str] = []
+    fetcher = make_fetcher({
+        "https://acme.example/apple-touch-icon.png":
+            logo_service.FetchResult(302, b"", "", location="http://169.254.169.254/latest/meta-data"),
+    }, calls)
+    assert run(logo_service.fetch_logo("acme.example", fetcher=fetcher)) is None
+    assert "http://169.254.169.254/latest/meta-data" not in calls, (
+        "the redirect target must be checked before it is ever requested"
+    )
+    assert calls[0] == "https://acme.example/apple-touch-icon.png"
+
+
+def test_fetch_logo_refuses_a_non_http_icon_href():
+    html = b'<html><head><link rel="icon" href="file:///etc/passwd"></head></html>'
+    calls: list[str] = []
+    fetcher = make_fetcher({
+        "https://acme.example/": logo_service.FetchResult(200, html, "text/html"),
+    }, calls)
+    assert run(logo_service.fetch_logo("acme.example", fetcher=fetcher)) is None
+    assert "file:///etc/passwd" not in calls
+
+
+def test_fetch_logo_still_fetches_a_public_host():
+    calls: list[str] = []
+    fetcher = make_fetcher({
+        "https://acme.example/apple-touch-icon.png":
+            logo_service.FetchResult(200, png_bytes(64, 64), "image/png"),
+    }, calls)
+    resolver = lambda host: ["93.184.216.34"]
+    body, ext, _ = run(logo_service.fetch_logo("acme.example", fetcher=fetcher, resolver=resolver))
+    assert ext == "png"
+    assert calls == ["https://acme.example/apple-touch-icon.png"]
+
+
+def test_ensure_logo_refuses_a_file_scheme_logo_frontmatter(workspace):
+    # ``person`` so the company/tool name-guess heuristic can't mask this: a
+    # file:// URL with no authority has no hostname, so domain_for must fall
+    # all the way through to None and the fetcher must never be called.
+    write_entity(workspace, "rodrigo", ["name: Rodrigo", "type: person", "logo: file:///etc/passwd"])
+    calls: list[str] = []
+    assert run(logo_service.ensure_logo(workspace, "rodrigo", fetcher=make_fetcher({}, calls))) is None
+    assert calls == [], "a file:// value has no host and must never reach the fetcher"
