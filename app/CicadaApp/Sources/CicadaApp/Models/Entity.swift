@@ -607,7 +607,7 @@ struct Entity: Identifiable, Codable {
     }
 }
 
-struct GraphEdge: Codable {
+struct GraphEdge: Codable, Sendable {
     let source: String
     let target: String
     let label: String
@@ -640,7 +640,7 @@ struct GraphEdge: Codable {
     }
 }
 
-struct GraphResponse: Codable {
+struct GraphResponse: Codable, Sendable {
     let nodes: [GraphNode]
     let links: [GraphEdge]
     // §3: distinct-observer roster so the observer filter bar can populate its
@@ -655,9 +655,15 @@ struct GraphResponse: Codable {
         links = try c.decodeIfPresent([GraphEdge].self, forKey: .links) ?? []
         observers = try c.decodeIfPresent([String].self, forKey: .observers) ?? []
     }
+
+    init(nodes: [GraphNode] = [], links: [GraphEdge] = [], observers: [String] = []) {
+        self.nodes = nodes
+        self.links = links
+        self.observers = observers
+    }
 }
 
-struct GraphNode: Codable {
+struct GraphNode: Codable, Sendable {
     let id: String
     let name: String
     let type: EntityType
@@ -680,11 +686,49 @@ struct GraphNode: Codable {
     let isFacet: Bool
     let parentId: String?
     let context: String?
+    /// Sync-engine fields (§5.6/§5.7). `summary` is a ≤200-char body-derived
+    /// preview the detail card renders instantly before the full entity
+    /// arrives; `contentHash` is a 12-hex fingerprint of the entity's
+    /// frontmatter + body that `GraphDiff` uses to spot per-node changes
+    /// without comparing whole bodies. Both are optional/defaulted so an older
+    /// backend that emits neither still decodes — an empty `contentHash` is
+    /// treated by `GraphDiff` as "changed", never as "equal".
+    let summary: String?
+    let contentHash: String
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, tags
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
+        case summary, contentHash
+    }
+
+    init(
+        id: String, name: String, type: EntityType, status: EntityStatus = .active,
+        confidence: Double = 1.0, tags: [String] = [], degree: Int = 0,
+        isHub: Bool = false, hasPending: Bool = false, memberCount: Int = 0,
+        hubId: String? = nil, observers: [String] = [], contexts: [String] = [],
+        isFacet: Bool = false, parentId: String? = nil, context: String? = nil,
+        summary: String? = nil, contentHash: String = ""
+    ) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.status = status
+        self.confidence = confidence
+        self.tags = tags
+        self.degree = degree
+        self.isHub = isHub
+        self.hasPending = hasPending
+        self.memberCount = memberCount
+        self.hubId = hubId
+        self.observers = observers
+        self.contexts = contexts
+        self.isFacet = isFacet
+        self.parentId = parentId
+        self.context = context
+        self.summary = summary
+        self.contentHash = contentHash
     }
 
     init(from decoder: Decoder) throws {
@@ -710,5 +754,7 @@ struct GraphNode: Codable {
         isFacet = try c.decodeIfPresent(Bool.self, forKey: .isFacet) ?? false
         parentId = try c.decodeIfPresent(String.self, forKey: .parentId)
         context = try c.decodeIfPresent(String.self, forKey: .context)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        contentHash = try c.decodeIfPresent(String.self, forKey: .contentHash) ?? ""
     }
 }

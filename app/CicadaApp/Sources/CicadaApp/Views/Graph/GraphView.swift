@@ -63,17 +63,22 @@ struct GraphView: NSViewRepresentable {
         // will push the pending data when it receives the "graphReady" message
         // from init(). Calling updateGraph() before DOMContentLoaded raises
         // "TypeError: undefined is not a function".
-        if viewModel.pendingGraphUpdate && viewModel.isGraphReady {
-            let json = viewModel.graphDataJSON
+        // The JSON is prepared off the main actor by `GraphViewModel`
+        // (`prepareGraphPush`); this method only evaluates it. A delta payload
+        // goes to `updateGraphDelta`, which mutates the live simulation in
+        // place so unchanged nodes keep their positions.
+        if viewModel.pendingGraphUpdate && viewModel.isGraphReady,
+           let json = viewModel.pendingPushJSON {
+            let call = viewModel.pendingPushIsDelta ? "updateGraphDelta" : "updateGraph"
             let filterJSON = viewModel.filterJSON
-            webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
+            webView.evaluateJavaScript("\(call)(\(json))") { _, error in
                 if let error { print("Graph update error: \(error)") }
                 // Re-assert the current filter so a fresh payload respects it
                 // (status/confidence defaults hide archived nodes from first paint).
                 webView.evaluateJavaScript("applyFilters(\(filterJSON))", completionHandler: nil)
             }
             DispatchQueue.main.async {
-                self.viewModel.pendingGraphUpdate = false
+                self.viewModel.clearPendingPush()
             }
         }
 

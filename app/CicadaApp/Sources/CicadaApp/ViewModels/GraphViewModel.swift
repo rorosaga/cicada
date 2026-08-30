@@ -1,6 +1,9 @@
 import Foundation
 import Observation
+import OSLog
 import SwiftUI
+
+private let graphLog = Logger(subsystem: "com.cicada.app", category: "graph-push")
 
 enum ZoomAction {
     case zoomIn, out, reset, fit
@@ -51,7 +54,25 @@ final class GraphViewModel {
     /// -mounted Graph tab picks up a store-driven refresh even if nothing
     /// local called `loadGraph()`.
     var pendingGraphUpdate = false
+    /// The JSON string `GraphView.updateNSView` should hand to graph.js, built
+    /// **off** the main actor by `prepareGraphPush` (§5.6). `updateNSView` only
+    /// evaluates it — serialising a 1800-node graph on the main actor during a
+    /// view update was the old hitch.
+    var pendingPushJSON: String?
+    /// Whether `pendingPushJSON` is a `updateGraphDelta` payload (`true`) or a
+    /// full `updateGraph` payload (`false`).
+    var pendingPushIsDelta = false
     var errorMessage: String?
+
+    /// The snapshot the webview was last told about — the `old` side of the
+    /// next diff. `nil` until the first push, which is therefore always full.
+    private var lastPushedSnapshot: GraphResponse?
+    /// Latest snapshot waiting to be turned into a push payload.
+    private var queuedSnapshot: GraphResponse?
+    private var isPreparingPush = false
+    /// Set when the next push must be a full replace regardless of history
+    /// (first push, bank switch / blank branch).
+    private var forceFullNextPush = true
 
     /// `store.graph.isEmpty && store.graph.isRefreshing` — true only while
     /// there is genuinely nothing to show yet.
@@ -109,7 +130,11 @@ final class GraphViewModel {
             observerRoster = []
             contextRoster = []
             selectedEntity = nil
-            pendingGraphUpdate = true
+            // A blank always goes over the full path: there is no meaningful
+            // delta from "the previous bank's graph" to "nothing".
+            forceFullNextPush = true
+            lastPushedSnapshot = nil
+            schedulePush(GraphResponse())
             return
         }
 
@@ -124,10 +149,11 @@ final class GraphViewModel {
         for e in response.links { if let c = e.context { ctxs.insert(c) } }
         contextRoster = ctxs.sorted()
         entities = response.nodes.map { node in
-            // Stub entity: full markdown body is loaded lazily via
-            // `selectEntity`/`store.entity(_:)`. §5.7 (next task) will seed
-            // this from a `node.summary` placeholder field the backend
-            // doesn't emit yet.
+            // Stub entity: the full markdown body is loaded lazily via
+            // `selectEntity`/`store.entity(_:)`. §5.7 — seed `markdownContent`
+            // from the node's server-supplied `summary` so a detail card has
+            // something real to render on the very first frame instead of an
+            // empty body.
             Entity(
                 id: node.id,
                 name: node.name,
@@ -141,12 +167,134 @@ final class GraphViewModel {
                 tags: node.tags,
                 related: [],
                 version: 0,
-                markdownContent: "",
+                markdownContent: node.summary ?? "",
                 history: []
             )
         }
         edges = response.links
-        pendingGraphUpdate = true
+        schedulePush(response)
+    }
+
+    // MARK: - Push preparation (§5.6)
+
+    /// Queue a snapshot for the webview. The diff + `JSONSerialization` happen
+    /// in a detached task; only the resulting string comes back to the main
+    /// actor, where `GraphView.updateNSView` picks it up.
+    private func schedulePush(_ snapshot: GraphResponse) {
+        queuedSnapshot = snapshot
+        prepareGraphPush()
+    }
+
+    private func prepareGraphPush() {
+        guard !isPreparingPush, let next = queuedSnapshot else { return }
+        queuedSnapshot = nil
+        isPreparingPush = true
+
+        // Fall back to a full push when we can't trust the delta chain:
+        // the first push, a bank switch/blank, or a still-unconsumed payload
+        // (whose changes would otherwise be dropped by overwriting it with a
+        // delta computed against a snapshot the webview never saw).
+        let old = (forceFullNextPush || pendingPushJSON != nil) ? nil : lastPushedSnapshot
+        forceFullNextPush = false
+        lastPushedSnapshot = next
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let delta = GraphDiff.diff(old: old, new: next)
+            let json = GraphViewModel.encode(delta)
+            let summary = delta.isFull
+                ? "FULL nodes=\(delta.added.count) links=\(delta.links?.count ?? 0)"
+                : "DELTA added=\(delta.added.count) updated=\(delta.updated.count) removed=\(delta.removed.count) links=\(delta.links.map { String($0.count) } ?? "unchanged")"
+            // Both channels on purpose: `log show` for a bundled/launchd run,
+            // stdout for the terminal-launched dev binary (the unified log is
+            // not always readable from a sandboxed shell).
+            graphLog.info("graph push: \(summary, privacy: .public)")
+            FileHandle.standardError.write(Data("[graph-push] \(summary)\n".utf8))
+            await self?.applyPreparedPush(json: json, isDelta: !delta.isFull, isEmpty: delta.isEmpty)
+        }
+    }
+
+    private func applyPreparedPush(json: String, isDelta: Bool, isEmpty: Bool) {
+        isPreparingPush = false
+        if !isEmpty {
+            pendingPushJSON = json
+            pendingPushIsDelta = isDelta
+            pendingGraphUpdate = true
+        }
+        // Drain anything that arrived while we were serialising.
+        prepareGraphPush()
+    }
+
+    /// Consumed by `GraphView.updateNSView` once the payload has been handed
+    /// to graph.js.
+    func clearPendingPush() {
+        pendingPushJSON = nil
+        pendingPushIsDelta = false
+        pendingGraphUpdate = false
+    }
+
+    /// Serialise a delta (or a full snapshot) into the payload graph.js wants.
+    /// `nonisolated static` so it can run off the main actor.
+    nonisolated static func encode(_ delta: GraphDelta) -> String {
+        let fallback = "{\"nodes\":[],\"links\":[]}"
+        var data: [String: Any]
+        if delta.isFull {
+            data = [
+                "nodes": delta.added.map(nodeDict),
+                "links": (delta.links ?? []).map(linkDict),
+            ]
+        } else {
+            data = [
+                "added": delta.added.map(nodeDict),
+                "updated": delta.updated.map(nodeDict),
+                "removed": delta.removed,
+                "isFull": false,
+            ]
+            if let links = delta.links { data["links"] = links.map(linkDict) }
+        }
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
+              let jsonString = String(data: jsonData, encoding: .utf8)
+        else { return fallback }
+        return jsonString
+    }
+
+    /// Single node→dict encoder shared by the full and delta payloads, so a
+    /// node can never arrive at graph.js with a different shape depending on
+    /// which path pushed it.
+    nonisolated static func nodeDict(_ node: GraphNode) -> [String: Any] {
+        var d: [String: Any] = [
+            "id": node.id,
+            "name": node.name,
+            "type": node.type == .unknown ? "unknown" : node.type.rawValue,
+            "status": node.status.rawValue,
+            "confidence": node.confidence,
+            "tags": node.tags,
+            "degree": node.degree,
+            "isHub": node.isHub,
+            "hasPending": node.hasPending,
+            "memberCount": node.memberCount,
+        ]
+        if let hubId = node.hubId { d["hubId"] = hubId }
+        // Claim-layer fields (§2b/§2c): only attach when populated so the
+        // payload stays lean for plain entity nodes.
+        if !node.observers.isEmpty { d["observers"] = node.observers }
+        if !node.contexts.isEmpty { d["contexts"] = node.contexts }
+        if node.isFacet {
+            d["isFacet"] = true
+            if let parentId = node.parentId { d["parentId"] = parentId }
+        }
+        if let context = node.context { d["context"] = context }
+        return d
+    }
+
+    nonisolated static func linkDict(_ edge: GraphEdge) -> [String: Any] {
+        var d: [String: Any] = [
+            "source": edge.source,
+            "target": edge.target,
+            "label": edge.label,
+        ]
+        if let context = edge.context { d["context"] = context }
+        if let claimId = edge.claimId { d["claimId"] = claimId }
+        return d
     }
 
     func toggleType(_ type: EntityType) {
@@ -180,52 +328,13 @@ final class GraphViewModel {
 
     /// Full unfiltered payload for graph.js `updateGraph` — includes the v2
     /// encoding fields (degree, isHub, hasPending, memberCount, hubId, tags).
+    /// Kept for the Coordinator's one-shot initial push (which happens when
+    /// graph.js signals `graphReady`, possibly before any prepared payload
+    /// exists). Routed through the same encoders as the delta path.
     var graphDataJSON: String {
-        let nodeDicts = nodes.map { node -> [String: Any] in
-            var d: [String: Any] = [
-                "id": node.id,
-                "name": node.name,
-                "type": node.type == .unknown ? "unknown" : node.type.rawValue,
-                "status": node.status.rawValue,
-                "confidence": node.confidence,
-                "tags": node.tags,
-                "degree": node.degree,
-                "isHub": node.isHub,
-                "hasPending": node.hasPending,
-                "memberCount": node.memberCount,
-            ]
-            if let hubId = node.hubId { d["hubId"] = hubId }
-            // Claim-layer fields (§2b/§2c): only attach when populated so the
-            // payload stays lean for plain entity nodes.
-            if !node.observers.isEmpty { d["observers"] = node.observers }
-            if !node.contexts.isEmpty { d["contexts"] = node.contexts }
-            if node.isFacet {
-                d["isFacet"] = true
-                if let parentId = node.parentId { d["parentId"] = parentId }
-            }
-            if let context = node.context { d["context"] = context }
-            return d
-        }
-
-        let links = edges.map { edge -> [String: Any] in
-            var d: [String: Any] = [
-                "source": edge.source,
-                "target": edge.target,
-                "label": edge.label,
-            ]
-            if let context = edge.context { d["context"] = context }
-            if let claimId = edge.claimId { d["claimId"] = claimId }
-            return d
-        }
-
-        let data: [String: Any] = ["nodes": nodeDicts, "links": links]
-
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
-              let jsonString = String(data: jsonData, encoding: .utf8)
-        else {
-            return "{\"nodes\":[],\"links\":[]}"
-        }
-        return jsonString
+        GraphViewModel.encode(
+            GraphDelta(added: nodes, updated: [], removed: [], links: edges, isFull: true)
+        )
     }
 
     func selectEntity(id: String) {
@@ -256,7 +365,12 @@ final class GraphViewModel {
         }
     }
 
-    private func loadFullEntity(id: String) async {
+    /// Fetch the full entity (through the Store's LRU cache) and swap it in
+    /// over the graph-node stub, both in `entities` and — when it's the open
+    /// card — in `selectedEntity`. Called by `selectEntity` and by
+    /// `EntityDetailCard`'s `.task(id:)`, which renders the node `summary`
+    /// immediately and upgrades to the real body when this returns.
+    func loadFullEntity(id: String) async {
         guard let fullEntity = await store.entity(id) else { return }
         if let idx = entities.firstIndex(where: { $0.id == id }) {
             entities[idx] = fullEntity
