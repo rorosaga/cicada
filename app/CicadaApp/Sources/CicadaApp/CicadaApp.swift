@@ -23,7 +23,9 @@ struct CicadaApp: App {
     @State private var banksVM = BanksViewModel()
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
-    @State private var menuPollTask: Task<Void, Never>?
+    /// Single source of truth for every screen (§5.1). Hydrated from disk on
+    /// appear, then kept live by its `SyncEngine`.
+    @State private var store = Store()
 
     // Theme: persisted mode driving both the SwiftUI environment
     // (`.preferredColorScheme`, so system materials/controls follow) and the
@@ -50,6 +52,7 @@ struct CicadaApp: App {
                 .environment(inboxVM)
                 .environment(sleepVM)
                 .environment(banksVM)
+                .environment(store)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, newValue in
                     let mode = AppColorScheme(rawValue: newValue) ?? .dark
@@ -104,26 +107,21 @@ struct CicadaApp: App {
                         menuBarManager.applySleep(next)
                     }
 
-                    // Single long-lived 30s poll that drives the tamagotchi and
-                    // tracks the running -> idle edge to fire `digesting`.
-                    menuPollTask = Task { @MainActor in
-                        var wasRunning = false
-                        var justFinishedAt: Date? = nil
-                        while !Task.isCancelled {
-                            if let snap = await StatusService.shared.fetch() {
-                                let nowRunning = snap.sleep.status == "running"
-                                if wasRunning && !nowRunning { justFinishedAt = Date() }
-                                wasRunning = nowRunning
-                                menuBarManager.apply(snapshot: snap, justFinishedAt: justFinishedAt)
-                            }
-                            try? await Task.sleep(for: .seconds(30))
-                        }
+                    // The menu-bar bookworm is now driven by the Store's status
+                    // snapshot (SSE-pushed + refreshed on every version bump)
+                    // instead of a 30s poll. The Store tracks the sleep
+                    // running -> idle edge itself and hands us the timestamp
+                    // that makes the worm `digest`.
+                    store.onStatus = { [menuBarManager] snapshot, justFinishedAt in
+                        menuBarManager.apply(snapshot: snapshot, justFinishedAt: justFinishedAt)
                     }
+
+                    // Disk first (instant frame), network second, then live.
+                    Task { @MainActor in await store.bootstrap() }
                 }
-                .onDisappear {
-                    menuPollTask?.cancel()
-                    menuPollTask = nil
-                }
+                // NOTE: no `.onDisappear` teardown — closing the window must
+                // not stop the sync engine. The app lives on in the menu bar,
+                // and the bookworm is fed by the Store's status snapshot.
         }
         .defaultSize(width: 1200, height: 800)
     }

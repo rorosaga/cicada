@@ -1,0 +1,75 @@
+import Foundation
+
+/// Result of a conditional (`If-None-Match`) GET.
+///
+/// `notModified == true` means the server answered 304 and `value` is nil —
+/// callers MUST keep whatever they already had rather than blanking it. On a
+/// 200, `value` is the fresh payload and `etag` the new validator to send next
+/// time (nil when the endpoint doesn't emit one).
+struct Conditional<T> {
+    let value: T?
+    let etag: String?
+    let notModified: Bool
+
+    /// Unwrap a wrapper response (`{"contributors": [...]}`) into its payload
+    /// while preserving the etag/304 state.
+    func map<U>(_ transform: (T) -> U) -> Conditional<U> {
+        Conditional<U>(value: value.map(transform), etag: etag, notModified: notModified)
+    }
+}
+
+/// The slice of `APIClient` the `Store`/`SyncEngine` depend on. Exists so the
+/// Store can be driven by a fake in tests — `APIClient` conforms via an
+/// extension in `Services/APIClient.swift`.
+///
+/// Every domain gets one conditional fetch keyed by the caller's cached etag.
+/// `.status` is deliberately unconditional: it is small, changes constantly,
+/// and drives the menu-bar bookworm.
+protocol SyncAPI: Sendable {
+    func fetchGraph(etag: String?) async throws -> Conditional<GraphResponse>
+    func fetchInbox(etag: String?) async throws -> Conditional<[InboxItem]>
+    func fetchBanks(etag: String?) async throws -> Conditional<BanksResponse>
+    func fetchSources(etag: String?) async throws -> Conditional<[MediaFeedItem]>
+    func fetchFeeds(etag: String?) async throws -> Conditional<[FeedSubscription]>
+    func fetchCalendars(etag: String?) async throws -> Conditional<[CalendarSubscription]>
+    func fetchContributors(etag: String?) async throws -> Conditional<[Contributor]>
+    func fetchOrigins(etag: String?) async throws -> Conditional<[OriginStat]>
+    func fetchConnections(etag: String?) async throws -> Conditional<[ConnectionStatus]>
+
+    func fetchStatus() async throws -> StatusSnapshot
+    func fetchEntity(id: String) async throws -> Entity
+
+    /// `GET /sync/version` — the current version vector.
+    func fetchSyncVersion() async throws -> VersionVector
+    /// `GET /sync/events` — a long-lived SSE line stream (bearer attached).
+    func syncEventLines() async throws -> (AsyncLineSequence<URLSession.AsyncBytes>, HTTPURLResponse)
+}
+
+/// The `event: sleep` payload pushed over `/sync/events`. Decode-tolerant so a
+/// backend that adds or drops a field doesn't kill the stream.
+struct SleepEventPayload: Codable, Equatable {
+    var status: String
+    var cycleId: String?
+    var stage: Int
+    var totalStages: Int
+    var progress: Double?
+    var error: String?
+
+    enum CodingKeys: String, CodingKey { case status, cycleId, stage, totalStages, progress, error }
+
+    init(status: String, cycleId: String? = nil, stage: Int = 0,
+         totalStages: Int = 5, progress: Double? = nil, error: String? = nil) {
+        self.status = status; self.cycleId = cycleId; self.stage = stage
+        self.totalStages = totalStages; self.progress = progress; self.error = error
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = (try? c.decode(String.self, forKey: .status)) ?? "idle"
+        cycleId = try? c.decodeIfPresent(String.self, forKey: .cycleId)
+        stage = (try? c.decode(Int.self, forKey: .stage)) ?? 0
+        totalStages = (try? c.decode(Int.self, forKey: .totalStages)) ?? 5
+        progress = try? c.decodeIfPresent(Double.self, forKey: .progress)
+        error = try? c.decodeIfPresent(String.self, forKey: .error)
+    }
+}

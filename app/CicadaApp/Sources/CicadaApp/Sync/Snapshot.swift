@@ -1,9 +1,9 @@
 import Foundation
 
 struct Snapshot<T: Codable> {
-    var value: T?
-    var etag: String?
-    var loadedAt: Date?
+    var value: T? = nil
+    var etag: String? = nil
+    var loadedAt: Date? = nil
     var isRefreshing = false
     var isEmpty: Bool { value == nil }
 }
