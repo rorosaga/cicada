@@ -63,6 +63,19 @@ enum CicadaTheme {
         mode == .dark ? Dark.statusColor(for: status) : Light.statusColor(for: status)
     }
 
+    // MARK: - Usage heatmap (G51)
+    /// Five-step sequential ramp for the usage heatmap (0 = empty cell).
+    /// Derived from `accent` so it follows the light/dark palette automatically.
+    static func heatRamp(level: Int) -> Color {
+        switch max(0, min(4, level)) {
+        case 0: surfaceElevated
+        case 1: accent.opacity(0.30)
+        case 2: accent.opacity(0.55)
+        case 3: accent.opacity(0.80)
+        default: accent
+        }
+    }
+
     // MARK: - Typography
     static let titleFont = Font.system(size: 20, weight: .semibold)
     static let headingFont = Font.system(size: 16, weight: .medium)

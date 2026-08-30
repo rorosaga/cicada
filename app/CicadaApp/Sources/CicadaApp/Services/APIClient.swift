@@ -958,6 +958,34 @@ actor APIClient {
         try await put("/connections/\(id)/prefs", body: ["tier": tier ?? NSNull()])
     }
 
+    // MARK: - Consumption (G51)
+    //
+    // Plain (non-conditional) fetches for a range the Store's default
+    // "month" bundle doesn't cover — `UsageViewModel.loadRange()` calls these
+    // directly, the same way `ConnectionsViewModel` bypasses the Store for a
+    // `fresh: true` probe. The Store's own default-view fetch is
+    // `fetchConsumption(etag:)` below, in the `SyncAPI` conformance.
+
+    func fetchConsumptionSummary(range: String) async throws -> ConsumptionSummary {
+        try await get("/consumption/summary?range=\(range)")
+    }
+
+    func fetchConsumptionCalendar(weeks: Int = 53) async throws -> ConsumptionCalendar {
+        try await get("/consumption/calendar?weeks=\(weeks)")
+    }
+
+    func fetchConsumptionStats(range: String) async throws -> ConsumptionStats {
+        try await get("/consumption/stats?range=\(range)")
+    }
+
+    func fetchConsumptionConnections(range: String) async throws -> ConsumptionConnections {
+        try await get("/consumption/connections?range=\(range)")
+    }
+
+    func fetchHarnessStats() async throws -> HarnessStats {
+        try await get("/consumption/harness")
+    }
+
     // MARK: - Inbox
 
     /// Fetch the unified inbox (`GET /inbox`). Optionally filter by kinds —
@@ -1517,6 +1545,56 @@ extension APIClient: SyncAPI {
         do {
             let c: Conditional<ConnectionsResponse> = try await getConditional("/connections", etag: etag)
             return c.map(\.connections)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    /// Fallback for the (rare) mixed-staleness case where `/summary` or
+    /// `/calendar` changed but `/stats` came back 304 — `ConsumptionStats`
+    /// has no custom initializer, only `init(from decoder:)`, so build it by
+    /// decoding its own tolerant defaults from an empty object.
+    private static let emptyConsumptionStats: ConsumptionStats =
+        // swiftlint:disable:next force_try — every field of `init(from:)` is
+        // tolerant of a missing key, so decoding "{}" can never throw.
+        try! JSONDecoder().decode(ConsumptionStats.self, from: Data("{}".utf8))
+
+    /// Fans out to all five `/consumption/*` endpoints for the Store's
+    /// default view (range "month", 53-week calendar) and folds them into one
+    /// `ConsumptionBundle`. Only `/summary`, `/calendar` and `/stats` carry a
+    /// server-side ETag (see `api/routers/consumption.py`) — `/connections`
+    /// and `/harness` are always refetched, so `notModified` is decided by the
+    /// three ETag'd endpoints alone. The combined etag is the three
+    /// sub-etags pipe-joined; a 404 on any endpoint is treated as "this
+    /// backend doesn't ship the dashboard yet", not an empty payload.
+    func fetchConsumption(etag: String?) async throws -> Conditional<ConsumptionBundle> {
+        let range = "month"
+        let weeks = 53
+        let rawParts = (etag ?? "").components(separatedBy: "|")
+        let parts: [String?] = (0..<3).map { i in
+            guard i < rawParts.count, !rawParts[i].isEmpty else { return nil }
+            return rawParts[i]
+        }
+        do {
+            async let s: Conditional<ConsumptionSummary> = getConditional("/consumption/summary?range=\(range)", etag: parts[0])
+            async let c: Conditional<ConsumptionCalendar> = getConditional("/consumption/calendar?weeks=\(weeks)", etag: parts[1])
+            async let st: Conditional<ConsumptionStats> = getConditional("/consumption/stats?range=\(range)", etag: parts[2])
+            async let conn: ConsumptionConnections = get("/consumption/connections?range=\(range)")
+            async let h: HarnessStats = get("/consumption/harness")
+            let (summaryResult, calendarResult, statsResult, connections, harness) = try await (s, c, st, conn, h)
+            if summaryResult.notModified, calendarResult.notModified, statsResult.notModified {
+                return Conditional(value: nil, etag: etag, notModified: true)
+            }
+            let bundle = ConsumptionBundle(
+                summary: summaryResult.value ?? ConsumptionSummary(),
+                calendar: calendarResult.value ?? ConsumptionCalendar(days: [], weeks: weeks),
+                stats: statsResult.value ?? Self.emptyConsumptionStats,
+                connections: connections,
+                harness: harness
+            )
+            let newEtag = [summaryResult.etag ?? parts[0] ?? "", calendarResult.etag ?? parts[1] ?? "", statsResult.etag ?? parts[2] ?? ""]
+                .joined(separator: "|")
+            return Conditional(value: bundle, etag: newEtag, notModified: false)
         } catch APIError.httpError(404, _) {
             return .unavailable(etag: etag)
         }
