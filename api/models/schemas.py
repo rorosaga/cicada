@@ -436,6 +436,11 @@ class GraphNode(CamelModel):
     # without diffing full entity bodies.
     summary: Optional[str] = None
     content_hash: str = ""
+    # G59: does this entity have a *cached* logo right now? Filled from the
+    # on-disk logo index only — `GET /graph` never fetches. Folded into
+    # `content_hash` below so the app's delta repaints the node when a logo
+    # lands (e.g. after a Sleep warm-up).
+    has_logo: bool = False
 
 
 class GraphLink(CamelModel):

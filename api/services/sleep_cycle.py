@@ -57,6 +57,24 @@ def get_sleep_state() -> SleepState:
     return _state
 
 
+async def _warm_logos_safely(memory_path: Path) -> None:
+    """G59: warm the logo cache for the busiest company/tool pages so the
+    common marks are on disk before the user opens the graph. Bounded,
+    keyless, and never fatal — a CDN outage (or a cycle with zero new
+    episodes) must not fail a cycle. Called both on the zero-unprocessed-
+    episodes early return and at the tail of a full run, so logos still warm
+    on an otherwise-empty cycle.
+    """
+    try:
+        from api.services.logo_service import warm_logos
+
+        warmed = await warm_logos(memory_path, limit=50)
+        if warmed:
+            logger.info(f"Warmed {warmed} entity logo(s)")
+    except Exception as e:
+        logger.warning(f"Logo warm-up failed: {type(e).__name__}: {e}")
+
+
 async def run(settings: Settings, cycle_id: str) -> None:
     """Execute the 5-stage Sleep cycle pipeline."""
     global _state
@@ -98,6 +116,7 @@ async def run(settings: Settings, cycle_id: str) -> None:
         if not episodes:
             logger.info("No unprocessed episodes found — skipping")
             _state.progress = "No unprocessed episodes"
+            await _warm_logos_safely(memory_path)
             _state.status = "idle"
             return
 
@@ -339,6 +358,8 @@ async def run(settings: Settings, cycle_id: str) -> None:
 
         if index_warnings:
             _state.index_warning = "; ".join(index_warnings)
+
+        await _warm_logos_safely(memory_path)
 
         # Commit
         await _finalize(

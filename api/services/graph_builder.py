@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import bank_index, predicates
+from api.services import bank_index, logo_service, predicates
 from api.services.claims import parse_claims
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import parse
@@ -124,6 +124,12 @@ def _build_full(memory_path: Path) -> GraphResponse:
     repo_node_names: dict[str, str] = {}  # "repo:<slug>" -> display name
     repo_node_paths: dict[str, set[str]] = {}  # "repo:<slug>" -> declared paths
     repo_links: list[GraphLink] = []
+    # G59: which entities already have a cached logo. One read of a small JSON
+    # index — never a fetch, never a per-node stat storm.
+    try:
+        logo_ids = logo_service.cached_ids(logo_service.bank_name(memory_path))
+    except Exception:
+        logo_ids = set()
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         eid = f.stem
@@ -161,6 +167,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 contexts=sorted(subject_contexts.get(eid, set())),
                 summary=summarize(body),
                 content_hash=content_hash(fm, body),
+                has_logo=eid in logo_ids,
             )
         )
         for repo_decl in fm.get("repos") or []:
@@ -257,7 +264,8 @@ def _build_full(memory_path: Path) -> GraphResponse:
     for node in nodes:
         if node.id in entity_ids:
             node.content_hash = synthetic_hash(
-                node.content_hash, node.degree, node.has_pending, node.hub_id
+                node.content_hash, node.degree, node.has_pending, node.hub_id,
+                node.has_logo,
             )
 
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).
