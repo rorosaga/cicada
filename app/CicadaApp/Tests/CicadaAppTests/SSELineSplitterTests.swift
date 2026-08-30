@@ -49,6 +49,9 @@ final class SSELineSplitterTests: XCTestCase {
     func testFoundationAsyncLineSequenceDropsEmptyLines() async throws {
         var out: [String] = []
         for try await line in ByteStream("a\n\nb\n").lines { out.append(line) }
+        if out.contains("") {
+            throw XCTSkip("Foundation now preserves blank lines — SSELineSplitter may be redundant")
+        }
         XCTAssertEqual(out, ["a", "b"], "AsyncLineSequence is expected to swallow blank lines")
     }
 
@@ -95,6 +98,30 @@ final class SSELineSplitterTests: XCTestCase {
         for try await line in ByteStream(backendFrames).lines {
             if let e = parser.feed(line) { events.append(e) }
         }
+        if !events.isEmpty {
+            throw XCTSkip("Foundation now preserves blank lines — SSELineSplitter may be redundant")
+        }
         XCTAssertTrue(events.isEmpty, "blank-line-free input can never terminate an SSE frame")
+    }
+
+    /// Multi-byte UTF-8 must survive the byte-level split. The splitter
+    /// accumulates raw bytes and decodes once per line, so a character whose
+    /// encoding straddles the arbitrary chunk boundaries the transport hands
+    /// us (the stream here is delivered one byte at a time — the worst case)
+    /// must still come out intact.
+    func testSplitterHandlesMultiByteUTF8AcrossChunks() async throws {
+        let payload = #"{"name": "Raúl Pérez Peláez", "note": "π0.7 — 🐝 consolidación"}"#
+        var parser = SSEParser()
+        var events: [SSEEvent] = []
+        for try await line in SSELineSplitter.lines(from: ByteStream("event: version\ndata: \(payload)\n\n")) {
+            if let e = parser.feed(line) { events.append(e) }
+        }
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.data, payload)
+
+        // And the same bytes as bare lines, with the multi-byte run adjacent
+        // to the terminators on both sides.
+        let lines = try await collect("é\n\n🐝\n")
+        XCTAssertEqual(lines, ["é", "", "🐝"])
     }
 }

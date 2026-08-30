@@ -92,9 +92,7 @@ final class SyncEngine {
             guard let version = try? JSONDecoder().decode(VersionVector.self, from: data) else { return }
             let changed = version.changedDomains(since: store.version)
                 .map(\.rawValue).sorted().joined(separator: ",")
-            let line = "sse version=\(version.version) changed=[\(changed)]"
-            Self.logger.notice("\(line, privacy: .public)")
-            FileHandle.standardError.write(Data("[sync] \(line)\n".utf8))
+            Self.logger.notice("sse version=\(version.version, privacy: .public) changed=[\(changed, privacy: .public)]")
             await store.apply(version: version)
         case "sleep":
             guard let payload = try? JSONDecoder().decode(SleepEventPayload.self, from: data) else { return }

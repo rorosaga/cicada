@@ -214,6 +214,15 @@ def _build_full(memory_path: Path) -> GraphResponse:
                     is_hub=True,
                     member_count=int(fm.get("member_count", len(members)) or 0),
                     hub_kind=fm.get("hub_kind"),
+                    # `len(members)` is in the hash because it is also the
+                    # node's `degree`, and because a membership change rewrites
+                    # this hub's `member of` edges — the client replaces the
+                    # whole link list when the edge set moves, so the hub node
+                    # should report as updated in the same delta rather than
+                    # lagging a cycle behind its own edges. Note this tracks
+                    # the member *count*, not identity: swapping one member for
+                    # another leaves the hash unchanged, which is acceptable
+                    # because the edge diff carries that change already.
                     content_hash=synthetic_hash(
                         "hub",
                         hub_id,

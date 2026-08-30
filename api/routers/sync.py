@@ -14,6 +14,11 @@ from api.services.sleep_cycle import get_sleep_state
 
 router = APIRouter(prefix="/sync")
 POLL_SECONDS = 1.0
+# Keep-alive cadence for the SSE stream. This MUST stay comfortably below the
+# companion app's SSE idle timeout (`APIClient.syncEventLines` sets
+# `timeoutInterval = 3600`, an *idle* timeout): a silent stream longer than
+# that interval is torn down client-side and the app falls back to polling.
+# It must also stay below any proxy's idle timeout if one is ever put in front.
 PING_SECONDS = 15.0
 
 
