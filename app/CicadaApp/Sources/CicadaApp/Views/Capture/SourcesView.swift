@@ -1,472 +1,125 @@
 import SwiftUI
-import AppKit
-import UniformTypeIdentifiers
-import Foundation
 
-/// The Capture / Sources page: manual one-off import (chat exports, bookmark
-/// files, RSS feeds, pasted links), a summary of the keyless synced-apps
-/// pipeline (Chrome/Safari bookmark sync), and an honest read on how much is
-/// sitting in the Sleep queue right now. Everything lands in the same
-/// `episodes/` inbox the MCP-native capture path uses — this page is the
-/// manual front door onto that same pipeline, not a separate one.
+/// The Capture page (G62). Shows **only what is actually connected** — one
+/// compact row per channel the backend reports as having state — plus the Sleep
+/// queue and the origins strip. Everything explanatory (what a channel is, how
+/// to export from a vendor, where a bookmarks file lives) lives behind the `+`
+/// button in `AddSourceSheet`, so this page stays a status readout rather than
+/// a wall of onboarding copy.
+///
+/// Every value here is a projection over `Store` snapshots (§5.5): the page
+/// renders correct, real data on a cold launch with the backend down.
 struct SourcesView: View {
     @Environment(SleepViewModel.self) private var sleepVM
-    /// §5.5: `feeds`/`calendars`/`origins`/`status` below read straight from
-    /// these Store snapshots instead of holding a local copy populated by a
-    /// per-view fetch — the Store already hydrates them from disk and keeps
-    /// them live via SSE, so this page renders instantly on every revisit.
     @Environment(Store.self) private var store
 
-    // Import section
-    @State private var isImporting = false
-    @State private var importResult: String?
-    @State private var importError: String?
-    @State private var activeInline: InlineImport?
-    @State private var inlineText = ""
-
-    // Synced apps section
-    @State private var isSyncing = false
-    @State private var syncResult: String?
-    @State private var syncError: String?
-    @State private var showSyncSetup = false
-
-    // Apple Notes sync (synced-apps section)
-    @State private var isSyncingNotes = false
-    @State private var syncNotesResult: String?
-    @State private var syncNotesError: String?
-
-    // RSS subscriptions section
-    @State private var feedsError: String?
-    @State private var newFeedURL = ""
-    @State private var isSubscribing = false
-    @State private var subscribeError: String?
-    @State private var unsubscribingURL: String?
-    @State private var isPolling = false
-    @State private var pollResult: String?
-    @State private var pollError: String?
-    @State private var pollSkippedNoNetwork = false
-
-    // Calendar subscriptions section
-    @State private var calendarsError: String?
-    @State private var newCalendarURL = ""
-    @State private var isSubscribingCalendar = false
-    @State private var subscribeCalendarError: String?
-    @State private var unsubscribingCalendarURL: String?
-    @State private var isPollingCalendars = false
-    @State private var pollCalendarsResult: String?
-    @State private var pollCalendarsError: String?
-    @State private var pollCalendarsSkippedNoNetwork = false
-
-    // Origins strip section
-    @State private var originsError: String?
-
-    // Queue section
-    @State private var statusError: String?
+    @State private var showAddSheet = false
+    @State private var sheetTile: AddSourceTile?
+    @State private var actionResult: String?
+    @State private var actionError: String?
+    @State private var busyChannel: String?
 
     // MARK: - Store projections (§5.5)
 
-    private var feeds: [FeedSubscription] { store.feeds.value ?? [] }
-    private var feedsLoading: Bool { store.feeds.isEmpty && store.feeds.isRefreshing }
-    private var calendars: [CalendarSubscription] { store.calendars.value ?? [] }
-    private var calendarsLoading: Bool { store.calendars.isEmpty && store.calendars.isRefreshing }
+    private var channels: [SourceChannel] { store.channels.value ?? [] }
+    private var connected: [SourceChannel] { SourceChannel.sortedConnected(channels) }
+    private var channelsLoading: Bool { store.channels.isEmpty && store.channels.isRefreshing }
     private var origins: [OriginStat] { store.origins.value ?? [] }
     private var status: StatusSnapshot? { store.status.value }
     private var statusLoading: Bool { store.status.isEmpty && store.status.isRefreshing }
-
-    private enum InlineImport {
-        case rss, pasteURL
-    }
 
     var body: some View {
         VStack(spacing: 0) {
             PageHeader(
                 title: "Capture",
-                subtitle: "Import sources manually, or connect apps that sync automatically."
-            )
+                subtitle: "What Cicada reads from. Add a source with +."
+            ) {
+                addButton
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                    importCard
-                    rssSubscriptionsCard
-                    calendarsCard
-                    syncedAppsCard
-                    originsStrip
+                    connectedCard
                     queueCard
+                    originsStrip
                 }
                 .padding(.horizontal, CicadaTheme.spacingXL)
                 .padding(.bottom, CicadaTheme.spacingXXL)
             }
         }
         .background(CicadaTheme.background)
-        // No `.task { load... }` here: feeds/calendars/origins/status all
-        // read straight from the Store (§5.5), which already hydrates them
-        // from disk and keeps them live via SSE — this page renders
-        // instantly on every revisit. The per-section "Retry" buttons still
-        // call the `load*` functions below explicitly.
         .onChange(of: sleepVM.isRunning) { _, running in
-            // A cycle kicked off from the Consolidate button (or anywhere else
-            // in the app) just finished — the queue count this page shows is
-            // now stale, so refresh it.
-            if !running { Task { await loadStatus() } }
+            if !running { Task { await store.refresh([.status, .channels]) } }
         }
-        .sheet(isPresented: $showSyncSetup) {
-            SyncSetupView(onDone: { showSyncSetup = false })
+        // ⌘N while the Capture page is on screen opens the picker. Hidden-button
+        // pattern, same as ContentView's ⌘K.
+        .background {
+            Button("") { openSheet(nil) }
+                .keyboardShortcut("n", modifiers: .command)
+                .buttonStyle(.plain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+        }
+        .sheet(isPresented: $showAddSheet) {
+            AddSourceSheet(initialTile: sheetTile) { showAddSheet = false }
         }
     }
 
-    // MARK: - Import
-
-    private var importCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            sectionLabel("IMPORT")
-            Text("One-off ingestion — pick a file or paste a link. Everything lands in the queue below for the next Sleep cycle.")
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: CicadaTheme.spacingMD) {
-                ImportTileButton(
-                    icon: "bubble.left.and.bubble.right",
-                    label: "Chat export",
-                    isBusy: isImporting
-                ) { pickChatExport() }
-
-                ImportTileButton(
-                    icon: "bookmark",
-                    label: "Bookmarks file",
-                    isBusy: isImporting
-                ) { pickBookmarksFile() }
-
-                ImportTileButton(
-                    icon: "dot.radiowaves.up.forward",
-                    label: "RSS feed",
-                    isBusy: isImporting,
-                    isActive: activeInline == .rss
-                ) { toggleInline(.rss) }
-
-                ImportTileButton(
-                    icon: "link",
-                    label: "Paste URL",
-                    isBusy: isImporting,
-                    isActive: activeInline == .pasteURL
-                ) { toggleInline(.pasteURL) }
-            }
-
-            if activeInline != nil {
-                inlineInputRow
-            }
-
-            if isImporting {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    ProgressView().controlSize(.small)
-                    Text("Importing…")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            } else if let result = importResult {
-                Text(result)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(Color(hex: 0x22C55E))
-            } else if let err = importError {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(err)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(Color(hex: 0xEF4444))
-                    Button("Retry") { retryLastInline() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.accent)
-                }
-            }
+    private var addButton: some View {
+        Button { openSheet(nil) } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(CicadaTheme.accent))
         }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .buttonStyle(.plain)
+        .keyboardShortcut("n", modifiers: .command)
+        .help("Add a source (⌘N)")
+        .accessibilityLabel("Add a source")
     }
+
+    private func openSheet(_ tile: AddSourceTile?) {
+        actionError = nil
+        actionResult = nil
+        sheetTile = tile
+        showAddSheet = true
+    }
+
+    // MARK: - Connected
 
     @ViewBuilder
-    private var inlineInputRow: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: activeInline == .rss ? "dot.radiowaves.up.forward" : "link")
-                .font(.system(size: 12))
-                .foregroundStyle(CicadaTheme.textTertiary)
-            TextField(
-                activeInline == .rss ? "https://example.com/feed.xml" : "https://…",
-                text: $inlineText
-            )
-            .textFieldStyle(.plain)
-            .font(CicadaTheme.bodyFont)
-            .foregroundStyle(CicadaTheme.textPrimary)
-            .onSubmit { submitInline() }
-
-            Button(activeInline == .rss ? "Add feed" : "Save") { submitInline() }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(inlineText.trimmingCharacters(in: .whitespaces).isEmpty ? CicadaTheme.textTertiary : CicadaTheme.accent)
-                .disabled(inlineText.trimmingCharacters(in: .whitespaces).isEmpty || isImporting)
-        }
-        .padding(.horizontal, CicadaTheme.spacingMD)
-        .padding(.vertical, CicadaTheme.spacingSM)
-        .background(CicadaTheme.surfaceHover)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    private func toggleInline(_ which: InlineImport) {
-        importError = nil
-        importResult = nil
-        if activeInline == which {
-            activeInline = nil
-        } else {
-            activeInline = which
-            inlineText = ""
-        }
-    }
-
-    private func submitInline() {
-        let text = inlineText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, let which = activeInline else { return }
-
-        isImporting = true
-        importError = nil
-        importResult = nil
-
-        Task {
-            do {
-                switch which {
-                case .rss:
-                    let r = try await APIClient.shared.ingestRSS(feedUrl: text)
-                    await MainActor.run { importResult = importSummary(created: r.episodesCreated, skipped: r.duplicatesSkipped) }
-                case .pasteURL:
-                    let r = try await APIClient.shared.saveURL(text)
-                    await MainActor.run { importResult = r.message }
-                }
-                await MainActor.run {
-                    isImporting = false
-                    inlineText = ""
-                    activeInline = nil
-                }
-                await loadStatus()
-            } catch {
-                await MainActor.run {
-                    isImporting = false
-                    importError = Self.friendlyError(error)
-                }
-            }
-        }
-    }
-
-    /// "Retry" on an inline-import error just re-submits whatever's still in
-    /// the field; a picker failure has no state worth retrying automatically
-    /// (the user re-opens the tile instead).
-    private func retryLastInline() {
-        guard activeInline != nil, !inlineText.isEmpty else { return }
-        submitInline()
-    }
-
-    private func pickChatExport() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json, .html]
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = true
-        panel.message = "Select a Claude, ChatGPT, or Gemini conversation export"
-        guard panel.runModal() == .OK else { return }
-        let files = expandToFiles(panel.urls, exts: ["json", "html"])
-        guard !files.isEmpty else {
-            importError = "No JSON or HTML files found"
-            importResult = nil
-            return
-        }
-        runImport(files: files) { url in try await APIClient.shared.uploadFile(fileURL: url) }
-    }
-
-    private func pickBookmarksFile() {
-        let panel = NSOpenPanel()
-        // .json/.html cover browser bookmarks + Instagram saved-posts exports;
-        // .commaSeparatedText covers a single YouTube Takeout playlist CSV;
-        // .zip covers a whole Takeout export (playlists + watch history) in
-        // one drop — see media_ingestor.parse_upload for the routing.
-        panel.allowedContentTypes = [.json, .html, .commaSeparatedText, .zip]
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.message = "Select a bookmarks/saved-content export (HTML, JSON, CSV, or ZIP)"
-        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
-        runImport(files: panel.urls) { url in try await APIClient.shared.uploadSource(fileURL: url) }
-    }
-
-    private func expandToFiles(_ urls: [URL], exts: Set<String>) -> [URL] {
-        var result: [URL] = []
-        let fm = FileManager.default
-        for url in urls {
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-                if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: nil) {
-                    for case let fileURL as URL in enumerator {
-                        if exts.contains(fileURL.pathExtension.lowercased()) {
-                            result.append(fileURL)
-                        }
-                    }
-                }
-            } else if exts.contains(url.pathExtension.lowercased()) {
-                result.append(url)
-            }
-        }
-        return result
-    }
-
-    private func runImport(files: [URL], upload: @escaping (URL) async throws -> UploadResponse) {
-        isImporting = true
-        importError = nil
-        importResult = nil
-
-        Task {
-            var created = 0
-            var skipped = 0
-            var firstError: String?
-
-            for file in files {
-                do {
-                    let r = try await upload(file)
-                    created += r.episodesCreated
-                    skipped += r.duplicatesSkipped
-                } catch {
-                    if firstError == nil { firstError = Self.friendlyError(error) }
-                }
-            }
-
-            await MainActor.run {
-                isImporting = false
-                if created == 0, let err = firstError {
-                    importError = err
-                } else {
-                    var summary = importSummary(created: created, skipped: skipped)
-                    if firstError != nil { summary += " (some files failed)" }
-                    importResult = summary
-                }
-            }
-            await loadStatus()
-        }
-    }
-
-    private func importSummary(created: Int, skipped: Int) -> String {
-        "Imported \(created), skipped \(skipped)"
-    }
-
-    // MARK: - Synced apps
-
-    private var syncedAppsCard: some View {
+    private var connectedCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            sectionLabel("SYNCED APPS")
+            sectionLabel("CONNECTED")
 
-            HStack(alignment: .top, spacing: CicadaTheme.spacingLG) {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    Text("Chrome and Safari bookmarks sync straight from your local bookmark files — no login, no OAuth.")
+            if channelsLoading && channels.isEmpty {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    ProgressView().controlSize(.small)
+                    Text("Checking your sources…")
                         .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if isSyncing {
-                        HStack(spacing: CicadaTheme.spacingSM) {
-                            ProgressView().controlSize(.small)
-                            Text("Syncing…")
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                    } else if let result = syncResult {
-                        Text(result)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(Color(hex: 0x22C55E))
-                    } else if let err = syncError {
-                        HStack(spacing: CicadaTheme.spacingSM) {
-                            Text(err)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(Color(hex: 0xEF4444))
-                            Button("Retry") { Task { await syncBookmarksNow() } }
-                                .buttonStyle(.plain)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(CicadaTheme.accent)
-                        }
-                    }
-                }
-
-                Spacer(minLength: CicadaTheme.spacingMD)
-
-                VStack(alignment: .trailing, spacing: CicadaTheme.spacingSM) {
-                    Button {
-                        showSyncSetup = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text("Set up synced apps")
-                            Image(systemName: "arrow.right")
-                        }
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, CicadaTheme.spacingLG)
-                        .padding(.vertical, CicadaTheme.spacingSM)
-                        .background(CicadaTheme.accent.opacity(0.9))
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        Task { await syncBookmarksNow() }
-                    } label: {
-                        Text("Sync bookmarks now")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isSyncing)
-                }
-            }
-
-            Divider().background(CicadaTheme.border)
-
-            HStack(alignment: .top, spacing: CicadaTheme.spacingLG) {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    Text("Apple Notes syncs one-way from your local Notes library — no login, no OAuth.")
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("First sync prompts macOS for automation access to Notes — allow it once and Cicada handles the rest.")
-                        .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if isSyncingNotes {
-                        HStack(spacing: CicadaTheme.spacingSM) {
-                            ProgressView().controlSize(.small)
-                            Text("Syncing…")
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            } else if connected.isEmpty {
+                emptyState
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(connected) { channel in
+                        ConnectedChannelRow(channel: channel) { action in
+                            handle(action, for: channel)
                         }
-                    } else if let result = syncNotesResult {
-                        Text(result)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(Color(hex: 0x22C55E))
-                    } else if let err = syncNotesError {
-                        HStack(spacing: CicadaTheme.spacingSM) {
-                            Text(err)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(Color(hex: 0xEF4444))
-                            Button("Retry") { Task { await syncNotesNow() } }
-                                .buttonStyle(.plain)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(CicadaTheme.accent)
-                        }
+                        .opacity(busyChannel == channel.id ? 0.5 : 1)
                     }
                 }
-
-                Spacer(minLength: CicadaTheme.spacingMD)
-
-                Button {
-                    Task { await syncNotesNow() }
-                } label: {
-                    Text("Sync Notes now")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textSecondary)
+                if let actionResult {
+                    Text(actionResult)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(Color(hex: 0x22C55E))
+                } else if let actionError {
+                    Text(actionError)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(Color(hex: 0xEF4444))
                 }
-                .buttonStyle(.plain)
-                .disabled(isSyncingNotes)
             }
         }
         .padding(CicadaTheme.spacingLG)
@@ -474,502 +127,66 @@ struct SourcesView: View {
         .glassCard()
     }
 
-    private func syncBookmarksNow() async {
-        isSyncing = true
-        syncError = nil
-        syncResult = nil
-        do {
-            let r = try await APIClient.shared.syncBookmarks()
-            await MainActor.run {
-                isSyncing = false
-                syncResult = "\(r.new) new · \(r.skipped) skipped"
-            }
-            await loadStatus()
-        } catch {
-            await MainActor.run {
-                isSyncing = false
-                syncError = Self.friendlyError(error)
-            }
+    private var emptyState: some View {
+        VStack(spacing: CicadaTheme.spacingSM) {
+            Image(systemName: "tray")
+                .font(.system(size: 26))
+                .foregroundStyle(CicadaTheme.textTertiary)
+            Text("Nothing connected yet")
+                .font(CicadaTheme.headingFont)
+                .foregroundStyle(CicadaTheme.textPrimary)
+            Text("Add a chat export, bookmarks, a feed or a calendar.")
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .multilineTextAlignment(.center)
+            addButton.padding(.top, CicadaTheme.spacingXS)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, CicadaTheme.spacingXL)
+    }
+
+    private func handle(_ action: String, for channel: SourceChannel) {
+        actionResult = nil
+        actionError = nil
+        switch action {
+        case "manage", "import", "remove":
+            openSheet(AddSourceTile.forChannel(channel.id))
+        case "poll":
+            Task { await run(channel) { try await Self.poll(channel) } }
+        case "sync":
+            Task { await run(channel) { try await Self.sync(channel) } }
+        default:
+            openSheet(AddSourceTile.forChannel(channel.id))
         }
     }
 
-    private func syncNotesNow() async {
-        isSyncingNotes = true
-        syncNotesError = nil
-        syncNotesResult = nil
+    private func run(_ channel: SourceChannel, _ work: @escaping () async throws -> String) async {
+        busyChannel = channel.id
         do {
+            actionResult = try await work()
+        } catch {
+            actionError = AddSourceSheet.friendlyError(error)
+        }
+        busyChannel = nil
+        await store.refresh([.channels, .status, .sources, .feeds, .calendars])
+    }
+
+    private static func poll(_ channel: SourceChannel) async throws -> String {
+        if channel.id == "calendar" {
+            let r = try await APIClient.shared.pollCalendars()
+            return "\(r.new) new event(s)"
+        }
+        let r = try await APIClient.shared.pollFeeds()
+        return "\(r.new) new item(s)"
+    }
+
+    private static func sync(_ channel: SourceChannel) async throws -> String {
+        if channel.id == "notes" {
             let r = try await APIClient.shared.syncNotes()
-            await MainActor.run {
-                isSyncingNotes = false
-                syncNotesResult = "\(r.new) new · \(r.skipped) skipped"
-            }
-            await loadStatus()
-        } catch {
-            await MainActor.run {
-                isSyncingNotes = false
-                syncNotesError = Self.friendlyError(error)
-            }
+            return "\(r.new) new · \(r.skipped) unchanged"
         }
-    }
-
-    // MARK: - RSS subscriptions
-
-    private var rssSubscriptionsCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            sectionLabel("RSS SUBSCRIPTIONS")
-            Text("Feeds Cicada checks automatically for new items — separate from the one-off RSS import above.")
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if feedsLoading && feeds.isEmpty {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading feeds…")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            } else if let err = feedsError, feeds.isEmpty {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(err)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(Color(hex: 0xEF4444))
-                    Button("Retry") { Task { await loadFeeds() } }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.accent)
-                }
-            } else if feeds.isEmpty {
-                Text("No feeds subscribed yet — add one below.")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            } else {
-                VStack(spacing: CicadaTheme.spacingSM) {
-                    ForEach(feeds) { feed in
-                        FeedSubscriptionRow(
-                            feed: feed,
-                            isRemoving: unsubscribingURL == feed.url,
-                            onRemove: { unsubscribeFeedNow(feed.url) }
-                        )
-                    }
-                }
-            }
-
-            addFeedRow
-
-            if isSubscribing {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    ProgressView().controlSize(.small)
-                    Text("Subscribing…")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            } else if let err = subscribeError {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(err)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(Color(hex: 0xEF4444))
-                    Button("Retry") { subscribeFeedNow() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.accent)
-                }
-            }
-
-            Divider().background(CicadaTheme.border)
-
-            pollFeedsRow
-
-            if pollSkippedNoNetwork {
-                Text("Live feed fetch is disabled on this backend — set CICADA_ALLOW_FEED_FETCH=1 in api/.env and restart the backend so polling can actually reach these feeds.")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    private var addFeedRow: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "plus")
-                .font(.system(size: 12))
-                .foregroundStyle(CicadaTheme.textTertiary)
-            TextField("https://example.com/feed.xml", text: $newFeedURL)
-                .textFieldStyle(.plain)
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .onSubmit { subscribeFeedNow() }
-            Button("Subscribe") { subscribeFeedNow() }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(
-                    newFeedURL.trimmingCharacters(in: .whitespaces).isEmpty
-                        ? CicadaTheme.textTertiary : CicadaTheme.accent
-                )
-                .disabled(newFeedURL.trimmingCharacters(in: .whitespaces).isEmpty || isSubscribing)
-        }
-        .padding(.horizontal, CicadaTheme.spacingMD)
-        .padding(.vertical, CicadaTheme.spacingSM)
-        .background(CicadaTheme.surfaceHover)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    private var pollFeedsRow: some View {
-        HStack(spacing: CicadaTheme.spacingMD) {
-            Button {
-                pollFeedsNow()
-            } label: {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    if isPolling {
-                        ProgressView().controlSize(.small).frame(width: 12, height: 12)
-                    } else {
-                        Image(systemName: "arrow.clockwise").font(.system(size: 12))
-                    }
-                    Text(isPolling ? "Polling…" : "Poll feeds now")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(feeds.isEmpty && !isPolling ? CicadaTheme.textTertiary : .white)
-                .padding(.horizontal, CicadaTheme.spacingLG)
-                .padding(.vertical, CicadaTheme.spacingSM)
-                .background(feeds.isEmpty && !isPolling ? CicadaTheme.surfaceElevated : CicadaTheme.accent.opacity(0.9))
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(isPolling || feeds.isEmpty)
-            .help(feeds.isEmpty ? "Subscribe to a feed first" : "Check every subscribed feed for new items")
-
-            if let result = pollResult {
-                Text(result)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(Color(hex: 0x22C55E))
-            } else if let err = pollError {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(err)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(Color(hex: 0xEF4444))
-                    Button("Retry") { pollFeedsNow() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.accent)
-                }
-            }
-        }
-    }
-
-    /// `feeds` reads `store.feeds` directly (§5.5); this just asks the Store
-    /// to refresh that domain — used by the section's "Retry" button and
-    /// after subscribe/unsubscribe/poll actions.
-    private func loadFeeds() async {
-        await store.refresh([.feeds])
-        feedsError = store.feeds.value == nil ? (store.toast ?? feedsError) : nil
-    }
-
-    private func subscribeFeedNow() {
-        let url = newFeedURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty, !isSubscribing else { return }
-
-        isSubscribing = true
-        subscribeError = nil
-
-        // Optimistic (§5.4): the row appears (and the field clears) at once;
-        // `Store.perform` refreshes `.feeds` on success and removes the row
-        // again — with a toast — if the POST never landed.
-        Task {
-            let ok = await store.perform(SubscribeFeed(url: url))
-            isSubscribing = false
-            if ok {
-                newFeedURL = ""
-            } else {
-                subscribeError = store.toast
-            }
-        }
-    }
-
-    private func unsubscribeFeedNow(_ url: String) {
-        unsubscribingURL = url
-        Task {
-            let ok = await store.perform(UnsubscribeFeed(url: url))
-            unsubscribingURL = nil
-            if !ok { feedsError = store.toast }
-        }
-    }
-
-    private func pollFeedsNow() {
-        isPolling = true
-        pollResult = nil
-        pollError = nil
-        pollSkippedNoNetwork = false
-
-        Task {
-            do {
-                let r = try await APIClient.shared.pollFeeds()
-                await MainActor.run {
-                    isPolling = false
-                    if r.skippedNoNetwork > 0 {
-                        pollResult = "\(r.skippedNoNetwork) feed\(r.skippedNoNetwork == 1 ? "" : "s") skipped"
-                        pollSkippedNoNetwork = true
-                    } else {
-                        pollResult = "\(r.new) new"
-                    }
-                }
-                await loadFeeds()
-            } catch {
-                await MainActor.run {
-                    isPolling = false
-                    pollError = Self.friendlyError(error)
-                }
-            }
-        }
-    }
-
-    // MARK: - Calendar subscriptions
-
-    private var calendarsCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            sectionLabel("CALENDARS")
-            Text("Webcal/ICS calendars Cicada checks automatically for new events — episodes only, Sleep does the rest.")
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if calendarsLoading && calendars.isEmpty {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading calendars…")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            } else if let err = calendarsError, calendars.isEmpty {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(err)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(Color(hex: 0xEF4444))
-                    Button("Retry") { Task { await loadCalendars() } }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.accent)
-                }
-            } else if calendars.isEmpty {
-                Text("No calendars subscribed yet — add one below.")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            } else {
-                VStack(spacing: CicadaTheme.spacingSM) {
-                    ForEach(calendars) { calendar in
-                        CalendarSubscriptionRow(
-                            calendar: calendar,
-                            isRemoving: unsubscribingCalendarURL == calendar.url,
-                            onRemove: { unsubscribeCalendarNow(calendar.url) }
-                        )
-                    }
-                }
-            }
-
-            addCalendarRow
-
-            if isSubscribingCalendar {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    ProgressView().controlSize(.small)
-                    Text("Subscribing…")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            } else if let err = subscribeCalendarError {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(err)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(Color(hex: 0xEF4444))
-                    Button("Retry") { subscribeCalendarNow() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.accent)
-                }
-            }
-
-            Divider().background(CicadaTheme.border)
-
-            pollCalendarsRow
-
-            if pollCalendarsSkippedNoNetwork {
-                Text("Live calendar fetch is disabled on this backend — set CICADA_ALLOW_FEED_FETCH=1 in api/.env and restart the backend so polling can actually reach these calendars.")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    private var addCalendarRow: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "plus")
-                .font(.system(size: 12))
-                .foregroundStyle(CicadaTheme.textTertiary)
-            TextField("webcal://example.com/calendar.ics", text: $newCalendarURL)
-                .textFieldStyle(.plain)
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .onSubmit { subscribeCalendarNow() }
-            Button("Subscribe") { subscribeCalendarNow() }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(
-                    newCalendarURL.trimmingCharacters(in: .whitespaces).isEmpty
-                        ? CicadaTheme.textTertiary : CicadaTheme.accent
-                )
-                .disabled(newCalendarURL.trimmingCharacters(in: .whitespaces).isEmpty || isSubscribingCalendar)
-        }
-        .padding(.horizontal, CicadaTheme.spacingMD)
-        .padding(.vertical, CicadaTheme.spacingSM)
-        .background(CicadaTheme.surfaceHover)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    private var pollCalendarsRow: some View {
-        HStack(spacing: CicadaTheme.spacingMD) {
-            Button {
-                pollCalendarsNow()
-            } label: {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    if isPollingCalendars {
-                        ProgressView().controlSize(.small).frame(width: 12, height: 12)
-                    } else {
-                        Image(systemName: "arrow.clockwise").font(.system(size: 12))
-                    }
-                    Text(isPollingCalendars ? "Polling…" : "Poll calendars now")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(calendars.isEmpty && !isPollingCalendars ? CicadaTheme.textTertiary : .white)
-                .padding(.horizontal, CicadaTheme.spacingLG)
-                .padding(.vertical, CicadaTheme.spacingSM)
-                .background(calendars.isEmpty && !isPollingCalendars ? CicadaTheme.surfaceElevated : CicadaTheme.accent.opacity(0.9))
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(isPollingCalendars || calendars.isEmpty)
-            .help(calendars.isEmpty ? "Subscribe to a calendar first" : "Check every subscribed calendar for new events")
-
-            if let result = pollCalendarsResult {
-                Text(result)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(Color(hex: 0x22C55E))
-            } else if let err = pollCalendarsError {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(err)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(Color(hex: 0xEF4444))
-                    Button("Retry") { pollCalendarsNow() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.accent)
-                }
-            }
-        }
-    }
-
-    /// `calendars` reads `store.calendars` directly (§5.5); this just asks
-    /// the Store to refresh that domain.
-    private func loadCalendars() async {
-        await store.refresh([.calendars])
-        calendarsError = store.calendars.value == nil ? (store.toast ?? calendarsError) : nil
-    }
-
-    private func subscribeCalendarNow() {
-        let url = newCalendarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty, !isSubscribingCalendar else { return }
-
-        isSubscribingCalendar = true
-        subscribeCalendarError = nil
-
-        Task {
-            let ok = await store.perform(SubscribeCalendar(url: url))
-            isSubscribingCalendar = false
-            if ok {
-                newCalendarURL = ""
-            } else {
-                subscribeCalendarError = store.toast
-            }
-        }
-    }
-
-    private func unsubscribeCalendarNow(_ url: String) {
-        unsubscribingCalendarURL = url
-        Task {
-            let ok = await store.perform(UnsubscribeCalendar(url: url))
-            unsubscribingCalendarURL = nil
-            if !ok { calendarsError = store.toast }
-        }
-    }
-
-    private func pollCalendarsNow() {
-        isPollingCalendars = true
-        pollCalendarsResult = nil
-        pollCalendarsError = nil
-        pollCalendarsSkippedNoNetwork = false
-
-        Task {
-            do {
-                let r = try await APIClient.shared.pollCalendars()
-                await MainActor.run {
-                    isPollingCalendars = false
-                    if r.skippedNoNetwork > 0 {
-                        pollCalendarsResult = "\(r.skippedNoNetwork) calendar\(r.skippedNoNetwork == 1 ? "" : "s") skipped"
-                        pollCalendarsSkippedNoNetwork = true
-                    } else {
-                        pollCalendarsResult = "\(r.new) new"
-                    }
-                }
-                await loadCalendars()
-            } catch {
-                await MainActor.run {
-                    isPollingCalendars = false
-                    pollCalendarsError = Self.friendlyError(error)
-                }
-            }
-        }
-    }
-
-    // MARK: - Origins strip
-
-    @ViewBuilder
-    private var originsStrip: some View {
-        if !origins.isEmpty {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                sectionLabel("WHERE YOUR MEMORY COMES FROM")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: CicadaTheme.spacingSM) {
-                        ForEach(origins) { OriginPill(origin: $0) }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        } else if let err = originsError {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                sectionLabel("WHERE YOUR MEMORY COMES FROM")
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(err)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(Color(hex: 0xEF4444))
-                    Button("Retry") { Task { await loadOrigins() } }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.accent)
-                }
-            }
-        }
-        // else: no origins yet and no error — nothing to show, strip stays hidden.
-    }
-
-    /// `origins` reads `store.origins` directly (§5.5); this just asks the
-    /// Store to refresh that domain.
-    private func loadOrigins() async {
-        await store.refresh([.origins])
-        originsError = store.origins.value == nil ? (store.toast ?? originsError) : nil
+        let r = try await APIClient.shared.syncBookmarks()
+        return "\(r.new) new · \(r.skipped) already saved"
     }
 
     // MARK: - Queue
@@ -985,18 +202,6 @@ struct SourcesView: View {
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
-            } else if let err = statusError, status == nil {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(Color(hex: 0xEF4444))
-                    Text(err)
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                    Button("Retry") { Task { await loadStatus() } }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.accent)
-                }
             } else {
                 let count = status?.episodes.unprocessed ?? 0
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
@@ -1007,7 +212,9 @@ struct SourcesView: View {
                         .background(RoundedRectangle(cornerRadius: 10).fill(CicadaTheme.surfaceElevated))
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(count == 0 ? "All caught up" : "\(count) item\(count == 1 ? "" : "s") queued for the next Sleep cycle")
+                        Text(count == 0
+                             ? "All caught up"
+                             : "\(count) item\(count == 1 ? "" : "s") queued for the next Sleep cycle")
                             .font(CicadaTheme.headingFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                         if count > 0 {
@@ -1036,7 +243,7 @@ struct SourcesView: View {
         Button {
             Task {
                 await sleepVM.triggerManually()
-                await loadStatus()
+                await store.refresh([.status, .channels])
             }
         } label: {
             HStack(spacing: CicadaTheme.spacingXS) {
@@ -1057,11 +264,9 @@ struct SourcesView: View {
         .buttonStyle(.plain)
         .disabled(sleepVM.isRunning || count == 0)
         .help(count == 0 ? "Nothing queued right now" : "Run the Sleep cycle now")
+        .accessibilityLabel("Consolidate now")
     }
 
-    /// A short relative/absolute rendering of `status.lastSleepAt` for the
-    /// "all caught up" state — `StatusSnapshot.parseDate` already tolerates
-    /// both fractional- and plain-second ISO8601 variants the backend emits.
     private var formattedLastSleep: String? {
         guard let date = StatusSnapshot.parseDate(status?.lastSleepAt) else { return nil }
         let f = DateFormatter()
@@ -1069,11 +274,21 @@ struct SourcesView: View {
         return f.string(from: date)
     }
 
-    /// `status` reads `store.status` directly (§5.5); this just asks the
-    /// Store to refresh that domain.
-    private func loadStatus() async {
-        await store.refresh([.status])
-        statusError = store.status.value == nil ? (store.toast ?? statusError) : nil
+    // MARK: - Origins strip
+
+    @ViewBuilder
+    private var originsStrip: some View {
+        if !origins.isEmpty {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                sectionLabel("WHERE YOUR MEMORY COMES FROM")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        ForEach(origins) { OriginPill(origin: $0) }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
     }
 
     // MARK: - Shared
@@ -1083,21 +298,5 @@ struct SourcesView: View {
             .font(.system(size: 10, weight: .semibold, design: .monospaced))
             .foregroundStyle(CicadaTheme.textTertiary)
             .tracking(1.2)
-    }
-
-    /// Surfaces the backend's `{"detail": "..."}` body when present instead of
-    /// dumping raw JSON, and gives 404 a friendly "not shipped yet" spin —
-    /// mirrors `UploadOverlay.friendlyError`.
-    private static func friendlyError(_ error: Error) -> String {
-        if case APIError.httpError(let code, let msg) = error {
-            if code == 404 { return "That endpoint isn't available yet — update the Cicada backend." }
-            if let data = msg.data(using: .utf8),
-               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let detail = obj["detail"] as? String {
-                return detail
-            }
-            return msg
-        }
-        return error.localizedDescription
     }
 }
