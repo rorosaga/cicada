@@ -32,6 +32,10 @@ enum Copy {
     static let consolidateNow = "Consolidate now"
     static let consolidating = "Consolidating…"
 
+    /// The Feed page's "+" / ⌘N affordance for opening the add-source sheet
+    /// (G68 §1 — Capture merged into Feed).
+    static let addASource = "Add a source"
+
     // MARK: Observer
 
     /// The user's own observer label. Never the account holder's first name —

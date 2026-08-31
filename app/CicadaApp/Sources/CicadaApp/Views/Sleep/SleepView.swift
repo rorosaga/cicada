@@ -43,6 +43,7 @@ struct SleepView: View {
                     if let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty {
                         errorBanner(error)
                     }
+                    SleepQueueCard()
                     scheduleCard
                     progressCard
                     queueCard

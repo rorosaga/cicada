@@ -8,6 +8,8 @@ struct FeedView: View {
     @Binding var selectedTab: AppTab
     @Environment(FeedViewModel.self) private var viewModel
     @State private var showUploadOverlay = false
+    @State private var showAddSheet = false
+    @State private var sheetTile: AddSourceTile?
 
     var body: some View {
         ZStack {
@@ -18,6 +20,10 @@ struct FeedView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 header
+
+                ConnectedChannelsStrip { tile in openSheet(tile) }
+                    .padding(.horizontal, CicadaTheme.spacingXL)
+                    .padding(.bottom, CicadaTheme.spacingMD)
 
                 searchAndSortRow
 
@@ -63,13 +69,41 @@ struct FeedView: View {
             if !isShowing { Task { await viewModel.load() } }
         }
         .animation(.spring(duration: 0.3), value: showUploadOverlay)
+        // ⌘N while Feed is on screen opens the picker. Hidden-button pattern,
+        // same as ContentView's ⌘K — and the ONLY registration of this
+        // shortcut in the app.
+        .background {
+            Button("") { openSheet(nil) }
+                .keyboardShortcut("n", modifiers: .command)
+                .buttonStyle(.plain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+        }
+        .sheet(isPresented: $showAddSheet) {
+            AddSourceSheet(initialTile: sheetTile) { showAddSheet = false }
+        }
     }
 
     private var header: some View {
-        PageHeader(
-            title: Copy.feed,
-            subtitle: Copy.feedSubtitle
-        )
+        PageHeader(title: Copy.feed, subtitle: Copy.feedSubtitle) { addButton }
+    }
+
+    private var addButton: some View {
+        Button { openSheet(nil) } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(CicadaTheme.accent))
+        }
+        .buttonStyle(.plain)
+        .help("\(Copy.addASource) (⌘N)")
+        .accessibilityLabel(Copy.addASource)
+    }
+
+    private func openSheet(_ tile: AddSourceTile?) {
+        sheetTile = tile
+        showAddSheet = true
     }
 
     private var searchAndSortRow: some View {

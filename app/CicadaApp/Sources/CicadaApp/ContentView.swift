@@ -136,7 +136,9 @@ struct ContentView: View {
         case .connect:
             ConnectView()
         case .sources:
-            SourcesView()
+            // Capture merged into Feed (G68 §1); the row disappears in the
+            // sidebar cutover.
+            FeedView(selectedTab: $selectedTab)
         case .usage:
             ActivityView()
         }
