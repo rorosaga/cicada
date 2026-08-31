@@ -33,7 +33,10 @@ CLAUDE_CLI="${CLAUDE_CLI:-claude}"
 API_DIR="$REPO/api"
 VENV="$API_DIR/.venv"
 VENV_PY="$VENV/bin/python"
-VENV_UVICORN="$VENV/bin/uvicorn"
+# NOTE: the plist runs `$VENV_PY -m uvicorn`, never $VENV/bin/uvicorn. A venv
+# console script hardcodes its interpreter path in the shebang, so moving the
+# repo silently breaks it (launchd then fails with EX_CONFIG and an empty log).
+# `python -m` resolves through the venv symlink and survives a move.
 ENV_FILE="$API_DIR/.env"
 ENV_EXAMPLE="$API_DIR/.env.example"
 MCP_SERVER="$REPO/mcp/server.py"
@@ -292,7 +295,8 @@ else
   <key>Label</key><string>$PLIST_LABEL</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$VENV_UVICORN</string>
+    <string>$VENV_PY</string>
+    <string>-m</string><string>uvicorn</string>
     <string>api.main:app</string>
     <string>--host</string><string>127.0.0.1</string>
     <string>--port</string><string>$PORT</string>
