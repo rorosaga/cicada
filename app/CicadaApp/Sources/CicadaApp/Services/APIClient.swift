@@ -796,6 +796,17 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))")
     }
 
+    /// `PUT /entities/{id}/decay` (G66 §1.7) — the user's decay override.
+    /// The backend writes the class plus its mapped numeric rate and commits as
+    /// `Cicada-Author: user`, then returns the refreshed entity. Errors
+    /// propagate so the picker can revert its optimistic selection.
+    func setDecayClass(entityId: String, _ decayClass: DecayClass) async throws -> Entity {
+        return try await put(
+            "/entities/\(encodedID(entityId))/decay",
+            body: ["decayClass": decayClass.rawValue]
+        )
+    }
+
     /// `GET /entities/{id}/logo`. Returns nil on 404 — "this entity has no
     /// logo" is an ordinary answer, not an error, and the caller draws a
     /// monogram instead.

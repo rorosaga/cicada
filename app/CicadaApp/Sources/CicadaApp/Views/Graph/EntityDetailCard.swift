@@ -28,6 +28,11 @@ struct EntityDetailCard: View {
     @State private var sources: [EntitySource] = []
     @State private var newSourceRef = ""
 
+    /// G66 — the decay class the user just picked, shown immediately while the
+    /// PUT is in flight. Cleared once the reload lands (or on failure, so the
+    /// chip snaps back to the server's truth).
+    @State private var pendingDecayClass: DecayClass?
+
     // G67 — per-commit diffs in the History tab, fetched on demand and cached
     // per (entity, commit) — `DiffCacheKey`, not commit hash alone: one
     // Sleep-cycle commit routinely touches several entity files, so the same
@@ -278,6 +283,7 @@ struct EntityDetailCard: View {
             repoContexts = []
             sources = []
             newSourceRef = ""
+            pendingDecayClass = nil
             activeEntityId = entity.id
             expandedCommits = []
             commitDiffs = [:]
@@ -829,7 +835,74 @@ struct EntityDetailCard: View {
                 Label(entity.lastReferenced, systemImage: "clock")
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
+
+                decayChip
+
+                Spacer()
             }
+        }
+    }
+
+    // MARK: - Decay chip (G66 §1.7)
+    //
+    // The raw `decay_rate` number was never meaningful to a reader ("0.05" says
+    // nothing); the class does. Tapping the chip opens a picker that PUTs the
+    // override — the user's authority over how fast the agent forgets.
+
+    private var shownDecayClass: DecayClass { pendingDecayClass ?? entity.decayClass }
+
+    private var decayChip: some View {
+        Menu {
+            ForEach(DecayClass.allCases) { option in
+                Button {
+                    setDecay(option)
+                } label: {
+                    Label(
+                        "\(option.label) — \(option.blurb)",
+                        systemImage: option == shownDecayClass ? "checkmark" : option.icon
+                    )
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: shownDecayClass.icon)
+                    .font(.system(size: 9))
+                Text(shownDecayClass.chipText)
+                    .font(CicadaTheme.captionFont)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(decayChipTint.opacity(0.15))
+            .foregroundStyle(decayChipTint)
+            .clipShape(Capsule())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("How fast this entity fades when it stops being mentioned")
+        .accessibilityLabel("Decay class: \(shownDecayClass.label)")
+    }
+
+    private var decayChipTint: Color {
+        switch shownDecayClass {
+        case .evergreen: Color(hex: 0x22C55E)
+        case .durable: Color(hex: 0x4A9EFF)
+        case .active: CicadaTheme.textSecondary
+        case .volatile: Color(hex: 0xF59E0B)
+        }
+    }
+
+    private func setDecay(_ option: DecayClass) {
+        guard option != entity.decayClass else { return }
+        pendingDecayClass = option  // optimistic: the chip flips immediately
+        Task {
+            do {
+                _ = try await APIClient.shared.setDecayClass(entityId: entity.id, option)
+                await graphVM.reloadEntity(id: entity.id)
+            } catch {
+                // Leave the server's value in place rather than lying about it.
+            }
+            pendingDecayClass = nil
         }
     }
 
@@ -1223,6 +1296,7 @@ struct EntityDetailCard: View {
         created: \(entity.created)
         last_referenced: \(entity.lastReferenced)
         decay_rate: \(entity.decayRate)
+        decay_class: \(entity.decayClass.rawValue)
         version: \(entity.version)
         tags: [\(entity.tags.joined(separator: ", "))]
         related: [\(entity.related.joined(separator: ", "))]

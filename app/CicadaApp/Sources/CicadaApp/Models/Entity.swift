@@ -47,6 +47,48 @@ enum EntityStatus: String, Codable, CaseIterable {
     }
 }
 
+/// G66 — how fast a belief fades when it stops being mentioned.
+///
+/// Decode-tolerant everywhere: an unknown future value, or an older backend
+/// that omits the field entirely, resolves to `.active` (the neutral default)
+/// rather than failing the whole entity/graph decode.
+enum DecayClass: String, Codable, CaseIterable, Identifiable {
+    case evergreen, durable, active, volatile
+
+    var id: String { rawValue }
+
+    var label: String { rawValue.capitalized }
+
+    /// One-line "what this means" for the picker menu.
+    var blurb: String {
+        switch self {
+        case .evergreen: "Never fades. For artifacts — saved links, media — and anything you want kept."
+        case .durable: "Fades slowly. For stable preferences, skills, long-lived concepts."
+        case .active: "The default. Fades if it stops coming up."
+        case .volatile: "Expected to change within weeks — a role, a status, a current focus."
+        }
+    }
+
+    /// The chip text in the entity card's metadata strip.
+    var chipText: String {
+        switch self {
+        case .evergreen: "evergreen · never fades"
+        case .durable: "durable · fades slowly"
+        case .active: "active"
+        case .volatile: "volatile · expected to change"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .evergreen: "infinity"
+        case .durable: "tortoise.fill"
+        case .active: "clock"
+        case .volatile: "hare.fill"
+        }
+    }
+}
+
 enum HistoryChangeType: String, Codable {
     case created, updated, statusChange, confidenceChange, relationAdded
 
@@ -496,6 +538,10 @@ struct Entity: Identifiable, Codable {
     var created: String
     var lastReferenced: String
     var decayRate: Double
+    /// G66 — the semantic class beside the numeric rate. Server-resolved (an
+    /// explicit `decay_class:`, else inferred from the entity type), so this is
+    /// always populated for a real entity; `.active` for a graph-node stub.
+    var decayClass: DecayClass = .active
     var sourceEpisodes: [String]
     var tags: [String]
     var related: [String]
@@ -521,7 +567,7 @@ struct Entity: Identifiable, Codable {
         confidence: Double, created: String, lastReferenced: String,
         decayRate: Double, sourceEpisodes: [String], tags: [String],
         related: [String], version: Int, markdownContent: String,
-        history: [EntityHistoryEntry]
+        history: [EntityHistoryEntry], decayClass: DecayClass = .active
     ) {
         self.id = id
         self.name = name
@@ -531,6 +577,7 @@ struct Entity: Identifiable, Codable {
         self.created = created
         self.lastReferenced = lastReferenced
         self.decayRate = decayRate
+        self.decayClass = decayClass
         self.sourceEpisodes = sourceEpisodes
         self.tags = tags
         self.related = related
@@ -541,7 +588,7 @@ struct Entity: Identifiable, Codable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
-        case decayRate, sourceEpisodes, tags, related, version
+        case decayRate, decayClass, sourceEpisodes, tags, related, version
         case markdownContent, rawMarkdown, path, media, history
     }
 
@@ -557,6 +604,7 @@ struct Entity: Identifiable, Codable {
         created = try c.decode(String.self, forKey: .created)
         lastReferenced = try c.decode(String.self, forKey: .lastReferenced)
         decayRate = try c.decode(Double.self, forKey: .decayRate)
+        decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
         sourceEpisodes = try c.decodeIfPresent([String].self, forKey: .sourceEpisodes) ?? []
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         related = try c.decodeIfPresent([String].self, forKey: .related) ?? []
@@ -737,12 +785,16 @@ struct GraphNode: Codable, Sendable {
     /// G59: the backend has a cached logo for this entity. Purely a render
     /// hint — the bytes arrive separately via `setNodeLogos`.
     let hasLogo: Bool
+    /// G66: the entity's decay class, resolved server-side. Lets the detail
+    /// card show the right chip on the very first frame, before the full entity
+    /// arrives. Decode-tolerant so an old on-disk `SnapshotCache` still loads.
+    let decayClass: DecayClass
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, tags
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
-        case summary, contentHash, hasLogo
+        case summary, contentHash, hasLogo, decayClass
     }
 
     init(
@@ -751,7 +803,8 @@ struct GraphNode: Codable, Sendable {
         isHub: Bool = false, hasPending: Bool = false, memberCount: Int = 0,
         hubId: String? = nil, observers: [String] = [], contexts: [String] = [],
         isFacet: Bool = false, parentId: String? = nil, context: String? = nil,
-        summary: String? = nil, contentHash: String = "", hasLogo: Bool = false
+        summary: String? = nil, contentHash: String = "", hasLogo: Bool = false,
+        decayClass: DecayClass = .active
     ) {
         self.id = id
         self.name = name
@@ -772,6 +825,7 @@ struct GraphNode: Codable, Sendable {
         self.summary = summary
         self.contentHash = contentHash
         self.hasLogo = hasLogo
+        self.decayClass = decayClass
     }
 
     init(from decoder: Decoder) throws {
@@ -800,5 +854,6 @@ struct GraphNode: Codable, Sendable {
         summary = try c.decodeIfPresent(String.self, forKey: .summary)
         contentHash = try c.decodeIfPresent(String.self, forKey: .contentHash) ?? ""
         hasLogo = try c.decodeIfPresent(Bool.self, forKey: .hasLogo) ?? false
+        decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
     }
 }
