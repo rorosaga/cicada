@@ -133,6 +133,39 @@ def test_unknown_field_names_are_rejected(client):
     assert not secrets.has_secret("OPENAI_API_KEY")
 
 
+def test_saving_credentials_is_all_or_nothing_when_one_value_is_invalid(client):
+    """Devin round-1, finding 3: a request with one VALID field and one
+    INVALID one (blank, multiline) must persist NEITHER — previously
+    validation and the write happened in the same loop iteration, so the
+    valid field landed in secrets.env even though the whole request 422'd.
+    """
+    c, _ = client
+    resp = c.put(
+        "/sources/connectors/pinterest/credentials",
+        json={"fields": {
+            pinterest.APP_ID_ENV: "client-id-placeholder",
+            pinterest.APP_SECRET_ENV: "line one\nline two",
+        }},
+    )
+    assert resp.status_code == 422, resp.text
+    assert not secrets.has_secret(pinterest.APP_ID_ENV), "the VALID field must not have been written"
+    assert not secrets.has_secret(pinterest.APP_SECRET_ENV)
+
+
+def test_saving_credentials_rejects_a_blank_value_without_writing_anything(client):
+    c, _ = client
+    resp = c.put(
+        "/sources/connectors/pinterest/credentials",
+        json={"fields": {
+            pinterest.APP_ID_ENV: "client-id-placeholder",
+            pinterest.APP_SECRET_ENV: "   ",
+        }},
+    )
+    assert resp.status_code == 422, resp.text
+    assert not secrets.has_secret(pinterest.APP_ID_ENV)
+    assert not secrets.has_secret(pinterest.APP_SECRET_ENV)
+
+
 def test_unknown_connector_is_404(client):
     c, _ = client
     assert c.get("/sources/connectors/spotify").status_code == 404
@@ -197,6 +230,28 @@ def test_callback_exchanges_once_and_burns_the_state(client, monkeypatch):
     replay = c.get(f"/sources/connectors/pinterest/callback?code=abc&state={state}")
     assert replay.status_code == 400, "a state is single-use"
     assert called == ["abc"]
+
+
+def test_callback_page_escapes_the_adapter_label(client, monkeypatch):
+    """Devin round-1, finding 6: `adapter.LABEL` is our own hardcoded
+    constant today (severity theoretical), but the success page must still
+    escape it before interpolating into raw HTML — this route has no
+    bearer-token gate (the browser cannot send one)."""
+    c, _ = client
+    monkeypatch.setattr(pinterest, "LABEL", "<script>alert(1)</script>")
+    c.put("/sources/connectors/pinterest/credentials",
+          json={"fields": {pinterest.APP_ID_ENV: "client-id-placeholder",
+                           pinterest.APP_SECRET_ENV: "client-secret-placeholder"}})
+    state = c.post("/sources/connectors/pinterest/authorize").json()["state"]
+
+    async def fake_exchange(code, **kwargs):
+        secrets.set_secret(pinterest.TOKEN_ENV, "tok-abc")
+
+    monkeypatch.setattr(pinterest, "exchange_code", fake_exchange)
+    resp = c.get(f"/sources/connectors/pinterest/callback?code=abc&state={state}")
+    assert resp.status_code == 200, resp.text
+    assert "<script>" not in resp.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in resp.text
 
 
 def test_callback_is_reachable_without_a_bearer_token():

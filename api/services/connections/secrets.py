@@ -53,11 +53,19 @@ def load_secrets(*, override: bool = False) -> dict[str, str]:
     return values
 
 
+def validate_secret_value(value: str) -> None:
+    """Raise ``ValueError`` unless ``value`` is a single non-empty line —
+    the same shape ``set_secret`` itself enforces, exposed separately so a
+    caller can validate a whole BATCH of values before writing any of them
+    (an all-or-nothing multi-field credential save, e.g.)."""
+    if "\n" in value or "\r" in value or not value.strip():
+        raise ValueError("secret value must be a single non-empty line")
+
+
 def set_secret(name: str, value: str) -> None:
     if not _NAME_RE.match(name):
         raise ValueError(f"invalid secret name: {name!r}")
-    if "\n" in value or "\r" in value or not value.strip():
-        raise ValueError("secret value must be a single non-empty line")
+    validate_secret_value(value)
     values = _read()
     values[name] = value.strip()
     _write(values)

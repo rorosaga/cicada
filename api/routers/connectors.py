@@ -29,6 +29,7 @@ route rather than one per connector.
 
 from __future__ import annotations
 
+import html
 import secrets as pysecrets
 import time
 
@@ -104,6 +105,14 @@ async def set_credentials(
     Only field names the adapter declares are accepted — an unknown name is a
     422, not a silent write, so this endpoint can never be used to set an
     arbitrary environment variable (an LLM API key, say) by name.
+
+    All-or-nothing (Devin round-1, finding 3): every submitted field's VALUE
+    shape is validated before ANY of them are written. Previously validation
+    (via ``set_secret``'s own ``ValueError``) and the write happened in the
+    same loop iteration, so a request with one valid field followed by one
+    invalid one (blank, multiline) left the valid field persisted even
+    though the request as a whole came back 422 — the caller had no way to
+    tell a credential had partially changed underneath a failed response.
     """
     adapter = _adapter(connector_id)
     allowed = {f["name"] for f in adapter.FIELDS}
@@ -115,10 +124,12 @@ async def set_credentials(
         )
     for name, value in body.fields.items():
         try:
-            secret_store.set_secret(name, value)
+            secret_store.validate_secret_value(value)
         except ValueError as exc:
             # `exc` describes the shape, never the value.
-            raise HTTPException(status_code=422, detail=str(exc))
+            raise HTTPException(status_code=422, detail=f"{name}: {exc}")
+    for name, value in body.fields.items():
+        secret_store.set_secret(name, value)
     logger.info(f"{connector_id}: stored {len(body.fields)} credential field(s)")
     # Fix round 1, M2: a credential save lands only in secrets.env, outside
     # memory_path — bump sync_state.json so the "sources" SSE component
@@ -213,9 +224,15 @@ async def connector_callback(
     # the freshly-connected account instead of staying stale forever.
     sync_state.record_credentials_changed(settings.memory_path, connector_id)
 
+    # Devin round-1, finding 6: escape any interpolated value before it lands
+    # in raw HTML — `adapter.LABEL` is our own hardcoded constant today
+    # ("Pinterest", "Reddit", "X (Twitter)"), so the severity is theoretical,
+    # but a future adapter (or a LABEL sourced from config someday) must not
+    # be able to inject markup into a page served with no bearer-token gate.
+    safe_label = html.escape(adapter.LABEL)
     return HTMLResponse(
         f"<html><body style='font:14px -apple-system;padding:40px'>"
-        f"<h2>{adapter.LABEL} connected</h2>"
+        f"<h2>{safe_label} connected</h2>"
         f"<p>You can close this tab and go back to Cicada.</p>"
         f"</body></html>"
     )
