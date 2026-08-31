@@ -201,7 +201,8 @@ final class GraphViewModel {
                 related: [],
                 version: 0,
                 markdownContent: node.summary ?? "",
-                history: []
+                history: [],
+                decayClass: node.decayClass
             )
         }
         edges = response.links
@@ -429,5 +430,13 @@ final class GraphViewModel {
         if selectedEntity?.id == id {
             selectedEntity = fullEntity
         }
+    }
+
+    /// Drop the memoised body and re-read it, so a write through `APIClient`
+    /// (the decay override) is reflected by the card instead of showing the
+    /// pre-write cached entity.
+    func reloadEntity(id: String) async {
+        store.invalidateEntity(id)
+        await loadFullEntity(id: id)
     }
 }

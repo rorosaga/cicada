@@ -28,6 +28,38 @@ struct EntityDetailCard: View {
     @State private var sources: [EntitySource] = []
     @State private var newSourceRef = ""
 
+    /// G66 — the decay class the user just picked, shown immediately while the
+    /// PUT is in flight. Cleared once the reload lands (or on failure, so the
+    /// chip snaps back to the server's truth).
+    @State private var pendingDecayClass: DecayClass?
+
+    // G67 — per-commit diffs in the History tab, fetched on demand and cached
+    // per (entity, commit) — `DiffCacheKey`, not commit hash alone: one
+    // Sleep-cycle commit routinely touches several entity files, so the same
+    // hash commonly appears in more than one entity's history, and keying by
+    // hash alone let entity B render entity A's cached diff for a shared
+    // commit (fix round 1). `expanded` is the set of commits the user has
+    // opened; `loading` guards against a second fetch while the first is in
+    // flight; `diffErrors` marks a fetch that failed so the row can offer a
+    // retry instead of silently reading as "no changes".
+    //
+    // `activeEntityId` names which entity these caches currently belong to.
+    // `toggleCommit`'s fetch `Task` is a bare, uncancelled task: if the user
+    // swaps entities while it's in flight, it resolves *after* the manual
+    // reset below and would otherwise still write into the (now-current)
+    // dicts. The `DiffCacheKey` already prevents that write from being
+    // *read* under the wrong entity, but the `activeEntityId` guard in
+    // `fetchDiff` additionally stops the stale write from happening at all.
+    @State private var activeEntityId: String = ""
+    @State private var expandedCommits: Set<DiffCacheKey> = []
+    @State private var commitDiffs: [DiffCacheKey: EntityDiff] = [:]
+    @State private var loadingCommits: Set<DiffCacheKey> = []
+    @State private var diffErrors: Set<DiffCacheKey> = []
+
+    private func diffKey(_ commitHash: String) -> DiffCacheKey {
+        DiffCacheKey(entityId: entity.id, commitHash: commitHash)
+    }
+
     struct TimelineKey: Identifiable, Hashable {
         let predicate: String
         let context: String
@@ -251,6 +283,12 @@ struct EntityDetailCard: View {
             repoContexts = []
             sources = []
             newSourceRef = ""
+            pendingDecayClass = nil
+            activeEntityId = entity.id
+            expandedCommits = []
+            commitDiffs = [:]
+            loadingCommits = []
+            diffErrors = []
             sources = (try? await APIClient.shared.fetchEntitySources(entityId: entity.id)) ?? []
             // §5.7 — the card opened on the graph-node stub, whose
             // `markdownContent` is the server's short `summary` (already
@@ -797,7 +835,74 @@ struct EntityDetailCard: View {
                 Label(entity.lastReferenced, systemImage: "clock")
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
+
+                decayChip
+
+                Spacer()
             }
+        }
+    }
+
+    // MARK: - Decay chip (G66 §1.7)
+    //
+    // The raw `decay_rate` number was never meaningful to a reader ("0.05" says
+    // nothing); the class does. Tapping the chip opens a picker that PUTs the
+    // override — the user's authority over how fast the agent forgets.
+
+    private var shownDecayClass: DecayClass { pendingDecayClass ?? entity.decayClass }
+
+    private var decayChip: some View {
+        Menu {
+            ForEach(DecayClass.allCases) { option in
+                Button {
+                    setDecay(option)
+                } label: {
+                    Label(
+                        "\(option.label) — \(option.blurb)",
+                        systemImage: option == shownDecayClass ? "checkmark" : option.icon
+                    )
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: shownDecayClass.icon)
+                    .font(.system(size: 9))
+                Text(shownDecayClass.chipText)
+                    .font(CicadaTheme.captionFont)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(decayChipTint.opacity(0.15))
+            .foregroundStyle(decayChipTint)
+            .clipShape(Capsule())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("How fast this entity fades when it stops being mentioned")
+        .accessibilityLabel("Decay class: \(shownDecayClass.label)")
+    }
+
+    private var decayChipTint: Color {
+        switch shownDecayClass {
+        case .evergreen: CicadaTheme.diffAdded
+        case .durable: CicadaTheme.decayDurable
+        case .active: CicadaTheme.textSecondary
+        case .volatile: CicadaTheme.decayVolatile
+        }
+    }
+
+    private func setDecay(_ option: DecayClass) {
+        guard option != entity.decayClass else { return }
+        pendingDecayClass = option  // optimistic: the chip flips immediately
+        Task {
+            do {
+                _ = try await APIClient.shared.setDecayClass(entityId: entity.id, option)
+                await graphVM.reloadEntity(id: entity.id)
+            } catch {
+                // Leave the server's value in place rather than lying about it.
+            }
+            pendingDecayClass = nil
         }
     }
 
@@ -825,52 +930,24 @@ struct EntityDetailCard: View {
                     .frame(width: 10)
 
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        HStack(spacing: CicadaTheme.spacingXS) {
-                            Text(entry.date)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                            // M3 (backlog A2): who authored this commit.
-                            // NOT BUILD-VERIFIED — needs Xcode compile.
-                            if !entry.author.isEmpty {
-                                Text(entry.author)
-                                    .font(CicadaTheme.captionFont)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 1)
-                                    .background(
-                                        (entry.author == "user"
-                                         ? Color(hex: 0x3B82F6)
-                                         : Color(hex: 0x8B5CF6)).opacity(0.18)
-                                    )
-                                    .clipShape(Capsule())
-                                    .foregroundStyle(entry.author == "user"
-                                                     ? Color(hex: 0x3B82F6)
-                                                     : Color(hex: 0x8B5CF6))
-                            }
-                        }
+                        historyRowButton(entry)
 
-                        Text(entry.description)
-                            .font(CicadaTheme.bodyFont)
-                            .foregroundStyle(CicadaTheme.textSecondary)
-
-                        // Inline per-commit diff when present (history fetched
-                        // with includeDiff=true). NOT BUILD-VERIFIED.
-                        if let diff = entry.diff,
-                           !(diff.added.isEmpty && diff.removed.isEmpty) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(diff.removed.split(separator: "\n").enumerated()), id: \.offset) { _, line in
-                                    Text("- \(line)")
-                                        .font(CicadaTheme.monoFont)
-                                        .foregroundStyle(Color(hex: 0xEF4444))
-                                }
-                                ForEach(Array(diff.added.split(separator: "\n").enumerated()), id: \.offset) { _, line in
-                                    Text("+ \(line)")
-                                        .font(CicadaTheme.monoFont)
-                                        .foregroundStyle(Color(hex: 0x22C55E))
-                                }
+                        // The diff for an EXPANDED commit. `entry.diff` (present
+                        // only when history was fetched with includeDiff=true)
+                        // wins so we never re-fetch what we already hold.
+                        if isExpanded(entry) {
+                            let key = diffKey(entry.commitHash)
+                            if let inline = entry.diff {
+                                DiffView(diff: inline)
+                            } else if let fetched = commitDiffs[key] {
+                                DiffView(diff: fetched)
+                            } else if loadingCommits.contains(key) {
+                                DiffView.loading
+                            } else if diffErrors.contains(key) {
+                                DiffView.error { fetchDiff(commitHash: entry.commitHash) }
+                            } else {
+                                DiffView.empty
                             }
-                            .padding(CicadaTheme.spacingXS)
-                            .background(CicadaTheme.border.opacity(0.25))
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
                         }
                     }
                     .padding(.bottom, CicadaTheme.spacingLG)
@@ -880,6 +957,108 @@ struct EntityDetailCard: View {
             }
         }
         .padding(CicadaTheme.spacingLG)
+    }
+
+    private func isExpanded(_ entry: EntityHistoryEntry) -> Bool {
+        !entry.commitHash.isEmpty && expandedCommits.contains(diffKey(entry.commitHash))
+    }
+
+    /// The tappable summary line. A row with no `commitHash` (an older backend
+    /// that didn't surface one) renders as plain, un-tappable text rather than a
+    /// button that could never do anything.
+    @ViewBuilder
+    private func historyRowButton(_ entry: EntityHistoryEntry) -> some View {
+        if entry.commitHash.isEmpty {
+            historyRowLabel(entry, expandable: false)
+        } else {
+            Button {
+                toggleCommit(entry.commitHash)
+            } label: {
+                historyRowLabel(entry, expandable: true)
+            }
+            .buttonStyle(.plain)
+            .help("Show what changed in this commit")
+            .accessibilityLabel("Commit \(entry.date) by \(entry.author)")
+        }
+    }
+
+    private func historyRowLabel(_ entry: EntityHistoryEntry, expandable: Bool) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                if expandable {
+                    Image(systemName: isExpanded(entry) ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                Text(entry.date)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                // M3 (backlog A2): who authored this commit.
+                if !entry.author.isEmpty {
+                    Text(entry.author)
+                        .font(CicadaTheme.captionFont)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(
+                            (entry.author == "user"
+                             ? Color(hex: 0x3B82F6)
+                             : Color(hex: 0x8B5CF6)).opacity(0.18)
+                        )
+                        .clipShape(Capsule())
+                        .foregroundStyle(entry.author == "user"
+                                         ? Color(hex: 0x3B82F6)
+                                         : Color(hex: 0x8B5CF6))
+                }
+            }
+
+            Text(entry.description)
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    /// Collapse, or expand + fetch. On-demand only (the `LogoStore`/
+    /// `EntitySource` precedent): a commit diff is not snapshot state, so it
+    /// goes straight to `APIClient` and is cached per `DiffCacheKey` for this
+    /// card.
+    private func toggleCommit(_ commitHash: String) {
+        let key = diffKey(commitHash)
+        if expandedCommits.contains(key) {
+            expandedCommits.remove(key)
+            return
+        }
+        expandedCommits.insert(key)
+        guard commitDiffs[key] == nil, !loadingCommits.contains(key) else { return }
+        fetchDiff(commitHash: commitHash)
+    }
+
+    /// Fetches (or retries) one commit's diff. Captures the entity this fetch
+    /// is FOR up front; if the card has since swapped to a different entity
+    /// by the time the request resolves (a bare, uncancelled `Task`), the
+    /// write is dropped instead of landing in the new entity's cache — on top
+    /// of the `DiffCacheKey` already keeping it out of anything the new
+    /// entity's rows would read.
+    private func fetchDiff(commitHash: String) {
+        let entityId = entity.id
+        let key = diffKey(commitHash)
+        diffErrors.remove(key)
+        loadingCommits.insert(key)
+        Task {
+            do {
+                let diff = try await APIClient.shared.fetchEntityCommitDiff(
+                    id: entityId, commitHash: commitHash
+                )
+                loadingCommits.remove(key)
+                guard entityId == activeEntityId else { return }
+                commitDiffs[key] = diff
+            } catch {
+                loadingCommits.remove(key)
+                guard entityId == activeEntityId else { return }
+                diffErrors.insert(key)
+            }
+        }
     }
 
     // MARK: - Perspectives Tab (§3b)
@@ -1117,6 +1296,7 @@ struct EntityDetailCard: View {
         created: \(entity.created)
         last_referenced: \(entity.lastReferenced)
         decay_rate: \(entity.decayRate)
+        decay_class: \(entity.decayClass.rawValue)
         version: \(entity.version)
         tags: [\(entity.tags.joined(separator: ", "))]
         related: [\(entity.related.joined(separator: ", "))]
@@ -1219,9 +1399,10 @@ private struct TabButton: View {
 // MARK: - Flow Layout
 
 /// A simple wrapping horizontal layout: items flow left-to-right and wrap to
-/// the next line when the available width is exhausted. Used for tag/related
-/// pills so large sets wrap naturally instead of overflowing the card.
-private struct FlowLayout: Layout {
+/// the next line when the available width is exhausted. Used for the entity
+/// card's tag/related pills and (G67) the Contributors drill-down's entity
+/// chips — shared rather than duplicated across the two views.
+struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

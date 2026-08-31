@@ -5,6 +5,7 @@ from pathlib import Path
 
 from api.models.schemas import (
     Contributor,
+    ContributorCommit,
     EntityDiff,
     EntityHistoryEntry,
     SleepHistoryEntry,
@@ -37,6 +38,32 @@ _COMMIT_HASH_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 # and ``EntityDiff.truncated`` is set when the cap is hit.
 DIFF_MAX_LINES = 400
 _DIFF_TRUNCATION_MARKER = "... [diff truncated]"
+
+# Hard cap on a contributor-commit listing, so a caller-supplied `limit` can't
+# ask for the entire history of a bank with thousands of Sleep cycles.
+MAX_CONTRIBUTOR_COMMITS = 200
+
+# Cap on the entity ids carried by ONE ContributorCommit. A real Sleep cycle
+# rewrites hundreds of pages (measured on the live bank: 895 entity files in
+# one commit), and the app renders a tappable chip per id, so an uncapped list
+# is both a fat payload and a multi-thousand-view layout pass. The full count
+# still travels as `entities_total`, so the app can say "+N more".
+MAX_COMMIT_ENTITIES = 12
+
+# How far back `get_contributor_commits` is willing to walk.
+#
+# The listing filters on a `Cicada-Author:` trailer, and a rare author (e.g.
+# the reserved `cicada` system author, one commit deep in history) can sit at
+# ANY depth, so there is no depth at which the walk is provably complete. But
+# `git log --name-only` materialises every commit's full file list before the
+# Python loop can `break`, so an unbounded walk grows without limit with every
+# Sleep cycle. This window is the bound: `min(window, ...)` commits are read,
+# newest first, and an author whose commits are all older than it simply shows
+# as having none in the drill-down (`GET /contributors` aggregates are computed
+# separately and stay complete). Sized so a `limit=50` listing is still filled
+# for an author holding as little as 5% of the recent history.
+CONTRIBUTOR_LOG_WINDOW_MULTIPLIER = 20
+CONTRIBUTOR_LOG_WINDOW_MIN = 500
 
 
 def build_commit_message(
@@ -466,6 +493,82 @@ async def get_contributors(
     # Most active first; stable tie-break by author name.
     contributors.sort(key=lambda c: (-c.commit_count, c.author))
     return contributors
+
+
+async def get_contributor_commits(
+    memory_path: Path, author: str, *, limit: int = 50
+) -> list[ContributorCommit]:
+    """The commits one author wrote, newest first (G67 §2.2).
+
+    Reuses the NUL-record ``git log`` + ``_parse_authors`` plumbing from
+    :func:`get_contributors`, with ``--name-only`` folded into the SAME call so
+    the listing costs one git invocation rather than one per commit. Records are
+    ``hash <US> date <US> subject <US> body <US>`` followed by a blank line and
+    the changed paths; ``git log --name-only`` lists the root (parentless)
+    commit's files too, so no ``--root`` dance is needed.
+
+    An author of ``"unknown"`` matches legacy untrailered commits. Returns ``[]``
+    for a non-git dir, a blank author, or an author with no commits — the app
+    renders an empty state, never an error.
+
+    The walk is bounded by ``--max-count`` (see ``CONTRIBUTOR_LOG_WINDOW_*``)
+    and each commit's ``entities`` list by ``MAX_COMMIT_ENTITIES``.
+    """
+    author = (author or "").strip()
+    if not author or not (memory_path / ".git").exists():
+        return []
+
+    limit = max(1, min(int(limit or 50), MAX_CONTRIBUTOR_COMMITS))
+    window = max(limit * CONTRIBUTOR_LOG_WINDOW_MULTIPLIER, CONTRIBUTOR_LOG_WINDOW_MIN)
+    sep = "\x1f"
+    rec = "\x1e"
+    try:
+        out = await _run_git(
+            memory_path,
+            "log",
+            f"--max-count={window}",
+            f"--format={rec}%H{sep}%ad{sep}%s{sep}%b{sep}",
+            "--date=short",
+            "--name-only",
+        )
+    except GitError:
+        return []
+
+    commits: list[ContributorCommit] = []
+    for record in out.split(rec):
+        if not record.strip():
+            continue
+        fields = record.split(sep, 4)
+        if len(fields) < 5:
+            continue
+        commit_hash, date_str, subject, body, tail = fields
+
+        if author not in (_parse_authors(body) or [UNKNOWN_AUTHOR]):
+            continue
+
+        files = [line.strip() for line in tail.splitlines() if line.strip()]
+        entities = sorted(
+            {
+                f[len("entities/"):-len(".md")].rsplit("/", 1)[-1]
+                for f in files
+                if f.startswith("entities/") and f.endswith(".md")
+            }
+        )
+        commits.append(
+            ContributorCommit(
+                commit_hash=commit_hash.strip(),
+                date=date_str.strip(),
+                subject=subject.strip(),
+                # Capped for the wire; the honest count rides alongside it.
+                entities=entities[:MAX_COMMIT_ENTITIES],
+                entities_total=len(entities),
+                files_changed=len(files),
+            )
+        )
+        if len(commits) >= limit:
+            break
+
+    return commits
 
 
 async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:

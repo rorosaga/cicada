@@ -10,8 +10,15 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import entity_body, markdown_parser
+from api.models.schemas import DecayClass
+from api.services import decay_policy, entity_body, markdown_parser
 from api.services.providers import resolve_llm_fn
+
+# Confidence floor a decaying/archived entity is restored to when it is
+# mentioned again (G66 §1.6) — high enough to clear `decay_nudge_threshold`
+# (0.4) and `archive_threshold` (0.2) with room to spare, low enough that a
+# single passing mention doesn't outrank a well-established belief.
+RECOVERY_CONFIDENCE = 0.6
 
 
 async def resolve_and_prune(
@@ -105,8 +112,8 @@ async def resolve_and_prune(
 
     progress.close()
 
-    # Temporal decay for unreferenced entities
-    # decay_rate is a per-week rate — convert per-cycle decay to days-based decay
+    # Temporal decay for unreferenced entities. The per-week rate and the class
+    # both come from `decay_policy.resolve` — evergreen entities are skipped.
     now = datetime.now()
     decay_candidates = [e for e in existing if e["id"] not in referenced_ids]
     decay_progress = tqdm(
@@ -130,7 +137,11 @@ async def resolve_and_prune(
             continue
 
         confidence = fm.get("confidence", 0.5)
-        decay_rate = fm.get("decay_rate", 0.05)
+        decay_class, decay_rate = decay_policy.resolve(fm)
+        if decay_class is DecayClass.evergreen:
+            # An artifact, not a belief: it does not become less true by going
+            # unmentioned. No decay math, no decay nudge, never auto-archived.
+            continue
         days_since = _days_since_last_referenced(fm.get("last_referenced"), now)
         if days_since is None:
             # Fallback: single step if we cannot determine last reference
@@ -194,14 +205,21 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             entity = change.get("entity", {})
             created_date = _earliest_change_date(change) or str(date.today())
             last_referenced = _latest_change_date(change) or created_date
+            entity_type = entity.get("type", "concept")
+            # Stage-1 may PROPOSE a class; `agent_class` re-applies the rail here
+            # so an `evergreen` that slipped past extraction can never be written.
+            decay_class = (
+                decay_policy.agent_class(entity.get("decay_class"))
+                or decay_policy.default_class_for(entity_type)
+            )
             frontmatter = {
                 "name": entity.get("name", entity_id.replace("-", " ").title()),
-                "type": entity.get("type", "concept"),
+                "type": entity_type,
                 "status": "active",
                 "confidence": entity.get("confidence", 0.5),
                 "created": created_date,
                 "last_referenced": last_referenced,
-                "decay_rate": 0.05,
+                **decay_policy.frontmatter_fields(decay_class),
                 "source_episodes": _change_source_episodes(change),
                 "tags": entity.get("tags", []) or [],
                 "aliases": entity.get("aliases", []) or [],
@@ -226,6 +244,19 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 _latest_change_date(change),
             ) or str(date.today())
             parsed.frontmatter["version"] = parsed.frontmatter.get("version", 1) + 1
+
+            # Recovery (G66 §1.6): a re-mention is the counter-signal to decay.
+            # CLAUDE.md has always promised "if mentioned again: promoted back,
+            # confidence restored" — before this, only `last_referenced` moved.
+            # `dropped` is deliberately excluded: the user dismissed that entity
+            # and it is never resurfaced.
+            if str(parsed.frontmatter.get("status", "active")) in ("decaying", "archived"):
+                parsed.frontmatter["status"] = "active"
+                parsed.frontmatter["confidence"] = max(
+                    float(parsed.frontmatter.get("confidence", 0.0) or 0.0),
+                    RECOVERY_CONFIDENCE,
+                )
+
             episodes = parsed.frontmatter.get("source_episodes", [])
             for source_ep in _change_source_episodes(change):
                 if source_ep and source_ep not in episodes:

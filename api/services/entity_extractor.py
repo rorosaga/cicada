@@ -12,6 +12,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
+from api.services import decay_policy
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
 Given a conversation transcript, extract meaningful entities and the relationships between them.
@@ -34,6 +35,7 @@ Output valid JSON with this exact structure:
       "open_questions": ["unresolved point about this entity"],
       "tags": ["relevant", "tags"],
       "confidence": 0.7,
+      "decay_class": "durable|active|volatile",
       "description": "Optional. Same content as summary; kept only for backward compatibility."
     }
   ],
@@ -86,6 +88,16 @@ LINKS (## Links):
 OPEN QUESTIONS (## Open Questions):
 - Capture unresolved points the user or system still needs to settle about this entity
   (an unconfirmed identity, an undecided choice, a missing date). Leave empty if none.
+
+DECAY CLASS (optional, per entity) — how fast this belief should fade if it stops
+being mentioned:
+- volatile: a fact you expect to change within weeks (a current role, a status, a
+  current focus, an in-flight decision).
+- durable: a stable preference, a skill, or a long-lived concept that rarely moves.
+- active: everything else — the default. Omit the field when unsure.
+- NEVER EVERGREEN a belief here: "evergreen" is reserved for ingested artifacts
+  (bookmarks, saved media) and the user — an extraction may only propose
+  durable|active|volatile.
 
 EXTRACTION GUIDELINES:
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
@@ -193,6 +205,21 @@ def _parse_json_lenient(raw: str | None) -> dict:
             if depth == 0:
                 return json.loads(text[start : i + 1])  # JSONDecodeError -> ValueError
     raise ValueError("unbalanced JSON object in response")
+
+
+def sanitize_decay_class(entity: dict) -> None:
+    """Stage-1 anti-pollution rail, applied to ONE extracted entity dict.
+
+    The extractor may PROPOSE ``durable|active|volatile``. Anything else — junk,
+    a missing key, or ``evergreen`` (reserved for the ingest writers and the
+    user) — is removed so the downstream writer falls back to its own default.
+    Mutates in place; never raises.
+    """
+    if "decay_class" not in entity:
+        return
+    cls = decay_policy.agent_class(entity.pop("decay_class"))
+    if cls is not None:
+        entity["decay_class"] = cls.value
 
 
 def _chunk_content(content: str) -> list[str]:
@@ -316,6 +343,7 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
                     entity["source_episode"] = ep_id
                     entity["source_episode_timestamp"] = episode.get("timestamp")
                     entity["origin"] = ep_origin
+                    sanitize_decay_class(entity)
                 for rel in all_relationships:
                     rel["source_episode"] = ep_id
                     rel["source_episode_timestamp"] = episode.get("timestamp")

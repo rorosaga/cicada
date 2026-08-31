@@ -102,6 +102,16 @@ enum CicadaTheme {
     static func inboxColor(for kind: InboxKind) -> Color {
         mode == .dark ? Dark.inboxColor(for: kind) : Light.inboxColor(for: kind)
     }
+
+    // MARK: - Diff Colors (G67)
+    // Added/removed line color in the shared commit-diff renderer (`DiffView`,
+    // reused by the entity History tab and the Contributors drill-down). Its
+    // own token rather than reusing `entityColor(.concept)`/`.deadline` so a
+    // future retune of entity-type hues can't accidentally recolor diffs.
+    static var diffAdded: Color { mode == .dark ? Dark.diffAdded : Light.diffAdded }
+    static var decayDurable: Color { mode == .dark ? Dark.decayDurable : Light.decayDurable }
+    static var decayVolatile: Color { mode == .dark ? Dark.decayVolatile : Light.decayVolatile }
+    static var diffRemoved: Color { mode == .dark ? Dark.diffRemoved : Light.diffRemoved }
 }
 
 // MARK: - Dark Palette
@@ -193,6 +203,13 @@ private extension CicadaTheme {
             case .mergeSuggestion: Color(hex: 0xF2C744)
             }
         }
+
+        // Tailwind-500 band — reads fine directly on the dark near-black base,
+        // no extra lift needed (unlike the deepened Light values below).
+        static let diffAdded = Color(hex: 0x22C55E)
+        static let decayDurable = Color(hex: 0x4A9EFF)
+        static let decayVolatile = Color(hex: 0xF59E0B)
+        static let diffRemoved = Color(hex: 0xEF4444)
     }
 }
 
@@ -280,6 +297,15 @@ private extension CicadaTheme {
             case .mergeSuggestion: Color(hex: 0xB48A00)
             }
         }
+
+        // Deepened into the Tailwind ~600 band (same treatment as
+        // `entityColor` above) so added/removed text clears ~4.5:1 on the
+        // near-white surface instead of the washed-out contrast the 500-band
+        // Dark values would give here.
+        static let diffAdded = Color(hex: 0x16A34A)     // green-600
+        static let decayDurable = Color(hex: 0x2563EB)  // blue-600
+        static let decayVolatile = Color(hex: 0xD97706) // amber-600
+        static let diffRemoved = Color(hex: 0xDC2626)   // red-600
     }
 }
 

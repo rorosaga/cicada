@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import bank_index, logo_service, predicates
+from api.services import bank_index, decay_policy, logo_service, predicates
 from api.services.claims import parse_claims
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import parse
@@ -172,6 +172,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 summary=summarize(body),
                 content_hash=content_hash(fm, body),
                 has_logo=eid in logo_ids,
+                decay_class=decay_policy.resolve(fm)[0],
             )
         )
         for repo_decl in fm.get("repos") or []:
@@ -269,7 +270,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
         if node.id in entity_ids:
             node.content_hash = synthetic_hash(
                 node.content_hash, node.degree, node.has_pending, node.hub_id,
-                node.has_logo,
+                node.has_logo, node.decay_class.value,
             )
 
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).

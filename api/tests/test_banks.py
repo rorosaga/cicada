@@ -179,6 +179,39 @@ def test_create_then_activate_then_duplicate(tmp_path, monkeypatch):
     config.get_settings.cache_clear()
 
 
+def test_activate_runs_the_one_shot_migrations_for_the_new_bank(tmp_path, monkeypatch):
+    """M2: the per-bank migrations used to run only for the boot-time bank.
+
+    A bank switched to at runtime stayed unclassed — so its media pages kept
+    fading in the Feed while the graph and both decay engines called them
+    evergreen — until the next API restart.
+    """
+    client = _client(tmp_path, monkeypatch)
+    client.post("/banks", json={"name": "Research"})
+
+    bank = tmp_path / "banks" / "research"
+    markdown_parser.write(
+        bank / "entities" / "saved-video.md",
+        {
+            "name": "Saved Video",
+            "type": "media",
+            "status": "active",
+            "confidence": 0.7,
+            "decay_rate": 0.03,  # legacy: no decay_class
+            "version": 1,
+        },
+        "## Summary\n\nA saved video.",
+    )
+
+    assert client.post("/banks/research/activate").status_code == 200
+
+    fm = markdown_parser.parse(bank / "entities" / "saved-video.md").frontmatter
+    assert fm["decay_class"] == "evergreen"
+    assert fm["decay_rate"] == 0.0
+    assert (bank / ".decay_classed").exists(), "marker-guarded, so a re-activate is a no-op"
+    config.get_settings.cache_clear()
+
+
 def test_activate_unknown_404(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     assert client.post("/banks/ghost/activate").status_code == 404

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from api.services import inbox_questions, markdown_parser
+from api.services import decay_policy, inbox_questions, markdown_parser
 from api.services.conflict_resolver import apply_changes
 from api.services.id_utils import sanitize_id
 
@@ -259,7 +259,9 @@ async def generate(
                 "confidence": skill.get("confidence", 0.5),
                 "created": str(date.today()),
                 "last_referenced": str(date.today()),
-                "decay_rate": 0.02,
+                **decay_policy.frontmatter_fields(
+                    decay_policy.default_class_for("skill")
+                ),
                 "source_episodes": [],
                 "tags": [],
                 "related": [],

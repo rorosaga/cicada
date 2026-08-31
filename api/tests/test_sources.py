@@ -280,6 +280,36 @@ def test_compute_relevance_clamped_to_unit_interval():
     assert media_ingestor.compute_relevance(fm, now=now) <= 1.0
 
 
+def test_compute_relevance_never_fades_a_legacy_unmigrated_media_page():
+    """M1: the rate comes from ``decay_policy.resolve``, not a raw read.
+
+    A ``type: media`` page written before ``decay_class`` existed still carries
+    the old ``decay_rate: 0.03``. Every other decay consumer (graph, entity
+    engine, claim engine) resolves it to evergreen; the Feed used to be the one
+    that kept fading it. An unmigrated bank must not disagree with itself.
+    """
+    now = datetime(2026, 6, 17)
+    legacy_media = {
+        "type": "media",
+        "confidence": 0.8,
+        "last_referenced": "2025-06-17",  # a year stale
+        "decay_rate": 0.03,               # no decay_class:
+    }
+    assert media_ingestor.compute_relevance(legacy_media, now=now) == pytest.approx(0.8)
+
+
+def test_compute_relevance_still_fades_an_ordinary_decaying_page():
+    """The resolver's precedence is unchanged for the decaying classes."""
+    now = datetime(2026, 6, 17)
+    stale = {
+        "type": "concept",
+        "confidence": 0.8,
+        "last_referenced": "2025-06-17",
+        "decay_rate": 0.03,
+    }
+    assert media_ingestor.compute_relevance(stale, now=now) < 0.4
+
+
 def test_compute_relevance_handles_missing_fields():
     # No frontmatter signals at all -> a sane non-crashing default in [0,1].
     score = media_ingestor.compute_relevance({}, now=datetime(2026, 6, 17))

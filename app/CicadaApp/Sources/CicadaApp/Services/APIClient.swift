@@ -796,6 +796,17 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))")
     }
 
+    /// `PUT /entities/{id}/decay` (G66 §1.7) — the user's decay override.
+    /// The backend writes the class plus its mapped numeric rate and commits as
+    /// `Cicada-Author: user`, then returns the refreshed entity. Errors
+    /// propagate so the picker can revert its optimistic selection.
+    func setDecayClass(entityId: String, _ decayClass: DecayClass) async throws -> Entity {
+        return try await put(
+            "/entities/\(encodedID(entityId))/decay",
+            body: ["decayClass": decayClass.rawValue]
+        )
+    }
+
     /// `GET /entities/{id}/logo`. Returns nil on 404 — "this entity has no
     /// logo" is an ordinary answer, not an error, and the caller draws a
     /// monogram instead.
@@ -921,6 +932,33 @@ actor APIClient {
     func fetchContributors() async throws -> [Contributor] {
         let resp: ContributorsResponse = try await get("/contributors")
         return resp.contributors
+    }
+
+    /// `GET /contributors/commits?author=&limit=` (G67) — one author's recent
+    /// commits, for the Contributors drill-down. `author` is a QUERY value
+    /// because model ids contain slashes (`anthropic/claude-opus-4`); it is
+    /// percent-encoded so the slash never splits the path. On demand only — no
+    /// Store domain, no ETag.
+    ///
+    /// THROWS on failure. It used to swallow every error into `[]`, which the
+    /// drill-down then cached and rendered as "No commits found for this
+    /// author" — a false claim about who wrote memory, sticky for the life of
+    /// the view, and triggered by something as ordinary as collapsing the row
+    /// mid-flight (a cancelled task). The one exception is a 404, which means
+    /// the backend predates this endpoint rather than that the fetch failed:
+    /// there is genuinely no drill-down to show, and no retry would help.
+    func fetchContributorCommits(author: String, limit: Int = 50) async throws -> [ContributorCommit] {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        let a = author.addingPercentEncoding(withAllowedCharacters: allowed) ?? author
+        do {
+            let resp: ContributorCommitsResponse = try await get(
+                "/contributors/commits?author=\(a)&limit=\(limit)"
+            )
+            return resp.commits
+        } catch APIError.httpError(404, _) {
+            return []
+        }
     }
 
     // MARK: - Connections (G50)

@@ -35,11 +35,16 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import inbox_questions, predicates
+from api.models.schemas import DecayClass
+from api.services import decay_policy, inbox_questions, predicates
 from api.services.claims import Claim
 
 # A cardinality oracle: predicate -> True (single-valued) | False (multi-valued).
 CardinalityFn = Callable[[str], bool]
+
+# A decay-class oracle: subject entity id -> the subject's DecayClass. Injected
+# so this module stays pure trust/temporal logic with no filesystem dependency.
+DecayClassFn = Callable[[str], DecayClass]
 
 # Decay lookup (D2 table): base rate per cycle by epistemic class.
 _DECAY_BASE = {"explicit": 0.02, "deductive": 0.05, "inductive": 0.10, "abductive": 0.20}
@@ -50,6 +55,9 @@ _DECAY_FACTOR = {
     "agent_reflected": 1.5,
     "external": 1.0,
 }
+# A THIRD factor (G66): the SUBJECT entity's decay class. An evergreen subject
+# multiplies to 0.0 — its claims never decay — while a volatile subject's fade
+# twice as fast. See ``schemas.CLAIM_DECAY_MULTIPLIERS``.
 
 _HUMAN_ORIGINS = {"manual_edit", "clarification"}
 
@@ -321,6 +329,7 @@ def reconcile_stage3(
     *,
     cardinality_fn: CardinalityFn | None = None,
     now_date: str | None = None,
+    decay_class_fn: DecayClassFn | None = None,
 ) -> tuple[dict[str, list[Claim]], list[dict], list[dict]]:
     """Trust-gated invalidate-and-supersede over claims. Nothing deleted.
 
@@ -335,6 +344,10 @@ def reconcile_stage3(
         cardinality_fn: ``predicate -> is_single_valued``. Defaults to the
             ``_predicates.yaml`` cardinality oracle for ``settings.memory_path``.
         now_date: decay reference date (ISO); defaults to today.
+        decay_class_fn: ``subject_id -> DecayClass``, multiplying each claim's
+            decay by its subject entity's class (G66). Defaults to the
+            filesystem lookup for ``settings.memory_path``; an evergreen subject
+            means its claims never decay.
 
     Returns ``(reconciled_by_subject, nudges, audit)``. ``nudges`` carries
     ``conflict_nudge`` / ``divergence_nudge`` / ``normalization_audit`` records in
@@ -344,6 +357,8 @@ def reconcile_stage3(
     today = now_date or str(date.today())
     if cardinality_fn is None:
         cardinality_fn = _default_cardinality_fn(settings)
+    if decay_class_fn is None:
+        decay_class_fn = decay_policy.class_lookup(getattr(settings, "memory_path", "."))
 
     reconciled: dict[str, list[Claim]] = {
         sub: list(claims) for sub, claims in existing_claims_by_subject.items()
@@ -407,7 +422,7 @@ def reconcile_stage3(
         elif action == "KEEP_BOTH":
             slot.append(_stamp_new(new, settings, today=today))
 
-    _decay_claims(reconciled, referenced_subjects, settings, nudges, today)
+    _decay_claims(reconciled, referenced_subjects, settings, nudges, today, decay_class_fn)
     return reconciled, nudges, audit
 
 
@@ -431,6 +446,7 @@ def _decay_claims(
     settings,
     nudges: list[dict],
     today: str,
+    decay_class_fn: DecayClassFn,
 ) -> None:
     archive_threshold = float(getattr(settings, "archive_threshold", 0.2) or 0.2)
     nudge_threshold = float(getattr(settings, "decay_nudge_threshold", 0.4) or 0.4)
@@ -438,6 +454,10 @@ def _decay_claims(
     for subject, claims in reconciled.items():
         if subject in referenced_subjects:
             continue
+        # One lookup per subject, not per claim.
+        multiplier = decay_policy.claim_multiplier(decay_class_fn(subject))
+        if multiplier <= 0:
+            continue  # evergreen subject: its claims are artifacts, they don't fade
         for c in claims:
             if not open_(c):
                 continue  # closed claims don't decay; they're history
@@ -445,7 +465,7 @@ def _decay_claims(
             factor = _DECAY_FACTOR.get(c.source_trust, 1.0)
             ref = c.recorded_at or c.valid_from
             days = _days_since(ref, today)
-            amount = base * factor * (days / 7.0)
+            amount = base * factor * multiplier * (days / 7.0)
             if amount <= 0:
                 continue
             new_conf = max(0.0, c.confidence - amount)

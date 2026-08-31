@@ -96,7 +96,8 @@ Absence of mention IS a signal. If you talked about Salesforce daily for a week 
 - Sleep drops confidence for unreferenced entities proportional to how frequently they USED to be referenced
 - Below archive threshold (0.2): entity moves to `archive/`
 - Below nudge threshold (0.4): generates decay nudge
-- If mentioned again: promoted back, confidence restored
+- If mentioned again: promoted back with `confidence = max(current, 0.6)` (recovery promotion, see Decay classes)
+- Evergreen entities (media/bookmarks, user-pinned) skip all decay math and decay nudges
 
 ---
 
@@ -118,6 +119,7 @@ confidence: 0.85          # 0.0–1.0
 created: 2026-01-10
 last_referenced: 2026-03-22
 decay_rate: 0.05           # per-entity, not global
+decay_class: active        # evergreen | durable | active | volatile (G66)
 source_episodes:
   - ep_2026-01-10_001
   - ep_2026-03-22_002
@@ -149,6 +151,56 @@ version: 3
 **Note (G17):** `deadline` is still a valid, renderable type (legacy pages keep working) but is **no longer produced by Stage-1 extraction** — `PRODUCIBLE_ENTITY_TYPES` in `schemas.py` excludes it; due-dates are attached as a `due` claim/relationship on the relevant project instead of spawning a standalone deadline entity. `media` is likewise excluded from Stage-1's producible set — it's produced by the media-ingestion path, not conversation extraction.
 
 **Status lifecycle:** `active` → `decaying` → `archived` → `dropped` (user-dismissed, never resurfaced)
+
+### Decay classes (G66)
+Every entity carries a semantic `decay_class:` beside the numeric `decay_rate:`,
+resolved by the one resolver `api/services/decay_policy.py`:
+
+| Class | Entity rate/wk | Claim multiplier | Meaning |
+|---|---|---|---|
+| `evergreen` | 0.0 | 0.0 | Never fades. Artifacts (media/bookmarks) + anything the user pins. |
+| `durable` | 0.02 | 0.5 | Fades slowly. Stable preferences, skills, long-lived concepts. |
+| `active` | 0.05 | 1.0 | The default for a belief about the user's life. |
+| `volatile` | 0.15 | 2.0 | Expected to change within weeks (role, status, current focus). |
+
+`decay_policy.resolve(fm)` returns `(class, rate)`: an explicit `decay_class:`
+wins; otherwise the class is inferred from `type` (`media` → evergreen, `skill`
+→ durable, everything else → active) so legacy pages keep working untouched. An
+explicit numeric `decay_rate:` that differs from the class map still wins for
+the three decaying classes (the class stays as the label); `evergreen` pins its
+rate to `0.0` unconditionally.
+
+**Anti-pollution rail (mirrors `PRODUCIBLE_ENTITY_TYPES`):** Stage-1 extraction
+may PROPOSE `durable|active|volatile` and **never `evergreen`**
+(`AGENT_PRODUCIBLE_DECAY_CLASSES` in `schemas.py`, enforced by
+`decay_policy.agent_class` at extraction AND again in the create branch).
+Evergreen is reserved for the ingest writers and the user, so an over-eager
+extractor can never stop the graph from archiving.
+
+**Both engines honor it.** The entity engine
+(`conflict_resolver.resolve_and_prune`) takes its rate from the resolver and
+skips evergreen entities outright — no decay math, no decay nudge, never
+auto-archived, so a bookmark can no longer generate a "still interested?"
+question. The claim engine (`claim_reconciler._decay_claims`) multiplies its
+per-epistemic × source_trust rate by the SUBJECT's class multiplier, supplied by
+an injected `decay_class_fn` (default: `decay_policy.class_lookup(memory_path)`).
+
+**Recovery.** A `decaying`/`archived` entity mentioned again is promoted back to
+`active` with `confidence = max(current, 0.6)` — the counter-signal half of
+"time as a signal", promised in this file long before it existed. `dropped` is
+never resurrected.
+
+**Migration.** `api/services/decay_migration.backfill_decay_classes` runs once
+per bank (marker `.decay_classed`, author `cicada`, trigger
+`maintenance/decay_class_backfill`): media → evergreen/0.0 with any
+wrongly-faded page restored to `active` at confidence ≥ 0.7, skills → durable.
+Its commit names **exactly the pages it rewrote** — never a `entities/`
+directory pathspec — so a pre-existing dirty edit or a concurrent Sleep write is
+never mis-attributed to `cicada`. It runs from
+`api/services/bank_migrations.run_bank_migrations`, the shared set of one-shot
+per-bank migrations (this plus the two inbox ones) invoked both from API startup
+for the boot-time bank and from `POST /banks/{name}/activate` for a bank
+switched to at runtime.
 
 ### Repo links
 Project/directory entities may carry an optional `repos:` frontmatter key linking them to local git checkouts:
@@ -321,10 +373,13 @@ GET  /entities/{id}                       → single entity page
 GET  /entities/{id}/history               → git blame on entity file, enriched with structured commit metadata
                                             (+ per-commit author from Cicada-Author trailer; ?include_diff=true inlines diffs)
 GET  /entities/{id}/history/{commit}/diff → added/removed lines for that entity file at that commit
+                                            (rendered inline by the app's shared DiffView — entity History rows
+                                             and the Contributors drill-down both expand into it)
 GET  /entities/{id}/location              → directory-entity listing
 GET  /entities/{id}/context               → entity + related context bundle
 GET  /entities/{id}/repos                 → declared repos: frontmatter + live-resolved git context per repo
 PATCH /entities/{id}/repos                → rewrite the repos: frontmatter key
+PUT  /entities/{id}/decay                 → set decay class {decayClass: evergreen|durable|active|volatile}
 GET  /entities/{id}/logo                  → cached entity logo image (ETag, max-age=86400; 404 = draw a monogram)
 GET  /entities/{id}/sources               → declared "where to check this fact" sources (G61)
 POST /entities/{id}/sources               → append a source {ref, kind?, predicate?}; kind inferred
@@ -333,6 +388,7 @@ GET  /entities/{id}/claims                → claim layer for an entity
 GET  /entities/{id}/timeline              → bi-temporal claim timeline
 GET  /transclude                          → transclusion payload for embedding one page inside another
 GET  /contributors                        → repo-wide per-author (model/user) commit/file/entity counts + last-active
+GET  /contributors/commits?author=&limit= → one author's recent commits (+ entities touched) for the diff drill-down
 GET  /origins                             → origin-harness provenance aggregation (G9)
 POST /sleep/trigger                       → manually trigger the sleep cycle
 GET  /sleep/status, /sleep/history,
@@ -506,6 +562,7 @@ After onboarding, the user never interacts with the backend directly. The compan
 | SwiftUI + FastAPI | Native macOS feel. Python backend for LLM/ML ecosystem access. |
 | d3-force in WKWebView | Best graph visualization ecosystem. Sufficient for personal scale. |
 | Filesystem as single source of truth | No separate database. API reads/writes same files as Sleep cycle. |
+| Decay class over a bare per-writer rate | A hardcoded `decay_rate` float was invisible to the agent and unchangeable by the user, and it decayed bookmarks — artifacts that never become less true. A four-value class the agent estimates, both engines honor and the user overrides makes the policy legible and correctable. |
 
 ---
 

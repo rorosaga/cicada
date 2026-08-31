@@ -63,6 +63,48 @@ class EntityStatus(str, Enum):
     dropped = "dropped"
 
 
+class DecayClass(str, Enum):
+    """How fast a belief about a life should fade when it stops being mentioned (G66).
+
+    Decay models "absence of mention is a signal" for *beliefs*. A bookmark is an
+    *artifact*, not a belief — it does not become less true by going unmentioned,
+    so it is ``evergreen`` and never decays at all.
+    """
+
+    evergreen = "evergreen"   # never fades — artifacts (media/bookmarks) + user pins
+    durable = "durable"       # fades slowly — stable preferences, skills, long-lived concepts
+    active = "active"         # the default for a belief about the user's life
+    volatile = "volatile"     # expected to change within weeks (role, status, current focus)
+
+
+# Per-week confidence drop used by the ENTITY decay engine
+# (``conflict_resolver.resolve_and_prune``).
+DECAY_CLASS_RATES: dict[DecayClass, float] = {
+    DecayClass.evergreen: 0.0,
+    DecayClass.durable: 0.02,
+    DecayClass.active: 0.05,
+    DecayClass.volatile: 0.15,
+}
+
+# Multiplier applied to the CLAIM decay engine's per-epistemic x source_trust
+# rate (``claim_reconciler._decay_claims``), keyed by the SUBJECT entity's class.
+# An evergreen subject's claims never decay (0.0).
+CLAIM_DECAY_MULTIPLIERS: dict[DecayClass, float] = {
+    DecayClass.evergreen: 0.0,
+    DecayClass.durable: 0.5,
+    DecayClass.active: 1.0,
+    DecayClass.volatile: 2.0,
+}
+
+# ANTI-POLLUTION RAIL, mirroring ``PRODUCIBLE_ENTITY_TYPES`` above: Stage-1
+# extraction may PROPOSE only these three. ``evergreen`` is reserved for the
+# ingest writers and for the user, so an over-eager extractor can never stop the
+# graph from archiving.
+AGENT_PRODUCIBLE_DECAY_CLASSES: frozenset[DecayClass] = frozenset(
+    {DecayClass.durable, DecayClass.active, DecayClass.volatile}
+)
+
+
 class NudgeType(str, Enum):
     decay = "decay"
     conflict = "conflict"
@@ -121,6 +163,35 @@ class Contributor(CamelModel):
     avatar_url: Optional[str] = None
 
 
+class ContributorCommit(CamelModel):
+    """One commit attributed to a contributor (G67 §2.2).
+
+    ``entities`` are the entity ids (file STEMS) this commit touched, so the app
+    can render a chip per entity and fetch that entity's diff at this commit
+    from ``GET /entities/{id}/history/{commit}/diff``. ``files_changed`` is a
+    COUNT of every changed path (entities and everything else) — the ids
+    themselves are already in ``entities``.
+
+    ``entities`` is CAPPED (``git_service.MAX_COMMIT_ENTITIES``): a real Sleep
+    cycle touches hundreds of pages (895 in one live commit) and the app lays
+    out one tappable chip per id, so an uncapped list is a payload and a
+    render-time blow-up. ``entities_total`` is the true count, so the app can
+    render "+N more" honestly instead of silently under-reporting.
+    """
+
+    commit_hash: str
+    date: str  # ISO date (YYYY-MM-DD)
+    subject: str
+    entities: list[str] = []
+    entities_total: int = 0
+    files_changed: int = 0
+
+
+class ContributorCommitsResponse(CamelModel):
+    author: str
+    commits: list[ContributorCommit] = []
+
+
 class ContributorsResponse(CamelModel):
     contributors: list[Contributor] = []
 
@@ -172,6 +243,10 @@ class EntityResponse(CamelModel):
     created: str
     last_referenced: str
     decay_rate: float
+    # G66 — the semantic decay class beside the numeric rate. Additive +
+    # defaulted so an older client that doesn't decode it is unaffected, and a
+    # legacy page with no `decay_class:` still gets a resolved value.
+    decay_class: DecayClass = DecayClass.active
     source_episodes: list[str]
     tags: list[str]
     related: list[str]
@@ -184,6 +259,18 @@ class EntityResponse(CamelModel):
     # Structured media metadata for ``type: media`` entities (G11); ``None`` for
     # every other entity. Populated from the nested ``media:`` frontmatter block.
     media: Optional[EntityMedia] = None
+
+
+class EntityDecayUpdate(CamelModel):
+    """Body of ``PUT /entities/{id}/decay`` — the user's decay override (G66).
+
+    The field is named ``decay_class`` (``class`` is a Python keyword); the
+    camelCase alias ``decayClass`` is what the app sends, and
+    ``populate_by_name`` means a snake_case body works too. Pydantic rejects
+    anything outside the ``DecayClass`` enum with a 422.
+    """
+
+    decay_class: DecayClass
 
 
 # --- Location listing (#7 — show a location entity's directory contents) ---
@@ -441,6 +528,11 @@ class GraphNode(CamelModel):
     # `content_hash` below so the app's delta repaints the node when a logo
     # lands (e.g. after a Sleep warm-up).
     has_logo: bool = False
+    # G66: the entity's decay class, resolved server-side from frontmatter
+    # (explicit key, else legacy type inference). Additive + defaulted, and
+    # folded into `content_hash` below — the `has_logo` precedent — so the
+    # companion app's delta repaints the node when the class changes.
+    decay_class: DecayClass = DecayClass.active
 
 
 class GraphLink(CamelModel):

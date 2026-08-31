@@ -35,7 +35,7 @@ from pathlib import Path
 from loguru import logger
 from thefuzz import fuzz
 
-from api.services import entity_body, markdown_parser
+from api.services import decay_policy, entity_body, markdown_parser
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.id_utils import resolve_entity_file, sanitize_id
@@ -166,14 +166,15 @@ def _ensure_subject_page(
 
     today = str(date.today())
     display_name = subject.strip() or entity_id.replace("-", " ").title()
+    entity_type = _infer_entity_type(predicate)
     frontmatter = {
         "name": display_name,
-        "type": _infer_entity_type(predicate),
+        "type": entity_type,
         "status": "active",
         "confidence": 0.5,
         "created": today,
         "last_referenced": today,
-        "decay_rate": 0.05,
+        **decay_policy.frontmatter_fields(decay_policy.default_class_for(entity_type)),
         "source_episodes": [source_episode] if source_episode else [],
         "tags": [],
         "related": [],

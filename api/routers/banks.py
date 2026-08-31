@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 
+from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
 from loguru import logger
 
@@ -26,6 +27,7 @@ from api.models.schemas import (
 )
 from api.routers.conversations import _stage_episodes, parse_export_bytes
 from api.services import bank_index, bank_registry, sync_service
+from api.services.bank_migrations import run_bank_migrations
 from api.services.graph_builder import file_mtime
 
 router = APIRouter()
@@ -91,6 +93,15 @@ async def activate_bank(
     except ValueError as e:
         raise HTTPException(404, str(e))
     logger.info(f"Activated bank '{name}'")
+    # A bank switched to at runtime gets the SAME one-shot migrations the
+    # boot-time bank gets in `main.lifespan` — otherwise its pages stay
+    # unclassed (and the Feed / decay engines disagree about them) until the
+    # next API restart. Every migration is marker-guarded and never raises, so
+    # this is a few `stat`s on an already-migrated bank and can't fail the
+    # switch.
+    # A first activate of a big bank rewrites hundreds of pages + git — keep it
+    # off the event loop like every other blocking route in this codebase.
+    await run_in_threadpool(run_bank_migrations, bank_registry.bank_dir(settings.memory_root, name))
     data = bank_registry.list_banks(settings.memory_root)
     return BankListResponse(
         banks=[BankInfo(**b) for b in data["banks"]],
