@@ -67,4 +67,50 @@ enum Copy {
     static func clusterCount(entities: Int, groups: Int) -> String {
         "\(entities) \(entities == 1 ? "entity" : "entities") in \(groups) \(groups == 1 ? "group" : "groups")"
     }
+
+    // MARK: - Export step paths (G71 §4.2)
+
+    /// One breadcrumb line per export platform: exactly the clicks, in the
+    /// vendor's own words, so the user never has to guess which of five
+    /// "Download your data" screens is the right one. `>` is the separator
+    /// because that is how the spec writes it and how the vendors' own
+    /// breadcrumbs read.
+    static let instagramStepPath =
+        "Settings > Accounts Center > Your information and permissions > "
+        + "Download your information > Download or transfer > "
+        + "Some of your information > Saved > JSON"
+
+    static let takeoutStepPath =
+        "Google Takeout > Deselect all > YouTube and YouTube Music > "
+        + "All YouTube data included > playlists + history > Next step > Create export"
+
+    static let tiktokStepPath =
+        "Profile > Menu > Settings and privacy > Account > Download your data > "
+        + "File format: JSON > Request data"
+
+    static let linkedinStepPath =
+        "Settings & Privacy > Data privacy > Get a copy of your data > "
+        + "Want something in particular > Saved items > Request archive"
+
+    static let redditExportStepPath =
+        "Settings > Privacy > Request a copy of your data > Full date range > Request data"
+
+    static let claudeStepPath =
+        "Settings > Privacy > Export data > check your email > download the .zip"
+
+    static let chatgptStepPath =
+        "Settings > Data controls > Export data > Export > "
+        + "check your email > download the .zip"
+
+    static func exportStepPath(_ vendor: WalkthroughVendor) -> String {
+        switch vendor {
+        case .claude: return claudeStepPath
+        case .chatgpt: return chatgptStepPath
+        case .takeout: return takeoutStepPath
+        case .instagram: return instagramStepPath
+        case .tiktok: return tiktokStepPath
+        case .linkedin: return linkedinStepPath
+        case .redditExport: return redditExportStepPath
+        }
+    }
 }

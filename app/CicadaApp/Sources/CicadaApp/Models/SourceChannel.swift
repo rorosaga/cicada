@@ -13,17 +13,21 @@ struct SourceChannel: Codable, Identifiable, Hashable {
     let count: Int
     let lastSync: String?
     let detail: String?
+    /// G71 — the last poll's failure, when there was one. Present so a tile can
+    /// say "needs attention" instead of showing a stale success.
+    let lastError: String?
     let actions: [String]
 
     enum CodingKeys: String, CodingKey {
-        case id, label, connected, count, lastSync, detail, actions
+        case id, label, connected, count, lastSync, detail, lastError, actions
     }
 
     init(id: String, label: String, connected: Bool = false, count: Int = 0,
-         lastSync: String? = nil, detail: String? = nil, actions: [String] = []) {
+         lastSync: String? = nil, detail: String? = nil, lastError: String? = nil,
+         actions: [String] = []) {
         self.id = id; self.label = label; self.connected = connected
         self.count = count; self.lastSync = lastSync; self.detail = detail
-        self.actions = actions
+        self.lastError = lastError; self.actions = actions
     }
 
     init(from decoder: Decoder) throws {
@@ -34,6 +38,7 @@ struct SourceChannel: Codable, Identifiable, Hashable {
         count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 0
         lastSync = try c.decodeIfPresent(String.self, forKey: .lastSync)
         detail = try c.decodeIfPresent(String.self, forKey: .detail)
+        lastError = try c.decodeIfPresent(String.self, forKey: .lastError)
         actions = try c.decodeIfPresent([String].self, forKey: .actions) ?? []
     }
 

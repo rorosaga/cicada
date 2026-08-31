@@ -1277,8 +1277,10 @@ actor APIClient {
 
     /// Shared multipart POST for file ingestion endpoints. Mirrors `uploadFile`
     /// but takes the target path so both `/conversations/upload` and
-    /// `/sources/upload` reuse it.
-    private func uploadMultipart(path: String, fileURL: URL) async throws -> UploadResponse {
+    /// `/sources/upload` reuse it. Generic over the response so the same
+    /// wire-up serves the real upload (`UploadResponse`) and the staging-free
+    /// preview (`UploadPreview`) without duplicating the multipart plumbing.
+    private func uploadMultipart<T: Decodable>(path: String, fileURL: URL) async throws -> T {
         var request = makeRequest(path, method: "POST", json: false)
 
         let boundary = UUID().uuidString
@@ -1304,7 +1306,14 @@ actor APIClient {
             let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw APIError.httpError(http.statusCode, msg)
         }
-        return try decoder.decode(UploadResponse.self, from: data)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    /// `POST /sources/upload?preview=true` — describe a file without importing
+    /// any of it. Safe to call on every drop: the backend stages nothing.
+    func previewSource(fileURL: URL, includeHistory: Bool = false) async throws -> UploadPreview {
+        let query = includeHistory ? "?preview=true&include_history=true" : "?preview=true"
+        return try await uploadMultipart(path: "/sources/upload" + query, fileURL: fileURL)
     }
 
     /// Convenience: upload several source files, aggregating the counts.

@@ -9,7 +9,7 @@ import SwiftUI
 /// otherwise — the recordings are a separate manual pass, see
 /// docs/walkthrough-recording.md.
 enum WalkthroughVendor: String, CaseIterable, Identifiable {
-    case claude, chatgpt, takeout, instagram
+    case claude, chatgpt, takeout, instagram, tiktok, linkedin, redditExport
 
     var id: String { rawValue }
 
@@ -19,6 +19,9 @@ enum WalkthroughVendor: String, CaseIterable, Identifiable {
         case .chatgpt: "ChatGPT"
         case .takeout: "Google Takeout"
         case .instagram: "Instagram"
+        case .tiktok: "TikTok"
+        case .linkedin: "LinkedIn"
+        case .redditExport: "Reddit"
         }
     }
 
@@ -30,6 +33,9 @@ enum WalkthroughVendor: String, CaseIterable, Identifiable {
         case .chatgpt: URL(string: "https://chatgpt.com/#settings/DataControls")!
         case .takeout: URL(string: "https://takeout.google.com/")!
         case .instagram: URL(string: "https://accountscenter.instagram.com/info_and_permissions/dyi/")!
+        case .tiktok: URL(string: "https://www.tiktok.com/setting/download-your-data")!
+        case .linkedin: URL(string: "https://www.linkedin.com/mypreferences/d/download-my-data")!
+        case .redditExport: URL(string: "https://www.reddit.com/settings/data-request")!
         }
     }
 
@@ -59,6 +65,24 @@ enum WalkthroughVendor: String, CaseIterable, Identifiable {
             "Instagram emails you a link — download and unzip it.",
             "Drop saved_posts.json here.",
         ]
+        case .tiktok: [
+            "Open Settings and privacy → Account → Download your data",
+            "Choose JSON as the file format",
+            "Request the data and wait for the email (1–4 days)",
+            "Unzip it and drop user_data.json below",
+        ]
+        case .linkedin: [
+            "Open Settings → Data privacy → Get a copy of your data",
+            "Pick \"Want something in particular\" → Saved items",
+            "Request the archive (arrives in minutes; the link lasts 72 h)",
+            "Unzip it and drop Saved Items.csv below",
+        ]
+        case .redditExport: [
+            "Open Settings → Privacy → Request a copy of your data",
+            "Choose the full date range and request it",
+            "Download the archive from the email",
+            "Unzip it and drop saved_posts.csv below",
+        ]
         }
     }
 
@@ -72,8 +96,15 @@ enum WalkthroughVendor: String, CaseIterable, Identifiable {
         case .chatgpt: "Every ChatGPT conversation, backdated to when it happened."
         case .takeout: "Your YouTube playlists and watch history as saved links."
         case .instagram: "Your saved Instagram posts as saved links."
+        case .tiktok: "Your TikTok favourites and likes as saved links."
+        case .linkedin: "Your saved LinkedIn items — links and dates only."
+        case .redditExport: "A one-off backfill past Reddit's 1,000-item API cap."
         }
     }
+
+    /// The one-line breadcrumb of exactly where to click (G71 §4.2). Lives in
+    /// `Copy` so every user-facing string stays in one file.
+    var stepPath: String { Copy.exportStepPath(self) }
 }
 
 struct WalkthroughPanel: View {
@@ -97,6 +128,13 @@ struct WalkthroughPanel: View {
             Text(vendor.summary)
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
+
+            Text(vendor.stepPath)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel("Where to click in \(vendor.title): \(vendor.stepPath)")
 
             stage
 
