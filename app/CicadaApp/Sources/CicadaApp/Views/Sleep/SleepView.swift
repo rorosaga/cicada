@@ -18,6 +18,16 @@ struct SleepView: View {
     // Default to descending (newest first) — the common case when reviewing
     // what's about to be consolidated.
     @State private var sortAscending: Bool = false
+    // PR #19 review: rapid live-count changes (a capture landing, then
+    // another one right behind it) fired an untracked `sleepVM.load()` Task
+    // per change with no cancellation. Mirrors `UsageViewModel.rangeTask`:
+    // cancelling the previous reconcile the moment a newer one supersedes it
+    // frees the abandoned in-flight work instead of leaving it to run to
+    // completion for nothing — `SleepViewModel.load()`'s own `loadToken`
+    // guard is the real backstop that makes a stale response harmless either
+    // way (cancellation isn't guaranteed to unwind a parked continuation, in
+    // tests or otherwise).
+    @State private var reconcileTask: Task<Void, Never>?
 
     private var sortedQueuedEpisodes: [EpisodeQueueItem] {
         let base = sleepVM.queuedEpisodes
@@ -107,7 +117,13 @@ struct SleepView: View {
         .onChange(of: store.status.value?.episodes.unprocessed) { _, newValue in
             if Self.queueNeedsReconcile(liveUnprocessed: newValue,
                                         loadedQueuedCount: sleepVM.queuedEpisodes.count) {
-                Task { @MainActor in await sleepVM.load() }
+                // Every new count change supersedes whichever reconcile is
+                // still in flight — cancel it and start fresh so only the
+                // newest count's fetch can ever publish rows, and a count
+                // that changes again mid-load still gets its own attempt
+                // rather than being silently dropped.
+                reconcileTask?.cancel()
+                reconcileTask = Task { @MainActor in await sleepVM.load() }
             }
         }
     }

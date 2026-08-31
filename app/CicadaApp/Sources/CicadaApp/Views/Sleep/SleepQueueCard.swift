@@ -12,6 +12,27 @@ struct SleepQueueCard: View {
     private var status: StatusSnapshot? { store.status.value }
     private var isLoading: Bool { store.status.isEmpty && store.status.isRefreshing }
 
+    /// PR #19 review: `store.status` missing is not one state, it's two — a
+    /// fetch still in flight (`.loading`) vs. a fetch that already failed and
+    /// left nothing behind (`.failed`) — and neither is "a confirmed zero
+    /// queue" (`.loaded(count: 0)`, the only case "All caught up" may render
+    /// for). Pulled out as a pure function, mirroring `SleepView.queueCount`
+    /// /`queueNeedsReconcile`, so the precedence is unit-testable without a view.
+    enum LoadState: Equatable {
+        case loading
+        case failed(String)
+        case loaded(count: Int)
+    }
+
+    static func loadState(status: StatusSnapshot?, isLoading: Bool, error: String?) -> LoadState {
+        if let status { return .loaded(count: status.episodes.unprocessed) }
+        if isLoading { return .loading }
+        if let error { return .failed(error) }
+        // No snapshot, not refreshing, no latched failure yet — the fetch
+        // simply hasn't started. Treat like loading rather than guessing.
+        return .loading
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Text("QUEUE")
@@ -19,15 +40,24 @@ struct SleepQueueCard: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
-            if isLoading && status == nil {
+            switch Self.loadState(status: status, isLoading: isLoading, error: store.domainErrors[.status]) {
+            case .loading:
                 HStack(spacing: CicadaTheme.spacingSM) {
                     ProgressView().controlSize(.small)
                     Text("Checking the queue…")
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
-            } else {
-                let count = status?.episodes.unprocessed ?? 0
+            case .failed(let message):
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CicadaTheme.danger)
+                    Text(message)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            case .loaded(let count):
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
                     Image(systemName: count == 0 ? "checkmark.circle" : "tray.full")
                         .font(.system(size: 13, weight: .medium))

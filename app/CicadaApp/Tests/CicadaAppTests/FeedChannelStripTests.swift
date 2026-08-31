@@ -58,4 +58,42 @@ final class FeedChannelStripTests: XCTestCase {
         defaults.set(true, forKey: key)
         XCTAssertTrue(defaults.bool(forKey: key), "a collapse must survive a relaunch")
     }
+
+    // MARK: PR #19 review — a missing snapshot must not read as a confirmed-empty roster
+
+    /// While `store.channels` is still loading, the strip must show a
+    /// spinner — not "Nothing connected yet", which is reserved for a
+    /// confirmed empty roster.
+    func testLoadStateIsLoadingWhileTheFetchIsInFlight() {
+        XCTAssertEqual(ConnectedChannelsStrip.loadState(channels: nil, isLoading: true, error: nil), .loading)
+    }
+
+    /// A failed first fetch (no snapshot, no longer refreshing, a latched
+    /// domain error) must surface that failure — never silently read as
+    /// "nothing connected".
+    func testLoadStateIsFailedAfterAFailedFetchWithNoSnapshot() {
+        XCTAssertEqual(
+            ConnectedChannelsStrip.loadState(channels: nil, isLoading: false, error: "Couldn't load channels"),
+            .failed("Couldn't load channels")
+        )
+    }
+
+    /// No snapshot, not refreshing, no latched error yet — the fetch simply
+    /// hasn't started. Must not be mistaken for a confirmed empty roster.
+    func testLoadStateFallsBackToLoadingBeforeTheFetchHasStarted() {
+        XCTAssertEqual(ConnectedChannelsStrip.loadState(channels: nil, isLoading: false, error: nil), .loading)
+    }
+
+    /// Once a snapshot has actually landed, a genuinely empty roster reads as
+    /// loaded-and-empty — this is the only path "Nothing connected yet" may
+    /// render for.
+    func testLoadStateIsLoadedOnceASnapshotLands() {
+        let channels = [channel("rss", connected: true, lastSync: nil)]
+        XCTAssertEqual(
+            ConnectedChannelsStrip.loadState(channels: channels, isLoading: true, error: "stale error"),
+            .loaded(connected: SourceChannel.sortedConnected(channels)),
+            "a landed snapshot must win over stale isLoading/error flags from a prior attempt"
+        )
+        XCTAssertEqual(ConnectedChannelsStrip.loadState(channels: [], isLoading: false, error: nil), .loaded(connected: []))
+    }
 }

@@ -160,4 +160,68 @@ final class UsageRangeTests: XCTestCase {
 
         XCTAssertEqual(wasCancelledOnResume, true, "the superseded range fetch's Task must be cancelled")
     }
+
+    // MARK: PR #19 review — tile row must not render zero-valued fallback as loaded data
+
+    /// Before `Store.bootstrap()` ever populates `store.consumption`, the
+    /// month tile row has nothing trustworthy to show — `isEmptyRange` reads
+    /// `false` (it isn't confirmed empty), so without `showsProgress` the
+    /// view's fallback would be the normal tile branch, rendering the
+    /// zero-valued fallback `summary` as if it were real, loaded data.
+    func testShowsProgressBeforeMonthHasEverLoaded() async throws {
+        let store = Store(cache: tempCache(), api: FakeSyncAPI())
+        let vm = UsageViewModel(store: store)
+        XCTAssertTrue(vm.showsProgress, "the month tile row must not render before it has ever loaded")
+    }
+
+    /// While a non-default range fetch is in flight, `rangeSummary` is
+    /// deliberately blanked (see `loadRange()`) — the tile row must show a
+    /// spinner, not the zero-valued fallback under the new range's label.
+    func testShowsProgressWhileANonDefaultRangeIsLoading() async throws {
+        var gate: CheckedContinuation<Void, Never>?
+        let stats = try emptyStats()
+        let vm = UsageViewModel(store: Store(cache: tempCache(), api: FakeSyncAPI())) { range in
+            await withCheckedContinuation { gate = $0 }
+            return (self.summary(tokens: 90), stats, ConsumptionConnections(connections: [], range: range))
+        }
+
+        vm.range = "90d"
+        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertTrue(vm.showsProgress, "a range fetch is in flight — the tile row must not render")
+
+        gate?.resume()
+        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertFalse(vm.showsProgress, "the range has now landed — the tile row may render")
+    }
+
+    /// Once a range has genuinely loaded — confirmed all-zero or not —
+    /// `showsProgress` must clear so `isEmptyRange`/the real tile numbers can
+    /// take over.
+    func testShowsProgressClearsOnceARangeHasLoaded() async throws {
+        let store = Store(cache: tempCache(), api: FakeSyncAPI())
+        store.consumption.value = ConsumptionBundle(
+            summary: summary(tokens: 12),
+            calendar: ConsumptionCalendar(days: [], weeks: 53),
+            stats: try emptyStats(),
+            connections: ConsumptionConnections(connections: [], range: "month"),
+            harness: HarnessStats(claudeCode: nil, codex: nil)
+        )
+        let vm = UsageViewModel(store: store)
+        XCTAssertFalse(vm.showsProgress, "the month has loaded — the tile row must render its real numbers")
+    }
+
+    /// A failed range fetch leaves `rangeSummary` nil forever (see M2's
+    /// `testFailedRangeFetchIsNotReportedAsEmpty`) — `showsProgress` must stay
+    /// true so the failure never gets mistaken for a confirmed empty range or
+    /// silently rendered as a wall of zeroes.
+    func testShowsProgressStaysTrueAfterAFailedRangeFetch() async throws {
+        struct Boom: Error {}
+        let vm = UsageViewModel(store: Store(cache: tempCache(), api: FakeSyncAPI())) { _ in throw Boom() }
+
+        vm.range = "30d"
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertTrue(vm.showsProgress, "a range that never successfully loaded must not fall through to the tile row")
+    }
 }

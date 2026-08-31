@@ -37,6 +37,16 @@ final class SleepViewModel {
 
     private var pollTask: Task<Void, Never>?
 
+    /// PR #19 review: `SleepView` fires an untracked `load()` for every live
+    /// `store.status.episodes.unprocessed` change (reconciling the queue rows
+    /// against a count that can move faster than one round-trip). Overlapping
+    /// calls have no cancellation or identity guard, so a slower, older
+    /// response can land after a newer one and repaint the queue with stale
+    /// rows. Bumped at the top of every `load()`; mirrors
+    /// `UsageViewModel.rangeToken` — a response whose token no longer matches
+    /// current lost the race and is dropped.
+    private var loadToken = 0
+
     /// Bumped by every `startPolling()`. A finishing loop clears `pollTask`
     /// only if this still matches the generation it was started with, so a
     /// newer poll (started while the old one was closing out) is never nilled
@@ -106,6 +116,9 @@ final class SleepViewModel {
     /// — a scheduled run that started while the app was closed becomes live
     /// the instant this view appears, not one network round-trip later.
     func load() async {
+        loadToken &+= 1
+        let token = loadToken
+
         errorMessage = nil
         // Never re-arm the poll loop while one is already alive: `hasSeenRunning`
         // and the running→idle edge live only inside that loop's own task, and
@@ -119,21 +132,35 @@ final class SleepViewModel {
         async let episodesTask = APIClient.shared.fetchEpisodeQueue()
         async let scheduleTask = APIClient.shared.fetchSchedule()
 
+        // Each result is guarded individually rather than once at the end —
+        // the three fetches race independently, and a newer `load()` call can
+        // start (and even finish) while any one of them is still in flight.
+        // Without the per-assignment check, a call that lost the race on
+        // `status` could still win on `episodes` (or vice versa), stitching
+        // together a queue view that never existed on the server at any one
+        // moment.
         do {
-            status = try await statusTask
+            let s = try await statusTask
+            if token == loadToken { status = s }
         } catch {
-            errorMessage = "Status: \(error.localizedDescription)"
+            if token == loadToken { errorMessage = "Status: \(error.localizedDescription)" }
         }
         do {
-            episodes = try await episodesTask
+            let e = try await episodesTask
+            if token == loadToken { episodes = e }
         } catch {
-            errorMessage = "Episodes: \(error.localizedDescription)"
+            if token == loadToken { errorMessage = "Episodes: \(error.localizedDescription)" }
         }
         do {
-            schedule = try await scheduleTask
+            let sc = try await scheduleTask
+            if token == loadToken { schedule = sc }
         } catch {
-            errorMessage = "Schedule: \(error.localizedDescription)"
+            if token == loadToken { errorMessage = "Schedule: \(error.localizedDescription)" }
         }
+
+        // A superseded call must not make poll-loop decisions either — the
+        // newer call (or one still in flight) owns that now.
+        guard token == loadToken else { return }
 
         // If a cycle is already running (e.g. started by the daily cron
         // before the user opened the page), attach to it — but only if

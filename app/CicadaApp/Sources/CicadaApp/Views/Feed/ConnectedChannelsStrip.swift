@@ -25,6 +25,27 @@ struct ConnectedChannelsStrip: View {
         connected == 0 ? "CONNECTED" : "CONNECTED (\(connected))"
     }
 
+    /// PR #19 review: `store.channels` missing is not one state, it's two — a
+    /// fetch still in flight (`.loading`) vs. one that already failed and left
+    /// nothing behind (`.failed`) — and neither is "a confirmed empty roster"
+    /// (`.loaded(connected: [])`, the only case "Nothing connected yet" may
+    /// render for). Pulled out as a pure function so the precedence is
+    /// unit-testable without a view.
+    enum LoadState: Equatable {
+        case loading
+        case failed(String)
+        case loaded(connected: [SourceChannel])
+    }
+
+    static func loadState(channels: [SourceChannel]?, isLoading: Bool, error: String?) -> LoadState {
+        if let channels { return .loaded(connected: SourceChannel.sortedConnected(channels)) }
+        if isLoading { return .loading }
+        if let error { return .failed(error) }
+        // No snapshot, not refreshing, no latched failure yet — the fetch
+        // simply hasn't started. Treat like loading rather than guessing.
+        return .loading
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Button {
@@ -49,14 +70,24 @@ struct ConnectedChannelsStrip: View {
                                 : "Hide connected sources, \(connected.count) connected")
 
             if !isCollapsed {
-                if isLoading && channels.isEmpty {
+                switch Self.loadState(channels: store.channels.value, isLoading: isLoading, error: store.domainErrors[.channels]) {
+                case .loading:
                     HStack(spacing: CicadaTheme.spacingSM) {
                         ProgressView().controlSize(.small)
                         Text("Checking your sources…")
                             .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textTertiary)
                     }
-                } else if connected.isEmpty {
+                case .failed(let message):
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CicadaTheme.danger)
+                        Text(message)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                case .loaded(let connected) where connected.isEmpty:
                     Button { onManage(nil) } label: {
                         Text("Nothing connected yet — add a chat export, bookmarks, a feed or a calendar.")
                             .font(CicadaTheme.bodyFont)
@@ -64,7 +95,7 @@ struct ConnectedChannelsStrip: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Copy.addASource)
-                } else {
+                case .loaded(let connected):
                     VStack(spacing: 2) {
                         ForEach(connected) { channel in
                             ConnectedChannelRow(channel: channel, isBusy: busyChannel == channel.id) { action in

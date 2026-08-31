@@ -74,7 +74,18 @@ struct UsageSection: View {
 
     @ViewBuilder
     private var tiles: some View {
-        if viewModel.isEmptyRange {
+        // PR #19 review: before month data lands (or while another range is
+        // loading), `isEmptyRange` reads `false` — `summary`'s zero-valued
+        // fallback isn't a confirmed empty range — so without this branch the
+        // tile row fell straight to rendering that fallback as if it were
+        // real, loaded data. `showsProgress` covers both "never loaded" and
+        // "actively loading"; only once it clears do the other two branches
+        // (confirmed empty vs. real numbers) mean what they say.
+        if viewModel.showsProgress {
+            ProgressView()
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(CicadaTheme.spacingLG)
+        } else if viewModel.isEmptyRange {
             placeholder("No usage in this range")
         } else {
             HStack(spacing: CicadaTheme.spacingMD) {

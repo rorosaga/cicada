@@ -111,7 +111,7 @@ final class UsageViewModel {
     /// first `loadRange()` response for a non-default range lands — as a
     /// confirmed empty month, and the page briefly claimed "No usage this
     /// month" for data it had simply never asked about yet.
-    private var hasLoadedSelectedRange: Bool {
+    var hasLoadedSelectedRange: Bool {
         range == "month" ? store.consumption.value != nil : rangeSummary != nil
     }
 
@@ -125,6 +125,19 @@ final class UsageViewModel {
         hasLoadedSelectedRange
             && !isLoading && !isLoadingRange && errorMessage == nil
             && summary.invocations == 0 && summary.tokens == 0 && summary.memoryWrites == 0
+    }
+
+    /// PR #19 review: whether the tile row has anything trustworthy to render
+    /// yet. `summary`'s zero-valued fallback reads identically to a confirmed
+    /// all-zero range whether the selected range simply hasn't loaded for the
+    /// first time yet (`!hasLoadedSelectedRange` — before `Store.bootstrap()`
+    /// lands, or before a non-default range's first response arrives) or a
+    /// fetch is actively in flight (mirrors `UsageAdvancedView.showsProgress`,
+    /// same two loading flags). `UsageSection.tiles` gates on this so it never
+    /// renders the tile row's numbers as if they were loaded when they are
+    /// either not here yet or already known stale.
+    var showsProgress: Bool {
+        !hasLoadedSelectedRange || UsageAdvancedView.showsProgress(isLoadingRange: isLoadingRange, isLoading: isLoading)
     }
 
     /// Flat monthly price of every connected subscription, or nil when none.
