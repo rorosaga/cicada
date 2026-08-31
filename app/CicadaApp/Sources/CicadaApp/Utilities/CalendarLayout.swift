@@ -26,29 +26,20 @@ enum CalendarLayout {
         return (cal.component(.weekday, from: d) + 5) % 7
     }
 
+    /// Pads the *first* column with leading empty cells so every column
+    /// keeps a consistent Monday…Sunday row alignment and every real day is
+    /// rendered — GitHub's own contribution graph does the same. This is a
+    /// deliberate no-data-loss choice over forcing a fixed column count: for
+    /// the default 53-week (371-day) dashboard range, that gives exactly 53
+    /// columns when the range happens to start on a Monday (1 day out of 7)
+    /// and — honestly — 54 for the other 6, because a 371-day range starting
+    /// mid-week genuinely spans 54 distinct Monday-Sunday weeks. Column count
+    /// is a display detail; every day the backend sent is a click target and
+    /// a data point, and neither gets sacrificed to hit "53" on the nose.
     static func columns(_ days: [CalendarCell]) -> [[CalendarCell?]] {
         guard let first = days.first else { return [] }
-        var offset = weekdayIndex(first.date)
-        var effectiveDays = days
-        // When the input is already an exact multiple of 7 (the default
-        // 53-week / 371-day dashboard calendar), a leading partial week
-        // borrows `offset` empty cells from what would otherwise be an exact
-        // N/7 grid — and since there's no slack left to absorb them, that
-        // borrow always spills into a whole extra column: 54 instead of 53,
-        // on every day of the year except the one where "371 days ago"
-        // happens to land on a Monday. Drop the handful of oldest days
-        // before the next Monday instead, so an exact-weeks range only ever
-        // needs exactly that many columns; the range still ends on the same
-        // last (most recent) day either way. A non-exact input (most fixture
-        // and test data) already has slack to absorb the leading partial
-        // week without growing past `ceil(N/7)`, so it's left untouched.
-        if offset > 0 && days.count % 7 == 0 {
-            let drop = (7 - offset) % 7
-            effectiveDays = Array(days.dropFirst(drop))
-            offset = 0
-        }
-        var flat: [CalendarCell?] = Array(repeating: nil, count: offset)
-        flat.append(contentsOf: effectiveDays.map { Optional($0) })
+        var flat: [CalendarCell?] = Array(repeating: nil, count: weekdayIndex(first.date))
+        flat.append(contentsOf: days.map { Optional($0) })
         while flat.count % 7 != 0 { flat.append(nil) }
         return stride(from: 0, to: flat.count, by: 7).map { Array(flat[$0..<$0 + 7]) }
     }

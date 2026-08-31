@@ -104,8 +104,8 @@ struct UsageSection: View {
     private func dayDetail(_ d: CalendarDay) -> some View {
         HStack(spacing: CicadaTheme.spacingLG) {
             Text(d.date).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
-            Label("\(d.memoryWrites) memory writes", systemImage: "square.and.pencil")
-            Label("\(d.events) events", systemImage: "bolt")
+            Label("\(UsageFormat.count(d.memoryWrites)) memory writes", systemImage: "square.and.pencil")
+            Label("\(UsageFormat.count(d.events)) events", systemImage: "bolt")
             Label("\(UsageFormat.tokens(d.tokens)) tokens", systemImage: "number")
             Label(d.costUsd > 0 ? "\(UsageFormat.usd(d.costUsd)) spent" : "≈ \(UsageFormat.usd(d.equivCostUsd)) API-equivalent", systemImage: "dollarsign.circle")
             Spacer()
