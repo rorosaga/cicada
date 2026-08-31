@@ -75,19 +75,17 @@ private struct ContributorRow: View {
 
     // G67 — the drill-down: this author's recent commits, each listing the
     // entities it touched. Fetched once per row on first expand and kept for
-    // the life of the view; `commitDiffs` caches per (entity, commit).
+    // the life of the view; `commitDiffs` caches per `DiffCacheKey`
+    // (entity + commit — shared with `EntityDetailCard`'s History tab, see
+    // `DiffView.swift`; this row's fetches are already scoped to a specific
+    // (entityId, commitHash) pair per chip, so there's no cross-entity
+    // poisoning risk to guard against here, just the same cache-key shape).
     @State private var commits: [ContributorCommit]?
     @State private var isLoadingCommits = false
-    @State private var openDiff: DiffKey?
-    @State private var commitDiffs: [String: EntityDiff] = [:]
-    @State private var loadingDiffs: Set<String> = []
-
-    /// Which entity chip is open, on which commit.
-    private struct DiffKey: Equatable {
-        let entityId: String
-        let commitHash: String
-        var cacheKey: String { "\(entityId)@\(commitHash)" }
-    }
+    @State private var openDiff: DiffCacheKey?
+    @State private var commitDiffs: [DiffCacheKey: EntityDiff] = [:]
+    @State private var loadingDiffs: Set<DiffCacheKey> = []
+    @State private var diffErrors: Set<DiffCacheKey> = []
 
     // Prefer the backend-derived `kind`; fall back to the author string so the
     // row still classifies correctly against an older backend (no `kind`).
@@ -225,10 +223,12 @@ private struct ContributorRow: View {
             }
 
             if let key = openDiff, key.commitHash == commit.commitHash {
-                if let diff = commitDiffs[key.cacheKey] {
+                if let diff = commitDiffs[key] {
                     DiffView(diff: diff)
-                } else if loadingDiffs.contains(key.cacheKey) {
+                } else if loadingDiffs.contains(key) {
                     DiffView.loading
+                } else if diffErrors.contains(key) {
+                    DiffView.error { fetchEntityDiff(key) }
                 } else {
                     DiffView.empty
                 }
@@ -240,10 +240,10 @@ private struct ContributorRow: View {
     }
 
     private func entityChip(_ entityId: String, commit: ContributorCommit) -> some View {
-        let key = DiffKey(entityId: entityId, commitHash: commit.commitHash)
+        let key = DiffCacheKey(entityId: entityId, commitHash: commit.commitHash)
         let isOpen = openDiff == key
         return Button {
-            openEntityDiff(key)
+            toggleEntityDiff(key)
         } label: {
             Text(entityId)
                 .font(.system(size: 11))
@@ -259,21 +259,31 @@ private struct ContributorRow: View {
         .help("Show what changed on \(entityId) in this commit")
     }
 
-    private func openEntityDiff(_ key: DiffKey) {
+    private func toggleEntityDiff(_ key: DiffCacheKey) {
         if openDiff == key {
             openDiff = nil
             return
         }
         openDiff = key
-        guard commitDiffs[key.cacheKey] == nil,
-              !loadingDiffs.contains(key.cacheKey) else { return }
-        loadingDiffs.insert(key.cacheKey)
+        guard commitDiffs[key] == nil, !loadingDiffs.contains(key) else { return }
+        fetchEntityDiff(key)
+    }
+
+    /// Fetches (or retries) one (entity, commit) chip's diff.
+    private func fetchEntityDiff(_ key: DiffCacheKey) {
+        diffErrors.remove(key)
+        loadingDiffs.insert(key)
         Task {
-            let diff = try? await APIClient.shared.fetchEntityCommitDiff(
-                id: key.entityId, commitHash: key.commitHash
-            )
-            loadingDiffs.remove(key.cacheKey)
-            if let diff { commitDiffs[key.cacheKey] = diff }
+            do {
+                let diff = try await APIClient.shared.fetchEntityCommitDiff(
+                    id: key.entityId, commitHash: key.commitHash
+                )
+                loadingDiffs.remove(key)
+                commitDiffs[key] = diff
+            } catch {
+                loadingDiffs.remove(key)
+                diffErrors.insert(key)
+            }
         }
     }
 }

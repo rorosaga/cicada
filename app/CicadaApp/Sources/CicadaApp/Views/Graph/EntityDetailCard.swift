@@ -29,12 +29,31 @@ struct EntityDetailCard: View {
     @State private var newSourceRef = ""
 
     // G67 — per-commit diffs in the History tab, fetched on demand and cached
-    // per commit hash for the life of this card. `expanded` is the set of
-    // commits the user has opened; `loading` guards against a second fetch
-    // while the first is in flight.
-    @State private var expandedCommits: Set<String> = []
-    @State private var commitDiffs: [String: EntityDiff] = [:]
-    @State private var loadingCommits: Set<String> = []
+    // per (entity, commit) — `DiffCacheKey`, not commit hash alone: one
+    // Sleep-cycle commit routinely touches several entity files, so the same
+    // hash commonly appears in more than one entity's history, and keying by
+    // hash alone let entity B render entity A's cached diff for a shared
+    // commit (fix round 1). `expanded` is the set of commits the user has
+    // opened; `loading` guards against a second fetch while the first is in
+    // flight; `diffErrors` marks a fetch that failed so the row can offer a
+    // retry instead of silently reading as "no changes".
+    //
+    // `activeEntityId` names which entity these caches currently belong to.
+    // `toggleCommit`'s fetch `Task` is a bare, uncancelled task: if the user
+    // swaps entities while it's in flight, it resolves *after* the manual
+    // reset below and would otherwise still write into the (now-current)
+    // dicts. The `DiffCacheKey` already prevents that write from being
+    // *read* under the wrong entity, but the `activeEntityId` guard in
+    // `fetchDiff` additionally stops the stale write from happening at all.
+    @State private var activeEntityId: String = ""
+    @State private var expandedCommits: Set<DiffCacheKey> = []
+    @State private var commitDiffs: [DiffCacheKey: EntityDiff] = [:]
+    @State private var loadingCommits: Set<DiffCacheKey> = []
+    @State private var diffErrors: Set<DiffCacheKey> = []
+
+    private func diffKey(_ commitHash: String) -> DiffCacheKey {
+        DiffCacheKey(entityId: entity.id, commitHash: commitHash)
+    }
 
     struct TimelineKey: Identifiable, Hashable {
         let predicate: String
@@ -259,9 +278,11 @@ struct EntityDetailCard: View {
             repoContexts = []
             sources = []
             newSourceRef = ""
+            activeEntityId = entity.id
             expandedCommits = []
             commitDiffs = [:]
             loadingCommits = []
+            diffErrors = []
             sources = (try? await APIClient.shared.fetchEntitySources(entityId: entity.id)) ?? []
             // §5.7 — the card opened on the graph-node stub, whose
             // `markdownContent` is the server's short `summary` (already
@@ -842,12 +863,15 @@ struct EntityDetailCard: View {
                         // only when history was fetched with includeDiff=true)
                         // wins so we never re-fetch what we already hold.
                         if isExpanded(entry) {
+                            let key = diffKey(entry.commitHash)
                             if let inline = entry.diff {
                                 DiffView(diff: inline)
-                            } else if let fetched = commitDiffs[entry.commitHash] {
+                            } else if let fetched = commitDiffs[key] {
                                 DiffView(diff: fetched)
-                            } else if loadingCommits.contains(entry.commitHash) {
+                            } else if loadingCommits.contains(key) {
                                 DiffView.loading
+                            } else if diffErrors.contains(key) {
+                                DiffView.error { fetchDiff(commitHash: entry.commitHash) }
                             } else {
                                 DiffView.empty
                             }
@@ -863,7 +887,7 @@ struct EntityDetailCard: View {
     }
 
     private func isExpanded(_ entry: EntityHistoryEntry) -> Bool {
-        !entry.commitHash.isEmpty && expandedCommits.contains(entry.commitHash)
+        !entry.commitHash.isEmpty && expandedCommits.contains(diffKey(entry.commitHash))
     }
 
     /// The tappable summary line. A row with no `commitHash` (an older backend
@@ -924,22 +948,43 @@ struct EntityDetailCard: View {
 
     /// Collapse, or expand + fetch. On-demand only (the `LogoStore`/
     /// `EntitySource` precedent): a commit diff is not snapshot state, so it
-    /// goes straight to `APIClient` and is cached per hash for this card.
+    /// goes straight to `APIClient` and is cached per `DiffCacheKey` for this
+    /// card.
     private func toggleCommit(_ commitHash: String) {
-        if expandedCommits.contains(commitHash) {
-            expandedCommits.remove(commitHash)
+        let key = diffKey(commitHash)
+        if expandedCommits.contains(key) {
+            expandedCommits.remove(key)
             return
         }
-        expandedCommits.insert(commitHash)
-        guard commitDiffs[commitHash] == nil,
-              !loadingCommits.contains(commitHash) else { return }
-        loadingCommits.insert(commitHash)
+        expandedCommits.insert(key)
+        guard commitDiffs[key] == nil, !loadingCommits.contains(key) else { return }
+        fetchDiff(commitHash: commitHash)
+    }
+
+    /// Fetches (or retries) one commit's diff. Captures the entity this fetch
+    /// is FOR up front; if the card has since swapped to a different entity
+    /// by the time the request resolves (a bare, uncancelled `Task`), the
+    /// write is dropped instead of landing in the new entity's cache — on top
+    /// of the `DiffCacheKey` already keeping it out of anything the new
+    /// entity's rows would read.
+    private func fetchDiff(commitHash: String) {
+        let entityId = entity.id
+        let key = diffKey(commitHash)
+        diffErrors.remove(key)
+        loadingCommits.insert(key)
         Task {
-            let diff = try? await APIClient.shared.fetchEntityCommitDiff(
-                id: entity.id, commitHash: commitHash
-            )
-            loadingCommits.remove(commitHash)
-            if let diff { commitDiffs[commitHash] = diff }
+            do {
+                let diff = try await APIClient.shared.fetchEntityCommitDiff(
+                    id: entityId, commitHash: commitHash
+                )
+                loadingCommits.remove(key)
+                guard entityId == activeEntityId else { return }
+                commitDiffs[key] = diff
+            } catch {
+                loadingCommits.remove(key)
+                guard entityId == activeEntityId else { return }
+                diffErrors.insert(key)
+            }
         }
     }
 

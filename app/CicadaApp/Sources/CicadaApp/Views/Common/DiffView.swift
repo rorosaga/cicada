@@ -12,6 +12,19 @@ import SwiftUI
 // We render removals first, then additions — the same order the old inline
 // renderer used, and the order a reader expects for "what this commit changed".
 
+/// Identifies one (entity, commit) pair's diff-fetch state. The same commit
+/// hash routinely appears in more than one entity's history — one Sleep-cycle
+/// commit commonly touches several entity files — so a commit hash alone is
+/// never a safe cache key: keying by hash alone let one entity's cached diff
+/// leak into another entity's row for a shared commit (G67 fix round 1).
+/// Shared by both call sites (`EntityDetailCard`'s History tab,
+/// `ContributorsView`'s commit drill-down) so the composition rule lives in
+/// one place and is unit-testable without a view hierarchy.
+struct DiffCacheKey: Hashable {
+    let entityId: String
+    let commitHash: String
+}
+
 /// One rendered diff row.
 struct DiffLine: Identifiable, Equatable {
     enum Kind: Equatable {
@@ -82,8 +95,11 @@ struct DiffView: View {
         self.model = DiffModel(diff)
     }
 
-    private static let addedColor = Color(hex: 0x22C55E)
-    private static let removedColor = Color(hex: 0xEF4444)
+    // Routed through CicadaTheme (not raw hex literals) so light mode gets its
+    // own deepened-for-contrast variant instead of the dark-tuned value
+    // rendering unchanged in both themes (G67 fix round 1).
+    private static var addedColor: Color { CicadaTheme.diffAdded }
+    private static var removedColor: Color { CicadaTheme.diffRemoved }
 
     var body: some View {
         if model.isEmpty {
@@ -151,12 +167,32 @@ struct DiffView: View {
         .padding(CicadaTheme.spacingSM)
     }
 
-    /// Shown when the commit did not change this file (or the fetch failed).
+    /// Shown when the commit did not change this file for real — no fetch
+    /// error, the diff genuinely came back empty.
     static var empty: some View {
         Text("No line changes for this entity in this commit.")
             .font(CicadaTheme.captionFont)
             .foregroundStyle(CicadaTheme.textTertiary)
             .padding(CicadaTheme.spacingSM)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Shown when the fetch itself failed (G67 fix round 1) — distinct from
+    /// `empty` so a network hiccup doesn't read as "this commit changed
+    /// nothing here". Tapping retries via the caller-supplied closure.
+    static func error(onRetry: @escaping () -> Void) -> some View {
+        Button(action: onRetry) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(CicadaTheme.diffRemoved)
+                Text("Couldn't load this diff — tap to retry")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            .padding(CicadaTheme.spacingSM)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

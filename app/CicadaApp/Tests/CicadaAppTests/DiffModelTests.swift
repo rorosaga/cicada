@@ -8,6 +8,10 @@ final class DiffModelTests: XCTestCase {
 
     override func tearDown() {
         MockURLProtocol.handler = nil
+        // CicadaTheme.mode is process-global mutable state (see CicadaTheme.swift);
+        // restore its default so a light-mode assertion here can't bleed into
+        // another test file that runs after this one.
+        CicadaTheme.mode = .dark
         super.tearDown()
     }
 
@@ -116,5 +120,85 @@ final class DiffModelTests: XCTestCase {
             .fetchEntityCommitDiff(id: "mongodb", commitHash: "abc1234")
 
         XCTAssertEqual(DiffModel(diff).lines.map(\.text), ["line a", "line b"])
+    }
+
+    // MARK: - DiffCacheKey (G67 fix round 1)
+    //
+    // A per-commit diff cache keyed by commit hash alone lets one entity's
+    // cached diff leak into another entity's row for a shared commit — one
+    // Sleep-cycle commit routinely touches several entity files, so the same
+    // hash commonly appears in more than one entity's history. `DiffCacheKey`
+    // is the shared (entityId, commitHash) composite key both `EntityDetailCard`
+    // and `ContributorsView` cache their diff state under; this is the pure,
+    // testable seam that composition rule lives in.
+
+    func testTheSameCommitHashInTwoDifferentEntitiesProducesDistinctKeys() {
+        let mongo = DiffCacheKey(entityId: "mongodb", commitHash: "abc1234")
+        let postgres = DiffCacheKey(entityId: "postgres", commitHash: "abc1234")
+
+        XCTAssertNotEqual(mongo, postgres)
+    }
+
+    func testTheSameEntityAndCommitProduceEqualKeys() {
+        XCTAssertEqual(
+            DiffCacheKey(entityId: "mongodb", commitHash: "abc1234"),
+            DiffCacheKey(entityId: "mongodb", commitHash: "abc1234")
+        )
+    }
+
+    func testASetOfKeysDeduplicatesOnlyExactEntityCommitPairs() {
+        let keys: Set<DiffCacheKey> = [
+            DiffCacheKey(entityId: "mongodb", commitHash: "abc1234"),
+            DiffCacheKey(entityId: "postgres", commitHash: "abc1234"),
+            DiffCacheKey(entityId: "mongodb", commitHash: "abc1234"),  // duplicate
+        ]
+
+        XCTAssertEqual(keys.count, 2)
+    }
+
+    func testADictionaryKeyedByDiffCacheKeyKeepsBothEntitiesDiffsSeparate() {
+        // The concrete bug this guards against: entity B rendering entity A's
+        // cached diff content for a commit hash the two share.
+        var cache: [DiffCacheKey: EntityDiff] = [:]
+        cache[DiffCacheKey(entityId: "mongodb", commitHash: "abc1234")] =
+            EntityDiff(added: "mongodb's line", removed: "")
+        cache[DiffCacheKey(entityId: "postgres", commitHash: "abc1234")] =
+            EntityDiff(added: "postgres's line", removed: "")
+
+        XCTAssertEqual(
+            cache[DiffCacheKey(entityId: "mongodb", commitHash: "abc1234")]?.added,
+            "mongodb's line"
+        )
+        XCTAssertEqual(
+            cache[DiffCacheKey(entityId: "postgres", commitHash: "abc1234")]?.added,
+            "postgres's line"
+        )
+    }
+
+    // MARK: - CicadaTheme.diffAdded / diffRemoved (G67 fix round 1)
+    //
+    // DiffView must route through CicadaTheme rather than raw hex literals so
+    // light mode gets its own deepened-for-contrast variant instead of the
+    // dark-tuned value rendering unchanged in both themes.
+
+    func testDiffColorsDifferBetweenLightAndDarkMode() {
+        CicadaTheme.mode = .dark
+        let darkAdded = CicadaTheme.diffAdded
+        let darkRemoved = CicadaTheme.diffRemoved
+
+        CicadaTheme.mode = .light
+        let lightAdded = CicadaTheme.diffAdded
+        let lightRemoved = CicadaTheme.diffRemoved
+
+        XCTAssertNotEqual(darkAdded, lightAdded)
+        XCTAssertNotEqual(darkRemoved, lightRemoved)
+    }
+
+    func testDiffAddedAndDiffRemovedAreDistinctInEachMode() {
+        CicadaTheme.mode = .dark
+        XCTAssertNotEqual(CicadaTheme.diffAdded, CicadaTheme.diffRemoved)
+
+        CicadaTheme.mode = .light
+        XCTAssertNotEqual(CicadaTheme.diffAdded, CicadaTheme.diffRemoved)
     }
 }
