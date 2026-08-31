@@ -49,7 +49,18 @@ class UsageEvent:
 
     @property
     def tokens(self) -> int:
-        return self.input_tokens + self.output_tokens + self.cache_read_tokens + self.cache_write_tokens
+        """Total tokens for this unit of work.
+
+        ``input_tokens`` is the **gross** prompt, following litellm's
+        ``Usage.prompt_tokens`` semantics (see :func:`usage_from_response`):
+        ``cache_read_tokens`` and ``cache_write_tokens`` are a *breakdown of*
+        it, not extra tokens beside it. OpenAI/Codex report
+        ``prompt_tokens_details.cached_tokens`` as a subset of
+        ``prompt_tokens``; litellm folds Anthropic's separate cache counters
+        into ``prompt_tokens`` the same way. So adding them here counted the
+        same tokens twice on every cached call.
+        """
+        return self.input_tokens + self.output_tokens
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), separators=(",", ":"), ensure_ascii=False)
@@ -57,6 +68,12 @@ class UsageEvent:
     @classmethod
     def from_json(cls, line: str) -> "UsageEvent":
         data = json.loads(line)
+        if not isinstance(data, dict):
+            # A valid-JSON but non-object line (a bare string, number, or list)
+            # is corruption like any other: ``read_events`` counts and skips it.
+            # Without this it reached ``.items()`` and raised AttributeError,
+            # which nothing catches — one stray line broke every /consumption/*.
+            raise ValueError(f"telemetry line is not a JSON object (got {type(data).__name__})")
         known = {f.name for f in fields(cls)}
         return cls(**{k: v for k, v in data.items() if k in known})
 
@@ -128,17 +145,38 @@ def _get(obj, key: str, default=0):
 
 
 def usage_from_response(resp) -> dict:
+    """Normalize a provider response's ``usage`` to the ledger's four buckets.
+
+    **The rule: ``input_tokens`` is always GROSS** — the whole prompt, with
+    ``cache_read_tokens``/``cache_write_tokens`` recorded as a breakdown *of*
+    it, never as tokens beside it. That is litellm's own ``Usage`` contract:
+    OpenAI/Codex report ``prompt_tokens_details.cached_tokens`` as a subset of
+    ``prompt_tokens``, and litellm's Anthropic transformation adds
+    ``cache_read_input_tokens`` + ``cache_creation_input_tokens`` *into*
+    ``prompt_tokens`` so both shapes agree. ``pricing.estimate_cost`` depends
+    on it too: ``litellm.cost_per_token`` subtracts the cache buckets out of
+    ``prompt_tokens`` itself, and handing it a pre-netted prompt yields a
+    negative input cost.
+
+    Only a *raw* Anthropic SDK usage object (``input_tokens`` with no
+    ``prompt_tokens``) genuinely excludes the cache buckets, so that shape —
+    and only that shape — is grossed up here.
+    """
     usage = getattr(resp, "usage", None)
     details = _get(usage, "prompt_tokens_details", None)
     hidden = getattr(resp, "_hidden_params", None) or {}
     cost = _get(hidden, "response_cost", None)
     if cost is None:
         cost = _get(usage, "cost", None)
+    cache_read = int(_get(details, "cached_tokens", 0) or _get(usage, "cache_read_input_tokens", 0) or 0)
+    cache_write = int(_get(usage, "cache_creation_input_tokens", 0) or 0)
+    prompt = int(_get(usage, "prompt_tokens", 0) or 0)
+    input_tokens = prompt or (int(_get(usage, "input_tokens", 0) or 0) + cache_read + cache_write)
     return {
-        "input_tokens": int(_get(usage, "prompt_tokens", 0) or _get(usage, "input_tokens", 0) or 0),
+        "input_tokens": input_tokens,
         "output_tokens": int(_get(usage, "completion_tokens", 0) or _get(usage, "output_tokens", 0) or 0),
-        "cache_read_tokens": int(_get(details, "cached_tokens", 0) or _get(usage, "cache_read_input_tokens", 0) or 0),
-        "cache_write_tokens": int(_get(usage, "cache_creation_input_tokens", 0) or 0),
+        "cache_read_tokens": cache_read,
+        "cache_write_tokens": cache_write,
         "cost_usd": float(cost) if cost is not None else None,
     }
 

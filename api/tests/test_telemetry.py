@@ -83,3 +83,42 @@ def test_connection_for_model(model, expected):
 def test_roundtrip_ignores_unknown_fields():
     ev = tm.UsageEvent.from_json('{"ts":"2026-08-28T00:00:00Z","kind":"ask","future_field":1}')
     assert ev.kind == "ask" and ev.invocations == 1
+
+
+def test_cached_tokens_are_not_counted_twice():
+    """`input_tokens` is the GROSS prompt (litellm's `Usage.prompt_tokens`
+    contract), so the cache buckets are a breakdown of it, not an addition."""
+    ev = tm.UsageEvent(kind="llm_call", input_tokens=100, output_tokens=20,
+                       cache_read_tokens=40, cache_write_tokens=10)
+    assert ev.tokens == 120
+
+
+def test_raw_anthropic_usage_is_grossed_up_so_the_total_still_holds():
+    """A raw Anthropic SDK usage object (no `prompt_tokens`) reports
+    `input_tokens` EXCLUDING the cache buckets — the one shape that has to be
+    added up, so that `tokens` means the same thing for every provider."""
+    class _Resp:
+        usage = {"input_tokens": 60, "output_tokens": 20,
+                 "cache_read_input_tokens": 30, "cache_creation_input_tokens": 10}
+
+    got = tm.usage_from_response(_Resp())
+    assert got["input_tokens"] == 100  # 60 fresh + 30 read + 10 written
+    assert got["cache_read_tokens"] == 30 and got["cache_write_tokens"] == 10
+    assert tm.UsageEvent(kind="llm_call", **{k: v for k, v in got.items() if k != "cost_usd"}).tokens == 120
+
+
+def test_a_valid_json_non_object_line_is_skipped_not_raised(home):
+    """A bare string/number/list line is corruption like any other: `read_events`
+    counts and skips it. It used to hit `.items()` -> AttributeError, which
+    nothing catches, taking every /consumption/* endpoint down with it."""
+    tm.record(_ev("2026-08-15T00:00:00.000Z"))
+    with open(home / "telemetry" / "events-2026-08.jsonl", "a") as fh:
+        fh.write('"just a string"\n')
+        fh.write("42\n")
+        fh.write('[{"kind":"llm_call"}]\n')
+        fh.write("null\n")
+    events = tm.read_events()
+    assert len(events) == 1 and events[0].ts.startswith("2026-08-15")
+
+    with pytest.raises(ValueError):
+        tm.UsageEvent.from_json("42")
