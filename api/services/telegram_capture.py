@@ -201,7 +201,10 @@ async def ingest_telegram_update(
             )
             status = (result or {}).get("status") if isinstance(result, dict) else None
             if status == "duplicate":
-                ack = "Already saved."
+                # L3 (final review): a reason on a repeat save still gets
+                # written (see _default_save_url) — the ACK must say so
+                # rather than implying the reason was silently dropped.
+                ack = "Already saved — note updated." if reason else "Already saved."
             elif reason:
                 ack = f"Saved with note: {reason}"
             else:
@@ -277,6 +280,59 @@ def _write_saved_because_claim(
         )
 
 
+def _append_saved_because_section_if_absent(
+    memory_path: Path, episode_id: str, reason: str
+) -> None:
+    """Append a ``## Saved because`` section to an EXISTING episode on a
+    repeat ``/save`` with a new reason (final-review L3).
+
+    A brand-new save gets this section baked in by ``_episode_body`` at
+    write time; a duplicate never re-writes the episode at all, so an
+    already-saved URL that gets a reason for the FIRST time on a later save
+    would otherwise never gain the section a fresh save with a reason gets
+    for free. Only appends when the episode doesn't already carry one — a
+    changed reason on a THIRD save still updates the claim (claim history is
+    append-only and versioned; this section is prose on a single file, not
+    a ledger, so it is written once). Never raises — the same "the save
+    already succeeded, a missed annotation must not undo it" contract as
+    ``_tag_episode_origin``.
+    """
+    if not episode_id:
+        return
+    filepath = memory_path / "episodes" / f"{episode_id}.md"
+    try:
+        parsed = markdown_parser.parse(filepath)
+        if "## Saved because" in parsed.body:
+            return
+        body = parsed.body.rstrip("\n") + f"\n\n## Saved because\n{reason}\n"
+        markdown_parser.write(filepath, dict(parsed.frontmatter or {}), body)
+    except Exception as e:
+        logger.debug(
+            f"Could not append Saved-because section to {episode_id}: "
+            f"{type(e).__name__}: {e}"
+        )
+
+
+async def _commit_saved_because_update(memory_path: Path, media_entity_id: str) -> None:
+    """Commit a ``saved-because`` claim (+ episode section) written on a
+    REPEAT save of an already-saved URL (final-review L3) — a distinct,
+    honestly-worded commit from ``_commit_media``'s "N media item(s) saved",
+    since no new media item was created here.
+    """
+    from api.services import git_service
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    message = git_service.build_commit_message(
+        f"Sources ingest {date_str}",
+        [
+            f"entities/{media_entity_id}.md: updated (trigger: user/media_save)",
+            "saved-because note updated on a repeat save (trigger: user/media_save)",
+        ],
+        authors=["user"],
+    )
+    await git_service.commit_changes(memory_path, message)
+
+
 async def _default_save_url(
     memory_path: Path, url: str, *, note: str | None = None, reason: str | None = None
 ) -> dict:
@@ -301,6 +357,19 @@ async def _default_save_url(
             await media_ingestor._commit_media(memory_path, 1)
         except Exception as e:
             logger.warning(f"Telegram media commit failed: {type(e).__name__}: {e}")
+    elif reason and result.media_entity_id:
+        # L3 (final review): a repeat /save of an already-saved URL WITH a
+        # new reason must not silently drop it — update/write the
+        # saved-because claim and append the episode section if it doesn't
+        # have one yet, same as a brand-new save would.
+        _write_saved_because_claim(
+            memory_path, result.media_entity_id, reason, result.episode_id
+        )
+        _append_saved_because_section_if_absent(memory_path, result.episode_id, reason)
+        try:
+            await _commit_saved_because_update(memory_path, result.media_entity_id)
+        except Exception as e:
+            logger.warning(f"Telegram saved-because commit failed: {type(e).__name__}: {e}")
 
     return {
         "status": result.status,
