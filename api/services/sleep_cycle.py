@@ -491,6 +491,12 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
             "origin": fm.get("origin") or _derive_origin(source),
             "timestamp": str(fm.get("timestamp", "") or ""),
             "filepath": f.path,
+            # G48: which conversation produced this episode. `session_id` is
+            # stamped by the MCP seam at capture; `source_id` is G20's
+            # per-thread export id. `_finalize` turns the distinct set into
+            # `Cicada-Session:` trailers.
+            "session_id": str(fm.get("session_id") or "") or None,
+            "source_id": str(fm.get("source_id") or "") or None,
         })
     # Fall back on the id (which begins with the date) for episodes missing a
     # timestamp so the sort is stable regardless of filesystem order.

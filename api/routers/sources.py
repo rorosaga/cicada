@@ -66,7 +66,14 @@ async def save_source(
         raise HTTPException(status_code=422, detail="URL must start with http:// or https://")
 
     memory_path = settings.memory_path
-    item = RawItem(url=url, tags=request.tags, note=request.note)
+    item = RawItem(
+        url=url,
+        tags=request.tags,
+        note=request.note,
+        session_id=request.session_id,
+        harness=request.harness,
+        project_dir=request.project_dir,
+    )
     idx = media_ingestor.load_url_index(memory_path)
     async with httpx.AsyncClient() as client:
         result = await media_ingestor.ingest_one(item, memory_path, client, idx)

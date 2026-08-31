@@ -9,7 +9,10 @@ Cursor) can connect to. Provides tools for:
 
 import json
 import os
+import re
 import sys
+import uuid
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
@@ -24,6 +27,105 @@ if str(_REPO_ROOT) not in sys.path:
 from api.services import agentic_write  # noqa: E402
 
 # MCP protocol uses JSON-RPC 2.0 over stdin/stdout
+
+# --- G48: conversation identity ---------------------------------------------
+#
+# stdio MCP is ONE process per client conversation, so a single module-level
+# identity resolved at import time IS the conversation id. Ranked by
+# reliability (see the G48 spec, "Session-id capture at the MCP seam"):
+#
+#   1. CLAUDE_CODE_SESSION_ID (+ CLAUDE_PROJECT_DIR) — undocumented but
+#      verified on Claude Code v2.1.251: injected per-child at spawn, matches
+#      the actively-written transcript, survives `--resume`. Gated on the
+#      strict UUID regex so a future non-uuid value can never reach the
+#      resume path.
+#   2. CICADA_SESSION_ID — explicit override for any MCP client; doubles as a
+#      manual re-attach handle. CICADA_SESSION_HARNESS names the harness.
+#   3. A minted `ses_YYYY-MM-DD_<uuid4hex[:8]>` — still groups this
+#      conversation's episodes; simply never resumable.
+#
+# NOTHING here reads a transcript. The only filesystem contact anywhere in
+# this feature is an isfile() check, and it lives in main(), not here.
+
+SESSION_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
+
+@dataclass(frozen=True)
+class SessionIdentity:
+    session_id: str
+    harness: str
+    project_dir: str | None = None
+
+
+def resolve_session_identity(env: dict | None = None) -> SessionIdentity:
+    """Resolve this process's conversation identity. Pure — pass ``env`` in tests."""
+    env = os.environ if env is None else env
+
+    claude_id = (env.get("CLAUDE_CODE_SESSION_ID") or "").strip()
+    if SESSION_UUID_RE.match(claude_id):
+        return SessionIdentity(
+            session_id=claude_id,
+            harness="claude-code",
+            project_dir=(env.get("CLAUDE_PROJECT_DIR") or "").strip() or None,
+        )
+
+    explicit = (env.get("CICADA_SESSION_ID") or "").strip()
+    if explicit:
+        return SessionIdentity(
+            session_id=explicit,
+            harness=(env.get("CICADA_SESSION_HARNESS") or "").strip() or "unknown",
+            project_dir=(env.get("CLAUDE_PROJECT_DIR") or "").strip() or None,
+        )
+
+    return SessionIdentity(
+        session_id=f"ses_{date.today().isoformat()}_{uuid.uuid4().hex[:8]}",
+        harness="unknown",
+        project_dir=None,
+    )
+
+
+SESSION = resolve_session_identity()
+
+# Filled in by the `initialize` handler from the client's own `clientInfo`
+# (name/version only — the MCP protocol carries nothing else there).
+CLIENT_INFO: dict = {}
+
+
+def _session_frontmatter() -> dict:
+    """The session keys to merge into an episode's frontmatter.
+
+    Additive and inert: origin_stats ignores unknown keys, import re-staging
+    (`_stage_episodes` / `_update_episode_in_place`) preserves them, and
+    markdown_parser round-trips them.
+    """
+    fm: dict = {"session_id": SESSION.session_id}
+    if SESSION.harness and SESSION.harness != "unknown":
+        fm["harness"] = SESSION.harness
+    if SESSION.project_dir:
+        fm["project_dir"] = SESSION.project_dir
+    return fm
+
+
+def _warn_if_transcript_missing() -> None:
+    """Warn (never drop) when a claude-code session has no transcript on disk.
+
+    isfile() ONLY — the transcript is never opened, and its path is never
+    printed, logged, or persisted. stderr, so the JSON-RPC stream on stdout
+    stays clean.
+    """
+    if SESSION.harness != "claude-code" or not SESSION.project_dir:
+        return
+    slug = re.sub(r"[^A-Za-z0-9]", "-", SESSION.project_dir)
+    path = Path.home() / ".claude" / "projects" / slug / f"{SESSION.session_id}.jsonl"
+    if not path.is_file():
+        print(
+            f"cicada-mcp: no transcript found for session {SESSION.session_id} — "
+            "episodes still group by conversation, but Resume may not work",
+            file=sys.stderr,
+        )
+
 
 # Tool list advertised via `tools/list` and dispatched via `tools/call`. Kept at
 # module scope (not local to main()) so both main() and other modules (e.g. a
@@ -293,6 +395,7 @@ TOOLS = [
 
 def main():
     """Main loop: read JSON-RPC requests from stdin, write responses to stdout."""
+    _warn_if_transcript_missing()
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -308,6 +411,16 @@ def main():
         params = request.get("params", {})
 
         if method == "initialize":
+            # G48: stop discarding params — the client names itself here, and
+            # nowhere else. Name/version only; bounded so a hostile client
+            # can't grow a telemetry line without limit.
+            client = params.get("clientInfo")
+            if isinstance(client, dict):
+                CLIENT_INFO.clear()
+                CLIENT_INFO.update({
+                    "name": str(client.get("name") or "")[:64],
+                    "version": str(client.get("version") or "")[:32],
+                })
             respond(req_id, {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
@@ -559,7 +672,13 @@ def handle_save_url(url: str, note: str | None) -> str:
     try:
         import urllib.request
 
-        payload = json.dumps({"url": url, "note": note}).encode("utf-8")
+        payload = json.dumps({
+            "url": url,
+            "note": note,
+            "sessionId": SESSION.session_id,
+            "harness": SESSION.harness,
+            "projectDir": SESSION.project_dir,
+        }).encode("utf-8")
         req = urllib.request.Request(
             "http://127.0.0.1:8000/sources/save",
             data=payload,
@@ -589,7 +708,13 @@ def handle_save_url(url: str, note: str | None) -> str:
         (memory_path / "entities").mkdir(parents=True, exist_ok=True)
 
         async def _save():
-            item = media_ingestor.RawItem(url=url, note=note)
+            item = media_ingestor.RawItem(
+                url=url,
+                note=note,
+                session_id=SESSION.session_id,
+                harness=SESSION.harness,
+                project_dir=SESSION.project_dir,
+            )
             idx = media_ingestor.load_url_index(memory_path)
             async with httpx.AsyncClient() as client:
                 result = await media_ingestor.ingest_one(item, memory_path, client, idx)
@@ -1006,6 +1131,12 @@ def handle_write_claim(
             "claim_id": result.get("claim_id"),
             "episode_id": source_episode,
             "action": result.get("action"),
+            # G48: the ledger becomes the model<->conversation join key, and
+            # `GET /conversations/recent` reads `refs.session_id` back out.
+            "session_id": SESSION.session_id,
+            "harness": SESSION.harness,
+            "client_name": CLIENT_INFO.get("name") or None,
+            "client_version": CLIENT_INFO.get("version") or None,
         },
     ))
 
@@ -1585,6 +1716,8 @@ def handle_save_episode(content: str, title: str | None) -> str:
         "title": title or "MCP capture",
         "processed": False,
         "content_hash": content_hash,
+        # G48: which conversation produced this episode. Additive + inert.
+        **_session_frontmatter(),
     }
     filepath = episodes_dir / f"{episode_id}.md"
     try:

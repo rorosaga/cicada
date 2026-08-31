@@ -67,5 +67,16 @@ def test_agentic_write_event(repo, monkeypatch):
     events = [e for e in telemetry.read_events() if e.kind == "agentic_write"]
     assert len(events) == 1
     assert events[0].connection == "session" and events[0].engine == "mcp-client"
-    assert events[0].refs == {"entity_id": "a", "claim_id": "c1", "episode_id": "ep1", "action": "written"}
+    assert events[0].refs == {
+        "entity_id": "a",
+        "claim_id": "c1",
+        "episode_id": "ep1",
+        "action": "written",
+        # G48: conversation identity + client info threaded into every
+        # agentic_write event's refs (see mcp/server.py::handle_write_claim).
+        "session_id": server.SESSION.session_id,
+        "harness": server.SESSION.harness,
+        "client_name": None,
+        "client_version": None,
+    }
     assert events[0].cost_usd is None and events[0].billing == "subscription"

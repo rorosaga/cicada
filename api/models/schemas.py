@@ -921,6 +921,11 @@ class SourceSaveRequest(CamelModel):
     url: str
     note: Optional[str] = None
     tags: list[str] = []
+    # G48: conversation provenance from a live MCP client (`cicada_save_url`).
+    # Optional — the menu-bar quick action and the app's paste field send none.
+    session_id: Optional[str] = None
+    harness: Optional[str] = None
+    project_dir: Optional[str] = None
 
 
 class SourceSaveResponse(CamelModel):
