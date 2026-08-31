@@ -176,35 +176,46 @@ async def ingest_telegram_update(
     a reason, matching the rest of the ingestion pipeline's "never crash the
     webhook" contract (``media_ingestor.ingest_batch`` does the same).
 
-    ``save_url_fn(memory_path, url, note=...)`` / ``save_episode_fn(memory_path,
-    text, title=...)`` may be sync or async — injected test doubles can be
-    plain functions; the real defaults are async (they call ``media_ingestor``
-    over ``httpx``).
+    ``save_url_fn(memory_path, url, note=..., reason=...)`` / ``save_episode_fn(
+    memory_path, text, title=...)`` may be sync or async.
     """
     try:
         parsed = parse_telegram_update(update)
     except Exception as e:  # pragma: no cover - parse_telegram_update doesn't raise
         logger.warning(f"telegram parse failed: {type(e).__name__}: {e}")
-        return {"kind": "skipped", "reason": f"parse error: {e}"}
+        return {"kind": "skipped", "reason": f"parse error: {e}", "ack": None, "chat_id": None}
 
     if parsed is None:
-        return {"kind": "skipped", "reason": "not a capturable message"}
+        return {"kind": "skipped", "reason": "not a capturable message", "ack": None, "chat_id": None}
 
     text = parsed["text"]
     urls = parsed["urls"]
+    reason = parsed["reason"]
+    chat_id = parsed["chat_id"]
 
     try:
         if urls:
             fn = save_url_fn or _default_save_url
-            result = await _maybe_await(fn(memory_path, urls[0], note=text or None))
-            return {"kind": "url", "url": urls[0], "result": result}
+            result = await _maybe_await(
+                fn(memory_path, urls[0], note=text or None, reason=reason)
+            )
+            status = (result or {}).get("status") if isinstance(result, dict) else None
+            if status == "duplicate":
+                ack = "Already saved."
+            elif reason:
+                ack = f"Saved with note: {reason}"
+            else:
+                ack = "Saved."
+            return {"kind": "url", "url": urls[0], "result": result,
+                    "ack": ack, "chat_id": chat_id}
 
         fn = save_episode_fn or _default_save_episode
         result = await _maybe_await(fn(memory_path, text, title=None))
-        return {"kind": "note", "result": result}
+        return {"kind": "note", "result": result, "ack": "Noted.", "chat_id": chat_id}
     except Exception as e:
         logger.warning(f"telegram ingest failed: {type(e).__name__}: {e}")
-        return {"kind": "skipped", "reason": f"{type(e).__name__}: {e}"}
+        return {"kind": "skipped", "reason": f"{type(e).__name__}: {e}",
+                "ack": None, "chat_id": chat_id}
 
 
 # --- Default writers (the only code path touching real I/O) -----------------
@@ -231,13 +242,50 @@ def _tag_episode_origin(memory_path: Path, episode_id: str, origin: str) -> None
         logger.debug(f"Could not tag origin={origin} on {episode_id}: {type(e).__name__}: {e}")
 
 
-async def _default_save_url(memory_path: Path, url: str, *, note: str | None = None) -> dict:
+def _write_saved_because_claim(
+    memory_path: Path, media_entity_id: str, reason: str, episode_id: str
+) -> None:
+    """The reason, as a first-class ``saved-because`` claim on the media page.
+
+    ``object_kind="literal"`` on purpose: Stage 5.7's
+    ``regenerate_edges_from_claims`` projects only node-object claims, so a
+    free-text reason must never become a graph edge — it stays prose the Feed
+    card can show and Stage 1 can mine for concepts. ``origin="telegram"`` keeps
+    the claim honest: user-stated, but not the manual-assertion channel, so it
+    does not inherit ``claim_reconciler.is_human`` overwrite protection.
+
+    Never raises — ``write_claim`` returns an error dict rather than throwing,
+    and a failed claim must never lose the save that already succeeded.
+    """
+    from api.services.agentic_write import write_claim
+
+    result = write_claim(
+        memory_path,
+        media_entity_id,
+        "saved-because",
+        reason,
+        observer="rodrigo",
+        object_kind="literal",
+        confidence=0.9,
+        source_episode=episode_id or None,
+        origin="telegram",
+    )
+    if result.get("action") in {"error", "ambiguous_subject", "corrupt_claims_block"}:
+        logger.warning(
+            f"saved-because claim not written for {media_entity_id}: "
+            f"{result.get('action')} — {result.get('error')}"
+        )
+
+
+async def _default_save_url(
+    memory_path: Path, url: str, *, note: str | None = None, reason: str | None = None
+) -> dict:
     """Real default for ``save_url_fn`` — the same path as ``POST /sources/save``."""
     import httpx
 
     from api.services import media_ingestor
 
-    item = media_ingestor.RawItem(url=url, note=note)
+    item = media_ingestor.RawItem(url=url, note=note, reason=reason)
     idx = media_ingestor.load_url_index(memory_path)
     async with httpx.AsyncClient() as client:
         result = await media_ingestor.ingest_one(item, memory_path, client, idx)
@@ -245,6 +293,10 @@ async def _default_save_url(memory_path: Path, url: str, *, note: str | None = N
 
     if result.status == "created":
         _tag_episode_origin(memory_path, result.episode_id, "telegram")
+        if reason:
+            _write_saved_because_claim(
+                memory_path, result.media_entity_id, reason, result.episode_id
+            )
         try:
             await media_ingestor._commit_media(memory_path, 1)
         except Exception as e:

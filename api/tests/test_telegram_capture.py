@@ -92,7 +92,7 @@ def test_ingest_url_message_calls_save_url_fn(tmp_path):
     memory = tmp_path / "memory"
     calls = []
 
-    def fake_save_url(memory_path, url, *, note=None):
+    def fake_save_url(memory_path, url, *, note=None, reason=None):
         calls.append((memory_path, url, note))
         return {"status": "created", "media_entity_id": "media-example", "episode_id": "ep_x"}
 
@@ -112,7 +112,7 @@ def test_ingest_url_message_calls_save_url_fn(tmp_path):
 def test_ingest_url_message_save_url_fn_may_be_async(tmp_path):
     memory = tmp_path / "memory"
 
-    async def fake_save_url(memory_path, url, *, note=None):
+    async def fake_save_url(memory_path, url, *, note=None, reason=None):
         return {"status": "created", "media_entity_id": "media-async", "episode_id": "ep_a"}
 
     update = _text_update("https://async.example.com")
@@ -148,7 +148,7 @@ def test_ingest_prefers_url_path_when_both_text_and_url_present(tmp_path):
     url_calls = []
     episode_calls = []
 
-    def fake_save_url(memory_path, url, *, note=None):
+    def fake_save_url(memory_path, url, *, note=None, reason=None):
         url_calls.append(url)
         return {"status": "created"}
 
@@ -288,3 +288,130 @@ def test_parse_reason_is_none_for_a_text_only_message():
 
 def test_parse_returns_the_chat_id():
     assert parse_telegram_update(_text_update("hello"))["chat_id"] == 111
+
+
+# --- reason routing + ACK (G71 §1) ------------------------------------------
+
+
+def test_ingest_passes_the_reason_to_the_url_writer(tmp_path):
+    seen = {}
+
+    def fake_save_url(memory_path, url, *, note=None, reason=None):
+        seen["reason"] = reason
+        return {"status": "created", "media_entity_id": "media-x", "episode_id": "ep_x"}
+
+    update = _text_update("/save https://example.com/recipe great for meal prep")
+    result = run(ingest_telegram_update(tmp_path, update, save_url_fn=fake_save_url))
+    assert seen["reason"] == "great for meal prep"
+    assert result["ack"] == "Saved with note: great for meal prep"
+    assert result["chat_id"] == 111
+
+
+def test_ingest_acks_a_plain_save_and_a_duplicate(tmp_path):
+    def created(memory_path, url, *, note=None, reason=None):
+        return {"status": "created", "media_entity_id": "m", "episode_id": "e"}
+
+    def duplicate(memory_path, url, *, note=None, reason=None):
+        return {"status": "duplicate", "media_entity_id": "m", "episode_id": "e"}
+
+    plain = _text_update("https://example.com/bare")
+    assert run(ingest_telegram_update(tmp_path, plain, save_url_fn=created))["ack"] == "Saved."
+    assert run(ingest_telegram_update(tmp_path, plain, save_url_fn=duplicate))["ack"] == "Already saved."
+
+
+def test_ingest_acks_a_text_only_note(tmp_path):
+    def fake_save_episode(memory_path, text, *, title=None):
+        return {"status": "created", "episode_id": "ep_1"}
+
+    result = run(ingest_telegram_update(
+        tmp_path, _text_update("call the dentist"), save_episode_fn=fake_save_episode))
+    assert result["ack"] == "Noted."
+
+
+def test_skipped_update_has_no_ack(tmp_path):
+    result = run(ingest_telegram_update(tmp_path, {"update_id": 9, "poll_answer": {}}))
+    assert result["kind"] == "skipped"
+    assert result.get("ack") is None
+
+
+def test_default_save_url_writes_a_saved_because_claim(tmp_path, monkeypatch):
+    """The real writer, hermetic: enrichment offline, git commit stubbed."""
+    import asyncio
+
+    from api.services import claims, markdown_parser, media_ingestor
+    from api.services.media_ingestor import MediaMeta
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    async def offline(url, client, from_bookmark_file=False):
+        return MediaMeta(title="A Recipe", description="", site="example.com",
+                         media_type="url")
+
+    async def no_commit(memory_path, count):
+        return None
+
+    monkeypatch.setattr(media_ingestor, "enrich", offline)
+    monkeypatch.setattr(media_ingestor, "_commit_media", no_commit)
+
+    result = asyncio.run(telegram_capture._default_save_url(
+        memory, "https://example.com/recipe", note="great for meal prep",
+        reason="great for meal prep",
+    ))
+    assert result["status"] == "created"
+
+    page = memory / "entities" / f"{result['media_entity_id']}.md"
+    written = [c for c in claims.parse_claims(markdown_parser.parse(page).body)
+               if c.predicate == "saved-because"]
+    assert len(written) == 1
+    assert written[0].object == "great for meal prep"
+    assert written[0].origin == "telegram"
+    assert written[0].object_kind == "literal"
+
+
+def _webhook_client(tmp_path, monkeypatch):
+    from api import config, main
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    monkeypatch.setenv("CICADA_TELEGRAM_BOT_TOKEN", "123:abc")
+    config.get_settings.cache_clear()
+    return TestClient(main.app), memory
+
+
+def test_webhook_answers_with_a_send_message_ack(tmp_path, monkeypatch):
+    """Telegram executes a `method` returned in the webhook RESPONSE, so the
+    ACK needs no outgoing HTTP client and no token in this process."""
+    from api import config
+
+    client, _ = _webhook_client(tmp_path, monkeypatch)
+
+    async def fake_ingest(memory_path, update):
+        return {"kind": "url", "url": "https://example.com/x", "result": {},
+                "ack": "Saved with note: worth rereading", "chat_id": 111}
+
+    monkeypatch.setattr("api.routers.capture.ingest_telegram_update", fake_ingest)
+    resp = client.post("/capture/telegram", json=_text_update("x"))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["method"] == "sendMessage"
+    assert body["chat_id"] == 111
+    assert body["text"] == "Saved with note: worth rereading"
+    config.get_settings.cache_clear()
+
+
+def test_webhook_omits_the_method_when_there_is_nothing_to_ack(tmp_path, monkeypatch):
+    from api import config
+
+    client, _ = _webhook_client(tmp_path, monkeypatch)
+
+    async def fake_ingest(memory_path, update):
+        return {"kind": "skipped", "reason": "nope", "ack": None, "chat_id": None}
+
+    monkeypatch.setattr("api.routers.capture.ingest_telegram_update", fake_ingest)
+    body = client.post("/capture/telegram", json={}).json()
+    assert "method" not in body
+    config.get_settings.cache_clear()
