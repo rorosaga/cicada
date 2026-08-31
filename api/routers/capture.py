@@ -34,8 +34,21 @@ async def capture_telegram(update: dict, settings: Settings = Depends(get_settin
     is saved as media (``origin: telegram``); anything else is staged as an
     episode (``origin: telegram``, ``processed: false``) for the next Sleep
     cycle.
+
+    The response doubles as the bot's reply: when there is something to
+    acknowledge it carries ``method: sendMessage`` so Telegram echoes
+    "Saved with note: …" back into the chat.
     """
     if not settings.telegram_enabled:
         raise HTTPException(status_code=503, detail="telegram not configured")
 
-    return await ingest_telegram_update(settings.memory_path, update)
+    result = await ingest_telegram_update(settings.memory_path, update)
+
+    # Telegram executes a `method` returned in the webhook RESPONSE body, so the
+    # bot can answer without an outgoing HTTP call and without the bot token
+    # ever entering this process's request path (G71 §1).
+    ack = result.get("ack")
+    chat_id = result.get("chat_id")
+    if ack and chat_id is not None:
+        return {**result, "method": "sendMessage", "chat_id": chat_id, "text": ack}
+    return result

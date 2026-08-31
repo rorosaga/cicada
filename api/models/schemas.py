@@ -1045,6 +1045,31 @@ class SourceUploadResponse(CamelModel):
     source: str = "unknown"
 
 
+class SourceUploadCollection(CamelModel):
+    """One grouping inside an export — an IG collection, a YT playlist, a
+    Pinterest board, a bookmark folder — with how many items it holds."""
+
+    name: str
+    kind: str = "list"
+    count: int = 0
+
+
+class SourceUploadPreview(CamelModel):
+    """`POST /sources/upload?preview=true` — what a dropped export CONTAINS.
+
+    Staging-free by contract: answering this request writes no episode, no
+    entity, no url_index entry and no commit, and touches no network.
+    ``recognized`` is false both for a file we cannot parse at all and for one
+    whose format we recognize but which yields nothing — ``warnings`` says which.
+    """
+
+    recognized: bool = False
+    platform: str = "unknown"
+    total: int = 0
+    collections: list[SourceUploadCollection] = []
+    warnings: list[str] = []
+
+
 class SourceRssRequest(CamelModel):
     # Exactly one of feed_xml / feed_url is required. ``feed_xml`` is the
     # keyless/offline path (paste or fetched-elsewhere XML); ``feed_url`` only
@@ -1156,12 +1181,65 @@ class SourceChannel(CamelModel):
     connected: bool = False
     count: int = 0
     last_sync: Optional[str] = None
+    # G71 — the last poll's failure, when there was one. Present so the Capture
+    # page can say "last sync failed · <reason>" instead of silently showing a
+    # stale success. Never carries a credential: connectors build this string
+    # from an exception type + message only.
+    last_error: Optional[str] = None
     detail: Optional[str] = None
     actions: list[str] = []
 
 
 class SourceChannelsResponse(CamelModel):
     channels: list[SourceChannel] = []
+
+
+# --- Saved-content connectors (G71 §2) ---
+
+
+class ConnectorField(CamelModel):
+    """One credential the connector needs. ``present`` says whether it is
+    stored; the VALUE is never returned by any endpoint, ever."""
+
+    name: str
+    label: str
+    secret: bool = False
+    present: bool = False
+
+
+class ConnectorStatus(CamelModel):
+    id: str
+    label: str
+    connected: bool = False
+    fields: list[ConnectorField] = []
+    last_sync: Optional[str] = None
+    last_error: Optional[str] = None
+    detail: Optional[str] = None
+    # "oauth" (Pinterest: save app id/secret, then authorize in a browser) or
+    # "credentials" (a script-app-style connector needs no redirect round trip).
+    login_mode: str = "credentials"
+
+
+class ConnectorsResponse(CamelModel):
+    connectors: list[ConnectorStatus] = []
+
+
+class ConnectorAuthorizeResponse(CamelModel):
+    authorize_url: str
+    state: str
+
+
+class ConnectorSyncResult(CamelModel):
+    status: str            # ok | skipped | error
+    reason: Optional[str] = None
+    new: int = 0
+    seen: int = 0
+    error: Optional[str] = None
+    # G71 follow-up (Task 14): pay-per-use connectors (X) report the number of
+    # billed resource reads this sync incurred, distinct from `new`/`seen` —
+    # every connector defaults to 0, so this is additive, not a shape change.
+    resources_read: int = 0
+
 
 # --- Provider connections (G50) ---
 

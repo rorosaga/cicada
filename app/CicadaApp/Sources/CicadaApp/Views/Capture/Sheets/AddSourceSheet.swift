@@ -12,9 +12,29 @@ import UniformTypeIdentifiers
 /// current rows with remove buttons.
 enum AddSourceTile: String, CaseIterable, Identifiable {
     case chatExport, bookmarksFile, pasteLink, rssFeed, calendar
-    case browserBookmarks, appleNotes, telegram, savedContent
+    case browserBookmarks, appleNotes, telegram
+    // G71 §4.1 — one tile per platform, replacing the combined `savedContent`
+    // tile: the routes differ (two are Connect, four are Import file) and a
+    // single "Instagram & YouTube" tile could not carry a route badge.
+    case instagram, youtube, pinterest, reddit, tiktok, linkedin
+    /// X's connector (Task 14, registry-driven) — a real Connect route,
+    /// exactly like Pinterest and Reddit, now that `x.py` is wired into
+    /// `ADAPTERS` and `channelIds` resolves against a live backend channel.
+    case x
 
     var id: String { rawValue }
+
+    var route: ImportRoute {
+        switch self {
+        case .pinterest, .reddit, .x: return .connect
+        case .browserBookmarks, .appleNotes: return .sync
+        case .rssFeed, .calendar: return .subscribe
+        case .pasteLink: return .paste
+        case .telegram: return .connect
+        case .chatExport, .bookmarksFile, .instagram, .youtube, .tiktok, .linkedin:
+            return .importFile
+        }
+    }
 
     var title: String {
         switch self {
@@ -26,7 +46,13 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .browserBookmarks: "Chrome & Safari bookmarks"
         case .appleNotes: "Apple Notes"
         case .telegram: "Telegram bot"
-        case .savedContent: "Instagram & YouTube"
+        case .instagram: "Instagram"
+        case .youtube: "YouTube"
+        case .pinterest: "Pinterest"
+        case .reddit: "Reddit"
+        case .tiktok: "TikTok"
+        case .linkedin: "LinkedIn"
+        case .x: "X"
         }
     }
 
@@ -40,7 +66,13 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .browserBookmarks: "Read straight off this Mac. No login, no OAuth."
         case .appleNotes: "One-way import from your local Notes library."
         case .telegram: "Forward links and voice notes to your own bot."
-        case .savedContent: "Saved posts and playlists from a data export."
+        case .instagram: "Your saved posts, from a data export."
+        case .youtube: "Playlists and watch history, from Takeout."
+        case .pinterest: "Boards and pins, pulled straight from your account."
+        case .reddit: "Saved posts and comments, pulled every night."
+        case .tiktok: "Favourites and likes, from a data export."
+        case .linkedin: "Saved items — links and dates, nothing more."
+        case .x: "Bookmarks, pulled straight from your account."
         }
     }
 
@@ -54,7 +86,13 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .browserBookmarks: "globe"
         case .appleNotes: "note.text"
         case .telegram: "paperplane.fill"
-        case .savedContent: "camera.fill"
+        case .instagram: "camera.fill"
+        case .youtube: "play.rectangle.fill"
+        case .pinterest: "pin.fill"
+        case .reddit: "bubble.left.and.text.bubble.right.fill"
+        case .tiktok: "music.note"
+        case .linkedin: "briefcase.fill"
+        case .x: "x.circle"
         }
     }
 
@@ -62,9 +100,11 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     ///
     /// Chat export owns **both** export channels — its walkthrough picker is
     /// where the user chooses Claude or ChatGPT, so one tile covers two rows.
-    /// `pasteLink` and `savedContent` own none: they are alternative routes
-    /// into `files`, which `bookmarksFile` already claims, and a channel must
-    /// map back to exactly one tile for "Manage…" to be unambiguous.
+    /// `pasteLink` owns none: it is an alternative route into `files`, which
+    /// `bookmarksFile` already claims. The four Import-file platform tiles
+    /// (Instagram, YouTube, TikTok, LinkedIn) also own none — none of them
+    /// has a persisted backend channel yet — and a channel must map back to
+    /// exactly one tile for "Manage…" to be unambiguous.
     var channelIds: [String] {
         switch self {
         case .chatExport: ["chat-export:claude", "chat-export:chatgpt"]
@@ -75,7 +115,34 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .browserBookmarks: ["bookmarks"]
         case .appleNotes: ["notes"]
         case .telegram: ["telegram"]
-        case .savedContent: []
+        case .pinterest: ["pinterest"]
+        case .reddit: ["reddit"]
+        // Task 14 — x.py joined ADAPTERS, so X resolves against a live
+        // backend channel exactly like Pinterest and Reddit.
+        case .x: ["x"]
+        case .instagram, .youtube, .tiktok, .linkedin: []
+        }
+    }
+
+    /// The bundled brand-mark PNG for this tile (Task 13), when the
+    /// maintainers fetched one — `nil` for a tile whose row isn't a single
+    /// platform's logo: multi-vendor exports, local file/paste actions, or a
+    /// platform GROUP with no single brand mark (Chrome+Safari together,
+    /// Apple Notes, RSS, Calendar all kept their SF Symbol — no sensible
+    /// single logo exists for any of them).
+    var logoName: String? {
+        switch self {
+        case .instagram: "instagram"
+        case .youtube: "youtube"
+        case .pinterest: "pinterest"
+        case .reddit: "reddit"
+        case .tiktok: "tiktok"
+        case .linkedin: "linkedin"
+        case .x: "x"
+        case .telegram: "telegram"
+        case .chatExport, .bookmarksFile, .pasteLink, .rssFeed, .calendar,
+             .browserBookmarks, .appleNotes:
+            nil
         }
     }
 
@@ -96,7 +163,14 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     var vendors: [WalkthroughVendor] {
         switch self {
         case .chatExport: [.claude, .chatgpt]
-        case .savedContent: [.takeout, .instagram]
+        case .instagram: [.instagram]
+        case .youtube: [.takeout]
+        case .tiktok: [.tiktok]
+        case .linkedin: [.linkedin]
+        // The Reddit tile is Connect-first, but the GDPR export is the only
+        // way past the API's ~1,000-item listing cap, so the walkthrough
+        // rides along until Task 11's ConnectorSetupPanel lands.
+        case .reddit: [.redditExport]
         default: []
         }
     }
@@ -118,6 +192,20 @@ struct AddSourceSheet: View {
     @State private var error: String?
     @State private var removingFeed: String?
     @State private var removingCalendar: String?
+    @State private var stage: ImportStage = .idle
+    @State private var includeHistory = false
+    /// The in-flight preview/import network Task, if any. Cancelled — not
+    /// just abandoned — whenever a newer one supersedes it (G71 fix round 1,
+    /// H1): a bare, unstored `Task {}` keeps running after `collapse()`, and
+    /// its late response would otherwise overwrite whichever flow the user
+    /// has since opened.
+    @State private var importTask: Task<Void, Never>?
+    /// Bumped every time `preview()`/`confirmImport()` starts a new request
+    /// and every time `collapse()` tears one down. A response is only ever
+    /// applied to `stage` if its captured generation still matches this one
+    /// — belt-and-suspenders alongside `importTask` cancellation for the
+    /// case where cancellation doesn't land before the response does.
+    @State private var importGeneration = 0
 
     private var feeds: [FeedSubscription] { store.feeds.value ?? [] }
     private var calendars: [CalendarSubscription] { store.calendars.value ?? [] }
@@ -203,12 +291,24 @@ struct AddSourceSheet: View {
         result = nil
         expanded = tile
         if let first = tile.vendors.first { vendor = first }
+        // L5 (final review): `includeHistory` was never reset, so a TikTok
+        // import's "Also import browsing history" toggle silently persisted
+        // into a LATER Instagram/YouTube import — inert there today (only
+        // TikTok reads it), but still wrong state to carry across tiles.
+        includeHistory = false
     }
 
     private func collapse() {
         error = nil
         result = nil
         expanded = nil
+        stage = .idle
+        // H1: cancel the in-flight request AND bump the generation, so a
+        // response already past its cancellation checkpoint still can't land
+        // on the next flow's `stage`.
+        importTask?.cancel()
+        importTask = nil
+        importGeneration += 1
     }
 
     private var header: some View {
@@ -229,37 +329,48 @@ struct AddSourceSheet: View {
         .padding(CicadaTheme.spacingXL)
     }
 
+    /// G71 §4.1 — every tile carries a route badge (Connect / Import file /
+    /// Sync / Subscribe / Save) and, once the channel is live, the channel's
+    /// own detail line in place of the static blurb.
     private func tileButton(_ tile: AddSourceTile) -> some View {
-        Button {
-            if expanded == tile { collapse() } else { open(tile) }
+        let state = AddSourceTile.tileState(tile, channels: store.channels.value ?? [])
+        return Button {
+            open(tile)
         } label: {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Image(systemName: tile.icon)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(expanded == tile ? CicadaTheme.accent : CicadaTheme.textSecondary)
+                if let logoName = tile.logoName {
+                    LogoImage.platformTile(name: logoName, size: 32, systemFallback: tile.icon)
+                } else {
+                    Image(systemName: tile.icon)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
                 Text(tile.title)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(tile.blurb)
+                Text(state.detail ?? tile.blurb)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(state.badge)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(state.connected ? CicadaTheme.success : CicadaTheme.textTertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(CicadaTheme.spacingMD)
             .background(
                 RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                    .fill(expanded == tile ? CicadaTheme.accent.opacity(0.12) : CicadaTheme.surfaceElevated)
+                    .fill(CicadaTheme.surfaceElevated)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                    .stroke(expanded == tile ? CicadaTheme.accent.opacity(0.5) : CicadaTheme.border, lineWidth: 1)
+                    .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
         .disabled(busy)
-        .accessibilityLabel("\(tile.title). \(tile.blurb)")
+        .accessibilityLabel("\(tile.title). \(state.badge). \(state.detail ?? tile.blurb)")
     }
 
     // MARK: - Per-tile flows
@@ -270,8 +381,32 @@ struct AddSourceSheet: View {
             switch tile {
             case .chatExport:
                 WalkthroughPanel(vendors: tile.vendors, vendor: $vendor) { pickChatExport() }
-            case .savedContent:
-                WalkthroughPanel(vendors: tile.vendors, vendor: $vendor) { pickSavedContent() }
+            case .instagram, .youtube, .tiktok, .linkedin:
+                // G71 §4.2–4.3 — drop straight into a live preview: the
+                // walkthrough shows exactly where to click, then a drop (or
+                // "Choose file…") parses the export via the staging-free
+                // preview endpoint and shows what it contains before anything
+                // is imported.
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                    WalkthroughPanel(vendors: tile.vendors, vendor: $vendor) { pickForPreview() }
+                    if tile == .tiktok {
+                        Toggle("Also import browsing history (noisy)", isOn: $includeHistory)
+                            .font(CicadaTheme.captionFont)
+                            .accessibilityLabel("Also import TikTok browsing history")
+                    }
+                    ImportPreviewSection(stage: stage,
+                                         onConfirm: { confirmImport($0) },
+                                         onCancel: { stage = .idle })
+                }
+                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                    guard let provider = providers.first else { return false }
+                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                        if let url { Task { @MainActor in preview(url) } }
+                    }
+                    return true
+                }
+            case .pinterest, .reddit, .x:
+                ConnectorSetupPanel(connectorId: tile.rawValue, vendors: tile.vendors, vendor: $vendor)
             case .bookmarksFile:
                 Text("A Netscape-format .html, a Chrome .json, a YouTube playlist .csv, or a whole Takeout .zip.")
                     .font(CicadaTheme.bodyFont)
@@ -472,6 +607,83 @@ struct AddSourceSheet: View {
         panel.message = "Select a bookmarks/saved-content export (HTML, JSON, CSV, or ZIP)"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         runImport(files: panel.urls) { try await APIClient.shared.uploadSource(fileURL: $0) }
+    }
+
+    /// Pick a file and immediately preview it — nothing is imported until the
+    /// user confirms what the preview showed them (G71 §4.3).
+    private func pickForPreview() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json, .html, .commaSeparatedText, .zip]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.message = "Select the export file to import"
+        guard panel.runModal() == .OK, let url = panel.urls.first else { return }
+        preview(url)
+    }
+
+    /// Cancels any prior in-flight preview/import and mints a new generation
+    /// token before launching under it (G71 fix round 1, H1) — a response
+    /// captured under an older generation is dropped rather than applied to
+    /// `stage`, whether it lands after `collapse()` or after a newer drop on
+    /// the SAME flow superseded it.
+    private func startImportTask(_ work: @escaping (Int) async -> Void) {
+        importTask?.cancel()
+        importGeneration += 1
+        let generation = importGeneration
+        importTask = Task {
+            await work(generation)
+        }
+    }
+
+    private func preview(_ url: URL) {
+        stage = .parsing(url.lastPathComponent)
+        // Devin round-1, finding 4: capture the toggle's value at the moment
+        // the PREVIEW is actually requested, not read live again later — the
+        // network round trip (and the time the user spends looking at the
+        // resulting preview) is exactly the window `includeHistory` could
+        // drift in. `requestedIncludeHistory` is what both this preview
+        // request AND the eventual Confirm use.
+        let requestedIncludeHistory = includeHistory
+        startImportTask { generation in
+            do {
+                let result = try await APIClient.shared.previewSource(
+                    fileURL: url, includeHistory: requestedIncludeHistory)
+                guard generation == self.importGeneration else { return }
+                self.stage = ImportOverlayState.afterPreview(
+                    result, file: url, includeHistory: requestedIncludeHistory)
+            } catch {
+                guard generation == self.importGeneration else { return }
+                self.stage = .failed(Self.friendlyError(error))
+            }
+        }
+    }
+
+    /// Confirm re-posts the SAME file without the preview flag, carrying the
+    /// EXACT `includeHistory` value the preview stage CAPTURED at request
+    /// time (Devin round-1, finding 4 — replaces reading the live toggle
+    /// here, which could have drifted since the preview was shown: flipping
+    /// TikTok's "Also import browsing history" after previewing must not
+    /// silently change what Confirm posts). Nothing is cached server-side:
+    /// a preview that stages nothing must not stage bytes.
+    ///
+    /// Guards against a double-tap firing two imports (M4): once `stage` has
+    /// left `.preview`, a repeat activation is a no-op rather than a second
+    /// upload.
+    private func confirmImport(_ url: URL) {
+        guard case .preview(_, _, let previewedIncludeHistory) = stage else { return }
+        stage = .importing
+        startImportTask { generation in
+            do {
+                let response = try await APIClient.shared.uploadSource(
+                    fileURL: url, includeHistory: previewedIncludeHistory)
+                await self.store.refresh([.channels, .status, .sources])
+                guard generation == self.importGeneration else { return }
+                self.stage = .done(ImportOverlayState.summary(response))
+            } catch {
+                guard generation == self.importGeneration else { return }
+                self.stage = .failed(Self.friendlyError(error))
+            }
+        }
     }
 
     private func runImport(files: [URL], upload: @escaping (URL) async throws -> UploadResponse) {

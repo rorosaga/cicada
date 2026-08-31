@@ -1042,6 +1042,34 @@ actor APIClient {
         try await put("/connections/\(id)/prefs", body: ["tier": tier ?? NSNull()])
     }
 
+    // MARK: - Saved-content connectors (G71)
+
+    func fetchConnectors() async throws -> [ConnectorStatus] {
+        let response: ConnectorsResponse = try await get("/sources/connectors")
+        return response.connectors
+    }
+
+    func saveConnectorCredentials(
+        _ id: String, fields: [String: String]
+    ) async throws -> ConnectorStatus {
+        try await put("/sources/connectors/\(id)/credentials", body: ["fields": fields])
+    }
+
+    /// `delete(_:)` returns raw `Data` (mirrors `removeKey`'s DELETE-then-decode
+    /// pattern) — there is no generic `delete<T: Decodable>` helper on this actor.
+    func forgetConnector(_ id: String) async throws -> ConnectorStatus {
+        let data = try await delete("/sources/connectors/\(id)/credentials")
+        return try decoder.decode(ConnectorStatus.self, from: data)
+    }
+
+    func authorizeConnector(_ id: String) async throws -> ConnectorAuthorizeResponse {
+        try await post("/sources/connectors/\(id)/authorize")
+    }
+
+    func syncConnector(_ id: String) async throws -> ConnectorSyncResult {
+        try await post("/sources/connectors/\(id)/sync")
+    }
+
     // MARK: - Consumption (G51)
     //
     // Plain (non-conditional) fetches for a range the Store's default
@@ -1128,8 +1156,14 @@ actor APIClient {
 
     /// Upload a single source file (bookmarks HTML/JSON, Takeout) to
     /// `POST /sources/upload`. Multipart, same envelope as conversation upload.
-    func uploadSource(fileURL: URL) async throws -> UploadResponse {
-        return try await uploadMultipart(path: "/sources/upload", fileURL: fileURL)
+    ///
+    /// `includeHistory` mirrors `previewSource`'s flag (G71 fix round 1, H2):
+    /// Confirm must carry whatever toggle state the preview was shown under,
+    /// or the real import's counts can silently disagree with what the
+    /// preview promised.
+    func uploadSource(fileURL: URL, includeHistory: Bool = false) async throws -> UploadResponse {
+        let query = includeHistory ? "?include_history=true" : ""
+        return try await uploadMultipart(path: "/sources/upload" + query, fileURL: fileURL)
     }
 
     /// Fetch the saved-media feed (`GET /sources`). `sort` is `relevance` (the
@@ -1277,8 +1311,10 @@ actor APIClient {
 
     /// Shared multipart POST for file ingestion endpoints. Mirrors `uploadFile`
     /// but takes the target path so both `/conversations/upload` and
-    /// `/sources/upload` reuse it.
-    private func uploadMultipart(path: String, fileURL: URL) async throws -> UploadResponse {
+    /// `/sources/upload` reuse it. Generic over the response so the same
+    /// wire-up serves the real upload (`UploadResponse`) and the staging-free
+    /// preview (`UploadPreview`) without duplicating the multipart plumbing.
+    private func uploadMultipart<T: Decodable>(path: String, fileURL: URL) async throws -> T {
         var request = makeRequest(path, method: "POST", json: false)
 
         let boundary = UUID().uuidString
@@ -1304,7 +1340,14 @@ actor APIClient {
             let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw APIError.httpError(http.statusCode, msg)
         }
-        return try decoder.decode(UploadResponse.self, from: data)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    /// `POST /sources/upload?preview=true` — describe a file without importing
+    /// any of it. Safe to call on every drop: the backend stages nothing.
+    func previewSource(fileURL: URL, includeHistory: Bool = false) async throws -> UploadPreview {
+        let query = includeHistory ? "?preview=true&include_history=true" : "?preview=true"
+        return try await uploadMultipart(path: "/sources/upload" + query, fileURL: fileURL)
     }
 
     /// Convenience: upload several source files, aggregating the counts.

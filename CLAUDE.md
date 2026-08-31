@@ -68,8 +68,32 @@ Continuous episode capture during conversations. Raw timestamped chunks go to `e
 **Input sources:**
 - **MCP-native clients** (Claude Code, Cursor): Cicada MCP server is directly in the conversation loop. Episodes captured automatically. This is the primary deployment model.
 - **Export-based ingestion** (ChatGPT, Claude Desktop/iOS): Periodic import from conversation exports (`/banks/{name}/import`). ChatGPT and Claude both give JSON/HTML exports parsed by dedicated import parsers.
-- **Telegram bot** (`/save`, `/note`, `/remind`): On-the-go capture of links, voice notes, text snippets, via `POST /capture/telegram`.
+- **Telegram bot** (`/save`, `/note`, `/remind`): On-the-go capture of links, voice notes, text snippets, via `POST /capture/telegram`. `/save <url> <reason…>` also captures *why* — see Save-with-reason (G71) below.
 - **Ingested sources**: Safari bookmarks, saved links, RSS feeds, PDFs, repos. Indexed in the sqlite-vec vector index for semantic retrieval.
+- **Direct saved-content connectors** (G71): **Pinterest** (v5, BYO OAuth app, `boards:read`/`pins:read`
+  — board name becomes the item folder), **Reddit** (script app, `/user/{me}/saved`, newest-first to
+  the previously-seen fullname; the GDPR `saved_posts.csv` export backfills past the ~1,000-item listing
+  cap), and **X/Twitter** (OAuth 2.0 + PKCE, `/2/users/:id/bookmarks`, pay-per-use "owned reads" billing
+  — the sync summary surfaces `resources_read` so a cost is never hidden behind a plain "connected"
+  checkbox). Credentials live in `~/.cicada/secrets.env` (0600), never in a bank. Polled at the tail of
+  every Sleep cycle — after `_finalize`'s own commit, so the poll's `git add -A` sweeps only its own
+  files instead of the cycle's still-uncommitted entity writes (G71 final review H1) — including an idle
+  cycle, and on demand via `POST /sources/connectors/{id}/sync`. `CICADA_ALLOW_CONNECTOR_FETCH` gates
+  ONLY that unattended nightly poll's default transport — opt-OUT (on by default, mirroring
+  `CICADA_ALLOW_LOGO_FETCH`; `=off` disables it, which is what the test suite sets). A user-initiated
+  `sync_now` and every OAuth `authorize_url`/`exchange_code` call are never gated by it — they always
+  need the network to do what the user just asked (G71 final review H2). A failed poll is recorded
+  per-channel (`sync_state.record_error`) and surfaces on `GET /sources/channels` as `lastError`; a
+  gate-skipped poll is recorded too (`sync_state.record_skip`) and surfaces as a skip, distinctly from
+  both a failure and a stale success.
+- **Export parsers** (`media_ingestor.parse_upload`): Instagram saved, YouTube playlist export, Google
+  Takeout (JSON/CSV/zip), Chrome/Safari bookmarks, **LinkedIn saved items** (URL + date only — post bodies
+  are deliberately never fetched, so these stay thin, `origin: linkedin-saved`), **TikTok favourites/likes**
+  (`origin: tiktok-saved`; Browsing History is opt-in via `?include_history=true` and keeps a distinct
+  `tiktok-history` origin), and the **Reddit GDPR export** (`origin: reddit-saved`). Non-Takeout archives
+  must be unzipped first — the app's step-path copy says so and the preview reports it.
+  `POST /sources/upload?preview=true` runs the identical sniff/parse but stages nothing, returning a
+  per-collection item breakdown so the import overlay can show what it's about to import before Confirm.
 
 **Episode tracking:** Each episode has unique ID (`ep_YYYY-MM-DD_NNN`), timestamp, and `processed: false` flag. Sleep cycle processes all unprocessed episodes regardless of source — the pipeline is source-agnostic.
 
@@ -249,6 +273,47 @@ back to whole conversations). `cicada_write_claim` accepts `sources: [str]`, att
 model that wrote the claim. Conflict generation consults them: a matching source becomes the
 card's "Source to check" hint. Nothing is fetched in this slice.
 
+### Save-with-reason (G71)
+A Telegram `/save <url> <reason…>` writes the reason twice: verbatim as a
+`## Saved because` section on the media episode (so Stage-1 extraction mines its
+concepts exactly as it would conversation text), and as a `saved-because` claim on
+the media entity — `observer: rodrigo`, `source_trust: user_stated`,
+`object_kind: literal`, `origin: telegram`. `literal` keeps it out of the graph:
+Stage 5.7 projects only node-object claims into edges. `telegram` is deliberately
+**not** in `claim_reconciler.is_human`'s manual-assertion channel set, so the claim
+reads as user-stated without inheriting manual-edit overwrite protection — a bot
+webhook is not an authenticated manual-assertion channel. `agentic_write.write_claim`
+gained an optional `origin=` for exactly this; omitting it is unchanged (falls back
+to `manual_edit` for `observer="rodrigo"`, else `mcp`).
+
+### Connector seam (G71)
+Pinterest, Reddit, and X (Twitter) each get a peer adapter module under
+`api/services/connectors/` — not one bespoke integration per platform, but a
+documented module-as-adapter contract (the required surface is spelled out in
+`api/services/connectors/__init__.py`'s docstring: `CHANNEL_ID`, `LABEL`,
+`FIELDS`, `LOGIN_MODE`, `CHANNEL_NOUN`, `SECRET_NAMES`, `is_connected()`,
+`credential_fields()`, `forget()`, `sync()`, plus `authorize_url()` /
+`exchange_code()` for an OAuth adapter). `ADAPTERS` — keyed by `CHANNEL_ID` — is
+the single roster every consumer (the `connectors` router, `channel_registry`'s
+`CHANNEL_IDS` splice, and the Sleep-tail poll) iterates instead of re-declaring
+its own copy of "which connectors exist." `base.run_sync` is the shared driver
+every adapter's `sync()` delegates to: the not-connected skip, the
+`CICADA_ALLOW_CONNECTOR_FETCH` background-fetch gate (opt-OUT, on by default —
+gates only an unattended Sleep-tail poll, never a user-initiated `sync_now`/OAuth
+call), the try/except that turns any failure into a recorded-not-raised error
+(`sync_state.record_error`; a gate-skipped poll is recorded distinctly via
+`sync_state.record_skip`), and the `media_ingestor.ingest_batch` call
+(chunked in `MAX_BATCH`-sized slices so a >2,000-item pull is never silently
+truncated) all live there once. Credentials are stored under `SECRET_NAMES` in
+`~/.cicada/secrets.env` (0600) and removed by the shared `base.forget()`, so a
+FIELDS-vs-what's-actually-stored drift can never orphan a secret on disconnect.
+A credential save, a disconnect, and a completed OAuth exchange all call
+`sync_state.record_credentials_changed` so the `sources` SSE component ticks
+even though the change itself landed outside `memory_path`. X is billed
+pay-per-use ("owned reads" at ~$0.001/read, no subscription tier) — its sync
+result carries an additional `resources_read` count so the cost is stated
+plainly rather than hidden behind a plain "connected" checkbox.
+
 ### sqlite-vec (Vector Index)
 Lightweight on-device semantic search (`api/services/vector_index.py`, replaces the earlier LEANN wrapper — `leann_indexer.py` has been deleted). Embeddings are stored, not recomputed at query time, so search is a single in-process ANN lookup with no latency tax. Default backend is **EmbeddingGemma-300M** (768-dim, on-device, gated HF model) with asymmetric query/document embedding prompts; the index is *derived and disposable* — rebuilt from entity/episode markdown by the Sleep cycle, and can be deleted and regenerated at any time (see the Thesis Benchmarks note below on `benchmarks.rebuild_leann`'s historical name). Runs locally, zero cloud costs for the default backend.
 
@@ -365,18 +430,26 @@ The user-facing interface for inspecting, managing, and curating the knowledge g
 SwiftUI app spawns the FastAPI server as a child process on launch using Swift's `Process()` API (`uvicorn api.main:app --port 8000`). User never manually starts the backend. On app quit, child process is terminated.
 
 ### Sync engine
-A single `Store` holds one `Snapshot` per domain (graph, inbox, sources, channels, contributors, origins, status, banks, feeds, calendars, connections), hydrated instantly from a per-bank on-disk `SnapshotCache` (`~/Library/Application Support/Cicada/cache/<bank>/`) before the first network round-trip, so the app renders real data cold, even with the backend down. A `SyncEngine` holds one long-lived SSE connection to `GET /sync/events`, reconnecting with backoff and falling back to polling `GET /sync/version` while disconnected; each `version` event diffs against the last-seen vector and refreshes only the changed domains, every refresh sending `If-None-Match` so an unchanged domain costs a 304. View models are thin projections over `Store` snapshots (never blank — always the last-known-good data). Writes go through a `Mutation` protocol: optimistic apply to the local snapshot, rollback with a toast on failure. The graph view receives **deltas** (added/updated/removed node ids, each keyed by a `content_hash`) rather than a full re-layout, so d3 node positions are preserved across a Sleep cycle or a live edit. The sidebar is six rows — Graph, Clusters, Feed, Sleep, Inbox, Activity — reachable via ⌘1–6 (with matching accessibility labels); Feed carries the capture channels and the `+`/⌘N add-source sheet, Sleep carries the episode queue, and Activity merges consumption and contributor attribution behind a segmented control with the origins strip. Setup lives in a native `Settings{}` scene (⌘, or the sidebar's footer gear, which dots when a subscription login expires) holding Agents and Plans & keys. `AppTab` raw values are the persisted identity of a tab, and `AppTab.restored(from:)` maps the five retired ones (`Capture`, `Contributors`, `Usage`, `Connections`, `Connect`) onto the pages that inherited them, so an older selection never traps. Entity logos are cached on disk, and ⌘K opens an Ask panel (G52) that sends a question to `POST /ask` and renders the answer with clickable wikilink citations.
+A single `Store` holds one `Snapshot` per domain (graph, inbox, sources, channels, contributors, origins, status, banks, feeds, calendars, connections), hydrated instantly from a per-bank on-disk `SnapshotCache` (`~/Library/Application Support/Cicada/cache/<bank>/`) before the first network round-trip, so the app renders real data cold, even with the backend down. A `SyncEngine` holds one long-lived SSE connection to `GET /sync/events`, reconnecting with backoff and falling back to polling `GET /sync/version` while disconnected; each `version` event diffs against the last-seen vector and refreshes only the changed domains, every refresh sending `If-None-Match` so an unchanged domain costs a 304. View models are thin projections over `Store` snapshots (never blank — always the last-known-good data). Writes go through a `Mutation` protocol: optimistic apply to the local snapshot, rollback with a toast on failure. The graph view receives **deltas** (added/updated/removed node ids, each keyed by a `content_hash`) rather than a full re-layout, so d3 node positions are preserved across a Sleep cycle or a live edit. The sidebar is six rows — Graph, Clusters, Feed, Sleep, Inbox, Activity — reachable via ⌘1–6 (with matching accessibility labels); Feed carries the capture channels and the `+`/⌘N add-source sheet, Sleep carries the episode queue, and Activity merges consumption and contributor attribution behind a segmented control with the origins strip. Setup lives in a native `Settings{}` scene (⌘, or the sidebar's footer gear, which dots when a subscription login expires) holding Agents and Plans & keys. `AppTab` raw values are the persisted identity of a tab, and `AppTab.restored(from:)` maps the five retired ones (`Capture`, `Contributors`, `Usage`, `Connections`, `Connect`) onto the pages that inherited them, so an older selection never traps. Entity logos are cached on disk, and ⌘K opens an Ask panel (G52) that sends a question to `POST /ask` and renders the answer with clickable wikilink citations. Feed's `+`/⌘N sheet (G71) is now a two-level Imports catalog: platform tiles wearing brand logos route either to a `ConnectorSetupPanel` (Connect — Pinterest, Reddit, X) or an export-drop overlay (Import file), both reading live channel state and a real-time `?preview=true` parse preview before the user commits to an import.
 
 ---
 
 ## API Design
 
-Grew past "one endpoint per screen" as the companion app matured. 19 routers currently mounted
+Grew past "one endpoint per screen" as the companion app matured. 20 routers currently mounted
 in `api/main.py` (`graph`, `search`, `ask`, `inbox`, `status`, `nudges`, `clarifications`,
 `entities`, `claims`, `contributors`, `origins`, `sleep`, `conversations`, `sources`, `banks`,
-`local_refs`, `capture`, `connections`, `sync`), plus repo-context and maintenance endpoints:
+`local_refs`, `capture`, `connectors`, `connections`, `sync`), plus repo-context and maintenance endpoints:
 
-Every endpoint except `GET /healthz` and `POST /capture/telegram` requires `Authorization: Bearer <token>` — the token lives at `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests). The Telegram webhook is exempt because Telegram's servers cannot send the header; today it is gated only by Telegram being configured (`CICADA_TELEGRAM_BOT_TOKEN`), not by a per-request secret — see G57.
+Every endpoint except `GET /healthz`, `POST /capture/telegram`, and `GET /sources/connectors/{id}/callback`
+for an OAuth adapter (Pinterest and X today; Reddit is credentials-only and has no callback route) requires
+`Authorization: Bearer <token>` — the token lives at `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides;
+`CICADA_API_AUTH=off` for tests). The Telegram webhook is exempt because Telegram's servers cannot send the
+header; today it is gated only by Telegram being configured (`CICADA_TELEGRAM_BOT_TOKEN`), not by a
+per-request secret — see G57. Each OAuth callback lands in the user's own browser, which likewise cannot
+send the header, so it is gated instead by its own single-use, 10-minute `state` nonce minted by
+`POST /sources/connectors/{id}/authorize` (`api/services/auth.py::_is_oauth_callback_path` resolves the
+exemption live against the connectors registry rather than hardcoding one literal per adapter).
 
 `/graph`, `/inbox`, `/contributors`, `/sources`, `/sources/channels`, `/origins`, and `/banks` all support ETags: each response carries an `ETag` header, and a request sent with `If-None-Match` gets back a `304 Not Modified` (empty body) whenever nothing in that domain changed, letting the app skip re-parsing and re-rendering large payloads (`/graph` on the live bank is ~1.8 MB).
 
@@ -442,6 +515,17 @@ POST /conversations/{id}/resume           → validated `claude --resume` descri
                                             never read — isfile() only.
 POST /sources/save, /sources/upload,
      /sources/rss, /sources/sync-bookmarks → capture links/files/RSS/bookmarks into memory
+POST /sources/upload?preview=true         → parse an export WITHOUT staging anything:
+                                            {recognized, platform, total,
+                                             collections:[{name,kind,count}], warnings}
+                                            (+ ?include_history=true opts TikTok browsing history in)
+GET  /sources/connectors                  → connector status (pinterest/reddit/x): fields present, never values
+PUT/DELETE /sources/connectors/{id}/credentials → store/forget creds in ~/.cicada/secrets.env (0600)
+POST /sources/connectors/{id}/authorize   → mint the vendor consent URL (oauth adapters; single-use state)
+GET  /sources/connectors/{id}/callback    → generalized OAuth redirect target, one route for every
+                                            oauth adapter (Pinterest, X today); auth-exempt only for
+                                            an id whose LOGIN_MODE is oauth
+POST /sources/connectors/{id}/sync        → run one poll now
 GET  /sources                             → list ingested sources
 GET  /sources/channels                    → capture channels + whether each is actually connected (G62)
 GET/POST/DELETE /sources/feeds            → RSS feed subscription management

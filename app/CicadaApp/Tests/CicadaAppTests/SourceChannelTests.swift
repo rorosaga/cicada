@@ -71,7 +71,7 @@ final class AddSourceCatalogTests: XCTestCase {
     /// Mirrors api/services/channel_registry.py::CHANNEL_IDS.
     private static let backendChannelIds: Set<String> = [
         "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
-        "rss", "calendar", "telegram", "files",
+        "rss", "calendar", "pinterest", "reddit", "telegram", "files",
     ]
 
     func testEveryBackendChannelHasATile() {

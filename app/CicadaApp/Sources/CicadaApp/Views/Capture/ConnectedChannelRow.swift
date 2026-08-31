@@ -58,23 +58,41 @@ struct ConnectedChannelRow: View {
         }
     }
 
+    /// The row's leading 28pt icon. A busy row always shows the plain
+    /// circle+spinner (a platform tile mid-spin would look like a broken
+    /// logo load, not "working"); otherwise a channel with a bundled brand
+    /// mark (Task 13) gets the Linear-style tile, and everything else keeps
+    /// the original tint-circle + SF Symbol treatment.
+    @ViewBuilder
+    private var rowIcon: some View {
+        if isBusy {
+            ZStack {
+                Circle()
+                    .fill(Self.tint(for: channel.id).opacity(0.12))
+                    .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
+                ProgressView().controlSize(.small)
+            }
+            .frame(width: 28, height: 28)
+        } else if let logoName = Self.logoName(for: channel.id) {
+            LogoImage.platformTile(name: logoName, size: 28, systemFallback: Self.icon(for: channel.id))
+        } else {
+            ZStack {
+                Circle()
+                    .fill(Self.tint(for: channel.id).opacity(0.12))
+                    .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
+                Image(systemName: Self.icon(for: channel.id))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Self.tint(for: channel.id))
+            }
+            .frame(width: 28, height: 28)
+        }
+    }
+
     private var rowContent: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             Button { onAction("manage") } label: {
                 HStack(spacing: CicadaTheme.spacingMD) {
-                    ZStack {
-                        Circle()
-                            .fill(Self.tint(for: channel.id).opacity(0.12))
-                            .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
-                        if isBusy {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: Self.icon(for: channel.id))
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(Self.tint(for: channel.id))
-                        }
-                    }
-                    .frame(width: 28, height: 28)
+                    rowIcon
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(channel.label)
@@ -157,6 +175,9 @@ struct ConnectedChannelRow: View {
         case "telegram": "paperplane.fill"
         case "chat-export:claude", "chat-export:chatgpt": "bubble.left.and.bubble.right"
         case "files": "link"
+        case "pinterest": "pin.fill"
+        case "reddit": "bubble.left.and.text.bubble.right.fill"
+        case "x": "x.circle"
         default: "tray"
         }
     }
@@ -170,7 +191,24 @@ struct ConnectedChannelRow: View {
         case "telegram": Color(hex: 0x26A5E4)
         case "chat-export:claude", "chat-export:chatgpt": CicadaTheme.accent
         case "files": Color(hex: 0x8896FF)
+        case "pinterest": Color(hex: 0xE60023)
+        case "reddit": Color(hex: 0xFF4500)
         default: CicadaTheme.textSecondary
+        }
+    }
+
+    /// Task 13 — the bundled brand-mark PNG for a connector-backed channel
+    /// (Pinterest, Reddit, X, Telegram; `AddSourceTile.logoName` is the same
+    /// mapping on the catalog side). Every other channel id keeps its SF
+    /// Symbol circle — no single brand mark exists for a bookmarks sync that
+    /// reads both Chrome and Safari, or for a multi-vendor chat export.
+    static func logoName(for id: String) -> String? {
+        switch id {
+        case "pinterest": "pinterest"
+        case "reddit": "reddit"
+        case "x": "x"
+        case "telegram": "telegram"
+        default: nil
         }
     }
 }

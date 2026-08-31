@@ -81,6 +81,47 @@ async def _warm_logos_safely(memory_path: Path) -> None:
         logger.warning(f"Logo warm-up failed: {type(e).__name__}: {e}")
 
 
+async def _poll_connectors_safely(memory_path: Path) -> None:
+    """G71 §2 (+ Task 14): pull new Pinterest pins, Reddit saves, and X
+    bookmarks on the nightly cycle.
+
+    Same contract as ``_warm_logos_safely``: bounded, credential-gated,
+    never fatal — an expired token or a rate limit must not fail a Sleep
+    cycle. This IS the "unattended background call" ``CICADA_ALLOW_CONNECTOR_FETCH``
+    exists to gate (opt-OUT, on by default — final-review H2); a poll the gate
+    skips is recorded through ``sync_state.record_skip``, distinctly from a
+    real failure (``sync_state.record_error``), and surfaces on the Capture
+    page either way.
+
+    Runs at the TAIL of a full cycle — final-review H1: specifically AFTER
+    ``_finalize`` has already committed the cycle's own entity/inbox writes,
+    so a connector that ingests reaches ``media_ingestor.ingest_batch`` ->
+    ``_commit_media`` -> a ``git add -A`` commit that finds a CLEAN tree and
+    sweeps only the files it just wrote, instead of also absorbing the Sleep
+    cycle's still-uncommitted work into a commit with no session provenance.
+    Also runs on the idle early return (before any entity writes exist to
+    protect that run, so there is nothing to reorder there), so anything
+    pulled tonight is consolidated by tomorrow's cycle — the same "it joins
+    the graph after the next Sleep cycle" contract every other capture path
+    already states.
+    """
+    try:
+        from api.services.connectors import ADAPTERS
+    except Exception as e:
+        logger.warning(f"connector poll unavailable: {type(e).__name__}: {e}")
+        return
+
+    for adapter in ADAPTERS.values():
+        try:
+            result = await adapter.sync(memory_path)
+            if result.get("status") == "ok" and result.get("new"):
+                logger.info(f"{adapter.LABEL}: pulled {result['new']} new saved item(s)")
+        except Exception as e:
+            logger.warning(
+                f"{adapter.LABEL} poll failed: {type(e).__name__}: {e}"
+            )
+
+
 async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> None:
     """G60 §2.3 on an IDLE cycle: keep open questions honest during quiet weeks.
 
@@ -182,6 +223,7 @@ async def run(settings: Settings, cycle_id: str) -> None:
         if not episodes:
             logger.info("No unprocessed episodes found — skipping")
             _state.progress = "No unprocessed episodes"
+            await _poll_connectors_safely(memory_path)
             await _warm_logos_safely(memory_path)
             # Question staleness is a function of TIME, not of episodes: an
             # idle cycle still has to escalate questions everybody stopped
@@ -442,6 +484,22 @@ async def run(settings: Settings, cycle_id: str) -> None:
             sessions=_collect_session_ids(processed_episodes),
             episode_sessions=_episode_session_map(processed_episodes),
         )
+
+        # Final-review H1: runs AFTER `_finalize`'s commit, not before. Any
+        # connector that ingests reaches `media_ingestor.ingest_batch` ->
+        # `_commit_media` -> `git_service.commit_changes`, which is
+        # `git add -A` — before this fix, running the poll BEFORE `_finalize`
+        # meant that `git add -A` swept the Sleep cycle's own uncommitted
+        # entity pages, inbox items, and `_index.md` into a `Sources ingest`
+        # commit (`Cicada-Author: user`, no `Cicada-Session:` trailers, no
+        # per-entity trigger lines), leaving `_finalize` with a clean tree and
+        # nothing to commit — so no "Sleep cycle" commit existed at all, even
+        # though the cycle still reported `Completed`. Running it here means
+        # `_finalize` has already committed everything Sleep wrote, so the
+        # poll's own `git add -A` finds a clean tree and sweeps only the
+        # connector files it just wrote.
+        await _poll_connectors_safely(memory_path)
+
         requeue_note = (
             f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
             if _state.episodes_requeued else ""

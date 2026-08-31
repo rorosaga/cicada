@@ -35,12 +35,33 @@ def test_read_sync_state_missing_or_corrupt_is_empty(tmp_path):
     assert sync_state.read_sync_state(tmp_path) == {}
 
 
-def _channels(memory_path, *, telegram_enabled=False):
+def test_record_sync_accepts_extra_state_and_clears_a_previous_error(tmp_path):
+    sync_state.record_error(tmp_path, "pinterest", "HTTPStatusError: 401")
+    sync_state.record_sync(tmp_path, "pinterest", count=12, at="2026-08-31T10:00:00Z",
+                           extra={"last_seen": "t3_abc"})
+    entry = sync_state.read_sync_state(tmp_path)["pinterest"]
+    assert entry["count"] == 12
+    assert entry["last_seen"] == "t3_abc"
+    assert "last_error" not in entry, "a successful sync must clear the failure"
+
+
+def test_record_error_keeps_the_last_successful_sync(tmp_path):
+    sync_state.record_sync(tmp_path, "pinterest", count=40, at="2026-08-30T10:00:00Z")
+    sync_state.record_error(tmp_path, "pinterest", "ConnectorError: token expired",
+                            at="2026-08-31T10:00:00Z")
+    entry = sync_state.read_sync_state(tmp_path)["pinterest"]
+    assert entry["last_sync"] == "2026-08-30T10:00:00Z"
+    assert entry["count"] == 40
+    assert entry["last_error"] == "ConnectorError: token expired"
+    assert entry["last_error_at"] == "2026-08-31T10:00:00Z"
+
+
+def _channels(memory_path, *, telegram_enabled=False, **kwargs):
     from api.services import channel_registry
 
     bank_index.invalidate()
     return {c["id"]: c for c in channel_registry.build_channels(
-        memory_path, telegram_enabled=telegram_enabled)}
+        memory_path, telegram_enabled=telegram_enabled, **kwargs)}
 
 
 def test_rss_channel_connected_when_a_feed_is_subscribed(tmp_path):
@@ -105,6 +126,126 @@ def test_chat_export_channels_come_from_origin_counts(tmp_path):
     assert chans["chat-export:chatgpt"]["count"] == 1
 
 
+# --- G71: the direct Pinterest + Reddit connectors as capture channels ------
+
+
+def test_connector_channel_is_disconnected_without_credentials(tmp_path):
+    channels = _channels(tmp_path)
+    assert channels["pinterest"]["connected"] is False
+    assert channels["pinterest"]["actions"] == ["connect"]
+    assert channels["pinterest"]["detail"] is None
+    assert channels["pinterest"]["label"] == "Pinterest"
+    assert channels["reddit"]["connected"] is False
+    assert channels["reddit"]["actions"] == ["connect"]
+    assert channels["reddit"]["detail"] is None
+    assert channels["reddit"]["label"] == "Reddit"
+
+
+def test_connector_channel_reports_connected_but_never_synced(tmp_path):
+    ch = _channels(tmp_path, connectors_connected={"pinterest": True})["pinterest"]
+    assert ch["connected"] is True
+    assert ch["detail"] == "Connected · not synced yet"
+    assert ch["actions"] == ["sync", "disconnect"]
+
+
+def test_connector_channel_reports_a_successful_sync(tmp_path):
+    sync_state.record_sync(tmp_path, "pinterest", count=42, at="2026-08-30T10:00:00Z")
+    ch = _channels(tmp_path, connectors_connected={"pinterest": True})["pinterest"]
+    assert ch["count"] == 42
+    assert "42 pins" in ch["detail"]
+    assert "2026-08-30" in ch["detail"]
+    assert ch["last_error"] is None
+
+
+def test_reddit_channel_reports_a_successful_sync(tmp_path):
+    sync_state.record_sync(tmp_path, "reddit", count=42, at="2026-08-30T10:00:00Z")
+    ch = _channels(tmp_path, connectors_connected={"reddit": True})["reddit"]
+    assert ch["count"] == 42
+    assert "42 saved items" in ch["detail"]
+    assert "2026-08-30" in ch["detail"]
+    assert ch["last_error"] is None
+
+
+def test_connector_channel_surfaces_the_last_failure(tmp_path):
+    sync_state.record_sync(tmp_path, "pinterest", count=42, at="2026-08-30T10:00:00Z")
+    sync_state.record_error(tmp_path, "pinterest", "RuntimeError: 429 rate limited")
+    ch = _channels(tmp_path, connectors_connected={"pinterest": True})["pinterest"]
+    assert ch["last_error"] == "RuntimeError: 429 rate limited"
+    assert ch["detail"].startswith("Last sync failed")
+
+
+# --- Task 14: the X (Twitter) bookmarks connector as a capture channel -----
+#
+# Unlike Pinterest/Reddit, X's row must show its pay-per-use cost model
+# (G71 cost honesty) BEFORE the user ever connects — the point is to disclose
+# the billing shape up front, not just once they're already paying for reads.
+
+
+def test_x_channel_shows_the_cost_note_even_when_disconnected(tmp_path):
+    from api.services.connectors import x as x_connector
+
+    ch = _channels(tmp_path)["x"]
+    assert ch["connected"] is False
+    assert ch["actions"] == ["connect"]
+    assert ch["label"] == "X (Twitter)"
+    assert ch["detail"] == x_connector.PRICE_NOTE
+
+
+def test_x_channel_reports_connected_but_never_synced_with_the_cost_note(tmp_path):
+    from api.services.connectors import x as x_connector
+
+    ch = _channels(tmp_path, connectors_connected={"x": True})["x"]
+    assert ch["connected"] is True
+    assert ch["detail"] == f"Connected · not synced yet · {x_connector.PRICE_NOTE}"
+    assert ch["actions"] == ["sync", "disconnect"]
+
+
+def test_x_channel_reports_a_successful_sync_with_the_cost_note(tmp_path):
+    from api.services.connectors import x as x_connector
+
+    sync_state.record_sync(tmp_path, "x", count=17, at="2026-08-30T10:00:00Z")
+    ch = _channels(tmp_path, connectors_connected={"x": True})["x"]
+    assert ch["count"] == 17
+    assert "17 bookmarks" in ch["detail"]
+    assert "2026-08-30" in ch["detail"]
+    assert ch["detail"].endswith(x_connector.PRICE_NOTE)
+    assert ch["last_error"] is None
+
+
+def test_x_channel_surfaces_the_last_failure_with_the_cost_note(tmp_path):
+    from api.services.connectors import x as x_connector
+
+    sync_state.record_sync(tmp_path, "x", count=17, at="2026-08-30T10:00:00Z")
+    sync_state.record_error(tmp_path, "x", "RuntimeError: 429 rate limited")
+    ch = _channels(tmp_path, connectors_connected={"x": True})["x"]
+    assert ch["last_error"] == "RuntimeError: 429 rate limited"
+    assert ch["detail"].startswith("Last sync failed")
+    assert ch["detail"].endswith(x_connector.PRICE_NOTE)
+
+
+def test_channel_ids_now_include_all_three_connectors(client):
+    c, _ = client
+    ids = [ch["id"] for ch in c.get("/sources/channels").json()["channels"]]
+    assert ids == [
+        "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
+        "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
+    ]
+
+
+def test_channels_etag_covers_connector_connectedness(client, monkeypatch):
+    """Saving a credential flips a channel to connected without touching any
+    file the ETag already hashes, so it must ride the ETag explicitly."""
+    from api.services.connectors import pinterest
+
+    c, _ = client
+    etag = c.get("/sources/channels").headers["etag"]
+    assert c.get("/sources/channels", headers={"If-None-Match": etag}).status_code == 304
+
+    monkeypatch.setattr(pinterest, "is_connected", lambda: True)
+    resp = c.get("/sources/channels", headers={"If-None-Match": etag})
+    assert resp.status_code == 200, "connecting Pinterest must break the ETag"
+
+
 def test_files_channel_counts_the_url_index(tmp_path):
     sources = tmp_path / "sources"
     sources.mkdir(parents=True)
@@ -138,7 +279,7 @@ def test_get_sources_channels_returns_every_known_channel(client):
     ids = [ch["id"] for ch in resp.json()["channels"]]
     assert ids == [
         "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
-        "rss", "calendar", "telegram", "files",
+        "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
     ]
     assert all(ch["connected"] is False for ch in resp.json()["channels"])
 

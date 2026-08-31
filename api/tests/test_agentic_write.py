@@ -383,3 +383,55 @@ def test_cicada_pending_and_mark_processed_dispatch(tmp_path, monkeypatch):
 
     fm = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-02-01_001.md").frontmatter
     assert fm["processed"] is True
+
+
+def test_write_claim_accepts_an_explicit_origin(tmp_path):
+    """G71 §1: a Telegram save is `user_stated` but is NOT a manual-assertion
+    channel, so its claim must carry `origin: telegram` — which is deliberately
+    outside claim_reconciler._HUMAN_ORIGINS, i.e. not overwrite-protected."""
+    from api.services import markdown_parser
+    from api.services.agentic_write import write_claim
+    from api.services.claims import parse_claims
+
+    entities = tmp_path / "entities"
+    entities.mkdir(parents=True)
+    markdown_parser.write(
+        entities / "media-a-recipe.md",
+        {"name": "A Recipe", "type": "media", "status": "active", "confidence": 0.7},
+        "## Summary\nSaved url — A Recipe.",
+    )
+
+    result = write_claim(
+        tmp_path,
+        "media-a-recipe",
+        "saved-because",
+        "great for meal prep",
+        observer="rodrigo",
+        object_kind="literal",
+        origin="telegram",
+    )
+    assert result["action"] != "error", result
+
+    claims = parse_claims(markdown_parser.parse(entities / "media-a-recipe.md").body)
+    written = [c for c in claims if c.predicate == "saved-because"]
+    assert len(written) == 1
+    assert written[0].origin == "telegram"
+    assert written[0].source_trust == "user_stated"
+    assert written[0].object_kind == "literal"
+
+
+def test_write_claim_without_origin_is_unchanged(tmp_path):
+    from api.services import markdown_parser
+    from api.services.agentic_write import write_claim
+    from api.services.claims import parse_claims
+
+    entities = tmp_path / "entities"
+    entities.mkdir(parents=True)
+    markdown_parser.write(
+        entities / "media-a-recipe.md",
+        {"name": "A Recipe", "type": "media", "status": "active", "confidence": 0.7},
+        "## Summary\nSaved url — A Recipe.",
+    )
+    write_claim(tmp_path, "media-a-recipe", "relates-to", "cooking", observer="rodrigo")
+    claims = parse_claims(markdown_parser.parse(entities / "media-a-recipe.md").body)
+    assert [c.origin for c in claims if c.predicate == "relates-to"] == ["manual_edit"]

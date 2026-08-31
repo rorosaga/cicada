@@ -18,6 +18,8 @@ from api.models.schemas import (
     SourceRssRequest,
     SourceSaveRequest,
     SourceSaveResponse,
+    SourceUploadCollection,
+    SourceUploadPreview,
     SourceUploadResponse,
 )
 from api.services import (
@@ -30,6 +32,7 @@ from api.services import (
     sync_service,
     sync_state,
 )
+from api.services.connectors import ADAPTERS
 from api.services.media_ingestor import MAX_BATCH, RawItem
 
 router = APIRouter()
@@ -101,23 +104,59 @@ async def save_source(
     )
 
 
-@router.post("/sources/upload", response_model=SourceUploadResponse)
+@router.post("/sources/upload", response_model=None)
 async def upload_sources(
     file: UploadFile,
     background_tasks: BackgroundTasks,
+    preview: bool = Query(False),
+    include_history: bool = Query(False),
     settings: Settings = Depends(get_settings),
-):
-    """Ingest a bookmarks/Takeout/URL-list export.
+) -> SourceUploadResponse | SourceUploadPreview:
+    """Ingest — or, with ``?preview=true``, merely *describe* — a saved-content export.
 
     Parses and dedups synchronously so counts come back immediately; enrichment
     and the episode/entity writes run in the background for large batches.
+
+    ``?preview=true`` (G71 §4.3) STAGES NOTHING: it runs the identical sniff and
+    parse, then returns the collection/board/playlist breakdown with per-item
+    counts so the import overlay can show the user what they are about to import
+    before they commit to it. Nothing is cached server-side — Confirm re-posts
+    the same file without the flag.
+
+    ``?include_history=true`` opts a TikTok export's Browsing History in (default
+    off: ambient exhaust, not saves — G69).
     """
     content = await file.read()
     filename = file.filename or ""
+
+    if preview:
+        # Off the event loop: parsing a large export (a Takeout zip) is CPU-bound
+        # and would otherwise stall the SSE stream, same reason /sources/channels
+        # threadpools its origin scan.
+        result = await run_in_threadpool(
+            media_ingestor.preview_upload,
+            content,
+            filename,
+            include_history=include_history,
+        )
+        logger.info(
+            f"Sources preview: {filename} ({len(content)} bytes) -> "
+            f"{result.platform}, {result.total} item(s)"
+        )
+        return SourceUploadPreview(
+            recognized=result.recognized,
+            platform=result.platform,
+            total=result.total,
+            collections=[SourceUploadCollection(**c) for c in result.collections],
+            warnings=result.warnings,
+        )
+
     logger.info(f"Sources upload: {filename} ({len(content)} bytes)")
 
     try:
-        items, source_label, from_bookmark_file = media_ingestor.parse_upload(content, filename)
+        items, source_label, from_bookmark_file = media_ingestor.parse_upload(
+            content, filename, include_history=include_history
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -391,13 +430,16 @@ async def list_source_channels(
     on a cold launch.
     """
     memory_path = settings.memory_path
-    # `telegram_enabled` is a config/env fact, not a filesystem one: configuring
-    # a bot token and restarting flips a channel to "connected" without touching
-    # any component below, so without it in the ETag a warm client 304s and
-    # keeps showing "not connected" forever.
+    connectors_connected = {cid: adapter.is_connected() for cid, adapter in ADAPTERS.items()}
+    # `telegram_enabled` and connector credentials are config/secrets facts, not
+    # filesystem-in-the-bank ones: configuring a bot token, or connecting an
+    # account, flips a channel to "connected" without touching any component
+    # below, so without them in the ETag a warm client 304s and keeps showing
+    # "not connected" forever.
+    connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
     etag = sync_service.etag_for(
         memory_path, "sources", "episodes", "entities",
-        extra=f"telegram:{settings.telegram_enabled}",
+        extra=f"telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
@@ -408,6 +450,7 @@ async def list_source_channels(
         channel_registry.build_channels,
         memory_path,
         telegram_enabled=settings.telegram_enabled,
+        connectors_connected=connectors_connected,
     )
     return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
 

@@ -21,6 +21,9 @@ final class WalkthroughTests: XCTestCase {
             "chatgpt": "https://chatgpt.com/#settings/DataControls",
             "takeout": "https://takeout.google.com/",
             "instagram": "https://accountscenter.instagram.com/info_and_permissions/dyi/",
+            "tiktok": "https://www.tiktok.com/setting/download-your-data",
+            "linkedin": "https://www.linkedin.com/mypreferences/d/download-my-data",
+            "redditExport": "https://www.reddit.com/settings/data-request",
         ])
     }
 

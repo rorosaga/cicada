@@ -244,6 +244,7 @@ def write_claim(
     force_new_entity: bool = False,
     sources: list[str] | None = None,
     session_id: str | None = None,
+    origin: str | None = None,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
@@ -255,6 +256,13 @@ def write_claim(
     association for ``session_stats._group`` to read back. Distinct from
     ``source_episode``, which becomes ``Claim.source_episodes`` and (for a
     brand-new subject page only) the entity's own frontmatter list.
+
+    ``origin`` (G71) overrides the derived G9 provenance tag. Omitted, behavior
+    is byte-identical to before it existed: ``manual_edit`` for
+    ``observer="rodrigo"`` (the manual-assertion channel, and the only one that
+    earns ``claim_reconciler.is_human`` overwrite protection), else ``mcp``.
+    A connector/webhook write passes its own tag (``"telegram"``) so the claim
+    reads as user-stated without claiming manual-assertion immunity.
 
     Returns ``{subject, entity_id, claim_id, action, observer}`` on success,
     or ``{subject, entity_id: None, claim_id: None, action: "error", observer,
@@ -318,8 +326,11 @@ def write_claim(
         # Origin-gated human protection (claim_reconciler.is_human): only a
         # manual/clarification origin makes a user_stated claim overwrite-
         # protected. An explicit observer=rodrigo write through this tool IS
-        # that manual-assertion channel.
-        origin = "manual_edit" if observer == "rodrigo" else "mcp"
+        # that manual-assertion channel — unless the caller names a different
+        # origin (a webhook, a connector), which by construction is not.
+        claim_origin = (origin or "").strip() or (
+            "manual_edit" if observer == "rodrigo" else "mcp"
+        )
 
         claim_id = _claim_id(entity_id, predicate_slug, object_raw, observer)
         new_claim = Claim(
@@ -336,7 +347,7 @@ def write_claim(
             confidence=confidence,
             valid_from=_date_from_episode_id(source_episode),
             source_episodes=[source_episode] if source_episode else [],
-            origin=origin,
+            origin=claim_origin,
             session_id=(session_id or "").strip() or None,
         )
 

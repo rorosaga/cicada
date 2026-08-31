@@ -75,6 +75,12 @@ class RawItem:
     session_id: str | None = None
     harness: str | None = None
     project_dir: str | None = None
+    # G71 §1 — why the user saved this, in their own words (the text around the
+    # URL in a Telegram `/save`). Rendered verbatim on the episode body as a
+    # `## Saved because` section so Stage 1 extraction can pull concepts out of
+    # it exactly as it would from conversation text, and written separately as a
+    # `saved-because` claim by the caller that has one.
+    reason: str | None = None
 
 
 @dataclass
@@ -168,6 +174,8 @@ def _classify(url: str, from_bookmark_file: bool = False) -> str:
         return "youtube"
     if "instagram.com" in host:
         return "instagram"
+    if "linkedin.com" in host:
+        return "linkedin"
     if from_bookmark_file:
         return "bookmark"
     return "url"
@@ -208,6 +216,12 @@ async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMet
             return await _enrich_youtube(url, client, fallback)
         if media_type == "instagram":
             # Login-walled — never attempt scraping; URL-only by design.
+            return fallback
+        if media_type == "linkedin":
+            # ToS-walled (G69: §8.2 bans fetching the post body) — never
+            # attempt scraping; URL-only by design, same as Instagram above.
+            # This is what makes ``parse_linkedin_saved``'s "thin by design"
+            # claim actually true once an item is STAGED, not just previewed.
             return fallback
         return await _enrich_opengraph(url, client, fallback)
     except Exception as e:
@@ -541,6 +555,77 @@ def _is_instagram_saved_json(data) -> bool:
     )
 
 
+# TikTok's "Download your data" JSON, one row per section:
+# (activity-section key, the list key inside it, the folder name, is_history).
+_TIKTOK_SECTIONS = (
+    ("Favorite Videos", "FavoriteVideoList", "Favorites", False),
+    ("Like List", "ItemFavoriteList", "Likes", False),
+    ("Video Browsing History", "VideoList", "Browsing History", True),
+)
+
+
+def _tiktok_activity(data) -> dict | None:
+    """The activity dict, under either the old ``Activity`` key or the newer
+    ``Your Activity`` one."""
+    if not isinstance(data, dict):
+        return None
+    for key in ("Activity", "Your Activity"):
+        section = data.get(key)
+        if isinstance(section, dict):
+            return section
+    return None
+
+
+def _is_tiktok_export_json(data) -> bool:
+    """Sniff rule: an activity wrapper holding at least one known section."""
+    activity = _tiktok_activity(data)
+    return isinstance(activity, dict) and any(
+        name in activity for name, _list_key, _folder, _hist in _TIKTOK_SECTIONS
+    )
+
+
+def parse_tiktok_export(data, *, include_history: bool = False) -> list[RawItem]:
+    """TikTok "Download your data" ``user_data.json`` (G71 §3).
+
+    Favourites and Likes are intentional saves and are always parsed.
+    Browsing History is ambient exhaust (G69: high noise) and is parsed only
+    when the caller opts in; even then it keeps a distinct ``tiktok-history``
+    origin so ``/origins`` — and anyone reading the graph later — can tell a
+    save from a scroll.
+
+    Entry shape is ``{"Date": "...", "Link": "https://..."}``; older exports
+    lowercase ``link``. Malformed input degrades to ``[]`` rather than raising.
+    """
+    activity = _tiktok_activity(data)
+    if not isinstance(activity, dict):
+        return []
+
+    items: list[RawItem] = []
+    for section_name, list_key, folder, is_history in _TIKTOK_SECTIONS:
+        if is_history and not include_history:
+            continue
+        section = activity.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        rows = section.get(list_key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            url = row.get("Link") or row.get("link") or row.get("URL") or row.get("url")
+            if not isinstance(url, str) or not url.strip():
+                continue
+            date = row.get("Date") or row.get("date")
+            items.append(RawItem(
+                url=url.strip(),
+                added=date if isinstance(date, str) else None,
+                folder=folder,
+                origin="tiktok-history" if is_history else "tiktok-saved",
+            ))
+    return items
+
+
 def _playlist_name_from_filename(filename: str) -> str:
     """``"Watch later-videos.csv"`` -> ``"Watch later"``; ``"<Name>-videos.csv"`` -> ``"<Name>"``."""
     stem = Path(filename).stem  # strips ".csv"
@@ -599,13 +684,147 @@ def parse_youtube_playlist_csv(content: bytes, filename: str) -> list[RawItem]:
     return items
 
 
+# --- Shared CSV header sniffing (LinkedIn + Reddit exports) ------------------
+
+
+def _norm_header(name: str | None) -> str:
+    """Lowercased, BOM- and whitespace-stripped column name for comparison."""
+    return (name or "").strip().lstrip("﻿").lower()
+
+
+def _pick_column(fieldnames: list[str] | None, candidates: tuple[str, ...]) -> str | None:
+    """The first real column name whose normalized form is in ``candidates``."""
+    for name in fieldnames or []:
+        if _norm_header(name) in candidates:
+            return name
+    return None
+
+
+# LinkedIn has renamed this column across export generations, so match a set
+# rather than one string. The SPECIFIC names are safe to match anywhere; the
+# GENERIC ones (``url``, ``link``) are only trusted when the filename already
+# says LinkedIn, or every plain URL CSV in the world would be claimed here.
+_LINKEDIN_SPECIFIC_URL_FIELDS = ("saveditem", "saved item", "saveditemurl", "saved item url")
+_LINKEDIN_GENERIC_URL_FIELDS = ("url", "link", "itemurl", "item url")
+_LINKEDIN_DATE_FIELDS = (
+    "savedat", "saved at", "saveddate", "saved date", "createdtime", "created time", "date",
+)
+
+
+def _is_linkedin_saved_filename(filename: str) -> bool:
+    stem = Path(filename or "").stem.lower().replace("_", " ").replace("-", " ")
+    return "saved item" in stem
+
+
+def parse_linkedin_saved(content: bytes, filename: str) -> list[RawItem]:
+    """LinkedIn "Get a copy of your data" — the Saved Items file.
+
+    Thin by design (G69): the export carries a URL and a saved date and nothing
+    else — no post text, no author. LinkedIn §8.2 bans fetching the post body,
+    so these stay thin nodes whose only edges come from the folder tag, and the
+    UI says so. Never invents a title.
+
+    An unrecognized CSV yields ``[]`` — never raises.
+    """
+    import csv
+    import io
+
+    try:
+        text = content.decode("utf-8-sig", errors="replace")
+        reader = csv.DictReader(io.StringIO(text))
+        fieldnames = reader.fieldnames
+    except Exception:
+        return []
+
+    url_col = _pick_column(fieldnames, _LINKEDIN_SPECIFIC_URL_FIELDS)
+    if url_col is None and _is_linkedin_saved_filename(filename):
+        url_col = _pick_column(fieldnames, _LINKEDIN_GENERIC_URL_FIELDS)
+    if url_col is None:
+        return []
+    date_col = _pick_column(fieldnames, _LINKEDIN_DATE_FIELDS)
+
+    items: list[RawItem] = []
+    for row in reader:
+        url = (row.get(url_col) or "").strip()
+        if not url.startswith(("http://", "https://")):
+            continue
+        added = None
+        if date_col:
+            added = (row.get(date_col) or "").strip() or None
+        items.append(RawItem(
+            url=url,
+            added=added,
+            folder="Saved Items",
+            origin="linkedin-saved",
+        ))
+    return items
+
+
+_REDDIT_PERMALINK_FIELDS = ("permalink",)
+_REDDIT_FALLBACK_URL_FIELDS = ("permalink url", "url", "link")
+REDDIT_BASE_URL = "https://www.reddit.com"
+
+
+def _is_reddit_saved_filename(filename: str) -> bool:
+    stem = Path(filename or "").stem.lower().replace("-", "_")
+    return stem.startswith("saved_posts") or stem.startswith("saved_comments")
+
+
+def parse_reddit_saved_csv(content: bytes, filename: str) -> list[RawItem]:
+    """Reddit GDPR export ``saved_posts.csv`` / ``saved_comments.csv`` (G71 §2).
+
+    Rows are ``id,permalink`` and nothing else. The export exists to backfill
+    past the API's ~1,000-item listing cap (G69) — it is not the primary route.
+    No Reddit-specific hydration call is needed: ``ingest_one`` already runs
+    every URL through the OpenGraph enrichment path and reddit.com serves OG
+    tags, so an online install gets a real title and an offline one degrades to
+    the permalink slug, exactly like every other save.
+
+    Permalinks may be relative (``/r/x/comments/...``); they are absolutized
+    against ``https://www.reddit.com`` so ``normalize_url``/``url_hash`` dedup
+    them against the same items pulled by the API connector.
+
+    An unrecognized CSV yields ``[]`` — never raises.
+    """
+    import csv
+    import io
+
+    try:
+        text = content.decode("utf-8-sig", errors="replace")
+        reader = csv.DictReader(io.StringIO(text))
+        fieldnames = reader.fieldnames
+    except Exception:
+        return []
+
+    url_col = _pick_column(fieldnames, _REDDIT_PERMALINK_FIELDS)
+    if url_col is None and _is_reddit_saved_filename(filename):
+        url_col = _pick_column(fieldnames, _REDDIT_FALLBACK_URL_FIELDS)
+    if url_col is None:
+        return []
+
+    stem = Path(filename or "").stem.lower()
+    folder = "Saved comments" if "comment" in stem else "Saved posts"
+
+    items: list[RawItem] = []
+    for row in reader:
+        raw = (row.get(url_col) or "").strip()
+        if not raw:
+            continue
+        if raw.startswith("/"):
+            raw = REDDIT_BASE_URL + raw
+        if not raw.startswith(("http://", "https://")):
+            continue
+        items.append(RawItem(url=raw, folder=folder, origin="reddit-saved"))
+    return items
+
+
 # Cap on the number of members walked inside an uploaded zip archive — a
 # saved-content export zip has at most a handful of playlist CSVs + one
 # watch-history.json; this just bounds a maliciously/accidentally huge zip.
 _MAX_ZIP_MEMBERS = 5000
 
 
-def parse_youtube_takeout_zip(content: bytes) -> list[RawItem]:
+def parse_youtube_takeout_zip(content: bytes, warnings: list[str] | None = None) -> list[RawItem]:
     """Walk a whole Google Takeout zip: ``playlists/*.csv`` + ``watch-history.json``.
 
     Lets a user drop one Takeout export zip in a single upload instead of
@@ -613,14 +832,19 @@ def parse_youtube_takeout_zip(content: bytes) -> list[RawItem]:
     ``playlists/*.csv`` or a ``watch-history.json``) are skipped. Any read
     error on an individual member is skipped rather than raised — a partially
     corrupt zip still yields whatever is parseable. A non-zip or unreadable
-    archive degrades to ``[]``.
+    archive degrades to ``[]``. ``warnings`` (G71 §4.3), when given, is
+    appended to with a summary of anything skipped, so a preview caller can
+    surface it instead of only the debug log.
     """
     import zipfile
 
     items: list[RawItem] = []
+    skipped = 0
     try:
         zf = zipfile.ZipFile(BytesIO(content))
     except Exception:
+        if warnings is not None:
+            warnings.append("This file is not a readable zip archive.")
         return []
 
     with zf:
@@ -640,7 +864,11 @@ def parse_youtube_takeout_zip(content: bytes) -> list[RawItem]:
                     items.extend(parse_youtube_takeout(member_bytes, base))
             except Exception as e:
                 logger.debug(f"Skipping unreadable zip member {name}: {type(e).__name__}: {e}")
+                skipped += 1
                 continue
+
+    if warnings is not None and skipped:
+        warnings.append(f"Skipped {skipped} unreadable file(s) inside the archive.")
 
     return items
 
@@ -790,10 +1018,22 @@ async def ingest_feed(
     return await ingest_batch(items, memory_path, from_bookmark_file=False, commit=commit)
 
 
-def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, bool]:
+def parse_upload(
+    content: bytes,
+    filename: str,
+    *,
+    include_history: bool = False,
+    warnings: list[str] | None = None,
+) -> tuple[list[RawItem], str, bool]:
     """Route an uploaded file to the right parser by extension + sniff.
 
     Returns ``(items, source_label, from_bookmark_file)``.
+
+    ``include_history`` (G71 §3) opts a TikTok export's Browsing History in —
+    default off, because ambient watch/browse exhaust is noise, not a save.
+    ``warnings`` is an optional sink a caller (the preview endpoint) passes so
+    partial-parse detail reaches the user instead of only the debug log; every
+    existing positional caller is unaffected.
     """
     name = (filename or "").lower()
     if name.endswith(".xml") or name.endswith(".rss") or name.endswith(".atom"):
@@ -816,6 +1056,26 @@ def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, boo
         # between the two doesn't matter).
         if _is_instagram_saved_json(data):
             return parse_instagram_saved(data), "Instagram Saved", False
+        # TikTok's export nests everything under an activity wrapper, so it can
+        # never collide with the Instagram (`saved_*`) or Takeout (list) sniffs.
+        if _is_tiktok_export_json(data):
+            items = parse_tiktok_export(data, include_history=include_history)
+            if not include_history and warnings is not None:
+                # Browsing History was intentionally dropped by the
+                # ``include_history`` opt-in above — a preview caller must
+                # still be told it exists, or "recognized" silently hides
+                # data the export actually contains (G71 §3 fix round: the
+                # Task 4 brief under-specified this). Re-run with history
+                # included just to size the gap; cheap in-memory JSON walk,
+                # no I/O.
+                excluded = len(parse_tiktok_export(data, include_history=True)) - len(items)
+                if excluded > 0:
+                    warnings.append(
+                        f"Browsing history ({excluded} item"
+                        f"{'s' if excluded != 1 else ''}) excluded by default — "
+                        "enable it when importing."
+                    )
+            return items, "TikTok Export", False
         # Takeout JSON is a list of watch entries; otherwise a generic URL list.
         if isinstance(data, list) and data and isinstance(data[0], dict) and (
             "titleUrl" in data[0] or "subtitles" in data[0]
@@ -839,14 +1099,149 @@ def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, boo
         playlist_items = parse_youtube_playlist_csv(content, filename or name)
         if playlist_items:
             return playlist_items, "YouTube Playlist", False
+        reddit_items = parse_reddit_saved_csv(content, filename or name)
+        if reddit_items:
+            return reddit_items, "Reddit Saved Export", False
+        linkedin_items = parse_linkedin_saved(content, filename or name)
+        if linkedin_items:
+            return linkedin_items, "LinkedIn Saved", False
         return parse_csv_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     if name.endswith(".zip"):
-        return parse_youtube_takeout_zip(content), "YouTube Takeout (zip)", False
+        # L4 (final review): a zip is sniffed by extension alone, but
+        # `parse_youtube_takeout_zip` only recognizes `playlists/*.csv` /
+        # `watch-history.json` members — a non-Takeout archive (an Instagram
+        # or TikTok export, say) reads as an empty zip to it and previously
+        # still carried the "YouTube Takeout (zip)" label into the preview's
+        # "found no saved links" warning, naming the wrong platform. Only
+        # claim the specific label when it actually found Takeout-shaped
+        # content; otherwise a generic one, same "unzip it and drop the
+        # individual file" guidance either way (via the caller's `total == 0`
+        # warning below).
+        zip_items = parse_youtube_takeout_zip(content, warnings)
+        zip_label = "YouTube Takeout (zip)" if zip_items else "ZIP archive"
+        return zip_items, zip_label, False
     if name.endswith(".txt"):
         return parse_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     raise ValueError(
         "Unsupported file format. Use .html, .json, .csv, .txt, .plist, .zip, or .xml/.rss/.atom"
     )
+
+
+# --- Import preview (G71 §4.3) ----------------------------------------------
+
+# `parse_upload` source label -> stable lowercase platform id. The id is never
+# user-facing: the companion app owns every display name (Copy.swift). Tasks
+# that add a parser add their label here.
+PLATFORM_BY_LABEL = {
+    "Instagram Saved": "instagram",
+    "YouTube Takeout": "youtube",
+    "YouTube Takeout (zip)": "youtube",
+    "YouTube Playlist": "youtube",
+    "Bookmarks": "bookmarks",
+    "Safari Bookmarks": "bookmarks",
+    "Chrome Bookmarks": "bookmarks",
+    "RSS Feed": "rss",
+    "URL List": "urls",
+    "LinkedIn Saved": "linkedin",
+    "TikTok Export": "tiktok",
+    "Reddit Saved Export": "reddit",
+}
+
+# What ONE grouping is called on each platform, so the overlay can say
+# "6 collections" / "6 boards" instead of a generic word.
+COLLECTION_KIND_BY_PLATFORM = {
+    "instagram": "collection",
+    "youtube": "playlist",
+    "pinterest": "board",
+    "bookmarks": "folder",
+    "rss": "feed",
+    "urls": "list",
+    "linkedin": "saved",
+    "tiktok": "list",
+    "reddit": "saved",
+    "unknown": "list",
+}
+
+DEFAULT_COLLECTION_NAME = "Ungrouped"
+
+
+@dataclass
+class UploadPreview:
+    """What a dropped export CONTAINS — computed without staging any of it."""
+
+    recognized: bool
+    platform: str
+    total: int
+    collections: list[dict]  # [{"name": str, "kind": str, "count": int}]
+    warnings: list[str]
+
+
+def preview_upload(
+    content: bytes, filename: str, *, include_history: bool = False
+) -> UploadPreview:
+    """Parse an upload WITHOUT staging anything (G71 §4.3).
+
+    Pure and side-effect free: no episode, no entity, no ``url_index`` write,
+    no commit, no network — it runs the same sniff/parse ``parse_upload`` does
+    and then only *counts*. ``recognized`` is ``total > 0``: a format we can
+    name but from which nothing parses is not a usable export, and saying
+    "recognized" about it would be a lie the overlay then repeats.
+    """
+    warnings: list[str] = []
+    try:
+        items, label, _ = parse_upload(
+            content, filename, include_history=include_history, warnings=warnings
+        )
+    except ValueError as e:
+        # `parse_upload`'s own "Unsupported file format" message already names
+        # what's wrong without a filename; every OTHER ValueError bubbling up
+        # from a parser (e.g. a `json.JSONDecodeError`, itself a ValueError)
+        # needs the filename stitched in or the warning is anonymous.
+        msg = str(e)
+        if not msg.startswith("Unsupported file format"):
+            msg = f"Could not parse {filename or 'this file'}: {msg}"
+        return UploadPreview(False, "unknown", 0, [], [msg])
+    except Exception as e:
+        return UploadPreview(
+            False, "unknown", 0, [],
+            [f"Could not parse {filename or 'this file'}: {type(e).__name__}: {e}"],
+        )
+
+    platform = PLATFORM_BY_LABEL.get(label, "unknown")
+    kind = COLLECTION_KIND_BY_PLATFORM.get(platform, "list")
+
+    counts: dict[str, int] = {}
+    for item in items:
+        if not item.url:
+            continue
+        name = (item.folder or "").strip() or DEFAULT_COLLECTION_NAME
+        counts[name] = counts.get(name, 0) + 1
+
+    total = sum(counts.values())
+    if total == 0:
+        warnings.append(
+            f"Read this as {label} but found no saved links in it — if you dropped "
+            "an archive, unzip it and drop the individual export file instead."
+        )
+    # M3 (final review): mirror the SAME check `POST /sources/upload`'s
+    # confirm path enforces (`len(items) > MAX_BATCH` -> 413), on the SAME
+    # basis (`items`, before the URL-filtering `counts` above) — the preview
+    # promising an import Confirm then refuses is the bug being fixed, so the
+    # two checks must agree exactly. Deliberately a warning only: Confirm
+    # still hard-rejects rather than silently importing a truncated first
+    # slice, so this preview must not claim partial success either.
+    if len(items) > MAX_BATCH:
+        warnings.append(
+            f"{len(items):,} items exceeds the {MAX_BATCH:,}-item batch cap — "
+            "Confirm will reject this import; split the export into smaller "
+            "files first."
+        )
+
+    collections = [
+        {"name": n, "kind": kind, "count": counts[n]}
+        for n in sorted(counts, key=lambda n: (-counts[n], n))
+    ]
+    return UploadPreview(total > 0, platform, total, collections, warnings)
 
 
 # --- Relevance metric (§3.4, feed sorting) ---------------------------------
@@ -935,7 +1330,12 @@ def _next_episode_id(episodes_dir: Path, ep_date: str) -> str:
 
 
 def _episode_body(
-    meta: MediaMeta, url: str, saved_date: str, note: str | None, folder: str | None = None
+    meta: MediaMeta,
+    url: str,
+    saved_date: str,
+    note: str | None,
+    folder: str | None = None,
+    reason: str | None = None,
 ) -> str:
     lines = [
         f"# {meta.title}",
@@ -952,6 +1352,8 @@ def _episode_body(
     lines.append(f"**Saved:** {saved_date}")
     if meta.description:
         lines += ["", "## Description", meta.description]
+    if reason:
+        lines += ["", "## Saved because", reason]
     if note:
         lines += ["", "## User note", note]
     return "\n".join(lines)
@@ -977,7 +1379,9 @@ def write_media_episode(
     timestamp = now.isoformat() + "Z"
     saved_date = ep_date
 
-    body = _episode_body(meta, item.url, saved_date, item.note, folder=item.folder)
+    body = _episode_body(
+        meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason
+    )
     content_hash = hashlib.sha256(normalize_url(item.url).encode()).hexdigest()[:12]
 
     frontmatter = {

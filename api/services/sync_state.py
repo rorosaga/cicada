@@ -39,17 +39,109 @@ def read_sync_state(memory_path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def record_sync(memory_path: Path, channel: str, *, count: int, at: str | None = None) -> dict:
-    """Stamp ``channel``'s last successful sync. Returns the full new state."""
-    state = read_sync_state(memory_path)
-    state[channel] = {
-        "last_sync": at or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "count": int(count),
-    }
+def _now_iso() -> str:
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def _write_state(memory_path: Path, state: dict) -> None:
     path = sync_state_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     except OSError as exc:  # a read-only bank must never fail the sync itself
         logger.warning(f"Could not write {SYNC_STATE_FILENAME}: {type(exc).__name__}: {exc}")
+
+
+def record_sync(
+    memory_path: Path,
+    channel: str,
+    *,
+    count: int,
+    at: str | None = None,
+    extra: dict | None = None,
+) -> dict:
+    """Stamp ``channel``'s last successful sync. Returns the full new state.
+
+    A success REPLACES the entry, which deliberately clears any recorded
+    ``last_error`` — the channel is working again and the Capture page must
+    stop saying otherwise. ``extra`` (G71) carries per-connector cursor state,
+    e.g. a connector's newest-seen fullname.
+    """
+    state = read_sync_state(memory_path)
+    entry = {"last_sync": at or _now_iso(), "count": int(count)}
+    if extra:
+        entry.update(extra)
+    state[channel] = entry
+    _write_state(memory_path, state)
+    return state
+
+
+def record_credentials_changed(
+    memory_path: Path, channel: str, *, at: str | None = None
+) -> dict:
+    """Stamp that ``channel``'s credentials changed — a save, a forget, or a
+    successful OAuth token exchange (G71 fix round 1, M2).
+
+    Those three writes land only in ``$CICADA_HOME/secrets.env``, entirely
+    outside ``memory_path`` — ``sync_service.components()`` never reads that
+    file, so without this the "sources" component (and therefore the SSE
+    version vector) never changed on connect/disconnect, and the Feed page's
+    channel badge went stale forever, not just until the next tick. Touching
+    ``sync_state.json``'s mtime — which the "sources" component DOES watch —
+    makes a credential mutation visible the same way ``record_sync`` already
+    makes a completed sync visible. Preserves any existing
+    ``last_sync``/``last_error`` entry, exactly like ``record_error`` does.
+    """
+    state = read_sync_state(memory_path)
+    entry = dict(state.get(channel) or {})
+    entry["credentials_changed_at"] = at or _now_iso()
+    state[channel] = entry
+    _write_state(memory_path, state)
+    return state
+
+
+def record_skip(
+    memory_path: Path, channel: str, reason: str, *, at: str | None = None
+) -> dict:
+    """Record that ``channel``'s last poll was SKIPPED — not attempted, not
+    failed — preserving its last success/error, same convention as
+    ``record_error`` (final-review H2).
+
+    Before this existed, an unattended background poll gated off by
+    ``CICADA_ALLOW_CONNECTOR_FETCH=off`` returned ``{"status": "skipped", ...}``
+    with nothing written anywhere: a user who connected a pay-per-use adapter
+    and never saw a nightly pull had no way to tell "the gate is closed" from
+    "nothing new to pull" from "silently broken." ``reason`` is a short,
+    non-credential-bearing string (e.g. "network fetch disabled").
+    """
+    state = read_sync_state(memory_path)
+    entry = dict(state.get(channel) or {})
+    entry["last_skip"] = at or _now_iso()
+    entry["last_skip_reason"] = str(reason)[:200]
+    state[channel] = entry
+    _write_state(memory_path, state)
+    return state
+
+
+def record_error(
+    memory_path: Path, channel: str, error: str, *, at: str | None = None
+) -> dict:
+    """Record that ``channel``'s last poll FAILED, preserving its last success.
+
+    G71: a connector sync never raises past ``sync()``; this is how the failure
+    still reaches the user, as a per-channel line on ``GET /sources/channels``.
+    ``error`` is a type+message string built by the caller — never a credential,
+    never a raw response body.
+    """
+    state = read_sync_state(memory_path)
+    entry = dict(state.get(channel) or {})
+    entry["last_error"] = str(error)[:400]
+    entry["last_error_at"] = at or _now_iso()
+    state[channel] = entry
+    _write_state(memory_path, state)
     return state

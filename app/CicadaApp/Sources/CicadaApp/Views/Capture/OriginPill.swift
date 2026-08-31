@@ -43,6 +43,16 @@ struct OriginPill: View {
         case "share-sheet": "Share Sheet"
         case "instagram-saved": "Instagram Saved"
         case "youtube-playlist": "YouTube Playlist"
+        // M2 (final review): G71's three direct connectors + three more
+        // export-parser origins never got a case here — they fell through
+        // to `.capitalized`, which reads "Reddit-Saved"/"X-Bookmarks" etc.
+        // instead of a real label, the way every other origin above gets.
+        case "pinterest": "Pinterest"
+        case "reddit-saved": "Reddit Saved"
+        case "x-bookmarks": "X Bookmarks"
+        case "linkedin-saved": "LinkedIn Saved"
+        case "tiktok-saved": "TikTok Saved"
+        case "tiktok-history": "TikTok History"
         case "unknown": "Unknown"
         default: origin.origin.capitalized
         }
@@ -61,6 +71,19 @@ struct OriginPill: View {
         case "share-sheet": "square.and.arrow.up"
         case "instagram-saved": "camera.fill"
         case "youtube-playlist": "play.rectangle.fill"
+        // M2: mirrors each platform's own icon in AddSourceSheet.swift's
+        // `AddSourceTile.icon` (pinterest "pin.fill", reddit
+        // "bubble.left.and.text.bubble.right.fill", x "x.circle", linkedin
+        // "briefcase.fill", tiktok "music.note") — same platform, same icon,
+        // consistent between the Feed catalog and this Activity strip.
+        // tiktok-history gets a distinct "history" icon since it's a SEPARATE
+        // opt-in origin on the same platform as tiktok-saved.
+        case "pinterest": "pin.fill"
+        case "reddit-saved": "bubble.left.and.text.bubble.right.fill"
+        case "x-bookmarks": "x.circle"
+        case "linkedin-saved": "briefcase.fill"
+        case "tiktok-saved": "music.note"
+        case "tiktok-history": "clock.arrow.circlepath"
         case "unknown": "questionmark.circle"
         default: "tray"
         }
@@ -78,6 +101,12 @@ struct OriginPill: View {
         case "share-sheet": Color(hex: 0x8896FF)
         case "instagram-saved": Color(hex: 0xE1306C)
         case "youtube-playlist": Color(hex: 0xFF0000)
+        // M2: each platform's official brand color.
+        case "pinterest": Color(hex: 0xE60023)
+        case "reddit-saved": Color(hex: 0xFF4500)
+        case "x-bookmarks": Color(hex: 0x14171A)
+        case "linkedin-saved": Color(hex: 0x0A66C2)
+        case "tiktok-saved", "tiktok-history": Color(hex: 0xFE2C55)
         case "unknown": CicadaTheme.textTertiary
         default: CicadaTheme.textSecondary
         }

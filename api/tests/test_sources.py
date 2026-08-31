@@ -942,6 +942,50 @@ def test_ingest_instagram_saved_stamps_origin_and_folder_end_to_end(tmp_path, mo
         assert ep_fm["origin"] == "instagram-saved"
 
 
+def test_ingest_linkedin_saved_performs_zero_http_calls(tmp_path, monkeypatch):
+    """Fix round (G71 §3 task-3-review.md Critical): a STAGED (non-preview)
+    LinkedIn ingest must never touch the network — LinkedIn §8.2 bans fetching
+    the post body, and that's a binding rail, not just a preview-time promise.
+
+    Deliberately does NOT use ``_offline_enrich`` (which would monkeypatch
+    ``enrich`` itself away and prove nothing about the real short-circuit).
+    Instead this spies on the actual ``httpx.AsyncClient.get`` the real
+    ``enrich``/``_enrich_opengraph`` path would call, so a regression that
+    re-opens the ToS violation fails loudly here.
+    """
+    import httpx
+
+    calls: list[str] = []
+
+    async def spy_get(self, url, *args, **kwargs):
+        calls.append(str(url))
+        raise AssertionError(f"unexpected network fetch during LinkedIn ingest: {url}")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", spy_get)
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    item = RawItem(
+        url="https://www.linkedin.com/posts/aaa",
+        added="2026-01-02 10:00:00",
+        folder="Saved Items",
+        origin="linkedin-saved",
+    )
+    created, dups = run(media_ingestor.ingest_batch([item], memory, commit=False))
+
+    assert created == 1
+    assert dups == 0
+    assert calls == [], "enrich() must short-circuit a linkedin.com URL before any client.get"
+
+    entities = list((memory / "entities").glob("media-*.md"))
+    assert len(entities) == 1
+    fm = markdown_parser.parse(entities[0]).frontmatter
+    assert fm["media"]["media_type"] == "linkedin"
+    assert fm["origin"] == "linkedin-saved"
+
+
 # --- YouTube playlist CSV ----------------------------------------------------
 
 
@@ -1092,6 +1136,33 @@ def test_parse_upload_routes_takeout_zip():
     assert len(items) == 4
 
 
+def test_parse_upload_of_a_non_takeout_zip_labels_it_generically(tmp_path):
+    """L4 (final review): a zip is sniffed by extension alone, but
+    `parse_youtube_takeout_zip` only recognizes `playlists/*.csv` /
+    `watch-history.json` — an Instagram/TikTok export zip (or anything else)
+    must not be previewed as "YouTube Takeout (zip)" just because it's a
+    .zip with nothing Takeout-shaped inside."""
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("saved_posts.json", "{}")
+    data = buf.getvalue()
+
+    items, label, from_bookmark = media_ingestor.parse_upload(data, "instagram_export.zip")
+    assert items == []
+    assert label == "ZIP archive"
+    assert from_bookmark is False
+
+    preview = media_ingestor.preview_upload(data, "instagram_export.zip")
+    assert preview.recognized is False
+    assert any(
+        "Read this as ZIP archive" in w and "YouTube Takeout" not in w
+        for w in preview.warnings
+    )
+
+
 def test_ingest_takeout_zip_dedups_on_second_import(tmp_path, monkeypatch):
     _offline_enrich(monkeypatch)
     memory = tmp_path / "memory"
@@ -1108,3 +1179,27 @@ def test_ingest_takeout_zip_dedups_on_second_import(tmp_path, monkeypatch):
     created2, dups2 = run(media_ingestor.ingest_batch(items2, memory, commit=False))
     assert created2 == 0
     assert dups2 == 4
+
+
+# --- G71 §1: the reason on the episode body ---------------------------------
+
+
+def test_write_media_episode_renders_the_saved_because_section(tmp_path):
+    episodes = tmp_path / "episodes"
+    item = media_ingestor.RawItem(
+        url="https://example.com/recipe", reason="great for meal prep"
+    )
+    meta = MediaMeta(title="A Recipe", site="example.com", media_type="url")
+    episode_id = media_ingestor.write_media_episode(episodes, item, meta, "media-a-recipe")
+
+    body = (episodes / f"{episode_id}.md").read_text(encoding="utf-8")
+    assert "## Saved because" in body
+    assert "great for meal prep" in body
+
+
+def test_write_media_episode_omits_the_section_without_a_reason(tmp_path):
+    episodes = tmp_path / "episodes"
+    item = media_ingestor.RawItem(url="https://example.com/plain")
+    meta = MediaMeta(title="Plain", site="example.com", media_type="url")
+    episode_id = media_ingestor.write_media_episode(episodes, item, meta, "media-plain")
+    assert "Saved because" not in (episodes / f"{episode_id}.md").read_text(encoding="utf-8")

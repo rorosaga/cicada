@@ -46,6 +46,15 @@ final class CopyConstantsTests: XCTestCase {
         }
     }
 
+    /// G71 §4.2 — every export platform gets a written step path, and it lives
+    /// in Copy so no view retypes it.
+    func testEveryExportStepPathIsRoutedThroughCopy() {
+        for vendor in WalkthroughVendor.allCases {
+            XCTAssertEqual(vendor.stepPath, Copy.exportStepPath(vendor))
+            XCTAssertFalse(Copy.exportStepPath(vendor).isEmpty)
+        }
+    }
+
     /// CI-style grep: these literals exist once, in Copy.swift. The whole file
     /// is scanned, comments included — a comment that repeats a label is
     /// exactly how these strings drifted in the first place. "on the Capture
