@@ -40,3 +40,15 @@ def _default_public_logo_resolver(monkeypatch):
 @pytest.fixture(autouse=True)
 def _disable_telemetry(monkeypatch):
     monkeypatch.setenv("CICADA_TELEMETRY", "off")
+
+
+@pytest.fixture(autouse=True)
+def _disable_connector_fetch(monkeypatch):
+    """G71: no test may reach Pinterest (or, later, Reddit).
+
+    Connector transports are injected in tests, but the default transport is
+    additionally gated on this variable so a developer who has real credentials
+    in ``~/.cicada/secrets.env`` — which `cicada_home()` resolves to by default
+    — cannot have a shell export turn a test run into live API traffic.
+    """
+    monkeypatch.delenv("CICADA_ALLOW_CONNECTOR_FETCH", raising=False)

@@ -35,6 +35,27 @@ def test_read_sync_state_missing_or_corrupt_is_empty(tmp_path):
     assert sync_state.read_sync_state(tmp_path) == {}
 
 
+def test_record_sync_accepts_extra_state_and_clears_a_previous_error(tmp_path):
+    sync_state.record_error(tmp_path, "pinterest", "HTTPStatusError: 401")
+    sync_state.record_sync(tmp_path, "pinterest", count=12, at="2026-08-31T10:00:00Z",
+                           extra={"last_seen": "t3_abc"})
+    entry = sync_state.read_sync_state(tmp_path)["pinterest"]
+    assert entry["count"] == 12
+    assert entry["last_seen"] == "t3_abc"
+    assert "last_error" not in entry, "a successful sync must clear the failure"
+
+
+def test_record_error_keeps_the_last_successful_sync(tmp_path):
+    sync_state.record_sync(tmp_path, "pinterest", count=40, at="2026-08-30T10:00:00Z")
+    sync_state.record_error(tmp_path, "pinterest", "ConnectorError: token expired",
+                            at="2026-08-31T10:00:00Z")
+    entry = sync_state.read_sync_state(tmp_path)["pinterest"]
+    assert entry["last_sync"] == "2026-08-30T10:00:00Z"
+    assert entry["count"] == 40
+    assert entry["last_error"] == "ConnectorError: token expired"
+    assert entry["last_error_at"] == "2026-08-31T10:00:00Z"
+
+
 def _channels(memory_path, *, telegram_enabled=False):
     from api.services import channel_registry
 

@@ -39,17 +39,62 @@ def read_sync_state(memory_path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def record_sync(memory_path: Path, channel: str, *, count: int, at: str | None = None) -> dict:
-    """Stamp ``channel``'s last successful sync. Returns the full new state."""
-    state = read_sync_state(memory_path)
-    state[channel] = {
-        "last_sync": at or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "count": int(count),
-    }
+def _now_iso() -> str:
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def _write_state(memory_path: Path, state: dict) -> None:
     path = sync_state_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     except OSError as exc:  # a read-only bank must never fail the sync itself
         logger.warning(f"Could not write {SYNC_STATE_FILENAME}: {type(exc).__name__}: {exc}")
+
+
+def record_sync(
+    memory_path: Path,
+    channel: str,
+    *,
+    count: int,
+    at: str | None = None,
+    extra: dict | None = None,
+) -> dict:
+    """Stamp ``channel``'s last successful sync. Returns the full new state.
+
+    A success REPLACES the entry, which deliberately clears any recorded
+    ``last_error`` — the channel is working again and the Capture page must
+    stop saying otherwise. ``extra`` (G71) carries per-connector cursor state,
+    e.g. a connector's newest-seen fullname.
+    """
+    state = read_sync_state(memory_path)
+    entry = {"last_sync": at or _now_iso(), "count": int(count)}
+    if extra:
+        entry.update(extra)
+    state[channel] = entry
+    _write_state(memory_path, state)
+    return state
+
+
+def record_error(
+    memory_path: Path, channel: str, error: str, *, at: str | None = None
+) -> dict:
+    """Record that ``channel``'s last poll FAILED, preserving its last success.
+
+    G71: a connector sync never raises past ``sync()``; this is how the failure
+    still reaches the user, as a per-channel line on ``GET /sources/channels``.
+    ``error`` is a type+message string built by the caller — never a credential,
+    never a raw response body.
+    """
+    state = read_sync_state(memory_path)
+    entry = dict(state.get(channel) or {})
+    entry["last_error"] = str(error)[:400]
+    entry["last_error_at"] = at or _now_iso()
+    state[channel] = entry
+    _write_state(memory_path, state)
     return state
