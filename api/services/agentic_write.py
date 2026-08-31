@@ -243,9 +243,18 @@ def write_claim(
     text: str | None = None,
     force_new_entity: bool = False,
     sources: list[str] | None = None,
+    session_id: str | None = None,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
+
+    ``session_id`` (PR #20 review fix): the MCP session doing this write,
+    stamped onto the claim itself so a direct write against an EXISTING
+    entity — which never touches that entity's frontmatter
+    ``source_episodes`` — still leaves a durable session-to-entity
+    association for ``session_stats._group`` to read back. Distinct from
+    ``source_episode``, which becomes ``Claim.source_episodes`` and (for a
+    brand-new subject page only) the entity's own frontmatter list.
 
     Returns ``{subject, entity_id, claim_id, action, observer}`` on success,
     or ``{subject, entity_id: None, claim_id: None, action: "error", observer,
@@ -328,6 +337,7 @@ def write_claim(
             valid_from=_date_from_episode_id(source_episode),
             source_episodes=[source_episode] if source_episode else [],
             origin=origin,
+            session_id=(session_id or "").strip() or None,
         )
 
         parsed = markdown_parser.parse(page)

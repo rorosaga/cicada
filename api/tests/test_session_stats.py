@@ -30,15 +30,25 @@ def _episode(memory, episode_id, *, timestamp, session_id=None, source_id=None,
     (episodes_dir / f"{episode_id}.md").write_text("\n".join(lines), encoding="utf-8")
 
 
-def _entity(memory, entity_id, source_episodes):
+def _entity(memory, entity_id, source_episodes, *, claim_session_id=None):
     entities_dir = memory / "entities"
     entities_dir.mkdir(parents=True, exist_ok=True)
-    eps = "\n".join(f"- {e}" for e in source_episodes) or "[]"
-    (entities_dir / f"{entity_id}.md").write_text(
-        f"---\nid: {entity_id}\ntype: concept\nstatus: active\n"
-        f"source_episodes:\n{eps}\n---\n\n# {entity_id}\n",
-        encoding="utf-8",
-    )
+    eps = ("\n" + "\n".join(f"- {e}" for e in source_episodes)) if source_episodes else " []"
+    body = f"---\nid: {entity_id}\ntype: concept\nstatus: active\n" \
+           f"source_episodes:{eps}\n---\n\n# {entity_id}\n"
+    if claim_session_id is not None:
+        # A direct `cicada_write_claim` against an EXISTING entity: the claim
+        # carries the writing session, but frontmatter source_episodes is
+        # untouched (mirrors agentic_write.write_claim's real behavior).
+        body += (
+            "\n```claims\n"
+            f"- id: clm_{entity_id}_test\n"
+            f"  text: \"{entity_id} test claim\"\n"
+            f"  subject: {entity_id}\n"
+            f"  session_id: {claim_session_id}\n"
+            "```\n"
+        )
+    (entities_dir / f"{entity_id}.md").write_text(body, encoding="utf-8")
 
 
 @pytest.fixture(autouse=True)
@@ -151,6 +161,50 @@ def test_entities_are_credited_transitively_through_source_episodes(tmp_path):
     assert rows[UUID_A]["entity_ids"] == ["cicada", "sqlite-vec"]
     assert rows[UUID_A]["entity_count"] == 2
     assert rows[UUID_B]["entity_ids"] == ["sqlite-vec"]
+
+
+# --- PR #20 review fix: episode-less direct writes still credit the entity --
+
+
+def test_a_claims_session_id_credits_the_entity_with_no_source_episode(tmp_path):
+    # A direct cicada_write_claim against an EXISTING entity: no source
+    # episode, so frontmatter source_episodes stays empty — only the claim's
+    # own session_id records which conversation touched it.
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A)
+    _entity(memory, "mongodb", [], claim_session_id=UUID_A)
+
+    rows = {r["conversation_id"]: r
+            for r in session_stats.aggregate_conversations(memory, transcript_exists=_never)}
+
+    assert rows[UUID_A]["entity_ids"] == ["mongodb"]
+    assert rows[UUID_A]["entity_count"] == 1
+
+
+def test_source_episodes_and_claim_session_credit_the_same_entity_once(tmp_path):
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A)
+    _entity(memory, "mongodb", ["ep_1"], claim_session_id=UUID_A)
+
+    rows = {r["conversation_id"]: r
+            for r in session_stats.aggregate_conversations(memory, transcript_exists=_never)}
+
+    assert rows[UUID_A]["entity_ids"] == ["mongodb"], "no duplicate credit for the same conversation"
+
+
+def test_a_claim_session_id_from_an_unknown_conversation_credits_nothing(tmp_path):
+    # No episode anywhere carries this session, so there is no conversation
+    # row to attach the entity to — never manufacture a phantom row from a
+    # claim alone.
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A)
+    _entity(memory, "mongodb", [], claim_session_id=UUID_B)
+
+    rows = {r["conversation_id"]: r
+            for r in session_stats.aggregate_conversations(memory, transcript_exists=_never)}
+
+    assert rows[UUID_A]["entity_ids"] == []
+    assert UUID_B not in rows
 
 
 def test_entity_ids_are_capped_with_an_honest_total(tmp_path):

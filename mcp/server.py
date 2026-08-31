@@ -1104,6 +1104,11 @@ def handle_write_claim(
         source_episode=source_episode,
         force_new_entity=force_new_entity,
         sources=sources,
+        # PR #20 review fix: stamp the writing session on the claim itself so
+        # an episode-less write (no source_episode) still records which
+        # conversation touched this entity — see agentic_write.write_claim's
+        # docstring and session_stats._group's claims fallback.
+        session_id=SESSION.session_id,
     )
 
     if result.get("action") == "ambiguous_subject":

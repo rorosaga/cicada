@@ -79,6 +79,14 @@ class Claim:
     premises: list[str] = field(default_factory=list)  # claim-ids derived from
     authored_by: str | None = None  # → Cicada-Author trailer; or `user`
     origin: str | None = None  # G9 harness provenance: claude-code|codex|...
+    # PR #20 review fix: the MCP session that wrote this claim (agentic_write's
+    # SessionIdentity.session_id), stamped even when `source_episodes` is empty
+    # — a direct `cicada_write_claim` against an EXISTING entity never touches
+    # that entity's frontmatter `source_episodes`, so without this the write's
+    # conversation is undiscoverable and the entity silently drops off that
+    # conversation's `GET /conversations` row. `session_stats._group` reads it
+    # as a fallback attribution path alongside `source_episodes`.
+    session_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -107,6 +115,7 @@ class Claim:
             premises=[str(p) for p in (data.get("premises") or [])],
             authored_by=_opt_str(data.get("authored_by")),
             origin=_opt_str(data.get("origin")),
+            session_id=_opt_str(data.get("session_id")),
         )
 
 

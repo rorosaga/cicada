@@ -113,6 +113,54 @@ def test_write_claim_reuses_existing_page_without_duplicating(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# session_id — PR #20 review fix: episode-less writes still leave a durable
+# session-to-entity association for session_stats to read back.
+# --------------------------------------------------------------------------- #
+
+
+def test_write_claim_stamps_the_given_session_id_on_the_claim(tmp_path):
+    result = agentic_write.write_claim(
+        tmp_path, "Rodrigo", "prefers", "dark mode",
+        observer="agent", session_id="ses_2026-08-31_deadbeef",
+    )
+    assert result["action"] == "written"
+
+    parsed = markdown_parser.parse(tmp_path / "entities" / "rodrigo.md")
+    claims = parse_claims(parsed.body)
+    assert claims[0].session_id == "ses_2026-08-31_deadbeef"
+
+
+def test_write_claim_with_no_session_id_leaves_it_none(tmp_path):
+    agentic_write.write_claim(tmp_path, "Rodrigo", "prefers", "dark mode", observer="agent")
+    parsed = markdown_parser.parse(tmp_path / "entities" / "rodrigo.md")
+    assert parse_claims(parsed.body)[0].session_id is None
+
+
+def test_write_claim_stamps_session_id_even_against_an_existing_entity(tmp_path):
+    # The exact bug shape: an existing page, an episode-less write. Frontmatter
+    # source_episodes never changes for an existing page, so the claim's own
+    # session_id is the ONLY durable trail this write leaves behind.
+    entities_dir = tmp_path / "entities"
+    entities_dir.mkdir(parents=True)
+    markdown_parser.write(
+        entities_dir / "rodrigo.md",
+        {"name": "Rodrigo", "type": "person", "status": "active", "source_episodes": []},
+        "Some existing prose about Rodrigo.",
+    )
+
+    agentic_write.write_claim(
+        tmp_path, "Rodrigo", "uses", "sqlite-vec",
+        observer="agent", session_id="ses_2026-08-31_deadbeef",
+    )
+
+    parsed = markdown_parser.parse(entities_dir / "rodrigo.md")
+    assert parsed.frontmatter.get("source_episodes") == []
+    claims = parse_claims(parsed.body)
+    assert claims[0].session_id == "ses_2026-08-31_deadbeef"
+    assert claims[0].source_episodes == []
+
+
+# --------------------------------------------------------------------------- #
 # Trust invariant — agent claim must NOT overwrite a user_stated claim
 # --------------------------------------------------------------------------- #
 
@@ -300,6 +348,23 @@ def test_cicada_write_claim_dispatches_via_handle_tool(tmp_path, monkeypatch):
 
     page = tmp_path / "entities" / "rodrigo.md"
     assert page.exists()
+
+
+def test_cicada_write_claim_dispatch_stamps_the_sessions_own_session_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    server = _load_server()
+    monkeypatch.setattr(
+        server, "SESSION",
+        server.SessionIdentity(session_id="ses_test_fixed", harness="claude-code", project_dir=None),
+    )
+
+    server.handle_tool(
+        "cicada_write_claim",
+        {"subject": "Rodrigo", "predicate": "prefers", "object": "dark mode", "observer": "agent"},
+    )
+
+    parsed = markdown_parser.parse(tmp_path / "entities" / "rodrigo.md")
+    assert parse_claims(parsed.body)[0].session_id == "ses_test_fixed"
 
 
 def test_cicada_pending_and_mark_processed_dispatch(tmp_path, monkeypatch):

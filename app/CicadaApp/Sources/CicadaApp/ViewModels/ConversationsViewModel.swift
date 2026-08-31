@@ -102,6 +102,13 @@ final class ConversationsViewModel {
             return .gone
         } catch APIError.httpError(400, _) {
             return .failed("This conversation can't be resumed")
+        } catch APIError.httpError(404, _) {
+            // The bank genuinely has no record of this conversation (see
+            // `POST /conversations/{id}/resume`'s 404 vs. 409 vs. 400
+            // contract) — a missing conversation, not a reachability problem.
+            // Reads distinctly from the generic "Couldn't reach Cicada's
+            // backend" catch-all below.
+            return .failed("This conversation is no longer available in this bank")
         } catch {
             return .failed("Couldn't reach Cicada's backend")
         }

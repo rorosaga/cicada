@@ -440,6 +440,7 @@ async def run(settings: Settings, cycle_id: str) -> None:
             organic_resolution_paths=organic_resolution_paths,
             started=_state.started_monotonic,
             sessions=_collect_session_ids(processed_episodes),
+            episode_sessions=_episode_session_map(processed_episodes),
         )
         requeue_note = (
             f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
@@ -616,6 +617,27 @@ def _collect_session_ids(episodes: list[dict]) -> list[str]:
     return ids
 
 
+def _episode_session_map(episodes: list[dict]) -> dict[str, str]:
+    """episode id -> its conversation id (``session_id`` wins over
+    ``source_id``, same precedence as :func:`_collect_session_ids`).
+
+    PR #20 review fix: the commit-level ``Cicada-Session:`` trailers
+    (``_collect_session_ids``) are a flat, cycle-wide set — correct for the
+    commit as a whole, but wrong as a per-ENTITY answer when one Sleep run
+    batches multiple conversations (every changed entity would otherwise
+    claim every conversation). This map lets ``_finalize`` stamp each
+    entity's OWN manifest line with only the session(s) of the episode(s)
+    that actually touched it.
+    """
+    mapping: dict[str, str] = {}
+    for ep in episodes:
+        sid = str(ep.get("session_id") or ep.get("source_id") or "").strip()
+        ep_id = str(ep.get("id") or "").strip()
+        if sid and ep_id:
+            mapping[ep_id] = sid
+    return mapping
+
+
 async def _finalize(
     memory_path: Path,
     cycle_id: str,
@@ -626,6 +648,7 @@ async def _finalize(
     started: float | None = None,
     engine: str = "litellm",
     sessions: list[str] | None = None,
+    episode_sessions: dict[str, str] | None = None,
 ) -> None:
     """Commit all changes from the sleep cycle with a structured message.
 
@@ -635,6 +658,15 @@ async def _finalize(
     authoring model(s) for this cycle (main + disambiguation, per ``settings``)
     are recorded as ``Cicada-Author:`` trailers for repo-wide attribution.
 
+    ``episode_sessions`` (PR #20 review fix, ``_episode_session_map``): when
+    given, each entity manifest line also carries a precise
+    ``, sessions: <id>[,<id>...]`` clause derived from THAT entity's own
+    ``source_episodes`` — never the whole cycle's session set. Only entities
+    whose change carries an episode with a resolvable session gain the
+    clause; a decay/archive/conflict change with no episode gets none, and
+    ``git_service.get_entity_history`` falls back to the commit-level
+    ``Cicada-Session:`` trailers for those.
+
     ``organic_resolution_paths`` (G60 fix round 1): the exact inbox file paths
     ``refresh_open_questions`` deleted this cycle because a later conversation
     answered the question organically. Those paths get the specific
@@ -642,7 +674,9 @@ async def _finalize(
     ``sleep/inbox_generation`` every other ``inbox/`` write is tagged with.
 
     ``sessions`` (G48): the distinct conversation ids whose episodes this cycle
-    consolidated, recorded as ``Cicada-Session:`` trailers. User-action commits
+    consolidated, recorded as ``Cicada-Session:`` commit-level trailers — this
+    IS every conversation the whole cycle touched, and stays as-is (it is
+    commit provenance, not entity provenance). User-action commits
     (inbox_service, entities router) stay session-less by design — they are
     ``Cicada-Author: user`` writes with no conversation behind them.
     """
@@ -660,9 +694,21 @@ async def _finalize(
         trigger = change.get("trigger", "sleep/extraction")
         path = f"entities/{entity_id}.md"
         entity_files_covered.add(path)
-        entity_lines.append(
-            f"{path}: {action} (source: {source}, trigger: {trigger})"
-        )
+        line = f"{path}: {action} (source: {source}, trigger: {trigger}"
+        if episode_sessions:
+            # entity_resolver accumulates EVERY episode that touched this
+            # entity in `source_episodes` (plural); `source_episode`
+            # (singular) is only the last one merged. Use the full list so a
+            # multi-episode update credits every one of ITS OWN episodes.
+            source_eps = change.get("source_episodes") or (
+                [change["source_episode"]] if change.get("source_episode") else []
+            )
+            entity_sessions = sorted({
+                episode_sessions[ep] for ep in source_eps if episode_sessions.get(ep)
+            })
+            if entity_sessions:
+                line += f", sessions: {','.join(entity_sessions)}"
+        entity_lines.append(line + ")")
 
     # --- File lines for anything else touched in the working tree ---
     extra_lines: list[str] = []

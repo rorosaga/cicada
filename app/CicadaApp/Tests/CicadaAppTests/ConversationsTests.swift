@@ -260,6 +260,18 @@ final class ConversationsTests: XCTestCase {
         XCTAssertEqual(outcome, .gone)
     }
 
+    /// PR #20 review fix: a 404 (the bank has no record of this conversation
+    /// — see `POST /conversations/{id}/resume`'s 404/409/400 contract) must
+    /// not read as the generic "couldn't reach the backend" outage copy.
+    func testA404BecomesAnUnavailableConversationFailureNotAGenericOutage() async {
+        let api = FakeSyncAPI()
+        api.resumeError = APIError.httpError(404, "unknown conversation")
+        let vm = ConversationsViewModel(api: api, launch: { _, _ in .ghostty })
+
+        let outcome = await vm.resume(uuid)
+        XCTAssertEqual(outcome, .failed("This conversation is no longer available in this bank"))
+    }
+
     func testANonResumableIdIsNeverEvenSentToTheBackend() async {
         let api = FakeSyncAPI()
         api.recentConversations = [

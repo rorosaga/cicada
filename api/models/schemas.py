@@ -137,10 +137,15 @@ class EntityHistoryEntry(CamelModel):
     author: str = "unknown"
     commit_hash: str = ""
     diff: Optional[EntityDiff] = None
-    # G48: the conversations that produced this commit, parsed from its
-    # ``Cicada-Session:`` trailers. Empty for every pre-G48 commit and for
-    # user-action writes, so the app's "from conversation" affordance simply
-    # doesn't render there.
+    # G48: the conversation(s) that produced THIS ENTITY's change at this
+    # commit. PR #20 review fix: precise when derivable — parsed from the
+    # entity's own manifest line (`git_service._parse_entity_sessions`), which
+    # a batched Sleep cycle (multiple conversations in one commit) stamps per
+    # entity from only the episode(s) that touched it — falling back to the
+    # commit-wide ``Cicada-Session:`` trailers only when no precise per-entity
+    # data exists (a decay/archive change with no episode, or a pre-fix
+    # commit). Empty for every pre-G48 commit and for user-action writes, so
+    # the app's "from conversation" affordance simply doesn't render there.
     sessions: list[str] = []
 
 

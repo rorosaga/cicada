@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from api.services import git_service
+from api.services import git_service, sleep_cycle
 
 UUID_A = "0f8f1c2a-4b5d-4e6f-8a9b-0c1d2e3f4a5b"
 UUID_B = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
@@ -89,6 +89,51 @@ def test_contributor_commits_carry_the_sessions(repo):
     assert len(commits) == 1
     assert commits[0].sessions == [UUID_A]
     assert commits[0].entities == ["cicada"]
+
+
+def test_two_conversation_cycle_each_entity_reports_only_its_own_session(tmp_path, monkeypatch):
+    """PR #20 review fix — 'batched sessions overclaim entity provenance'.
+
+    One Sleep cycle consolidates episodes from TWO conversations and creates
+    one entity from each. Even though both conversations land in the SAME
+    commit (and thus the same commit-level Cicada-Session trailers), each
+    entity's own history row must report ONLY the conversation whose episode
+    actually touched it — never its sibling's.
+    """
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CICADA_TELEMETRY", "off")
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+    _git(memory, "init", "-q")
+    _git(memory, "config", "user.email", "test@cicada.local")
+    _git(memory, "config", "user.name", "Cicada Test")
+
+    (memory / "entities" / "postgres.md").write_text(
+        "---\nid: postgres\n---\n\n# Postgres\n", encoding="utf-8"
+    )
+    (memory / "entities" / "sqlite.md").write_text(
+        "---\nid: sqlite\n---\n\n# SQLite\n", encoding="utf-8"
+    )
+    changes = [
+        {"id": "postgres", "action": "created", "source_episode": "ep_1",
+         "source_episodes": ["ep_1"], "trigger": "sleep/extraction"},
+        {"id": "sqlite", "action": "created", "source_episode": "ep_2",
+         "source_episodes": ["ep_2"], "trigger": "sleep/extraction"},
+    ]
+
+    run(sleep_cycle._finalize(
+        memory, "cycle-two-convos", changes, None,
+        sessions=[UUID_A, UUID_B],
+        episode_sessions={"ep_1": UUID_A, "ep_2": UUID_B},
+    ))
+
+    postgres_history = run(git_service.get_entity_history("postgres", memory))
+    sqlite_history = run(git_service.get_entity_history("sqlite", memory))
+
+    assert postgres_history[0].sessions == [UUID_A]
+    assert sqlite_history[0].sessions == [UUID_B]
+    assert UUID_B not in postgres_history[0].sessions, "must not overclaim its sibling's conversation"
+    assert UUID_A not in sqlite_history[0].sessions, "must not overclaim its sibling's conversation"
 
 
 def test_a_user_commit_has_no_sessions(repo):

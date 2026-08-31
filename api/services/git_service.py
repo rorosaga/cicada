@@ -140,13 +140,59 @@ def _parse_authors(body: str) -> list[str]:
 
 
 def _parse_sessions(body: str) -> list[str]:
-    """Extract conversation ids from ``Cicada-Session:`` trailer lines."""
+    """Extract conversation ids from ``Cicada-Session:`` trailer lines.
+
+    Commit-LEVEL: every conversation the whole commit touched (a Sleep cycle
+    that batched N conversations lists all N here). Correct as commit
+    provenance; too broad to attribute to any ONE entity — see
+    :func:`_parse_entity_sessions` for the per-entity fallback chain.
+    """
     out: list[str] = []
     seen: set[str] = set()
     for line in body.splitlines():
         m = _SESSION_RE.match(line.strip())
         if m:
             sid = m.group(1).strip()
+            if sid and sid not in seen:
+                seen.add(sid)
+                out.append(sid)
+    return out
+
+
+# Matches the optional `, sessions: <id>[,<id>...]` clause `sleep_cycle._finalize`
+# appends to an entity's OWN manifest line (never the whole-commit trailer).
+_ENTITY_LINE_SESSIONS_RE = re.compile(r"sessions:\s*([^)]+)\)")
+
+
+def _parse_entity_sessions(body: str, entity_id: str) -> list[str]:
+    """This ONE entity's own session ids from its manifest line(s) in a commit
+    body (PR #20 review fix).
+
+    A batched Sleep cycle's commit-level ``Cicada-Session:`` trailers list
+    EVERY conversation the cycle touched (see ``_parse_sessions``); crediting
+    all of them to every changed entity overclaims provenance ("entity
+    history reports unrelated conversations"). This instead reads the precise
+    per-entity ``sessions: ...`` clause ``sleep_cycle._finalize`` stamps onto
+    THAT entity's own ``entities/<id>.md: ...`` manifest line, derived from
+    only the episode(s) that actually touched it.
+
+    Returns ``[]`` (never a fallback) when no such clause is present — the
+    caller (``get_entity_history``) is responsible for falling back to the
+    commit-level trailer, so this function's contract stays "precise or
+    nothing."
+    """
+    prefix = f"entities/{entity_id}.md:"
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in body.splitlines():
+        line = line.strip()
+        if not line.startswith(prefix):
+            continue
+        m = _ENTITY_LINE_SESSIONS_RE.search(line)
+        if not m:
+            continue
+        for sid in m.group(1).split(","):
+            sid = sid.strip()
             if sid and sid not in seen:
                 seen.add(sid)
                 out.append(sid)
@@ -330,6 +376,15 @@ async def get_entity_history(
         if include_diff:
             diff = await get_entity_commit_diff(entity_id, commit_hash, memory_path)
 
+        # PR #20 review fix: prefer THIS entity's own precise sessions (from
+        # its manifest line); only fall back to the commit-wide trailer set
+        # when no precise per-entity data exists (a decay/archive change with
+        # no episode, or a pre-fix commit) — never both at once, so a batched
+        # cycle's unrelated conversations never leak onto an entity that
+        # itself has a precise answer.
+        entity_sessions = _parse_entity_sessions(body, entity_id)
+        sessions = entity_sessions if entity_sessions else _parse_sessions(body)
+
         entries.append(EntityHistoryEntry(
             date=date,
             change_type=change_type,
@@ -337,7 +392,7 @@ async def get_entity_history(
             author=author,
             commit_hash=commit_hash,
             diff=diff,
-            sessions=_parse_sessions(body),
+            sessions=sessions,
         ))
 
     return entries

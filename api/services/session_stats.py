@@ -5,7 +5,11 @@ An ``origin_stats.py`` clone, one axis over: where that module groups episodes
 by *capture origin* (mcp / telegram / claude-export), this one groups them by
 *conversation* — the ``session_id`` an MCP client stamped at capture, or G20's
 ``source_id`` for an imported chat thread. Entities are credited transitively
-through ``source_episodes``, exactly as in ``origin_stats.aggregate_origins``.
+through ``source_episodes``, exactly as in ``origin_stats.aggregate_origins``,
+PLUS (PR #20 review fix) any entity whose in-page ``claims`` block carries a
+claim stamped with a matching ``session_id`` — the durable trail a direct
+``cicada_write_claim`` against an EXISTING entity leaves when it has no
+source episode to record in frontmatter.
 
 PRIVACY: transcripts are NEVER read. The only filesystem contact with
 ``~/.claude`` in this entire feature is the ``os.path.isfile`` inside
@@ -20,6 +24,7 @@ import re
 from pathlib import Path
 
 from api.services import bank_index
+from api.services.claims import parse_claims
 
 # A Claude Code session id is a canonical UUID (`--session-id` requires one).
 # Anything else — notably a minted `ses_YYYY-MM-DD_xxxxxxxx` id — can never
@@ -101,10 +106,26 @@ def _group(memory_path: Path) -> dict[str, dict]:
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         entity_id = str(fm.get("id") or f.stem)
+        entity_conversations: set[str] = set()
         for ep_id in fm.get("source_episodes", []) or []:
             conversation_id = episode_conversation.get(ep_id)
             if conversation_id:
-                groups[conversation_id]["entity_ids"].add(entity_id)
+                entity_conversations.add(conversation_id)
+        # PR #20 review fix: a direct `cicada_write_claim` against an
+        # EXISTING entity never touches this entity's frontmatter
+        # `source_episodes` (only page CREATION does), so an episode-less
+        # write would otherwise never connect this conversation to the
+        # entity it changed. The claim itself carries the writing session
+        # (Claim.session_id, stamped by agentic_write.write_claim) — credit
+        # it here, but only to a conversation that already has an episode
+        # group (never manufacture a phantom conversation row from a claim
+        # alone).
+        for claim in parse_claims(f.body()):
+            sid = (claim.session_id or "").strip()
+            if sid and sid in groups:
+                entity_conversations.add(sid)
+        for conversation_id in entity_conversations:
+            groups[conversation_id]["entity_ids"].add(entity_id)
 
     for group in groups.values():
         # Sort by (timestamp, episode id) so an episode without a timestamp
