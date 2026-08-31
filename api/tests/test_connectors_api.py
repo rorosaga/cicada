@@ -317,6 +317,25 @@ def test_x_callback_is_reachable_without_a_bearer_token():
     assert "/sources/connectors/x/callback" in auth._OPEN_PATHS
 
 
+def test_the_exemption_never_widens_past_registered_oauth_adapters():
+    """Fix round 1, M1: the positive assertions above only prove Pinterest and
+    X are exempt — they say nothing about the exemption staying narrow. Every
+    one of these must resolve to `require_token` still being enforced, or the
+    exemption has silently widened (a mistyped `LOGIN_MODE`, a looser
+    `split("/")` parse, etc). Unit-level and deliberately NOT through a
+    TestClient: the `client` fixture above (like every fixture in this file)
+    runs with auth disabled by default, which would neuter this check.
+    """
+    from api.services import auth
+
+    # A registered connector, but credentials-only — never gets a callback.
+    assert "/sources/connectors/reddit/callback" not in auth._OPEN_PATHS
+    # Not a registered connector at all.
+    assert "/sources/connectors/evil/callback" not in auth._OPEN_PATHS
+    # A path-traversal attempt riding the one open prefix.
+    assert "/sources/connectors/pinterest/callback/../../banks" not in auth._OPEN_PATHS
+
+
 def test_x_disconnect_removes_every_credential(client):
     c, _ = client
     c.put("/sources/connectors/x/credentials",
@@ -362,8 +381,7 @@ def test_sync_now_runs_the_adapter_and_reports_counts(client, monkeypatch):
     c, _ = client
 
     async def fake_sync(memory_path, **kwargs):
-        return {"status": "ok", "reason": None, "new": 3, "seen": 5,
-                "boards": 2, "error": None}
+        return {"status": "ok", "reason": None, "new": 3, "seen": 5, "error": None}
 
     monkeypatch.setattr(pinterest, "sync", fake_sync)
     body = c.post("/sources/connectors/pinterest/sync").json()

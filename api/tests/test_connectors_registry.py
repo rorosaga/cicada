@@ -9,19 +9,73 @@ connector 4xx's on another's callback.
 
 from __future__ import annotations
 
+import importlib
 import inspect
+import os
+import pkgutil
 
 import pytest
 from fastapi.testclient import TestClient
 
 from api import config, main
 from api.routers import connectors as connectors_router
-from api.services.connectors import ADAPTERS
+from api.services import connectors as connectors_package
+from api.services.connectors import ADAPTERS, x
 
 REQUIRED_ATTRS = (
     "CHANNEL_ID", "LABEL", "FIELDS", "LOGIN_MODE", "CHANNEL_NOUN", "SECRET_NAMES",
     "is_connected", "credential_fields", "forget", "sync",
 )
+
+# Every secret name any adapter could ever write, for the shared teardown
+# below — matches the per-adapter `_isolated_home` convention in
+# test_connector_{pinterest,reddit,x}.py, just unioned across all of them
+# since this file spans every adapter generically.
+_ALL_SECRET_NAMES = {name for adapter in ADAPTERS.values() for name in adapter.SECRET_NAMES}
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path, monkeypatch):
+    """Credentials go to a throwaway $CICADA_HOME — never the real ~/.cicada
+    (fix round 1, Nit 2: was popped inline at the end of one test body, which
+    leaks env on a mid-test failure and never ran for any other test in this
+    file). Also clears X's PKCE verifier store, the other piece of
+    module-global state a connector test can leak across the session.
+    """
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    for name in _ALL_SECRET_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    x._pending_verifiers.clear()
+    yield
+    for name in _ALL_SECRET_NAMES:
+        os.environ.pop(name, None)
+    x._pending_verifiers.clear()
+
+
+def test_every_connector_module_is_registered_in_adapters():
+    """Fix round 1, L2: the completeness test below only checks modules
+    ALREADY in ``ADAPTERS`` — it would say nothing about a new
+    ``connectors/<name>.py`` someone forgets to add to the registry, which
+    would then be invisible everywhere with no failing test. Scan the
+    package directory itself and require every module except the two
+    non-adapter ones to be a registered value in ``ADAPTERS``."""
+    package_dir = os.path.dirname(connectors_package.__file__)
+    module_names = {
+        info.name for info in pkgutil.iter_modules([package_dir])
+        if not info.ispkg
+    }
+    non_adapter_modules = {"base"}
+    expected_adapter_modules = module_names - non_adapter_modules
+
+    registered_modules = {
+        importlib.import_module(f"api.services.connectors.{name}")
+        for name in expected_adapter_modules
+    }
+    assert registered_modules == set(ADAPTERS.values()), (
+        f"connectors/{sorted(expected_adapter_modules)} vs ADAPTERS "
+        f"{sorted(a.__name__ for a in ADAPTERS.values())} — a module exists "
+        f"on disk that ADAPTERS never registered, or vice versa"
+    )
 
 
 @pytest.mark.parametrize("channel_id", list(ADAPTERS))
@@ -116,10 +170,6 @@ def test_pinterest_and_x_callbacks_are_served_by_the_same_route_function(client)
     assert x_resp.status_code == 400
     assert "No authorization code" in x_resp.json()["detail"]
 
-    for name in (pinterest.APP_ID_ENV, pinterest.APP_SECRET_ENV, x.CLIENT_ID_ENV):
-        import os
-        os.environ.pop(name, None)
-
 
 def test_a_credentials_only_connector_rejects_its_callback_route(client):
     resp = client.get("/sources/connectors/reddit/callback?code=abc&state=whatever")
@@ -128,14 +178,12 @@ def test_a_credentials_only_connector_rejects_its_callback_route(client):
 
 
 @pytest.mark.parametrize("channel_id", list(ADAPTERS))
-def test_forget_removes_every_secret_name_the_adapter_declares(tmp_path, monkeypatch, channel_id):
+def test_forget_removes_every_secret_name_the_adapter_declares(channel_id):
     """Task 15 §4: the orphan-fix — forget() sweeps exactly SECRET_NAMES."""
     from api.services.connections import secrets
 
-    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
     adapter = ADAPTERS[channel_id]
     for name in adapter.SECRET_NAMES:
-        monkeypatch.delenv(name, raising=False)
         secrets.set_secret(name, "placeholder-value")
 
     adapter.forget()
@@ -144,7 +192,3 @@ def test_forget_removes_every_secret_name_the_adapter_declares(tmp_path, monkeyp
         assert not secrets.has_secret(name), f"{channel_id}: {name} survived forget()"
         raw = secrets.secrets_path().read_text(encoding="utf-8") if secrets.secrets_path().exists() else ""
         assert name not in raw, f"{channel_id}: {name} literally still in secrets.env"
-
-    import os
-    for name in adapter.SECRET_NAMES:
-        os.environ.pop(name, None)

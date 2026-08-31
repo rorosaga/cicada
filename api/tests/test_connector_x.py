@@ -12,6 +12,7 @@ import asyncio
 import base64
 import hashlib
 import os
+import time
 
 import pytest
 
@@ -22,6 +23,14 @@ from api.services.connectors import x
 
 def run(coro):
     return asyncio.run(coro)
+
+
+def _seed_verifier(state: str, verifier: str, *, expired: bool = False) -> None:
+    """Directly seed ``x._pending_verifiers`` the way ``authorize_url`` would
+    have, bypassing the PKCE-pair generation — the value shape is
+    ``(verifier, expires_ts)`` (fix round 1, L1)."""
+    expires = time.time() - 1 if expired else time.time() + x._VERIFIER_TTL_SECONDS
+    x._pending_verifiers[state] = (verifier, expires)
 
 
 @pytest.fixture(autouse=True)
@@ -307,7 +316,7 @@ def test_exchange_code_stores_tokens_and_resolves_the_user_id(tmp_path, monkeypa
     positional argument — it recovers the verifier internally via ``state``,
     matching the same PKCE pair ``authorize_url`` would have minted for it."""
     secrets.set_secret(x.CLIENT_ID_ENV, "client-id-placeholder")
-    x._pending_verifiers["state-xyz"] = "verifier-xyz"
+    _seed_verifier("state-xyz", "verifier-xyz")
     calls: list = []
     run(x.exchange_code("code-123", state="state-xyz", http_fn=_fake_http(calls)))
     assert secrets.has_secret(x.TOKEN_ENV)
@@ -322,7 +331,7 @@ def test_exchange_code_stores_tokens_and_resolves_the_user_id(tmp_path, monkeypa
 
 
 def test_exchange_code_requires_a_client_id_first(tmp_path, monkeypatch):
-    x._pending_verifiers["state-xyz"] = "verifier-xyz"
+    _seed_verifier("state-xyz", "verifier-xyz")
     with pytest.raises(Exception):
         run(x.exchange_code("code-123", state="state-xyz", http_fn=_fake_http()))
     assert not secrets.has_secret(x.TOKEN_ENV)
@@ -332,7 +341,7 @@ def test_exchange_code_survives_a_user_id_lookup_failure(tmp_path, monkeypatch):
     """A `/2/users/me` hiccup must not roll back the token — sync() resolves
     the user id lazily later."""
     secrets.set_secret(x.CLIENT_ID_ENV, "client-id-placeholder")
-    x._pending_verifiers["state-xyz"] = "verifier-xyz"
+    _seed_verifier("state-xyz", "verifier-xyz")
 
     async def flaky(method, url, **kwargs):
         if url == x.ME_URL:
@@ -355,6 +364,35 @@ def test_exchange_code_with_an_unknown_state_exchanges_with_an_empty_verifier(tm
     run(x.exchange_code("code-123", state="never-mounted", http_fn=_fake_http(calls)))
     token_call = next(c for c in calls if c[1] == x.TOKEN_URL)
     assert token_call[3]["code_verifier"] == ""
+
+
+def test_exchange_code_with_an_expired_verifier_exchanges_with_an_empty_one(tmp_path, monkeypatch):
+    """Fix round 1, L1: a verifier past its TTL is treated the same as one
+    that was never minted — the state is popped (so a retry can't reuse a
+    stale verifier either) but the token exchange goes out with an empty
+    ``code_verifier``, which X's token endpoint will reject same as any other
+    bad request."""
+    secrets.set_secret(x.CLIENT_ID_ENV, "client-id-placeholder")
+    _seed_verifier("state-expired", "verifier-xyz", expired=True)
+    calls: list = []
+    run(x.exchange_code("code-123", state="state-expired", http_fn=_fake_http(calls)))
+    token_call = next(c for c in calls if c[1] == x.TOKEN_URL)
+    assert token_call[3]["code_verifier"] == ""
+    assert "state-expired" not in x._pending_verifiers, "still single-use even when expired"
+
+
+def test_authorize_url_prunes_expired_verifiers_on_every_call():
+    """Fix round 1, L1: restores the same per-call prune the router's
+    `_pending_states` always did — an abandoned consent tab (or repeated
+    Authorize presses) can't accumulate verifiers in process memory forever."""
+    secrets.set_secret(x.CLIENT_ID_ENV, "client-id-placeholder")
+    _seed_verifier("state-old-expired", "verifier-old", expired=True)
+    assert "state-old-expired" in x._pending_verifiers
+
+    x.authorize_url("state-new")
+
+    assert "state-old-expired" not in x._pending_verifiers, "the expired entry was pruned"
+    assert "state-new" in x._pending_verifiers, "the fresh call's own entry survives its own prune"
 
 
 def test_credential_fields_never_leak_a_value():

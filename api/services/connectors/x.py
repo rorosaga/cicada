@@ -24,6 +24,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import time
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -155,8 +156,14 @@ def generate_pkce_pair() -> tuple[str, str]:
 # the callback — module-internal, so the router (and every other OAuth
 # adapter) never sees or stores a code_verifier (Task 15 §3: "x.py's PKCE
 # verifier stays internal to x.py, keyed by state"). Minted in `authorize_url`,
-# consumed exactly once by `exchange_code`.
-_pending_verifiers: dict[str, str] = {}
+# consumed exactly once by `exchange_code`. Value is ``(verifier,
+# expires_ts)``: before this module owned the verifier, it rode the router's
+# `_pending_states`, which prunes expired entries on every `authorize()` call
+# (10-minute TTL). Restoring that same bound here (fix round 1, L1) means an
+# abandoned consent tab — or repeatedly pressing Authorize without finishing
+# sign-in — can't leave verifiers accumulating in process memory forever.
+_VERIFIER_TTL_SECONDS = 600
+_pending_verifiers: dict[str, tuple[str, float]] = {}
 
 
 def authorize_url(state: str, *, base_url: str = DEFAULT_BASE_URL) -> str:
@@ -166,8 +173,13 @@ def authorize_url(state: str, *, base_url: str = DEFAULT_BASE_URL) -> str:
     *, base_url)`` — the PKCE pair this needs beyond that is generated here
     and stashed internally rather than threaded through the router.
     """
+    now = time.time()
+    for key, (_, expires) in list(_pending_verifiers.items()):
+        if expires < now:
+            _pending_verifiers.pop(key, None)
+
     verifier, challenge = generate_pkce_pair()
-    _pending_verifiers[state] = verifier
+    _pending_verifiers[state] = (verifier, now + _VERIFIER_TTL_SECONDS)
     query = urlencode({
         "client_id": (secrets.load_secrets().get(CLIENT_ID_ENV) or "").strip(),
         "redirect_uri": redirect_uri(base_url),
@@ -212,14 +224,21 @@ async def exchange_code(
     here ``state`` pops (single-use) the ``code_verifier`` ``authorize_url``
     stashed under it. A public client authenticates with that verifier
     instead of a client secret — there is no ``auth=`` tuple here, unlike
-    Pinterest's exchange. An unknown/forged state (the router already
-    validates its own pending-state table before calling in) exchanges with
-    an empty verifier, which X's token endpoint rejects same as any other bad
-    request. Raises ``ConnectorError`` on a response with no access token —
-    the callback route turns that into a plain "couldn't complete sign-in"
-    page, never echoing the response body.
+    Pinterest's exchange. An unknown, forged, or expired (fix round 1, L1:
+    past its 10-minute TTL — the router already validates its own
+    pending-state table before calling in, so this only fires if this
+    module's own store outlived that) state exchanges with an empty verifier,
+    which X's token endpoint rejects same as any other bad request. Raises
+    ``ConnectorError`` on a response with no access token — the callback
+    route turns that into a plain "couldn't complete sign-in" page, never
+    echoing the response body.
     """
-    verifier = _pending_verifiers.pop(state, "")
+    verifier_entry = _pending_verifiers.pop(state, None)
+    verifier = (
+        verifier_entry[0]
+        if verifier_entry is not None and verifier_entry[1] >= time.time()
+        else ""
+    )
     values = secrets.load_secrets()
     client_id = (values.get(CLIENT_ID_ENV) or "").strip()
     if not client_id:
