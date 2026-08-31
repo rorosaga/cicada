@@ -226,8 +226,8 @@ final class FakeSyncAPI: SyncAPI {
     func fetchConnections(etag: String?) async throws -> Conditional<[ConnectionStatus]> {
         try answer(.connections, fallback: [])
     }
-    func fetchConsumption(etag: String?) async throws -> Conditional<ConsumptionBundle> {
-        try answer(.consumption, fallback: try decodeFixture(consumptionJSON) as ConsumptionBundle)
+    func fetchConsumption(etag: String?, current: ConsumptionBundle?) async throws -> Conditional<ConsumptionBundle> {
+        try answer(.consumption, fallback: current ?? (try decodeFixture(consumptionJSON) as ConsumptionBundle))
     }
     func fetchStatus() async throws -> StatusSnapshot {
         calls.append(.status)

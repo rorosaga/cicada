@@ -234,7 +234,9 @@ final class Store {
             case .contributors: await refreshOne(domain, \.contributors) { [api] e in try await api.fetchContributors(etag: e) }
             case .origins: await refreshOne(domain, \.origins) { [api] e in try await api.fetchOrigins(etag: e) }
             case .connections: await refreshOne(domain, \.connections) { [api] e in try await api.fetchConnections(etag: e) }
-            case .consumption: await refreshOne(domain, \.consumption) { [api] e in try await api.fetchConsumption(etag: e) }
+            case .consumption: await refreshOne(domain, \.consumption) { [api, self] e in
+                try await api.fetchConsumption(etag: e, current: self.consumption.value)
+            }
             case .status: await refreshStatus()
             // Ask (G52) history has no server endpoint to reconcile against —
             // `AskViewModel` owns its own read/write through `store.cache`

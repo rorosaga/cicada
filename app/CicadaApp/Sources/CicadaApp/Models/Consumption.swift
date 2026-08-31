@@ -248,7 +248,7 @@ indirect enum LooseValueTree: Codable {
 /// The Store's `consumption` sync domain (G51). The backend serves five
 /// separate endpoints (`/consumption/summary|calendar|stats|connections|harness`),
 /// but only one of each is needed for the dashboard's default view (range
-/// "month", 53-week calendar) — `APIClient.fetchConsumption(etag:)` fans out
+/// "month", 53-week calendar) — `APIClient.fetchConsumption(etag:current:)` fans out
 /// to all five and folds them into this one bundle so the whole page hydrates
 /// from a single disk snapshot and reconciles off a single SSE-driven refresh.
 /// A non-"month" range is fetched directly by `UsageViewModel` and never

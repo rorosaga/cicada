@@ -61,4 +61,54 @@ final class CalendarLayoutTests: XCTestCase {
         }
         XCTAssertEqual(CalendarLayout.monthLabels(columns).map(\.label), ["Aug", "Sep"])
     }
+
+    // MARK: - PR15 triage: 53 vs 54 columns for a non-Monday range start
+
+    private func days(from start: String, count: Int) -> [CalendarCell] {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = TimeZone(identifier: "UTC")
+        let startDate = f.date(from: start)!
+        var cal = Calendar(identifier: .iso8601)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return (0..<count).map { i in
+            cell(f.string(from: cal.date(byAdding: .day, value: i, to: startDate)!))
+        }
+    }
+
+    /// The default dashboard range (`weeks=53` → exactly 371 days, see
+    /// `api/routers/consumption.py`) is an exact multiple of 7. The old
+    /// algorithm padded a leading AND a trailing partial week; for an
+    /// already-exact-multiple-of-7 input those two combine into one whole
+    /// extra week — 54 columns instead of 53 — on every day of the year
+    /// except the one where "371 days ago" happens to land on a Monday.
+    func test53WeeksAlwaysProduces53ColumnsRegardlessOfStartWeekday() {
+        // 2026-08-06 is a Thursday.
+        XCTAssertEqual(CalendarLayout.weekdayIndex("2026-08-06"), 3)
+        let cols = CalendarLayout.columns(days(from: "2026-08-06", count: 371))
+        XCTAssertEqual(cols.count, 53, "a non-Monday start must not spill into a 54th column")
+    }
+
+    func test53WeeksStartingOnAMondayIsUnaffected() {
+        // 2026-08-03 is a Monday.
+        XCTAssertEqual(CalendarLayout.weekdayIndex("2026-08-03"), 0)
+        let cols = CalendarLayout.columns(days(from: "2026-08-03", count: 371))
+        XCTAssertEqual(cols.count, 53)
+    }
+
+    /// Trimming the leading partial week must never trim the trailing end —
+    /// the most recent (today's) day always survives.
+    func test53WeeksKeepsTheMostRecentDayEvenWhenTrimmingTheLeadingPartialWeek() {
+        let input = days(from: "2026-08-06", count: 371)
+        let cols = CalendarLayout.columns(input)
+        let lastDate = input.last!.date
+        XCTAssertTrue(cols.last!.compactMap { $0 }.contains { $0.date == lastDate })
+    }
+
+    /// A handful of other weekday starts, all pinned to 53 — not just Thursday.
+    func test53WeeksHoldsForEveryOtherWeekdayStart() {
+        // 2026-08-04 Tue, 2026-08-05 Wed, 2026-08-07 Fri, 2026-08-08 Sat, 2026-08-09 Sun.
+        for start in ["2026-08-04", "2026-08-05", "2026-08-07", "2026-08-08", "2026-08-09"] {
+            let cols = CalendarLayout.columns(days(from: start, count: 371))
+            XCTAssertEqual(cols.count, 53, "start \(start) must still produce 53 columns")
+        }
+    }
 }

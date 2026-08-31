@@ -10,14 +10,21 @@ struct UsageAdvancedView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             connectionCards
-            if let stats = viewModel.stats {
+            if viewModel.isLoadingRange {
+                ProgressView().frame(maxWidth: .infinity)
+            } else if let stats = viewModel.stats {
                 charts(stats)
                 facts(stats)
                 table("By model", rows: stats.byModel)
                 table("By stage", rows: stats.byStage)
                 table("By bank", rows: stats.byBank)
             } else {
-                ProgressView().frame(maxWidth: .infinity)
+                Text("No usage in this range")
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(CicadaTheme.spacingLG)
+                    .glassCard()
             }
             harnessPanel
         }
@@ -113,10 +120,11 @@ struct UsageAdvancedView: View {
         HStack(spacing: CicadaTheme.spacingMD) {
             StatTile(title: "Lifetime tokens", value: UsageFormat.tokens(s.lifetimeTokens), footnote: s.firstEvent.map { "since \($0)" })
             StatTile(title: "Favorite model", value: s.favoriteModel ?? "—", footnote: "most tokens in range")
-            StatTile(title: "Peak day", value: s.peakDay?["date"]?.text ?? "—", footnote: s.peakDay?["tokens"]?.number.map { "\(UsageFormat.tokens(Int($0))) tokens" })
+            StatTile(title: "Peak day", value: s.peakDay?["date"]?.text ?? "—",
+                     footnote: s.peakDay?["tokens"]?.number.map { "\(UsageFormat.tokens(Int($0))) tokens" })
             StatTile(title: "Longest sleep run",
-                     value: s.longestSleepRun?["duration_ms"]?.number.map { "\(Int($0 / 60000))m" } ?? "—",
-                     footnote: s.longestSleepRun?["episodes_processed"]?.number.map { "\(Int($0)) episodes" })
+                     value: UsageFormat.duration(ms: s.longestSleepRun?["duration_ms"]?.number),
+                     footnote: s.longestSleepRun?["episodes_processed"]?.number.map { "\(UsageFormat.count(Int($0))) episodes" })
         }
     }
 
@@ -156,16 +164,22 @@ struct UsageAdvancedView: View {
                 sectionTitle("Your agent harnesses (their own data, not Cicada's)")
                 if let cc = h.claudeCode {
                     HStack(spacing: CicadaTheme.spacingMD) {
-                        StatTile(title: "Claude Code sessions", value: cc["total_sessions"]?.value?.text ?? "—", footnote: "from ~/.claude/stats-cache.json")
-                        StatTile(title: "Claude Code messages", value: cc["total_messages"]?.value?.text ?? "—", footnote: cc["first_session_date"]?.value.map { "since \($0.text)" })
+                        StatTile(title: "Claude Code sessions",
+                                 value: UsageFormat.harnessValue(cc["total_sessions"]?.value),
+                                 footnote: "from ~/.claude/stats-cache.json")
+                        StatTile(title: "Claude Code messages",
+                                 value: UsageFormat.harnessValue(cc["total_messages"]?.value),
+                                 footnote: cc["first_session_date"]?.value.map { "since \($0.text)" })
                     }
                 }
                 if let cx = h.codex {
                     let primary = cx["primary"]?["used_percent"]?.value?.number
                     let secondary = cx["secondary"]?["used_percent"]?.value?.number
                     HStack(spacing: CicadaTheme.spacingMD) {
-                        StatTile(title: "Codex 5-hour window", value: primary.map { "\(Int($0))%" } ?? "—", footnote: "last snapshot in ~/.codex/sessions")
-                        StatTile(title: "Codex weekly window", value: secondary.map { "\(Int($0))%" } ?? "—", footnote: cx["plan_type"]?.value.map { "plan: \($0.text)" })
+                        StatTile(title: "Codex 5-hour window", value: UsageFormat.percent(primary),
+                                 footnote: "last snapshot in ~/.codex/sessions")
+                        StatTile(title: "Codex weekly window", value: UsageFormat.percent(secondary),
+                                 footnote: cx["plan_type"]?.value.map { "plan: \($0.text)" })
                     }
                 }
                 Text("No rate-limit figures are shown for Claude: there is no compliant local source. Cicada reports the throttle events it observed instead.")
