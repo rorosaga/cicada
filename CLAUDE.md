@@ -43,48 +43,9 @@ transcript pile.
 
 ## Repository Structure
 
-```
-cicada/
-├── api/                        ← FastAPI backend (Python)
-│   ├── main.py
-│   ├── routers/
-│   │   ├── graph.py
-│   │   ├── nudges.py
-│   │   ├── clarifications.py
-│   │   ├── sleep.py
-│   │   └── conversations.py
-│   ├── services/               ← sleep cycle logic, entity resolution, sqlite-vec index
-│   └── requirements.txt
-│
-├── app/                        ← SwiftUI macOS app
-│   ├── CicadaApp.xcodeproj
-│   └── Sources/CicadaApp/
-│       ├── Views/
-│       │   ├── GraphView.swift         ← WKWebView wrapper for d3
-│       │   ├── NudgeInboxView.swift
-│       │   ├── ClarificationQueueView.swift
-│       │   ├── SleepDashboardView.swift
-│       │   └── ConversationUploadView.swift
-│       ├── ViewModels/                 ← @Observable ViewModels per screen
-│       ├── Services/
-│       │   └── APIClient.swift         ← URLSession async/await wrapper
-│       ├── Models/                     ← Swift data models matching API responses
-│       └── Resources/
-│           └── graph/                  ← bundled d3 files
-│               ├── index.html
-│               └── graph.js
-│
-├── memory/                     ← runtime data (separate git repo or gitignored)
-│   ├── episodes/               ← raw timestamped conversation chunks
-│   ├── entities/               ← markdown entity pages with YAML frontmatter
-│   ├── nudges/                 ← pending nudge files
-│   └── clarifications/         ← pending clarification files
-│
-├── CLAUDE.md                   ← You are here
-└── README.md
-```
-
----
+`api/` FastAPI backend, `app/` SwiftUI macOS app, `mcp/` the MCP server, `memory/` the runtime
+bank (gitignored), `benchmarks/` thesis tooling, `docs/goals/` the backlog. Read the tree with
+`ls` — it is not duplicated here.
 
 ## Core Architecture: Awake/Sleep
 
@@ -586,25 +547,10 @@ Next Sleep cycle picks up manual changes → integrates into consolidation
 ## MVP Features (Thesis Scope, Priority Order)
 
 ### 1. Graph Explorer
-Interactive force-directed graph visualization, inspired by Obsidian's graph view.
 
-- Force-directed layout with nodes and edges (d3-force in WKWebView)
-- **Node colors by entity type:**
-  - person = blue, project = purple, company = orange, concept = green
-  - tool = teal, deadline = red, skill = yellow, location = gray
-- Node size reflects confidence score (higher = larger)
-- Edge labels show relationship types
-- Clicking a node opens the entity page (rendered markdown with frontmatter metadata visible)
-- Search/filter by entity type, tags, status, confidence range
-- Cluster detection: automatic grouping of related entities
-- Zoom, pan, and navigate
-- Visual indicators for decaying entities (fading opacity or dashed borders)
-- Visual indicators for entities with pending clarifications (pulsing or question mark icon)
-
-**Nice-to-have:**
-- Temporal playback: scrub through git history to see graph evolution
-- Sleep cycle overlay: highlight nodes/edges added, modified, or pruned per cycle
-- 3D view via Three.js
+Force-directed d3 graph in a WKWebView: node color by entity type, size by confidence, edge
+labels, cluster detection, decay/clarification indicators. Feature detail and open ideas live in
+[`docs/goals/memory-evolution.md`](docs/goals/memory-evolution.md).
 
 ### 2. Nudge Inbox & 3. Clarification Queue — unified `memory/inbox/`
 Nudges and clarifications now live in **one unified store**: `memory/inbox/inbox-NNN.md`, each with
@@ -669,30 +615,11 @@ Manual ingestion of exports from non-MCP sources (ChatGPT, Claude Desktop/iOS).
 
 ## Post-MVP Features
 
-- **Entity Management**: Full CRUD on entity pages (view, edit, create, delete, merge, version history, provenance)
-- **Full Sleep Cycle Dashboard**: Per-cycle summaries, diff views, complete history
-- **3D graph** (Three.js / react-three-fiber)
-- **Mobile companion** — lightweight nudge review on iOS
-- **Obsidian plugin** — render graph inside Obsidian
-- **Tauri rewrite** — single Rust-backed binary
-- **Privacy mode**: `/private` toggle stops writing to episodic buffer for that session
-- **Berry verification layer**: HallBayes post-Sleep, pre-write verification gate (Bayesian entailment scoring)
-
----
+Tracked in [`docs/goals/memory-evolution.md`](docs/goals/memory-evolution.md) (G-rows), not here.
 
 ## Installation & Setup
 
-Cicada ships as a macOS `.dmg`. Drag-to-Applications.
-
-On first launch, guided onboarding flow:
-1. Create `~/cicada/memory/` with correct directory structure
-2. Register MCP server in `~/.claude/mcp_servers.json`
-3. Register FastAPI backend as a launchd service (auto-starts on login)
-4. Set up nightly cron for Sleep cycle
-
-After onboarding, the user never interacts with the backend directly. The companion app and any MCP-compatible client just work.
-
----
+`install.sh` is the source of truth; the paste-prompt install story is G76 in the backlog.
 
 ## UX Principles
 
@@ -725,20 +652,13 @@ After onboarding, the user never interacts with the backend directly. The compan
 
 Benchmark tooling for the thesis `Results` section lives in `benchmarks/`. Four runnable scripts plus a shared fresh-workspace scaffold, all at repo root. Runbook is `benchmarks/README.md`.
 
-### Scripts
+### Scripts and safety rails
 
-*(Note: the underlying index is now sqlite-vec, not LEANN — see Storage Layer above. `benchmarks.rebuild_leann` keeps its historical name for thesis-artifact continuity; it still imports the removed `api.services.leann_indexer` module, so treat it as an artifact of the LEANN era pending a follow-up port rather than a currently-working script.)*
-
-- `benchmarks.rebuild_leann` — one-shot helper to rebuild the LEANN indexes in place. **Required prerequisite before `run_table1`** if `memory/leann/episodes.*` is incomplete (the episodes-only baseline can't retrieve anything without it). Costs a few cents of `text-embedding-3-small`.
-- `benchmarks.run_table1` — three-condition recall eval (Cicada full vs Cicada no-Sleep episode-LEANN-only vs manual commercial baseline). Writes JSONL + scoring-sheet CSV. Scoring is manual per the four-dimensional rubric in `sections/experiments.tex`.
-- `benchmarks.run_table3` — operational measurements. Static counts, disk sizes, recall latency (median/p95/etc.), and optional `--sleep-cycle-time` for fresh-workspace wall-clock.
-- `benchmarks.run_ablation` — Table 2 threshold sweep. Runs one fresh sleep cycle per config (default + promotion 1/3 + decay 0.3/0.5) in throwaway `/tmp/cicada_bench_table2_*` workspaces.
-
-### Safety rails
-
-- None of the runners mutate the live `memory/` directory. Any sleep cycle runs happen inside `/tmp/cicada_bench_*` workspaces seeded from `memory/episodes`.
-- `workspace.destroy_workspace` refuses to delete any path whose name doesn't contain `cicada_bench_`.
-- `api/.env` is auto-loaded into `os.environ` by `benchmarks/_bootstrap.py` — shell exports still win.
+Four runnable scripts plus a shared fresh-workspace scaffold; the runbook is
+[`benchmarks/README.md`](benchmarks/README.md) and the how-to-run detail lives in the
+`thesis-benchmarks` skill. Two rails that are NOT derivable: no runner ever mutates the live
+`memory/` directory (sleep-cycle runs happen in `/tmp/cicada_bench_*` workspaces), and
+`workspace.destroy_workspace` refuses any path whose name lacks `cicada_bench_`.
 
 ### CRITICAL: Personal-data privacy pattern
 
