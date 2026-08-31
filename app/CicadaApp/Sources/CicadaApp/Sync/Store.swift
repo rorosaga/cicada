@@ -59,6 +59,18 @@ final class Store {
     /// good data stays silent.
     var toast: String?
 
+    /// Persistent (non-auto-clearing), per-domain failure reason — latched
+    /// by `refreshOne` the same moment it sets `toast`, cleared the moment
+    /// that domain's next fetch actually lands. `toast` is a single shared
+    /// slot `ContentView` auto-clears ~4s after it's set for the transient
+    /// banner; a VM that samples it lazily (not synchronously after its own
+    /// `load()`, e.g. `ContributorsViewModel`, whose domain is refreshed by
+    /// the Store on its own) would otherwise show a *different* domain's
+    /// failure, or find the toast already cleared and report no error even
+    /// though its own domain never loaded. Keyed per domain, this can't be
+    /// stolen by another domain's failure and never expires on its own.
+    var domainErrors: [SyncDomain: String] = [:]
+
     /// Last version vector seen from `/sync/version` or an SSE `version` event.
     var version: VersionVector?
     /// True while the SSE stream is connected.
@@ -138,6 +150,10 @@ final class Store {
         // switch would render under the new bank's node of the same name.
         entities.removeAll()
         entityLRU.removeAll()
+        // A latched failure belongs to the bank it happened in — carrying it
+        // into a freshly-hydrated bank that hasn't even attempted a fetch yet
+        // would show a stale error before anything really failed here.
+        domainErrors.removeAll()
         if let explicitBank {
             bank = explicitBank
         } else {
@@ -302,11 +318,18 @@ final class Store {
                     await cache.save(value, etag: result.etag,
                                      domain: domain, bank: (domain == .banks || domain == .consumption) ? Self.rosterBank : bank)
                 }
-                // 200 and 304 both mean "we are in sync with the server".
+                // 200 and 304 both mean "we are in sync with the server" —
+                // any previously-latched failure for this domain no longer
+                // applies.
                 pendingDomains.remove(domain)
+                domainErrors[domain] = nil
             } catch {
                 guard refreshEpoch == startEpoch else { return }
-                if self[keyPath: kp].isEmpty { toast = "Couldn't load \(domain.rawValue)" }
+                if self[keyPath: kp].isEmpty {
+                    let message = "Couldn't load \(domain.rawValue)"
+                    toast = message
+                    domainErrors[domain] = message
+                }
                 Self.logger.notice("refresh \(domain.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
             // `isRefreshing` stays true across the re-run so requests arriving

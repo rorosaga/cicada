@@ -69,8 +69,50 @@ final class UsageRangeTests: XCTestCase {
     }
 
     func testAnAllZeroRangeIsReportedAsEmptyRatherThanAWallOfZeroes() async throws {
-        let vm = UsageViewModel(store: Store(cache: tempCache(), api: FakeSyncAPI()))
+        let store = Store(cache: tempCache(), api: FakeSyncAPI())
+        // A genuinely-loaded, confirmed all-zero month — not merely the
+        // never-loaded default — is what should read as "empty".
+        store.consumption.value = ConsumptionBundle(
+            summary: ConsumptionSummary(),
+            calendar: ConsumptionCalendar(days: [], weeks: 53),
+            stats: try emptyStats(),
+            connections: ConsumptionConnections(connections: [], range: "month"),
+            harness: HarnessStats(claudeCode: nil, codex: nil)
+        )
+        let vm = UsageViewModel(store: store)
         XCTAssertTrue(vm.isEmptyRange)
+    }
+
+    /// PR #19 review: before `Store.bootstrap()` ever populates
+    /// `store.consumption`, `summary` already falls back to an all-zero
+    /// `ConsumptionSummary()`. Without gating on whether the month actually
+    /// loaded, `isEmptyRange` read `true` on a brand-new store and Activity
+    /// briefly claimed "No usage this month" before the real data arrived.
+    func testMonthIsNotReportedAsEmptyBeforeItHasEverLoaded() async throws {
+        let store = Store(cache: tempCache(), api: FakeSyncAPI())
+        XCTAssertNil(store.consumption.value, "precondition: nothing has loaded yet")
+        let vm = UsageViewModel(store: store)
+        XCTAssertFalse(vm.isEmptyRange, "must not claim empty before bootstrap ever loads the month")
+    }
+
+    /// Same gap, non-default range: before the first `loadRange()` response
+    /// lands, `rangeSummary` is nil and `summary` falls back to all-zero —
+    /// that must not read as a confirmed-empty range either.
+    func testNonDefaultRangeIsNotReportedAsEmptyBeforeItHasEverLoaded() async throws {
+        var gate: CheckedContinuation<Void, Never>?
+        let stats = try emptyStats()
+        let vm = UsageViewModel(store: Store(cache: tempCache(), api: FakeSyncAPI())) { range in
+            await withCheckedContinuation { gate = $0 }
+            return (self.summary(tokens: 0), stats, ConsumptionConnections(connections: [], range: range))
+        }
+
+        vm.range = "30d"
+        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertFalse(vm.isEmptyRange, "the 30d range hasn't landed yet — it isn't confirmed empty")
+
+        gate?.resume()
+        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertTrue(vm.isEmptyRange, "now it really has loaded and really is all-zero")
     }
 
     /// M2: a failed range fetch left `summary` all-zero (the `catch` path

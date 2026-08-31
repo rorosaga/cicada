@@ -127,6 +127,45 @@ final class StateCoverageTests: XCTestCase {
         XCTAssertNil(vm.errorMessage)
     }
 
+    /// PR #19 round-1 review, re-checked in round 2: `errorMessage` used to
+    /// sample the shared `Store.toast` lazily, which carries whichever
+    /// domain failed *last* — a `graph` failure elsewhere must never paint
+    /// itself under Contributors while contributors itself never even ran.
+    func testErrorMessageIgnoresAnotherDomainsFailure() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        let vm = ContributorsViewModel(store: store)
+
+        api.replies[.graph] = .failure
+        await store.refresh([.graph])
+
+        XCTAssertEqual(store.toast, "Couldn't load graph", "precondition: the shared toast now names a different domain")
+        XCTAssertFalse(vm.hasLoaded)
+        XCTAssertNil(vm.errorMessage, "contributors never failed — it must not borrow graph's error")
+    }
+
+    /// The other half of the same finding: a contributors failure that
+    /// happened while this screen was never visible (so nothing read
+    /// `errorMessage` while `store.toast` was still live) must still be
+    /// reported once the screen is finally shown — not silently swallowed
+    /// into an endless "loading" spinner just because the transient shared
+    /// toast already auto-cleared.
+    func testErrorMessageStillReportsAFailureThatHappenedWhileHidden() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        let vm = ContributorsViewModel(store: store)
+
+        api.replies[.contributors] = .failure
+        await store.refresh([.contributors])
+        // Nobody read `vm.errorMessage` yet (the tab was never opened), and
+        // now `ContentView`'s ~4s auto-clear timer fires.
+        store.toast = nil
+
+        XCTAssertFalse(vm.hasLoaded)
+        XCTAssertEqual(vm.errorMessage, "Couldn't load contributors",
+                       "the domain-scoped failure must survive the shared toast clearing before it was ever read")
+    }
+
     // MARK: Inbox — no "All caught up" mid-load
 
     func testInboxIsLoadingWhileTheFirstFetchIsStillInFlight() async throws {

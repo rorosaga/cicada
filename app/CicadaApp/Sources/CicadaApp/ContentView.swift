@@ -39,7 +39,7 @@ struct ContentView: View {
             SidebarView(
                 selectedTab: $selectedTab,
                 inboxCount: inboxVM.pendingCount,
-                isSleeping: sleepVM.isRunning,
+                isSleeping: store.status.value?.sleep.status == "running" || sleepVM.isRunning,
                 needsAttention: connectionsVM.needsAttention,
                 onOpenSettings: openSettings
             )

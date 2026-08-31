@@ -103,6 +103,18 @@ final class UsageViewModel {
 
     var isLoading: Bool { store.consumption.isEmpty && store.consumption.isRefreshing }
 
+    /// Whether the data backing the *currently selected* range has actually
+    /// landed at least once. `summary`'s zero-valued fallback (`ConsumptionSummary()`
+    /// above) reads identically to a confirmed all-zero range, so without this
+    /// `isEmptyRange` treated "nothing has loaded yet" — e.g. before
+    /// `Store.bootstrap()` ever populates `store.consumption`, or before the
+    /// first `loadRange()` response for a non-default range lands — as a
+    /// confirmed empty month, and the page briefly claimed "No usage this
+    /// month" for data it had simply never asked about yet.
+    private var hasLoadedSelectedRange: Bool {
+        range == "month" ? store.consumption.value != nil : rangeSummary != nil
+    }
+
     /// Nothing was recorded in this range. Drives the "No usage in this range"
     /// placeholders — a row of honest zeroes reads as a broken page.
     /// M2: a failed fetch also leaves `summary` all-zero (`ConsumptionSummary()`
@@ -110,7 +122,8 @@ final class UsageViewModel {
     /// rendered both the error banner AND "No usage in this range" — claiming
     /// a fact about a range that was never actually loaded.
     var isEmptyRange: Bool {
-        !isLoading && !isLoadingRange && errorMessage == nil
+        hasLoadedSelectedRange
+            && !isLoading && !isLoadingRange && errorMessage == nil
             && summary.invocations == 0 && summary.tokens == 0 && summary.memoryWrites == 0
     }
 
