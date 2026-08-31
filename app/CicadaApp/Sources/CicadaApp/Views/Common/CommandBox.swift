@@ -11,16 +11,15 @@ struct CommandBox: View {
     let command: String
     @State private var copied = false
 
+    /// Multi-line snippets (a JSON / TOML / YAML block) wrap; a single long
+    /// command scrolls sideways. Deriving it from the content means no call
+    /// site has to decide, and a config block no longer has its right-hand
+    /// side clipped off inside a horizontal scroll view (G68 §1).
+    static func wraps(_ command: String) -> Bool { command.contains("\n") }
+
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(command)
-                    .font(CicadaTheme.monoFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .textSelection(.enabled)
-                    .padding(.vertical, CicadaTheme.spacingSM)
-                    .padding(.leading, CicadaTheme.spacingMD)
-            }
+            commandText
 
             Button {
                 NSPasteboard.general.clearContents()
@@ -33,23 +32,46 @@ struct CommandBox: View {
             } label: {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(copied ? Color(hex: 0x3BD97A) : CicadaTheme.textSecondary)
+                    .foregroundStyle(copied ? CicadaTheme.success : CicadaTheme.textSecondary)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Copy to clipboard")
+            .accessibilityLabel(copied ? "Copied to clipboard" : "Copy command to clipboard")
             .padding(.top, 2)
             .padding(.trailing, CicadaTheme.spacingXS)
         }
         .background(
             RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .fill(Color.black.opacity(0.35))
+                .fill(CicadaTheme.codeBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
                 .stroke(CicadaTheme.border, lineWidth: 1)
         )
         .animation(.easeInOut(duration: 0.15), value: copied)
+    }
+
+    @ViewBuilder
+    private var commandText: some View {
+        if Self.wraps(command) {
+            snippet
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                snippet.fixedSize(horizontal: true, vertical: false)
+            }
+        }
+    }
+
+    private var snippet: some View {
+        Text(command)
+            .font(CicadaTheme.monoFont)
+            .foregroundStyle(CicadaTheme.textPrimary)
+            .textSelection(.enabled)
+            .padding(.vertical, CicadaTheme.spacingSM)
+            .padding(.leading, CicadaTheme.spacingMD)
     }
 }

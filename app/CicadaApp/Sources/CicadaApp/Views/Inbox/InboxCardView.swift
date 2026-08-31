@@ -173,7 +173,7 @@ struct InboxCardView: View {
             default:
                 HStack {
                     Spacer()
-                    InboxActionButton(title: "Dismiss", icon: "xmark", color: 0x6B7280) {
+                    InboxActionButton(title: "Dismiss", icon: "xmark", color: CicadaTheme.textSecondary) {
                         fire(QuestionResolution(action: "dismiss"))
                     }
                 }
@@ -184,13 +184,13 @@ struct InboxCardView: View {
     /// Decay keeps its three buttons verbatim (out of scope for G60 §3).
     private var decayActions: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            InboxActionButton(title: "Keep Active", icon: "checkmark", color: 0x22C55E) {
+            InboxActionButton(title: "Keep Active", icon: "checkmark", color: CicadaTheme.success) {
                 fire(QuestionResolution(action: "keep_active"))
             }
-            InboxActionButton(title: "Archive", icon: "archivebox", color: 0x6B7280) {
+            InboxActionButton(title: "Archive", icon: "archivebox", color: CicadaTheme.textSecondary) {
                 fire(QuestionResolution(action: "archive"))
             }
-            InboxActionButton(title: "Remind Later", icon: "clock", color: 0xF59E0B) {
+            InboxActionButton(title: "Remind Later", icon: "clock", color: CicadaTheme.warning) {
                 fire(QuestionResolution(action: "remind_later"))
             }
         }
@@ -203,15 +203,15 @@ struct InboxCardView: View {
             answerField(prompt: "Type your answer…")
 
             HStack(spacing: CicadaTheme.spacingSM) {
-                InboxActionButton(title: "Answer", icon: "paperplane", color: 0x22C55E,
+                InboxActionButton(title: "Answer", icon: "paperplane", color: CicadaTheme.success,
                                   disabled: answerText.trimmed.isEmpty) {
                     fire(QuestionResolution(action: "answer", answer: answerText.trimmed))
                 }
                 Spacer()
-                InboxActionButton(title: "Dismiss", icon: "xmark", color: 0x6B7280) {
+                InboxActionButton(title: "Dismiss", icon: "xmark", color: CicadaTheme.textSecondary) {
                     fire(QuestionResolution(action: "dismiss"))
                 }
-                InboxActionButton(title: "Skip", icon: "arrow.right", color: 0x999999) {
+                InboxActionButton(title: "Skip", icon: "arrow.right", color: CicadaTheme.textTertiary) {
                     fire(QuestionResolution(action: "skip"))
                 }
             }
@@ -255,11 +255,11 @@ struct InboxCardView: View {
             survivorPicker
 
             HStack(spacing: CicadaTheme.spacingSM) {
-                InboxActionButton(title: "Answer", icon: "paperplane", color: 0x22C55E,
+                InboxActionButton(title: "Answer", icon: "paperplane", color: CicadaTheme.success,
                                   disabled: answerText.trimmed.isEmpty) {
                     fire(QuestionResolution(action: "answer", answer: answerText.trimmed))
                 }
-                InboxActionButton(title: "Merge", icon: "arrow.triangle.merge", color: 0x4A9EFF,
+                InboxActionButton(title: "Merge", icon: "arrow.triangle.merge", color: CicadaTheme.info,
                                   disabled: mergeText.trimmed.isEmpty) {
                     // Data source is always the existing target; the survivor id
                     // is whichever name the user chose to keep.
@@ -268,10 +268,10 @@ struct InboxCardView: View {
                                             mergeSurvivor: survivor))
                 }
                 Spacer()
-                InboxActionButton(title: "Dismiss", icon: "xmark", color: 0x6B7280) {
+                InboxActionButton(title: "Dismiss", icon: "xmark", color: CicadaTheme.textSecondary) {
                     fire(QuestionResolution(action: "dismiss"))
                 }
-                InboxActionButton(title: "Skip", icon: "arrow.right", color: 0x999999) {
+                InboxActionButton(title: "Skip", icon: "arrow.right", color: CicadaTheme.textTertiary) {
                     fire(QuestionResolution(action: "skip"))
                 }
             }
@@ -384,7 +384,7 @@ struct InboxCardView: View {
 struct InboxActionButton: View {
     let title: String
     let icon: String
-    let color: UInt32
+    let color: Color
     var fullWidth: Bool = false
     var disabled: Bool = false
     let action: () -> Void
@@ -398,11 +398,11 @@ struct InboxActionButton: View {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(Color(hex: color))
+            .foregroundStyle(color)
             .padding(.horizontal, CicadaTheme.spacingMD)
             .padding(.vertical, CicadaTheme.spacingSM)
             .frame(maxWidth: fullWidth ? .infinity : nil)
-            .background(Color(hex: color).opacity(isHovered ? 0.2 : 0.12))
+            .background(color.opacity(isHovered ? 0.2 : 0.12))
             .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
             .scaleEffect(isHovered && !disabled ? 1.03 : 1.0)
         }

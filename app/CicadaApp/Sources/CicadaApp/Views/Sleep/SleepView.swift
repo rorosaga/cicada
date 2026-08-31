@@ -355,7 +355,7 @@ struct SleepView: View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 12))
-                .foregroundStyle(Color(hex: 0xF59E0B))
+                .foregroundStyle(CicadaTheme.warning)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Completed with warnings")
                     .font(.system(size: 11, weight: .semibold))
@@ -369,7 +369,7 @@ struct SleepView: View {
         }
         .padding(CicadaTheme.spacingSM)
         .frame(maxWidth: .infinity)
-        .background(Color(hex: 0xF59E0B).opacity(0.10))
+        .background(CicadaTheme.warning.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
     }
 
@@ -379,7 +379,7 @@ struct SleepView: View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 13))
-                .foregroundStyle(Color(hex: 0xEF4444))
+                .foregroundStyle(CicadaTheme.danger)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Sleep cycle error")
                     .font(.system(size: 12, weight: .semibold))
@@ -393,7 +393,7 @@ struct SleepView: View {
         }
         .padding(CicadaTheme.spacingMD)
         .frame(maxWidth: .infinity)
-        .background(Color(hex: 0xEF4444).opacity(0.12))
+        .background(CicadaTheme.danger.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
     }
 }

@@ -480,13 +480,13 @@ struct EntityDetailCard: View {
                     pill(branch, icon: "arrow.triangle.branch", color: CicadaTheme.accent)
                 }
                 if let dirty = repo.dirtyFiles, dirty > 0 {
-                    pill("\(dirty) dirty", icon: "circle.fill", color: Color(hex: 0xF59E0B))
+                    pill("\(dirty) dirty", icon: "circle.fill", color: CicadaTheme.warning)
                 }
                 if let ahead = repo.ahead, ahead > 0 {
-                    pill("↑\(ahead)", icon: nil, color: Color(hex: 0x22C55E))
+                    pill("↑\(ahead)", icon: nil, color: CicadaTheme.success)
                 }
                 if let behind = repo.behind, behind > 0 {
-                    pill("↓\(behind)", icon: nil, color: Color(hex: 0xEF4444))
+                    pill("↓\(behind)", icon: nil, color: CicadaTheme.danger)
                 }
             }
 
@@ -519,7 +519,7 @@ struct EntityDetailCard: View {
                                 .lineLimit(1)
                             if wt.isDirty == true {
                                 Circle()
-                                    .fill(Color(hex: 0xF59E0B))
+                                    .fill(CicadaTheme.warning)
                                     .frame(width: 5, height: 5)
                             }
                         }
@@ -535,7 +535,7 @@ struct EntityDetailCard: View {
                     Text(hint)
                         .font(.system(size: 10))
                 }
-                .foregroundStyle(Color(hex: 0xF59E0B))
+                .foregroundStyle(CicadaTheme.warning)
             }
         }
         .padding(CicadaTheme.spacingMD)
@@ -547,12 +547,12 @@ struct EntityDetailCard: View {
     private func repoStatusBadge(_ status: String) -> some View {
         let (label, color): (String, Color) = {
             switch status {
-            case "ok": return ("ok", Color(hex: 0x22C55E))
+            case "ok": return ("ok", CicadaTheme.success)
             case "other_device": return ("other device", CicadaTheme.textTertiary)
-            case "missing": return ("missing", Color(hex: 0xEF4444))
-            case "not_a_repo": return ("not a repo", Color(hex: 0xEF4444))
-            case "git_unavailable": return ("git unavailable", Color(hex: 0xF59E0B))
-            case "timeout": return ("timeout", Color(hex: 0xF59E0B))
+            case "missing": return ("missing", CicadaTheme.danger)
+            case "not_a_repo": return ("not a repo", CicadaTheme.danger)
+            case "git_unavailable": return ("git unavailable", CicadaTheme.warning)
+            case "timeout": return ("timeout", CicadaTheme.warning)
             default: return (status, CicadaTheme.textTertiary)
             }
         }()
@@ -916,8 +916,8 @@ struct EntityDetailCard: View {
                     VStack(spacing: 0) {
                         Circle()
                             .fill(index == 0
-                                  ? Color(hex: 0x22C55E)
-                                  : Color(hex: UInt32(entry.changeType.color, radix: 16) ?? 0x999999))
+                                  ? CicadaTheme.success
+                                  : CicadaTheme.historyColor(for: entry.changeType))
                             .frame(width: 10, height: 10)
 
                         if index < entity.history.count - 1 {
@@ -1000,14 +1000,11 @@ struct EntityDetailCard: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
                         .background(
-                            (entry.author == "user"
-                             ? Color(hex: 0x3B82F6)
-                             : Color(hex: 0x8B5CF6)).opacity(0.18)
+                            (entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
+                                .opacity(0.18)
                         )
                         .clipShape(Capsule())
-                        .foregroundStyle(entry.author == "user"
-                                         ? Color(hex: 0x3B82F6)
-                                         : Color(hex: 0x8B5CF6))
+                        .foregroundStyle(entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
                 }
             }
 
@@ -1196,7 +1193,7 @@ struct EntityDetailCard: View {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.bubble.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(Color(hex: 0xF59E0B))
+                    .foregroundStyle(CicadaTheme.warning)
                 Text("Observers disagree on \(d.predicate)")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -1215,11 +1212,11 @@ struct EntityDetailCard: View {
             }
         }
         .padding(CicadaTheme.spacingMD)
-        .background(Color(hex: 0xF59E0B).opacity(0.08))
+        .background(CicadaTheme.warning.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
         .overlay(
             RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .stroke(Color(hex: 0xF59E0B).opacity(0.3), lineWidth: 1)
+                .stroke(CicadaTheme.warning.opacity(0.3), lineWidth: 1)
         )
     }
 

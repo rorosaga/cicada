@@ -311,9 +311,9 @@ struct AddSourceSheet: View {
                 Text("Working…").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             }
         } else if let result {
-            Text(result).font(CicadaTheme.captionFont).foregroundStyle(Color(hex: 0x22C55E))
+            Text(result).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.success)
         } else if let error {
-            Text(error).font(CicadaTheme.captionFont).foregroundStyle(Color(hex: 0xEF4444))
+            Text(error).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
         }
     }
 

@@ -101,7 +101,7 @@ private struct ContributorRow: View {
 
     private var accent: Color {
         switch kind {
-        case "user": Color(hex: 0x3B82F6)
+        case "user": CicadaTheme.info
         case "unknown": CicadaTheme.textTertiary
         default: ContributorAvatar.providerColor(contributor.provider)
         }
@@ -404,7 +404,7 @@ private struct ContributorAvatar: View {
     private var userFallback: some View {
         Image(systemName: "person.crop.circle.fill")
             .font(.system(size: Self.size))
-            .foregroundStyle(Color(hex: 0x3B82F6))
+            .foregroundStyle(CicadaTheme.info)
             .frame(width: Self.size, height: Self.size)
     }
 

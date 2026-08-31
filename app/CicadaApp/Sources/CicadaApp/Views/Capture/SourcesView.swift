@@ -114,11 +114,11 @@ struct SourcesView: View {
                 if let actionResult {
                     Text(actionResult)
                         .font(CicadaTheme.captionFont)
-                        .foregroundStyle(Color(hex: 0x22C55E))
+                        .foregroundStyle(CicadaTheme.success)
                 } else if let actionError {
                     Text(actionError)
                         .font(CicadaTheme.captionFont)
-                        .foregroundStyle(Color(hex: 0xEF4444))
+                        .foregroundStyle(CicadaTheme.danger)
                 }
             }
         }
@@ -210,7 +210,7 @@ struct SourcesView: View {
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
                     Image(systemName: count == 0 ? "checkmark.circle" : "tray.full")
                         .font(.system(size: 18))
-                        .foregroundStyle(count == 0 ? Color(hex: 0x22C55E) : CicadaTheme.accent)
+                        .foregroundStyle(count == 0 ? CicadaTheme.success : CicadaTheme.accent)
                         .frame(width: 44, height: 44)
                         .background(RoundedRectangle(cornerRadius: 10).fill(CicadaTheme.surfaceElevated))
 
