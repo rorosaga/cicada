@@ -208,6 +208,117 @@ def test_run_sync_chunks_ingestion_so_a_batch_larger_than_max_batch_is_never_dro
     assert entry["cursor"] == "last-of-all-seven"
 
 
+# --- Devin round-1, finding 1: overlapping run_sync calls must serialize --
+
+
+def test_run_sync_serializes_two_overlapping_calls_for_the_same_channel(tmp_path, monkeypatch):
+    """A manual `sync_now` POST can overlap the Sleep-tail poll — both
+    read-modify-write the SAME `url_index.json`/`sync_state.json`/git tree.
+    The module-level `_sync_lock` must make one call's ENTIRE body finish
+    before the other's starts, not just avoid a mid-write crash. Ordering
+    probe: if both `fetch()` calls ran concurrently, both "start" events
+    would land before either "end" — under the lock they cannot interleave.
+    """
+    memory = _memory(tmp_path, monkeypatch)
+    events: list[str] = []
+
+    async def slow_fetch(fn):
+        events.append("start")
+        await asyncio.sleep(0.05)
+        events.append("end")
+        return [], None
+
+    async def one_sync():
+        return await base.run_sync("acme", memory, slow_fetch, is_connected=lambda: True,
+                                    http_fn=lambda *a, **k: None)
+
+    async def both():
+        await asyncio.gather(one_sync(), one_sync())
+
+    run(both())
+
+    assert events == ["start", "end", "start", "end"], (
+        "the two run_sync calls interleaved instead of serializing"
+    )
+
+
+# --- Devin round-1, finding 2: a suppressed per-item failure must not -----
+# --- advance the cursor past the item that was lost -----------------------
+
+
+def test_run_sync_does_not_advance_the_cursor_when_ingest_batch_silently_drops_an_item(
+    tmp_path, monkeypatch,
+):
+    """`media_ingestor.ingest_batch`'s own `worker` SUPPRESSES a per-item
+    `ingest_one` failure — it catches the exception, logs a warning, and
+    returns, never letting it escape `ingest_batch`/the `asyncio.gather`
+    inside it (verified against the REAL `ingest_batch`, not a mock, so this
+    pins actual behavior rather than an assumption about it). A batch that
+    silently lost one item to that suppression still returns normally with
+    `created` short by one — run_sync must detect that by elimination
+    (chunk size vs created+duplicates) and refuse to advance the cursor,
+    or the lost item would never be re-fetched again. The two items that DID
+    succeed must still count as `new` — they are real, safe progress,
+    protected from being re-created on a future retry by url_index dedup.
+    """
+    memory = _memory(tmp_path, monkeypatch)
+
+    async def flaky_enrich(url, client, from_bookmark_file=False):
+        if "bad" in url:
+            raise RuntimeError("enrichment boom")
+        return media_ingestor.MediaMeta(
+            title=media_ingestor._fallback_title(url), description="",
+            site=media_ingestor._site_of(url), media_type="url")
+
+    monkeypatch.setattr(media_ingestor, "enrich", flaky_enrich)
+
+    items = [
+        RawItem(url="https://example.com/good-1", origin="acme"),
+        RawItem(url="https://example.com/bad-item", origin="acme"),
+        RawItem(url="https://example.com/good-2", origin="acme"),
+    ]
+
+    async def fetch(fn):
+        return items, {"cursor": "must-not-be-recorded"}
+
+    result = run(base.run_sync("acme", memory, fetch, is_connected=lambda: True,
+                                http_fn=lambda *a, **k: None))
+
+    assert result["status"] == "error"
+    assert result["new"] == 2, "the two good items still landed"
+    assert result["error"] == "1 item(s) failed to ingest"
+
+    entry = sync_state.read_sync_state(memory).get("acme", {})
+    assert "cursor" not in entry, "record_sync must not run — the cursor stays put"
+    assert entry.get("last_error") == "1 item(s) failed to ingest"
+
+    # The good items really were written — url_index dedup protects them on
+    # the inevitable retry, so only the failed one re-ingests next time.
+    idx = media_ingestor.load_url_index(memory)
+    assert len(idx) == 2
+
+
+def test_run_sync_reports_success_when_nothing_actually_failed(tmp_path, monkeypatch):
+    """Guards the finding-2 fix's own arithmetic: a batch with a genuine
+    pre-existing duplicate (not a failure) must not be misread as a failed
+    item and must still record the sync."""
+    memory = _memory(tmp_path, monkeypatch)
+    items = [RawItem(url="https://example.com/a", origin="acme")]
+
+    async def fetch(fn):
+        return items, {"cursor": "abc"}
+
+    # First sync creates it; a second sync re-fetching the SAME item hits
+    # the pre-existing-duplicate path in `ingest_batch`, not a failure path.
+    run(base.run_sync("acme", memory, fetch, is_connected=lambda: True,
+                       http_fn=lambda *a, **k: None))
+    second = run(base.run_sync("acme", memory, fetch, is_connected=lambda: True,
+                                http_fn=lambda *a, **k: None))
+    assert second["status"] == "ok"
+    assert second["new"] == 0
+    assert sync_state.read_sync_state(memory)["acme"]["cursor"] == "abc"
+
+
 # --- final-review L1: no URL (PII) in a sync_state.json error, ever --------
 
 

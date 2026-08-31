@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import os
 import re
@@ -106,6 +107,18 @@ async def call_http(http_fn: HttpFn, method: str, url: str, **kwargs) -> dict:
     return result
 
 
+# Devin round-1, finding 1: a manual `POST /sources/connectors/{id}/sync`
+# can overlap the Sleep-tail poll — both read-modify-write the SAME
+# `url_index.json` / `sync_state.json` / git tree, for potentially the SAME
+# channel or two different ones running concurrently. One module-level lock,
+# held for the ENTIRE `run_sync` body regardless of channel: single process,
+# personal scale, so a single global lock is fine — a caller queues and
+# waits its turn rather than a `sync_now` racing the nightly poll for the
+# same `url_index.json` write. Waiting beats an "already running" error the
+# caller would then have to handle specially.
+_sync_lock = asyncio.Lock()
+
+
 async def run_sync(
     channel_id: str,
     memory_path: Path,
@@ -123,6 +136,11 @@ async def run_sync(
     into a recorded, never-raised error, the ingest + ``record_sync`` on
     success) lives here exactly once instead of duplicated three times.
 
+    The entire body runs under ``_sync_lock`` (Devin round-1, finding 1) —
+    a concurrent call (a manual ``sync_now`` overlapping the Sleep-tail poll,
+    say) queues rather than racing another one's ``url_index.json``/
+    ``sync_state.json``/git writes.
+
     Canonical return: ``{"status": "ok"|"skipped"|"error", "reason",
     "new", "seen", "error"}``. No platform-specific counters (a
     ``boards``/``pages`` count) ride this dict — a connector that wants to
@@ -130,6 +148,23 @@ async def run_sync(
     wants an ADDITIONAL field (X's ``resources_read``, billed-read honesty)
     adds it to the dict this returns after calling in.
     """
+    async with _sync_lock:
+        return await _run_sync_locked(
+            channel_id, memory_path, fetch,
+            http_fn=http_fn, allow_fetch=allow_fetch, is_connected=is_connected,
+        )
+
+
+async def _run_sync_locked(
+    channel_id: str,
+    memory_path: Path,
+    fetch: FetchFn,
+    *,
+    http_fn: HttpFn | None,
+    allow_fetch: bool | None,
+    is_connected: Callable[[], bool],
+) -> dict:
+    """The actual ``run_sync`` body — always called with ``_sync_lock`` held."""
     from api.services import media_ingestor, sync_state
 
     empty = {"new": 0, "seen": 0, "error": None}
@@ -162,18 +197,46 @@ async def run_sync(
     # MAX_PAGES) still bound the total, so this loop runs a small, known
     # number of times, not an unbounded one.
     created = 0
+    failed = 0
     try:
         for start in range(0, len(items), media_ingestor.MAX_BATCH):
-            chunk_created, _ = await media_ingestor.ingest_batch(
-                items[start : start + media_ingestor.MAX_BATCH],
-                memory_path, from_bookmark_file=False,
+            chunk = items[start : start + media_ingestor.MAX_BATCH]
+            chunk_created, chunk_duplicates = await media_ingestor.ingest_batch(
+                chunk, memory_path, from_bookmark_file=False,
             )
             created += chunk_created
+            # Devin round-1, finding 2: `ingest_batch`'s own worker
+            # SUPPRESSES a per-item `ingest_one` failure (catches, logs a
+            # warning, returns — never raises past `ingest_batch` or the
+            # `asyncio.gather` inside it), so an item that failed to ingest
+            # is invisible to both of `ingest_batch`'s two return values
+            # UNLESS accounted for by elimination: every item in `chunk` is
+            # either freshly created, already a duplicate (`chunk_duplicates`
+            # — pre-existing in url_index, or a same-batch dup, or url-less),
+            # or silently dropped by a raised exception — there is no fourth
+            # outcome, so whatever is left over after subtracting the first
+            # two from the chunk size failed.
+            failed += len(chunk) - chunk_created - chunk_duplicates
     except Exception as e:
         message = _sanitize_error(e)
         logger.warning(f"{channel_id} sync failed: {message}")
         sync_state.record_error(memory_path, channel_id, message)
         return {"status": "error", "reason": None, "new": created, "seen": 0, "error": message}
+
+    if failed:
+        # A chunk that lost items to a suppressed failure must NOT advance
+        # the cursor (`extra`, computed by the connector's `fetch()` from the
+        # FULL fetched list): the failed item was never re-fetched, so a
+        # cursor that jumped past it would lose it permanently. Skip
+        # `record_sync` entirely — the stored cursor stays exactly where it
+        # was, so next run re-fetches everything from there; the items that
+        # DID succeed this run are safe from being re-created on that retry
+        # (url_index dedup), only the failed one(s) actually re-ingest.
+        message = f"{failed} item(s) failed to ingest"
+        logger.warning(f"{channel_id} sync: {message}")
+        sync_state.record_error(memory_path, channel_id, message)
+        return {"status": "error", "reason": None, "new": created, "seen": len(items), "error": message}
+
     sync_state.record_sync(memory_path, channel_id, count=len(items), extra=extra)
     return {"status": "ok", "reason": None, "new": created, "seen": len(items), "error": None}
 
