@@ -3,14 +3,19 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile
 from loguru import logger
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.models.schemas import ConversationUploadResponse
-from api.services import markdown_parser
+from api.models.schemas import ConversationSummary, ConversationUploadResponse
+from api.services import markdown_parser, session_stats, sync_service
 
 router = APIRouter()
+
+# Injectable seam: tests replace this with a fake so no test ever probes the
+# real ``~/.claude``. Production always resolves to the isfile() probe.
+transcript_exists = session_stats.default_transcript_exists
 
 
 @router.post("/conversations/upload", response_model=ConversationUploadResponse)
@@ -70,6 +75,39 @@ async def upload_conversation(
         message=f"Staged {created} new, {updated} updated, {skipped} unchanged",
         source=source_labels.get(source, source),
     )
+
+
+@router.get("/conversations/recent", response_model=list[ConversationSummary])
+async def recent_conversations(
+    request: Request,
+    response: Response,
+    limit: int = Query(20, ge=1, le=200),
+    settings: Settings = Depends(get_settings),
+):
+    """Conversations that wrote to memory, newest write first (G48).
+
+    Live MCP sessions and imported chat threads on one axis. Only ids,
+    timestamps, counts and entity ids cross the wire — never a transcript,
+    never a transcript path, never ``project_dir``.
+
+    ETag folds in ``telemetry`` because the row carries a telemetry-derived
+    ``model``. KNOWN CAVEAT: deleting a transcript flips no version-vector
+    component, so ``resumable`` can read stale until the next non-304 refresh —
+    acceptable because ``POST /conversations/{id}/resume`` re-validates.
+    """
+    etag = sync_service.etag_for(
+        settings.memory_path, "episodes", "entities", "telemetry", extra=f"limit={limit}"
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+
+    rows = await run_in_threadpool(
+        session_stats.aggregate_conversations,
+        settings.memory_path,
+        limit=limit,
+        transcript_exists=transcript_exists,
+    )
+    return [ConversationSummary(**row) for row in rows]
 
 
 # --- Source Detection ---

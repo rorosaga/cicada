@@ -213,6 +213,36 @@ class OriginsResponse(CamelModel):
     origins: list[OriginStat] = []
 
 
+# --- Conversations (G48 conversation-level provenance) ---------------------
+
+
+class ConversationSummary(CamelModel):
+    """One conversation that wrote to memory — a live MCP session or an
+    imported chat thread.
+
+    ``conversation_id`` is the stamped ``session_id`` (kind ``"mcp"``) or G20's
+    ``source_id`` (kind ``"import"``). ``entity_ids`` is CAPPED
+    (``session_stats.MAX_CONVERSATION_ENTITIES``) with the honest total in
+    ``entity_count``, so the app can say "+N more". ``project_dir`` is
+    deliberately absent — it is returned only by the resume endpoint, which
+    needs a cwd to launch. ``resumable`` is computed per request and never
+    persisted.
+    """
+
+    conversation_id: str
+    kind: str = "mcp"  # "mcp" | "import"
+    harness: str = ""
+    origin: str = ""
+    title: str = ""
+    first_seen: str = ""
+    last_seen: str = ""
+    episode_count: int = 0
+    entity_ids: list[str] = []
+    entity_count: int = 0
+    model: Optional[str] = None
+    resumable: bool = False
+
+
 class EntityMedia(CamelModel):
     """Structured media metadata for a ``type: media`` entity (G11).
 
