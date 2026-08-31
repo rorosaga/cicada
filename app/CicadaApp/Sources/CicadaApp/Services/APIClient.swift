@@ -182,7 +182,11 @@ struct MediaFeedItem: Codable, Identifiable {
     let relevance: Double
     let personalRelevance: String?
 
-    var id: String { mediaEntityId }
+    // Row identity must be unique per SAVED ITEM, not per entity page: the
+    // ingestor slugifies page titles into mediaEntityId, so 148 distinct
+    // Google-consent bookmarks share one entity id — ForEach keyed on it
+    // rendered blank row slots for every duplicate.
+    var id: String { mediaEntityId + "|" + url }
 
     enum CodingKeys: String, CodingKey {
         case mediaEntityId, url, title, mediaType, site, channel, thumbnail

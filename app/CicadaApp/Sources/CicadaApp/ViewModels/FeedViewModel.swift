@@ -42,6 +42,17 @@ final class FeedViewModel {
 
     var isLoading: Bool { store.sources.isEmpty && store.sources.isRefreshing }
 
+    /// The §3.4 score is decayed confidence, not query relevance — after a
+    /// bulk bookmark sync every item carries identical defaults and every
+    /// badge renders the same percentage. Only show the badge (and treat the
+    /// Relevance sort as meaningful) when the RENDERED percentages actually
+    /// differ; raw-Double comparison is wrong here (0.5664 vs 0.5689 are
+    /// distinct Doubles but both render "57%").
+    var scoresAreInformative: Bool {
+        let rendered = Set((store.sources.value ?? []).map { Int(($0.relevance * 100).rounded()) })
+        return rendered.count > 1
+    }
+
     var filteredItems: [MediaFeedItem] {
         guard !searchText.isEmpty else { return items }
         let q = searchText.lowercased()

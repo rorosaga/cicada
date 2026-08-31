@@ -137,7 +137,7 @@ struct FeedView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(viewModel.filteredItems) { item in
-                        FeedRow(item: item)
+                        FeedRow(item: item, showRelevance: viewModel.scoresAreInformative)
                     }
                 }
                 .padding(.horizontal, CicadaTheme.spacingXL)
@@ -182,6 +182,7 @@ struct FeedView: View {
 
 private struct FeedRow: View {
     let item: MediaFeedItem
+    let showRelevance: Bool
     @State private var isHovered = false
     @State private var showPreview = false
 
@@ -221,7 +222,9 @@ private struct FeedRow: View {
 
                 Spacer()
 
-                relevanceBadge
+                if showRelevance {
+                    relevanceBadge
+                }
             }
             .padding(.horizontal, CicadaTheme.spacingMD)
             .padding(.vertical, CicadaTheme.spacingMD)
