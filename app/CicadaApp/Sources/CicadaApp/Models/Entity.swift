@@ -199,6 +199,45 @@ struct ContributorsResponse: Codable {
     let contributors: [Contributor]
 }
 
+// G67 — one commit in a contributor's drill-down. `entities` are entity ids,
+// each of which can be handed to `/entities/{id}/history/{commit}/diff` to show
+// exactly what this author changed on that page in this commit.
+struct ContributorCommit: Identifiable, Codable {
+    var id: String { commitHash }
+    let commitHash: String
+    let date: String
+    let subject: String
+    let entities: [String]
+    let filesChanged: Int
+
+    enum CodingKeys: String, CodingKey {
+        case commitHash, date, subject, entities, filesChanged
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commitHash = try c.decode(String.self, forKey: .commitHash)
+        date = try c.decodeIfPresent(String.self, forKey: .date) ?? ""
+        subject = try c.decodeIfPresent(String.self, forKey: .subject) ?? ""
+        entities = try c.decodeIfPresent([String].self, forKey: .entities) ?? []
+        filesChanged = try c.decodeIfPresent(Int.self, forKey: .filesChanged) ?? 0
+    }
+
+    init(commitHash: String, date: String, subject: String,
+         entities: [String] = [], filesChanged: Int = 0) {
+        self.commitHash = commitHash
+        self.date = date
+        self.subject = subject
+        self.entities = entities
+        self.filesChanged = filesChanged
+    }
+}
+
+struct ContributorCommitsResponse: Codable {
+    let author: String
+    let commits: [ContributorCommit]
+}
+
 // MARK: - Location listing (issue #7)
 
 /// One immediate child of a location entity's declared directory path. The

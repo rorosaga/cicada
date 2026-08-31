@@ -9,6 +9,14 @@ import SwiftUI
 struct ContributorsView: View {
     @Environment(ContributorsViewModel.self) private var viewModel
 
+    /// At most one contributor is expanded at a time — the drill-down is tall
+    /// and two open at once makes the list unreadable.
+    @State private var expandedAuthor: String?
+
+    private func toggle(_ author: String) {
+        expandedAuthor = expandedAuthor == author ? nil : author
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             header
@@ -27,7 +35,12 @@ struct ContributorsView: View {
                 ScrollView {
                     VStack(spacing: CicadaTheme.spacingSM) {
                         ForEach(viewModel.contributors) { c in
-                            ContributorRow(contributor: c, totalCommits: viewModel.totalCommits)
+                            ContributorRow(
+                                contributor: c,
+                                totalCommits: viewModel.totalCommits,
+                                isExpanded: expandedAuthor == c.author,
+                                onToggle: { toggle(c.author) }
+                            )
                         }
                     }
                 }
@@ -57,6 +70,24 @@ struct ContributorsView: View {
 private struct ContributorRow: View {
     let contributor: Contributor
     let totalCommits: Int
+    let isExpanded: Bool
+    let onToggle: () -> Void
+
+    // G67 — the drill-down: this author's recent commits, each listing the
+    // entities it touched. Fetched once per row on first expand and kept for
+    // the life of the view; `commitDiffs` caches per (entity, commit).
+    @State private var commits: [ContributorCommit]?
+    @State private var isLoadingCommits = false
+    @State private var openDiff: DiffKey?
+    @State private var commitDiffs: [String: EntityDiff] = [:]
+    @State private var loadingDiffs: Set<String> = []
+
+    /// Which entity chip is open, on which commit.
+    private struct DiffKey: Equatable {
+        let entityId: String
+        let commitHash: String
+        var cacheKey: String { "\(entityId)@\(commitHash)" }
+    }
 
     // Prefer the backend-derived `kind`; fall back to the author string so the
     // row still classifies correctly against an older backend (no `kind`).
@@ -81,8 +112,32 @@ private struct ContributorRow: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Button(action: onToggle) { summary }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(contributor.author), \(contributor.commitCount) commits")
+
+            if isExpanded { drillDown }
+        }
+        .padding(CicadaTheme.spacingMD)
+        .background(CicadaTheme.surfaceHover.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .task(id: isExpanded) {
+            guard isExpanded, commits == nil, !isLoadingCommits else { return }
+            isLoadingCommits = true
+            commits = (try? await APIClient.shared.fetchContributorCommits(
+                author: contributor.author
+            )) ?? []
+            isLoadingCommits = false
+        }
+    }
+
+    private var summary: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             HStack {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textTertiary)
                 ContributorAvatar(contributor: contributor, kind: kind)
                 Text(contributor.author)
                     .font(CicadaTheme.headingFont)
@@ -115,9 +170,111 @@ private struct ContributorRow: View {
             }
             .frame(height: 4)
         }
-        .padding(CicadaTheme.spacingMD)
-        .background(CicadaTheme.surfaceHover.opacity(0.4))
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var drillDown: some View {
+        if isLoadingCommits {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                ProgressView().controlSize(.small)
+                Text("Loading commits…")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+        } else if let commits, commits.isEmpty {
+            Text("No commits found for this author.")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        } else if let commits {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                ForEach(commits) { commit in
+                    commitRow(commit)
+                }
+            }
+            .padding(.leading, CicadaTheme.spacingMD)
+        }
+    }
+
+    private func commitRow(_ commit: ContributorCommit) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Text(commit.date)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                Text(commit.subject)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .lineLimit(1)
+                Spacer()
+                Text("\(commit.filesChanged) files")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+
+            if commit.entities.isEmpty {
+                Text("No entity pages changed in this commit.")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            } else {
+                FlowLayout(spacing: 6) {
+                    ForEach(commit.entities, id: \.self) { entityId in
+                        entityChip(entityId, commit: commit)
+                    }
+                }
+            }
+
+            if let key = openDiff, key.commitHash == commit.commitHash {
+                if let diff = commitDiffs[key.cacheKey] {
+                    DiffView(diff: diff)
+                } else if loadingDiffs.contains(key.cacheKey) {
+                    DiffView.loading
+                } else {
+                    DiffView.empty
+                }
+            }
+        }
+        .padding(CicadaTheme.spacingSM)
+        .background(CicadaTheme.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+    }
+
+    private func entityChip(_ entityId: String, commit: ContributorCommit) -> some View {
+        let key = DiffKey(entityId: entityId, commitHash: commit.commitHash)
+        let isOpen = openDiff == key
+        return Button {
+            openEntityDiff(key)
+        } label: {
+            Text(entityId)
+                .font(.system(size: 11))
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(isOpen ? CicadaTheme.accent.opacity(0.22)
+                                   : CicadaTheme.accent.opacity(0.10))
+                .foregroundStyle(CicadaTheme.accent)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Show what changed on \(entityId) in this commit")
+    }
+
+    private func openEntityDiff(_ key: DiffKey) {
+        if openDiff == key {
+            openDiff = nil
+            return
+        }
+        openDiff = key
+        guard commitDiffs[key.cacheKey] == nil,
+              !loadingDiffs.contains(key.cacheKey) else { return }
+        loadingDiffs.insert(key.cacheKey)
+        Task {
+            let diff = try? await APIClient.shared.fetchEntityCommitDiff(
+                id: key.entityId, commitHash: key.commitHash
+            )
+            loadingDiffs.remove(key.cacheKey)
+            if let diff { commitDiffs[key.cacheKey] = diff }
+        }
     }
 }
 

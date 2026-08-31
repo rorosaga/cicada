@@ -1280,9 +1280,10 @@ private struct TabButton: View {
 // MARK: - Flow Layout
 
 /// A simple wrapping horizontal layout: items flow left-to-right and wrap to
-/// the next line when the available width is exhausted. Used for tag/related
-/// pills so large sets wrap naturally instead of overflowing the card.
-private struct FlowLayout: Layout {
+/// the next line when the available width is exhausted. Used for the entity
+/// card's tag/related pills and (G67) the Contributors drill-down's entity
+/// chips — shared rather than duplicated across the two views.
+struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

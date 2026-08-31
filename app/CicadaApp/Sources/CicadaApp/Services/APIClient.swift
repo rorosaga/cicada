@@ -923,6 +923,27 @@ actor APIClient {
         return resp.contributors
     }
 
+    /// `GET /contributors/commits?author=&limit=` (G67) — one author's recent
+    /// commits, for the Contributors drill-down. `author` is a QUERY value
+    /// because model ids contain slashes (`anthropic/claude-opus-4`); it is
+    /// percent-encoded so the slash never splits the path. On demand only — no
+    /// Store domain, no ETag. Returns `[]` on any failure (including a backend
+    /// that hasn't shipped the endpoint) so the row shows an empty state rather
+    /// than an error banner.
+    func fetchContributorCommits(author: String, limit: Int = 50) async throws -> [ContributorCommit] {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        let a = author.addingPercentEncoding(withAllowedCharacters: allowed) ?? author
+        do {
+            let resp: ContributorCommitsResponse = try await get(
+                "/contributors/commits?author=\(a)&limit=\(limit)"
+            )
+            return resp.commits
+        } catch {
+            return []
+        }
+    }
+
     // MARK: - Connections (G50)
 
     func fetchConnections(fresh: Bool = false) async throws -> [ConnectionStatus] {
