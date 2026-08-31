@@ -13,6 +13,7 @@ from api.models.schemas import (
     ContextEpisodeExcerpt,
     ContextNeighbor,
     EntityContextResponse,
+    EntityDecayUpdate,
     EntityDiff,
     EntityHistoryEntry,
     EntityMedia,
@@ -27,7 +28,14 @@ from api.models.schemas import (
     RepoInput,
     RepoUpdateRequest,
 )
-from api.services import fact_sources, git_service, logo_service, markdown_parser, repo_context
+from api.services import (
+    decay_policy,
+    fact_sources,
+    git_service,
+    logo_service,
+    markdown_parser,
+    repo_context,
+)
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
@@ -57,6 +65,7 @@ async def get_entity(
     parsed = markdown_parser.parse(entity_path)
     fm = parsed.frontmatter
     history = await git_service.get_entity_history(entity_id, settings.memory_path)
+    decay_class, decay_rate = decay_policy.resolve(fm)
 
     return EntityResponse(
         id=entity_id,
@@ -66,7 +75,8 @@ async def get_entity(
         confidence=fm.get("confidence", 0.5),
         created=str(fm.get("created", "")),
         last_referenced=str(fm.get("last_referenced", "")),
-        decay_rate=fm.get("decay_rate", 0.05),
+        decay_rate=decay_rate,
+        decay_class=decay_class,
         source_episodes=fm.get("source_episodes", []),
         tags=fm.get("tags", []),
         related=fm.get("related", []),
@@ -190,6 +200,47 @@ async def get_entity_commit_diff(
     return await git_service.get_entity_commit_diff(
         entity_id, commit_hash, settings.memory_path
     )
+
+
+@router.put("/entities/{entity_id}/decay", response_model=EntityResponse)
+async def update_entity_decay(
+    entity_id: str,
+    request: EntityDecayUpdate,
+    settings: Settings = Depends(get_settings),
+):
+    """Set an entity's decay class — the user's override (G66 §1.7).
+
+    Writes BOTH the semantic ``decay_class:`` and its mapped numeric
+    ``decay_rate:`` so a page stays self-consistent for any reader that only
+    knows the old numeric key. Every other frontmatter key and the body are left
+    untouched, and ``version`` is deliberately NOT bumped: choosing how fast a
+    belief fades is a policy decision about the page, not a revision of its
+    content. Commits scoped to this one file — trigger ``user/companion_app``,
+    ``Cicada-Author: user``.
+    """
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+
+    parsed = markdown_parser.parse(entity_path)
+    parsed.frontmatter.update(decay_policy.frontmatter_fields(request.decay_class))
+    markdown_parser.write(entity_path, parsed.frontmatter, parsed.body)
+
+    message = git_service.build_commit_message(
+        f"Set decay class {date.today().isoformat()}",
+        [
+            f"entities/{entity_id}.md: updated "
+            f"(decay_class: {request.decay_class.value}, trigger: user/companion_app)"
+        ],
+        authors=["user"],
+    )
+    # Scoped, never ``git add -A``: a decay override must not sweep an unrelated
+    # dirty file in memory/ into this commit.
+    await git_service.commit_paths(
+        settings.memory_path, message, [f"entities/{entity_id}.md"]
+    )
+
+    return await get_entity(entity_id, settings=settings)
 
 
 # Bound on the number of immediate children returned, so a huge directory can

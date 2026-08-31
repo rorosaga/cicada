@@ -214,6 +214,10 @@ class EntityResponse(CamelModel):
     created: str
     last_referenced: str
     decay_rate: float
+    # G66 — the semantic decay class beside the numeric rate. Additive +
+    # defaulted so an older client that doesn't decode it is unaffected, and a
+    # legacy page with no `decay_class:` still gets a resolved value.
+    decay_class: DecayClass = DecayClass.active
     source_episodes: list[str]
     tags: list[str]
     related: list[str]
@@ -226,6 +230,18 @@ class EntityResponse(CamelModel):
     # Structured media metadata for ``type: media`` entities (G11); ``None`` for
     # every other entity. Populated from the nested ``media:`` frontmatter block.
     media: Optional[EntityMedia] = None
+
+
+class EntityDecayUpdate(CamelModel):
+    """Body of ``PUT /entities/{id}/decay`` — the user's decay override (G66).
+
+    The field is named ``decay_class`` (``class`` is a Python keyword); the
+    camelCase alias ``decayClass`` is what the app sends, and
+    ``populate_by_name`` means a snake_case body works too. Pydantic rejects
+    anything outside the ``DecayClass`` enum with a 422.
+    """
+
+    decay_class: DecayClass
 
 
 # --- Location listing (#7 — show a location entity's directory contents) ---
@@ -483,6 +499,11 @@ class GraphNode(CamelModel):
     # `content_hash` below so the app's delta repaints the node when a logo
     # lands (e.g. after a Sleep warm-up).
     has_logo: bool = False
+    # G66: the entity's decay class, resolved server-side from frontmatter
+    # (explicit key, else legacy type inference). Additive + defaulted, and
+    # folded into `content_hash` below — the `has_logo` precedent — so the
+    # companion app's delta repaints the node when the class changes.
+    decay_class: DecayClass = DecayClass.active
 
 
 class GraphLink(CamelModel):
