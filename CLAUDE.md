@@ -73,6 +73,14 @@ Continuous episode capture during conversations. Raw timestamped chunks go to `e
 
 **Episode tracking:** Each episode has unique ID (`ep_YYYY-MM-DD_NNN`), timestamp, and `processed: false` flag. Sleep cycle processes all unprocessed episodes regardless of source — the pipeline is source-agnostic.
 
+**Conversation identity (G48).** An episode captured through MCP also carries `session_id`
+(the client conversation), plus `harness` and `project_dir` when the client exposes them —
+minted once per MCP process from `CLAUDE_CODE_SESSION_ID` → `CICADA_SESSION_ID` → a
+`ses_YYYY-MM-DD_xxxxxxxx` fallback that groups but never resumes. Entities credit to
+conversations transitively via `source_episodes`, exactly as they do for `origin`.
+**Transcripts under `~/.claude/` are never read** — the only contact is an `isfile()` check
+answering "is this session still resumable", computed per request and never persisted.
+
 ### Sleep Cycle (5-Stage Nightly Batch Pipeline)
 Triggered by cron or manual command:
 
@@ -290,6 +298,17 @@ entity-line parsing** above — extend it, don't break it. Built by
 commit/file/entity counts + last-active) and the per-commit `author` field on
 `GET /entities/{id}/history` — a memory system honest about which model authored each belief.
 
+**Commit-session trailers (`Cicada-Session:`).** Alongside *which model* wrote a belief,
+a Sleep commit records *which conversations* it consolidated: one `Cicada-Session: <id>`
+line per distinct id, in the same trailer block, after the `Cicada-Author:` lines. The id
+is a Claude Code session uuid (stamped at capture by the MCP seam) or G20's `source_id`
+for an imported chat thread. Built by `git_service.build_commit_message(..., sessions=...)`
+and parsed by `git_service._parse_sessions`; capped at `MAX_SESSION_TRAILERS` (50) by the
+`sleep_cycle._finalize` call site, not by the builder. Inert to entity-line parsing by the
+same contract as `Cicada-Author:` — it carries no entity id. Surfaced as `sessions` on
+`GET /entities/{id}/history` entries and `GET /contributors/commits` rows. User-action
+commits stay session-less: they are `Cicada-Author: user` writes with no conversation.
+
 **Entity-level provenance** uses `git blame`:
 - `git blame entities/recruiting-thread.md` → which commit wrote each current line
 - Each commit's structured message provides: source episode, trigger type, timestamp
@@ -395,6 +414,11 @@ GET  /sleep/status, /sleep/history,
      /sleep/episodes, /sleep/schedule     → sleep status/history/queue/schedule
 PUT  /sleep/schedule                      → update the sleep-cycle schedule
 POST /conversations/upload                → ingest a conversation export file
+GET  /conversations/recent                → conversations that wrote to memory (MCP sessions +
+                                            imports), newest first; ETag'd; `resumable` per-request
+POST /conversations/{id}/resume           → validated `claude --resume` descriptor (400 bad id /
+                                            404 unknown / 409 transcript_gone). Transcripts are
+                                            never read — isfile() only.
 POST /sources/save, /sources/upload,
      /sources/rss, /sources/sync-bookmarks → capture links/files/RSS/bookmarks into memory
 GET  /sources                             → list ingested sources
