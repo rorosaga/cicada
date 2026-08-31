@@ -74,7 +74,6 @@ struct SourcesView: View {
                 .background(Circle().fill(CicadaTheme.accent))
         }
         .buttonStyle(.plain)
-        .keyboardShortcut("n", modifiers: .command)
         .help("Add a source (⌘N)")
         .accessibilityLabel("Add a source")
     }
