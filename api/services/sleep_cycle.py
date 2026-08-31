@@ -86,16 +86,24 @@ async def _poll_connectors_safely(memory_path: Path) -> None:
     bookmarks on the nightly cycle.
 
     Same contract as ``_warm_logos_safely``: bounded, credential-gated,
-    network-gated (``CICADA_ALLOW_CONNECTOR_FETCH``), and never fatal — an
-    expired token or a rate limit must not fail a Sleep cycle. Each adapter
-    already records its own failure through ``sync_state.record_error``, which
-    is what surfaces it per-channel on the Capture page; this wrapper only
-    guarantees that a raise inside one adapter cannot stop the others or the
-    cycle.
+    never fatal — an expired token or a rate limit must not fail a Sleep
+    cycle. This IS the "unattended background call" ``CICADA_ALLOW_CONNECTOR_FETCH``
+    exists to gate (opt-OUT, on by default — final-review H2); a poll the gate
+    skips is recorded through ``sync_state.record_skip``, distinctly from a
+    real failure (``sync_state.record_error``), and surfaces on the Capture
+    page either way.
 
-    Runs at the TAIL (and on the idle early return), so anything pulled tonight
-    is consolidated by tomorrow's cycle — the same "it joins the graph after the
-    next Sleep cycle" contract every other capture path already states.
+    Runs at the TAIL of a full cycle — final-review H1: specifically AFTER
+    ``_finalize`` has already committed the cycle's own entity/inbox writes,
+    so a connector that ingests reaches ``media_ingestor.ingest_batch`` ->
+    ``_commit_media`` -> a ``git add -A`` commit that finds a CLEAN tree and
+    sweeps only the files it just wrote, instead of also absorbing the Sleep
+    cycle's still-uncommitted work into a commit with no session provenance.
+    Also runs on the idle early return (before any entity writes exist to
+    protect that run, so there is nothing to reorder there), so anything
+    pulled tonight is consolidated by tomorrow's cycle — the same "it joins
+    the graph after the next Sleep cycle" contract every other capture path
+    already states.
     """
     from api.services.connectors import ADAPTERS
 
@@ -459,7 +467,6 @@ async def run(settings: Settings, cycle_id: str) -> None:
         if index_warnings:
             _state.index_warning = "; ".join(index_warnings)
 
-        await _poll_connectors_safely(memory_path)
         await _warm_logos_safely(memory_path)
 
         # Commit
@@ -473,6 +480,22 @@ async def run(settings: Settings, cycle_id: str) -> None:
             sessions=_collect_session_ids(processed_episodes),
             episode_sessions=_episode_session_map(processed_episodes),
         )
+
+        # Final-review H1: runs AFTER `_finalize`'s commit, not before. Any
+        # connector that ingests reaches `media_ingestor.ingest_batch` ->
+        # `_commit_media` -> `git_service.commit_changes`, which is
+        # `git add -A` — before this fix, running the poll BEFORE `_finalize`
+        # meant that `git add -A` swept the Sleep cycle's own uncommitted
+        # entity pages, inbox items, and `_index.md` into a `Sources ingest`
+        # commit (`Cicada-Author: user`, no `Cicada-Session:` trailers, no
+        # per-entity trigger lines), leaving `_finalize` with a clean tree and
+        # nothing to commit — so no "Sleep cycle" commit existed at all, even
+        # though the cycle still reported `Completed`. Running it here means
+        # `_finalize` has already committed everything Sleep wrote, so the
+        # poll's own `git add -A` finds a clean tree and sweeps only the
+        # connector files it just wrote.
+        await _poll_connectors_safely(memory_path)
+
         requeue_note = (
             f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
             if _state.episodes_requeued else ""
