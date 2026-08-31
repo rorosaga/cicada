@@ -94,6 +94,33 @@ final class ConnectorSetupTests: XCTestCase {
             "Sync failed — RuntimeError: 429 rate limited")
     }
 
+    /// M1 (final review): X's pay-per-use billing (`resourcesRead`) must
+    /// reach the "Sync now" summary, not just the connected-channel row.
+    func testSyncSummaryReportsBilledReadsForAPayPerUseConnector() {
+        XCTAssertEqual(
+            ConnectorSetupState.syncSummary(
+                ConnectorSyncResult(status: "ok", reason: nil, new: 3, seen: 5,
+                                    error: nil, resourcesRead: 5)),
+            "3 new · 5 seen · 5 reads billed")
+        // Every non-billed connector's response always carries a literal 0
+        // — must not append a "0 reads billed" tail.
+        XCTAssertEqual(
+            ConnectorSetupState.syncSummary(
+                ConnectorSyncResult(status: "ok", reason: nil, new: 3, seen: 5,
+                                    error: nil, resourcesRead: 0)),
+            "3 new · 5 seen")
+    }
+
+    /// M1 (final review): `resourcesRead` must decode even when the key is
+    /// absent from the payload (an older backend, or a hand-written test
+    /// fixture like `testSyncConnectorPOSTsAndDecodesTheResult` below).
+    func testConnectorSyncResultDecodesWithoutResourcesReadPresent() throws {
+        let json = #"{"status": "ok", "reason": null, "new": 4, "seen": 9, "error": null}"#
+            .data(using: .utf8)!
+        let result = try JSONDecoder().decode(ConnectorSyncResult.self, from: json)
+        XCTAssertEqual(result.resourcesRead, 0)
+    }
+
     // MARK: - Transport
 
     /// Parses a request body the same way `EntitySourceTests` does

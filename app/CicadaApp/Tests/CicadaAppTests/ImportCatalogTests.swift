@@ -95,6 +95,19 @@ final class ImportCatalogTests: XCTestCase {
         XCTAssertNil(state.detail)
     }
 
+    /// M1 (final review): X's channel row carries its pay-per-use cost note
+    /// as `detail` even while disconnected — `channel_registry
+    /// ._connector_channel`'s `price_note` "stands in for it entirely when
+    /// there is otherwise none" — the tile must surface it too, not just a
+    /// connected one's synced-count detail.
+    func testAnUnconnectedPayPerUseTileStillShowsItsCostNote() {
+        let state = AddSourceTile.tileState(
+            .x, channels: [channel("x", connected: false, detail: "~$0.001/read · pay-per-use")]
+        )
+        XCTAssertFalse(state.connected)
+        XCTAssertEqual(state.detail, "~$0.001/read · pay-per-use")
+    }
+
     func testXShowsConnectedWhenItsChannelIsLive() {
         let state = AddSourceTile.tileState(
             .x, channels: [channel("x", connected: true, detail: "12 bookmarks · synced 2026-08-30")]

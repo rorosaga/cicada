@@ -50,4 +50,30 @@ struct ConnectorSyncResult: Codable {
     let new: Int
     let seen: Int
     let error: String?
+    /// Pay-per-use "owned reads" billed this sync (X today; every other
+    /// connector's response always carries a literal 0) — G71 cost honesty
+    /// (M1, final review). Decode-tolerant: a fixture/older-backend payload
+    /// that omits the key still decodes, defaulting to 0 — same pattern as
+    /// `Consumption.swift`'s decode-tolerant models.
+    let resourcesRead: Int
+
+    init(status: String, reason: String?, new: Int, seen: Int, error: String?,
+         resourcesRead: Int = 0) {
+        self.status = status
+        self.reason = reason
+        self.new = new
+        self.seen = seen
+        self.error = error
+        self.resourcesRead = resourcesRead
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = try c.decode(String.self, forKey: .status)
+        reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        new = try c.decode(Int.self, forKey: .new)
+        seen = try c.decode(Int.self, forKey: .seen)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        resourcesRead = try c.decodeIfPresent(Int.self, forKey: .resourcesRead) ?? 0
+    }
 }

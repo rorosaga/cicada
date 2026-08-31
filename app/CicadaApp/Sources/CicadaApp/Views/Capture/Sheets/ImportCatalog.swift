@@ -65,7 +65,14 @@ extension AddSourceTile {
             if tile.route == .connect, tile.channelIds.isEmpty {
                 return ImportTileState(badge: "Coming soon", connected: false, detail: nil)
             }
-            return ImportTileState(badge: tile.route.badge, connected: false, detail: nil)
+            // M1 (final review): an UNconnected pay-per-use connector (X)
+            // still carries a `detail` — its cost-honesty price note, set
+            // even before the user connects
+            // (channel_registry._connector_channel's `price_note` "stands in
+            // for it entirely when there is otherwise none") — which must
+            // reach the tile, not be discarded here.
+            return ImportTileState(badge: tile.route.badge, connected: false,
+                                   detail: mine.first(where: { $0.detail != nil })?.detail)
         }
         return ImportTileState(badge: tile.route.badge, connected: true, detail: live.detail)
     }

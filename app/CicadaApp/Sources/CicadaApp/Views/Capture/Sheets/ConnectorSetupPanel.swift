@@ -19,7 +19,14 @@ enum ConnectorSetupState {
         switch result.status {
         case "ok":
             let newPart = result.new == 0 ? "Nothing new" : "\(result.new) new"
-            return "\(newPart) · \(result.seen) seen"
+            var summary = "\(newPart) · \(result.seen) seen"
+            // M1 (final review): X's pay-per-use billing must reach this
+            // summary too — every other connector's response always carries
+            // a literal 0, so this only ever appends for X.
+            if result.resourcesRead > 0 {
+                summary += " · \(result.resourcesRead) reads billed"
+            }
+            return summary
         case "skipped":
             return "Skipped — \(result.reason ?? "nothing to do")"
         default:
