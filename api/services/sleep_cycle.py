@@ -81,6 +81,65 @@ async def _warm_logos_safely(memory_path: Path) -> None:
         logger.warning(f"Logo warm-up failed: {type(e).__name__}: {e}")
 
 
+async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> None:
+    """G60 §2.3 on an IDLE cycle: keep open questions honest during quiet weeks.
+
+    Staleness is measured in wall-clock days, not in episodes — a question every
+    option of which has gone silent for ``inbox_stale_after_days`` must gain its
+    "Neither anymore" escalation whether or not anything new was captured. The
+    full cycle runs this inside Stage 5.56 (against the claims it just wrote);
+    this is the zero-episode twin, hooked exactly like ``_warm_logos_safely``.
+
+    Deterministic (no LLM), so the resulting inbox writes are committed here as
+    system maintenance — author ``cicada`` — rather than left dirty for the next
+    real cycle to sweep in under a model's name. Never fatal.
+    """
+    try:
+        from api.services import inbox_questions
+        from api.services.claim_pipeline import _load_existing_claims_by_subject
+
+        today = str(datetime.now().date())
+        refresh = inbox_questions.refresh_open_questions(
+            memory_path,
+            _load_existing_claims_by_subject(memory_path),
+            today,
+            stale_after_days=settings.inbox_stale_after_days,
+        )
+        _state.questions_refreshed = refresh["bumped"] + refresh["escalated"]
+        _state.organic_resolutions = refresh["organic_resolutions"]
+        touched = refresh["bumped"] + refresh["escalated"] + refresh["organic_resolutions"]
+        if not touched:
+            return
+        logger.info(
+            f"Idle cycle: refreshed {refresh['bumped']} question(s), "
+            f"escalated {refresh['escalated']}, "
+            f"organically resolved {refresh['organic_resolutions']}"
+        )
+        resolved = set(refresh.get("resolved_paths") or [])
+        rewritten = set(refresh.get("rewritten_paths") or [])
+        # Scoped to EXACTLY the files this sweep touched — never the whole
+        # `inbox` directory, which would sweep an unrelated dirty file under
+        # `inbox/` into this `cicada`-authored commit (mirrors the H2 pattern
+        # in `decay_migration._commit_backfill`).
+        touched_paths = sorted(resolved | rewritten)
+        lines = [f"{p}: resolved (trigger: inbox/organic_resolution)" for p in sorted(resolved)]
+        lines += [
+            f"{p}: refreshed (trigger: inbox/stale_refresh)"
+            for p in sorted(rewritten - resolved)
+        ]
+        if not lines:
+            return
+        message = git_service.build_commit_message(
+            f"Inbox question refresh {today}", lines, authors=["cicada"]
+        )
+        try:
+            await git_service.commit_paths(memory_path, message, touched_paths)
+        except Exception as exc:  # pragma: no cover - non-git workspace
+            logger.warning(f"Idle question-refresh commit skipped: {exc}")
+    except Exception as e:
+        logger.warning(f"Idle question refresh failed: {type(e).__name__}: {e}")
+
+
 async def run(settings: Settings, cycle_id: str) -> None:
     """Execute the 5-stage Sleep cycle pipeline."""
     global _state
@@ -124,6 +183,10 @@ async def run(settings: Settings, cycle_id: str) -> None:
             logger.info("No unprocessed episodes found — skipping")
             _state.progress = "No unprocessed episodes"
             await _warm_logos_safely(memory_path)
+            # Question staleness is a function of TIME, not of episodes: an
+            # idle cycle still has to escalate questions everybody stopped
+            # talking about (and clear ones answered organically).
+            await _refresh_questions_safely(memory_path, settings)
             _state.status = "idle"
             return
 

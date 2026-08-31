@@ -384,7 +384,14 @@ async def list_source_channels(
     on a cold launch.
     """
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities")
+    # `telegram_enabled` is a config/env fact, not a filesystem one: configuring
+    # a bot token and restarting flips a channel to "connected" without touching
+    # any component below, so without it in the ETag a warm client 304s and
+    # keeps showing "not connected" forever.
+    etag = sync_service.etag_for(
+        memory_path, "sources", "episodes", "entities",
+        extra=f"telegram:{settings.telegram_enabled}",
+    )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     # Off the event loop: `build_channels` runs the same full episode+entity

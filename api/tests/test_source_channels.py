@@ -164,6 +164,22 @@ def test_get_sources_channels_etag_304_then_200_after_a_sync(client):
     assert again.status_code == 200, "a new sync_state entry must break the ETag"
 
 
+def test_channels_etag_covers_the_telegram_flag(client, monkeypatch):
+    """`telegram_enabled` comes from the environment, not the filesystem: with
+    it missing from the ETag, a client that cached the list before the bot
+    token was configured kept getting 304 and showing "not connected"."""
+    c, _memory = client
+    etag = c.get("/sources/channels").headers["etag"]
+    assert c.get("/sources/channels", headers={"If-None-Match": etag}).status_code == 304
+
+    monkeypatch.setenv("CICADA_TELEGRAM_BOT_TOKEN", "123:abc")
+    config.get_settings.cache_clear()
+    resp = c.get("/sources/channels", headers={"If-None-Match": etag})
+    assert resp.status_code == 200, "configuring Telegram must break the ETag"
+    telegram = next(ch for ch in resp.json()["channels"] if ch["id"] == "telegram")
+    assert telegram["connected"] is True
+
+
 def test_sync_state_rides_the_sources_version_component(client):
     c, memory = client
     before = c.get("/sync/version").json()["components"]["sources"]

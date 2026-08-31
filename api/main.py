@@ -132,9 +132,18 @@ app = FastAPI(
     dependencies=[Depends(require_token)],
 )
 
+# This backend is a LOCAL service: the only legitimate browser origins are the
+# companion app's WKWebView and local tooling on loopback (any port). A wildcard
+# meant any page the user happened to have open could script requests at
+# localhost:8000 — and while every route but /healthz and the Telegram webhook
+# needs a bearer token, the provider-key, logout and memory-write routes are not
+# doors to leave open. Native clients (URLSession, the MCP server, curl) send no
+# Origin at all and are unaffected; the bearer scheme is untouched.
+LOCAL_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=LOCAL_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

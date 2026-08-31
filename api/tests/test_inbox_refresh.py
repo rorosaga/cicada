@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 
 from api.services import inbox_questions, inbox_service, markdown_parser
@@ -185,7 +186,10 @@ def test_refresh_skips_deferred_items(tmp_path):
 
     result = inbox_questions.refresh_open_questions(memory, claims, "2026-08-30")
 
-    assert result == {"bumped": 0, "organic_resolutions": 0, "escalated": 0, "resolved_paths": []}
+    assert result == {
+        "bumped": 0, "organic_resolutions": 0, "escalated": 0,
+        "resolved_paths": [], "rewritten_paths": [],
+    }
     assert path.exists()
 
 
@@ -200,7 +204,10 @@ def test_refresh_ignores_non_conflict_kinds(tmp_path):
         "decaying",
     )
     result = inbox_questions.refresh_open_questions(memory, {}, "2026-08-30")
-    assert result == {"bumped": 0, "organic_resolutions": 0, "escalated": 0, "resolved_paths": []}
+    assert result == {
+        "bumped": 0, "organic_resolutions": 0, "escalated": 0,
+        "resolved_paths": [], "rewritten_paths": [],
+    }
     assert (inbox / "inbox-001.md").exists()
 
 
@@ -364,6 +371,84 @@ def test_refresh_still_resolves_when_a_different_value_supersedes(tmp_path):
 
     assert result["organic_resolutions"] == 1
     assert not path.exists()
+
+
+def test_refresh_reports_rewritten_paths_for_a_bumped_item(tmp_path):
+    """D2's plumbing: `rewritten_paths` must list every item bumped/escalated
+    IN PLACE, not just the ones removed by organic resolution — the idle-cycle
+    committer needs the full touched-file set to scope its commit."""
+    memory = tmp_path / "memory"
+    path = _write_conflict(memory, "inbox-001")
+    claims = {"rodrigo": [
+        _claim("clm_a", "mongodb", valid_from="2026-02-18"),
+        _claim("clm_b", "supahost", valid_from="2026-02-18", recorded_at="2026-08-25"),
+    ]}
+
+    result = inbox_questions.refresh_open_questions(memory, claims, "2026-08-30")
+
+    assert result["bumped"] == 1
+    assert result["rewritten_paths"] == ["inbox/inbox-001.md"]
+    assert result["resolved_paths"] == []
+    assert path.exists()
+
+
+def _git(args, cwd):
+    import subprocess
+
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+
+
+def test_refresh_questions_safely_commits_only_touched_inbox_files(tmp_path):
+    """D2: the idle-cycle commit used to pass the whole `inbox` directory as
+    its pathspec, sweeping in ANY dirty file under `inbox/` — even one this
+    sweep never touched. It must commit exactly the files it rewrote/deleted,
+    mirroring the H2 pattern in `decay_migration._commit_backfill`: a
+    pre-existing dirty inbox file must stay uncommitted."""
+    import asyncio
+    import subprocess
+
+    from api.services.sleep_cycle import _refresh_questions_safely
+
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+
+    # A stale legacy conflict item: escalates purely from its own age (no
+    # claims needed) — this IS the file the sweep is meant to touch.
+    stale_created = (date.today() - timedelta(days=200)).isoformat()
+    _write_conflict(
+        memory, "inbox-001", created=stale_created,
+        options=[{"key": "a", "label": "mongodb"}, {"key": "b", "label": "supahost"}],
+    )
+
+    _git(["init", "-q"], cwd=memory)
+    _git(["config", "user.email", "t@t"], cwd=memory)
+    _git(["config", "user.name", "t"], cwd=memory)
+    _git(["add", "-A"], cwd=memory)
+    _git(["commit", "-q", "-m", "seed"], cwd=memory)
+
+    # An UNRELATED, pre-existing dirty edit under inbox/, made AFTER the seed
+    # commit — a real uncommitted change sitting in the working tree during
+    # the sweep, on an item this sweep never looks at (kind: decay).
+    dirty = memory / "inbox" / "inbox-999.md"
+    dirty.write_text("---\nkind: decay\nstatus: pending\n---\nsome other pending item\n")
+
+    class _Settings:
+        inbox_stale_after_days = 90
+
+    asyncio.run(_refresh_questions_safely(memory, _Settings()))
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=memory,
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert "inbox-999.md" in status, "the unrelated dirty file must stay UNCOMMITTED"
+
+    log = subprocess.run(
+        ["git", "log", "-1", "--pretty=%B"], cwd=memory,
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert "inbox-999" not in log, "the unrelated file must never be swept into this commit"
+    assert "inbox/inbox-001.md" in log
 
 
 def test_refresh_survives_a_file_that_vanishes_mid_sweep(tmp_path, monkeypatch):
