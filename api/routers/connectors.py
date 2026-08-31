@@ -114,12 +114,19 @@ async def set_credentials(
             # `exc` describes the shape, never the value.
             raise HTTPException(status_code=422, detail=str(exc))
     logger.info(f"{connector_id}: stored {len(body.fields)} credential field(s)")
+    # Fix round 1, M2: a credential save lands only in secrets.env, outside
+    # memory_path — bump sync_state.json so the "sources" SSE component
+    # actually changes and the Feed page's channel badge doesn't go stale.
+    sync_state.record_credentials_changed(settings.memory_path, connector_id)
     return _status(connector_id, settings.memory_path)
 
 
 @router.delete("/{connector_id}/credentials", response_model=ConnectorStatus)
 async def forget_credentials(connector_id: str, settings: Settings = Depends(get_settings)):
     _adapter(connector_id).forget()
+    # Fix round 1, M2: same reasoning as `set_credentials` — disconnect must
+    # also be visible to the SSE version vector.
+    sync_state.record_credentials_changed(settings.memory_path, connector_id)
     return _status(connector_id, settings.memory_path)
 
 
@@ -177,6 +184,11 @@ async def pinterest_callback(
         # Never echo the response body: a token error can carry app-secret context.
         logger.warning(f"Pinterest code exchange failed: {type(exc).__name__}")
         raise HTTPException(status_code=502, detail="Could not complete Pinterest sign-in")
+
+    # Fix round 1, M2: the token landed in secrets.env, outside memory_path —
+    # bump sync_state.json so "sources" (and the SSE version vector) reflects
+    # the freshly-connected account instead of staying stale forever.
+    sync_state.record_credentials_changed(settings.memory_path, pinterest.CHANNEL_ID)
 
     return HTMLResponse(
         "<html><body style='font:14px -apple-system;padding:40px'>"

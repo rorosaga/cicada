@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from api import config, main
 from api.routers import connectors as connectors_router
+from api.services import sync_service
 from api.services.connections import secrets
 from api.services.connectors import pinterest, reddit
 
@@ -238,3 +239,52 @@ def test_disconnect_removes_every_credential(client):
     body = c.delete("/sources/connectors/pinterest/credentials").json()
     assert body["connected"] is False
     assert all(f["present"] is False for f in body["fields"])
+
+
+# --- fix round 1, M2: credential mutations must reach the SSE version vector ---
+#
+# Saving/forgetting credentials and Pinterest's token exchange write only to
+# secrets.env, entirely outside memory_path, so `sync_service.components()`
+# never saw them change — the "sources" component (and therefore the whole
+# SSE version vector) stayed identical forever, not just until the next poll
+# tick. `sync_state.record_credentials_changed` fixes that by touching
+# `sync_state.json`, which the "sources" component already watches.
+
+
+def test_saving_credentials_bumps_the_sources_sync_component(client):
+    c, memory = client
+    before = sync_service.components(memory)["sources"]
+    resp = c.put("/sources/connectors/pinterest/credentials",
+                 json={"fields": {pinterest.APP_ID_ENV: "client-id-placeholder"}})
+    assert resp.status_code == 200, resp.text
+    after = sync_service.components(memory)["sources"]
+    assert after != before
+
+
+def test_forgetting_credentials_bumps_the_sources_sync_component(client):
+    c, memory = client
+    c.put("/sources/connectors/pinterest/credentials",
+          json={"fields": {pinterest.APP_ID_ENV: "client-id-placeholder"}})
+    before = sync_service.components(memory)["sources"]
+    resp = c.delete("/sources/connectors/pinterest/credentials")
+    assert resp.status_code == 200, resp.text
+    after = sync_service.components(memory)["sources"]
+    assert after != before
+
+
+def test_pinterest_token_exchange_bumps_the_sources_sync_component(client, monkeypatch):
+    c, memory = client
+    c.put("/sources/connectors/pinterest/credentials",
+          json={"fields": {pinterest.APP_ID_ENV: "client-id-placeholder",
+                           pinterest.APP_SECRET_ENV: "client-secret-placeholder"}})
+    state = c.post("/sources/connectors/pinterest/authorize").json()["state"]
+
+    async def fake_exchange(code, **kwargs):
+        secrets.set_secret(pinterest.TOKEN_ENV, "tok-abc")
+
+    monkeypatch.setattr(pinterest, "exchange_code", fake_exchange)
+    before = sync_service.components(memory)["sources"]
+    resp = c.get(f"/sources/connectors/pinterest/callback?code=abc&state={state}")
+    assert resp.status_code == 200, resp.text
+    after = sync_service.components(memory)["sources"]
+    assert after != before

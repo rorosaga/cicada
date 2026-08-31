@@ -81,6 +81,30 @@ def record_sync(
     return state
 
 
+def record_credentials_changed(
+    memory_path: Path, channel: str, *, at: str | None = None
+) -> dict:
+    """Stamp that ``channel``'s credentials changed — a save, a forget, or a
+    successful OAuth token exchange (G71 fix round 1, M2).
+
+    Those three writes land only in ``$CICADA_HOME/secrets.env``, entirely
+    outside ``memory_path`` — ``sync_service.components()`` never reads that
+    file, so without this the "sources" component (and therefore the SSE
+    version vector) never changed on connect/disconnect, and the Feed page's
+    channel badge went stale forever, not just until the next tick. Touching
+    ``sync_state.json``'s mtime — which the "sources" component DOES watch —
+    makes a credential mutation visible the same way ``record_sync`` already
+    makes a completed sync visible. Preserves any existing
+    ``last_sync``/``last_error`` entry, exactly like ``record_error`` does.
+    """
+    state = read_sync_state(memory_path)
+    entry = dict(state.get(channel) or {})
+    entry["credentials_changed_at"] = at or _now_iso()
+    state[channel] = entry
+    _write_state(memory_path, state)
+    return state
+
+
 def record_error(
     memory_path: Path, channel: str, error: str, *, at: str | None = None
 ) -> dict:
