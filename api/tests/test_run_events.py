@@ -60,6 +60,12 @@ def test_agentic_write_event(repo, monkeypatch):
     from mcp import server
 
     monkeypatch.setattr(server, "get_memory_path", lambda: repo)
+    # Pin the identity instead of comparing against the live module-level
+    # SESSION (which reads this machine's real env at import time) — a fixed
+    # value makes the session_id/harness assertions falsifiable.
+    monkeypatch.setattr(server, "SESSION",
+                        server.SessionIdentity(session_id="ses_test_fixed", harness="claude-code",
+                                               project_dir=None))
     monkeypatch.setattr(server.agentic_write, "write_claim",
                         lambda *a, **k: {"action": "written", "entity_id": "a", "claim_id": "c1", "subject": "a", "observer": "agent"},
                         raising=False)
@@ -74,8 +80,8 @@ def test_agentic_write_event(repo, monkeypatch):
         "action": "written",
         # G48: conversation identity + client info threaded into every
         # agentic_write event's refs (see mcp/server.py::handle_write_claim).
-        "session_id": server.SESSION.session_id,
-        "harness": server.SESSION.harness,
+        "session_id": "ses_test_fixed",
+        "harness": "claude-code",
         "client_name": None,
         "client_version": None,
     }
