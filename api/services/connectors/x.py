@@ -29,7 +29,7 @@ from urllib.parse import urlencode
 
 from loguru import logger
 
-from api.services import media_ingestor, sync_state
+from api.services import sync_state
 from api.services.connections import secrets
 from api.services.connectors import base
 from api.services.media_ingestor import RawItem
@@ -364,44 +364,31 @@ async def sync(
 ) -> dict:
     """Pull bookmarks newer than the stored cursor and ingest them. NEVER raises.
 
-    Returns ``{"status": "ok"|"skipped"|"error", "new", "seen",
-    "resources_read", "error", "reason"}``. ``resources_read`` is the
-    pay-per-use-billed count (every tweet the API returned this run,
-    dedup or not) — distinct from ``new`` (post-dedup, actually ingested)
-    and ``seen`` (total pulled), so the cost-honesty story in the sync
-    summary is exact, not an approximation. Idempotent: ``ingest_batch``
-    dedups on ``url_index.json``, so re-running costs API reads but never
-    writes duplicate episodes.
+    Returns ``base.run_sync``'s canonical ``{"status", "reason", "new",
+    "seen", "error"}`` plus ``resources_read`` — the pay-per-use-billed count
+    (every tweet the API returned this run, dedup or not) — distinct from
+    ``new`` (post-dedup, actually ingested) and ``seen`` (total pulled), so
+    the cost-honesty story in the sync summary is exact, not an
+    approximation. Idempotent: ``ingest_batch`` dedups on ``url_index.json``,
+    so re-running costs API reads but never writes duplicate episodes.
     """
-    empty = {"new": 0, "seen": 0, "resources_read": 0, "error": None}
-    if not is_connected():
-        return {"status": "skipped", "reason": "not connected", **empty}
-    if http_fn is None and not base.network_allowed(allow_fetch):
-        return {"status": "skipped", "reason": "network disabled", **empty}
+    read_count = {"n": 0}
 
-    values = secrets.load_secrets()
-    user_id = (values.get(USER_ID_ENV) or "").strip()
-    stop_at = (sync_state.read_sync_state(memory_path).get(CHANNEL_ID) or {}).get(SEEN_KEY)
-
-    try:
-        token = await _ensure_access_token(http_fn=http_fn)
+    async def fetch(fn: base.HttpFn) -> tuple[list[RawItem], dict | None]:
+        values = secrets.load_secrets()
+        user_id = (values.get(USER_ID_ENV) or "").strip()
+        stop_at = (sync_state.read_sync_state(memory_path).get(CHANNEL_ID) or {}).get(SEEN_KEY)
+        token = await _ensure_access_token(http_fn=fn)
         if not user_id:
-            user_id = await resolve_user_id(token, http_fn=http_fn)
+            user_id = await resolve_user_id(token, http_fn=fn)
             secrets.set_secret(USER_ID_ENV, user_id)
-        tweets, newest = await fetch_bookmarks(user_id, token, http_fn=http_fn, stop_at=stop_at)
-    except Exception as e:
-        message = f"{type(e).__name__}: {e}"
-        logger.warning(f"X sync failed: {message}")
-        sync_state.record_error(memory_path, CHANNEL_ID, message)
-        return {"status": "error", "reason": None, **empty, "error": message}
+        tweets, newest = await fetch_bookmarks(user_id, token, http_fn=fn, stop_at=stop_at)
+        read_count["n"] = len(tweets)
+        return bookmarks_to_items(tweets), ({SEEN_KEY: newest} if newest else None)
 
-    items = bookmarks_to_items(tweets)
-    created, _ = await media_ingestor.ingest_batch(
-        items[: media_ingestor.MAX_BATCH], memory_path, from_bookmark_file=False
+    result = await base.run_sync(
+        CHANNEL_ID, memory_path, fetch,
+        http_fn=http_fn, allow_fetch=allow_fetch, is_connected=is_connected,
     )
-    sync_state.record_sync(
-        memory_path, CHANNEL_ID, count=len(items),
-        extra={SEEN_KEY: newest} if newest else None,
-    )
-    return {"status": "ok", "reason": None, "new": created, "seen": len(items),
-            "resources_read": len(tweets), "error": None}
+    result["resources_read"] = read_count["n"]
+    return result

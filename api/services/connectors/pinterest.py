@@ -17,7 +17,6 @@ from urllib.parse import urlencode
 
 from loguru import logger
 
-from api.services import media_ingestor, sync_state
 from api.services.connections import secrets
 from api.services.connectors import base
 from api.services.media_ingestor import RawItem
@@ -204,18 +203,13 @@ async def sync(
 ) -> dict:
     """Pull every board's pins and ingest the new ones. NEVER raises.
 
-    Returns ``{"status": "ok"|"skipped"|"error", "new", "seen", "boards",
-    "error", "reason"}``. Idempotent: ``ingest_batch`` dedups on
-    ``url_index.json``, so re-running costs nothing but the reads.
+    Returns ``{"status": "ok"|"skipped"|"error", "new", "seen", "error",
+    "reason"}`` (``base.run_sync``'s canonical shape). Idempotent:
+    ``ingest_batch`` dedups on ``url_index.json``, so re-running costs
+    nothing but the reads.
     """
-    empty = {"new": 0, "seen": 0, "boards": 0, "error": None}
-    if not is_connected():
-        return {"status": "skipped", "reason": "not connected", **empty}
-    if http_fn is None and not base.network_allowed(allow_fetch):
-        return {"status": "skipped", "reason": "network disabled", **empty}
 
-    fn = http_fn or base.default_http
-    try:
+    async def fetch(fn: base.HttpFn) -> tuple[list[RawItem], None]:
         boards = await fetch_boards(http_fn=fn)
         items: list[RawItem] = []
         for board in boards:
@@ -224,15 +218,10 @@ async def sync(
                 continue
             pins = await fetch_pins(board_id, http_fn=fn)
             items.extend(pins_to_items(str(board.get("name") or "Pinterest"), pins))
-    except Exception as e:
-        message = f"{type(e).__name__}: {e}"
-        logger.warning(f"Pinterest sync failed: {message}")
-        sync_state.record_error(memory_path, CHANNEL_ID, message)
-        return {"status": "error", "reason": None, **empty, "error": message}
+        logger.info(f"Pinterest: pulled {len(items)} pin(s) from {len(boards)} board(s)")
+        return items, None
 
-    created, _ = await media_ingestor.ingest_batch(
-        items[: media_ingestor.MAX_BATCH], memory_path, from_bookmark_file=False
+    return await base.run_sync(
+        CHANNEL_ID, memory_path, fetch,
+        http_fn=http_fn, allow_fetch=allow_fetch, is_connected=is_connected,
     )
-    sync_state.record_sync(memory_path, CHANNEL_ID, count=len(items))
-    return {"status": "ok", "reason": None, "new": created, "seen": len(items),
-            "boards": len(boards), "error": None}

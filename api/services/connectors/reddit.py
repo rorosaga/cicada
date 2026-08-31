@@ -19,9 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from loguru import logger
-
-from api.services import media_ingestor, sync_state
+from api.services import sync_state
 from api.services.connections import secrets
 from api.services.connectors import base
 from api.services.media_ingestor import RawItem
@@ -196,34 +194,20 @@ async def sync(
     http_fn: base.HttpFn | None = None,
     allow_fetch: bool | None = None,
 ) -> dict:
-    """Pull saved items newer than the stored cursor and ingest them. NEVER raises."""
-    empty = {"new": 0, "seen": 0, "pages": 0, "error": None}
-    if not is_connected():
-        return {"status": "skipped", "reason": "not connected", **empty}
-    if http_fn is None and not base.network_allowed(allow_fetch):
-        return {"status": "skipped", "reason": "network disabled", **empty}
+    """Pull saved items newer than the stored cursor and ingest them. NEVER raises.
 
-    username = (secrets.load_secrets().get(USERNAME_ENV) or "").strip()
-    stop_at = (sync_state.read_sync_state(memory_path).get(CHANNEL_ID) or {}).get(SEEN_KEY)
+    Returns ``{"status": "ok"|"skipped"|"error", "new", "seen", "error",
+    "reason"}`` (``base.run_sync``'s canonical shape).
+    """
 
-    try:
-        token = await fetch_token(http_fn=http_fn)
-        children, newest = await fetch_saved(
-            token, username, http_fn=http_fn, stop_at=stop_at
-        )
-    except Exception as e:
-        message = f"{type(e).__name__}: {e}"
-        logger.warning(f"Reddit sync failed: {message}")
-        sync_state.record_error(memory_path, CHANNEL_ID, message)
-        return {"status": "error", "reason": None, **empty, "error": message}
+    async def fetch(fn: base.HttpFn) -> tuple[list[RawItem], dict | None]:
+        username = (secrets.load_secrets().get(USERNAME_ENV) or "").strip()
+        stop_at = (sync_state.read_sync_state(memory_path).get(CHANNEL_ID) or {}).get(SEEN_KEY)
+        token = await fetch_token(http_fn=fn)
+        children, newest = await fetch_saved(token, username, http_fn=fn, stop_at=stop_at)
+        return children_to_items(children), ({SEEN_KEY: newest} if newest else None)
 
-    items = children_to_items(children)
-    created, _ = await media_ingestor.ingest_batch(
-        items[: media_ingestor.MAX_BATCH], memory_path, from_bookmark_file=False
+    return await base.run_sync(
+        CHANNEL_ID, memory_path, fetch,
+        http_fn=http_fn, allow_fetch=allow_fetch, is_connected=is_connected,
     )
-    sync_state.record_sync(
-        memory_path, CHANNEL_ID, count=len(items),
-        extra={SEEN_KEY: newest} if newest else None,
-    )
-    return {"status": "ok", "reason": None, "new": created, "seen": len(items),
-            "pages": 0, "error": None}

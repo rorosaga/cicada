@@ -139,7 +139,6 @@ def test_sync_ingests_every_board_and_records_the_sync(tmp_path, monkeypatch):
 
     result = run(pinterest.sync(memory, http_fn=_fake_http(calls)))
     assert result["status"] == "ok"
-    assert result["boards"] == 2
     assert result["seen"] == 3
     assert result["new"] == 3
     assert len(list((memory / "episodes").glob("*.md"))) == 3
