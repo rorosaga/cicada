@@ -109,6 +109,8 @@ enum CicadaTheme {
     // own token rather than reusing `entityColor(.concept)`/`.deadline` so a
     // future retune of entity-type hues can't accidentally recolor diffs.
     static var diffAdded: Color { mode == .dark ? Dark.diffAdded : Light.diffAdded }
+    static var decayDurable: Color { mode == .dark ? Dark.decayDurable : Light.decayDurable }
+    static var decayVolatile: Color { mode == .dark ? Dark.decayVolatile : Light.decayVolatile }
     static var diffRemoved: Color { mode == .dark ? Dark.diffRemoved : Light.diffRemoved }
 }
 
@@ -205,6 +207,8 @@ private extension CicadaTheme {
         // Tailwind-500 band — reads fine directly on the dark near-black base,
         // no extra lift needed (unlike the deepened Light values below).
         static let diffAdded = Color(hex: 0x22C55E)
+        static let decayDurable = Color(hex: 0x4A9EFF)
+        static let decayVolatile = Color(hex: 0xF59E0B)
         static let diffRemoved = Color(hex: 0xEF4444)
     }
 }
@@ -299,6 +303,8 @@ private extension CicadaTheme {
         // near-white surface instead of the washed-out contrast the 500-band
         // Dark values would give here.
         static let diffAdded = Color(hex: 0x16A34A)     // green-600
+        static let decayDurable = Color(hex: 0x2563EB)  // blue-600
+        static let decayVolatile = Color(hex: 0xD97706) // amber-600
         static let diffRemoved = Color(hex: 0xDC2626)   // red-600
     }
 }

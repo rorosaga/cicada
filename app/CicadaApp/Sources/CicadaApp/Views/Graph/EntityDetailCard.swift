@@ -885,10 +885,10 @@ struct EntityDetailCard: View {
 
     private var decayChipTint: Color {
         switch shownDecayClass {
-        case .evergreen: Color(hex: 0x22C55E)
-        case .durable: Color(hex: 0x4A9EFF)
+        case .evergreen: CicadaTheme.diffAdded
+        case .durable: CicadaTheme.decayDurable
         case .active: CicadaTheme.textSecondary
-        case .volatile: Color(hex: 0xF59E0B)
+        case .volatile: CicadaTheme.decayVolatile
         }
     }
 
