@@ -611,7 +611,7 @@ def parse_youtube_playlist_csv(content: bytes, filename: str) -> list[RawItem]:
 _MAX_ZIP_MEMBERS = 5000
 
 
-def parse_youtube_takeout_zip(content: bytes) -> list[RawItem]:
+def parse_youtube_takeout_zip(content: bytes, warnings: list[str] | None = None) -> list[RawItem]:
     """Walk a whole Google Takeout zip: ``playlists/*.csv`` + ``watch-history.json``.
 
     Lets a user drop one Takeout export zip in a single upload instead of
@@ -619,14 +619,19 @@ def parse_youtube_takeout_zip(content: bytes) -> list[RawItem]:
     ``playlists/*.csv`` or a ``watch-history.json``) are skipped. Any read
     error on an individual member is skipped rather than raised — a partially
     corrupt zip still yields whatever is parseable. A non-zip or unreadable
-    archive degrades to ``[]``.
+    archive degrades to ``[]``. ``warnings`` (G71 §4.3), when given, is
+    appended to with a summary of anything skipped, so a preview caller can
+    surface it instead of only the debug log.
     """
     import zipfile
 
     items: list[RawItem] = []
+    skipped = 0
     try:
         zf = zipfile.ZipFile(BytesIO(content))
     except Exception:
+        if warnings is not None:
+            warnings.append("This file is not a readable zip archive.")
         return []
 
     with zf:
@@ -646,7 +651,11 @@ def parse_youtube_takeout_zip(content: bytes) -> list[RawItem]:
                     items.extend(parse_youtube_takeout(member_bytes, base))
             except Exception as e:
                 logger.debug(f"Skipping unreadable zip member {name}: {type(e).__name__}: {e}")
+                skipped += 1
                 continue
+
+    if warnings is not None and skipped:
+        warnings.append(f"Skipped {skipped} unreadable file(s) inside the archive.")
 
     return items
 
@@ -796,10 +805,22 @@ async def ingest_feed(
     return await ingest_batch(items, memory_path, from_bookmark_file=False, commit=commit)
 
 
-def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, bool]:
+def parse_upload(
+    content: bytes,
+    filename: str,
+    *,
+    include_history: bool = False,
+    warnings: list[str] | None = None,
+) -> tuple[list[RawItem], str, bool]:
     """Route an uploaded file to the right parser by extension + sniff.
 
     Returns ``(items, source_label, from_bookmark_file)``.
+
+    ``include_history`` (G71 §3) opts a TikTok export's Browsing History in —
+    default off, because ambient watch/browse exhaust is noise, not a save.
+    ``warnings`` is an optional sink a caller (the preview endpoint) passes so
+    partial-parse detail reaches the user instead of only the debug log; every
+    existing positional caller is unaffected.
     """
     name = (filename or "").lower()
     if name.endswith(".xml") or name.endswith(".rss") or name.endswith(".atom"):
@@ -847,12 +868,110 @@ def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, boo
             return playlist_items, "YouTube Playlist", False
         return parse_csv_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     if name.endswith(".zip"):
-        return parse_youtube_takeout_zip(content), "YouTube Takeout (zip)", False
+        return parse_youtube_takeout_zip(content, warnings), "YouTube Takeout (zip)", False
     if name.endswith(".txt"):
         return parse_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     raise ValueError(
         "Unsupported file format. Use .html, .json, .csv, .txt, .plist, .zip, or .xml/.rss/.atom"
     )
+
+
+# --- Import preview (G71 §4.3) ----------------------------------------------
+
+# `parse_upload` source label -> stable lowercase platform id. The id is never
+# user-facing: the companion app owns every display name (Copy.swift). Tasks
+# that add a parser add their label here.
+PLATFORM_BY_LABEL = {
+    "Instagram Saved": "instagram",
+    "YouTube Takeout": "youtube",
+    "YouTube Takeout (zip)": "youtube",
+    "YouTube Playlist": "youtube",
+    "Bookmarks": "bookmarks",
+    "Safari Bookmarks": "bookmarks",
+    "Chrome Bookmarks": "bookmarks",
+    "RSS Feed": "rss",
+    "URL List": "urls",
+}
+
+# What ONE grouping is called on each platform, so the overlay can say
+# "6 collections" / "6 boards" instead of a generic word.
+COLLECTION_KIND_BY_PLATFORM = {
+    "instagram": "collection",
+    "youtube": "playlist",
+    "pinterest": "board",
+    "bookmarks": "folder",
+    "rss": "feed",
+    "urls": "list",
+    "unknown": "list",
+}
+
+DEFAULT_COLLECTION_NAME = "Ungrouped"
+
+
+@dataclass
+class UploadPreview:
+    """What a dropped export CONTAINS — computed without staging any of it."""
+
+    recognized: bool
+    platform: str
+    total: int
+    collections: list[dict]  # [{"name": str, "kind": str, "count": int}]
+    warnings: list[str]
+
+
+def preview_upload(
+    content: bytes, filename: str, *, include_history: bool = False
+) -> UploadPreview:
+    """Parse an upload WITHOUT staging anything (G71 §4.3).
+
+    Pure and side-effect free: no episode, no entity, no ``url_index`` write,
+    no commit, no network — it runs the same sniff/parse ``parse_upload`` does
+    and then only *counts*. ``recognized`` is ``total > 0``: a format we can
+    name but from which nothing parses is not a usable export, and saying
+    "recognized" about it would be a lie the overlay then repeats.
+    """
+    warnings: list[str] = []
+    try:
+        items, label, _ = parse_upload(
+            content, filename, include_history=include_history, warnings=warnings
+        )
+    except ValueError as e:
+        # `parse_upload`'s own "Unsupported file format" message already names
+        # what's wrong without a filename; every OTHER ValueError bubbling up
+        # from a parser (e.g. a `json.JSONDecodeError`, itself a ValueError)
+        # needs the filename stitched in or the warning is anonymous.
+        msg = str(e)
+        if not msg.startswith("Unsupported file format"):
+            msg = f"Could not parse {filename or 'this file'}: {msg}"
+        return UploadPreview(False, "unknown", 0, [], [msg])
+    except Exception as e:
+        return UploadPreview(
+            False, "unknown", 0, [],
+            [f"Could not parse {filename or 'this file'}: {type(e).__name__}: {e}"],
+        )
+
+    platform = PLATFORM_BY_LABEL.get(label, "unknown")
+    kind = COLLECTION_KIND_BY_PLATFORM.get(platform, "list")
+
+    counts: dict[str, int] = {}
+    for item in items:
+        if not item.url:
+            continue
+        name = (item.folder or "").strip() or DEFAULT_COLLECTION_NAME
+        counts[name] = counts.get(name, 0) + 1
+
+    total = sum(counts.values())
+    if total == 0:
+        warnings.append(
+            f"Read this as {label} but found no saved links in it — if you dropped "
+            "an archive, unzip it and drop the individual export file instead."
+        )
+
+    collections = [
+        {"name": n, "kind": kind, "count": counts[n]}
+        for n in sorted(counts, key=lambda n: (-counts[n], n))
+    ]
+    return UploadPreview(total > 0, platform, total, collections, warnings)
 
 
 # --- Relevance metric (§3.4, feed sorting) ---------------------------------
