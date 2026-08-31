@@ -1027,22 +1027,35 @@ struct EntityDetailCard: View {
         !entry.commitHash.isEmpty && expandedCommits.contains(diffKey(entry.commitHash))
     }
 
-    /// The tappable summary line. A row with no `commitHash` (an older backend
-    /// that didn't surface one) renders as plain, un-tappable text rather than a
-    /// button that could never do anything.
+    /// The tappable summary line, plus the "from conversation" affordance as
+    /// its own SIBLING control (PR #20 round-2 review fix). `FromConversationButton`
+    /// used to be nested inside `historyRowLabel`, which is itself the LABEL
+    /// of the row-expansion `Button` below — a `Button` inside a `Button`'s
+    /// label, which makes AppKit/SwiftUI's tap targeting ambiguous (a tap
+    /// meant for the popover could instead toggle diff expansion). Pulling it
+    /// out to a trailing sibling in this `HStack` gives each control its own
+    /// hit region with no ambiguity, while keeping both reachable via the
+    /// same row. A row with no `commitHash` (an older backend that didn't
+    /// surface one) renders its summary as plain, un-tappable text rather
+    /// than a button that could never do anything — the conversation
+    /// affordance still renders independently of that.
     @ViewBuilder
     private func historyRowButton(_ entry: EntityHistoryEntry) -> some View {
-        if entry.commitHash.isEmpty {
-            historyRowLabel(entry, expandable: false)
-        } else {
-            Button {
-                toggleCommit(entry.commitHash)
-            } label: {
-                historyRowLabel(entry, expandable: true)
+        HStack(alignment: .top, spacing: CicadaTheme.spacingXS) {
+            if entry.commitHash.isEmpty {
+                historyRowLabel(entry, expandable: false)
+            } else {
+                Button {
+                    toggleCommit(entry.commitHash)
+                } label: {
+                    historyRowLabel(entry, expandable: true)
+                }
+                .buttonStyle(.plain)
+                .help("Show what changed in this commit")
+                .accessibilityLabel("Commit \(entry.date) by \(entry.author)")
             }
-            .buttonStyle(.plain)
-            .help("Show what changed in this commit")
-            .accessibilityLabel("Commit \(entry.date) by \(entry.author)")
+
+            FromConversationButton(sessionIds: entry.sessions)
         }
     }
 
@@ -1070,7 +1083,6 @@ struct EntityDetailCard: View {
                         .clipShape(Capsule())
                         .foregroundStyle(entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
                 }
-                FromConversationButton(sessionIds: entry.sessions)
             }
 
             Text(entry.description)

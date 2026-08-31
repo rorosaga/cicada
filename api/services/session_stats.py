@@ -121,9 +121,14 @@ def _group(memory_path: Path) -> dict[str, dict]:
         # group (never manufacture a phantom conversation row from a claim
         # alone).
         for claim in parse_claims(f.body()):
-            sid = (claim.session_id or "").strip()
-            if sid and sid in groups:
-                entity_conversations.add(sid)
+            # PR #20 round-2 review fix: a claim reinforced by a LATER
+            # conversation restating the same fact carries every writing
+            # session in `session_ids` (claim_reconciler._reinforce), not
+            # just the first writer's scalar `session_id` — credit all of
+            # them, via Claim.all_session_ids()'s back-compat merge.
+            for sid in claim.all_session_ids():
+                if sid in groups:
+                    entity_conversations.add(sid)
         for conversation_id in entity_conversations:
             groups[conversation_id]["entity_ids"].add(entity_id)
 

@@ -144,8 +144,11 @@ def _parse_sessions(body: str) -> list[str]:
 
     Commit-LEVEL: every conversation the whole commit touched (a Sleep cycle
     that batched N conversations lists all N here). Correct as commit
-    provenance; too broad to attribute to any ONE entity — see
-    :func:`_parse_entity_sessions` for the per-entity fallback chain.
+    provenance (used by :func:`get_contributor_commits`); too broad to
+    attribute to any ONE entity — see :func:`_parse_entity_sessions` for the
+    precise per-entity answer, which ``get_entity_history`` uses instead of
+    this function (PR #20 round-2 review fix: no fallback to this commit-wide
+    set at the entity level).
     """
     out: list[str] = []
     seen: set[str] = set()
@@ -176,10 +179,12 @@ def _parse_entity_sessions(body: str, entity_id: str) -> list[str]:
     THAT entity's own ``entities/<id>.md: ...`` manifest line, derived from
     only the episode(s) that actually touched it.
 
-    Returns ``[]`` (never a fallback) when no such clause is present — the
-    caller (``get_entity_history``) is responsible for falling back to the
-    commit-level trailer, so this function's contract stays "precise or
-    nothing."
+    Returns ``[]`` when no such clause is present (a decay/archive change
+    with no episode, or a pre-fix commit) — the caller (``get_entity_history``)
+    uses that empty list as-is and does NOT fall back to the commit-level
+    trailer (PR #20 round-2 review fix: falling back there overclaimed every
+    conversation in a batched Sleep cycle as this one entity's own). "No known
+    sessions" is the honest answer when no precise per-entity data exists.
     """
     prefix = f"entities/{entity_id}.md:"
     out: list[str] = []
@@ -376,14 +381,16 @@ async def get_entity_history(
         if include_diff:
             diff = await get_entity_commit_diff(entity_id, commit_hash, memory_path)
 
-        # PR #20 review fix: prefer THIS entity's own precise sessions (from
-        # its manifest line); only fall back to the commit-wide trailer set
-        # when no precise per-entity data exists (a decay/archive change with
-        # no episode, or a pre-fix commit) — never both at once, so a batched
-        # cycle's unrelated conversations never leak onto an entity that
-        # itself has a precise answer.
-        entity_sessions = _parse_entity_sessions(body, entity_id)
-        sessions = entity_sessions if entity_sessions else _parse_sessions(body)
+        # PR #20 round-2 review fix: use ONLY this entity's own precise
+        # sessions (from its manifest line's `sessions: ...` clause) — never
+        # the commit-wide `Cicada-Session:` trailer set as a fallback. A
+        # decay/archive change carries no episode, so it never gets a
+        # `sessions:` clause; falling back to the commit-wide trailers would
+        # then credit it with EVERY conversation in that Sleep batch, even
+        # ones that never touched it. When no precise per-entity data exists
+        # (a decay/archive change, or a pre-fix commit), the honest answer is
+        # "no known sessions" — an empty list, not a guess.
+        sessions = _parse_entity_sessions(body, entity_id)
 
         entries.append(EntityHistoryEntry(
             date=date,

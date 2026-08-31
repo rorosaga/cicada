@@ -30,24 +30,33 @@ def _episode(memory, episode_id, *, timestamp, session_id=None, source_id=None,
     (episodes_dir / f"{episode_id}.md").write_text("\n".join(lines), encoding="utf-8")
 
 
-def _entity(memory, entity_id, source_episodes, *, claim_session_id=None):
+def _entity(memory, entity_id, source_episodes, *, claim_session_id=None,
+            claim_session_ids=None):
     entities_dir = memory / "entities"
     entities_dir.mkdir(parents=True, exist_ok=True)
     eps = ("\n" + "\n".join(f"- {e}" for e in source_episodes)) if source_episodes else " []"
     body = f"---\nid: {entity_id}\ntype: concept\nstatus: active\n" \
            f"source_episodes:{eps}\n---\n\n# {entity_id}\n"
-    if claim_session_id is not None:
+    if claim_session_id is not None or claim_session_ids is not None:
         # A direct `cicada_write_claim` against an EXISTING entity: the claim
-        # carries the writing session, but frontmatter source_episodes is
+        # carries the writing session(s), but frontmatter source_episodes is
         # untouched (mirrors agentic_write.write_claim's real behavior).
-        body += (
-            "\n```claims\n"
-            f"- id: clm_{entity_id}_test\n"
-            f"  text: \"{entity_id} test claim\"\n"
-            f"  subject: {entity_id}\n"
-            f"  session_id: {claim_session_id}\n"
-            "```\n"
-        )
+        # `claim_session_ids` (PR #20 round-2 review fix): the additive list
+        # a reinforced claim accumulates across multiple conversations
+        # restating the same fact (claim_reconciler._reinforce).
+        lines = [
+            "\n```claims",
+            f"- id: clm_{entity_id}_test",
+            f"  text: \"{entity_id} test claim\"",
+            f"  subject: {entity_id}",
+        ]
+        if claim_session_id is not None:
+            lines.append(f"  session_id: {claim_session_id}")
+        if claim_session_ids is not None:
+            lines.append("  session_ids:")
+            lines.extend(f"    - {sid}" for sid in claim_session_ids)
+        lines.append("```\n")
+        body += "\n".join(lines)
     (entities_dir / f"{entity_id}.md").write_text(body, encoding="utf-8")
 
 
@@ -205,6 +214,27 @@ def test_a_claim_session_id_from_an_unknown_conversation_credits_nothing(tmp_pat
 
     assert rows[UUID_A]["entity_ids"] == []
     assert UUID_B not in rows
+
+
+def test_a_reinforced_claims_session_ids_credit_both_conversations(tmp_path):
+    """PR #20 round-2 review fix — 'repeated facts lose later conversations'.
+
+    Conversation A first writes a claim; conversation B later restates the
+    same fact and `claim_reconciler._reinforce` folds it into the SAME claim,
+    accumulating both sessions into `session_ids`. The entity must be
+    credited to BOTH conversations, not just the first writer.
+    """
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A)
+    _episode(memory, "ep_2", timestamp="2026-08-30T11:00:00Z", session_id=UUID_B)
+    _entity(memory, "mongodb", [], claim_session_id=UUID_A,
+            claim_session_ids=[UUID_A, UUID_B])
+
+    rows = {r["conversation_id"]: r
+            for r in session_stats.aggregate_conversations(memory, transcript_exists=_never)}
+
+    assert rows[UUID_A]["entity_ids"] == ["mongodb"], "first writer still credited"
+    assert rows[UUID_B]["entity_ids"] == ["mongodb"], "later, reinforcing conversation also credited"
 
 
 def test_entity_ids_are_capped_with_an_honest_total(tmp_path):

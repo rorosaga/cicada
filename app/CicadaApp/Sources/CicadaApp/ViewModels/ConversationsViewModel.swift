@@ -114,9 +114,9 @@ final class ConversationsViewModel {
         }
     }
 
-    /// "Copy command" — same 400/409 handling, no launch. The command was
-    /// built backend-side from a UUID-gated id, so it is safe to put on the
-    /// pasteboard verbatim.
+    /// "Copy command" — same 400/409/404 handling as `resume`, no launch. The
+    /// command was built backend-side from a UUID-gated id, so it is safe to
+    /// put on the pasteboard verbatim.
     func copyCommand(for id: String) async -> ResumeOutcome {
         do {
             let descriptor = try await api.resumeConversation(id: id)
@@ -127,6 +127,12 @@ final class ConversationsViewModel {
             return .gone
         } catch APIError.httpError(400, _) {
             return .failed("This conversation can't be resumed")
+        } catch APIError.httpError(404, _) {
+            // Same PR #20 round-2 review fix as `resume`: a bank switch or
+            // deletion between the row rendering and the tap is a missing
+            // conversation, not a backend outage — say so distinctly from
+            // the generic catch-all below.
+            return .failed("This conversation is no longer available in this bank")
         } catch {
             return .failed("Couldn't reach Cicada's backend")
         }

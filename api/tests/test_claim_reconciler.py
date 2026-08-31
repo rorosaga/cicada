@@ -314,6 +314,56 @@ def test_single_valued_same_object_reaffirms(tmp_path):
     assert ids == ["clm_a"], "reaffirmation must not open a second claim"
 
 
+def test_reinforce_across_two_sessions_credits_both_conversations(tmp_path):
+    """PR #20 round-2 review fix — 'repeated facts lose later conversations'.
+
+    Conversation A first states a fact (stamps ``session_id``); conversation B
+    later restates the SAME fact. Stage-3 folds B's claim into A's via
+    ``_reinforce`` instead of opening a second claim — the reinforced claim
+    must still carry BOTH sessions (``Claim.all_session_ids()``), not just the
+    first writer, so ``session_stats._group`` credits the entity to both
+    conversations.
+    """
+    predicates.install_predicate_map(tmp_path)
+    first = _claim("clm_a", obj="acme", valid_from="2026-01-01", confidence=0.5)
+    first.session_id = "session-a"
+    again = _claim("clm_again", obj="acme", valid_from="2026-05-05", confidence=0.9)
+    again.session_id = "session-b"
+
+    reconciled, nudges, audit = reconcile_stage3(
+        [again], _by_subject([first]), _settings(tmp_path), cardinality_fn=_single_card
+    )
+
+    ids = [c.id for c in reconciled["rodrigo"]]
+    assert ids == ["clm_a"], "reaffirmation must not open a second claim"
+    reinforced = reconciled["rodrigo"][0]
+    assert reinforced.session_id == "session-a", "first-writer scalar stays as-is"
+    assert reinforced.all_session_ids() == ["session-a", "session-b"], (
+        "both conversations' sessions must be credited after reinforcement"
+    )
+
+
+def test_reinforce_across_three_sessions_keeps_accumulating(tmp_path):
+    predicates.install_predicate_map(tmp_path)
+    first = _claim("clm_a", obj="acme", valid_from="2026-01-01", confidence=0.5)
+    first.session_id = "session-a"
+    second = _claim("clm_b", obj="acme", valid_from="2026-03-01", confidence=0.6)
+    second.session_id = "session-b"
+    reconciled, _, _ = reconcile_stage3(
+        [second], _by_subject([first]), _settings(tmp_path), cardinality_fn=_single_card
+    )
+    once_reinforced = reconciled["rodrigo"][0]
+
+    third = _claim("clm_c", obj="acme", valid_from="2026-05-05", confidence=0.9)
+    third.session_id = "session-c"
+    reconciled2, _, _ = reconcile_stage3(
+        [third], _by_subject([once_reinforced]), _settings(tmp_path), cardinality_fn=_single_card
+    )
+    twice_reinforced = reconciled2["rodrigo"][0]
+
+    assert twice_reinforced.all_session_ids() == ["session-a", "session-b", "session-c"]
+
+
 # --------------------------------------------------------------------------- #
 # C9 — agent_reflected may not close agent_extracted (REJECT, audited)
 # --------------------------------------------------------------------------- #

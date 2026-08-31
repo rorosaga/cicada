@@ -664,8 +664,10 @@ async def _finalize(
     ``source_episodes`` — never the whole cycle's session set. Only entities
     whose change carries an episode with a resolvable session gain the
     clause; a decay/archive/conflict change with no episode gets none, and
-    ``git_service.get_entity_history`` falls back to the commit-level
-    ``Cicada-Session:`` trailers for those.
+    ``git_service.get_entity_history`` reports NO sessions (an empty list)
+    for those — it never falls back to the commit-level ``Cicada-Session:``
+    trailers, which would overclaim every conversation in the batch as that
+    entity's own (PR #20 round-2 review fix).
 
     ``organic_resolution_paths`` (G60 fix round 1): the exact inbox file paths
     ``refresh_open_questions`` deleted this cycle because a later conversation

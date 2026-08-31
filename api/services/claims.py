@@ -86,7 +86,33 @@ class Claim:
     # conversation is undiscoverable and the entity silently drops off that
     # conversation's `GET /conversations` row. `session_stats._group` reads it
     # as a fallback attribution path alongside `source_episodes`.
+    #
+    # `session_id` stays the FIRST-WRITER scalar (back-compat: every reader
+    # written before the round-2 fix below only ever knew this field).
     session_id: str | None = None
+    # PR #20 round-2 review fix: when a LATER conversation restates the same
+    # fact, `claim_reconciler._reinforce` folds the incoming claim into this
+    # one instead of opening a second claim — a scalar `session_id` can only
+    # ever remember the first writer, so the later conversation's provenance
+    # was silently dropped. `session_ids` is the additive, deduped list of
+    # EVERY session that has written or reinforced this claim (first writer
+    # included); `session_stats._group` reads this list, falling back to the
+    # scalar `session_id` for claims written before this field existed.
+    session_ids: list[str] = field(default_factory=list)
+
+    def all_session_ids(self) -> list[str]:
+        """Every session that has written or reinforced this claim, deduped,
+        order-preserving. Prefers ``session_ids``; a claim written before that
+        field existed falls back to its scalar ``session_id`` alone.
+        """
+        out: list[str] = []
+        seen: set[str] = set()
+        for sid in [*(self.session_ids or []), self.session_id]:
+            sid = (sid or "").strip()
+            if sid and sid not in seen:
+                seen.add(sid)
+                out.append(sid)
+        return out
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -116,6 +142,7 @@ class Claim:
             authored_by=_opt_str(data.get("authored_by")),
             origin=_opt_str(data.get("origin")),
             session_id=_opt_str(data.get("session_id")),
+            session_ids=[str(s) for s in (data.get("session_ids") or []) if str(s).strip()],
         )
 
 

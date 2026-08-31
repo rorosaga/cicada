@@ -45,6 +45,18 @@ final class ConversationAffordanceTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(ContributorCommit.self, from: json).sessions, [])
     }
 
+    /// PR #20 round-2 review fix ("conversation control conflicts with
+    /// history expansion"): `EntityDetailCard.historyRowButton` used to embed
+    /// `FromConversationButton` INSIDE the row's expand/collapse `Button`
+    /// label — a `Button` nested in a `Button`'s label, which makes tap
+    /// targeting ambiguous. The fix moved it to a trailing sibling in the
+    /// row's `HStack` with its own hit region and accessibility label, never
+    /// re-wrapped by the expand `Button`. `shouldRender` — the only piece of
+    /// that decision this package can unit-test without a view-inspection
+    /// library — is untouched by the restructuring and still governs
+    /// visibility correctly; the sibling-vs-nested structure itself is
+    /// verified by `swift build` (the type-checker) and manual review, since
+    /// this target has no ViewInspector/UI-test seam to assert view-tree shape.
     func testTheAffordanceIsHiddenWithoutSessionsAndShownWithThem() {
         XCTAssertFalse(FromConversationButton.shouldRender(sessionIds: []))
         XCTAssertTrue(FromConversationButton.shouldRender(sessionIds: [uuid]))

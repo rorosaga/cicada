@@ -272,6 +272,41 @@ final class ConversationsTests: XCTestCase {
         XCTAssertEqual(outcome, .failed("This conversation is no longer available in this bank"))
     }
 
+    func testCopyCommandCopiesTheDisplayCommandAndReportsIt() async {
+        let api = FakeSyncAPI()
+        api.resumeDescriptor = ResumeDescriptor(
+            mode: "terminal", argv: ["claude", "--resume", uuid],
+            cwd: "/Users/x/p", displayCommand: "claude --resume \(uuid)"
+        )
+        let vm = ConversationsViewModel(api: api, launch: { _, _ in .ghostty })
+
+        let outcome = await vm.copyCommand(for: uuid)
+        XCTAssertEqual(outcome, .copied("claude --resume \(uuid)"))
+    }
+
+    func testCopyCommandA409BecomesTheGoneOutcome() async {
+        let api = FakeSyncAPI()
+        api.resumeError = APIError.httpError(409, #"{"detail":{"reason":"transcript_gone"}}"#)
+        let vm = ConversationsViewModel(api: api, launch: { _, _ in .ghostty })
+
+        let outcome = await vm.copyCommand(for: uuid)
+        XCTAssertEqual(outcome, .gone)
+    }
+
+    /// PR #20 round-2 review fix: `copyCommand` shares `resume`'s 404 handling
+    /// (a bank switch or deletion between the row rendering and the tap), so
+    /// it must not read as the generic "couldn't reach the backend" outage
+    /// copy either — see `testA404BecomesAnUnavailableConversationFailureNotAGenericOutage`
+    /// for the `resume` half of this contract.
+    func testCopyCommandA404BecomesAnUnavailableConversationFailureNotAGenericOutage() async {
+        let api = FakeSyncAPI()
+        api.resumeError = APIError.httpError(404, "unknown conversation")
+        let vm = ConversationsViewModel(api: api, launch: { _, _ in .ghostty })
+
+        let outcome = await vm.copyCommand(for: uuid)
+        XCTAssertEqual(outcome, .failed("This conversation is no longer available in this bank"))
+    }
+
     func testANonResumableIdIsNeverEvenSentToTheBackend() async {
         let api = FakeSyncAPI()
         api.recentConversations = [
