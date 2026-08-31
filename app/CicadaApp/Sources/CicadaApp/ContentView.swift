@@ -142,7 +142,12 @@ struct ContentView: View {
         case .inbox:
             InboxListView()
         case .activity:
-            ActivityView()
+            // An entity chip on a conversation row navigates the same way an
+            // Ask citation does: select in the graph, then show the graph.
+            ActivityView { entityId in
+                withAnimation(.spring(duration: 0.25)) { selectedTab = .graph }
+                graphVM.selectEntity(id: entityId)
+            }
         }
     }
 

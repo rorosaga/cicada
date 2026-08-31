@@ -1,16 +1,31 @@
 import hashlib
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile
 from loguru import logger
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.models.schemas import ConversationUploadResponse
-from api.services import markdown_parser
+from api.models.schemas import ConversationSummary, ConversationUploadResponse, ResumeDescriptor
+from api.services import markdown_parser, session_stats, sync_service
 
 router = APIRouter()
+
+# Injectable seam: tests replace this with a fake so no test ever probes the
+# real ``~/.claude``. Production always resolves to the isfile() probe.
+transcript_exists = session_stats.default_transcript_exists
+
+# The binary name is a FIXED LITERAL. Never read from settings, env, or a
+# request body: it is the head of an argv list the app executes.
+CLAUDE_BINARY = "claude"
+
+# Conservative cwd charset. A path that fails this is dropped rather than
+# sanitised, because it is about to be interpolated into AppleScript source
+# on the app side.
+CWD_SAFE_RE = re.compile(r"^[A-Za-z0-9/_.~-]+$")
 
 
 @router.post("/conversations/upload", response_model=ConversationUploadResponse)
@@ -69,6 +84,126 @@ async def upload_conversation(
         duplicates_skipped=skipped,
         message=f"Staged {created} new, {updated} updated, {skipped} unchanged",
         source=source_labels.get(source, source),
+    )
+
+
+@router.get("/conversations/recent", response_model=list[ConversationSummary])
+async def recent_conversations(
+    request: Request,
+    response: Response,
+    limit: int = Query(20, ge=1, le=200),
+    settings: Settings = Depends(get_settings),
+):
+    """Conversations that wrote to memory, newest write first (G48).
+
+    Live MCP sessions and imported chat threads on one axis. Only ids,
+    timestamps, counts and entity ids cross the wire — never a transcript,
+    never a transcript path, never ``project_dir``.
+
+    ETag covers exactly what the rows are built from — ``episodes`` and
+    ``entities``. KNOWN CAVEAT: deleting a transcript flips no version-vector
+    component, so ``resumable`` can read stale until the next non-304 refresh —
+    acceptable because ``POST /conversations/{id}/resume`` re-validates.
+
+    This list is capped (``limit`` ≤ 200), so it is NOT a membership test for a
+    bank: use ``GET /conversations/{id}`` to answer "does this bank know that
+    conversation".
+    """
+    etag = sync_service.etag_for(
+        settings.memory_path, "episodes", "entities", extra=f"limit={limit}"
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+
+    rows = await run_in_threadpool(
+        session_stats.aggregate_conversations,
+        settings.memory_path,
+        limit=limit,
+        transcript_exists=transcript_exists,
+    )
+    return [ConversationSummary(**row) for row in rows]
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationSummary)
+async def get_conversation(
+    conversation_id: str,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """One conversation by id — the exact-lookup twin of ``/recent`` (G48).
+
+    ``/conversations/recent`` is a capped, recency-sorted page: a bank with
+    more conversations than the cap will not contain an older one, and the app
+    must never read that absence as "this bank forgot it". This route resolves
+    the id against the WHOLE bank and 404s only when the bank genuinely has no
+    episode carrying it.
+
+    Same serialization as ``/recent`` (``session_stats.project_conversation``),
+    same auth (bearer, like every route outside ``auth._OPEN_PATHS``), same
+    privacy: no transcript, no transcript path, no ``project_dir``.
+    """
+    conversation_id = (conversation_id or "").strip()
+
+    etag = sync_service.etag_for(
+        settings.memory_path, "episodes", "entities", extra=f"id={conversation_id}"
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+
+    convo = await run_in_threadpool(
+        session_stats.find_conversation, settings.memory_path, conversation_id
+    )
+    if convo is None:
+        raise HTTPException(404, "unknown conversation")
+
+    row = session_stats.project_conversation(convo, transcript_exists=transcript_exists)
+    return ConversationSummary(**row)
+
+
+@router.post("/conversations/{conversation_id}/resume", response_model=ResumeDescriptor)
+async def resume_conversation(
+    conversation_id: str,
+    settings: Settings = Depends(get_settings),
+):
+    """Validate a conversation and hand the app a launch descriptor (G48 §5).
+
+    400 — not a canonical session uuid (a minted ``ses_`` id lands here by
+    construction). 404 — this bank has never seen that conversation, so there
+    is no ``project_dir`` and therefore no transcript path to check. 409 —
+    the transcript was retention-cleaned since the list was fetched.
+
+    No transcript is opened. Nothing about the transcript beyond "it exists"
+    influences the response.
+    """
+    conversation_id = (conversation_id or "").strip()
+    if not session_stats.is_uuid(conversation_id):
+        raise HTTPException(400, "not a resumable conversation id")
+
+    convo = await run_in_threadpool(
+        session_stats.find_conversation, settings.memory_path, conversation_id
+    )
+    if convo is None:
+        raise HTTPException(404, "unknown conversation")
+
+    project_dir = (convo.get("project_dir") or "").strip()
+    if not transcript_exists(project_dir, conversation_id):
+        raise HTTPException(409, {"reason": "transcript_gone"})
+
+    cwd = None
+    if (
+        project_dir
+        and (project_dir.startswith("/") or project_dir.startswith("~"))
+        and CWD_SAFE_RE.match(project_dir)
+        and Path(project_dir).expanduser().is_dir()
+    ):
+        cwd = project_dir
+
+    return ResumeDescriptor(
+        mode="terminal",
+        argv=[CLAUDE_BINARY, "--resume", conversation_id],
+        cwd=cwd,
+        display_command=f"{CLAUDE_BINARY} --resume {conversation_id}",
     )
 
 

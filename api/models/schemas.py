@@ -137,6 +137,16 @@ class EntityHistoryEntry(CamelModel):
     author: str = "unknown"
     commit_hash: str = ""
     diff: Optional[EntityDiff] = None
+    # G48: the conversation(s) that produced THIS ENTITY's change at this
+    # commit. PR #20 review fix: precise when derivable — parsed from the
+    # entity's own manifest line (`git_service._parse_entity_sessions`), which
+    # a batched Sleep cycle (multiple conversations in one commit) stamps per
+    # entity from only the episode(s) that touched it — falling back to the
+    # commit-wide ``Cicada-Session:`` trailers only when no precise per-entity
+    # data exists (a decay/archive change with no episode, or a pre-fix
+    # commit). Empty for every pre-G48 commit and for user-action writes, so
+    # the app's "from conversation" affordance simply doesn't render there.
+    sessions: list[str] = []
 
 
 # --- Contributors (git-trailer attribution, backlog A2) ---
@@ -185,6 +195,8 @@ class ContributorCommit(CamelModel):
     entities: list[str] = []
     entities_total: int = 0
     files_changed: int = 0
+    # G48: same trailer, same contract as EntityHistoryEntry.sessions.
+    sessions: list[str] = []
 
 
 class ContributorCommitsResponse(CamelModel):
@@ -211,6 +223,57 @@ class OriginStat(CamelModel):
 
 class OriginsResponse(CamelModel):
     origins: list[OriginStat] = []
+
+
+# --- Conversations (G48 conversation-level provenance) ---------------------
+
+
+class ConversationSummary(CamelModel):
+    """One conversation that wrote to memory — a live MCP session or an
+    imported chat thread.
+
+    ``conversation_id`` is the stamped ``session_id`` (kind ``"mcp"``) or G20's
+    ``source_id`` (kind ``"import"``). ``entity_ids`` is CAPPED
+    (``session_stats.MAX_CONVERSATION_ENTITIES``) with the honest total in
+    ``entity_count``, so the app can say "+N more". ``project_dir`` is
+    deliberately absent — it is returned only by the resume endpoint, which
+    needs a cwd to launch. ``resumable`` is computed per request and never
+    persisted.
+
+    ``model`` is RESERVED and always ``None`` in this slice: nothing that
+    writes memory records a model against a conversation id yet, so it would be
+    a structurally-null join (see ``session_stats.project_conversation``). It
+    stays on the wire — the app already decodes it — for when engine calls
+    carry session refs (G49).
+    """
+
+    conversation_id: str
+    kind: str = "mcp"  # "mcp" | "import"
+    harness: str = ""
+    origin: str = ""
+    title: str = ""
+    first_seen: str = ""
+    last_seen: str = ""
+    episode_count: int = 0
+    entity_ids: list[str] = []
+    entity_count: int = 0
+    model: Optional[str] = None
+    resumable: bool = False
+
+
+class ResumeDescriptor(CamelModel):
+    """How to reopen a conversation. The BACKEND validates; the APP launches.
+
+    ``argv`` is a fixed list — never a shell string — whose head is the literal
+    binary name ``claude`` (never API-configurable). ``cwd`` is present only
+    when the stamped ``project_dir`` passed a conservative charset gate AND
+    still exists; the app falls back to ``$HOME`` when it is null.
+    """
+
+    mode: str = "terminal"
+    argv: list[str] = []
+    cwd: Optional[str] = None
+    display_command: str = ""
 
 
 class EntityMedia(CamelModel):
@@ -921,6 +984,11 @@ class SourceSaveRequest(CamelModel):
     url: str
     note: Optional[str] = None
     tags: list[str] = []
+    # G48: conversation provenance from a live MCP client (`cicada_save_url`).
+    # Optional — the menu-bar quick action and the app's paste field send none.
+    session_id: Optional[str] = None
+    harness: Optional[str] = None
+    project_dir: Optional[str] = None
 
 
 class SourceSaveResponse(CamelModel):

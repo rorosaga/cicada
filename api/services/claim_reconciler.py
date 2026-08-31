@@ -141,6 +141,18 @@ def _reinforce(existing: Claim, incoming: Claim) -> None:
             existing.source_episodes.append(ep)
     if incoming.recorded_at:
         existing.recorded_at = incoming.recorded_at
+    # PR #20 round-2 review fix — "repeated facts lose later conversations":
+    # a scalar `session_id` can only ever remember the FIRST writer, so a
+    # later conversation restating the same fact would silently vanish from
+    # that conversation's `GET /conversations` entity list. Merge every
+    # session either claim has ever carried (first-writer scalar included)
+    # into `existing.session_ids`, additive and deduped, so aggregation
+    # (`session_stats._group`) credits both conversations.
+    merged_sessions = existing.all_session_ids()
+    for sid in incoming.all_session_ids():
+        if sid not in merged_sessions:
+            merged_sessions.append(sid)
+    existing.session_ids = merged_sessions
 
 
 # --------------------------------------------------------------------------- #

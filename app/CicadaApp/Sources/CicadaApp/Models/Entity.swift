@@ -143,6 +143,9 @@ struct EntityHistoryEntry: Identifiable, Codable {
     let commitHash: String
     // Inline diff, present only when history was fetched with includeDiff=true.
     let diff: EntityDiff?
+    // G48: the conversations that produced this commit (parsed Cicada-Session:
+    // trailers). Empty for pre-G48 and user-action commits.
+    let sessions: [String]
 
     var dateValue: Date {
         let f = DateFormatter()
@@ -151,7 +154,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case date, changeType, description, author, commitHash, diff
+        case date, changeType, description, author, commitHash, diff, sessions
     }
 
     init(from decoder: Decoder) throws {
@@ -162,6 +165,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
         author = try c.decodeIfPresent(String.self, forKey: .author) ?? "unknown"
         commitHash = try c.decodeIfPresent(String.self, forKey: .commitHash) ?? ""
         diff = try c.decodeIfPresent(EntityDiff.self, forKey: .diff)
+        sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? []
     }
 
     init(
@@ -170,7 +174,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         description: String,
         author: String = "unknown",
         commitHash: String = "",
-        diff: EntityDiff? = nil
+        diff: EntityDiff? = nil,
+        sessions: [String] = []
     ) {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -180,6 +185,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
         self.author = author
         self.commitHash = commitHash
         self.diff = diff
+        self.sessions = sessions
     }
 
     func encode(to encoder: Encoder) throws {
@@ -190,6 +196,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
         try c.encode(author, forKey: .author)
         try c.encode(commitHash, forKey: .commitHash)
         try c.encodeIfPresent(diff, forKey: .diff)
+        try c.encode(sessions, forKey: .sessions)
     }
 }
 
@@ -249,12 +256,15 @@ struct ContributorCommit: Identifiable, Codable {
     let entities: [String]
     let entitiesTotal: Int
     let filesChanged: Int
+    // G48: the conversations that produced this commit (parsed Cicada-Session:
+    // trailers). Empty for pre-G48 and user-action commits.
+    let sessions: [String]
 
     /// How many touched entities the backend withheld from `entities`.
     var hiddenEntityCount: Int { max(0, entitiesTotal - entities.count) }
 
     enum CodingKeys: String, CodingKey {
-        case commitHash, date, subject, entities, entitiesTotal, filesChanged
+        case commitHash, date, subject, entities, entitiesTotal, filesChanged, sessions
     }
 
     init(from decoder: Decoder) throws {
@@ -266,16 +276,19 @@ struct ContributorCommit: Identifiable, Codable {
         entities = ids
         entitiesTotal = try c.decodeIfPresent(Int.self, forKey: .entitiesTotal) ?? ids.count
         filesChanged = try c.decodeIfPresent(Int.self, forKey: .filesChanged) ?? 0
+        sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? []
     }
 
     init(commitHash: String, date: String, subject: String,
-         entities: [String] = [], entitiesTotal: Int? = nil, filesChanged: Int = 0) {
+         entities: [String] = [], entitiesTotal: Int? = nil, filesChanged: Int = 0,
+         sessions: [String] = []) {
         self.commitHash = commitHash
         self.date = date
         self.subject = subject
         self.entities = entities
         self.entitiesTotal = entitiesTotal ?? entities.count
         self.filesChanged = filesChanged
+        self.sessions = sessions
     }
 }
 

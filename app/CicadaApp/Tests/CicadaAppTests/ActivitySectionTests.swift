@@ -7,7 +7,7 @@ import XCTest
 final class ActivitySectionTests: XCTestCase {
 
     func testSegmentLabelsAreTheOldPageNames() {
-        XCTAssertEqual(ActivitySection.allCases.map(\.rawValue), ["Usage", "Contributors"])
+        XCTAssertEqual(ActivitySection.allCases.map(\.rawValue), ["Usage", "Contributors", "Conversations"])
     }
 
     /// The persisted segment is a raw string in `@AppStorage`. A value written

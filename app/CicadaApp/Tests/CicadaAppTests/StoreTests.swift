@@ -176,6 +176,34 @@ final class FakeSyncAPI: SyncAPI {
     var entities: [String: Entity] = [:]
     var entityFetches = 0
 
+    // MARK: - Conversations (G48, on-demand — no SyncDomain)
+    var recentConversations: [ConversationSummary] = []
+    var failRecentConversations = false
+    var resumeDescriptor = ResumeDescriptor()
+    var resumeError: (any Error)?
+    /// By-id lookups the fake bank knows. Deliberately SEPARATE from
+    /// `recentConversations` so a test can model the real asymmetry: a
+    /// conversation the bank has, but that the capped recent page omits.
+    var conversationsById: [String: ConversationSummary] = [:]
+    var conversationIdFetches: [String] = []
+    var failConversationById = false
+
+    func fetchRecentConversations(limit: Int) async throws -> [ConversationSummary] {
+        if failRecentConversations { throw APIError.serverUnreachable }
+        return recentConversations
+    }
+
+    func fetchConversation(id: String) async throws -> ConversationSummary? {
+        conversationIdFetches.append(id)
+        if failConversationById { throw APIError.serverUnreachable }
+        return conversationsById[id]
+    }
+
+    func resumeConversation(id: String) async throws -> ResumeDescriptor {
+        if let resumeError { throw resumeError }
+        return resumeDescriptor
+    }
+
     private func answer<T>(_ domain: SyncDomain, fallback: T) throws -> Conditional<T> {
         calls.append(domain)
         var reply = replies[domain]

@@ -26,6 +26,22 @@ AUTHOR_TRAILER = "Cicada-Author"
 _AUTHOR_RE = re.compile(rf"^{AUTHOR_TRAILER}:\s*(.+?)\s*$")
 UNKNOWN_AUTHOR = "unknown"
 
+# Conversation trailer (G48). A twin of ``Cicada-Author:`` recording WHICH
+# CONVERSATION a write came from — a Claude Code session uuid, or G20's
+# per-thread export id for an imported chat. Inert to the entity-line parsing
+# by the same contract as the author trailer: it carries no entity id, so
+# ``_infer_change_type`` / ``_build_description`` never see it.
+SESSION_TRAILER = "Cicada-Session"
+_SESSION_RE = re.compile(rf"^{SESSION_TRAILER}:\s*(.+?)\s*$")
+
+# Cap on session trailers in ONE commit. `build_commit_message` does not cap —
+# the call site does (sleep_cycle._collect_session_ids), so a caller that
+# genuinely wants every id can have it. 50 distinct conversations consolidated
+# in a single Sleep is effectively unreachable; when it happens, the trailer
+# degrades (the click-through affordance loses the overflow) while
+# `GET /conversations/recent` stays complete — it reads episodes, not commits.
+MAX_SESSION_TRAILERS = 50
+
 # A git object name is 7-40 hex chars. We validate any *caller-supplied* commit
 # hash against this before handing it to git so a flag-like value (e.g.
 # "--output=/tmp/x") can never be parsed by git as an option (arg injection ->
@@ -70,26 +86,39 @@ def build_commit_message(
     subject: str,
     body_lines: list[str],
     authors: list[str] | None = None,
+    sessions: list[str] | None = None,
 ) -> str:
-    """Assemble a structured commit message with optional author trailers.
+    """Assemble a structured commit message with optional trailers.
 
-    ``subject`` is line 1, ``body_lines`` are the per-file manifest, and each
-    distinct, non-empty ``authors`` entry becomes one ``Cicada-Author:`` trailer
-    appended after a blank line (git-trailer convention). Author order is
-    preserved and duplicates are dropped.
+    ``subject`` is line 1, ``body_lines`` are the per-file manifest. Each
+    distinct, non-empty ``authors`` entry becomes one ``Cicada-Author:`` line
+    and each distinct, non-empty ``sessions`` entry one ``Cicada-Session:``
+    line, in that order, in ONE trailer block after a blank line (git-trailer
+    convention). Caller order is preserved and duplicates are dropped, per
+    list independently — an author id equal to a session id emits both.
     """
     parts = [subject]
     if body_lines:
         parts.append("\n".join(body_lines))
 
-    seen: set[str] = set()
     trailers: list[str] = []
+
+    seen_authors: set[str] = set()
     for a in authors or []:
         name = (a or "").strip()
-        if not name or name in seen:
+        if not name or name in seen_authors:
             continue
-        seen.add(name)
+        seen_authors.add(name)
         trailers.append(f"{AUTHOR_TRAILER}: {name}")
+
+    seen_sessions: set[str] = set()
+    for s in sessions or []:
+        sid = (s or "").strip()
+        if not sid or sid in seen_sessions:
+            continue
+        seen_sessions.add(sid)
+        trailers.append(f"{SESSION_TRAILER}: {sid}")
+
     if trailers:
         parts.append("\n".join(trailers))
 
@@ -107,6 +136,71 @@ def _parse_authors(body: str) -> list[str]:
             if name and name not in seen:
                 seen.add(name)
                 out.append(name)
+    return out
+
+
+def _parse_sessions(body: str) -> list[str]:
+    """Extract conversation ids from ``Cicada-Session:`` trailer lines.
+
+    Commit-LEVEL: every conversation the whole commit touched (a Sleep cycle
+    that batched N conversations lists all N here). Correct as commit
+    provenance (used by :func:`get_contributor_commits`); too broad to
+    attribute to any ONE entity — see :func:`_parse_entity_sessions` for the
+    precise per-entity answer, which ``get_entity_history`` uses instead of
+    this function (PR #20 round-2 review fix: no fallback to this commit-wide
+    set at the entity level).
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in body.splitlines():
+        m = _SESSION_RE.match(line.strip())
+        if m:
+            sid = m.group(1).strip()
+            if sid and sid not in seen:
+                seen.add(sid)
+                out.append(sid)
+    return out
+
+
+# Matches the optional `, sessions: <id>[,<id>...]` clause `sleep_cycle._finalize`
+# appends to an entity's OWN manifest line (never the whole-commit trailer).
+_ENTITY_LINE_SESSIONS_RE = re.compile(r"sessions:\s*([^)]+)\)")
+
+
+def _parse_entity_sessions(body: str, entity_id: str) -> list[str]:
+    """This ONE entity's own session ids from its manifest line(s) in a commit
+    body (PR #20 review fix).
+
+    A batched Sleep cycle's commit-level ``Cicada-Session:`` trailers list
+    EVERY conversation the cycle touched (see ``_parse_sessions``); crediting
+    all of them to every changed entity overclaims provenance ("entity
+    history reports unrelated conversations"). This instead reads the precise
+    per-entity ``sessions: ...`` clause ``sleep_cycle._finalize`` stamps onto
+    THAT entity's own ``entities/<id>.md: ...`` manifest line, derived from
+    only the episode(s) that actually touched it.
+
+    Returns ``[]`` when no such clause is present (a decay/archive change
+    with no episode, or a pre-fix commit) — the caller (``get_entity_history``)
+    uses that empty list as-is and does NOT fall back to the commit-level
+    trailer (PR #20 round-2 review fix: falling back there overclaimed every
+    conversation in a batched Sleep cycle as this one entity's own). "No known
+    sessions" is the honest answer when no precise per-entity data exists.
+    """
+    prefix = f"entities/{entity_id}.md:"
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in body.splitlines():
+        line = line.strip()
+        if not line.startswith(prefix):
+            continue
+        m = _ENTITY_LINE_SESSIONS_RE.search(line)
+        if not m:
+            continue
+        for sid in m.group(1).split(","):
+            sid = sid.strip()
+            if sid and sid not in seen:
+                seen.add(sid)
+                out.append(sid)
     return out
 
 
@@ -287,6 +381,17 @@ async def get_entity_history(
         if include_diff:
             diff = await get_entity_commit_diff(entity_id, commit_hash, memory_path)
 
+        # PR #20 round-2 review fix: use ONLY this entity's own precise
+        # sessions (from its manifest line's `sessions: ...` clause) — never
+        # the commit-wide `Cicada-Session:` trailer set as a fallback. A
+        # decay/archive change carries no episode, so it never gets a
+        # `sessions:` clause; falling back to the commit-wide trailers would
+        # then credit it with EVERY conversation in that Sleep batch, even
+        # ones that never touched it. When no precise per-entity data exists
+        # (a decay/archive change, or a pre-fix commit), the honest answer is
+        # "no known sessions" — an empty list, not a guess.
+        sessions = _parse_entity_sessions(body, entity_id)
+
         entries.append(EntityHistoryEntry(
             date=date,
             change_type=change_type,
@@ -294,6 +399,7 @@ async def get_entity_history(
             author=author,
             commit_hash=commit_hash,
             diff=diff,
+            sessions=sessions,
         ))
 
     return entries
@@ -563,6 +669,7 @@ async def get_contributor_commits(
                 entities=entities[:MAX_COMMIT_ENTITIES],
                 entities_total=len(entities),
                 files_changed=len(files),
+                sessions=_parse_sessions(body),
             )
         )
         if len(commits) >= limit:

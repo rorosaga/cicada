@@ -67,6 +67,14 @@ class RawItem:
     # caller has no origin to report — those writes simply omit the field, same
     # as before this was added.
     origin: str | None = None
+    # G48 conversation provenance, threaded from a live MCP client through
+    # `POST /sources/save`. Same contract as `origin` above: written to the
+    # episode ONLY when the caller supplies it, so every non-MCP capture path
+    # (bookmarks, RSS, the app's paste field) produces byte-identical
+    # frontmatter to before.
+    session_id: str | None = None
+    harness: str | None = None
+    project_dir: str | None = None
 
 
 @dataclass
@@ -985,6 +993,12 @@ def write_media_episode(
     }
     if item.origin:
         frontmatter["origin"] = item.origin
+    if item.session_id:
+        frontmatter["session_id"] = item.session_id
+        if item.harness and item.harness != "unknown":
+            frontmatter["harness"] = item.harness
+        if item.project_dir:
+            frontmatter["project_dir"] = item.project_dir
     markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
     return episode_id
 

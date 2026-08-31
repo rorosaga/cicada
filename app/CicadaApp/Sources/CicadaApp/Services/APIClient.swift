@@ -961,6 +961,48 @@ actor APIClient {
         }
     }
 
+    // MARK: - Conversations (G48)
+
+    /// `GET /conversations/recent?limit=` — conversations that wrote to
+    /// memory, newest write first. On demand only, like `/contributors/commits`
+    /// — no Store domain, no ETag. A 404 means the backend predates this
+    /// endpoint, not that the fetch failed, so it degrades to an empty list
+    /// rather than throwing.
+    func fetchRecentConversations(limit: Int = 20) async throws -> [ConversationSummary] {
+        do {
+            return try await get("/conversations/recent?limit=\(limit)")
+        } catch APIError.httpError(404, _) {
+            return []
+        }
+    }
+
+    /// `GET /conversations/{id}` — one conversation by exact id, resolved
+    /// against the WHOLE bank rather than the capped `/recent` page. `nil`
+    /// means the backend genuinely has no episode carrying that id (404) — or
+    /// predates the route, which is indistinguishable and equally "can't show
+    /// it". Never throws on a 404, so the caller can say something honest.
+    func fetchConversation(id: String) async throws -> ConversationSummary? {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: allowed) ?? id
+        do {
+            return try await get("/conversations/\(encoded)")
+        } catch APIError.httpError(404, _) {
+            return nil
+        }
+    }
+
+    /// `POST /conversations/{id}/resume` — validate a conversation and hand
+    /// back a launch descriptor (G48 §5). 400 (not a resumable id), 404
+    /// (unknown conversation) and 409 (transcript retention-cleaned) all
+    /// propagate as `APIError.httpError` for the view model to interpret.
+    func resumeConversation(id: String) async throws -> ResumeDescriptor {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: allowed) ?? id
+        return try await post("/conversations/\(encoded)/resume")
+    }
+
     // MARK: - Connections (G50)
 
     func fetchConnections(fresh: Bool = false) async throws -> [ConnectionStatus] {

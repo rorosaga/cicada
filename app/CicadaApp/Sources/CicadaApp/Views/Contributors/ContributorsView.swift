@@ -256,6 +256,7 @@ private struct ContributorRow: View {
                 Text("\(commit.filesChanged) files")
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
+                FromConversationButton(sessionIds: commit.sessions)
             }
 
             if commit.entities.isEmpty {

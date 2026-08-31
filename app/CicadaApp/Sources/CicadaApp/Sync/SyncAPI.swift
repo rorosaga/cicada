@@ -62,6 +62,15 @@ protocol SyncAPI: Sendable {
     func fetchStatus() async throws -> StatusSnapshot
     func fetchEntity(id: String) async throws -> Entity
 
+    // G48 — on-demand, like `/contributors/commits`: no SyncDomain, no
+    // SnapshotCache entry. On the protocol purely so tests can fake them.
+    func fetchRecentConversations(limit: Int) async throws -> [ConversationSummary]
+    /// Exact by-id lookup over the whole bank; `nil` = the bank has no episode
+    /// carrying that id. NEVER resolve an id inside `fetchRecentConversations`'
+    /// capped page — absence there means "not recent", not "not known".
+    func fetchConversation(id: String) async throws -> ConversationSummary?
+    func resumeConversation(id: String) async throws -> ResumeDescriptor
+
     // MARK: Writes (§5.4)
     //
     // Every mutation routed through `Store.perform` goes out through this

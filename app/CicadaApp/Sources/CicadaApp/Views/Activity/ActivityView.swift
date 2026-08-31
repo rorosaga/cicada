@@ -7,6 +7,7 @@ import SwiftUI
 enum ActivitySection: String, CaseIterable, Identifiable {
     case usage = "Usage"
     case contributors = "Contributors"
+    case conversations = "Conversations"
 
     var id: String { rawValue }
 
@@ -27,6 +28,11 @@ enum ActivitySection: String, CaseIterable, Identifiable {
 /// Every value here is a projection over `Store` snapshots (§5.5); this view
 /// starts no fetches of its own.
 struct ActivityView: View {
+    /// Entity navigation for the Conversations section's entity chips (G48
+    /// §4) — same closure shape the Ask panel's citations use. Optional so a
+    /// preview/host without navigation still renders the page.
+    var onSelectEntity: ((String) -> Void)?
+
     @AppStorage("cicada.activitySection") private var sectionRaw = ActivitySection.usage.rawValue
     @Environment(UsageViewModel.self) private var usageVM
     @Environment(Store.self) private var store
@@ -45,7 +51,7 @@ struct ActivityView: View {
                         ForEach(ActivitySection.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented).labelsHidden().fixedSize()
-                    .accessibilityLabel("Show usage or contributors")
+                    .accessibilityLabel("Show usage, contributors, or conversations")
 
                     if section == .usage { UsageRangeControls(viewModel: usageVM) }
                 }
@@ -56,6 +62,7 @@ struct ActivityView: View {
             switch section {
             case .usage: UsageSection()
             case .contributors: ContributorsSection()
+            case .conversations: ConversationsSection(onSelectEntity: onSelectEntity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
