@@ -76,6 +76,38 @@ final class FixWaveTests: XCTestCase {
                        "no status snapshot yet — queueCount already falls back to the loaded rows, nothing to disagree with")
     }
 
+    // MARK: PR #19 round-4 review — reconcile must retry, not stop stale
+
+    /// `sleepVM.load()` swallows its own fetch errors into
+    /// `errorMessage` rather than throwing, so a failed episodes fetch (or a
+    /// clean fetch that still disagrees with a live count that raced it)
+    /// never threw here — the old code fired `load()` exactly once per live
+    /// count change and stopped, whether or not the rows actually caught up.
+    /// `shouldRetryReconcile` is the pure decision `runReconcile()`'s loop
+    /// makes after every attempt: keep going only while a mismatch remains
+    /// AND the bound hasn't been reached — so a persistent mismatch (a real
+    /// bug, not a transient blip) cannot turn into an unbounded request loop.
+    func testShouldRetryReconcileKeepsGoingOnlyWhileMismatchedAndUnderTheBound() {
+        XCTAssertTrue(SleepView.shouldRetryReconcile(attempt: 0, stillNeedsReconcile: true),
+                      "first attempt still mismatched — must retry")
+        XCTAssertTrue(SleepView.shouldRetryReconcile(attempt: SleepView.maxReconcileAttempts - 1, stillNeedsReconcile: true),
+                      "the last attempt still under the bound must still retry")
+        XCTAssertFalse(SleepView.shouldRetryReconcile(attempt: SleepView.maxReconcileAttempts, stillNeedsReconcile: true),
+                       "the bound is reached — must stop even though still mismatched, so this can't loop forever")
+        XCTAssertFalse(SleepView.shouldRetryReconcile(attempt: 0, stillNeedsReconcile: false),
+                       "the counts already agree — nothing to retry")
+    }
+
+    /// The backoff must actually grow (not retry in a tight loop) and stay
+    /// bounded (not balloon into a multi-minute wait after a few attempts).
+    func testReconcileBackoffGrowsAndIsBounded() {
+        let d0 = SleepView.reconcileBackoff(attempt: 1)
+        let d1 = SleepView.reconcileBackoff(attempt: 2)
+        let d2 = SleepView.reconcileBackoff(attempt: 10)
+        XCTAssertLessThan(d0, d1, "backoff must grow between attempts")
+        XCTAssertEqual(d2, .seconds(8), "backoff must be capped, not grow unbounded")
+    }
+
     // MARK: M1 — advanced view spinner during month reconcile
 
     /// The old guard was `viewModel.isLoadingRange` alone, which is

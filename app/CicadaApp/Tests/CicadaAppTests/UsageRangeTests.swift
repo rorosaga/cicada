@@ -210,11 +210,19 @@ final class UsageRangeTests: XCTestCase {
         XCTAssertFalse(vm.showsProgress, "the month has loaded — the tile row must render its real numbers")
     }
 
-    /// A failed range fetch leaves `rangeSummary` nil forever (see M2's
-    /// `testFailedRangeFetchIsNotReportedAsEmpty`) — `showsProgress` must stay
-    /// true so the failure never gets mistaken for a confirmed empty range or
-    /// silently rendered as a wall of zeroes.
-    func testShowsProgressStaysTrueAfterAFailedRangeFetch() async throws {
+    /// PR #19 round-4 review: a failed range fetch leaves `rangeSummary` nil
+    /// forever (see M2's `testFailedRangeFetchIsNotReportedAsEmpty`), and an
+    /// earlier fix made `showsProgress` stay `true` in that case so the
+    /// failure would never be mistaken for a confirmed empty range or
+    /// silently rendered as a wall of zeroes — but "stays true" means "keeps
+    /// spinning forever", which is its own bug (Devin round 4): the tile row
+    /// never reaches an error state, just an eternal `ProgressView`.
+    /// `showsProgress` must instead clear once the attempt is *done*
+    /// (success or failure) so the error can render; not falling through to
+    /// zero-valued data is now the job of the view's own error branch (see
+    /// `UsageSection.tiles` / `UsageAdvancedView.body`), which — like
+    /// `isEmptyRange` — requires `errorMessage == nil`.
+    func testShowsProgressClearsAfterAFailedRangeFetchSoTheErrorCanRender() async throws {
         struct Boom: Error {}
         let vm = UsageViewModel(store: Store(cache: tempCache(), api: FakeSyncAPI())) { _ in throw Boom() }
 
@@ -222,6 +230,24 @@ final class UsageRangeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(120))
 
         XCTAssertNotNil(vm.errorMessage)
-        XCTAssertTrue(vm.showsProgress, "a range that never successfully loaded must not fall through to the tile row")
+        XCTAssertFalse(vm.isLoadingRange, "the failed attempt must not leave isLoadingRange stuck")
+        XCTAssertFalse(vm.showsProgress, "a failed fetch is a finished attempt — it must not spin forever")
+    }
+
+    /// The month (default) range shares the same bug: `load()` sets
+    /// `errorMessage` on a failed fetch but never touches `store.consumption`,
+    /// so `hasLoadedSelectedRange` stays false forever too — `showsProgress`
+    /// must clear here for the same reason.
+    func testShowsProgressClearsAfterAFailedMonthLoad() async throws {
+        let api = FakeSyncAPI()
+        api.replies[.consumption] = .failure
+        let store = Store(cache: tempCache(), api: api)
+        let vm = UsageViewModel(store: store)
+
+        await vm.load()
+
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertNil(store.consumption.value)
+        XCTAssertFalse(vm.showsProgress, "a failed month load is a finished attempt — it must not spin forever")
     }
 }

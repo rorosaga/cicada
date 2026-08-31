@@ -23,6 +23,17 @@ struct UsageAdvancedView: View {
             connectionCards
             if Self.showsProgress(isLoadingRange: viewModel.isLoadingRange, isLoading: viewModel.isLoading) {
                 ProgressView().frame(maxWidth: .infinity)
+            } else if let err = viewModel.errorMessage {
+                // Mirrors `UsageSection.tiles`: a failed fetch must read as a
+                // failure, not silently as "no usage in this range" — `stats`
+                // is nil here for the same reason it would be before the
+                // range ever loaded.
+                Text(err)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(CicadaTheme.spacingLG)
+                    .glassCard()
             } else if let stats = viewModel.stats {
                 charts(stats)
                 facts(stats)

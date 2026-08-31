@@ -85,6 +85,13 @@ struct UsageSection: View {
             ProgressView()
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(CicadaTheme.spacingLG)
+        } else if let err = viewModel.errorMessage {
+            // PR #19 round-4 review: `showsProgress` now clears the instant a
+            // fetch fails (see its doc comment) — without this branch the row
+            // fell straight through to the real-tile branch below and
+            // rendered `summary`'s zero-valued fallback as if it were loaded
+            // data, for a range that in fact never loaded.
+            placeholder(err)
         } else if viewModel.isEmptyRange {
             placeholder("No usage in this range")
         } else {

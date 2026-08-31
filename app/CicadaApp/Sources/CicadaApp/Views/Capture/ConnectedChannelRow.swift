@@ -20,6 +20,15 @@ struct ConnectedChannelRow: View {
     /// spinner so the feedback is attached to the row that caused it, not to
     /// the page.
     var isBusy: Bool = false
+    /// PR #19 round-4 review: this row's own result line, owned by the row
+    /// (not a single page-wide slot in `ConnectedChannelsStrip`) — two rows
+    /// acting concurrently used to share one `feedback: ChannelFeedback?`,
+    /// so whichever finished last replaced (or cleared) the other's still-
+    /// relevant result. A `Binding` into the parent's per-channel-id
+    /// dictionary keeps this row's 5 s auto-clear (below) from ever touching
+    /// another row's slot. `.constant(nil)` default keeps every other/no
+    /// call site (and any future one) source-compatible.
+    var feedback: Binding<ChannelFeedback?> = .constant(nil)
     /// Receives an action id from `menuActions(for:)`, or `"manage"` when the
     /// row itself is activated.
     let onAction: (String) -> Void
@@ -27,6 +36,29 @@ struct ConnectedChannelRow: View {
     @State private var isHovered = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            rowContent
+            // PR #19 round-4 review: owned by this row (via the `feedback`
+            // binding into the parent's per-channel dictionary) so a second
+            // row's action completing — in either order — can never clear or
+            // replace this one's result. Mirrors the page-level 5 s
+            // auto-clear this pattern was lifted from (SourcesView's fix),
+            // just scoped to one row instead of the whole strip.
+            if let value = feedback.wrappedValue {
+                Text(value.text)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(value.isError ? CicadaTheme.danger : CicadaTheme.success)
+                    .padding(.horizontal, CicadaTheme.spacingMD)
+                    .task(id: value) {
+                        try? await Task.sleep(for: .seconds(5))
+                        guard !Task.isCancelled else { return }
+                        feedback.wrappedValue = nil
+                    }
+            }
+        }
+    }
+
+    private var rowContent: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             Button { onAction("manage") } label: {
                 HStack(spacing: CicadaTheme.spacingMD) {

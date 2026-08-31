@@ -13,8 +13,14 @@ struct ConnectedChannelsStrip: View {
 
     @Environment(Store.self) private var store
     @AppStorage("cicada.feedChannelsCollapsed") private var isCollapsed = false
-    @State private var busyChannel: String?
-    @State private var feedback: ChannelFeedback?
+    /// PR #19 round-4 review: keyed by channel id — two rows acting
+    /// concurrently used to share a single `busyChannel: String?` /
+    /// `feedback: ChannelFeedback?`, so whichever action finished last could
+    /// clear the other row's still-in-flight spinner or replace its
+    /// still-fresh result. A write for one channel id can never touch
+    /// another's slot, regardless of which action started or finished first.
+    @State private var busyChannels: Set<String> = []
+    @State private var feedback: [String: ChannelFeedback] = [:]
 
     private var channels: [SourceChannel] { store.channels.value ?? [] }
     private var connected: [SourceChannel] { SourceChannel.sortedConnected(channels) }
@@ -98,22 +104,18 @@ struct ConnectedChannelsStrip: View {
                 case .loaded(let connected):
                     VStack(spacing: 2) {
                         ForEach(connected) { channel in
-                            ConnectedChannelRow(channel: channel, isBusy: busyChannel == channel.id) { action in
+                            ConnectedChannelRow(
+                                channel: channel,
+                                isBusy: busyChannels.contains(channel.id),
+                                feedback: Binding(
+                                    get: { feedback[channel.id] },
+                                    set: { feedback[channel.id] = $0 }
+                                )
+                            ) { action in
                                 handle(action, for: channel)
                             }
                         }
                     }
-                }
-
-                if let feedback {
-                    Text(feedback.text)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(feedback.isError ? CicadaTheme.danger : CicadaTheme.success)
-                        .task(id: feedback) {
-                            try? await Task.sleep(for: .seconds(5))
-                            guard !Task.isCancelled else { return }
-                            self.feedback = nil
-                        }
                 }
             }
         }
@@ -125,7 +127,9 @@ struct ConnectedChannelsStrip: View {
     // MARK: - Actions (moved verbatim from SourcesView)
 
     private func handle(_ action: String, for channel: SourceChannel) {
-        feedback = nil
+        // Only this channel's own slot — a fresh action on one row must not
+        // blank another row's still-showing result.
+        feedback[channel.id] = nil
         switch action {
         case "poll": Task { await run(channel) { try await Self.poll(channel) } }
         case "sync": Task { await run(channel) { try await Self.sync(channel) } }
@@ -134,13 +138,13 @@ struct ConnectedChannelsStrip: View {
     }
 
     private func run(_ channel: SourceChannel, _ work: @escaping () async throws -> String) async {
-        busyChannel = channel.id
+        busyChannels.insert(channel.id)
         do {
-            feedback = ChannelFeedback(text: try await work(), isError: false)
+            feedback[channel.id] = ChannelFeedback(text: try await work(), isError: false)
         } catch {
-            feedback = ChannelFeedback(text: AddSourceSheet.friendlyError(error), isError: true)
+            feedback[channel.id] = ChannelFeedback(text: AddSourceSheet.friendlyError(error), isError: true)
         }
-        busyChannel = nil
+        busyChannels.remove(channel.id)
         await store.refresh([.channels, .status, .sources, .feeds, .calendars])
     }
 

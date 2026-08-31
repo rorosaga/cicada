@@ -363,10 +363,23 @@ final class Store {
                 status.loadedAt = Date()
                 await cache.save(snapshot, etag: nil, domain: .status, bank: bank)
                 pendingDomains.remove(.status)
+                // Mirrors `refreshOne`: a landed response means any previously
+                // latched failure for this domain no longer applies.
+                domainErrors[.status] = nil
                 pushStatus(snapshot)
             } catch {
                 guard refreshEpoch == startEpoch else { return }
-                if status.isEmpty { toast = "Couldn't load status" }
+                if status.isEmpty {
+                    let message = "Couldn't load status"
+                    toast = message
+                    // `refreshOne` latches this for every other domain;
+                    // `refreshStatus` has its own loop and must latch it too,
+                    // or `SleepQueueCard.loadState` (which reads
+                    // `domainErrors[.status]`) never learns the first request
+                    // failed and spins on `.loading` forever.
+                    domainErrors[.status] = message
+                }
+                Self.logger.notice("refresh status failed: \(String(describing: error), privacy: .public)")
             }
         } while wantsRefresh.remove(.status) != nil
         status.isRefreshing = false

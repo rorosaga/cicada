@@ -136,8 +136,21 @@ final class UsageViewModel {
     /// same two loading flags). `UsageSection.tiles` gates on this so it never
     /// renders the tile row's numbers as if they were loaded when they are
     /// either not here yet or already known stale.
+    ///
+    /// PR #19 round-4 review: a *failed* fetch also leaves
+    /// `hasLoadedSelectedRange` false forever (the catch path in `loadRange()`
+    /// never sets `rangeSummary`), so this used to read `true` — "still
+    /// loading" — permanently once a range failed, and the tile row spun
+    /// forever instead of ever reaching an error state. An error means the
+    /// attempt is *done*, not still in flight, so it must win over the
+    /// never-loaded/in-flight checks below. The "don't fall through to a wall
+    /// of zeroes" concern this guarded against belongs to the value-rendering
+    /// branches themselves (`isEmptyRange` and the tile/table views), which
+    /// already require `errorMessage == nil` on their own — see
+    /// `UsageSection.tiles` and `UsageAdvancedView.body`.
     var showsProgress: Bool {
-        !hasLoadedSelectedRange || UsageAdvancedView.showsProgress(isLoadingRange: isLoadingRange, isLoading: isLoading)
+        guard errorMessage == nil else { return false }
+        return !hasLoadedSelectedRange || UsageAdvancedView.showsProgress(isLoadingRange: isLoadingRange, isLoading: isLoading)
     }
 
     /// Flat monthly price of every connected subscription, or nil when none.

@@ -123,9 +123,52 @@ struct SleepView: View {
                 // that changes again mid-load still gets its own attempt
                 // rather than being silently dropped.
                 reconcileTask?.cancel()
-                reconcileTask = Task { @MainActor in await sleepVM.load() }
+                reconcileTask = Task { @MainActor in await runReconcile() }
             }
         }
+    }
+
+    /// PR #19 round-4 review: a single `sleepVM.load()` was fired per live
+    /// count change with no follow-up. `load()` swallows its own per-fetch
+    /// errors into `sleepVM.errorMessage` rather than throwing (each of
+    /// status/episodes/schedule is caught independently), so a failed
+    /// episodes fetch never surfaced as a thrown error here — it just left
+    /// `sleepVM.queuedEpisodes` stale. And even on a clean fetch, the
+    /// returned rows can still disagree with the live count (a Sleep cycle
+    /// racing the fetch). Either way, if the live count doesn't move again,
+    /// `.onChange` above never re-fires and the header/rows stay
+    /// inconsistent for as long as the page is open. This loop re-checks
+    /// `queueNeedsReconcile` after every attempt and retries with bounded
+    /// backoff instead of giving up silently after one try — bounded so a
+    /// persistent mismatch (a real bug, not a transient blip) cannot turn
+    /// into an unbounded request loop; `queueNeedsReconcile` itself stays
+    /// visible (the header and rows keep disagreeing) rather than being
+    /// papered over.
+    private func runReconcile() async {
+        var attempt = 0
+        while !Task.isCancelled {
+            await sleepVM.load()
+            guard !Task.isCancelled else { return }
+            let stillNeedsReconcile = Self.queueNeedsReconcile(
+                liveUnprocessed: store.status.value?.episodes.unprocessed,
+                loadedQueuedCount: sleepVM.queuedEpisodes.count)
+            guard Self.shouldRetryReconcile(attempt: attempt, stillNeedsReconcile: stillNeedsReconcile) else { return }
+            attempt += 1
+            try? await Task.sleep(for: Self.reconcileBackoff(attempt: attempt))
+        }
+    }
+
+    /// Reconcile retry policy, pulled out as pure functions (mirrors
+    /// `queueCount`/`queueNeedsReconcile` above) so the bound and the backoff
+    /// curve are unit-testable without standing up a view or a live Task loop.
+    static let maxReconcileAttempts = 3
+
+    static func shouldRetryReconcile(attempt: Int, stillNeedsReconcile: Bool) -> Bool {
+        stillNeedsReconcile && attempt < maxReconcileAttempts
+    }
+
+    static func reconcileBackoff(attempt: Int) -> Duration {
+        .seconds(min(8, 1 << attempt))
     }
 
     private func syncScheduleState() {

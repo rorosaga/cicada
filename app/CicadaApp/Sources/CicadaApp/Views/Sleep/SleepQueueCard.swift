@@ -56,6 +56,12 @@ struct SleepQueueCard: View {
                     Text(message)
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
+                    Spacer()
+                    Button("Retry") { Task { await store.refresh([.status]) } }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.accent)
+                        .accessibilityLabel("Retry loading the queue")
                 }
             case .loaded(let count):
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
