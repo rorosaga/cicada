@@ -155,12 +155,50 @@ def test_fetch_bookmarks_stops_at_the_hard_cap_when_the_stored_anchor_is_never_f
     `next_token` chain looking for an id that is gone."""
     endless_page = {"data": [{"id": "9999", "text": "still bookmarked"}],
                      "meta": {"next_token": "cursor-forever"}}  # always claims more
-    tweets, newest = run(x.fetch_bookmarks(
+    tweets, newest, resources_read = run(x.fetch_bookmarks(
         "u-42", "tok-abc", http_fn=_fake_http(pages=[endless_page]),
         stop_at="deleted-anchor-999",
     ))
     assert len(tweets) == x.MAX_PAGES, "the walk stops at the cap, not when next_token runs out"
     assert newest == "9999"
+    assert resources_read == x.MAX_PAGES, "the anchor is never hit, so every fetched tweet is billed"
+
+
+# --- Devin round-1, finding 5: resources_read bills the WHOLE page --------
+
+
+def test_fetch_bookmarks_bills_the_whole_page_when_the_cursor_is_the_first_item():
+    """X bills for every resource a page RETURNS, not for how many of them
+    are before the stored cursor. When the cursor is the very FIRST tweet on
+    the (newest-first) page, zero tweets are new — but the page's OTHER
+    tweets were still returned by the API and must still count toward
+    ``resources_read``."""
+    page = {"data": [
+        {"id": "2001", "text": "already seen — this is the cursor"},
+        {"id": "2002", "text": "older, never reached"},
+        {"id": "2003", "text": "older still, never reached"},
+    ], "meta": {}}
+    tweets, newest, resources_read = run(x.fetch_bookmarks(
+        "u-42", "tok-abc", http_fn=_fake_http(pages=[page]), stop_at="2001",
+    ))
+    assert tweets == [], "the cursor is the first tweet — nothing is new"
+    assert newest == "2001"
+    assert resources_read == 3, "the whole page was billed, not just the (zero) new tweets"
+
+
+def test_fetch_bookmarks_bills_the_whole_page_when_the_cursor_is_mid_page():
+    page = {"data": [
+        {"id": "3001", "text": "new tweet one"},
+        {"id": "3002", "text": "new tweet two"},
+        {"id": "3003", "text": "already seen — this is the cursor"},
+        {"id": "3004", "text": "older, never reached"},
+    ], "meta": {}}
+    tweets, newest, resources_read = run(x.fetch_bookmarks(
+        "u-42", "tok-abc", http_fn=_fake_http(pages=[page]), stop_at="3003",
+    ))
+    assert [t["id"] for t in tweets] == ["3001", "3002"]
+    assert newest == "3001"
+    assert resources_read == 4, "the whole page (4 tweets) was billed, not just the 2 new ones"
 
 
 # --- sync --------------------------------------------------------------------
@@ -212,6 +250,11 @@ def test_sync_ingests_every_page_and_records_the_sync(tmp_path, monkeypatch):
 
 
 def test_sync_stops_at_the_previously_seen_id(tmp_path, monkeypatch):
+    """Devin round-1, finding 5: PAGE_1 carries 2 tweets (1001, 1002); the
+    stored cursor ("1002") is the SECOND one, so only tweet 1001 is new —
+    but X already returned (and bills for) the WHOLE page, so
+    `resources_read` must be 2, not 1, even though `seen` (new/kept) is 1.
+    """
     memory = _memory(tmp_path, monkeypatch)
     secrets.set_secret(x.TOKEN_ENV, "tok-abc")
     secrets.set_secret(x.USER_ID_ENV, "u-42")
@@ -220,7 +263,7 @@ def test_sync_stops_at_the_previously_seen_id(tmp_path, monkeypatch):
     result = run(x.sync(memory, http_fn=_fake_http(pages=[PAGE_1])))
     assert result["status"] == "ok"
     assert result["seen"] == 1, "only the tweet newer than the stored cursor is new"
-    assert result["resources_read"] == 1
+    assert result["resources_read"] == 2, "the whole page (2 tweets) was billed, not just the 1 new one"
 
 
 def test_sync_stops_at_the_cap_and_still_reports_honestly_when_the_anchor_is_gone(

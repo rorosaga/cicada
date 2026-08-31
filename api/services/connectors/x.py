@@ -328,21 +328,31 @@ async def fetch_bookmarks(
     *,
     http_fn: base.HttpFn | None = None,
     stop_at: str | None = None,
-) -> tuple[list[dict], str | None]:
+) -> tuple[list[dict], str | None, int]:
     """Newest-first pages of bookmarked tweets, stopping at ``stop_at``.
 
     Mirrors ``reddit.fetch_saved``'s cursor contract: returns
-    ``(tweets, newest_id)``. ``newest_id`` is the id of the first tweet on the
-    FIRST page — the cursor ``sync()`` stores and passes back in as
-    ``stop_at`` next run, which is what keeps a nightly poll — and its
-    pay-per-use billing — O(new bookmarks) instead of O(every bookmark ever
-    saved).
+    ``(tweets, newest_id, resources_read)``. ``newest_id`` is the id of the
+    first tweet on the FIRST page — the cursor ``sync()`` stores and passes
+    back in as ``stop_at`` next run, which is what keeps a nightly poll —
+    and its pay-per-use billing — O(new bookmarks) instead of O(every
+    bookmark ever saved).
+
+    ``resources_read`` (Devin round-1, finding 5) is every resource X's API
+    RETURNED across every page fetched, counted BEFORE the cursor filter
+    below drops anything — X bills per resource returned in the response,
+    not per resource that turned out to be new. When the stored cursor
+    lands anywhere in a page (as its first tweet, or mid-page), the API has
+    already returned — and billed for — the WHOLE page; only the tweets
+    before the cursor are ``new``/kept in ``tweets``, but every tweet on
+    that page still counts toward ``resources_read``.
     """
     fn = http_fn or base.default_http
     url = f"{API_BASE}/users/{user_id}/bookmarks"
     tweets: list[dict] = []
     newest: str | None = None
     next_token: str | None = None
+    resources_read = 0
 
     for _ in range(MAX_PAGES):
         params: dict = {"max_results": PAGE_SIZE, "tweet.fields": "text"}
@@ -352,6 +362,7 @@ async def fetch_bookmarks(
             fn, "GET", url, headers=_auth_headers(token), params=params
         )
         page = [t for t in ((payload or {}).get("data") or []) if isinstance(t, dict)]
+        resources_read += len(page)
         if newest is None and page:
             newest = str(page[0].get("id") or "") or None
 
@@ -369,7 +380,7 @@ async def fetch_bookmarks(
         if not next_token:
             break
 
-    return tweets, newest
+    return tweets, newest, resources_read
 
 
 def bookmarks_to_items(tweets: list) -> list[RawItem]:
@@ -415,11 +426,14 @@ async def sync(
 
     Returns ``base.run_sync``'s canonical ``{"status", "reason", "new",
     "seen", "error"}`` plus ``resources_read`` — the pay-per-use-billed count
-    (every tweet the API returned this run, dedup or not) — distinct from
-    ``new`` (post-dedup, actually ingested) and ``seen`` (total pulled), so
-    the cost-honesty story in the sync summary is exact, not an
-    approximation. Idempotent: ``ingest_batch`` dedups on ``url_index.json``,
-    so re-running costs API reads but never writes duplicate episodes.
+    (every resource X's API returned this run, regardless of whether it was
+    new or already-seen — Devin round-1, finding 5: a page whose stored
+    cursor lands mid-page, or even as its very first tweet, is still
+    returned — and billed — in FULL) — distinct from ``new`` (post-dedup,
+    actually ingested) and ``seen`` (total pulled/new), so the cost-honesty
+    story in the sync summary is exact, not an approximation. Idempotent:
+    ``ingest_batch`` dedups on ``url_index.json``, so re-running costs API
+    reads but never writes duplicate episodes.
     """
     read_count = {"n": 0}
 
@@ -431,8 +445,10 @@ async def sync(
         if not user_id:
             user_id = await resolve_user_id(token, http_fn=fn)
             secrets.set_secret(USER_ID_ENV, user_id)
-        tweets, newest = await fetch_bookmarks(user_id, token, http_fn=fn, stop_at=stop_at)
-        read_count["n"] = len(tweets)
+        tweets, newest, resources_read = await fetch_bookmarks(
+            user_id, token, http_fn=fn, stop_at=stop_at
+        )
+        read_count["n"] = resources_read
         return bookmarks_to_items(tweets), ({SEEN_KEY: newest} if newest else None)
 
     result = await base.run_sync(
