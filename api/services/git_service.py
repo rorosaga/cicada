@@ -26,6 +26,22 @@ AUTHOR_TRAILER = "Cicada-Author"
 _AUTHOR_RE = re.compile(rf"^{AUTHOR_TRAILER}:\s*(.+?)\s*$")
 UNKNOWN_AUTHOR = "unknown"
 
+# Conversation trailer (G48). A twin of ``Cicada-Author:`` recording WHICH
+# CONVERSATION a write came from — a Claude Code session uuid, or G20's
+# per-thread export id for an imported chat. Inert to the entity-line parsing
+# by the same contract as the author trailer: it carries no entity id, so
+# ``_infer_change_type`` / ``_build_description`` never see it.
+SESSION_TRAILER = "Cicada-Session"
+_SESSION_RE = re.compile(rf"^{SESSION_TRAILER}:\s*(.+?)\s*$")
+
+# Cap on session trailers in ONE commit. `build_commit_message` does not cap —
+# the call site does (sleep_cycle._collect_session_ids), so a caller that
+# genuinely wants every id can have it. 50 distinct conversations consolidated
+# in a single Sleep is effectively unreachable; when it happens, the trailer
+# degrades (the click-through affordance loses the overflow) while
+# `GET /conversations/recent` stays complete — it reads episodes, not commits.
+MAX_SESSION_TRAILERS = 50
+
 # A git object name is 7-40 hex chars. We validate any *caller-supplied* commit
 # hash against this before handing it to git so a flag-like value (e.g.
 # "--output=/tmp/x") can never be parsed by git as an option (arg injection ->
@@ -70,26 +86,39 @@ def build_commit_message(
     subject: str,
     body_lines: list[str],
     authors: list[str] | None = None,
+    sessions: list[str] | None = None,
 ) -> str:
-    """Assemble a structured commit message with optional author trailers.
+    """Assemble a structured commit message with optional trailers.
 
-    ``subject`` is line 1, ``body_lines`` are the per-file manifest, and each
-    distinct, non-empty ``authors`` entry becomes one ``Cicada-Author:`` trailer
-    appended after a blank line (git-trailer convention). Author order is
-    preserved and duplicates are dropped.
+    ``subject`` is line 1, ``body_lines`` are the per-file manifest. Each
+    distinct, non-empty ``authors`` entry becomes one ``Cicada-Author:`` line
+    and each distinct, non-empty ``sessions`` entry one ``Cicada-Session:``
+    line, in that order, in ONE trailer block after a blank line (git-trailer
+    convention). Caller order is preserved and duplicates are dropped, per
+    list independently — an author id equal to a session id emits both.
     """
     parts = [subject]
     if body_lines:
         parts.append("\n".join(body_lines))
 
-    seen: set[str] = set()
     trailers: list[str] = []
+
+    seen_authors: set[str] = set()
     for a in authors or []:
         name = (a or "").strip()
-        if not name or name in seen:
+        if not name or name in seen_authors:
             continue
-        seen.add(name)
+        seen_authors.add(name)
         trailers.append(f"{AUTHOR_TRAILER}: {name}")
+
+    seen_sessions: set[str] = set()
+    for s in sessions or []:
+        sid = (s or "").strip()
+        if not sid or sid in seen_sessions:
+            continue
+        seen_sessions.add(sid)
+        trailers.append(f"{SESSION_TRAILER}: {sid}")
+
     if trailers:
         parts.append("\n".join(trailers))
 
@@ -107,6 +136,20 @@ def _parse_authors(body: str) -> list[str]:
             if name and name not in seen:
                 seen.add(name)
                 out.append(name)
+    return out
+
+
+def _parse_sessions(body: str) -> list[str]:
+    """Extract conversation ids from ``Cicada-Session:`` trailer lines."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in body.splitlines():
+        m = _SESSION_RE.match(line.strip())
+        if m:
+            sid = m.group(1).strip()
+            if sid and sid not in seen:
+                seen.add(sid)
+                out.append(sid)
     return out
 
 
