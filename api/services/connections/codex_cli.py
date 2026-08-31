@@ -20,6 +20,7 @@ import uuid
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from fastapi import HTTPException
 from loguru import logger
 
 from api.models.schemas import ConnectionKind, ConnectionStatus, LoginHint, LoginSession
@@ -144,8 +145,19 @@ class CodexPlanAdapter:
 
         sess = LoginSession(session_id=uuid.uuid4().hex, connection_id=self.id, mode="device-code",
                             command="codex login --device-auth")
+        # Spawn FIRST, register after. Registering a "pending" session before
+        # the process exists left an orphan in `login_sessions` — never pruned
+        # (pruning only touches terminal sessions), polled forever by the app —
+        # whenever the binary vanished between `available()` and here.
+        try:
+            proc = await self._spawn(["codex", "login", "--device-auth"])
+        except Exception as exc:
+            logger.warning(f"codex login spawn failed: {type(exc).__name__}: {exc}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Could not start `codex login --device-auth`: {exc}. {_INSTALL_HINT}",
+            ) from exc
         login_sessions[sess.session_id] = sess
-        proc = await self._spawn(["codex", "login", "--device-auth"])
         _live[self.id] = (sess, proc)
         task = asyncio.get_running_loop().create_task(self._watch(sess, proc))
         _watchers.add(task)
