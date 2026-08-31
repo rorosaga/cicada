@@ -148,9 +148,15 @@ struct EntityDiff: Codable, Equatable {
     // from a pre-G69 backend or a payload cached before the upgrade, in which
     // case `DiffModel` falls back to rendering `removed` then `added` as blocks.
     let lines: [EntityDiffLine]
+    // Whether the ORDERED list specifically was cut. `truncated` is the union
+    // of all three of the backend's caps, so it goes true when the 400-line
+    // flat `added`/`removed` blocks clip even though `lines` (cap 2000) is
+    // complete — driving the "Diff clipped" banner off it would put the banner
+    // above a whole diff. This is the flag the ordered path renders on.
+    let linesTruncated: Bool
 
     enum CodingKeys: String, CodingKey {
-        case added, removed, truncated, lines
+        case added, removed, truncated, lines, linesTruncated
     }
 
     init(from decoder: Decoder) throws {
@@ -159,14 +165,16 @@ struct EntityDiff: Codable, Equatable {
         removed = try c.decodeIfPresent(String.self, forKey: .removed) ?? ""
         truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
         lines = try c.decodeIfPresent([EntityDiffLine].self, forKey: .lines) ?? []
+        linesTruncated = try c.decodeIfPresent(Bool.self, forKey: .linesTruncated) ?? false
     }
 
     init(added: String, removed: String, truncated: Bool = false,
-         lines: [EntityDiffLine] = []) {
+         lines: [EntityDiffLine] = [], linesTruncated: Bool = false) {
         self.added = added
         self.removed = removed
         self.truncated = truncated
         self.lines = lines
+        self.linesTruncated = linesTruncated
     }
 }
 

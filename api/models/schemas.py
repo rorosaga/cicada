@@ -144,8 +144,16 @@ class EntityDiff(CamelModel):
     # so the client can show "diff clipped".
     added: str = ""
     removed: str = ""
+    # ``truncated`` is the UNION flag — true when ANY of the three sinks was
+    # clipped — and keeps its exact pre-G69 meaning for the two flat blocks.
+    # ``lines_truncated`` is specifically "the ORDERED list was cut", which is
+    # what a client rendering ``lines`` must show its "diff clipped" banner on:
+    # a 500-addition commit clips the 400-cap flat side while ``lines`` is
+    # whole, and a banner driven by ``truncated`` would sit above a complete
+    # diff claiming it was shortened.
     truncated: bool = False
     lines: list[DiffLine] = Field(default_factory=list)
+    lines_truncated: bool = False
 
 
 class EntityHistoryEntry(CamelModel):

@@ -105,11 +105,78 @@ final class DiffModelTests: XCTestCase {
     }
 
     func testTruncationFlagStillSurfacesOnTheOrderedShape() {
-        let model = DiffModel(EntityDiff(added: "a", removed: "", truncated: true, lines: [
-            EntityDiffLine(kind: "add", oldLine: nil, newLine: 1, text: "a"),
-        ]))
+        let model = DiffModel(EntityDiff(
+            added: "a", removed: "", truncated: true,
+            lines: [EntityDiffLine(kind: "add", oldLine: nil, newLine: 1, text: "a")],
+            linesTruncated: true
+        ))
 
         XCTAssertTrue(model.truncated)
+    }
+
+    // MARK: - G69 fix round 1 (M1): the banner must describe what's on screen
+    //
+    // The backend's `truncated` is the UNION of three caps — 400 lines each on
+    // the flat `added`/`removed` blocks, 2000 on the ordered `lines`. The
+    // ordered path renders only `lines`, so a ~500-line commit (flat sides
+    // clipped, ordered list whole) would otherwise show "Diff clipped — this
+    // commit changed more than we show here" above a complete diff.
+
+    func testOrderedPathBannerIgnoresAClipOfTheFlatBlocksOnly() {
+        let model = DiffModel(EntityDiff(
+            added: "a\n\(DiffModel.truncationMarker)",
+            removed: "",
+            truncated: true,          // union: the flat side WAS clipped
+            lines: [EntityDiffLine(kind: "add", oldLine: nil, newLine: 1, text: "a")],
+            linesTruncated: false     // ...but what we render is complete
+        ))
+
+        XCTAssertFalse(model.truncated, "no banner over a complete ordered diff")
+    }
+
+    func testOrderedPathBannerShowsWhenTheOrderedListItselfWasCut() {
+        let model = DiffModel(EntityDiff(
+            added: "a", removed: "", truncated: true,
+            lines: [EntityDiffLine(kind: "add", oldLine: nil, newLine: 1, text: "a")],
+            linesTruncated: true
+        ))
+
+        XCTAssertTrue(model.truncated)
+    }
+
+    func testLegacyPathStillDrivesTheBannerOffTheUnionFlag() {
+        // With no `lines`, the flat caps ARE what's rendered, so `truncated` is
+        // exactly the right signal there.
+        let model = DiffModel(EntityDiff(added: "a", removed: "", truncated: true))
+
+        XCTAssertFalse(model.hasLineNumbers)
+        XCTAssertTrue(model.truncated)
+    }
+
+    func testAnOrderedPayloadWithoutTheNewFlagDecodesAndShowsNoBanner() throws {
+        // Defensive: `lines` and `linesTruncated` ship together, but a payload
+        // missing the flag must decode rather than throw.
+        let json = """
+        {"added": "a", "removed": "", "truncated": true,
+         "lines": [{"kind": "add", "newLine": 1, "text": "a"}]}
+        """.data(using: .utf8)!
+
+        let diff = try JSONDecoder().decode(EntityDiff.self, from: json)
+
+        XCTAssertFalse(diff.linesTruncated)
+        XCTAssertFalse(DiffModel(diff).truncated)
+    }
+
+    func testLinesTruncatedDecodesFromTheWire() throws {
+        let json = """
+        {"added": "", "removed": "", "truncated": true, "linesTruncated": true,
+         "lines": [{"kind": "context", "oldLine": 1, "newLine": 1, "text": "x"}]}
+        """.data(using: .utf8)!
+
+        let diff = try JSONDecoder().decode(EntityDiff.self, from: json)
+
+        XCTAssertTrue(diff.linesTruncated)
+        XCTAssertTrue(DiffModel(diff).truncated)
     }
 
     // MARK: - G69: decoding both wire shapes

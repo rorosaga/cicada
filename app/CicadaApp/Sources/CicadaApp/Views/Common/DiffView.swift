@@ -81,6 +81,14 @@ struct DiffModel {
     static let truncationMarker = "... [diff truncated]"
 
     let lines: [DiffLine]
+    /// Whether to tell the reader the diff was clipped — i.e. whether what they
+    /// are LOOKING AT was cut. On the ordered path that is the backend's
+    /// `linesTruncated` (the 2000-row cap on `lines`), NOT its union
+    /// `truncated`: the union also covers the 400-line caps on the flat
+    /// `added`/`removed` blocks, which this path doesn't render, so a ~500-line
+    /// commit would otherwise sit under a "diff clipped" banner with its whole
+    /// diff on screen. On the legacy two-block path the flat caps ARE what's
+    /// rendered, so `truncated` is exactly right there.
     let truncated: Bool
     /// True when this model came from the backend's ordered `lines` — i.e. it
     /// has real context rows and line numbers, so the view draws the number
@@ -98,9 +106,8 @@ struct DiffModel {
     }
 
     init(_ diff: EntityDiff) {
-        self.truncated = diff.truncated
-
         if !diff.lines.isEmpty {
+            self.truncated = diff.linesTruncated
             self.hasLineNumbers = true
             self.lines = diff.lines.enumerated().map { index, wire in
                 DiffLine(
@@ -115,6 +122,7 @@ struct DiffModel {
         }
 
         // --- legacy fallback: two newline-joined blocks, no ordering, no numbers
+        self.truncated = diff.truncated
         self.hasLineNumbers = false
         var out: [DiffLine] = []
         var next = 0
@@ -150,13 +158,39 @@ struct DiffModel {
     }
 }
 
-/// Width of the diff container, measured so every row can be at least that wide
-/// — otherwise a row inside the horizontal `ScrollView` shrinks to its own text
-/// and the tinted add/remove background stops short of the right edge.
+/// Width of the diff container (the horizontal `ScrollView`'s viewport),
+/// measured so every row can be floored at least that wide — otherwise a row
+/// shrinks to its own text and the tinted add/remove background stops short of
+/// the right edge.
 private struct DiffContainerWidthKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+/// Natural width of the WIDEST row's content. The viewport width alone is not
+/// enough of a floor: as soon as one long line makes the diff scrollable,
+/// scrolling right would reveal every shorter row's tint band ending mid-row.
+/// Rows are floored at `max(container, content)` so the bands run the full
+/// scrollable width. Measured on the row's INNER content, whose size is its
+/// natural text width and so does not depend on the flooring frame applied
+/// outside it — no feedback loop.
+private struct DiffContentWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private extension View {
+    /// Publish this view's natural width into `DiffContentWidthKey`.
+    func measuringDiffContentWidth() -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: DiffContentWidthKey.self, value: proxy.size.width)
+            }
+        )
     }
 }
 
@@ -167,10 +201,16 @@ struct DiffView: View {
     let model: DiffModel
 
     @State private var containerWidth: CGFloat = 0
+    @State private var contentWidth: CGFloat = 0
 
     init(diff: EntityDiff) {
         self.model = DiffModel(diff)
     }
+
+    /// Every row is floored at this width so its tint band runs the whole
+    /// scrollable width, not just the visible viewport (see
+    /// `DiffContentWidthKey`).
+    private var rowWidth: CGFloat { max(containerWidth, contentWidth) }
 
     // Routed through CicadaTheme (not raw hex literals) so light mode gets its
     // own deepened-for-contrast variant instead of the dark-tuned value
@@ -204,6 +244,7 @@ struct DiffView: View {
                     }
                 )
                 .onPreferenceChange(DiffContainerWidthKey.self) { containerWidth = $0 }
+                .onPreferenceChange(DiffContentWidthKey.self) { contentWidth = $0 }
 
                 if model.truncated {
                     Text("Diff clipped — this commit changed more than we show here.")
@@ -235,7 +276,8 @@ struct DiffView: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, CicadaTheme.spacingSM)
                 .padding(.vertical, 1)
-                .frame(minWidth: containerWidth, alignment: .leading)
+                .measuringDiffContentWidth()
+                .frame(minWidth: rowWidth, alignment: .leading)
         case .hunk:
             // A jump in the file — the "⋯" says "lines skipped here".
             HStack(spacing: CicadaTheme.spacingXS) {
@@ -247,7 +289,8 @@ struct DiffView: View {
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, CicadaTheme.spacingSM)
             .padding(.vertical, 2)
-            .frame(minWidth: containerWidth, alignment: .leading)
+            .measuringDiffContentWidth()
+            .frame(minWidth: rowWidth, alignment: .leading)
             .background(CicadaTheme.surfaceElevated.opacity(0.6))
         case .context, .added, .removed:
             contentRow(line)
@@ -285,7 +328,8 @@ struct DiffView: View {
             }
             .padding(.vertical, 1)
         }
-        .frame(minWidth: containerWidth, alignment: .leading)
+        .measuringDiffContentWidth()
+        .frame(minWidth: rowWidth, alignment: .leading)
         .background(tint?.opacity(0.10) ?? Color.clear)
     }
 

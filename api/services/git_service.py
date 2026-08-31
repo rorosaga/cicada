@@ -66,7 +66,7 @@ DIFF_CONTEXT_LINES = 4
 # Hard cap on the ORDERED ``lines`` list. Higher than DIFF_MAX_LINES because
 # this list carries context and hunk headers too, not just the changed lines —
 # a 400/400 change with 4 lines of context around every hunk is still well
-# under this. When hit, the list is cut and ``truncated`` is set.
+# under this. When hit, the list is cut and ``lines_truncated`` is set.
 DIFF_MAX_CONTEXT_LINES = 2000
 
 # ``@@ -<old_start>[,<old_count>] +<new_start>[,<new_count>] @@[ heading]``.
@@ -458,10 +458,12 @@ def _build_description(subject: str, body: str, entity_id: str) -> str:
     return subject
 
 
-def _parse_unified_diff(out: str) -> tuple[list[DiffLine], list[str], list[str], bool]:
+def _parse_unified_diff(
+    out: str,
+) -> tuple[list[DiffLine], list[str], list[str], bool, bool]:
     """Parse ``git show --unified=N`` output into ordered rows + legacy blocks.
 
-    Returns ``(lines, added, removed, truncated)``.
+    Returns ``(lines, added, removed, truncated, lines_truncated)``.
 
     ``lines`` is the ordered unified diff: one row per hunk header, context
     line, addition and removal, each carrying git's own 1-based old/new line
@@ -537,7 +539,13 @@ def _parse_unified_diff(out: str) -> tuple[list[DiffLine], list[str], list[str],
     if removed_clipped:
         removed.append(_DIFF_TRUNCATION_MARKER)
 
-    return lines, added, removed, added_clipped or removed_clipped or lines_clipped
+    return (
+        lines,
+        added,
+        removed,
+        added_clipped or removed_clipped or lines_clipped,
+        lines_clipped,
+    )
 
 
 async def get_entity_commit_diff(
@@ -558,6 +566,17 @@ async def get_entity_commit_diff(
     file — which has no ``^`` parent — comes back as all-additions instead of
     erroring on an unknown revision.
 
+    ``--first-parent`` is what makes a MERGE commit renderable. Left to itself
+    ``git show`` emits a *combined* (``--cc``) diff for a merge, whose ``@@@ …
+    @@@`` headers ``_HUNK_HEADER_RE`` cannot match — the parser would see no
+    hunk at all and hand back an empty diff, i.e. the app would claim "no line
+    changes" for a commit that plainly changed the file. With it, the merge is
+    diffed two-sidedly against its first parent, exactly like an ordinary
+    commit. It is inert for single-parent and root commits (verified), and on a
+    git too old to imply ``--diff-merges=first-parent`` (< 2.31) it is simply
+    ignored rather than erroring — degrading to today's behaviour for merges
+    only, instead of breaking every diff the way ``--diff-merges=…`` would.
+
     ``commit_hash`` is validated against ``_COMMIT_HASH_RE`` before reaching git:
     a non-hex / flag-like value (e.g. ``--output=/tmp/x``) is rejected here, so it
     can never be parsed by ``git show`` as an option (arg-injection guard). The
@@ -576,6 +595,7 @@ async def get_entity_commit_diff(
             "--format=",
             "--no-color",
             f"--unified={DIFF_CONTEXT_LINES}",
+            "--first-parent",
             "--end-of-options",
             commit_hash,
             "--",
@@ -584,13 +604,14 @@ async def get_entity_commit_diff(
     except GitError:
         return EntityDiff(added="", removed="", truncated=False)
 
-    lines, added, removed, truncated = _parse_unified_diff(out)
+    lines, added, removed, truncated, lines_truncated = _parse_unified_diff(out)
 
     return EntityDiff(
         added="\n".join(added),
         removed="\n".join(removed),
         truncated=truncated,
         lines=lines,
+        lines_truncated=lines_truncated,
     )
 
 
