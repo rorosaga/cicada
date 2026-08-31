@@ -367,6 +367,24 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     if request.action == "skip":
         return entity_id, True, []
 
+    # Legacy pre-G60 conflict items carry neither `options` nor `question` —
+    # there is nothing to pick from, so the strict "optionKey or answer
+    # required" guard below would strand them behind an error toast forever.
+    # `InboxCardView`'s bare Dismiss button (and the deprecated `/nudges` shim,
+    # whose `NudgeResolveRequest` has no `optionKey` field at all) fire exactly
+    # action="dismiss" with no key and no answer for such an item. Honor it the
+    # old way: remove the item, touch no claims. A modern question item (has
+    # `options` and/or a `question`) still gets the strict 400 below.
+    if (
+        request.action == "dismiss"
+        and not fm_item.get("options")
+        and not str(fm_item.get("question", "") or "").strip()
+        and not (request.option_key or "").strip()
+        and not (request.answer or "").strip()
+    ):
+        path.unlink()
+        return entity_id, False, []
+
     predicate_raw = str(fm_item.get("predicate", "") or "description")
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     options = inbox_questions.normalize_options(fm_item.get("options"))

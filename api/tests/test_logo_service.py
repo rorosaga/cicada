@@ -502,6 +502,95 @@ def test_editing_the_entity_page_invalidates_its_cached_logo(workspace):
     assert logo_service.read_meta("claude-chats")["mongodb"]["domain"] == "acme.example"
 
 
+def test_an_edit_that_does_not_change_the_domain_never_refetches(workspace):
+    """M1: Sleep rewrites every active entity's page each cycle to bump
+    `last_referenced`/`version` — that must not neuter the 30-day TTL or run
+    the network ladder nightly for every entity. Only a domain CHANGE (or an
+    expired TTL) should ever trigger a re-fetch."""
+    page = write_entity(workspace, "mongodb",
+                        ["name: MongoDB", "type: tool", "logo: https://mongodb.com/x.png"])
+    calls: list[str] = []
+    fetcher = make_fetcher({
+        "https://mongodb.com/apple-touch-icon.png":
+            logo_service.FetchResult(200, png_bytes(180, 180), "image/png"),
+    }, calls)
+    run(logo_service.ensure_logo(workspace, "mongodb", fetcher=fetcher))
+    assert calls, "sanity: the first call should hit the network"
+    calls.clear()
+    first_meta = dict(logo_service.read_meta("claude-chats")["mongodb"])
+
+    # Rewrite the page with the SAME logo/domain (as Sleep does when it bumps
+    # last_referenced/version) and move its mtime past the cache entry.
+    write_entity(workspace, "mongodb",
+                 ["name: MongoDB", "type: tool", "logo: https://mongodb.com/x.png",
+                  "last_referenced: 2099-01-01", "version: 7"])
+    _touch_after_fetch(page)
+
+    result = run(logo_service.ensure_logo(workspace, "mongodb", fetcher=fetcher))
+    assert calls == [], "an edit that doesn't change the resolved domain must not re-fetch"
+    assert result is not None and result.exists()
+
+    second_meta = logo_service.read_meta("claude-chats")["mongodb"]
+    assert second_meta["domain"] == first_meta["domain"] == "mongodb.com"
+    assert second_meta["fetched_at"] > first_meta["fetched_at"], (
+        "the fetch stamp must refresh so the mtime compare settles"
+    )
+
+
+def test_a_page_edit_past_the_ttl_still_refetches_even_with_the_same_domain(workspace):
+    """M1's carve-out: re-resolving to the same domain only wins while the
+    cache entry is still fresh. Past the 30-day TTL it must still re-fetch."""
+    page = write_entity(workspace, "mongodb",
+                        ["name: MongoDB", "type: tool", "logo: https://mongodb.com/x.png"])
+    fetcher = make_fetcher({
+        "https://mongodb.com/apple-touch-icon.png":
+            logo_service.FetchResult(200, png_bytes(180, 180), "image/png"),
+    })
+    run(logo_service.ensure_logo(workspace, "mongodb", fetcher=fetcher))
+
+    meta = logo_service.read_meta("claude-chats")
+    stale = datetime.now(timezone.utc) - logo_service.HIT_TTL - timedelta(days=1)
+    meta["mongodb"]["fetched_at"] = stale.isoformat()
+    logo_service.write_meta("claude-chats", meta)
+    _touch_after_fetch(page)
+
+    calls: list[str] = []
+    fetcher2 = make_fetcher({
+        "https://mongodb.com/apple-touch-icon.png":
+            logo_service.FetchResult(200, png_bytes(180, 180), "image/png"),
+    }, calls)
+    run(logo_service.ensure_logo(workspace, "mongodb", fetcher=fetcher2))
+    assert calls, "an expired entry must be refetched even when the domain is unchanged"
+
+
+def test_a_page_edit_that_drops_the_domain_falls_back_to_the_cache(workspace):
+    """M2: deleting `logo:`/`sources:`/`## Links` from a page must not turn a
+    live cache entry into a 404 that /graph's has_logo still advertises."""
+    page = write_entity(workspace, "acme-corp",
+                        ["name: Acme Corp Tool", "type: tool",
+                         "logo: https://acme.example/x.png"])
+    fetcher = make_fetcher({
+        "https://acme.example/apple-touch-icon.png":
+            logo_service.FetchResult(200, png_bytes(180, 180), "image/png"),
+    })
+    cached = run(logo_service.ensure_logo(workspace, "acme-corp", fetcher=fetcher))
+    assert cached is not None
+
+    # Multi-token name: dropping `logo:` leaves domain_for with nothing to
+    # resolve — no source, no links, no media, and no single-token slug guess.
+    write_entity(workspace, "acme-corp", ["name: Acme Corp Tool", "type: tool"])
+    _touch_after_fetch(page)
+
+    result = run(logo_service.ensure_logo(workspace, "acme-corp", fetcher=fetcher))
+    assert result == cached, (
+        "a page that no longer resolves any domain must fall back to the cache, "
+        "like the neighbouring exits"
+    )
+    assert "acme-corp" in logo_service.cached_ids("claude-chats"), (
+        "has_logo must still agree with what the endpoint actually serves"
+    )
+
+
 def test_an_edited_page_keeps_its_cached_logo_when_fetching_is_gated_off(workspace, monkeypatch):
     """Invalidation must not become deletion: with fetching off (or the site
     down) the mark we already have is still the best answer available."""

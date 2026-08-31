@@ -166,9 +166,25 @@ def parse_claims(body: str, *, strict: bool = False) -> list[Claim]:
     claims: list[Claim] = []
     for item in loaded:
         if not isinstance(item, dict):
+            if strict:
+                raise MalformedClaimsBlockError(
+                    f"```claims block entry is not a mapping (got {type(item).__name__})"
+                )
             logger.warning("skipping non-mapping entry in ```claims block")
             continue
-        claims.append(Claim.from_dict(item))
+        try:
+            claims.append(Claim.from_dict(item))
+        except (TypeError, ValueError) as exc:
+            # A field that fails conversion (e.g. a non-numeric `confidence`)
+            # is just as malformed as a non-mapping entry: in strict mode a
+            # read-modify-write caller must abort rather than have
+            # `write_claims` silently drop this entry when it re-renders the
+            # (now truncated) list it read.
+            if strict:
+                raise MalformedClaimsBlockError(
+                    f"```claims block entry could not be parsed: {exc}"
+                ) from exc
+            logger.warning(f"skipping unparseable entry in ```claims block: {exc}")
     return claims
 
 

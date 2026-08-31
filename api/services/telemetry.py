@@ -75,7 +75,31 @@ class UsageEvent:
             # which nothing catches — one stray line broke every /consumption/*.
             raise ValueError(f"telemetry line is not a JSON object (got {type(data).__name__})")
         known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        event = cls(**{k: v for k, v in data.items() if k in known})
+        # A `ts` that isn't a plain ISO string (null, a number, a nested
+        # object...) survives dataclass construction with no error, and then
+        # crashes ``read_events``'s ``ev.ts[:10]`` slice — OUTSIDE the
+        # try/except that guards the parse itself, so one bad line 500s every
+        # /consumption/* endpoint instead of being counted+skipped like every
+        # other corrupt line. Reject it here, at parse time, same as a
+        # malformed numeric counter (a string, null, list, or object where an
+        # int belongs) — both are shapes no writer of this ledger ever emits.
+        if not isinstance(event.ts, str) or not event.ts:
+            raise ValueError(f"telemetry event has a non-string/empty ts: {event.ts!r}")
+        for counter in (
+            "invocations", "input_tokens", "output_tokens",
+            "cache_read_tokens", "cache_write_tokens",
+        ):
+            value = getattr(event, counter)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"telemetry event field {counter!r} is not numeric: {value!r}")
+        if event.duration_ms is not None and (
+            isinstance(event.duration_ms, bool) or not isinstance(event.duration_ms, (int, float))
+        ):
+            raise ValueError(
+                f"telemetry event field 'duration_ms' is not numeric: {event.duration_ms!r}"
+            )
+        return event
 
 
 def enabled() -> bool:
@@ -121,16 +145,19 @@ def read_events(start: date | None = None, end: date | None = None) -> list[Usag
             if not line.strip():
                 continue
             try:
+                # Everything that touches a per-event field — not just the
+                # parse itself — stays inside this boundary: a validated-but-
+                # still-unexpected shape (or a future field access added here)
+                # must be counted+skipped like any other corrupt line, never
+                # propagate out and 500 every /consumption/* endpoint.
                 ev = UsageEvent.from_json(line)
+                day = ev.ts[:10]
+                keep = not ((start and day < start.isoformat()) or (end and day > end.isoformat()))
             except (ValueError, TypeError):
                 bad += 1
                 continue
-            day = ev.ts[:10]
-            if start and day < start.isoformat():
-                continue
-            if end and day > end.isoformat():
-                continue
-            out.append(ev)
+            if keep:
+                out.append(ev)
         if bad:
             logger.warning(f"telemetry: skipped {bad} corrupt line(s) in {path.name}")
     return out

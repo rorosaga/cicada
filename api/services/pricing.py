@@ -83,8 +83,13 @@ def estimate_cost(
                     cache_read_input_tokens=cache_read_tokens, cache_creation_input_tokens=cache_write_tokens,
                 )
             except TypeError:  # older litellm without cache kwargs
+                # `input_tokens` is already GROSS (the cache buckets are a
+                # breakdown OF it, not extra tokens beside it — see
+                # `telemetry.usage_from_response`), so this fallback must pass
+                # it through unchanged. Adding the cache buckets back on top
+                # double-counts them under the newly documented gross rule.
                 prompt_cost, completion_cost = cost_fn(
-                    model=candidate, prompt_tokens=input_tokens + cache_read_tokens + cache_write_tokens,
+                    model=candidate, prompt_tokens=input_tokens,
                     completion_tokens=output_tokens,
                 )
             return round(float(prompt_cost) + float(completion_cost), 6)

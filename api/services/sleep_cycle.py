@@ -116,13 +116,24 @@ async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> No
             f"organically resolved {refresh['organic_resolutions']}"
         )
         resolved = set(refresh.get("resolved_paths") or [])
+        rewritten = set(refresh.get("rewritten_paths") or [])
+        # Scoped to EXACTLY the files this sweep touched — never the whole
+        # `inbox` directory, which would sweep an unrelated dirty file under
+        # `inbox/` into this `cicada`-authored commit (mirrors the H2 pattern
+        # in `decay_migration._commit_backfill`).
+        touched_paths = sorted(resolved | rewritten)
         lines = [f"{p}: resolved (trigger: inbox/organic_resolution)" for p in sorted(resolved)]
-        lines.append("inbox/: refreshed (trigger: inbox/stale_refresh)")
+        lines += [
+            f"{p}: refreshed (trigger: inbox/stale_refresh)"
+            for p in sorted(rewritten - resolved)
+        ]
+        if not lines:
+            return
         message = git_service.build_commit_message(
             f"Inbox question refresh {today}", lines, authors=["cicada"]
         )
         try:
-            await git_service.commit_paths(memory_path, message, ["inbox"])
+            await git_service.commit_paths(memory_path, message, touched_paths)
         except Exception as exc:  # pragma: no cover - non-git workspace
             logger.warning(f"Idle question-refresh commit skipped: {exc}")
     except Exception as e:

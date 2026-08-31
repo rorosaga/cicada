@@ -662,8 +662,23 @@ async def _ensure_logo_locked(
         return cached_path(bank, entity_id) if cached_ok else None
 
     domain = domain_for(parsed.frontmatter or {}, parsed.body or "")
+
+    # The page changed since the last fetch, but re-resolving may still land on
+    # the SAME domain (Sleep bumping `last_referenced`/`version` every cycle,
+    # say) — that's an unrelated edit, not a rebrand. Refresh the fetch stamp
+    # so the mtime compare settles and skip the network ladder entirely,
+    # instead of re-running it for every active entity on every Sleep cycle.
+    if cached_ok and domain == entry.get("domain"):
+        await _record_meta(
+            bank, entity_id, {**entry, "fetched_at": datetime.now(timezone.utc).isoformat()},
+        )
+        return cached_path(bank, entity_id)
+
     if not domain:
-        return None
+        # No domain resolves anymore (e.g. `logo:`/`sources:`/`## Links` were
+        # edited away): fall back to a still-valid cache, like the neighbouring
+        # exits already do, so `/graph`'s `has_logo` and this endpoint agree.
+        return cached_path(bank, entity_id) if cached_ok else None
 
     if fetcher is None and not fetch_allowed():
         # Not a miss: we never asked. Caching one would suppress the real fetch

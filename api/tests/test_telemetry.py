@@ -122,3 +122,45 @@ def test_a_valid_json_non_object_line_is_skipped_not_raised(home):
 
     with pytest.raises(ValueError):
         tm.UsageEvent.from_json("42")
+
+
+def test_a_null_ts_is_skipped_not_raised(home):
+    """D4: a JSON *object* whose `ts` is null/non-string survives dataclass
+    construction with no error, then used to crash `ev.ts[:10]` OUTSIDE
+    `read_events`'s try/except — one such line 500s every /consumption/*
+    endpoint instead of being counted+skipped like any other corrupt line."""
+    tm.record(_ev("2026-08-15T00:00:00.000Z"))
+    with open(home / "telemetry" / "events-2026-08.jsonl", "a") as fh:
+        fh.write(json.dumps({"kind": "llm_call", "ts": None}) + "\n")
+        fh.write(json.dumps({"kind": "llm_call", "ts": 12345}) + "\n")
+        fh.write(json.dumps({"kind": "llm_call", "ts": ""}) + "\n")
+
+    events = tm.read_events()
+    assert len(events) == 1 and events[0].ts.startswith("2026-08-15")
+
+    with pytest.raises(ValueError):
+        tm.UsageEvent.from_json(json.dumps({"kind": "llm_call", "ts": None}))
+
+
+def test_malformed_numeric_counters_are_skipped_not_raised(home):
+    """D4: a counter field (`input_tokens`, etc.) that arrives as a string,
+    null, or nested structure instead of a number must be rejected at parse
+    time — not silently held as garbage that breaks arithmetic downstream."""
+    tm.record(_ev("2026-08-15T00:00:00.000Z"))
+    bad_shapes = [
+        {"kind": "llm_call", "ts": "2026-08-16T00:00:00.000Z", "input_tokens": "not-a-number"},
+        {"kind": "llm_call", "ts": "2026-08-17T00:00:00.000Z", "output_tokens": None},
+        {"kind": "llm_call", "ts": "2026-08-18T00:00:00.000Z", "invocations": [1, 2]},
+        {"kind": "llm_call", "ts": "2026-08-19T00:00:00.000Z", "cache_read_tokens": {"n": 1}},
+        {"kind": "llm_call", "ts": "2026-08-20T00:00:00.000Z", "duration_ms": "slow"},
+    ]
+    with open(home / "telemetry" / "events-2026-08.jsonl", "a") as fh:
+        for shape in bad_shapes:
+            fh.write(json.dumps(shape) + "\n")
+
+    events = tm.read_events()
+    assert len(events) == 1 and events[0].ts.startswith("2026-08-15")
+
+    for shape in bad_shapes:
+        with pytest.raises(ValueError):
+            tm.UsageEvent.from_json(json.dumps(shape))

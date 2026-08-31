@@ -58,3 +58,28 @@ def test_estimate_cost_unknown_model_is_none():
 
     assert pricing.estimate_cost("mystery", 10, 10, cost_fn=cost_fn) is None
     assert pricing.estimate_cost("gpt-5.4-mini", 0, 0, cost_fn=cost_fn) is None
+
+
+def test_estimate_cost_legacy_fallback_does_not_double_price_cache_tokens():
+    """D5: `input_tokens` is already GROSS (the cache buckets are a breakdown
+    OF it, not extra tokens beside it — see `telemetry.usage_from_response`).
+    The TypeError-compat path (older litellm with no cache kwargs) must pass
+    `input_tokens` straight through, not add the cache buckets back on top."""
+    calls = []
+
+    def legacy_cost_fn(**kw):
+        if "cache_read_input_tokens" in kw or "cache_creation_input_tokens" in kw:
+            raise TypeError("cost_per_token() got an unexpected keyword argument")
+        calls.append(kw["prompt_tokens"])
+        return (0.001, 0.0005)
+
+    usd = pricing.estimate_cost(
+        "gpt-5.4-mini", 1000, 100,
+        cache_read_tokens=300, cache_write_tokens=200,
+        cost_fn=legacy_cost_fn,
+    )
+    assert usd == 0.0015
+    assert calls == [1000], (
+        f"the fallback must price the gross input_tokens (1000), not "
+        f"input_tokens + cache buckets (1500): got {calls}"
+    )
