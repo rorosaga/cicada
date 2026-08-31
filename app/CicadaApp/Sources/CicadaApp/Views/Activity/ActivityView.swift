@@ -7,6 +7,7 @@ import SwiftUI
 enum ActivitySection: String, CaseIterable, Identifiable {
     case usage = "Usage"
     case contributors = "Contributors"
+    case conversations = "Conversations"
 
     var id: String { rawValue }
 
@@ -45,7 +46,7 @@ struct ActivityView: View {
                         ForEach(ActivitySection.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented).labelsHidden().fixedSize()
-                    .accessibilityLabel("Show usage or contributors")
+                    .accessibilityLabel("Show usage, contributors, or conversations")
 
                     if section == .usage { UsageRangeControls(viewModel: usageVM) }
                 }
@@ -56,6 +57,7 @@ struct ActivityView: View {
             switch section {
             case .usage: UsageSection()
             case .contributors: ContributorsSection()
+            case .conversations: ConversationsSection()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

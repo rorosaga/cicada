@@ -176,6 +176,22 @@ final class FakeSyncAPI: SyncAPI {
     var entities: [String: Entity] = [:]
     var entityFetches = 0
 
+    // MARK: - Conversations (G48, on-demand — no SyncDomain)
+    var recentConversations: [ConversationSummary] = []
+    var failRecentConversations = false
+    var resumeDescriptor = ResumeDescriptor()
+    var resumeError: (any Error)?
+
+    func fetchRecentConversations(limit: Int) async throws -> [ConversationSummary] {
+        if failRecentConversations { throw APIError.serverUnreachable }
+        return recentConversations
+    }
+
+    func resumeConversation(id: String) async throws -> ResumeDescriptor {
+        if let resumeError { throw resumeError }
+        return resumeDescriptor
+    }
+
     private func answer<T>(_ domain: SyncDomain, fallback: T) throws -> Conditional<T> {
         calls.append(domain)
         var reply = replies[domain]
