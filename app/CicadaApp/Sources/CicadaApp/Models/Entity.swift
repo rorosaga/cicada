@@ -103,8 +103,39 @@ enum HistoryChangeType: String, Codable {
     }
 }
 
-// Added/removed lines for one entity file at one commit (backlog A1).
-// NOT BUILD-VERIFIED — needs Xcode compile (M3).
+// One row of the backend's ordered unified diff (G69). `kind` is left as a raw
+// String rather than an enum on purpose: an unrecognised future kind decodes
+// cleanly and `DiffModel` maps it onto `.context` (render it plainly) instead of
+// failing the whole payload.
+struct EntityDiffLine: Codable, Equatable {
+    let kind: String
+    // 1-based, following git's own accounting: a context row has both, an
+    // addition only `newLine`, a removal only `oldLine`, a hunk header neither.
+    let oldLine: Int?
+    let newLine: Int?
+    let text: String
+
+    enum CodingKeys: String, CodingKey {
+        case kind, oldLine, newLine, text
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "context"
+        oldLine = try c.decodeIfPresent(Int.self, forKey: .oldLine)
+        newLine = try c.decodeIfPresent(Int.self, forKey: .newLine)
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+    }
+
+    init(kind: String, oldLine: Int? = nil, newLine: Int? = nil, text: String) {
+        self.kind = kind
+        self.oldLine = oldLine
+        self.newLine = newLine
+        self.text = text
+    }
+}
+
+// Diff for one entity file at one commit (backlog A1; context lines in G69).
 struct EntityDiff: Codable, Equatable {
     let added: String
     let removed: String
@@ -112,9 +143,14 @@ struct EntityDiff: Codable, Equatable {
     // marker line is appended to the affected side). decodeIfPresent so an older
     // backend that doesn't send this field still decodes (defaults to false).
     let truncated: Bool
+    // G69: the real ordered unified diff — changed lines AND the unchanged
+    // context around them, each with its old/new line number. Absent (→ empty)
+    // from a pre-G69 backend or a payload cached before the upgrade, in which
+    // case `DiffModel` falls back to rendering `removed` then `added` as blocks.
+    let lines: [EntityDiffLine]
 
     enum CodingKeys: String, CodingKey {
-        case added, removed, truncated
+        case added, removed, truncated, lines
     }
 
     init(from decoder: Decoder) throws {
@@ -122,12 +158,15 @@ struct EntityDiff: Codable, Equatable {
         added = try c.decodeIfPresent(String.self, forKey: .added) ?? ""
         removed = try c.decodeIfPresent(String.self, forKey: .removed) ?? ""
         truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+        lines = try c.decodeIfPresent([EntityDiffLine].self, forKey: .lines) ?? []
     }
 
-    init(added: String, removed: String, truncated: Bool = false) {
+    init(added: String, removed: String, truncated: Bool = false,
+         lines: [EntityDiffLine] = []) {
         self.added = added
         self.removed = removed
         self.truncated = truncated
+        self.lines = lines
     }
 }
 

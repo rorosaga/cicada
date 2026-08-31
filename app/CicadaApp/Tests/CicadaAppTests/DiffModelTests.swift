@@ -15,7 +15,165 @@ final class DiffModelTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - Parsing
+    // MARK: - G69: the ordered unified-diff shape
+    //
+    // The backend now sends `lines` — a real `git show -U4` diff with context
+    // rows and git's own old/new line numbers. `DiffModel` must render it in
+    // order, with the numbers intact, and must still fall back to the pre-G69
+    // two-block shape when `lines` is absent (older backend, or a payload
+    // cached before the upgrade).
+
+    /// A one-line edit in the middle of a file, exactly as the backend emits it.
+    private var unifiedDiff: EntityDiff {
+        EntityDiff(
+            added: "CHANGED",
+            removed: "l5",
+            truncated: false,
+            lines: [
+                EntityDiffLine(kind: "hunk", text: "@@ -1,10 +1,10 @@"),
+                EntityDiffLine(kind: "context", oldLine: 4, newLine: 4, text: "l4"),
+                EntityDiffLine(kind: "remove", oldLine: 5, newLine: nil, text: "l5"),
+                EntityDiffLine(kind: "add", oldLine: nil, newLine: 5, text: "CHANGED"),
+                EntityDiffLine(kind: "context", oldLine: 6, newLine: 6, text: "l6"),
+            ]
+        )
+    }
+
+    func testOrderedLinesArePreferredOverTheFlatBlocks() {
+        let model = DiffModel(unifiedDiff)
+
+        XCTAssertTrue(model.hasLineNumbers)
+        XCTAssertEqual(model.lines.map(\.kind), [.hunk, .context, .removed, .added, .context])
+        XCTAssertEqual(model.lines.map(\.text), ["@@ -1,10 +1,10 @@", "l4", "l5", "CHANGED", "l6"])
+    }
+
+    func testLineNumbersSurviveTheProjection() {
+        let model = DiffModel(unifiedDiff)
+
+        XCTAssertEqual(model.lines[0].oldLine, nil)      // hunk header: neither
+        XCTAssertEqual(model.lines[0].newLine, nil)
+        XCTAssertEqual(model.lines[1].oldLine, 4)        // context: both
+        XCTAssertEqual(model.lines[1].newLine, 4)
+        XCTAssertEqual(model.lines[2].oldLine, 5)        // removal: old only
+        XCTAssertNil(model.lines[2].newLine)
+        XCTAssertNil(model.lines[3].oldLine)             // addition: new only
+        XCTAssertEqual(model.lines[3].newLine, 5)
+    }
+
+    func testContextRowsGetASpaceMarkerSoTextStaysColumnAligned() {
+        let model = DiffModel(unifiedDiff)
+
+        XCTAssertEqual(model.lines[1].gutter, " ")
+        XCTAssertEqual(model.lines[2].gutter, "\u{2212}")
+        XCTAssertEqual(model.lines[3].gutter, "+")
+        XCTAssertEqual(model.lines[0].gutter, "")  // hunk header has no marker
+    }
+
+    func testAnUnknownWireKindDegradesToContextRatherThanBeingDropped() {
+        let model = DiffModel(EntityDiff(
+            added: "", removed: "",
+            lines: [EntityDiffLine(kind: "meta-from-the-future", oldLine: 1, newLine: 1,
+                                   text: "still shown")]
+        ))
+
+        XCTAssertEqual(model.lines.map(\.kind), [.context])
+        XCTAssertEqual(model.lines[0].text, "still shown")
+    }
+
+    func testGutterWidthTracksTheWidestLineNumber() {
+        let wide = DiffModel(EntityDiff(added: "", removed: "", lines: [
+            EntityDiffLine(kind: "context", oldLine: 998, newLine: 1024, text: "x"),
+        ]))
+        XCTAssertEqual(wide.lineNumberDigits, 4)
+
+        // Floor of 2 so a one-line file doesn't produce a hairline column.
+        let narrow = DiffModel(EntityDiff(added: "", removed: "", lines: [
+            EntityDiffLine(kind: "add", oldLine: nil, newLine: 1, text: "x"),
+        ]))
+        XCTAssertEqual(narrow.lineNumberDigits, 2)
+    }
+
+    func testRowIdsAreUniqueAcrossIdenticalRepeatedContextText() {
+        // A page with repeated blank/boilerplate lines must not collapse rows.
+        let model = DiffModel(EntityDiff(added: "", removed: "", lines: [
+            EntityDiffLine(kind: "context", oldLine: 1, newLine: 1, text: ""),
+            EntityDiffLine(kind: "context", oldLine: 2, newLine: 2, text: ""),
+            EntityDiffLine(kind: "context", oldLine: 3, newLine: 3, text: ""),
+        ]))
+
+        XCTAssertEqual(Set(model.lines.map(\.id)).count, 3)
+    }
+
+    func testTruncationFlagStillSurfacesOnTheOrderedShape() {
+        let model = DiffModel(EntityDiff(added: "a", removed: "", truncated: true, lines: [
+            EntityDiffLine(kind: "add", oldLine: nil, newLine: 1, text: "a"),
+        ]))
+
+        XCTAssertTrue(model.truncated)
+    }
+
+    // MARK: - G69: decoding both wire shapes
+
+    func testDecodingTheNewShapeKeepsOrderAndCamelCaseLineNumbers() throws {
+        let json = """
+        {"added": "CHANGED", "removed": "l5", "truncated": false, "lines": [
+          {"kind": "hunk", "oldLine": null, "newLine": null, "text": "@@ -1,10 +1,10 @@"},
+          {"kind": "context", "oldLine": 4, "newLine": 4, "text": "l4"},
+          {"kind": "remove", "oldLine": 5, "newLine": null, "text": "l5"},
+          {"kind": "add", "oldLine": null, "newLine": 5, "text": "CHANGED"}
+        ]}
+        """.data(using: .utf8)!
+
+        let diff = try JSONDecoder().decode(EntityDiff.self, from: json)
+
+        XCTAssertEqual(diff.lines.count, 4)
+        XCTAssertEqual(diff.lines[1].oldLine, 4)
+        XCTAssertEqual(diff.lines[3].newLine, 5)
+        XCTAssertEqual(DiffModel(diff).lines.map(\.kind), [.hunk, .context, .removed, .added])
+    }
+
+    func testDecodingTheOldShapeWithoutLinesFallsBackToTwoBlocks() throws {
+        // Exactly what a pre-G69 backend (or a payload cached before the
+        // upgrade) sends: no `lines` key at all.
+        let json = """
+        {"added": "new one\\nnew two", "removed": "old one", "truncated": false}
+        """.data(using: .utf8)!
+
+        let model = DiffModel(try JSONDecoder().decode(EntityDiff.self, from: json))
+
+        XCTAssertFalse(model.hasLineNumbers)
+        XCTAssertEqual(model.lines.map(\.kind), [.removed, .added, .added])
+        XCTAssertEqual(model.lines.map(\.text), ["old one", "new one", "new two"])
+        XCTAssertTrue(model.lines.allSatisfy { $0.oldLine == nil && $0.newLine == nil })
+        XCTAssertEqual(model.lineNumberDigits, 0)  // no gutters drawn
+    }
+
+    func testAnEmptyLinesArrayIsTreatedAsTheOldShapeNotAnEmptyDiff() throws {
+        // The backend sends `lines: []` for a diff it couldn't produce; the
+        // flat blocks (if any) must still render.
+        let json = """
+        {"added": "only add", "removed": "", "truncated": false, "lines": []}
+        """.data(using: .utf8)!
+
+        let model = DiffModel(try JSONDecoder().decode(EntityDiff.self, from: json))
+
+        XCTAssertFalse(model.hasLineNumbers)
+        XCTAssertEqual(model.lines.map(\.text), ["only add"])
+    }
+
+    func testAWireLineMissingOptionalFieldsStillDecodes() throws {
+        let json = """
+        {"lines": [{"kind": "add", "text": "x"}, {"text": "y"}]}
+        """.data(using: .utf8)!
+
+        let diff = try JSONDecoder().decode(EntityDiff.self, from: json)
+
+        XCTAssertEqual(diff.lines.map(\.kind), ["add", "context"])
+        XCTAssertNil(diff.lines[0].oldLine)
+        XCTAssertEqual(DiffModel(diff).lines.map(\.kind), [.added, .context])
+    }
+
+    // MARK: - Parsing (legacy two-block shape)
 
     func testRemovedLinesComeFirstThenAddedLines() {
         let model = DiffModel(EntityDiff(added: "new one\nnew two", removed: "old one"))

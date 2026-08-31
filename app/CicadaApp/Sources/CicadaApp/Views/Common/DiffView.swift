@@ -1,16 +1,20 @@
 import SwiftUI
 
-// G67 — the shared commit-diff renderer.
+// G67/G69 — the shared commit-diff renderer.
 //
 // One component, two call sites: the entity detail card's History tab (a tapped
 // commit row expands into it) and the Contributors drill-down (a tapped entity
 // chip on a commit). The parsing/ordering/gutter decisions live in `DiffModel`
 // so they are testable without a view hierarchy; `DiffView` only paints.
 //
-// The backend hands us two newline-joined blocks (`added` / `removed`) produced
-// from `git show --unified=0`, so the original interleaving is already lost.
-// We render removals first, then additions — the same order the old inline
-// renderer used, and the order a reader expects for "what this commit changed".
+// G69: the backend now sends `lines` — a REAL unified diff (`git show -U4`),
+// ordered, with the unchanged context around each change and git's own old/new
+// line numbers on every row. We render it GitHub-style: two slim number
+// gutters, a +/−/space marker, then the text. The pre-G69 shape (two
+// newline-joined `added`/`removed` blocks, interleaving already lost) is still
+// handled: when `lines` is absent — an older backend, or a payload cached
+// before the upgrade — we fall back to rendering removals then additions as
+// blocks, exactly as before, with no line numbers.
 
 /// Identifies one (entity, commit) pair's diff-fetch state. The same commit
 /// hash routinely appears in more than one entity's history — one Sleep-cycle
@@ -28,8 +32,11 @@ struct DiffCacheKey: Hashable {
 /// One rendered diff row.
 struct DiffLine: Identifiable, Equatable {
     enum Kind: Equatable {
+        case context
         case removed
         case added
+        /// A `@@ -a,b +c,d @@` hunk header — a jump in the file, not content.
+        case hunk
         /// The backend's "diff clipped" notice — not file content.
         case truncation
     }
@@ -37,14 +44,31 @@ struct DiffLine: Identifiable, Equatable {
     let id: Int
     let kind: Kind
     let text: String
+    /// Line number in the file BEFORE the commit. Present on context and
+    /// removal rows; nil on additions, hunk headers, and in the legacy
+    /// two-block fallback (which has no line information at all).
+    let oldLine: Int?
+    /// Line number in the file AFTER the commit. Present on context and
+    /// addition rows; nil otherwise (see `oldLine`).
+    let newLine: Int?
+
+    init(id: Int, kind: Kind, text: String, oldLine: Int? = nil, newLine: Int? = nil) {
+        self.id = id
+        self.kind = kind
+        self.text = text
+        self.oldLine = oldLine
+        self.newLine = newLine
+    }
 
     /// The leading glyph. A real minus sign (U+2212) rather than a hyphen so it
-    /// optically matches `+` at the same monospaced width.
+    /// optically matches `+` at the same monospaced width. Context rows get a
+    /// space so their text stays column-aligned with the changed lines.
     var gutter: String {
         switch kind {
         case .removed: "\u{2212}"
         case .added: "+"
-        case .truncation: ""
+        case .context: " "
+        case .hunk, .truncation: ""
         }
     }
 }
@@ -58,17 +82,47 @@ struct DiffModel {
 
     let lines: [DiffLine]
     let truncated: Bool
+    /// True when this model came from the backend's ordered `lines` — i.e. it
+    /// has real context rows and line numbers, so the view draws the number
+    /// gutters. False for the legacy two-block fallback, which has neither.
+    let hasLineNumbers: Bool
 
     var isEmpty: Bool { lines.isEmpty }
 
+    /// Widest line number the gutters must fit, as a digit count (minimum 2 so
+    /// a one-line file doesn't produce a hairline-thin column).
+    var lineNumberDigits: Int {
+        guard hasLineNumbers else { return 0 }
+        let widest = lines.reduce(0) { max($0, max($1.oldLine ?? 0, $1.newLine ?? 0)) }
+        return max(2, String(widest).count)
+    }
+
     init(_ diff: EntityDiff) {
+        self.truncated = diff.truncated
+
+        if !diff.lines.isEmpty {
+            self.hasLineNumbers = true
+            self.lines = diff.lines.enumerated().map { index, wire in
+                DiffLine(
+                    id: index,
+                    kind: Self.kind(for: wire.kind),
+                    text: wire.text,
+                    oldLine: wire.oldLine,
+                    newLine: wire.newLine
+                )
+            }
+            return
+        }
+
+        // --- legacy fallback: two newline-joined blocks, no ordering, no numbers
+        self.hasLineNumbers = false
         var out: [DiffLine] = []
         var next = 0
 
         func append(_ block: String, as kind: DiffLine.Kind) {
             guard !block.isEmpty else { return }
-            // `separator:omittingEmptySubsequences: false` keeps blank lines that
-            // are real file content; the trailing-newline artifact is dropped.
+            // `components(separatedBy:)` keeps blank lines that are real file
+            // content; the trailing-newline artifact is dropped.
             var raw = block.components(separatedBy: "\n")
             if raw.last == "" { raw.removeLast() }
             for text in raw {
@@ -82,14 +136,37 @@ struct DiffModel {
         append(diff.added, as: .added)
 
         self.lines = out
-        self.truncated = diff.truncated
+    }
+
+    /// Wire `kind` → row kind. An unrecognised value renders as plain context
+    /// rather than dropping the row or failing the payload.
+    private static func kind(for wire: String) -> DiffLine.Kind {
+        switch wire {
+        case "add": .added
+        case "remove": .removed
+        case "hunk": .hunk
+        default: .context
+        }
     }
 }
 
-/// GitHub-style inline diff: monospaced, `+`/`−` gutters, green/red text on a
-/// tinted row background.
+/// Width of the diff container, measured so every row can be at least that wide
+/// — otherwise a row inside the horizontal `ScrollView` shrinks to its own text
+/// and the tinted add/remove background stops short of the right edge.
+private struct DiffContainerWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// GitHub-style unified diff: monospaced, old/new line-number gutters, a
+/// `+`/`−`/space marker, and full-row tinting on changed lines. Long lines
+/// scroll horizontally INSIDE the container — never the page.
 struct DiffView: View {
     let model: DiffModel
+
+    @State private var containerWidth: CGFloat = 0
 
     init(diff: EntityDiff) {
         self.model = DiffModel(diff)
@@ -101,14 +178,33 @@ struct DiffView: View {
     private static var addedColor: Color { CicadaTheme.diffAdded }
     private static var removedColor: Color { CicadaTheme.diffRemoved }
 
+    /// Monospaced digits are ~0.6em wide; 12pt mono ⇒ ~7.2pt per digit, plus
+    /// padding either side of the column.
+    private var numberColumnWidth: CGFloat {
+        model.hasLineNumbers ? CGFloat(model.lineNumberDigits) * 7.5 + 10 : 0
+    }
+
     var body: some View {
         if model.isEmpty {
             Self.empty
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(model.lines) { line in
-                    row(line)
+                ScrollView(.horizontal, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.lines) { line in
+                            row(line)
+                        }
+                    }
                 }
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: DiffContainerWidthKey.self, value: proxy.size.width
+                        )
+                    }
+                )
+                .onPreferenceChange(DiffContainerWidthKey.self) { containerWidth = $0 }
+
                 if model.truncated {
                     Text("Diff clipped — this commit changed more than we show here.")
                         .font(CicadaTheme.captionFont)
@@ -127,6 +223,8 @@ struct DiffView: View {
         }
     }
 
+    // MARK: - Rows
+
     @ViewBuilder
     private func row(_ line: DiffLine) -> some View {
         switch line.kind {
@@ -134,27 +232,77 @@ struct DiffView: View {
             Text(line.text)
                 .font(CicadaTheme.monoFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, CicadaTheme.spacingSM)
                 .padding(.vertical, 1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .added, .removed:
-            let color = line.kind == .added ? Self.addedColor : Self.removedColor
-            HStack(alignment: .top, spacing: CicadaTheme.spacingXS) {
-                Text(line.gutter)
-                    .font(CicadaTheme.monoFont)
-                    .foregroundStyle(color.opacity(0.8))
-                    .frame(width: 10, alignment: .leading)
+                .frame(minWidth: containerWidth, alignment: .leading)
+        case .hunk:
+            // A jump in the file — the "⋯" says "lines skipped here".
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Text("\u{22EF}")
                 Text(line.text)
-                    .font(CicadaTheme.monoFont)
-                    .foregroundStyle(color)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .font(CicadaTheme.monoFont)
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, CicadaTheme.spacingSM)
-            .padding(.vertical, 1)
-            .background(color.opacity(0.10))
+            .padding(.vertical, 2)
+            .frame(minWidth: containerWidth, alignment: .leading)
+            .background(CicadaTheme.surfaceElevated.opacity(0.6))
+        case .context, .added, .removed:
+            contentRow(line)
         }
     }
+
+    private func contentRow(_ line: DiffLine) -> some View {
+        let tint: Color? = switch line.kind {
+        case .added: Self.addedColor
+        case .removed: Self.removedColor
+        default: nil
+        }
+
+        // The vertical padding lives on the CELLS, not on the row: the gutter
+        // cells paint their own (slightly stronger) tint, and if the row owned
+        // the padding their background would fall 2pt short of the row's,
+        // leaving a sliver of mismatched color above and below every number.
+        return HStack(spacing: 0) {
+            if model.hasLineNumbers {
+                number(line.oldLine, tint: tint)
+                number(line.newLine, tint: tint)
+            }
+            HStack(spacing: 0) {
+                Text(line.gutter)
+                    .font(CicadaTheme.monoFont)
+                    .foregroundStyle((tint ?? CicadaTheme.textTertiary).opacity(0.8))
+                    .frame(width: 12, alignment: .leading)
+                    .padding(.leading, CicadaTheme.spacingSM)
+                Text(line.text)
+                    .font(CicadaTheme.monoFont)
+                    .foregroundStyle(tint ?? CicadaTheme.textSecondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.trailing, CicadaTheme.spacingSM)
+            }
+            .padding(.vertical, 1)
+        }
+        .frame(minWidth: containerWidth, alignment: .leading)
+        .background(tint?.opacity(0.10) ?? Color.clear)
+    }
+
+    /// One line-number cell. Muted, right-aligned, and never selected by a
+    /// drag over the diff — a copied selection should be the file's text, not
+    /// its numbering.
+    private func number(_ value: Int?, tint: Color?) -> some View {
+        Text(value.map(String.init) ?? "")
+            .font(CicadaTheme.monoFont)
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .frame(width: numberColumnWidth, alignment: .trailing)
+            .padding(.trailing, 4)
+            .padding(.vertical, 1)
+            .background((tint ?? CicadaTheme.textTertiary).opacity(tint == nil ? 0.04 : 0.10))
+    }
+
+    // MARK: - States
 
     /// Shown while a per-commit diff is in flight.
     static var loading: some View {

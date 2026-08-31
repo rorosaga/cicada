@@ -6,6 +6,7 @@ from pathlib import Path
 from api.models.schemas import (
     Contributor,
     ContributorCommit,
+    DiffLine,
     EntityDiff,
     EntityHistoryEntry,
     SleepHistoryEntry,
@@ -54,6 +55,27 @@ _COMMIT_HASH_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 # and ``EntityDiff.truncated`` is set when the cap is hit.
 DIFF_MAX_LINES = 400
 _DIFF_TRUNCATION_MARKER = "... [diff truncated]"
+
+# How much unchanged context git is asked to include around each change (G69).
+# "Generous" on purpose: an entity page is a few dozen lines of frontmatter +
+# prose, so 4 lines either side is usually the whole neighbourhood a reader
+# needs to see WHY a line changed, and hunks that come within 8 lines of each
+# other coalesce into one.
+DIFF_CONTEXT_LINES = 4
+
+# Hard cap on the ORDERED ``lines`` list. Higher than DIFF_MAX_LINES because
+# this list carries context and hunk headers too, not just the changed lines —
+# a 400/400 change with 4 lines of context around every hunk is still well
+# under this. When hit, the list is cut and ``truncated`` is set.
+DIFF_MAX_CONTEXT_LINES = 2000
+
+# ``@@ -<old_start>[,<old_count>] +<new_start>[,<new_count>] @@[ heading]``.
+# Matching this is also how the parser knows it has entered a hunk: everything
+# before the first header (``diff --git``, ``index``, mode/``---``/``+++``
+# lines) is skipped BY POSITION rather than by prefix, so a file line that
+# legitimately begins with ``---`` or ``+++`` — YAML frontmatter fences! — is
+# still treated as content.
+_HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 # Hard cap on a contributor-commit listing, so a caller-supplied `limit` can't
 # ask for the entire history of a bank with thousands of Sleep cycles.
@@ -436,19 +458,112 @@ def _build_description(subject: str, body: str, entity_id: str) -> str:
     return subject
 
 
+def _parse_unified_diff(out: str) -> tuple[list[DiffLine], list[str], list[str], bool]:
+    """Parse ``git show --unified=N`` output into ordered rows + legacy blocks.
+
+    Returns ``(lines, added, removed, truncated)``.
+
+    ``lines`` is the ordered unified diff: one row per hunk header, context
+    line, addition and removal, each carrying git's own 1-based old/new line
+    numbers. ``added`` / ``removed`` are the pre-G69 flat blocks, still built
+    here so the response stays back-compatible with an older app build.
+
+    Everything before the first ``@@`` hunk header (``diff --git``, ``index``,
+    mode lines, ``---`` / ``+++`` file headers) is skipped. The gate is "have we
+    seen a hunk header yet", NOT a prefix match, so a file line that genuinely
+    begins with ``---`` or ``+++`` inside a hunk is treated as content.
+    """
+    lines: list[DiffLine] = []
+    added: list[str] = []
+    removed: list[str] = []
+    # Tracked per-sink, not as one flag: the ordered list can hit its (much
+    # larger) cap while a side is complete, and vice versa. Only a side that was
+    # itself clipped gets the marker appended, so the legacy blocks never claim
+    # to be truncated when they are whole.
+    added_clipped = False
+    removed_clipped = False
+    lines_clipped = False
+    old_no = 0
+    new_no = 0
+    in_hunk = False
+
+    def _emit(kind: str, old: int | None, new: int | None, text: str) -> None:
+        nonlocal lines_clipped
+        if len(lines) < DIFF_MAX_CONTEXT_LINES:
+            lines.append(DiffLine(kind=kind, old_line=old, new_line=new, text=text))
+        else:
+            lines_clipped = True
+
+    for raw in out.splitlines():
+        header = _HUNK_HEADER_RE.match(raw)
+        if header:
+            in_hunk = True
+            old_no = int(header.group(1))
+            new_no = int(header.group(2))
+            _emit("hunk", None, None, raw)
+            continue
+        if not in_hunk:
+            continue
+        # "\ No newline at end of file" annotates the previous row; it is not a
+        # line of the file and consumes no line number.
+        if raw.startswith("\\"):
+            continue
+
+        if raw.startswith("+"):
+            text = raw[1:]
+            _emit("add", None, new_no, text)
+            new_no += 1
+            if len(added) < DIFF_MAX_LINES:
+                added.append(text)
+            else:
+                added_clipped = True
+        elif raw.startswith("-"):
+            text = raw[1:]
+            _emit("remove", old_no, None, text)
+            old_no += 1
+            if len(removed) < DIFF_MAX_LINES:
+                removed.append(text)
+            else:
+                removed_clipped = True
+        else:
+            # A context line is prefixed with a single space; a bare "" is an
+            # empty context line whose single space was stripped in transit.
+            _emit("context", old_no, new_no, raw[1:] if raw else "")
+            old_no += 1
+            new_no += 1
+
+    if added_clipped:
+        added.append(_DIFF_TRUNCATION_MARKER)
+    if removed_clipped:
+        removed.append(_DIFF_TRUNCATION_MARKER)
+
+    return lines, added, removed, added_clipped or removed_clipped or lines_clipped
+
+
 async def get_entity_commit_diff(
     entity_id: str, commit_hash: str, memory_path: Path
 ) -> EntityDiff:
-    """Per-commit add/remove diff for one entity file (backlog A1).
+    """Per-commit diff for one entity file (backlog A1, context lines in G69).
+
+    Returns a real unified diff — additions, removals AND the unchanged context
+    around them (``DIFF_CONTEXT_LINES`` either side), ordered, each row carrying
+    its old/new line number — as ``lines``, alongside the pre-G69 flat
+    ``added`` / ``removed`` blocks kept for back-compat.
 
     Returns an empty diff (not an error) when the commit is missing or the file
     didn't change in it — callers render "no diff" rather than failing.
+
+    ``git show`` (rather than ``git diff <commit>^ <commit>``) is deliberate: it
+    already diffs a ROOT commit against the empty tree, so the first commit of a
+    file — which has no ``^`` parent — comes back as all-additions instead of
+    erroring on an unknown revision.
 
     ``commit_hash`` is validated against ``_COMMIT_HASH_RE`` before reaching git:
     a non-hex / flag-like value (e.g. ``--output=/tmp/x``) is rejected here, so it
     can never be parsed by ``git show`` as an option (arg-injection guard). The
     ``--end-of-options`` token is also passed so a future hex-only edge can't be
-    treated as a flag. Output is bounded by ``DIFF_MAX_LINES`` per side.
+    treated as a flag. Output is bounded by ``DIFF_MAX_LINES`` per side and by
+    ``DIFF_MAX_CONTEXT_LINES`` for the ordered list.
     """
     if not _COMMIT_HASH_RE.match(commit_hash):
         return EntityDiff(added="", removed="", truncated=False)
@@ -460,7 +575,7 @@ async def get_entity_commit_diff(
             "show",
             "--format=",
             "--no-color",
-            "--unified=0",
+            f"--unified={DIFF_CONTEXT_LINES}",
             "--end-of-options",
             commit_hash,
             "--",
@@ -469,34 +584,13 @@ async def get_entity_commit_diff(
     except GitError:
         return EntityDiff(added="", removed="", truncated=False)
 
-    added: list[str] = []
-    removed: list[str] = []
-    truncated = False
-    for line in out.splitlines():
-        # Skip diff headers (+++/---) and hunk markers (@@).
-        if line.startswith("+++") or line.startswith("---") or line.startswith("@@"):
-            continue
-        if line.startswith("+"):
-            if len(added) >= DIFF_MAX_LINES:
-                truncated = True
-                continue
-            added.append(line[1:])
-        elif line.startswith("-"):
-            if len(removed) >= DIFF_MAX_LINES:
-                truncated = True
-                continue
-            removed.append(line[1:])
-
-    if truncated:
-        if added:
-            added.append(_DIFF_TRUNCATION_MARKER)
-        if removed:
-            removed.append(_DIFF_TRUNCATION_MARKER)
+    lines, added, removed, truncated = _parse_unified_diff(out)
 
     return EntityDiff(
         added="\n".join(added),
         removed="\n".join(removed),
         truncated=truncated,
+        lines=lines,
     )
 
 
