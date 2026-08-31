@@ -9,11 +9,14 @@ overrides the file; ``CICADA_API_AUTH=off`` disables the check (tests/dev only
 — logged loudly at startup).
 
 Open paths (no bearer token required): ``GET /healthz`` (installer/doctor
-liveness probe) and ``POST /capture/telegram`` (Telegram's servers hit this
-webhook through a public tunnel and cannot send our bearer header). Today that
-route is gated only by Telegram being *configured*
-(``CICADA_TELEGRAM_BOT_TOKEN`` set, checked in ``api/routers/capture.py``), not
-by a per-request secret verifying the caller really is Telegram — see G57.
+liveness probe), ``POST /capture/telegram`` (Telegram's servers hit this
+webhook through a public tunnel and cannot send our bearer header), and
+``GET /sources/connectors/pinterest/callback`` (G71 — Pinterest's OAuth
+redirect lands in the user's own browser, which likewise cannot send it;
+gated instead by a single-use, 10-minute ``state`` nonce). Today the Telegram
+route is gated only by Telegram being *configured* (``CICADA_TELEGRAM_BOT_TOKEN``
+set, checked in ``api/routers/capture.py``), not by a per-request secret
+verifying the caller really is Telegram — see G57.
 """
 from __future__ import annotations
 
@@ -25,7 +28,14 @@ from fastapi import Header, HTTPException, Request
 from loguru import logger
 
 TOKEN_FILE_NAME = "api_token"
-_OPEN_PATHS = frozenset({"/healthz", "/capture/telegram"})
+_OPEN_PATHS = frozenset({
+    "/healthz",
+    "/capture/telegram",
+    # G71: Pinterest's OAuth redirect lands in the user's browser, which cannot
+    # send the bearer token. Gated instead by a single-use, 10-minute `state`
+    # nonce minted by POST /sources/connectors/pinterest/authorize.
+    "/sources/connectors/pinterest/callback",
+})
 
 
 def cicada_home() -> Path:
