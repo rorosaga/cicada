@@ -191,10 +191,16 @@ an injected `decay_class_fn` (default: `decay_policy.class_lookup(memory_path)`)
 never resurrected.
 
 **Migration.** `api/services/decay_migration.backfill_decay_classes` runs once
-per bank on API startup (marker `.decay_classed`, scoped to `entities/`, author
-`cicada`, trigger `maintenance/decay_class_backfill`): media → evergreen/0.0
-with any wrongly-faded page restored to `active` at confidence ≥ 0.7, skills →
-durable.
+per bank (marker `.decay_classed`, author `cicada`, trigger
+`maintenance/decay_class_backfill`): media → evergreen/0.0 with any
+wrongly-faded page restored to `active` at confidence ≥ 0.7, skills → durable.
+Its commit names **exactly the pages it rewrote** — never a `entities/`
+directory pathspec — so a pre-existing dirty edit or a concurrent Sleep write is
+never mis-attributed to `cicada`. It runs from
+`api/services/bank_migrations.run_bank_migrations`, the shared set of one-shot
+per-bank migrations (this plus the two inbox ones) invoked both from API startup
+for the boot-time bank and from `POST /banks/{name}/activate` for a bank
+switched to at runtime.
 
 ### Repo links
 Project/directory entities may carry an optional `repos:` frontmatter key linking them to local git checkouts:

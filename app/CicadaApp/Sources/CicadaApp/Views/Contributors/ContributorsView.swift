@@ -82,6 +82,9 @@ private struct ContributorRow: View {
     // poisoning risk to guard against here, just the same cache-key shape).
     @State private var commits: [ContributorCommit]?
     @State private var isLoadingCommits = false
+    /// Set when the commits fetch FAILED. `commits` stays nil in that case, so
+    /// the row can retry — a failure must never be cached as "no commits".
+    @State private var commitsLoadFailed = false
     @State private var openDiff: DiffCacheKey?
     @State private var commitDiffs: [DiffCacheKey: EntityDiff] = [:]
     @State private var loadingDiffs: Set<DiffCacheKey> = []
@@ -121,13 +124,38 @@ private struct ContributorRow: View {
         .background(CicadaTheme.surfaceHover.opacity(0.4))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
         .task(id: isExpanded) {
-            guard isExpanded, commits == nil, !isLoadingCommits else { return }
-            isLoadingCommits = true
-            commits = (try? await APIClient.shared.fetchContributorCommits(
-                author: contributor.author
-            )) ?? []
-            isLoadingCommits = false
+            // Re-expanding after a failure retries: `commits` is still nil.
+            guard isExpanded, commits == nil else { return }
+            await loadCommits()
         }
+    }
+
+    /// Fetch this author's commits. A failure leaves `commits` nil and raises
+    /// `commitsLoadFailed`, so the drill-down shows a retry affordance instead
+    /// of the "No commits found for this author" empty state. A CANCELLED
+    /// fetch (the row was collapsed while the request was in flight) is neither
+    /// — it clears both flags so re-expanding simply fetches again.
+    private func loadCommits() async {
+        guard !isLoadingCommits else { return }
+        isLoadingCommits = true
+        commitsLoadFailed = false
+        defer { isLoadingCommits = false }
+        do {
+            commits = try await APIClient.shared.fetchContributorCommits(
+                author: contributor.author
+            )
+        } catch {
+            guard !Self.isCancellation(error) else { return }
+            commitsLoadFailed = true
+        }
+    }
+
+    /// URLSession surfaces a cancelled request as `URLError.cancelled`, not as
+    /// `CancellationError`, so both have to be recognised.
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
     }
 
     private var summary: some View {
@@ -180,6 +208,22 @@ private struct ContributorRow: View {
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
+        } else if commitsLoadFailed {
+            // NOT the empty state: the fetch failed, so we don't know whether
+            // this author has commits. Same shape as `DiffView.error`.
+            Button { Task { await loadCommits() } } label: {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(CicadaTheme.diffRemoved)
+                    Text("Couldn't load these commits — tap to retry")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Retry loading commits for \(contributor.author)")
         } else if let commits, commits.isEmpty {
             Text("No commits found for this author.")
                 .font(CicadaTheme.captionFont)
@@ -219,6 +263,13 @@ private struct ContributorRow: View {
                     ForEach(commit.entities, id: \.self) { entityId in
                         entityChip(entityId, commit: commit)
                     }
+                    // The backend caps the chips it sends (a Sleep cycle can
+                    // touch 900 pages). Say so rather than under-report; the
+                    // capsule is deliberately NOT a button — there is no id
+                    // behind it to diff.
+                    if commit.hiddenEntityCount > 0 {
+                        moreEntitiesCapsule(commit.hiddenEntityCount)
+                    }
                 }
             }
 
@@ -237,6 +288,21 @@ private struct ContributorRow: View {
         .padding(CicadaTheme.spacingSM)
         .background(CicadaTheme.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+    }
+
+    /// "+N more" — a non-interactive sibling of `entityChip`, styled as muted
+    /// so it doesn't read as a tappable entity.
+    private func moreEntitiesCapsule(_ hidden: Int) -> some View {
+        Text("+\(hidden) more")
+            .font(.system(size: 11))
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(CicadaTheme.surfaceHover)
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .clipShape(Capsule())
+            .help("\(hidden) more entity page(s) changed in this commit")
+            .accessibilityLabel("\(hidden) more entities changed, not shown")
     }
 
     private func entityChip(_ entityId: String, commit: ContributorCommit) -> some View {

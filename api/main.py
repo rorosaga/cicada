@@ -36,8 +36,7 @@ from api.routers import (
 from api.services import bank_registry, sleep_scheduler
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
-from api.services.decay_migration import backfill_decay_classes
-from api.services.inbox_migration import dedup_open_items, migrate_to_inbox
+from api.services.bank_migrations import run_bank_migrations
 
 # --- Logging setup ---
 # Remove loguru default handler and add our own format
@@ -100,28 +99,12 @@ async def lifespan(app: FastAPI):
     if not git_existed and (settings.memory_path / ".git").exists():
         logger.info("Initialized git repo in memory directory")
 
-    # One-time idempotent migration of legacy nudges/clarifications into inbox/.
-    # Never crashes boot — a failure logs loudly and leaves legacy dirs intact.
-    moved = migrate_to_inbox(settings.memory_path)
-    if moved:
-        logger.info(f"Migrated {moved} legacy items into inbox/")
-
-    # G60: one-time collapse of duplicate open questions written before dedup
-    # existed. Same never-crash-boot contract; marker-guarded.
-    deduped = dedup_open_items(settings.memory_path)
-    if deduped:
-        logger.info(f"Collapsed {deduped} duplicate open inbox item(s)")
-
-    # G66: one-time backfill of `decay_class` for pages written before the
-    # class vocabulary existed (media -> evergreen, skills -> durable). Same
-    # never-crash-boot contract; marker-guarded, authored `cicada`.
-    classed = backfill_decay_classes(settings.memory_path)
-    if classed["media"] or classed["skills"]:
-        logger.info(
-            f"Backfilled decay classes: {classed['media']} media -> evergreen, "
-            f"{classed['skills']} skills -> durable, "
-            f"{classed['restored']} restored to active"
-        )
+    # The one-shot per-bank migrations (legacy nudges -> inbox/, duplicate open
+    # question collapse, decay-class backfill). Each is marker-guarded and never
+    # raises, so boot continues on failure. The SAME set runs from
+    # `POST /banks/{name}/activate`, so a bank switched to at runtime is
+    # migrated too — see api/services/bank_migrations.py.
+    run_bank_migrations(settings.memory_path)
 
     entities_count = len(list((settings.memory_path / "entities").glob("*.md")))
     episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))

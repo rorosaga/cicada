@@ -139,6 +139,62 @@ def test_non_entity_paths_never_leak_into_entities(repo):
     assert commit.entities == ["deep"]
 
 
+def test_the_entity_chip_list_is_capped_but_the_total_is_honest(repo):
+    """H1: a real Sleep cycle touches hundreds of pages; the wire list is capped.
+
+    The app renders a tappable chip per id, so an uncapped `entities` is a
+    render-time blow-up — but `entities_total` must still report the truth so
+    the row can say "+N more".
+    """
+    n = git_service.MAX_COMMIT_ENTITIES + 7
+    for i in range(n):
+        _write(repo, f"entities/page-{i:03d}.md", "v1")
+    _commit(repo, "Sleep cycle", ["entities/page-000.md: created"], ["gpt-5.4-mini"])
+
+    commit = run(git_service.get_contributor_commits(repo, "gpt-5.4-mini"))[0]
+
+    assert len(commit.entities) == git_service.MAX_COMMIT_ENTITIES
+    assert commit.entities_total == n
+    assert commit.files_changed == n
+    # The cap keeps the FIRST ids of the sorted list, so it is stable across
+    # fetches rather than an arbitrary sample.
+    assert commit.entities == [f"page-{i:03d}" for i in range(git_service.MAX_COMMIT_ENTITIES)]
+
+
+def test_a_small_commit_reports_entities_total_equal_to_its_entities(repo):
+    _write(repo, "entities/alpha.md", "v1")
+    _write(repo, "entities/beta.md", "v1")
+    _commit(repo, "Sleep cycle", ["entities/alpha.md: created"], ["gpt-5.4-mini"])
+
+    commit = run(git_service.get_contributor_commits(repo, "gpt-5.4-mini"))[0]
+
+    assert commit.entities == ["alpha", "beta"]
+    assert commit.entities_total == 2, "no phantom '+N more' for an uncapped commit"
+
+
+def test_the_history_walk_is_bounded_by_the_log_window(repo, monkeypatch):
+    """M3: `git log --name-only` materialises every commit it walks.
+
+    The window is the documented bound: an author whose only commit is older
+    than it does not appear in the drill-down. Shrunk here rather than writing
+    500 commits.
+    """
+    monkeypatch.setattr(git_service, "CONTRIBUTOR_LOG_WINDOW_MULTIPLIER", 1)
+    monkeypatch.setattr(git_service, "CONTRIBUTOR_LOG_WINDOW_MIN", 2)
+
+    _write(repo, "entities/ancient.md", "v1")
+    _commit(repo, "ancient cycle", ["entities/ancient.md: created"], ["cicada"])
+    for i in range(3):
+        _write(repo, "entities/alpha.md", f"v{i}")
+        _commit(repo, f"cycle {i}", ["entities/alpha.md: updated"], ["gpt-5.4-mini"])
+
+    # window = max(limit * 1, 2) = 2 -> only the two newest commits are read.
+    assert run(git_service.get_contributor_commits(repo, "cicada", limit=2)) == []
+    assert len(run(git_service.get_contributor_commits(repo, "gpt-5.4-mini", limit=2))) == 2
+    # A larger limit widens the window and the rare author reappears.
+    assert len(run(git_service.get_contributor_commits(repo, "cicada", limit=10))) == 1
+
+
 def test_commits_are_newest_first(repo):
     _write(repo, "entities/alpha.md", "v1")
     _commit(repo, "first", ["entities/alpha.md: created"], ["gpt-5.4-mini"])

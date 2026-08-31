@@ -171,12 +171,19 @@ class ContributorCommit(CamelModel):
     from ``GET /entities/{id}/history/{commit}/diff``. ``files_changed`` is a
     COUNT of every changed path (entities and everything else) — the ids
     themselves are already in ``entities``.
+
+    ``entities`` is CAPPED (``git_service.MAX_COMMIT_ENTITIES``): a real Sleep
+    cycle touches hundreds of pages (895 in one live commit) and the app lays
+    out one tappable chip per id, so an uncapped list is a payload and a
+    render-time blow-up. ``entities_total`` is the true count, so the app can
+    render "+N more" honestly instead of silently under-reporting.
     """
 
     commit_hash: str
     date: str  # ISO date (YYYY-MM-DD)
     subject: str
     entities: list[str] = []
+    entities_total: int = 0
     files_changed: int = 0
 
 

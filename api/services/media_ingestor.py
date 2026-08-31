@@ -852,9 +852,18 @@ def compute_relevance(fm: dict, *, now: datetime | None = None) -> float:
 
     - ``confidence`` (default 0.7) — the save-time/Sleep-adjusted confidence;
     - ``recency_decay = exp(-decay_rate * weeks_since_last_referenced)`` — fresh
-      items score near 1.0, stale items fade; ``decay_rate`` defaults to 0.03/wk;
+      items score near 1.0, stale items fade;
     - ``personal_relevance_weight`` (default 1.0) — an optional manual boost
       surfaced by §3.2 (read-if-present, neutral otherwise).
+
+    The rate comes from :func:`decay_policy.resolve`, NOT from a raw
+    ``decay_rate:`` read (G66 §1.9). That matters for a page written before the
+    class vocabulary existed and not yet touched by the backfill: a legacy
+    ``type: media`` page still carrying ``decay_rate: 0.03`` resolves to
+    ``evergreen``/0.0, so the Feed agrees with the graph, the entity engine and
+    the claim engine instead of being the one consumer that still fades a
+    bookmark. An explicit numeric on a decaying class still wins, per the
+    resolver's own precedence.
 
     Pure + side-effect-free so it is directly unit-testable. Any malformed field
     degrades to its default rather than raising.
@@ -869,11 +878,7 @@ def compute_relevance(fm: dict, *, now: datetime | None = None) -> float:
         confidence = 0.7
     confidence = max(0.0, min(1.0, confidence))
 
-    try:
-        decay_rate = float(fm.get("decay_rate", 0.03))
-    except (TypeError, ValueError):
-        decay_rate = 0.03
-    decay_rate = max(0.0, decay_rate)
+    decay_rate = decay_policy.resolve(fm)[1]  # already clamped to >= 0
 
     # Age in weeks since last reference (or save). Default: treat as fresh.
     weeks = 0.0

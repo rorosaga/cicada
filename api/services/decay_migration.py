@@ -1,8 +1,10 @@
 """G66 §1.8 -- one-shot, idempotent backfill of ``decay_class`` into a bank.
 
-Runs on API startup, once per bank, guarded by a ``.decay_classed`` marker in
-exactly the shape ``inbox_migration.dedup_open_items`` uses. It corrects the two
-populations the old hardcoded rates got wrong:
+Runs once per bank -- on API startup for the boot-time bank and on
+``POST /banks/{name}/activate`` for a bank switched to at runtime (both via
+``bank_migrations.run_bank_migrations``) -- guarded by a ``.decay_classed``
+marker in exactly the shape ``inbox_migration.dedup_open_items`` uses. It
+corrects the two populations the old hardcoded rates got wrong:
 
 - ``type: media`` (bookmarks, saved videos, images) -> ``evergreen`` /
   ``decay_rate: 0.0``. These are ARTIFACTS, not beliefs; they never should have
@@ -56,15 +58,14 @@ def backfill_decay_classes(memory_path) -> dict:
         return empty
 
     try:
-        counts = _rewrite_pages(entities_dir)
+        counts, written = _rewrite_pages(entities_dir)
     except Exception as e:
         logger.error(f"Decay-class backfill FAILED — leaving entities/ untouched: {e}")
         return empty
 
-    changed = counts["media"] + counts["skills"]
-    if changed:
+    if written:
         try:
-            _commit_backfill(memory_path, counts)
+            _commit_backfill(memory_path, counts, written)
         except Exception as e:
             # Pages are corrected on disk but the commit failed (or this isn't
             # a git repo). Do NOT write the marker: the rewrite itself is
@@ -77,8 +78,16 @@ def backfill_decay_classes(memory_path) -> dict:
     return counts
 
 
-def _rewrite_pages(entities_dir: Path) -> dict:
+def _rewrite_pages(entities_dir: Path) -> tuple[dict, list[Path]]:
+    """Rewrite the pages that need a class. Returns ``(counts, written_paths)``.
+
+    The path list is what makes the commit honest: the migration stages and
+    commits EXACTLY the files it rewrote, so a pre-existing dirty edit (a hand
+    edit, or a concurrent Sleep write) under ``entities/`` is never swept into a
+    ``Cicada-Author: cicada`` commit.
+    """
     counts = {"media": 0, "skills": 0, "restored": 0}
+    written: list[Path] = []
 
     for filepath in sorted(entities_dir.glob("*.md")):
         try:
@@ -109,15 +118,31 @@ def _rewrite_pages(entities_dir: Path) -> dict:
             continue
 
         markdown_parser.write(filepath, fm, parsed.body)
+        written.append(filepath)
 
-    return counts
+    return counts, written
 
 
-def _commit_backfill(memory_path: Path, counts: dict) -> None:
-    """Commit scoped to ONLY ``entities`` (never ``git add -A``)."""
-    subprocess.run(["git", "add", "--", "entities"], cwd=str(memory_path), check=True)
+def _commit_backfill(memory_path: Path, counts: dict, written: list[Path]) -> None:
+    """Commit scoped to EXACTLY the pages this migration rewrote.
+
+    Not ``git add -A``, and not even ``-- entities`` (the old form): a
+    directory pathspec commits the working-tree state of every path under it,
+    which would fold an unrelated dirty page — or a concurrent Sleep write —
+    into this ``cicada``-authored commit and corrupt the provenance ledger.
+    ``git add`` runs first so an as-yet-untracked page is matched by the
+    ``git commit`` pathspec.
+    """
+    # One argv per call: the live bank's whole migratable population is ~612
+    # pages (~30 KB of pathspec), two orders of magnitude under ARG_MAX, and a
+    # partial `git commit -- <paths>` has to name all of them in one call
+    # anyway, so there is nothing to gain from chunking the staging call.
+    rel = [str(p.relative_to(memory_path)) for p in written]
+    if not rel:
+        return
+    subprocess.run(["git", "add", "--", *rel], cwd=str(memory_path), check=True)
     status = subprocess.run(
-        ["git", "status", "--porcelain", "--", "entities"],
+        ["git", "status", "--porcelain", "--", *rel],
         cwd=str(memory_path), check=True, capture_output=True, text=True,
     )
     if not status.stdout.strip():
@@ -132,7 +157,7 @@ def _commit_backfill(memory_path: Path, counts: dict) -> None:
         authors=["cicada"],
     )
     subprocess.run(
-        ["git", "commit", "-m", message, "--", "entities"],
+        ["git", "commit", "-m", message, "--", *rel],
         cwd=str(memory_path),
         check=True,
     )

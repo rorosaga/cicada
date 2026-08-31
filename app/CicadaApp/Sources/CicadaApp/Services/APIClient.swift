@@ -938,9 +938,15 @@ actor APIClient {
     /// commits, for the Contributors drill-down. `author` is a QUERY value
     /// because model ids contain slashes (`anthropic/claude-opus-4`); it is
     /// percent-encoded so the slash never splits the path. On demand only — no
-    /// Store domain, no ETag. Returns `[]` on any failure (including a backend
-    /// that hasn't shipped the endpoint) so the row shows an empty state rather
-    /// than an error banner.
+    /// Store domain, no ETag.
+    ///
+    /// THROWS on failure. It used to swallow every error into `[]`, which the
+    /// drill-down then cached and rendered as "No commits found for this
+    /// author" — a false claim about who wrote memory, sticky for the life of
+    /// the view, and triggered by something as ordinary as collapsing the row
+    /// mid-flight (a cancelled task). The one exception is a 404, which means
+    /// the backend predates this endpoint rather than that the fetch failed:
+    /// there is genuinely no drill-down to show, and no retry would help.
     func fetchContributorCommits(author: String, limit: Int = 50) async throws -> [ContributorCommit] {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&+=?/#")
@@ -950,7 +956,7 @@ actor APIClient {
                 "/contributors/commits?author=\(a)&limit=\(limit)"
             )
             return resp.commits
-        } catch {
+        } catch APIError.httpError(404, _) {
             return []
         }
     }

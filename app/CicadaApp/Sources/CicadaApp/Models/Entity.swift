@@ -244,16 +244,25 @@ struct ContributorsResponse: Codable {
 // G67 — one commit in a contributor's drill-down. `entities` are entity ids,
 // each of which can be handed to `/entities/{id}/history/{commit}/diff` to show
 // exactly what this author changed on that page in this commit.
+//
+// `entities` is CAPPED by the backend (a real Sleep cycle touches hundreds of
+// pages); `entitiesTotal` is the true count, so the chip row can render an
+// honest "+N more" instead of quietly under-reporting. An older backend that
+// doesn't send the field falls back to `entities.count` — no phantom "+N".
 struct ContributorCommit: Identifiable, Codable {
     var id: String { commitHash }
     let commitHash: String
     let date: String
     let subject: String
     let entities: [String]
+    let entitiesTotal: Int
     let filesChanged: Int
 
+    /// How many touched entities the backend withheld from `entities`.
+    var hiddenEntityCount: Int { max(0, entitiesTotal - entities.count) }
+
     enum CodingKeys: String, CodingKey {
-        case commitHash, date, subject, entities, filesChanged
+        case commitHash, date, subject, entities, entitiesTotal, filesChanged
     }
 
     init(from decoder: Decoder) throws {
@@ -261,16 +270,19 @@ struct ContributorCommit: Identifiable, Codable {
         commitHash = try c.decode(String.self, forKey: .commitHash)
         date = try c.decodeIfPresent(String.self, forKey: .date) ?? ""
         subject = try c.decodeIfPresent(String.self, forKey: .subject) ?? ""
-        entities = try c.decodeIfPresent([String].self, forKey: .entities) ?? []
+        let ids = try c.decodeIfPresent([String].self, forKey: .entities) ?? []
+        entities = ids
+        entitiesTotal = try c.decodeIfPresent(Int.self, forKey: .entitiesTotal) ?? ids.count
         filesChanged = try c.decodeIfPresent(Int.self, forKey: .filesChanged) ?? 0
     }
 
     init(commitHash: String, date: String, subject: String,
-         entities: [String] = [], filesChanged: Int = 0) {
+         entities: [String] = [], entitiesTotal: Int? = nil, filesChanged: Int = 0) {
         self.commitHash = commitHash
         self.date = date
         self.subject = subject
         self.entities = entities
+        self.entitiesTotal = entitiesTotal ?? entities.count
         self.filesChanged = filesChanged
     }
 }

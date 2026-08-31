@@ -145,6 +145,53 @@ def test_the_commit_is_scoped_authored_cicada_and_tagged_with_its_trigger(tmp_pa
     assert "scratch.txt" in _git(repo, "status", "--porcelain")
 
 
+def test_a_pre_existing_dirty_entity_page_is_never_swept_into_the_commit(tmp_path):
+    """H2: the commit names EXACTLY the pages the migration rewrote.
+
+    The old ``-- entities`` directory pathspec committed the working-tree state
+    of every path under ``entities/``, so an unrelated hand edit — or a
+    concurrent Sleep write — landed inside a ``Cicada-Author: cicada`` commit
+    and corrupted the provenance ledger this system exists to keep honest.
+    """
+    repo = _init_memory(tmp_path)
+    media = _page(repo, "media-one", type="media")
+    untouched = _page(repo, "rodrigo", type="person")
+    _seed(repo)
+
+    # Someone (a person, or a Sleep cycle in another process) edits a page the
+    # migration has no business touching.
+    untouched.write_text(
+        untouched.read_text(encoding="utf-8") + "\n\nA hand edit.\n", encoding="utf-8"
+    )
+
+    decay_migration.backfill_decay_classes(repo)
+
+    committed = _git(repo, "show", "--name-only", "--format=", "HEAD").split()
+    assert committed == ["entities/media-one.md"], committed
+    assert " M entities/rodrigo.md" in _git(repo, "status", "--porcelain")
+    assert "A hand edit." in untouched.read_text(encoding="utf-8"), "edit left on disk"
+    assert _fm(media)["decay_class"] == "evergreen"
+
+
+def test_an_untracked_page_the_migration_rewrites_is_still_committed(tmp_path):
+    """The scoped ``git add`` has to precede the scoped ``git commit``.
+
+    A media page that was never committed is untracked; a bare
+    ``git commit -- <path>`` would fail on it ("pathspec did not match"), the
+    marker would not be written, and the migration would retry forever.
+    """
+    repo = _init_memory(tmp_path)
+    _page(repo, "rodrigo", type="person")
+    _seed(repo)
+    _page(repo, "media-new", type="media")  # never committed
+
+    counts = decay_migration.backfill_decay_classes(repo)
+
+    assert counts["media"] == 1
+    assert (repo / ".decay_classed").exists(), "a failed commit would skip the marker"
+    assert "entities/media-new.md" in _git(repo, "show", "--name-only", "--format=", "HEAD")
+
+
 def test_the_migration_is_idempotent_and_marker_guarded(tmp_path):
     repo = _init_memory(tmp_path)
     _page(repo, "media-one", type="media")

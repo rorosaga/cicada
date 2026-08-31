@@ -43,6 +43,28 @@ _DIFF_TRUNCATION_MARKER = "... [diff truncated]"
 # ask for the entire history of a bank with thousands of Sleep cycles.
 MAX_CONTRIBUTOR_COMMITS = 200
 
+# Cap on the entity ids carried by ONE ContributorCommit. A real Sleep cycle
+# rewrites hundreds of pages (measured on the live bank: 895 entity files in
+# one commit), and the app renders a tappable chip per id, so an uncapped list
+# is both a fat payload and a multi-thousand-view layout pass. The full count
+# still travels as `entities_total`, so the app can say "+N more".
+MAX_COMMIT_ENTITIES = 12
+
+# How far back `get_contributor_commits` is willing to walk.
+#
+# The listing filters on a `Cicada-Author:` trailer, and a rare author (e.g.
+# the reserved `cicada` system author, one commit deep in history) can sit at
+# ANY depth, so there is no depth at which the walk is provably complete. But
+# `git log --name-only` materialises every commit's full file list before the
+# Python loop can `break`, so an unbounded walk grows without limit with every
+# Sleep cycle. This window is the bound: `min(window, ...)` commits are read,
+# newest first, and an author whose commits are all older than it simply shows
+# as having none in the drill-down (`GET /contributors` aggregates are computed
+# separately and stay complete). Sized so a `limit=50` listing is still filled
+# for an author holding as little as 5% of the recent history.
+CONTRIBUTOR_LOG_WINDOW_MULTIPLIER = 20
+CONTRIBUTOR_LOG_WINDOW_MIN = 500
+
 
 def build_commit_message(
     subject: str,
@@ -488,18 +510,23 @@ async def get_contributor_commits(
     An author of ``"unknown"`` matches legacy untrailered commits. Returns ``[]``
     for a non-git dir, a blank author, or an author with no commits — the app
     renders an empty state, never an error.
+
+    The walk is bounded by ``--max-count`` (see ``CONTRIBUTOR_LOG_WINDOW_*``)
+    and each commit's ``entities`` list by ``MAX_COMMIT_ENTITIES``.
     """
     author = (author or "").strip()
     if not author or not (memory_path / ".git").exists():
         return []
 
     limit = max(1, min(int(limit or 50), MAX_CONTRIBUTOR_COMMITS))
+    window = max(limit * CONTRIBUTOR_LOG_WINDOW_MULTIPLIER, CONTRIBUTOR_LOG_WINDOW_MIN)
     sep = "\x1f"
     rec = "\x1e"
     try:
         out = await _run_git(
             memory_path,
             "log",
+            f"--max-count={window}",
             f"--format={rec}%H{sep}%ad{sep}%s{sep}%b{sep}",
             "--date=short",
             "--name-only",
@@ -532,7 +559,9 @@ async def get_contributor_commits(
                 commit_hash=commit_hash.strip(),
                 date=date_str.strip(),
                 subject=subject.strip(),
-                entities=entities,
+                # Capped for the wire; the honest count rides alongside it.
+                entities=entities[:MAX_COMMIT_ENTITIES],
+                entities_total=len(entities),
                 files_changed=len(files),
             )
         )
