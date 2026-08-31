@@ -1013,6 +1013,31 @@ class SourceUploadResponse(CamelModel):
     source: str = "unknown"
 
 
+class SourceUploadCollection(CamelModel):
+    """One grouping inside an export — an IG collection, a YT playlist, a
+    Pinterest board, a bookmark folder — with how many items it holds."""
+
+    name: str
+    kind: str = "list"
+    count: int = 0
+
+
+class SourceUploadPreview(CamelModel):
+    """`POST /sources/upload?preview=true` — what a dropped export CONTAINS.
+
+    Staging-free by contract: answering this request writes no episode, no
+    entity, no url_index entry and no commit, and touches no network.
+    ``recognized`` is false both for a file we cannot parse at all and for one
+    whose format we recognize but which yields nothing — ``warnings`` says which.
+    """
+
+    recognized: bool = False
+    platform: str = "unknown"
+    total: int = 0
+    collections: list[SourceUploadCollection] = []
+    warnings: list[str] = []
+
+
 class SourceRssRequest(CamelModel):
     # Exactly one of feed_xml / feed_url is required. ``feed_xml`` is the
     # keyless/offline path (paste or fetched-elsewhere XML); ``feed_url`` only

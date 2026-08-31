@@ -18,6 +18,8 @@ from api.models.schemas import (
     SourceRssRequest,
     SourceSaveRequest,
     SourceSaveResponse,
+    SourceUploadCollection,
+    SourceUploadPreview,
     SourceUploadResponse,
 )
 from api.services import (
@@ -101,23 +103,59 @@ async def save_source(
     )
 
 
-@router.post("/sources/upload", response_model=SourceUploadResponse)
+@router.post("/sources/upload", response_model=None)
 async def upload_sources(
     file: UploadFile,
     background_tasks: BackgroundTasks,
+    preview: bool = Query(False),
+    include_history: bool = Query(False),
     settings: Settings = Depends(get_settings),
-):
-    """Ingest a bookmarks/Takeout/URL-list export.
+) -> SourceUploadResponse | SourceUploadPreview:
+    """Ingest — or, with ``?preview=true``, merely *describe* — a saved-content export.
 
     Parses and dedups synchronously so counts come back immediately; enrichment
     and the episode/entity writes run in the background for large batches.
+
+    ``?preview=true`` (G71 §4.3) STAGES NOTHING: it runs the identical sniff and
+    parse, then returns the collection/board/playlist breakdown with per-item
+    counts so the import overlay can show the user what they are about to import
+    before they commit to it. Nothing is cached server-side — Confirm re-posts
+    the same file without the flag.
+
+    ``?include_history=true`` opts a TikTok export's Browsing History in (default
+    off: ambient exhaust, not saves — G69).
     """
     content = await file.read()
     filename = file.filename or ""
+
+    if preview:
+        # Off the event loop: parsing a large export (a Takeout zip) is CPU-bound
+        # and would otherwise stall the SSE stream, same reason /sources/channels
+        # threadpools its origin scan.
+        result = await run_in_threadpool(
+            media_ingestor.preview_upload,
+            content,
+            filename,
+            include_history=include_history,
+        )
+        logger.info(
+            f"Sources preview: {filename} ({len(content)} bytes) -> "
+            f"{result.platform}, {result.total} item(s)"
+        )
+        return SourceUploadPreview(
+            recognized=result.recognized,
+            platform=result.platform,
+            total=result.total,
+            collections=[SourceUploadCollection(**c) for c in result.collections],
+            warnings=result.warnings,
+        )
+
     logger.info(f"Sources upload: {filename} ({len(content)} bytes)")
 
     try:
-        items, source_label, from_bookmark_file = media_ingestor.parse_upload(content, filename)
+        items, source_label, from_bookmark_file = media_ingestor.parse_upload(
+            content, filename, include_history=include_history
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
