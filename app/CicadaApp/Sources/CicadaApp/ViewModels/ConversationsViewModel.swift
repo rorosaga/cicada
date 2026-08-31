@@ -16,6 +16,9 @@ enum ResumeOutcome: Equatable {
 final class ConversationsViewModel {
 
     private(set) var conversations: [ConversationSummary] = []
+    /// Ids `load(ids:)` asked for that the bank does not know (a real 404, not
+    /// "fell off the end of the recent page"). Empty after every `load()`.
+    private(set) var unknownIds: [String] = []
     private(set) var hasLoaded = false
     private(set) var isLoading = false
     private(set) var errorMessage: String?
@@ -47,9 +50,42 @@ final class ConversationsViewModel {
         defer { isLoading = false }
         do {
             conversations = try await api.fetchRecentConversations(limit: limit)
+            unknownIds = []
             hasLoaded = true
             errorMessage = nil
         } catch {
+            errorMessage = "Couldn't load conversations"
+        }
+    }
+
+    /// Load an explicit set of conversations BY ID — the popover's path.
+    ///
+    /// Each id is resolved against the WHOLE bank (`GET /conversations/{id}`),
+    /// never by looking it up inside a capped `/recent` page: the live bank
+    /// already holds more conversations than that page can carry, so absence
+    /// from it means "not recent", not "this bank forgot it". Ids the backend
+    /// really doesn't know land in `unknownIds` so the UI can say so exactly.
+    func load(ids: [String]) async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            var found: [ConversationSummary] = []
+            var missing: [String] = []
+            for id in ids {
+                if let conversation = try await api.fetchConversation(id: id) {
+                    found.append(conversation)
+                } else {
+                    missing.append(id)
+                }
+            }
+            conversations = found
+            unknownIds = missing
+            hasLoaded = true
+            errorMessage = nil
+        } catch {
+            // A transport failure is NOT "the bank doesn't have it" — say the
+            // honest thing and leave `hasLoaded` false so nothing claims a miss.
             errorMessage = "Couldn't load conversations"
         }
     }

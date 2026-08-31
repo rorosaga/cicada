@@ -17,6 +17,9 @@ struct ConversationSummary: Identifiable, Codable, Hashable {
     let episodeCount: Int
     let entityIds: [String]
     let entityCount: Int
+    /// RESERVED — the backend always sends null today (nothing records a model
+    /// against a conversation id yet); populated once engine calls carry
+    /// session refs (G49). Decoded so that day needs no app change.
     let model: String?
     let resumable: Bool
 

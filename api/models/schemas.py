@@ -234,6 +234,12 @@ class ConversationSummary(CamelModel):
     deliberately absent — it is returned only by the resume endpoint, which
     needs a cwd to launch. ``resumable`` is computed per request and never
     persisted.
+
+    ``model`` is RESERVED and always ``None`` in this slice: nothing that
+    writes memory records a model against a conversation id yet, so it would be
+    a structurally-null join (see ``session_stats.project_conversation``). It
+    stays on the wire — the app already decodes it — for when engine calls
+    carry session refs (G49).
     """
 
     conversation_id: str

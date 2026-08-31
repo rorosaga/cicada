@@ -976,6 +976,22 @@ actor APIClient {
         }
     }
 
+    /// `GET /conversations/{id}` — one conversation by exact id, resolved
+    /// against the WHOLE bank rather than the capped `/recent` page. `nil`
+    /// means the backend genuinely has no episode carrying that id (404) — or
+    /// predates the route, which is indistinguishable and equally "can't show
+    /// it". Never throws on a 404, so the caller can say something honest.
+    func fetchConversation(id: String) async throws -> ConversationSummary? {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: allowed) ?? id
+        do {
+            return try await get("/conversations/\(encoded)")
+        } catch APIError.httpError(404, _) {
+            return nil
+        }
+    }
+
     /// `POST /conversations/{id}/resume` — validate a conversation and hand
     /// back a launch descriptor (G48 §5). 400 (not a resumable id), 404
     /// (unknown conversation) and 409 (transcript retention-cleaned) all

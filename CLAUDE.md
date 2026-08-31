@@ -80,6 +80,9 @@ minted once per MCP process from `CLAUDE_CODE_SESSION_ID` → `CICADA_SESSION_ID
 conversations transitively via `source_episodes`, exactly as they do for `origin`.
 **Transcripts under `~/.claude/` are never read** — the only contact is an `isfile()` check
 answering "is this session still resumable", computed per request and never persisted.
+A conversation row's `model` is **reserved — always null**, and will be populated once engine
+calls carry session refs (G49); nothing that writes memory records a model against a
+conversation id today, so the row states that rather than joining a ledger that can't answer.
 
 ### Sleep Cycle (5-Stage Nightly Batch Pipeline)
 Triggered by cron or manual command:
@@ -415,7 +418,10 @@ GET  /sleep/status, /sleep/history,
 PUT  /sleep/schedule                      → update the sleep-cycle schedule
 POST /conversations/upload                → ingest a conversation export file
 GET  /conversations/recent                → conversations that wrote to memory (MCP sessions +
-                                            imports), newest first; ETag'd; `resumable` per-request
+                                            imports), newest first; ETag'd; `resumable` per-request.
+                                            CAPPED (limit ≤ 200) — never a membership test
+GET  /conversations/{id}                  → one conversation by exact id, resolved against the
+                                            whole bank (404 = the bank truly has no episode for it)
 POST /conversations/{id}/resume           → validated `claude --resume` descriptor (400 bad id /
                                             404 unknown / 409 transcript_gone). Transcripts are
                                             never read — isfile() only.

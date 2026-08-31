@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import date, timedelta
 from pathlib import Path
 
 from api.services import bank_index
@@ -34,9 +33,6 @@ SESSION_UUID_RE = re.compile(
 # so an uncapped list is both a fat payload and a big layout pass. The honest
 # count rides alongside as ``entity_count``, so the app says "+N more".
 MAX_CONVERSATION_ENTITIES = 12
-
-# How far back the telemetry ledger is read for the best-effort ``model``.
-TELEMETRY_LOOKBACK_DAYS = 90
 
 
 def is_uuid(value: str) -> bool:
@@ -69,32 +65,6 @@ def default_transcript_exists(
         return False
     base = root if root is not None else transcripts_root()
     return os.path.isfile(base / project_slug(project_dir) / f"{session_id}.jsonl")
-
-
-def models_by_session(lookback_days: int = TELEMETRY_LOOKBACK_DAYS) -> dict[str, str]:
-    """conversation id -> model of the most recent telemetry event citing it.
-
-    Best-effort by design: returns ``{}`` when telemetry is off, unreadable, or
-    simply has nothing for a session. Never raises.
-    """
-    try:
-        from api.services import telemetry
-
-        events = telemetry.read_events(start=date.today() - timedelta(days=lookback_days))
-    except Exception:
-        return {}
-
-    latest: dict[str, tuple[str, str]] = {}
-    for ev in events:
-        refs = ev.refs or {}
-        sid = str(refs.get("session_id") or "").strip()
-        model = (ev.model or "").strip()
-        if not sid or not model:
-            continue
-        prev = latest.get(sid)
-        if prev is None or ev.ts >= prev[0]:
-            latest[sid] = (ev.ts, model)
-    return {sid: model for sid, (_ts, model) in latest.items()}
 
 
 def _group(memory_path: Path) -> dict[str, dict]:
@@ -163,8 +133,13 @@ def _group(memory_path: Path) -> dict[str, dict]:
     return groups
 
 
-def _project(group: dict, *, transcript_exists, models: dict[str, str]) -> dict:
-    """One group -> the public row. ``project_dir`` is deliberately dropped."""
+def project_conversation(group: dict, *, transcript_exists) -> dict:
+    """One group -> the public row. ``project_dir`` is deliberately dropped.
+
+    Shared by ``aggregate_conversations`` (the list) and
+    ``GET /conversations/{id}`` (the by-id lookup), so both serialise a
+    conversation exactly the same way.
+    """
     entity_ids = sorted(group["entity_ids"])
     return {
         "conversation_id": group["conversation_id"],
@@ -177,7 +152,14 @@ def _project(group: dict, *, transcript_exists, models: dict[str, str]) -> dict:
         "episode_count": group["episode_count"],
         "entity_ids": entity_ids[:MAX_CONVERSATION_ENTITIES],
         "entity_count": len(entity_ids),
-        "model": models.get(group["conversation_id"]),
+        # RESERVED, always None in this slice. Nothing that writes memory
+        # records a model against a conversation id: the only producer of a
+        # ``session_id`` telemetry ref (MCP ``agentic_write``) has no model to
+        # record, so any ledger join here would be a guaranteed-empty scan of
+        # the whole ledger on every request. The field stays on the wire so the
+        # app keeps decoding unchanged once engine calls carry session refs
+        # (G49).
+        "model": None,
         # Computed per request, NEVER cached or persisted: transcripts get
         # retention-cleaned behind our back.
         "resumable": bool(
@@ -191,7 +173,6 @@ def aggregate_conversations(
     *,
     limit: int = 20,
     transcript_exists=default_transcript_exists,
-    models: dict[str, str] | None = None,
 ) -> list[dict]:
     """Recent conversations, newest write first.
 
@@ -201,10 +182,8 @@ def aggregate_conversations(
     — only the resume endpoint ever sees it.
     """
     groups = _group(Path(memory_path))
-    if models is None:
-        models = models_by_session()
     rows = [
-        _project(g, transcript_exists=transcript_exists, models=models)
+        project_conversation(g, transcript_exists=transcript_exists)
         for g in groups.values()
     ]
     rows.sort(key=lambda r: (r["last_seen"], r["conversation_id"]), reverse=True)

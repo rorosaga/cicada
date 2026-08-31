@@ -223,24 +223,34 @@ def test_resumable_uses_the_injected_probe(tmp_path):
     assert rows[UUID_B]["resumable"] is False
 
 
-# --- model join --------------------------------------------------------------
+# --- model (reserved) --------------------------------------------------------
 
 
-def test_model_comes_from_the_latest_telemetry_event_for_that_session(tmp_path):
+def test_model_is_reserved_and_always_none(tmp_path):
+    # Nothing records a model against a conversation id yet, so the row must
+    # say so honestly rather than joining a ledger that can't answer. The key
+    # stays present so the app's decode is unchanged.
     memory = tmp_path / "memory"
     _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A)
 
-    row = session_stats.aggregate_conversations(
-        memory, transcript_exists=_never, models={UUID_A: "gpt-5.4-mini"}
-    )[0]
-    assert row["model"] == "gpt-5.4-mini"
-
-
-def test_model_is_none_when_the_ledger_knows_nothing(tmp_path):
-    memory = tmp_path / "memory"
-    _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A)
-    row = session_stats.aggregate_conversations(memory, transcript_exists=_never, models={})[0]
+    row = session_stats.aggregate_conversations(memory, transcript_exists=_never)[0]
+    assert "model" in row
     assert row["model"] is None
+
+
+def test_aggregating_reads_no_telemetry_ledger(tmp_path, monkeypatch):
+    # Guards the M1 fix: a per-request 90-day ledger scan for a structurally
+    # null field is exactly what was removed.
+    from api.services import telemetry
+
+    def _boom(*_a, **_kw):
+        raise AssertionError("conversation rows must not read the telemetry ledger")
+
+    monkeypatch.setattr(telemetry, "read_events", _boom)
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A)
+
+    assert session_stats.aggregate_conversations(memory, transcript_exists=_never)
 
 
 # --- find_conversation -------------------------------------------------------
@@ -327,3 +337,72 @@ def test_a_different_limit_gets_a_different_etag(tmp_path, monkeypatch):
     a = client.get("/conversations/recent?limit=5").headers["ETag"]
     b = client.get("/conversations/recent?limit=20").headers["ETag"]
     assert a != b
+
+
+def test_recent_rows_carry_a_null_model(tmp_path, monkeypatch):
+    client, memory = _client(tmp_path, monkeypatch)
+    _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A)
+    bank_index.invalidate()
+
+    row = client.get("/conversations/recent").json()[0]
+    assert "model" in row and row["model"] is None
+
+
+# --- GET /conversations/{id} -------------------------------------------------
+
+
+def test_by_id_returns_the_same_row_shape_as_recent(tmp_path, monkeypatch):
+    client, memory = _client(tmp_path, monkeypatch)
+    _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A,
+             harness="claude-code", project_dir="/Users/x/p", title="Index choice")
+    _entity(memory, "sqlite-vec", ["ep_1"])
+    bank_index.invalidate()
+
+    resp = client.get(f"/conversations/{UUID_A}")
+    assert resp.status_code == 200, resp.text
+    row = resp.json()
+    assert row == client.get("/conversations/recent").json()[0]
+    assert row["conversationId"] == UUID_A
+    assert row["entityIds"] == ["sqlite-vec"]
+    assert "projectDir" not in row, "project_dir must never cross this endpoint"
+
+
+def test_by_id_finds_a_conversation_that_recent_truncated_away(tmp_path, monkeypatch):
+    # THE M2 BUG: the popover used to resolve ids inside a capped /recent page,
+    # so an aged conversation looked like data loss. By-id sees the whole bank.
+    client, memory = _client(tmp_path, monkeypatch)
+    _episode(memory, "ep_1", timestamp="2026-08-01T10:00:00Z", session_id=UUID_A)
+    _episode(memory, "ep_2", timestamp="2026-08-31T10:00:00Z", session_id=UUID_B)
+    bank_index.invalidate()
+
+    recent = client.get("/conversations/recent?limit=1").json()
+    assert [r["conversationId"] for r in recent] == [UUID_B]
+    assert client.get(f"/conversations/{UUID_A}").json()["conversationId"] == UUID_A
+
+
+def test_by_id_404s_only_when_the_bank_truly_has_nothing(tmp_path, monkeypatch):
+    client, memory = _client(tmp_path, monkeypatch)
+    _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A)
+    bank_index.invalidate()
+
+    assert client.get(f"/conversations/{UUID_B}").status_code == 404
+    assert client.get("/conversations/ses_2026-08-31_deadbeef").status_code == 404
+
+
+def test_by_id_does_not_shadow_the_recent_route(tmp_path, monkeypatch):
+    client, memory = _client(tmp_path, monkeypatch)
+    _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A)
+    bank_index.invalidate()
+
+    assert isinstance(client.get("/conversations/recent").json(), list)
+
+
+def test_by_id_304s_on_an_unchanged_bank(tmp_path, monkeypatch):
+    client, memory = _client(tmp_path, monkeypatch)
+    _episode(memory, "ep_1", timestamp="2026-08-30T10:00:00Z", session_id=UUID_A)
+    bank_index.invalidate()
+
+    etag = client.get(f"/conversations/{UUID_A}").headers["ETag"]
+    second = client.get(f"/conversations/{UUID_A}", headers={"If-None-Match": etag})
+    assert second.status_code == 304
+    assert second.content == b""

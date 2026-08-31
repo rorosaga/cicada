@@ -124,6 +124,36 @@ final class ConversationsTests: XCTestCase {
         XCTAssertTrue(rows.isEmpty)
     }
 
+    func testFetchConversationGetsTheIdPath() async throws {
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/conversations/\(self.uuid)")
+            let body = """
+            {"conversationId": "\(self.uuid)", "title": "Index choice", "resumable": true}
+            """.data(using: .utf8)!
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                           httpVersion: nil, headerFields: nil)!
+            return (response, body)
+        }
+
+        let convo = try await APIClient(session: MockURLProtocol.makeSession())
+            .fetchConversation(id: uuid)
+
+        XCTAssertEqual(convo?.id, uuid)
+        XCTAssertEqual(convo?.title, "Index choice")
+    }
+
+    func testFetchConversationIsNilOnA404() async throws {
+        MockURLProtocol.handler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 404,
+                                           httpVersion: nil, headerFields: nil)!
+            return (response, Data("Not Found".utf8))
+        }
+        let convo = try await APIClient(session: MockURLProtocol.makeSession())
+            .fetchConversation(id: uuid)
+        XCTAssertNil(convo)
+    }
+
     func testResumeConversationPostsToTheIdPath() async throws {
         MockURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
@@ -240,6 +270,48 @@ final class ConversationsTests: XCTestCase {
 
         XCTAssertFalse(vm.canResume("ses_2026-08-31_deadbeef"))
         XCTAssertTrue(vm.conversations[0].resumable == false)
+    }
+
+    // MARK: - Entity chips (spec §4)
+
+    func testEveryEntityIsAChipWhenTheyFit() {
+        let convo = ConversationSummary(conversationId: uuid,
+                                        entityIds: ["cicada", "sqlite-vec"], entityCount: 2)
+        let plan = ConversationRow.chipPlan(for: convo)
+        XCTAssertEqual(plan.ids, ["cicada", "sqlite-vec"])
+        XCTAssertEqual(plan.hidden, 0, "no '+N more' when nothing is withheld")
+    }
+
+    func testARowWithNoEntitiesPlansNoChips() {
+        let plan = ConversationRow.chipPlan(for: ConversationSummary(conversationId: uuid))
+        XCTAssertTrue(plan.ids.isEmpty)
+        XCTAssertEqual(plan.hidden, 0)
+    }
+
+    func testTheRowTruncatesToItsChipLimitAndCountsTheRest() {
+        let ids = (0..<10).map { "e\($0)" }
+        let convo = ConversationSummary(conversationId: uuid, entityIds: ids, entityCount: 10)
+        let plan = ConversationRow.chipPlan(for: convo, limit: 6)
+        XCTAssertEqual(plan.ids.count, 6)
+        XCTAssertEqual(plan.hidden, 4)
+    }
+
+    /// "+N more" is measured against the honest total, so it covers BOTH the
+    /// ids this row truncated and the ones the backend's own cap withheld.
+    func testHiddenCountsTheBackendCapTooNotJustTheRowLimit() {
+        let ids = (0..<12).map { "e\($0)" }   // session_stats.MAX_CONVERSATION_ENTITIES
+        let convo = ConversationSummary(conversationId: uuid, entityIds: ids, entityCount: 40)
+        let plan = ConversationRow.chipPlan(for: convo, limit: 6)
+        XCTAssertEqual(plan.ids.count, 6)
+        XCTAssertEqual(plan.hidden, 34)
+    }
+
+    func testAnOlderBackendWithoutEntityCountNeverPlansAPhantomMoreChip() throws {
+        let json = #"{"conversationId": "x", "entityIds": ["a", "b"]}"#.data(using: .utf8)!
+        let convo = try JSONDecoder().decode(ConversationSummary.self, from: json)
+        let plan = ConversationRow.chipPlan(for: convo)
+        XCTAssertEqual(plan.ids, ["a", "b"])
+        XCTAssertEqual(plan.hidden, 0)
     }
 
     // MARK: - Section persistence

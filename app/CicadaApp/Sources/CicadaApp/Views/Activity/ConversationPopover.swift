@@ -27,14 +27,18 @@ struct ConversationPopover: View {
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
 
-            if !viewModel.hasLoaded {
+            if let error = viewModel.errorMessage {
+                caption(error)
+            } else if !viewModel.hasLoaded {
                 ProgressView().controlSize(.small)
             } else if known.isEmpty {
-                Text("This bank no longer has episodes for that conversation.")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
+                // Only reachable after a real 404 per id, now that the ids are
+                // resolved against the whole bank instead of a capped page.
+                caption("This bank has no episodes for that conversation.")
             } else {
                 ForEach(known) { conversation in
+                    // No `onSelectEntity`: a popover has no page to navigate,
+                    // so the entity chips render as plain capsules.
                     ConversationRow(
                         conversation: conversation,
                         onResume: { Task { await act(await viewModel.resume(conversation.id)) } },
@@ -48,8 +52,17 @@ struct ConversationPopover: View {
         .task {
             guard !loadedOnce else { return }
             loadedOnce = true
-            await viewModel.load(limit: 200)
+            // BY ID, never inside `/conversations/recent`: that page is capped
+            // (the live bank already exceeds it), so a lookup there would call
+            // an aged conversation missing.
+            await viewModel.load(ids: sessionIds)
         }
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(CicadaTheme.captionFont)
+            .foregroundStyle(CicadaTheme.textSecondary)
     }
 
     private func act(_ outcome: ResumeOutcome) async {

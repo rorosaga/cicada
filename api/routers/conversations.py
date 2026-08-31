@@ -100,13 +100,17 @@ async def recent_conversations(
     timestamps, counts and entity ids cross the wire — never a transcript,
     never a transcript path, never ``project_dir``.
 
-    ETag folds in ``telemetry`` because the row carries a telemetry-derived
-    ``model``. KNOWN CAVEAT: deleting a transcript flips no version-vector
+    ETag covers exactly what the rows are built from — ``episodes`` and
+    ``entities``. KNOWN CAVEAT: deleting a transcript flips no version-vector
     component, so ``resumable`` can read stale until the next non-304 refresh —
     acceptable because ``POST /conversations/{id}/resume`` re-validates.
+
+    This list is capped (``limit`` ≤ 200), so it is NOT a membership test for a
+    bank: use ``GET /conversations/{id}`` to answer "does this bank know that
+    conversation".
     """
     etag = sync_service.etag_for(
-        settings.memory_path, "episodes", "entities", "telemetry", extra=f"limit={limit}"
+        settings.memory_path, "episodes", "entities", extra=f"limit={limit}"
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
@@ -118,6 +122,43 @@ async def recent_conversations(
         transcript_exists=transcript_exists,
     )
     return [ConversationSummary(**row) for row in rows]
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationSummary)
+async def get_conversation(
+    conversation_id: str,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """One conversation by id — the exact-lookup twin of ``/recent`` (G48).
+
+    ``/conversations/recent`` is a capped, recency-sorted page: a bank with
+    more conversations than the cap will not contain an older one, and the app
+    must never read that absence as "this bank forgot it". This route resolves
+    the id against the WHOLE bank and 404s only when the bank genuinely has no
+    episode carrying it.
+
+    Same serialization as ``/recent`` (``session_stats.project_conversation``),
+    same auth (bearer, like every route outside ``auth._OPEN_PATHS``), same
+    privacy: no transcript, no transcript path, no ``project_dir``.
+    """
+    conversation_id = (conversation_id or "").strip()
+
+    etag = sync_service.etag_for(
+        settings.memory_path, "episodes", "entities", extra=f"id={conversation_id}"
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+
+    convo = await run_in_threadpool(
+        session_stats.find_conversation, settings.memory_path, conversation_id
+    )
+    if convo is None:
+        raise HTTPException(404, "unknown conversation")
+
+    row = session_stats.project_conversation(convo, transcript_exists=transcript_exists)
+    return ConversationSummary(**row)
 
 
 @router.post("/conversations/{conversation_id}/resume", response_model=ResumeDescriptor)

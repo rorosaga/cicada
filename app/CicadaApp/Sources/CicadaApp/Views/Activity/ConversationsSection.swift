@@ -8,6 +8,11 @@ import SwiftUI
 /// view (not per navigation revisit within the same process lifetime, since
 /// `loadedOnce` lives on the view's own `@State`).
 struct ConversationsSection: View {
+    /// Chip tap → the app's existing entity navigation (select in the graph,
+    /// switch to it), threaded down from `ContentView` exactly as the Ask
+    /// panel's citation taps are. `nil` (the popover) renders inert capsules.
+    var onSelectEntity: ((String) -> Void)?
+
     @State private var viewModel = ConversationsViewModel()
     @State private var loadedOnce = false
     @Environment(Store.self) private var store
@@ -41,7 +46,8 @@ struct ConversationsSection: View {
                                 conversation: conversation,
                                 isSelected: viewModel.selectedId == conversation.id,
                                 onResume: { Task { await act(await viewModel.resume(conversation.id)) } },
-                                onCopy: { Task { await act(await viewModel.copyCommand(for: conversation.id)) } }
+                                onCopy: { Task { await act(await viewModel.copyCommand(for: conversation.id)) } },
+                                onSelectEntity: onSelectEntity
                             )
                         }
                     }
@@ -87,15 +93,35 @@ struct ConversationsSection: View {
     }
 }
 
-/// One conversation row: title, harness badge, relative last-write time, and
-/// an entity-count chip. Reused verbatim by Task 8's popover, so it stays a
-/// plain memberwise-initializable type rather than reaching into
-/// `ConversationsSection`'s private state.
+/// One conversation row: title, harness badge, relative last-write time, an
+/// entity-count chip, and a chip per entity that conversation touched. Reused
+/// verbatim by Task 8's popover, so it stays a plain memberwise-initializable
+/// type rather than reaching into `ConversationsSection`'s private state.
 struct ConversationRow: View {
     let conversation: ConversationSummary
     var isSelected: Bool = false
     let onResume: () -> Void
     let onCopy: () -> Void
+    /// Non-nil where the host can navigate to an entity; `nil` in the popover,
+    /// where the chips are plain capsules.
+    var onSelectEntity: ((String) -> Void)?
+
+    /// How many entity chips one row shows before the rest fold into
+    /// "+N more". The backend already caps `entityIds`
+    /// (`session_stats.MAX_CONVERSATION_ENTITIES`); this keeps a busy
+    /// conversation from turning the row into a wall of capsules.
+    static let maxVisibleEntityChips = 6
+
+    /// Pure chip arithmetic, unit-tested — the view body is a thin wrapper.
+    /// `hidden` counts BOTH what this row truncates and what the backend
+    /// withheld, so "+N more" is measured against the honest `entityCount`.
+    static func chipPlan(
+        for conversation: ConversationSummary,
+        limit: Int = maxVisibleEntityChips
+    ) -> (ids: [String], hidden: Int) {
+        let ids = Array(conversation.entityIds.prefix(max(0, limit)))
+        return (ids, max(0, conversation.entityCount - ids.count))
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
@@ -107,6 +133,9 @@ struct ConversationRow: View {
 
                 HStack(spacing: CicadaTheme.spacingXS) {
                     badge(harnessLabel)
+                    // `model` is a RESERVED wire field — the backend sends null
+                    // until engine calls carry session refs (G49), so this
+                    // badge is deliberately dormant rather than removed.
                     if let model = conversation.model, !model.isEmpty { badge(model) }
                     Text("\(conversation.episodeCount) episode"
                          + (conversation.episodeCount == 1 ? "" : "s"))
@@ -122,6 +151,8 @@ struct ConversationRow: View {
                             .foregroundStyle(CicadaTheme.textTertiary)
                     }
                 }
+
+                entityChips
             }
 
             Spacer(minLength: CicadaTheme.spacingSM)
@@ -146,6 +177,50 @@ struct ConversationRow: View {
             "\(conversation.displayTitle), \(conversation.episodeCount) episodes"
             + (conversation.resumable ? ", resumable" : "")
         )
+    }
+
+    /// The entities this conversation wrote (G48 §4). Tappable where the host
+    /// gave us navigation; inert capsules otherwise. Renders nothing at all
+    /// when the backend sent no ids, so a pre-G48 row is unchanged.
+    @ViewBuilder
+    private var entityChips: some View {
+        let plan = Self.chipPlan(for: conversation)
+        if !plan.ids.isEmpty {
+            FlowLayout(spacing: 6) {
+                ForEach(plan.ids, id: \.self) { entityChip($0) }
+                // Deliberately NOT a button: there is no id behind it to open.
+                if plan.hidden > 0 {
+                    Text("+\(plan.hidden) more")
+                        .font(.system(size: 11))
+                        .lineLimit(1)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(CicadaTheme.surfaceHover)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .clipShape(Capsule())
+                        .accessibilityLabel("\(plan.hidden) more entities, not shown")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func entityChip(_ entityId: String) -> some View {
+        let label = Text(entityId)
+            .font(.system(size: 11))
+            .lineLimit(1)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(CicadaTheme.accent.opacity(0.10))
+            .foregroundStyle(CicadaTheme.accent)
+            .clipShape(Capsule())
+
+        if let onSelectEntity {
+            Button { onSelectEntity(entityId) } label: { label }
+                .buttonStyle(.plain)
+                .help("Open \(entityId)")
+                .accessibilityLabel("Open entity \(entityId)")
+        } else {
+            label.accessibilityLabel("Entity \(entityId)")
+        }
     }
 
     /// Falls back to the conversation kind when the backend didn't attribute

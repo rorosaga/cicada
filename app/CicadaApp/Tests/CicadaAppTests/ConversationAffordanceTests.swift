@@ -52,13 +52,42 @@ final class ConversationAffordanceTests: XCTestCase {
 
     func testThePopoverOnlyOffersConversationsTheBackendKnows() async {
         let api = FakeSyncAPI()
-        api.recentConversations = [
-            ConversationSummary(conversationId: uuid, title: "Index choice", resumable: true),
+        api.conversationsById = [
+            uuid: ConversationSummary(conversationId: uuid, title: "Index choice", resumable: true),
         ]
         let vm = ConversationsViewModel(api: api)
-        await vm.load()
+        await vm.load(ids: [uuid, "a-session-this-bank-forgot"])
 
         XCTAssertNotNil(vm.conversation(id: uuid))
         XCTAssertNil(vm.conversation(id: "a-session-this-bank-forgot"))
+        XCTAssertEqual(vm.unknownIds, ["a-session-this-bank-forgot"])
+    }
+
+    /// The M2 regression: the popover used to resolve ids inside a capped
+    /// `/recent` page, so a conversation the bank still has — just not among
+    /// the most recent — was reported as missing episodes.
+    func testAnAgedConversationIsFoundEvenThoughRecentOmitsIt() async {
+        let api = FakeSyncAPI()
+        api.recentConversations = []   // it aged past the recent page
+        api.conversationsById = [uuid: ConversationSummary(conversationId: uuid, title: "Aged")]
+        let vm = ConversationsViewModel(api: api)
+
+        await vm.load(ids: [uuid])
+
+        XCTAssertEqual(api.conversationIdFetches, [uuid], "resolved by id, not inside /recent")
+        XCTAssertEqual(vm.conversation(id: uuid)?.title, "Aged")
+        XCTAssertTrue(vm.unknownIds.isEmpty, "a found conversation is never reported as unknown")
+    }
+
+    func testAFailedByIdLoadIsAnErrorNotAMiss() async {
+        let api = FakeSyncAPI()
+        api.failConversationById = true
+        let vm = ConversationsViewModel(api: api)
+
+        await vm.load(ids: [uuid])
+
+        XCTAssertFalse(vm.hasLoaded, "an unreachable backend must not read as 'the bank forgot it'")
+        XCTAssertEqual(vm.errorMessage, "Couldn't load conversations")
+        XCTAssertTrue(vm.unknownIds.isEmpty)
     }
 }
