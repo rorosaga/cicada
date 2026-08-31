@@ -195,3 +195,93 @@ def test_an_active_entity_keeps_its_confidence_on_re_mention(tmp_path):
     fm = markdown_parser.parse(path).frontmatter
     assert fm["status"] == "active"
     assert fm["confidence"] == 0.45, "recovery only fires for decaying/archived pages"
+
+
+# --------------------------------------------------------------------------- #
+# Claim engine — the subject's class multiplies the per-claim decay rate
+# --------------------------------------------------------------------------- #
+
+from api.services import predicates  # noqa: E402
+from api.services.claim_reconciler import reconcile_stage3  # noqa: E402
+from api.services.claims import Claim  # noqa: E402
+
+
+class _ClaimSettings:
+    def __init__(self, memory_path):
+        self.memory_path = memory_path
+        self.litellm_model = "test-model"
+        self.archive_threshold = 0.2
+        self.decay_nudge_threshold = 0.4
+
+
+def _open_claim(subject: str, cid: str) -> Claim:
+    return Claim(
+        id=cid,
+        text=f"{subject} uses postgres",
+        subject=subject,
+        predicate="uses",
+        object="postgres",
+        observer="agent",
+        context="general",
+        epistemic="explicit",          # _DECAY_BASE 0.02
+        source_trust="agent_extracted",  # _DECAY_FACTOR 1.0
+        confidence=0.9,
+        valid_from="2026-01-01",
+        recorded_at="2026-01-01",
+    )
+
+
+def _decayed_confidence(tmp_path, cls_value: str) -> float:
+    predicates.install_predicate_map(tmp_path)
+    claim = _open_claim("subj", "clm_1")
+    reconciled, _nudges, _audit = reconcile_stage3(
+        [],
+        {"subj": [claim]},
+        _ClaimSettings(tmp_path),
+        cardinality_fn=lambda _p: True,
+        now_date="2026-04-01",  # 90 days ~ 12.857 weeks
+        decay_class_fn=lambda _sid: DecayClass(cls_value),
+    )
+    return reconciled["subj"][0].confidence
+
+
+def test_an_evergreen_subjects_claims_never_decay(tmp_path):
+    assert _decayed_confidence(tmp_path, "evergreen") == 0.9
+
+
+def test_a_volatile_subjects_claims_decay_twice_as_fast_as_an_active_one(tmp_path):
+    active_drop = 0.9 - _decayed_confidence(tmp_path, "active")
+    volatile_drop = 0.9 - _decayed_confidence(tmp_path, "volatile")
+    durable_drop = 0.9 - _decayed_confidence(tmp_path, "durable")
+
+    assert active_drop > 0
+    assert abs(volatile_drop - 2 * active_drop) < 1e-9
+    assert abs(durable_drop - 0.5 * active_drop) < 1e-9
+
+
+def test_the_default_lookup_reads_the_subjects_page_when_none_is_injected(tmp_path):
+    predicates.install_predicate_map(tmp_path)
+    _page(tmp_path, "bookmarked", type="media")
+
+    reconciled, _n, _a = reconcile_stage3(
+        [],
+        {"bookmarked": [_open_claim("bookmarked", "clm_2")]},
+        _ClaimSettings(tmp_path),
+        cardinality_fn=lambda _p: True,
+        now_date="2026-04-01",
+    )
+    assert reconciled["bookmarked"][0].confidence == 0.9, (
+        "the media page resolves to evergreen, so its claims must not decay"
+    )
+
+
+def test_a_subject_with_no_page_decays_at_the_neutral_active_rate(tmp_path):
+    predicates.install_predicate_map(tmp_path)
+    reconciled, _n, _a = reconcile_stage3(
+        [],
+        {"ghost": [_open_claim("ghost", "clm_3")]},
+        _ClaimSettings(tmp_path),
+        cardinality_fn=lambda _p: True,
+        now_date="2026-04-01",
+    )
+    assert reconciled["ghost"][0].confidence == _decayed_confidence(tmp_path, "active")
