@@ -478,6 +478,436 @@ def test_entity_commit_diff_small_diff_not_truncated(repo):
     assert diff.truncated is False
 
 
+# --- G69: unified diff with context lines + line numbers ---------------------
+
+
+def _numbered(entity_lines: list[str]) -> str:
+    return "\n".join(entity_lines) + "\n"
+
+
+def test_diff_lines_interleave_context_with_changes_in_file_order(repo):
+    """The ordered `lines` list is a real unified diff: unchanged context rows
+    sit between the removals and additions, in file order."""
+    _write_entity(repo, "alpha", _numbered([f"l{i}" for i in range(1, 11)]))
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    body = [f"l{i}" for i in range(1, 11)]
+    body[4] = "CHANGED"
+    _write_entity(repo, "alpha", _numbered(body))
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+
+    diff = run(git_service.get_entity_commit_diff("alpha", sha, repo))
+    kinds = [ln.kind for ln in diff.lines]
+
+    assert kinds[0] == "hunk"
+    # 4 lines of context either side of the single change (DIFF_CONTEXT_LINES).
+    assert kinds[1:] == ["context"] * 4 + ["remove", "add"] + ["context"] * 4
+    texts = [ln.text for ln in diff.lines]
+    assert texts[1:5] == ["l1", "l2", "l3", "l4"]
+    assert texts[5] == "l5" and texts[6] == "CHANGED"
+    assert texts[7:] == ["l6", "l7", "l8", "l9"]
+
+
+def test_diff_line_numbers_follow_git_accounting(repo):
+    _write_entity(repo, "alpha", _numbered([f"l{i}" for i in range(1, 11)]))
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    body = [f"l{i}" for i in range(1, 11)]
+    body[4] = "CHANGED"
+    _write_entity(repo, "alpha", _numbered(body))
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+
+    by_kind = {}
+    for ln in run(git_service.get_entity_commit_diff("alpha", sha, repo)).lines:
+        by_kind.setdefault(ln.kind, []).append(ln)
+
+    # hunk header carries neither number
+    assert by_kind["hunk"][0].old_line is None
+    assert by_kind["hunk"][0].new_line is None
+    # a removal has only an old number; an addition only a new one
+    assert (by_kind["remove"][0].old_line, by_kind["remove"][0].new_line) == (5, None)
+    assert (by_kind["add"][0].old_line, by_kind["add"][0].new_line) == (None, 5)
+    # context carries both, and they advance in lockstep on an equal-size edit
+    first_ctx = by_kind["context"][0]
+    assert (first_ctx.old_line, first_ctx.new_line) == (1, 1)
+    last_ctx = by_kind["context"][-1]
+    assert (last_ctx.old_line, last_ctx.new_line) == (9, 9)
+
+
+def test_diff_line_numbers_stay_offset_after_an_insertion(repo):
+    """After a pure insertion the two sides diverge — old/new must not be
+    assumed equal."""
+    _write_entity(repo, "alpha", _numbered(["a", "b", "c"]))
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    _write_entity(repo, "alpha", _numbered(["a", "INSERTED", "b", "c"]))
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+
+    lines = run(git_service.get_entity_commit_diff("alpha", sha, repo)).lines
+    inserted = next(ln for ln in lines if ln.text == "INSERTED")
+    assert inserted.kind == "add" and inserted.new_line == 2 and inserted.old_line is None
+    # "b" was line 2 before, line 3 after
+    b = next(ln for ln in lines if ln.text == "b")
+    assert (b.kind, b.old_line, b.new_line) == ("context", 2, 3)
+
+
+def test_diff_lines_carry_multiple_hunks_in_order(repo):
+    """Two changes far apart produce two `@@` hunks, ordered, each restarting
+    the numbering from its own header."""
+    _write_entity(repo, "alpha", _numbered([f"l{i}" for i in range(1, 41)]))
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    body = [f"l{i}" for i in range(1, 41)]
+    body[2] = "TOP"
+    body[34] = "BOTTOM"
+    _write_entity(repo, "alpha", _numbered(body))
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+
+    lines = run(git_service.get_entity_commit_diff("alpha", sha, repo)).lines
+    hunk_positions = [i for i, ln in enumerate(lines) if ln.kind == "hunk"]
+    assert len(hunk_positions) == 2, "two distant changes must not coalesce"
+    assert hunk_positions[0] == 0
+    assert all(ln.text.startswith("@@ ") for ln in lines if ln.kind == "hunk")
+
+    top = next(ln for ln in lines if ln.text == "TOP")
+    bottom = next(ln for ln in lines if ln.text == "BOTTOM")
+    assert top.new_line == 3 and bottom.new_line == 35
+    # order preserved: everything in hunk 1 precedes everything in hunk 2
+    assert lines.index(top) < hunk_positions[1] < lines.index(bottom)
+
+
+def test_first_commit_of_a_file_is_all_additions_with_no_parent(repo):
+    """A ROOT commit has no `^` parent — `git show` diffs it against the empty
+    tree, so the file's first commit comes back as all-adds, not an error."""
+    _write_entity(repo, "alpha", _numbered(["one", "two", "three"]))
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    assert _git(repo, "rev-list", "--count", sha).strip() == "1", "must be a root commit"
+
+    diff = run(git_service.get_entity_commit_diff("alpha", sha, repo))
+    kinds = [ln.kind for ln in diff.lines]
+    assert kinds == ["hunk", "add", "add", "add"]
+    assert [ln.new_line for ln in diff.lines[1:]] == [1, 2, 3]
+    assert all(ln.old_line is None for ln in diff.lines[1:])
+    assert diff.lines[0].text.startswith("@@ -0,0 +1,3 @@")
+
+
+def test_a_file_added_in_a_later_non_root_commit_is_also_all_additions(repo):
+    _write_entity(repo, "seed", "seed\n")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/seed.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    _write_entity(repo, "alpha", _numbered(["one", "two"]))
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+
+    diff = run(git_service.get_entity_commit_diff("alpha", sha, repo))
+    assert [ln.kind for ln in diff.lines] == ["hunk", "add", "add"]
+    assert diff.added == "one\ntwo" and diff.removed == ""
+
+
+def test_a_merge_commit_renders_a_real_diff_not_an_empty_one(repo):
+    """Fix round 1 / M2. Left to itself ``git show`` emits a COMBINED (``--cc``)
+    diff for a merge, whose ``@@@ … @@@`` headers the hunk regex cannot match —
+    the endpoint would return an empty diff and the app would say "no line
+    changes" for a commit that plainly changed the file. ``--first-parent``
+    makes it a two-sided diff against parent 1, like any ordinary commit."""
+    _write_entity(repo, "alpha", _numbered(["l1", "l2", "l3", "l4", "l5", "l6"]))
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    # A side branch and the trunk edit the SAME line -> the merge must be
+    # resolved by hand, so the merge commit itself carries content.
+    _git(repo, "checkout", "-q", "-b", "side")
+    _write_entity(repo, "alpha", _numbered(["l1", "l2", "SIDE", "l4", "l5", "l6"]))
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    _git(repo, "checkout", "-q", "-")
+    _write_entity(repo, "alpha", _numbered(["l1", "l2", "MAIN", "l4", "l5", "l6"]))
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    subprocess.run(  # conflicts on purpose -> non-zero exit, resolved below
+        ["git", "merge", "side", "-q"], cwd=str(repo), capture_output=True, text=True
+    )
+    _write_entity(repo, "alpha", _numbered(["l1", "l2", "RESOLVED", "l4", "l5", "l6"]))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "--no-edit")
+    sha = _git(repo, "rev-parse", "HEAD").strip()
+    assert len(_git(repo, "rev-list", "--parents", "-n1", sha).split()) - 1 == 2, "not a merge"
+
+    diff = run(git_service.get_entity_commit_diff("alpha", sha, repo))
+
+    assert diff.lines, "a merge commit must not render as an empty diff"
+    # Two-sided against the FIRST parent (trunk): MAIN -> RESOLVED.
+    assert [ln.kind for ln in diff.lines] == [
+        "hunk", "context", "context", "remove", "add", "context", "context", "context",
+    ]
+    removed = next(ln for ln in diff.lines if ln.kind == "remove")
+    added = next(ln for ln in diff.lines if ln.kind == "add")
+    assert (removed.text, removed.old_line, removed.new_line) == ("MAIN", 3, None)
+    assert (added.text, added.old_line, added.new_line) == ("RESOLVED", None, 3)
+    # No `@@@`-shaped row leaked through as content.
+    assert not any(ln.text.startswith("@@@") for ln in diff.lines)
+    # ...and the flat back-compat blocks agree.
+    assert diff.added == "RESOLVED" and diff.removed == "MAIN"
+
+
+def test_first_parent_leaves_ordinary_and_root_commits_untouched(repo):
+    """`--first-parent` is inert outside merges — the root-commit all-adds path
+    and a plain single-parent commit must be byte-identical to before."""
+    _write_entity(repo, "alpha", _numbered(["one", "two"]))
+    root = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    _write_entity(repo, "alpha", _numbered(["one", "TWO"]))
+    plain = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+
+    root_diff = run(git_service.get_entity_commit_diff("alpha", root, repo))
+    assert [ln.kind for ln in root_diff.lines] == ["hunk", "add", "add"]
+    assert [ln.new_line for ln in root_diff.lines[1:]] == [1, 2]
+
+    plain_diff = run(git_service.get_entity_commit_diff("alpha", plain, repo))
+    assert [ln.kind for ln in plain_diff.lines] == ["hunk", "context", "remove", "add"]
+    assert plain_diff.added == "TWO" and plain_diff.removed == "two"
+
+
+def test_diff_lines_are_bounded_and_flag_truncated(repo):
+    _write_entity(repo, "alpha", "seed\n")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    _write_entity(repo, "alpha", "\n".join(f"line {i}" for i in range(5000)) + "\n")
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+
+    diff = run(git_service.get_entity_commit_diff("alpha", sha, repo))
+    assert len(diff.lines) <= git_service.DIFF_MAX_CONTEXT_LINES
+    assert diff.truncated is True
+    assert diff.lines_truncated is True
+    # back-compat side is still capped by its own, smaller bound
+    assert len(diff.added.splitlines()) <= git_service.DIFF_MAX_LINES + 1
+
+
+def test_clipping_only_the_flat_sides_does_not_flag_lines_truncated(repo):
+    """Fix round 1 / M1. Between the two caps there is a band — a commit big
+    enough to clip the 400-line flat sides but small enough that the ordered
+    2000-row list is COMPLETE. The app renders `lines`, so a "diff clipped"
+    banner driven by the union flag would sit above a whole diff. The union
+    `truncated` still goes true (the flat blocks really were clipped); the
+    ordered-path flag must not."""
+    _write_entity(repo, "alpha", "seed\n")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    # 500 additions: over DIFF_MAX_LINES (400), far under DIFF_MAX_CONTEXT_LINES.
+    _write_entity(repo, "alpha", "\n".join(f"line {i}" for i in range(500)) + "\n")
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+
+    diff = run(git_service.get_entity_commit_diff("alpha", sha, repo))
+
+    assert git_service.DIFF_MAX_LINES < len(diff.lines) < git_service.DIFF_MAX_CONTEXT_LINES
+    assert diff.lines_truncated is False, "the ordered list was complete"
+    assert diff.truncated is True, "the flat blocks WERE clipped — union stays true"
+    assert diff.added.splitlines()[-1] == git_service._DIFF_TRUNCATION_MARKER
+    # Every one of the 500 new lines is present in the ordered list.
+    assert sum(1 for ln in diff.lines if ln.kind == "add") == 500
+
+
+def test_a_small_diff_flags_neither_truncation_field(repo):
+    _write_entity(repo, "alpha", "v1\n")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    _write_entity(repo, "alpha", "v2\n")
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+
+    diff = run(git_service.get_entity_commit_diff("alpha", sha, repo))
+    assert diff.truncated is False and diff.lines_truncated is False
+
+
+def test_back_compat_keys_are_still_present_alongside_lines(repo):
+    """An older app build decodes `added`/`removed`/`truncated` only. They must
+    keep meaning exactly what they meant pre-G69: the changed lines, no context,
+    removals and additions separated."""
+    _write_entity(repo, "alpha", _numbered(["keep", "old", "tail"]))
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    _write_entity(repo, "alpha", _numbered(["keep", "new", "tail"]))
+    sha = _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: updated"], authors=["gpt-5.4-mini"]
+        ),
+    )
+
+    diff = run(git_service.get_entity_commit_diff("alpha", sha, repo))
+    payload = diff.model_dump(by_alias=True)
+    assert set(payload) >= {"added", "removed", "truncated", "lines", "linesTruncated"}
+    assert diff.added == "new"
+    assert diff.removed == "old"
+    # context never leaks into the flat blocks
+    assert "keep" not in diff.added and "keep" not in diff.removed
+    # ...but it IS in the ordered list
+    assert any(ln.kind == "context" and ln.text == "keep" for ln in diff.lines)
+    # camelCase on the wire, matching the Swift decoder
+    first = payload["lines"][1]
+    assert set(first) == {"kind", "oldLine", "newLine", "text"}
+
+
+def test_a_rejected_commit_hash_yields_an_empty_lines_list(repo):
+    _write_entity(repo, "alpha", "v1\n")
+    _commit(
+        repo,
+        git_service.build_commit_message(
+            "Sleep cycle", body_lines=["entities/alpha.md: created"], authors=["gpt-5.4-mini"]
+        ),
+    )
+    for bad in ["HEAD", "--output=/tmp/pwned", "zzzzzzz"]:
+        diff = run(git_service.get_entity_commit_diff("alpha", bad, repo))
+        assert diff.lines == [] and diff.added == "" and diff.removed == "", bad
+
+
+def test_parse_unified_diff_treats_plus_prefixed_content_inside_a_hunk_as_content():
+    """The pre-hunk `+++`/`---` file headers are skipped by position, not by
+    prefix — a markdown line that genuinely starts with `+++` or `---` (YAML
+    frontmatter!) must survive as content."""
+    out = (
+        "diff --git a/entities/alpha.md b/entities/alpha.md\n"
+        "index 1111111..2222222 100644\n"
+        "--- a/entities/alpha.md\n"
+        "+++ b/entities/alpha.md\n"
+        "@@ -1,3 +1,3 @@\n"
+        "+++ frontmatter fence\n"
+        "--- old fence\n"
+        " context row\n"
+    )
+    lines, added, removed, truncated, _ = git_service._parse_unified_diff(out)
+
+    assert [ln.kind for ln in lines] == ["hunk", "add", "remove", "context"]
+    assert added == ["++ frontmatter fence"]
+    assert removed == ["-- old fence"]
+    assert lines[3].text == "context row"
+    assert truncated is False
+
+
+def test_parse_unified_diff_ignores_the_no_newline_marker():
+    """`\\ No newline at end of file` annotates the previous row — it is not a
+    line of the file and must not consume a line number."""
+    out = (
+        "@@ -1,2 +1,2 @@\n"
+        " first\n"
+        "-second\n"
+        "\\ No newline at end of file\n"
+        "+second!\n"
+        "\\ No newline at end of file\n"
+    )
+    lines, _, _, _, _ = git_service._parse_unified_diff(out)
+
+    assert [ln.kind for ln in lines] == ["hunk", "context", "remove", "add"]
+    assert lines[2].old_line == 2 and lines[3].new_line == 2
+
+
+def test_parse_unified_diff_preserves_a_blank_context_line():
+    out = "@@ -1,3 +1,3 @@\n a\n \n-b\n+c\n"
+    lines, _, _, _, _ = git_service._parse_unified_diff(out)
+
+    assert [ln.kind for ln in lines] == ["hunk", "context", "context", "remove", "add"]
+    assert lines[2].text == "" and lines[2].old_line == 2 and lines[2].new_line == 2
+
+
 # --- OPTIONAL #3: non-UTF-8 file degrades gracefully (no 500) ----------------
 
 
