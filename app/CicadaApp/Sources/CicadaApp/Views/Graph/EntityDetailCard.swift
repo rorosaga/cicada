@@ -28,6 +28,14 @@ struct EntityDetailCard: View {
     @State private var sources: [EntitySource] = []
     @State private var newSourceRef = ""
 
+    // G67 — per-commit diffs in the History tab, fetched on demand and cached
+    // per commit hash for the life of this card. `expanded` is the set of
+    // commits the user has opened; `loading` guards against a second fetch
+    // while the first is in flight.
+    @State private var expandedCommits: Set<String> = []
+    @State private var commitDiffs: [String: EntityDiff] = [:]
+    @State private var loadingCommits: Set<String> = []
+
     struct TimelineKey: Identifiable, Hashable {
         let predicate: String
         let context: String
@@ -251,6 +259,9 @@ struct EntityDetailCard: View {
             repoContexts = []
             sources = []
             newSourceRef = ""
+            expandedCommits = []
+            commitDiffs = [:]
+            loadingCommits = []
             sources = (try? await APIClient.shared.fetchEntitySources(entityId: entity.id)) ?? []
             // §5.7 — the card opened on the graph-node stub, whose
             // `markdownContent` is the server's short `summary` (already
@@ -825,52 +836,21 @@ struct EntityDetailCard: View {
                     .frame(width: 10)
 
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        HStack(spacing: CicadaTheme.spacingXS) {
-                            Text(entry.date)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                            // M3 (backlog A2): who authored this commit.
-                            // NOT BUILD-VERIFIED — needs Xcode compile.
-                            if !entry.author.isEmpty {
-                                Text(entry.author)
-                                    .font(CicadaTheme.captionFont)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 1)
-                                    .background(
-                                        (entry.author == "user"
-                                         ? Color(hex: 0x3B82F6)
-                                         : Color(hex: 0x8B5CF6)).opacity(0.18)
-                                    )
-                                    .clipShape(Capsule())
-                                    .foregroundStyle(entry.author == "user"
-                                                     ? Color(hex: 0x3B82F6)
-                                                     : Color(hex: 0x8B5CF6))
-                            }
-                        }
+                        historyRowButton(entry)
 
-                        Text(entry.description)
-                            .font(CicadaTheme.bodyFont)
-                            .foregroundStyle(CicadaTheme.textSecondary)
-
-                        // Inline per-commit diff when present (history fetched
-                        // with includeDiff=true). NOT BUILD-VERIFIED.
-                        if let diff = entry.diff,
-                           !(diff.added.isEmpty && diff.removed.isEmpty) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(diff.removed.split(separator: "\n").enumerated()), id: \.offset) { _, line in
-                                    Text("- \(line)")
-                                        .font(CicadaTheme.monoFont)
-                                        .foregroundStyle(Color(hex: 0xEF4444))
-                                }
-                                ForEach(Array(diff.added.split(separator: "\n").enumerated()), id: \.offset) { _, line in
-                                    Text("+ \(line)")
-                                        .font(CicadaTheme.monoFont)
-                                        .foregroundStyle(Color(hex: 0x22C55E))
-                                }
+                        // The diff for an EXPANDED commit. `entry.diff` (present
+                        // only when history was fetched with includeDiff=true)
+                        // wins so we never re-fetch what we already hold.
+                        if isExpanded(entry) {
+                            if let inline = entry.diff {
+                                DiffView(diff: inline)
+                            } else if let fetched = commitDiffs[entry.commitHash] {
+                                DiffView(diff: fetched)
+                            } else if loadingCommits.contains(entry.commitHash) {
+                                DiffView.loading
+                            } else {
+                                DiffView.empty
                             }
-                            .padding(CicadaTheme.spacingXS)
-                            .background(CicadaTheme.border.opacity(0.25))
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
                         }
                     }
                     .padding(.bottom, CicadaTheme.spacingLG)
@@ -880,6 +860,87 @@ struct EntityDetailCard: View {
             }
         }
         .padding(CicadaTheme.spacingLG)
+    }
+
+    private func isExpanded(_ entry: EntityHistoryEntry) -> Bool {
+        !entry.commitHash.isEmpty && expandedCommits.contains(entry.commitHash)
+    }
+
+    /// The tappable summary line. A row with no `commitHash` (an older backend
+    /// that didn't surface one) renders as plain, un-tappable text rather than a
+    /// button that could never do anything.
+    @ViewBuilder
+    private func historyRowButton(_ entry: EntityHistoryEntry) -> some View {
+        if entry.commitHash.isEmpty {
+            historyRowLabel(entry, expandable: false)
+        } else {
+            Button {
+                toggleCommit(entry.commitHash)
+            } label: {
+                historyRowLabel(entry, expandable: true)
+            }
+            .buttonStyle(.plain)
+            .help("Show what changed in this commit")
+            .accessibilityLabel("Commit \(entry.date) by \(entry.author)")
+        }
+    }
+
+    private func historyRowLabel(_ entry: EntityHistoryEntry, expandable: Bool) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                if expandable {
+                    Image(systemName: isExpanded(entry) ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                Text(entry.date)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                // M3 (backlog A2): who authored this commit.
+                if !entry.author.isEmpty {
+                    Text(entry.author)
+                        .font(CicadaTheme.captionFont)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(
+                            (entry.author == "user"
+                             ? Color(hex: 0x3B82F6)
+                             : Color(hex: 0x8B5CF6)).opacity(0.18)
+                        )
+                        .clipShape(Capsule())
+                        .foregroundStyle(entry.author == "user"
+                                         ? Color(hex: 0x3B82F6)
+                                         : Color(hex: 0x8B5CF6))
+                }
+            }
+
+            Text(entry.description)
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    /// Collapse, or expand + fetch. On-demand only (the `LogoStore`/
+    /// `EntitySource` precedent): a commit diff is not snapshot state, so it
+    /// goes straight to `APIClient` and is cached per hash for this card.
+    private func toggleCommit(_ commitHash: String) {
+        if expandedCommits.contains(commitHash) {
+            expandedCommits.remove(commitHash)
+            return
+        }
+        expandedCommits.insert(commitHash)
+        guard commitDiffs[commitHash] == nil,
+              !loadingCommits.contains(commitHash) else { return }
+        loadingCommits.insert(commitHash)
+        Task {
+            let diff = try? await APIClient.shared.fetchEntityCommitDiff(
+                id: entity.id, commitHash: commitHash
+            )
+            loadingCommits.remove(commitHash)
+            if let diff { commitDiffs[commitHash] = diff }
+        }
     }
 
     // MARK: - Perspectives Tab (§3b)
