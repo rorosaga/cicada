@@ -63,6 +63,48 @@ class EntityStatus(str, Enum):
     dropped = "dropped"
 
 
+class DecayClass(str, Enum):
+    """How fast a belief about a life should fade when it stops being mentioned (G66).
+
+    Decay models "absence of mention is a signal" for *beliefs*. A bookmark is an
+    *artifact*, not a belief — it does not become less true by going unmentioned,
+    so it is ``evergreen`` and never decays at all.
+    """
+
+    evergreen = "evergreen"   # never fades — artifacts (media/bookmarks) + user pins
+    durable = "durable"       # fades slowly — stable preferences, skills, long-lived concepts
+    active = "active"         # the default for a belief about the user's life
+    volatile = "volatile"     # expected to change within weeks (role, status, current focus)
+
+
+# Per-week confidence drop used by the ENTITY decay engine
+# (``conflict_resolver.resolve_and_prune``).
+DECAY_CLASS_RATES: dict[DecayClass, float] = {
+    DecayClass.evergreen: 0.0,
+    DecayClass.durable: 0.02,
+    DecayClass.active: 0.05,
+    DecayClass.volatile: 0.15,
+}
+
+# Multiplier applied to the CLAIM decay engine's per-epistemic x source_trust
+# rate (``claim_reconciler._decay_claims``), keyed by the SUBJECT entity's class.
+# An evergreen subject's claims never decay (0.0).
+CLAIM_DECAY_MULTIPLIERS: dict[DecayClass, float] = {
+    DecayClass.evergreen: 0.0,
+    DecayClass.durable: 0.5,
+    DecayClass.active: 1.0,
+    DecayClass.volatile: 2.0,
+}
+
+# ANTI-POLLUTION RAIL, mirroring ``PRODUCIBLE_ENTITY_TYPES`` above: Stage-1
+# extraction may PROPOSE only these three. ``evergreen`` is reserved for the
+# ingest writers and for the user, so an over-eager extractor can never stop the
+# graph from archiving.
+AGENT_PRODUCIBLE_DECAY_CLASSES: frozenset[DecayClass] = frozenset(
+    {DecayClass.durable, DecayClass.active, DecayClass.volatile}
+)
+
+
 class NudgeType(str, Enum):
     decay = "decay"
     conflict = "conflict"
