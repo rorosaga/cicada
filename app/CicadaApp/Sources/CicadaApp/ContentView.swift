@@ -220,6 +220,10 @@ struct GraphContainerView: View {
                     .transition(.opacity)
 
                 EntityDetailCard(entity: entity, defaultRaw: false)
+                    // One card identity PER ENTITY. Without this, following a
+                    // wikilink A → B reuses A's @State — A's claims, repos,
+                    // fact sources and selected tab render under B's name.
+                    .id(entity.id)
                     .frame(maxWidth: 620, maxHeight: 680)
                     .padding(CicadaTheme.spacingXL)
                     .transition(.scale(scale: 0.97).combined(with: .opacity))
