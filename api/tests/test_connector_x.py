@@ -1,8 +1,8 @@
 """Hermetic tests for the X (Twitter) bookmarks connector (G71 follow-up, Task 14).
 
 ZERO NETWORK: every HTTP call goes through an injected `http_fn`, and the
-default transport is gated on CICADA_ALLOW_CONNECTOR_FETCH (scrubbed by the
-autouse conftest fixture). Every fixture is synthetic — no real tweet, no real
+default transport is disabled by CICADA_ALLOW_CONNECTOR_FETCH=off (set for the
+whole suite by conftest; the gate defaults to on in production). Every fixture is synthetic — no real tweet, no real
 user id, no real credential.
 """
 

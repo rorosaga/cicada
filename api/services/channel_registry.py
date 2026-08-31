@@ -113,11 +113,12 @@ def _connector_channel(
     model is visible even before the user connects it, not only after.
 
     A gate-skipped background poll (final-review H2, ``sync_state.record_skip``)
-    renders too, same "wins the detail line" priority as a failure — since
-    ``record_sync``/``record_error``/``record_skip`` each merge onto the
-    entry rather than replace it wholesale, an old error and a newer skip (or
-    vice versa) can coexist; whichever is more recent wins the line, same as
-    the feed/calendar channels' "the last thing that actually happened" rule.
+    renders too, same "wins the detail line" priority as a failure —
+    ``record_error``/``record_skip`` merge onto the entry (so an old error
+    and a newer skip can coexist; whichever is more recent wins the line),
+    while ``record_sync`` REPLACES it wholesale, deliberately clearing both:
+    a success means the channel is working again, same as the feed/calendar
+    channels' "the last thing that actually happened" rule.
     """
     entry = state.get(channel_id) or {}
     last = entry.get("last_sync") or None

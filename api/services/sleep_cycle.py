@@ -105,7 +105,11 @@ async def _poll_connectors_safely(memory_path: Path) -> None:
     the graph after the next Sleep cycle" contract every other capture path
     already states.
     """
-    from api.services.connectors import ADAPTERS
+    try:
+        from api.services.connectors import ADAPTERS
+    except Exception as e:
+        logger.warning(f"connector poll unavailable: {type(e).__name__}: {e}")
+        return
 
     for adapter in ADAPTERS.values():
         try:

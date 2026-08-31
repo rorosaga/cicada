@@ -1,8 +1,8 @@
 """Hermetic tests for the Pinterest v5 connector (G71 §2).
 
 ZERO NETWORK: every HTTP call goes through an injected `http_fn`, and the
-default transport is gated on CICADA_ALLOW_CONNECTOR_FETCH (scrubbed by the
-autouse conftest fixture). Every fixture is synthetic — no real board name,
+default transport is disabled by CICADA_ALLOW_CONNECTOR_FETCH=off (set for the
+whole suite by conftest; the gate defaults to on in production). Every fixture is synthetic — no real board name,
 no real pin, no real credential.
 """
 

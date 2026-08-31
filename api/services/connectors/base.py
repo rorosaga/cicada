@@ -162,12 +162,18 @@ async def run_sync(
     # MAX_PAGES) still bound the total, so this loop runs a small, known
     # number of times, not an unbounded one.
     created = 0
-    for start in range(0, len(items), media_ingestor.MAX_BATCH):
-        chunk_created, _ = await media_ingestor.ingest_batch(
-            items[start : start + media_ingestor.MAX_BATCH],
-            memory_path, from_bookmark_file=False,
-        )
-        created += chunk_created
+    try:
+        for start in range(0, len(items), media_ingestor.MAX_BATCH):
+            chunk_created, _ = await media_ingestor.ingest_batch(
+                items[start : start + media_ingestor.MAX_BATCH],
+                memory_path, from_bookmark_file=False,
+            )
+            created += chunk_created
+    except Exception as e:
+        message = _sanitize_error(e)
+        logger.warning(f"{channel_id} sync failed: {message}")
+        sync_state.record_error(memory_path, channel_id, message)
+        return {"status": "error", "reason": None, "new": created, "seen": 0, "error": message}
     sync_state.record_sync(memory_path, channel_id, count=len(items), extra=extra)
     return {"status": "ok", "reason": None, "new": created, "seen": len(items), "error": None}
 
