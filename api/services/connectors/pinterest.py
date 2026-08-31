@@ -98,9 +98,16 @@ def authorize_url(state: str, *, base_url: str = DEFAULT_BASE_URL) -> str:
 
 
 async def exchange_code(
-    code: str, *, http_fn: base.HttpFn | None = None, base_url: str = DEFAULT_BASE_URL
+    code: str, *, state: str = "", http_fn: base.HttpFn | None = None,
+    base_url: str = DEFAULT_BASE_URL,
 ) -> None:
     """Trade the authorization code for an access token and store it (0600).
+
+    ``state`` is accepted but unused — Pinterest's exchange needs only the
+    saved app id/secret and the code. It exists so the router can call every
+    OAuth adapter's ``exchange_code`` with the same ``(code, state=...)``
+    shape; X's implementation of this same signature DOES need it, to recover
+    its internally-stashed PKCE verifier (Task 15 §3).
 
     Raises ``ConnectorError`` on a response with no token — the callback route
     turns that into a plain "couldn't complete sign-in" page, never echoing the

@@ -11,13 +11,13 @@ overrides the file; ``CICADA_API_AUTH=off`` disables the check (tests/dev only
 Open paths (no bearer token required): ``GET /healthz`` (installer/doctor
 liveness probe), ``POST /capture/telegram`` (Telegram's servers hit this
 webhook through a public tunnel and cannot send our bearer header), and
-``GET /sources/connectors/pinterest/callback`` + ``GET
-/sources/connectors/x/callback`` (G71 — both OAuth redirects land in the
-user's own browser, which likewise cannot send it; each is gated instead by
-its own single-use, 10-minute ``state`` nonce). Today the Telegram
-route is gated only by Telegram being *configured* (``CICADA_TELEGRAM_BOT_TOKEN``
-set, checked in ``api/routers/capture.py``), not by a per-request secret
-verifying the caller really is Telegram — see G57.
+``GET /sources/connectors/<id>/callback`` for every OAuth connector in the
+registry (G71, generalized Task 15 §3 — Pinterest and X today) — each OAuth
+redirect lands in the user's own browser, which likewise cannot send it, so
+each is gated instead by its own single-use, 10-minute ``state`` nonce. Today
+the Telegram route is gated only by Telegram being *configured*
+(``CICADA_TELEGRAM_BOT_TOKEN`` set, checked in ``api/routers/capture.py``),
+not by a per-request secret verifying the caller really is Telegram — see G57.
 """
 from __future__ import annotations
 
@@ -29,18 +29,47 @@ from fastapi import Header, HTTPException, Request
 from loguru import logger
 
 TOKEN_FILE_NAME = "api_token"
-_OPEN_PATHS = frozenset({
+
+# The two literal always-open paths. The OAuth callback path is NOT a fixed
+# literal here — see `_is_oauth_callback_path` below.
+_STATIC_OPEN_PATHS = frozenset({
     "/healthz",
     "/capture/telegram",
-    # G71: Pinterest's OAuth redirect lands in the user's browser, which cannot
-    # send the bearer token. Gated instead by a single-use, 10-minute `state`
-    # nonce minted by POST /sources/connectors/pinterest/authorize.
-    "/sources/connectors/pinterest/callback",
-    # G71 follow-up (Task 14): same reasoning, for X's PKCE OAuth redirect —
-    # gated by its own single-use `state` nonce minted by POST
-    # /sources/connectors/x/authorize.
-    "/sources/connectors/x/callback",
 })
+
+
+def _is_oauth_callback_path(path: str) -> bool:
+    """``/sources/connectors/<id>/callback`` for an ``id`` currently in the
+    connectors registry whose ``LOGIN_MODE`` is ``"oauth"`` (Task 15 §3).
+
+    Import is local: ``api.services.connections.secrets`` (which every
+    connector module uses for credential storage) imports ``cicada_home``
+    from THIS module, so a top-level import of the connectors registry here
+    would be circular.
+    """
+    from api.services.connectors import ADAPTERS
+
+    parts = path.split("/")
+    if len(parts) != 5 or parts[1:3] != ["sources", "connectors"] or parts[4] != "callback":
+        return False
+    adapter = ADAPTERS.get(parts[3])
+    return adapter is not None and getattr(adapter, "LOGIN_MODE", None) == "oauth"
+
+
+class _OpenPaths:
+    """Supports ``path in _OPEN_PATHS`` like the frozenset it replaces, but
+    resolves the OAuth-callback half live against the connectors registry
+    instead of hardcoding one literal per adapter — so a new OAuth connector
+    is auth-exempt on its callback route for free, and a credentials-only
+    adapter (Reddit) never gets one."""
+
+    def __contains__(self, path: object) -> bool:
+        if not isinstance(path, str):
+            return False
+        return path in _STATIC_OPEN_PATHS or _is_oauth_callback_path(path)
+
+
+_OPEN_PATHS = _OpenPaths()
 
 
 def cicada_home() -> Path:

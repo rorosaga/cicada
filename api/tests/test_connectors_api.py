@@ -4,11 +4,11 @@ No network: the OAuth exchange is monkeypatched. No real credential: every
 value below is a placeholder, and the suite asserts that no value is ever
 readable back through the API.
 
-Covers all three peer connectors — ``ADAPTERS``/``LOGIN_MODES`` are dicts
+Covers all three peer connectors — ``ADAPTERS`` (the shared registry) is
 keyed by ``CHANNEL_ID``, so Pinterest (``oauth``), Reddit (``credentials``),
-and X (``oauth`` again, but PKCE) share every generic route below; only the
-OAuth-specific routes are Pinterest/X-only, and PKCE-specific assertions are
-X-only.
+and X (``oauth`` again, but PKCE) share every generic route below, including
+the single generalized ``/{connector_id}/callback`` route; only PKCE-specific
+assertions are X-only.
 """
 
 from __future__ import annotations
@@ -48,9 +48,11 @@ def client(tmp_path, monkeypatch):
     # never set" assertion is order-independent.
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     connectors_router._pending_states.clear()
+    x._pending_verifiers.clear()
     config.get_settings.cache_clear()
     yield TestClient(main.app), memory
     connectors_router._pending_states.clear()
+    x._pending_verifiers.clear()
     config.get_settings.cache_clear()
     # secrets.set_secret exports straight into os.environ; monkeypatch never
     # made that write so it cannot revert it (see test_connector_pinterest.py).
@@ -239,10 +241,12 @@ def test_x_authorize_returns_a_url_with_a_pkce_challenge_and_arms_a_single_use_s
     assert body["authorizeUrl"].startswith(x.AUTH_URL)
     assert "code_challenge=" in body["authorizeUrl"]
     assert "code_challenge_method=S256" in body["authorizeUrl"]
+    state = body["state"]
     assert len(connectors_router._pending_states) == 1
-    entry = next(iter(connectors_router._pending_states.values()))
-    assert entry["connector"] == "x"
-    assert entry["verifier"]  # a real PKCE verifier was minted and stored server-side
+    assert (x.CHANNEL_ID, state) in connectors_router._pending_states
+    # The PKCE verifier lives inside x.py itself now (Task 15 §3), keyed by
+    # this same state — the router never sees or stores it.
+    assert x._pending_verifiers[state]  # a real PKCE verifier was minted and stored internally
 
 
 def test_x_authorize_requires_the_client_id_first(client):
@@ -269,23 +273,23 @@ def test_x_callback_exchanges_once_with_the_stored_verifier_and_burns_the_state(
     c.put("/sources/connectors/x/credentials",
           json={"fields": {x.CLIENT_ID_ENV: "client-id-placeholder"}})
     state = c.post("/sources/connectors/x/authorize").json()["state"]
-    verifier = connectors_router._pending_states[state]["verifier"]
+    assert x._pending_verifiers[state]  # a real PKCE verifier was minted internally by x.py
 
     called = []
 
-    async def fake_exchange(code, code_verifier, **kwargs):
-        called.append((code, code_verifier))
+    async def fake_exchange(code, **kwargs):
+        called.append((code, kwargs.get("state")))
         secrets.set_secret(x.TOKEN_ENV, "tok-abc")
 
     monkeypatch.setattr(x, "exchange_code", fake_exchange)
     first = c.get(f"/sources/connectors/x/callback?code=abc&state={state}")
     assert first.status_code == 200
     assert "close this tab" in first.text.lower()
-    assert called == [("abc", verifier)]
+    assert called == [("abc", state)]
 
     replay = c.get(f"/sources/connectors/x/callback?code=abc&state={state}")
     assert replay.status_code == 400, "a state is single-use"
-    assert called == [("abc", verifier)]
+    assert called == [("abc", state)]
 
 
 def test_a_state_minted_for_one_oauth_connector_cannot_be_replayed_against_the_other(client, monkeypatch):
@@ -343,7 +347,7 @@ def test_x_credential_exchange_bumps_the_sources_sync_component(client, monkeypa
           json={"fields": {x.CLIENT_ID_ENV: "client-id-placeholder"}})
     state = c.post("/sources/connectors/x/authorize").json()["state"]
 
-    async def fake_exchange(code, verifier, **kwargs):
+    async def fake_exchange(code, **kwargs):
         secrets.set_secret(x.TOKEN_ENV, "tok-abc")
 
     monkeypatch.setattr(x, "exchange_code", fake_exchange)

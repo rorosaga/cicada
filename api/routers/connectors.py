@@ -15,11 +15,16 @@ script app needs no redirect round trip), and X (``oauth`` again, but PKCE —
 a public client, no client secret) sit side by side as peer connectors.
 ``LOGIN_MODE`` is a per-adapter module constant, not a second parallel dict.
 
-Both OAuth connectors share ``_pending_states`` — one in-process nonce table
-keyed by ``state`` — but each entry also records which connector minted it
-(``connector``) so a state minted for one can never be replayed against the
-other's callback, and X's entry additionally carries the PKCE ``verifier``
-generated at ``authorize()`` time and spent once at ``exchange_code()``.
+Every OAuth connector shares ``_pending_states`` — one in-process nonce table
+keyed by ``(connector_id, state)``, mapping to its expiry timestamp. Keying by
+the pair (rather than a bare ``state`` plus a ``connector`` field to check
+separately) means a state minted for one connector is rejected by
+construction if replayed against another's callback — there is no second
+check to remember. Any adapter-specific state (X's PKCE verifier) lives
+inside that adapter module instead of here (Task 15 §3) — this router treats
+every OAuth adapter identically through ``authorize_url(state, *, base_url)``
+and ``exchange_code(code, *, state, base_url)``, with ONE generic callback
+route rather than one per connector.
 """
 
 from __future__ import annotations
@@ -42,17 +47,13 @@ from api.models.schemas import (
 )
 from api.services import sync_state
 from api.services.connections import secrets as secret_store
-from api.services.connectors import ADAPTERS, base, pinterest, x
+from api.services.connectors import ADAPTERS, base
 
 router = APIRouter(prefix="/sources/connectors")
 
-# Single-use OAuth nonces: {state: {"expires": ts, "connector": id,
-# "verifier": str | None}}. In-process and deliberately not persisted — an
-# interrupted sign-in is retried, not resumed. `verifier` is X's PKCE code
-# verifier (None for Pinterest, which has no PKCE step); `connector` stops a
-# state minted for one OAuth connector from being replayed against the other's
-# callback route.
-_pending_states: dict[str, dict] = {}
+# Single-use OAuth nonces: {(connector_id, state): expires_ts}. In-process and
+# deliberately not persisted — an interrupted sign-in is retried, not resumed.
+_pending_states: dict[tuple[str, str], float] = {}
 _STATE_TTL_SECONDS = 600
 
 
@@ -149,120 +150,74 @@ async def authorize(connector_id: str, settings: Settings = Depends(get_settings
         raise HTTPException(status_code=422, detail="Save the app credentials first")
 
     now = time.time()
-    for st, entry in list(_pending_states.items()):
-        if entry["expires"] < now:
-            _pending_states.pop(st, None)
+    for key, expires in list(_pending_states.items()):
+        if expires < now:
+            _pending_states.pop(key, None)
 
     state = pysecrets.token_urlsafe(24)
     base_url = f"http://{settings.host}:{settings.port}"
-
-    if adapter is pinterest:
-        url = pinterest.authorize_url(state, base_url=base_url)
-        verifier = None
-    elif adapter is x:
-        verifier, challenge = x.generate_pkce_pair()
-        url = x.authorize_url(state, challenge, base_url=base_url)
-    else:  # pragma: no cover — defensive; every OAuth adapter above is handled
-        raise HTTPException(status_code=400, detail=f"{connector_id} has no authorize flow wired")
-
-    _pending_states[state] = {
-        "expires": now + _STATE_TTL_SECONDS,
-        "connector": connector_id,
-        "verifier": verifier,
-    }
+    url = adapter.authorize_url(state, base_url=base_url)
+    _pending_states[(connector_id, state)] = now + _STATE_TTL_SECONDS
     return ConnectorAuthorizeResponse(authorize_url=url, state=state)
 
 
-def _pop_valid_state(state: str, connector_id: str) -> dict:
+def _pop_valid_state(connector_id: str, state: str) -> None:
     """Pop and validate a pending OAuth state, or raise the standard 400.
 
-    Shared by both callback routes: unknown, expired, or minted for the OTHER
-    OAuth connector are all treated identically — a state is single-use and
-    connector-scoped.
+    Keyed by ``(connector_id, state)``: a state minted for one OAuth
+    connector cannot be looked up successfully against another's callback —
+    the tuple key rejects the mismatch by construction, no separate
+    "which connector minted this" check needed.
     """
-    entry = _pending_states.pop(state, None)
-    if (
-        not state
-        or entry is None
-        or entry["expires"] < time.time()
-        or entry.get("connector") != connector_id
-    ):
+    expires = _pending_states.pop((connector_id, state), None)
+    if not state or expires is None or expires < time.time():
         raise HTTPException(status_code=400, detail="Invalid or expired sign-in state")
-    return entry
 
 
-@router.get("/pinterest/callback", response_class=HTMLResponse)
-async def pinterest_callback(
+@router.get("/{connector_id}/callback", response_class=HTMLResponse)
+async def connector_callback(
+    connector_id: str,
     code: str = Query(""),
     state: str = Query(""),
     settings: Settings = Depends(get_settings),
 ):
-    """Pinterest's OAuth redirect target.
+    """The one OAuth redirect target every OAuth adapter shares (Task 15 §3
+    — replaces the previous ``/pinterest/callback`` + ``/x/callback`` pair).
 
-    This is one of two OAuth callback routes with no bearer token (the browser
-    cannot send one), so it is gated by the single-use ``state`` nonce minted
-    above: an unknown, expired or replayed state exchanges nothing.
+    No bearer token here (the browser cannot send one), so it is gated by
+    the single-use ``state`` nonce minted by ``authorize()`` above: an
+    unknown, expired, or cross-connector-replayed state exchanges nothing.
     """
-    _pop_valid_state(state, pinterest.CHANNEL_ID)
+    adapter = _adapter(connector_id)
+    if adapter.LOGIN_MODE != "oauth":
+        raise HTTPException(
+            status_code=400,
+            detail=f"{connector_id} uses credentials, not an authorization flow",
+        )
+    _pop_valid_state(connector_id, state)
     if not code:
         raise HTTPException(status_code=400, detail="No authorization code returned")
 
     base_url = f"http://{settings.host}:{settings.port}"
     try:
-        await pinterest.exchange_code(code, base_url=base_url)
+        await adapter.exchange_code(code, state=state, base_url=base_url)
     except base.ConnectorError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
-        # Never echo the response body: a token error can carry app-secret context.
-        logger.warning(f"Pinterest code exchange failed: {type(exc).__name__}")
-        raise HTTPException(status_code=502, detail="Could not complete Pinterest sign-in")
+        # Never echo the response body: a token error can carry app-secret/client context.
+        logger.warning(f"{connector_id} code exchange failed: {type(exc).__name__}")
+        raise HTTPException(status_code=502, detail=f"Could not complete {adapter.LABEL} sign-in")
 
     # Fix round 1, M2: the token landed in secrets.env, outside memory_path —
     # bump sync_state.json so "sources" (and the SSE version vector) reflects
     # the freshly-connected account instead of staying stale forever.
-    sync_state.record_credentials_changed(settings.memory_path, pinterest.CHANNEL_ID)
+    sync_state.record_credentials_changed(settings.memory_path, connector_id)
 
     return HTMLResponse(
-        "<html><body style='font:14px -apple-system;padding:40px'>"
-        "<h2>Pinterest connected</h2>"
-        "<p>You can close this tab and go back to Cicada.</p>"
-        "</body></html>"
-    )
-
-
-@router.get("/x/callback", response_class=HTMLResponse)
-async def x_callback(
-    code: str = Query(""),
-    state: str = Query(""),
-    settings: Settings = Depends(get_settings),
-):
-    """X's OAuth PKCE redirect target — same shape as Pinterest's callback,
-    plus the stored PKCE ``code_verifier`` for this state, spent exactly once.
-    """
-    entry = _pop_valid_state(state, x.CHANNEL_ID)
-    if not code:
-        raise HTTPException(status_code=400, detail="No authorization code returned")
-
-    base_url = f"http://{settings.host}:{settings.port}"
-    try:
-        await x.exchange_code(code, entry.get("verifier") or "", base_url=base_url)
-    except base.ConnectorError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
-    except Exception as exc:
-        # Never echo the response body: a token error can carry client context.
-        logger.warning(f"X code exchange failed: {type(exc).__name__}")
-        raise HTTPException(status_code=502, detail="Could not complete X sign-in")
-
-    # Fix round 1, M2 (extended to X): the token landed in secrets.env, outside
-    # memory_path — bump sync_state.json so "sources" reflects the
-    # freshly-connected account instead of staying stale forever.
-    sync_state.record_credentials_changed(settings.memory_path, x.CHANNEL_ID)
-
-    return HTMLResponse(
-        "<html><body style='font:14px -apple-system;padding:40px'>"
-        "<h2>X connected</h2>"
-        "<p>You can close this tab and go back to Cicada.</p>"
-        "</body></html>"
+        f"<html><body style='font:14px -apple-system;padding:40px'>"
+        f"<h2>{adapter.LABEL} connected</h2>"
+        f"<p>You can close this tab and go back to Cicada.</p>"
+        f"</body></html>"
     )
 
 

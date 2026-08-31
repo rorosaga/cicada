@@ -38,9 +38,11 @@ def _isolated_home(tmp_path, monkeypatch):
     names = (x.CLIENT_ID_ENV, x.TOKEN_ENV, x.REFRESH_TOKEN_ENV, x.USER_ID_ENV)
     for name in names:
         monkeypatch.delenv(name, raising=False)
+    x._pending_verifiers.clear()
     yield
     for name in names:
         os.environ.pop(name, None)
+    x._pending_verifiers.clear()
 
 
 TWEET_1 = {"id": "1001", "text": "First bookmark, a plain short tweet."}
@@ -94,17 +96,22 @@ def test_generate_pkce_pair_produces_a_verifier_and_a_matching_s256_challenge():
     assert challenge2 != challenge
 
 
-def test_authorize_url_carries_scopes_state_challenge_and_the_backend_redirect():
+def test_authorize_url_carries_scopes_state_and_the_backend_redirect():
+    """Task 15 §3: ``authorize_url`` no longer takes a ``code_challenge``
+    parameter — it mints its own PKCE pair internally and stashes the
+    verifier under ``state``, so it shares its call shape with every other
+    OAuth adapter's ``authorize_url(state, *, base_url)``."""
     secrets.set_secret(x.CLIENT_ID_ENV, "client-id-placeholder")
-    url = x.authorize_url("state-xyz", "challenge-abc")
+    url = x.authorize_url("state-xyz")
     assert url.startswith(x.AUTH_URL)
     assert "client_id=client-id-placeholder" in url
     assert "response_type=code" in url
     assert "state=state-xyz" in url
-    assert "code_challenge=challenge-abc" in url
+    assert "code_challenge=" in url
     assert "code_challenge_method=S256" in url
     assert "bookmark.read" in url and "offline.access" in url
     assert "%2Fsources%2Fconnectors%2Fx%2Fcallback" in url
+    assert x._pending_verifiers["state-xyz"], "the verifier is stashed internally, keyed by state"
 
 
 def test_bookmarks_to_items_uses_tweet_text_as_the_note_and_has_no_folder():
@@ -255,13 +262,18 @@ def test_sync_refuses_the_default_transport_when_the_gate_is_closed(tmp_path, mo
 
 
 def test_exchange_code_stores_tokens_and_resolves_the_user_id(tmp_path, monkeypatch):
+    """Task 15 §3: ``exchange_code`` no longer takes a ``code_verifier``
+    positional argument — it recovers the verifier internally via ``state``,
+    matching the same PKCE pair ``authorize_url`` would have minted for it."""
     secrets.set_secret(x.CLIENT_ID_ENV, "client-id-placeholder")
+    x._pending_verifiers["state-xyz"] = "verifier-xyz"
     calls: list = []
-    run(x.exchange_code("code-123", "verifier-xyz", http_fn=_fake_http(calls)))
+    run(x.exchange_code("code-123", state="state-xyz", http_fn=_fake_http(calls)))
     assert secrets.has_secret(x.TOKEN_ENV)
     assert x.is_connected() is True
     assert secrets.load_secrets()[x.REFRESH_TOKEN_ENV] == "ref-abc"
     assert secrets.load_secrets()[x.USER_ID_ENV] == "u-42"
+    assert "state-xyz" not in x._pending_verifiers, "the verifier is single-use"
     # The verifier reached the token exchange, and no client secret was sent.
     token_call = next(c for c in calls if c[1] == x.TOKEN_URL)
     assert token_call[3]["code_verifier"] == "verifier-xyz"
@@ -269,8 +281,9 @@ def test_exchange_code_stores_tokens_and_resolves_the_user_id(tmp_path, monkeypa
 
 
 def test_exchange_code_requires_a_client_id_first(tmp_path, monkeypatch):
+    x._pending_verifiers["state-xyz"] = "verifier-xyz"
     with pytest.raises(Exception):
-        run(x.exchange_code("code-123", "verifier-xyz", http_fn=_fake_http()))
+        run(x.exchange_code("code-123", state="state-xyz", http_fn=_fake_http()))
     assert not secrets.has_secret(x.TOKEN_ENV)
 
 
@@ -278,6 +291,7 @@ def test_exchange_code_survives_a_user_id_lookup_failure(tmp_path, monkeypatch):
     """A `/2/users/me` hiccup must not roll back the token — sync() resolves
     the user id lazily later."""
     secrets.set_secret(x.CLIENT_ID_ENV, "client-id-placeholder")
+    x._pending_verifiers["state-xyz"] = "verifier-xyz"
 
     async def flaky(method, url, **kwargs):
         if url == x.ME_URL:
@@ -286,9 +300,20 @@ def test_exchange_code_survives_a_user_id_lookup_failure(tmp_path, monkeypatch):
             return TOKEN_PAYLOAD
         raise AssertionError(f"unexpected request: {method} {url}")
 
-    run(x.exchange_code("code-123", "verifier-xyz", http_fn=flaky))
+    run(x.exchange_code("code-123", state="state-xyz", http_fn=flaky))
     assert x.is_connected() is True
     assert not secrets.has_secret(x.USER_ID_ENV)
+
+
+def test_exchange_code_with_an_unknown_state_exchanges_with_an_empty_verifier(tmp_path, monkeypatch):
+    """The router already rejects an unknown/forged state before ever calling
+    in (`_pop_valid_state`); this covers exchange_code's own fallback when
+    something calls it with a state it never minted a verifier for."""
+    secrets.set_secret(x.CLIENT_ID_ENV, "client-id-placeholder")
+    calls: list = []
+    run(x.exchange_code("code-123", state="never-mounted", http_fn=_fake_http(calls)))
+    token_call = next(c for c in calls if c[1] == x.TOKEN_URL)
+    assert token_call[3]["code_verifier"] == ""
 
 
 def test_credential_fields_never_leak_a_value():
