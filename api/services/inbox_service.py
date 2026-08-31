@@ -350,9 +350,15 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     keeps them all open with a context qualifier, and "neither"/free text writes
     a ``user_stated`` claim that closes them. Only then is a full sentence (not
     a raw button label — the old bug) fed to the LLM body rewrite.
+
+    Two requests are refused outright rather than interpreted: an ``option_key``
+    that matches no option (400) and a resolve carrying neither a pick nor free
+    text (400) — both used to land in the "neither" branch and close every
+    competing claim. A claims block that will not parse aborts the resolve
+    (409) with the page untouched and the question kept.
     """
     from api.services import predicates
-    from api.services.claims import Claim, parse_claims, write_claims
+    from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
     from api.services.conflict_resolver import _synthesize_entity_update
 
     fm_item = parsed.frontmatter
@@ -369,6 +375,25 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     today = str(date.today())
     extra_lines: list[str] = []
 
+    # A pick this function cannot make sense of must NEVER fall through to the
+    # "neither" branch below — that branch permanently closes every competing
+    # claim on the entity, and a typo'd/absent key is a client bug, not the
+    # user saying "none of these". Reject loudly instead; nothing is written.
+    known_keys = {str(o.get("key")) for o in options} | {"both", "neither"}
+    if option_key and option_key not in known_keys:
+        raise HTTPException(
+            400,
+            f"Unknown optionKey {option_key!r} for {path.stem} — expected one of "
+            f"{sorted(known_keys)}, or free text in `answer`.",
+        )
+    if not option_key and not answer:
+        raise HTTPException(
+            400,
+            f"Resolving conflict {path.stem} requires an optionKey or a free-text "
+            "answer (use optionKey='neither' to state that none are current, or "
+            "action='defer'/'skip' to postpone).",
+        )
+
     if not entity_path.exists():
         # Nothing to write into; clear the question rather than stranding it.
         path.unlink()
@@ -382,11 +407,21 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
 
     try:
         claim_list = parse_claims(entity.body, strict=True)
-    except Exception:
-        # A corrupt claims block must never be silently overwritten.
-        claim_list = None
+    except MalformedClaimsBlockError as exc:
+        # A corrupt claims block must never be silently overwritten — and the
+        # rest of this function rewrites the page (an LLM body synthesis on a
+        # body whose machine layer we could not read) and then deletes the
+        # question. Abort the whole resolve: the entity stays byte-identical,
+        # the inbox item stays pending, and the user is told why.
+        logger.error(f"inbox resolve aborted — unparseable claims in {entity_path.name}: {exc}")
+        raise HTTPException(
+            409,
+            f"Cannot resolve {path.stem}: the ```claims block in "
+            f"entities/{entity_id}.md is malformed ({exc}). Fix the page by hand; "
+            "the question has been kept.",
+        ) from exc
 
-    by_id = {c.id: c for c in (claim_list or [])}
+    by_id = {c.id: c for c in claim_list}
     option_claims = [
         by_id[str(o["claim_id"])]
         for o in options
@@ -404,35 +439,34 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     # current" onto the page — the exact opposite of what the user said.
     if chosen is not None and option_key not in ("both", "neither"):
         winner = by_id.get(str(chosen.get("claim_id") or ""))
-        if claim_list is not None:
-            if winner is not None:
-                winner.confidence = max(winner.confidence, 0.9)
-            for loser in option_claims:
-                if winner is not None and loser.id == winner.id:
-                    continue
-                if loser.valid_to is None:
-                    if winner is not None:
-                        _close_today(loser, by=winner, today=today)
-                    else:
-                        # The pick is claim-less, so there is no claim to point
-                        # the supersession at — but the losing values are still
-                        # no longer current, and leaving them open would just
-                        # regenerate this question next cycle.
-                        loser.valid_to = today
-                    line = (
-                        f"entities/{entity_id}.md: updated "
-                        f"(source: {path.stem}, trigger: inbox/conflict/resolved)"
-                    )
-                    # The manifest is a set of paths, not a per-claim tally.
-                    if line not in extra_lines:
-                        extra_lines.append(line)
+        if winner is not None:
+            winner.confidence = max(winner.confidence, 0.9)
+        for loser in option_claims:
+            if winner is not None and loser.id == winner.id:
+                continue
+            if loser.valid_to is None:
+                if winner is not None:
+                    _close_today(loser, by=winner, today=today)
+                else:
+                    # The pick is claim-less, so there is no claim to point
+                    # the supersession at — but the losing values are still
+                    # no longer current, and leaving them open would just
+                    # regenerate this question next cycle.
+                    loser.valid_to = today
+                line = (
+                    f"entities/{entity_id}.md: updated "
+                    f"(source: {path.stem}, trigger: inbox/conflict/resolved)"
+                )
+                # The manifest is a set of paths, not a per-claim tally.
+                if line not in extra_lines:
+                    extra_lines.append(line)
         # The chosen label IS the answer, claim-backed or not.
         sentence = (
             f"{predicates.predicate_phrase(predicate, name, chosen['label'])} "
             f"(confirmed by user on {today})."
         )
 
-    elif claim_list is not None:
+    else:
         if option_key == "both":
             labels = []
             for claim in option_claims:
@@ -481,8 +515,7 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
                     f"'{predicate}' are current as of {today}."
                 )
 
-    if claim_list is not None:
-        entity.body = write_claims(entity.body, claim_list)
+    entity.body = write_claims(entity.body, claim_list)
 
     new_body = None
     if sentence:
@@ -506,7 +539,7 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
                 else entity.body
             )
 
-    if claim_list is not None and new_body is not None:
+    if new_body is not None:
         # The synthesizer only ever returns prose; re-attach the machine layer
         # so an LLM rewrite can never drop the claims block.
         new_body = write_claims(new_body, claim_list)
