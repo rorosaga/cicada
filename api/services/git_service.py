@@ -5,6 +5,7 @@ from pathlib import Path
 
 from api.models.schemas import (
     Contributor,
+    ContributorCommit,
     EntityDiff,
     EntityHistoryEntry,
     SleepHistoryEntry,
@@ -37,6 +38,10 @@ _COMMIT_HASH_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 # and ``EntityDiff.truncated`` is set when the cap is hit.
 DIFF_MAX_LINES = 400
 _DIFF_TRUNCATION_MARKER = "... [diff truncated]"
+
+# Hard cap on a contributor-commit listing, so a caller-supplied `limit` can't
+# ask for the entire history of a bank with thousands of Sleep cycles.
+MAX_CONTRIBUTOR_COMMITS = 200
 
 
 def build_commit_message(
@@ -466,6 +471,75 @@ async def get_contributors(
     # Most active first; stable tie-break by author name.
     contributors.sort(key=lambda c: (-c.commit_count, c.author))
     return contributors
+
+
+async def get_contributor_commits(
+    memory_path: Path, author: str, *, limit: int = 50
+) -> list[ContributorCommit]:
+    """The commits one author wrote, newest first (G67 §2.2).
+
+    Reuses the NUL-record ``git log`` + ``_parse_authors`` plumbing from
+    :func:`get_contributors`, with ``--name-only`` folded into the SAME call so
+    the listing costs one git invocation rather than one per commit. Records are
+    ``hash <US> date <US> subject <US> body <US>`` followed by a blank line and
+    the changed paths; ``git log --name-only`` lists the root (parentless)
+    commit's files too, so no ``--root`` dance is needed.
+
+    An author of ``"unknown"`` matches legacy untrailered commits. Returns ``[]``
+    for a non-git dir, a blank author, or an author with no commits — the app
+    renders an empty state, never an error.
+    """
+    author = (author or "").strip()
+    if not author or not (memory_path / ".git").exists():
+        return []
+
+    limit = max(1, min(int(limit or 50), MAX_CONTRIBUTOR_COMMITS))
+    sep = "\x1f"
+    rec = "\x1e"
+    try:
+        out = await _run_git(
+            memory_path,
+            "log",
+            f"--format={rec}%H{sep}%ad{sep}%s{sep}%b{sep}",
+            "--date=short",
+            "--name-only",
+        )
+    except GitError:
+        return []
+
+    commits: list[ContributorCommit] = []
+    for record in out.split(rec):
+        if not record.strip():
+            continue
+        fields = record.split(sep, 4)
+        if len(fields) < 5:
+            continue
+        commit_hash, date_str, subject, body, tail = fields
+
+        if author not in (_parse_authors(body) or [UNKNOWN_AUTHOR]):
+            continue
+
+        files = [line.strip() for line in tail.splitlines() if line.strip()]
+        entities = sorted(
+            {
+                f[len("entities/"):-len(".md")].rsplit("/", 1)[-1]
+                for f in files
+                if f.startswith("entities/") and f.endswith(".md")
+            }
+        )
+        commits.append(
+            ContributorCommit(
+                commit_hash=commit_hash.strip(),
+                date=date_str.strip(),
+                subject=subject.strip(),
+                entities=entities,
+                files_changed=len(files),
+            )
+        )
+        if len(commits) >= limit:
+            break
+
+    return commits
 
 
 async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:

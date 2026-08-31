@@ -163,6 +163,28 @@ class Contributor(CamelModel):
     avatar_url: Optional[str] = None
 
 
+class ContributorCommit(CamelModel):
+    """One commit attributed to a contributor (G67 §2.2).
+
+    ``entities`` are the entity ids (file STEMS) this commit touched, so the app
+    can render a chip per entity and fetch that entity's diff at this commit
+    from ``GET /entities/{id}/history/{commit}/diff``. ``files_changed`` is a
+    COUNT of every changed path (entities and everything else) — the ids
+    themselves are already in ``entities``.
+    """
+
+    commit_hash: str
+    date: str  # ISO date (YYYY-MM-DD)
+    subject: str
+    entities: list[str] = []
+    files_changed: int = 0
+
+
+class ContributorCommitsResponse(CamelModel):
+    author: str
+    commits: list[ContributorCommit] = []
+
+
 class ContributorsResponse(CamelModel):
     contributors: list[Contributor] = []
 
