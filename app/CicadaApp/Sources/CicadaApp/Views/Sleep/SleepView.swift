@@ -112,7 +112,7 @@ struct SleepView: View {
             Text("Sleep Cycle")
                 .font(CicadaTheme.titleFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
-            Text("Consolidate today's episodes into the memory graph.")
+            Text(Copy.sleepSubtitle)
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
@@ -211,7 +211,7 @@ struct SleepView: View {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Image(systemName: sleepVM.isRunning ? "hourglass" : "play.fill")
                             .font(.system(size: 11))
-                        Text(sleepVM.isRunning ? "Running…" : "Run now")
+                        Text(sleepVM.isRunning ? Copy.consolidating : Copy.consolidateNow)
                             .font(.system(size: 12, weight: .medium))
                     }
                     .foregroundStyle(sleepVM.isRunning ? CicadaTheme.textTertiary : CicadaTheme.accent)

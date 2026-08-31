@@ -68,7 +68,7 @@ struct InboxListView: View {
         VStack(alignment: .leading, spacing: 0) {
             PageHeader(
                 title: "Inbox",
-                subtitle: "Nudges and clarifications waiting on you."
+                subtitle: Copy.inboxSubtitle
             ) {
                 if !viewModel.items.isEmpty {
                     Text("\(viewModel.items.count) pending")

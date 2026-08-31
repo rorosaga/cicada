@@ -76,7 +76,7 @@ struct UsageView: View {
             default: "\(c.label) · \(UsageFormat.usd(c.costUsd)) \(viewModel.range == "month" ? "this month" : "in range")"
             }
         }
-        return Text(parts.isEmpty ? "No connections yet — set one up under Setup › Connections." : "Connections: " + parts.joined(separator: " · "))
+        return Text(parts.isEmpty ? Copy.noConnections : "Connections: " + parts.joined(separator: " · "))
             .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
     }
 }

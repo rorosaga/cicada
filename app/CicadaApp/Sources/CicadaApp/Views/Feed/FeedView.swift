@@ -67,8 +67,8 @@ struct FeedView: View {
 
     private var header: some View {
         PageHeader(
-            title: "Feed",
-            subtitle: "Recently ingested sources and saved resources."
+            title: Copy.feed,
+            subtitle: Copy.feedSubtitle
         )
     }
 

@@ -11,8 +11,8 @@ struct ConnectionsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            PageHeader(title: "Plans & keys",
-                       subtitle: "What Cicada bills against. Subscriptions sign in through their own CLI — Cicada never sees the token.") {
+            PageHeader(title: Copy.plansAndKeys,
+                       subtitle: Copy.plansAndKeysSubtitle) {
                 Button { Task { await viewModel.load(fresh: true) } } label: { Image(systemName: "arrow.clockwise") }
             }
 

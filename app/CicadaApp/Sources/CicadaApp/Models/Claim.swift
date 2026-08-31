@@ -37,7 +37,7 @@ enum Observer: Codable, Hashable, Identifiable {
     var label: String {
         switch self {
         case .agent: return "Cicada"
-        case .rodrigo: return "Rodrigo"
+        case .rodrigo: return Copy.you
         case .external(let n): return n
         }
     }

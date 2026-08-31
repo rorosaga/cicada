@@ -29,12 +29,12 @@ enum AppTab: String, CaseIterable {
 
     /// The label the user sees. Deliberately separate from `rawValue`, which is
     /// this tab's stable identifier (persisted state, cache keys, the ⌘-slot
-    /// order in `allCases`) and must not move when the copy changes — G63
-    /// renames Connections → "Plans & keys" and Connect → "Agents".
+    /// order in `allCases`) and must not move when the copy changes — the two
+    /// setup tabs take their labels from `Copy`.
     var title: String {
         switch self {
-        case .connections: "Plans & keys"
-        case .connect: "Agents"
+        case .connections: Copy.plansAndKeys
+        case .connect: Copy.agents
         default: rawValue
         }
     }

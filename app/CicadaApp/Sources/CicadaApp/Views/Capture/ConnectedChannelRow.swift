@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// One connected capture channel on the Capture page (G62): a 28-pt circular
-/// icon, the channel label, the server's own `detail` line, and a trailing ⋯
-/// menu carrying exactly the actions the backend said this channel supports.
+/// One connected capture channel (G62): a 28-pt circular icon, the channel
+/// label, the server's own `detail` line, and a trailing ⋯ menu carrying
+/// exactly the actions the backend said this channel supports.
 ///
 /// The whole row is a `Button` (opens "Manage…") so VoiceOver and UI automation
 /// can reach it; the ⋯ menu is a second, separately-labelled control.

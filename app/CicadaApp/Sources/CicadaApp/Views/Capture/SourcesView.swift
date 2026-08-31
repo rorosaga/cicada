@@ -221,7 +221,7 @@ struct SourcesView: View {
                             .font(CicadaTheme.headingFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                         if count > 0 {
-                            Text("Consolidate now to fold them into the graph immediately.")
+                            Text("\(Copy.consolidateNow) to fold them into the graph immediately.")
                                 .font(CicadaTheme.captionFont)
                                 .foregroundStyle(CicadaTheme.textTertiary)
                         } else if let last = formattedLastSleep {
@@ -255,7 +255,7 @@ struct SourcesView: View {
                 } else {
                     Image(systemName: "moon.fill").font(.system(size: 12))
                 }
-                Text(sleepVM.isRunning ? "Sleeping…" : "Consolidate now")
+                Text(sleepVM.isRunning ? Copy.consolidating : Copy.consolidateNow)
                     .font(.system(size: 12, weight: .semibold))
             }
             .foregroundStyle(count == 0 && !sleepVM.isRunning ? CicadaTheme.textTertiary : .white)
@@ -267,7 +267,7 @@ struct SourcesView: View {
         .buttonStyle(.plain)
         .disabled(sleepVM.isRunning || count == 0)
         .help(count == 0 ? "Nothing queued right now" : "Run the Sleep cycle now")
-        .accessibilityLabel("Consolidate now")
+        .accessibilityLabel(Copy.consolidateNow)
     }
 
     private var formattedLastSleep: String? {

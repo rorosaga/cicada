@@ -182,7 +182,7 @@ private struct TopicsListView: View {
         VStack(alignment: .leading, spacing: 0) {
             PageHeader(
                 title: "Clusters",
-                subtitle: "Auto-detected groups of related entities."
+                subtitle: Copy.clustersSubtitle
             )
 
             // Search + filter row
@@ -272,7 +272,7 @@ private struct TopicsListView: View {
 
                     // Count + expand/collapse-all control
                     HStack(spacing: CicadaTheme.spacingMD) {
-                        Text("\(filteredEntities.count) clusters")
+                        Text(Copy.clusterCount(entities: filteredEntities.count, groups: groupedEntities.count))
                             .font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textTertiary)
 
