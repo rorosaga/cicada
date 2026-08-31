@@ -28,3 +28,6 @@ benchmarks/queries.txt
 # superpowers SDD scratch (ledger, briefs, review packages)
 .superpowers/
 .worktrees/
+
+# launchd backend service logs
+logs/
