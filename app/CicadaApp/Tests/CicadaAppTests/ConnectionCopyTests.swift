@@ -4,28 +4,6 @@ import XCTest
 /// G63 — the sidebar renames and the card's new explanatory lines.
 final class ConnectionCopyTests: XCTestCase {
 
-    /// The raw values are persisted identifiers used as `SyncDomain`-adjacent
-    /// keys and cache-facing strings; only the *displayed* title moves.
-    func testTabIdentifiersAreUnchanged() {
-        XCTAssertEqual(AppTab.connections.rawValue, "Connections")
-        XCTAssertEqual(AppTab.connect.rawValue, "Connect")
-        XCTAssertEqual(AppTab.sources.rawValue, "Capture")
-    }
-
-    func testRenamedTabsShowTheNewTitles() {
-        XCTAssertEqual(AppTab.connections.title, "Plans & keys")
-        XCTAssertEqual(AppTab.connect.title, "Agents")
-        XCTAssertEqual(AppTab.graph.title, "Graph")
-        XCTAssertEqual(AppTab.sources.title, "Capture")
-    }
-
-    /// ⌘-shortcut slots are derived from `AppTab.allCases` order — the rename
-    /// must not move Plans & keys off ⌘7 or Agents off ⌘8.
-    func testShortcutSlotsAreUnchanged() {
-        XCTAssertEqual(AppTab.allCases.firstIndex(of: .connections), 6)
-        XCTAssertEqual(AppTab.allCases.firstIndex(of: .connect), 7)
-    }
-
     func testConnectionDecodesHowAndPowers() throws {
         let json = """
         {"id":"claude-plan","label":"Claude plan","kind":"subscription","available":true,

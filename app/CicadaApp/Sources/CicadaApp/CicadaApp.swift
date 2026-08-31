@@ -151,6 +151,15 @@ struct CicadaApp: App {
                 // and the bookworm is fed by the Store's status snapshot.
         }
         .defaultSize(width: 1200, height: 800)
+
+        // ⌘, and the sidebar's footer gear. Gets the same environment as the
+        // main window — `ConnectionsView` is a projection over the same Store.
+        Settings {
+            SettingsScene()
+                .environment(connectionsVM)
+                .environment(store)
+                .preferredColorScheme(appColorScheme == .light ? .light : .dark)
+        }
     }
 
     /// Keeps the native AppKit window chrome (titlebar material + background)
