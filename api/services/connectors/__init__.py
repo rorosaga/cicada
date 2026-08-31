@@ -1,9 +1,8 @@
 """Direct saved-content API connectors (G71 §2).
 
 G69's route matrix names exactly two platforms that expose a *personal saved
-index* through a sanctioned API: Pinterest v5 and Reddit. Pinterest is
-implemented here; Reddit is a planned peer for the same seam, added in a
-follow-up slice. Everything else in Cicada's import story is an export-file
+index* through a sanctioned API: Pinterest v5 and Reddit. Both are implemented
+here, side by side. Everything else in Cicada's import story is an export-file
 parser living in ``media_ingestor`` — aggregators were evaluated and rejected
 (they cannot reach these surfaces, and every hosted one proxies tokens through
 its own cloud).

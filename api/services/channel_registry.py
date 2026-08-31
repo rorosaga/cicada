@@ -34,6 +34,7 @@ CHANNEL_IDS = (
     "rss",
     "calendar",
     "pinterest",
+    "reddit",
     "telegram",
     "files",
 )
@@ -178,6 +179,9 @@ def build_channels(
         "pinterest": _connector_channel(
             "pinterest", "Pinterest", state, "pin",
             connected=bool(connected_map.get("pinterest"))),
+        "reddit": _connector_channel(
+            "reddit", "Reddit", state, "saved item",
+            connected=bool(connected_map.get("reddit"))),
         "telegram": {
             "id": "telegram",
             "label": "Telegram bot",

@@ -32,7 +32,7 @@ from api.services import (
     sync_service,
     sync_state,
 )
-from api.services.connectors import pinterest
+from api.services.connectors import pinterest, reddit
 from api.services.media_ingestor import MAX_BATCH, RawItem
 
 router = APIRouter()
@@ -430,7 +430,10 @@ async def list_source_channels(
     on a cold launch.
     """
     memory_path = settings.memory_path
-    connectors_connected = {"pinterest": pinterest.is_connected()}
+    connectors_connected = {
+        "pinterest": pinterest.is_connected(),
+        "reddit": reddit.is_connected(),
+    }
     # `telegram_enabled` and connector credentials are config/secrets facts, not
     # filesystem-in-the-bank ones: configuring a bot token, or connecting an
     # account, flips a channel to "connected" without touching any component

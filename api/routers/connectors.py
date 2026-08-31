@@ -9,8 +9,9 @@ Credential values enter through ``PUT .../credentials`` and are written to
 ``$CICADA_HOME/secrets.env`` (0600). They are never returned, never logged, and
 never included in an error message.
 
-Pinterest-only for now: ``ADAPTERS`` / ``LOGIN_MODES`` are dicts keyed by
-``CHANNEL_ID``, so adding Reddit as a peer connector later is additive.
+``ADAPTERS`` / ``LOGIN_MODES`` are dicts keyed by ``CHANNEL_ID``, so Pinterest
+(``oauth``) and Reddit (``credentials`` — a script app needs no redirect round
+trip) sit side by side as peer connectors; a third would be additive too.
 """
 
 from __future__ import annotations
@@ -33,15 +34,16 @@ from api.models.schemas import (
 )
 from api.services import sync_state
 from api.services.connections import secrets as secret_store
-from api.services.connectors import base, pinterest
+from api.services.connectors import base, pinterest, reddit
 
 router = APIRouter(prefix="/sources/connectors")
 
 ADAPTERS = {
     pinterest.CHANNEL_ID: pinterest,
+    reddit.CHANNEL_ID: reddit,
 }
 
-LOGIN_MODES = {pinterest.CHANNEL_ID: "oauth"}
+LOGIN_MODES = {pinterest.CHANNEL_ID: "oauth", reddit.CHANNEL_ID: "credentials"}
 
 # Single-use OAuth nonces: {state: expires_at}. In-process and deliberately not
 # persisted — an interrupted sign-in is retried, not resumed.

@@ -82,25 +82,23 @@ async def _warm_logos_safely(memory_path: Path) -> None:
 
 
 async def _poll_connectors_safely(memory_path: Path) -> None:
-    """G71 §2: pull new Pinterest pins on the nightly cycle.
+    """G71 §2: pull new Pinterest pins and Reddit saves on the nightly cycle.
 
     Same contract as ``_warm_logos_safely``: bounded, credential-gated,
     network-gated (``CICADA_ALLOW_CONNECTOR_FETCH``), and never fatal — an
     expired token or a rate limit must not fail a Sleep cycle. Each adapter
     already records its own failure through ``sync_state.record_error``, which
     is what surfaces it per-channel on the Capture page; this wrapper only
-    guarantees that a raise inside one adapter cannot stop the cycle.
+    guarantees that a raise inside one adapter cannot stop the other or the
+    cycle.
 
     Runs at the TAIL (and on the idle early return), so anything pulled tonight
     is consolidated by tomorrow's cycle — the same "it joins the graph after the
     next Sleep cycle" contract every other capture path already states.
-
-    Pinterest-only for now; Reddit is a planned peer for this same loop, added
-    in a follow-up slice.
     """
-    from api.services.connectors import pinterest
+    from api.services.connectors import pinterest, reddit
 
-    for adapter in (pinterest,):
+    for adapter in (pinterest, reddit):
         try:
             result = await adapter.sync(memory_path)
             if result.get("status") == "ok" and result.get("new"):

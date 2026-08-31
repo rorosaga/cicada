@@ -126,7 +126,7 @@ def test_chat_export_channels_come_from_origin_counts(tmp_path):
     assert chans["chat-export:chatgpt"]["count"] == 1
 
 
-# --- G71: the direct Pinterest connector as a capture channel ---------------
+# --- G71: the direct Pinterest + Reddit connectors as capture channels ------
 
 
 def test_connector_channel_is_disconnected_without_credentials(tmp_path):
@@ -135,6 +135,10 @@ def test_connector_channel_is_disconnected_without_credentials(tmp_path):
     assert channels["pinterest"]["actions"] == ["connect"]
     assert channels["pinterest"]["detail"] is None
     assert channels["pinterest"]["label"] == "Pinterest"
+    assert channels["reddit"]["connected"] is False
+    assert channels["reddit"]["actions"] == ["connect"]
+    assert channels["reddit"]["detail"] is None
+    assert channels["reddit"]["label"] == "Reddit"
 
 
 def test_connector_channel_reports_connected_but_never_synced(tmp_path):
@@ -153,6 +157,15 @@ def test_connector_channel_reports_a_successful_sync(tmp_path):
     assert ch["last_error"] is None
 
 
+def test_reddit_channel_reports_a_successful_sync(tmp_path):
+    sync_state.record_sync(tmp_path, "reddit", count=42, at="2026-08-30T10:00:00Z")
+    ch = _channels(tmp_path, connectors_connected={"reddit": True})["reddit"]
+    assert ch["count"] == 42
+    assert "42 saved items" in ch["detail"]
+    assert "2026-08-30" in ch["detail"]
+    assert ch["last_error"] is None
+
+
 def test_connector_channel_surfaces_the_last_failure(tmp_path):
     sync_state.record_sync(tmp_path, "pinterest", count=42, at="2026-08-30T10:00:00Z")
     sync_state.record_error(tmp_path, "pinterest", "RuntimeError: 429 rate limited")
@@ -161,12 +174,12 @@ def test_connector_channel_surfaces_the_last_failure(tmp_path):
     assert ch["detail"].startswith("Last sync failed")
 
 
-def test_channel_ids_now_include_the_pinterest_connector(client):
+def test_channel_ids_now_include_both_connectors(client):
     c, _ = client
     ids = [ch["id"] for ch in c.get("/sources/channels").json()["channels"]]
     assert ids == [
         "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
-        "rss", "calendar", "pinterest", "telegram", "files",
+        "rss", "calendar", "pinterest", "reddit", "telegram", "files",
     ]
 
 
@@ -217,7 +230,7 @@ def test_get_sources_channels_returns_every_known_channel(client):
     ids = [ch["id"] for ch in resp.json()["channels"]]
     assert ids == [
         "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
-        "rss", "calendar", "pinterest", "telegram", "files",
+        "rss", "calendar", "pinterest", "reddit", "telegram", "files",
     ]
     assert all(ch["connected"] is False for ch in resp.json()["channels"])
 
