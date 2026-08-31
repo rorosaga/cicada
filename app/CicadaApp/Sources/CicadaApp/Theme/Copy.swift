@@ -17,6 +17,7 @@ enum Copy {
     static let plansAndKeys = "Plans & keys"
     static let agents = "Agents"
     static let feed = "Feed"
+    static let activity = "Activity"
 
     /// The canonical way to send someone to the connections settings. Built
     /// from the parts above so a rename can never desync the two halves.
@@ -45,10 +46,15 @@ enum Copy {
     static let inboxSubtitle = "Questions waiting on you."
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."
+    static let activitySubtitle = "What Cicada spent, and who authored what."
 
     // MARK: Pointers
 
     static let noConnections = "No connections yet — add one in \(settingsPlansAndKeys)."
+
+    /// Section label above the origins strip. Sentence-shaped on purpose —
+    /// it explains a row of pills that would otherwise read as decoration.
+    static let originsLabel = "WHERE YOUR MEMORY COMES FROM"
 
     // MARK: Derived
 

@@ -1,5 +1,35 @@
 import SwiftUI
 
+/// The range + detail pickers, hoisted out of the page header so `ActivityView`
+/// can host them next to the section picker.
+struct UsageRangeControls: View {
+    let viewModel: UsageViewModel
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            // `labelsHidden` + `fixedSize`: a fixed 130/180 pt frame
+            // truncated the menu title to "This…" and wrapped the
+            // segmented control to "Mo de".
+            Picker("Range", selection: Binding(get: { viewModel.range }, set: { viewModel.range = $0 })) {
+                Text("This month").tag("month")
+                Text("30 days").tag("30d")
+                Text("90 days").tag("90d")
+                Text("All time").tag("all")
+            }
+            .pickerStyle(.menu).labelsHidden().fixedSize()
+            .accessibilityLabel("Choose the reporting range")
+
+            Picker("Mode", selection: Binding(get: { viewModel.mode }, set: { viewModel.mode = $0 })) {
+                ForEach(UsageMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            .accessibilityLabel("Choose how much detail to show")
+
+            if viewModel.isLoadingRange { ProgressView().controlSize(.small) }
+        }
+    }
+}
+
 /// G51 — consumption & traceability. Minimal: four tiles + calendar.
 /// Advanced: per-connection cost, charts, tables, /stats-style facts.
 ///
@@ -7,7 +37,10 @@ import SwiftUI
 /// constructed once in `CicadaApp.init()` and injected via `.environment`
 /// like every other screen's view model (`ContributorsViewModel`,
 /// `ConnectionsViewModel`) — this view never talks to `APIClient` directly.
-struct UsageView: View {
+///
+/// The Usage half of the Activity page (G51 §3.9). No page header of its own —
+/// `ActivityView` owns the title, the section picker and the range controls.
+struct UsageSection: View {
     @Environment(UsageViewModel.self) private var viewModel
     /// The Store already hydrates and refreshes `.consumption`; this reconcile
     /// is a one-shot, not a per-appear refetch (§5.5).
@@ -15,30 +48,6 @@ struct UsageView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            PageHeader(title: "Usage", subtitle: "What Cicada consumed, on which connection, at what price.") {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    // `labelsHidden` + `fixedSize`: a fixed 130/180 pt frame
-                    // truncated the menu title to "This…" and wrapped the
-                    // segmented control to "Mo de".
-                    Picker("Range", selection: Binding(get: { viewModel.range }, set: { viewModel.range = $0 })) {
-                        Text("This month").tag("month")
-                        Text("30 days").tag("30d")
-                        Text("90 days").tag("90d")
-                        Text("All time").tag("all")
-                    }
-                    .pickerStyle(.menu).labelsHidden().fixedSize()
-                    .accessibilityLabel("Choose the reporting range")
-
-                    Picker("Mode", selection: Binding(get: { viewModel.mode }, set: { viewModel.mode = $0 })) {
-                        ForEach(UsageMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented).labelsHidden().fixedSize()
-                    .accessibilityLabel("Choose how much detail to show")
-
-                    if viewModel.isLoadingRange { ProgressView().controlSize(.small) }
-                }
-            }
-
             if let err = viewModel.errorMessage {
                 Text(err).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.statusColor(for: .decaying))
             }
@@ -55,7 +64,7 @@ struct UsageView: View {
                 }
             }
         }
-        .padding(CicadaTheme.spacingLG)
+        .padding(.horizontal, CicadaTheme.spacingXL)
         .task {
             guard !loadedOnce else { return }
             loadedOnce = true

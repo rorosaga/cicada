@@ -1,11 +1,15 @@
 import SwiftUI
 
 /// The Capture page (G62). Shows **only what is actually connected** — one
-/// compact row per channel the backend reports as having state — plus the Sleep
-/// queue and the origins strip. Everything explanatory (what a channel is, how
-/// to export from a vendor, where a bookmarks file lives) lives behind the `+`
-/// button in `AddSourceSheet`, so this page stays a status readout rather than
-/// a wall of onboarding copy.
+/// compact row per channel the backend reports as having state — plus the
+/// Sleep queue. Everything explanatory (what a channel is, how to export from
+/// a vendor, where a bookmarks file lives) lives behind the `+` button in
+/// `AddSourceSheet`, so this page stays a status readout rather than a wall
+/// of onboarding copy.
+///
+/// The origins strip that used to live here moved to the Activity page
+/// (G68 §1) — "where your memory comes from" is the same provenance question
+/// Usage and Contributors answer.
 ///
 /// Every value here is a projection over `Store` snapshots (§5.5): the page
 /// renders correct, real data on a cold launch with the backend down.
@@ -23,7 +27,6 @@ struct SourcesView: View {
     private var channels: [SourceChannel] { store.channels.value ?? [] }
     private var connected: [SourceChannel] { SourceChannel.sortedConnected(channels) }
     private var channelsLoading: Bool { store.channels.isEmpty && store.channels.isRefreshing }
-    private var origins: [OriginStat] { store.origins.value ?? [] }
     private var status: StatusSnapshot? { store.status.value }
     private var statusLoading: Bool { store.status.isEmpty && store.status.isRefreshing }
 
@@ -40,7 +43,6 @@ struct SourcesView: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     connectedCard
                     queueCard
-                    originsStrip
                 }
                 .padding(.horizontal, CicadaTheme.spacingXL)
                 .padding(.bottom, CicadaTheme.spacingXXL)
@@ -283,23 +285,6 @@ struct SourcesView: View {
         let f = DateFormatter()
         f.dateFormat = "MMM d, h:mm a"
         return f.string(from: date)
-    }
-
-    // MARK: - Origins strip
-
-    @ViewBuilder
-    private var originsStrip: some View {
-        if !origins.isEmpty {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                sectionLabel("WHERE YOUR MEMORY COMES FROM")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: CicadaTheme.spacingSM) {
-                        ForEach(origins) { OriginPill(origin: $0) }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        }
     }
 
     // MARK: - Shared

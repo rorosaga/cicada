@@ -2,7 +2,10 @@ import SwiftUI
 
 // M3 (backlog A2): "which model authored which belief" — repo-wide attribution
 // parsed from Cicada-Author commit trailers.
-struct ContributorsView: View {
+/// The Contributors half of the Activity page: repo-wide model/user
+/// attribution parsed from `Cicada-Author` commit trailers. No page header of
+/// its own — `ActivityView` owns the title.
+struct ContributorsSection: View {
     @Environment(ContributorsViewModel.self) private var viewModel
 
     /// At most one contributor is expanded at a time — the drill-down is tall
@@ -15,8 +18,6 @@ struct ContributorsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            header
-
             // Error → never-loaded → loaded-but-empty → list. Without the
             // never-loaded branch a cold launch with the backend down showed
             // "No attributed commits yet", which is a claim about the repo, not
@@ -52,22 +53,10 @@ struct ContributorsView: View {
 
             Spacer()
         }
-        .padding(CicadaTheme.spacingLG)
+        .padding(.horizontal, CicadaTheme.spacingXL)
         // No `.task { load() }`: `ContributorsViewModel` is a thin projection
         // over `Store.contributors`, already hydrated + kept live by the
         // Store — this tab renders instantly from the snapshot on revisit.
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Text("Contributors")
-                .font(CicadaTheme.titleFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
-            Text("Which model — or you — authored each belief.")
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func errorState(_ message: String) -> some View {

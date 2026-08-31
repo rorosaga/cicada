@@ -128,7 +128,9 @@ struct ContentView: View {
         case .inbox:
             InboxListView()
         case .contributors:
-            ContributorsView()
+            // Both retired rows render the merged page until Task 10 removes
+            // them from `AppTab`.
+            ActivityView()
         case .connections:
             ConnectionsView()
         case .connect:
@@ -136,7 +138,7 @@ struct ContentView: View {
         case .sources:
             SourcesView()
         case .usage:
-            UsageView()
+            ActivityView()
         }
     }
 }
