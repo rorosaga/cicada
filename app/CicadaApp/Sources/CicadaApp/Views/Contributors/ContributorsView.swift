@@ -2,11 +2,10 @@ import SwiftUI
 
 // M3 (backlog A2): "which model authored which belief" — repo-wide attribution
 // parsed from Cicada-Author commit trailers.
-//
-// NOT BUILD-VERIFIED — this view was written without an Xcode compile. It mirrors
-// the app's existing @Observable + APIClient + CicadaTheme conventions but needs
-// Rodrigo to verify it builds and to wire it into the sidebar navigation.
-struct ContributorsView: View {
+/// The Contributors half of the Activity page: repo-wide model/user
+/// attribution parsed from `Cicada-Author` commit trailers. No page header of
+/// its own — `ActivityView` owns the title.
+struct ContributorsSection: View {
     @Environment(ContributorsViewModel.self) private var viewModel
 
     /// At most one contributor is expanded at a time — the drill-down is tall
@@ -19,14 +18,20 @@ struct ContributorsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            header
-
-            if viewModel.isLoading {
-                ProgressView().frame(maxWidth: .infinity, alignment: .center)
-            } else if let err = viewModel.errorMessage {
-                Text(err)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.statusColor(for: .decaying))
+            // Error → never-loaded → loaded-but-empty → list. Without the
+            // never-loaded branch a cold launch with the backend down showed
+            // "No attributed commits yet", which is a claim about the repo, not
+            // about the request that failed.
+            if let err = viewModel.errorMessage {
+                errorState(err)
+            } else if !viewModel.hasLoaded {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading commit trailers…")
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
             } else if viewModel.contributors.isEmpty {
                 Text("No attributed commits yet.")
                     .font(CicadaTheme.bodyFont)
@@ -48,22 +53,21 @@ struct ContributorsView: View {
 
             Spacer()
         }
-        .padding(CicadaTheme.spacingLG)
+        .padding(.horizontal, CicadaTheme.spacingXL)
         // No `.task { load() }`: `ContributorsViewModel` is a thin projection
         // over `Store.contributors`, already hydrated + kept live by the
         // Store — this tab renders instantly from the snapshot on revisit.
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Text("Contributors")
-                .font(CicadaTheme.titleFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
-            Text("Which model — or you — authored each belief.")
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
+    private func errorState(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text(message)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.danger)
+            Button("Retry") { Task { await viewModel.load() } }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Retry loading contributors")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -101,7 +105,7 @@ private struct ContributorRow: View {
 
     private var accent: Color {
         switch kind {
-        case "user": Color(hex: 0x3B82F6)
+        case "user": CicadaTheme.info
         case "unknown": CicadaTheme.textTertiary
         default: ContributorAvatar.providerColor(contributor.provider)
         }
@@ -404,7 +408,7 @@ private struct ContributorAvatar: View {
     private var userFallback: some View {
         Image(systemName: "person.crop.circle.fill")
             .font(.system(size: Self.size))
-            .foregroundStyle(Color(hex: 0x3B82F6))
+            .foregroundStyle(CicadaTheme.info)
             .frame(width: Self.size, height: Self.size)
     }
 

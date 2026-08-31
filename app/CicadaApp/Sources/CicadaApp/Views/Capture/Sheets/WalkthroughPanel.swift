@@ -77,13 +77,16 @@ enum WalkthroughVendor: String, CaseIterable, Identifiable {
 }
 
 struct WalkthroughPanel: View {
+    /// The vendors this panel may offer — supplied by the tile, never
+    /// `WalkthroughVendor.allCases`.
+    let vendors: [WalkthroughVendor]
     @Binding var vendor: WalkthroughVendor
     let onChooseFile: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Picker("Export from", selection: $vendor) {
-                ForEach(WalkthroughVendor.allCases) { v in
+                ForEach(vendors) { v in
                     Text(v.title).tag(v)
                 }
             }

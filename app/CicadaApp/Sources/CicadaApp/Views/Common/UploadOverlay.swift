@@ -99,12 +99,12 @@ struct UploadOverlay: View {
                 if let result = uploadResult {
                     Text(result)
                         .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(Color(hex: 0x22C55E))
+                        .foregroundStyle(CicadaTheme.success)
                         .multilineTextAlignment(.center)
                 } else if let err = errorMessage {
                     Text(err)
                         .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(Color(hex: 0xEF4444))
+                        .foregroundStyle(CicadaTheme.danger)
                         .multilineTextAlignment(.center)
                 } else if mode == .conversations {
                     Text("Drag and drop the folder here\nor click to select")

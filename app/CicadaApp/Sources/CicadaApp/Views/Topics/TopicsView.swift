@@ -182,7 +182,7 @@ private struct TopicsListView: View {
         VStack(alignment: .leading, spacing: 0) {
             PageHeader(
                 title: "Clusters",
-                subtitle: "Auto-detected groups of related entities."
+                subtitle: Copy.clustersSubtitle
             )
 
             // Search + filter row
@@ -272,7 +272,7 @@ private struct TopicsListView: View {
 
                     // Count + expand/collapse-all control
                     HStack(spacing: CicadaTheme.spacingMD) {
-                        Text("\(filteredEntities.count) clusters")
+                        Text(Copy.clusterCount(entities: filteredEntities.count, groups: groupedEntities.count))
                             .font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textTertiary)
 
@@ -729,6 +729,9 @@ private struct TopicDetailView: View {
             // ScrollView, so wrapping it in a second one broke the width
             // proposal chain for long markdown bodies (the "zoomed in" bug).
             EntityDetailCard(entity: displayEntity, showsCloseButton: false)
+                // Same identity rule as the graph overlay. Keyed on the OUTER
+                // `entity.id`, which is stable while `fullEntity` loads.
+                .id(entity.id)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(CicadaTheme.spacingXL)

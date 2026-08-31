@@ -28,6 +28,17 @@ struct EntityDetailCard: View {
     @State private var sources: [EntitySource] = []
     @State private var newSourceRef = ""
 
+    // History tab (G68 §2.10). `entity.history` is empty BOTH before the full
+    // entity body has landed and when the page has no commits, so track the
+    // fetch explicitly rather than inferring from an empty array.
+    @State private var fetchedHistory: [EntityHistoryEntry]?
+    @State private var historyLoading = false
+    /// Set when `fetchEntityHistory` throws, cleared at the start of every
+    /// attempt. Kept separate from `fetchedHistory` so a failure is never
+    /// mistaken for "fetched successfully, and it was empty" (see
+    /// `HistoryTabState.error`).
+    @State private var historyLoadFailed = false
+
     /// G66 — the decay class the user just picked, shown immediately while the
     /// PUT is in flight. Cleared once the reload lands (or on failure, so the
     /// chip snaps back to the server's truth).
@@ -198,6 +209,7 @@ struct EntityDetailCard: View {
             }
             TabButton(title: "History", isSelected: selectedTab == .history) {
                 selectedTab = .history
+                Task { await loadHistoryIfNeeded() }
             }
             TabButton(title: "Perspectives", isSelected: selectedTab == .perspectives) {
                 selectedTab = .perspectives
@@ -480,13 +492,13 @@ struct EntityDetailCard: View {
                     pill(branch, icon: "arrow.triangle.branch", color: CicadaTheme.accent)
                 }
                 if let dirty = repo.dirtyFiles, dirty > 0 {
-                    pill("\(dirty) dirty", icon: "circle.fill", color: Color(hex: 0xF59E0B))
+                    pill("\(dirty) dirty", icon: "circle.fill", color: CicadaTheme.warning)
                 }
                 if let ahead = repo.ahead, ahead > 0 {
-                    pill("↑\(ahead)", icon: nil, color: Color(hex: 0x22C55E))
+                    pill("↑\(ahead)", icon: nil, color: CicadaTheme.success)
                 }
                 if let behind = repo.behind, behind > 0 {
-                    pill("↓\(behind)", icon: nil, color: Color(hex: 0xEF4444))
+                    pill("↓\(behind)", icon: nil, color: CicadaTheme.danger)
                 }
             }
 
@@ -519,7 +531,7 @@ struct EntityDetailCard: View {
                                 .lineLimit(1)
                             if wt.isDirty == true {
                                 Circle()
-                                    .fill(Color(hex: 0xF59E0B))
+                                    .fill(CicadaTheme.warning)
                                     .frame(width: 5, height: 5)
                             }
                         }
@@ -535,7 +547,7 @@ struct EntityDetailCard: View {
                     Text(hint)
                         .font(.system(size: 10))
                 }
-                .foregroundStyle(Color(hex: 0xF59E0B))
+                .foregroundStyle(CicadaTheme.warning)
             }
         }
         .padding(CicadaTheme.spacingMD)
@@ -547,12 +559,12 @@ struct EntityDetailCard: View {
     private func repoStatusBadge(_ status: String) -> some View {
         let (label, color): (String, Color) = {
             switch status {
-            case "ok": return ("ok", Color(hex: 0x22C55E))
+            case "ok": return ("ok", CicadaTheme.success)
             case "other_device": return ("other device", CicadaTheme.textTertiary)
-            case "missing": return ("missing", Color(hex: 0xEF4444))
-            case "not_a_repo": return ("not a repo", Color(hex: 0xEF4444))
-            case "git_unavailable": return ("git unavailable", Color(hex: 0xF59E0B))
-            case "timeout": return ("timeout", Color(hex: 0xF59E0B))
+            case "missing": return ("missing", CicadaTheme.danger)
+            case "not_a_repo": return ("not a repo", CicadaTheme.danger)
+            case "git_unavailable": return ("git unavailable", CicadaTheme.warning)
+            case "timeout": return ("timeout", CicadaTheme.warning)
             default: return (status, CicadaTheme.textTertiary)
             }
         }()
@@ -908,19 +920,71 @@ struct EntityDetailCard: View {
 
     // MARK: - History Tab
 
+    // G68 §2.10 — three branches, resolved by `HistoryTabState`: a spinner
+    // while the fetch is in flight, an empty state once it's confirmed there
+    // is nothing, and (the common case) the existing G67 diff-expansion list.
+    @ViewBuilder
     private var historyTab: some View {
+        switch historyState {
+        case .loading:
+            HStack(spacing: CicadaTheme.spacingSM) {
+                ProgressView().controlSize(.small)
+                Text("Reading git history…")
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(CicadaTheme.spacingXXL)
+
+        case .empty:
+            VStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 26))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                Text("No commits touch this page yet")
+                    .font(CicadaTheme.headingFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text("It appears here once a Sleep cycle writes to it.")
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(CicadaTheme.spacingXXL)
+
+        case .error:
+            VStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 26))
+                    .foregroundStyle(CicadaTheme.danger)
+                Text("Couldn't load history")
+                    .font(CicadaTheme.headingFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Button("Retry") { Task { await loadHistoryIfNeeded() } }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Retry loading history")
+            }
+            .frame(maxWidth: .infinity)
+            .padding(CicadaTheme.spacingXXL)
+
+        case .entries(let rows):
+            historyList(rows)
+        }
+    }
+
+    private func historyList(_ rows: [EntityHistoryEntry]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(entity.history.reversed().enumerated()), id: \.element.id) { index, entry in
+            ForEach(Array(rows.reversed().enumerated()), id: \.element.id) { index, entry in
                 HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                     // Timeline
                     VStack(spacing: 0) {
                         Circle()
                             .fill(index == 0
-                                  ? Color(hex: 0x22C55E)
-                                  : Color(hex: UInt32(entry.changeType.color, radix: 16) ?? 0x999999))
+                                  ? CicadaTheme.success
+                                  : CicadaTheme.historyColor(for: entry.changeType))
                             .frame(width: 10, height: 10)
 
-                        if index < entity.history.count - 1 {
+                        if index < rows.count - 1 {
                             Rectangle()
                                 .fill(CicadaTheme.border)
                                 .frame(width: 1)
@@ -1000,14 +1064,11 @@ struct EntityDetailCard: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
                         .background(
-                            (entry.author == "user"
-                             ? Color(hex: 0x3B82F6)
-                             : Color(hex: 0x8B5CF6)).opacity(0.18)
+                            (entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
+                                .opacity(0.18)
                         )
                         .clipShape(Capsule())
-                        .foregroundStyle(entry.author == "user"
-                                         ? Color(hex: 0x3B82F6)
-                                         : Color(hex: 0x8B5CF6))
+                        .foregroundStyle(entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
                 }
             }
 
@@ -1196,7 +1257,7 @@ struct EntityDetailCard: View {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.bubble.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(Color(hex: 0xF59E0B))
+                    .foregroundStyle(CicadaTheme.warning)
                 Text("Observers disagree on \(d.predicate)")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -1215,11 +1276,11 @@ struct EntityDetailCard: View {
             }
         }
         .padding(CicadaTheme.spacingMD)
-        .background(Color(hex: 0xF59E0B).opacity(0.08))
+        .background(CicadaTheme.warning.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
         .overlay(
             RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .stroke(Color(hex: 0xF59E0B).opacity(0.3), lineWidth: 1)
+                .stroke(CicadaTheme.warning.opacity(0.3), lineWidth: 1)
         )
     }
 
@@ -1280,6 +1341,29 @@ struct EntityDetailCard: View {
         // Include superseded so the timeline tab can detect contested keys.
         claims = (try? await APIClient.shared.fetchClaims(subject: entity.id, includeSuperseded: true)) ?? []
         claimsLoaded = true
+    }
+
+    private var historyState: HistoryTabState {
+        HistoryTabState.resolve(embedded: entity.history, fetched: fetchedHistory, failed: historyLoadFailed)
+    }
+
+    /// One shot per card. Skipped entirely when the entity payload already
+    /// carried its history — the common case once the full body has landed.
+    /// A failure leaves `fetchedHistory` `nil` and sets `historyLoadFailed`
+    /// instead of coercing to `[]` — coercing used to read as "no commits
+    /// touch this page" AND permanently block retries (the guard below only
+    /// re-fetches while `fetchedHistory == nil`). Re-selecting the History
+    /// tab (or a future retry action) calls this again and clears the flag.
+    private func loadHistoryIfNeeded() async {
+        guard entity.history.isEmpty, fetchedHistory == nil, !historyLoading else { return }
+        historyLoading = true
+        historyLoadFailed = false
+        do {
+            fetchedHistory = try await APIClient.shared.fetchEntityHistory(id: entity.id)
+        } catch {
+            historyLoadFailed = true
+        }
+        historyLoading = false
     }
 
     // MARK: - Helpers

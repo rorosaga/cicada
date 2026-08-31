@@ -1,10 +1,15 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @State private var selectedTab: AppTab = .graph
+    /// Reopen where the user left off. Always read back through
+    /// `AppTab.restored(from:)`: this string can name a tab that no longer
+    /// exists (G68 retired five of them).
+    @AppStorage("cicada.selectedTab") private var selectedTabRaw = AppTab.graph.rawValue
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     // First-launch onboarding: show the Connect guide once, then it lives in
-    // the sidebar under Setup. Stored flag so reinstalls of the same Mac user
+    // Settings → Agents (⌘,). Stored flag so reinstalls of the same Mac user
     // don't re-trigger it on every launch.
     @AppStorage("cicada.hasSeenConnectGuide") private var hasSeenConnectGuide = false
     @State private var showOnboarding = false
@@ -21,6 +26,8 @@ struct ContentView: View {
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(InboxViewModel.self) private var inboxVM
     @Environment(Store.self) private var store
+    @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(ConnectionsViewModel.self) private var connectionsVM
 
     var body: some View {
         // `ViewBuilder` only accepts declarations/`let _ = ...` statements
@@ -31,7 +38,10 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 selectedTab: $selectedTab,
-                inboxCount: inboxVM.pendingCount
+                inboxCount: inboxVM.pendingCount,
+                isSleeping: store.status.value?.sleep.status == "running" || sleepVM.isRunning,
+                needsAttention: connectionsVM.needsAttention,
+                onOpenSettings: openSettings
             )
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
         } detail: {
@@ -60,7 +70,11 @@ struct ContentView: View {
         // `observeStore()`; `InboxViewModel.items` reads the snapshot
         // directly), so there's nothing left for ContentView to kick off.
         .onAppear {
+            selectedTab = AppTab.restored(from: selectedTabRaw)
             if !hasSeenConnectGuide { showOnboarding = true }
+        }
+        .onChange(of: selectedTab) { _, newValue in
+            selectedTabRaw = newValue.rawValue
         }
         .sheet(isPresented: $showOnboarding) {
             ConnectView(isOnboarding: true) {
@@ -127,17 +141,15 @@ struct ContentView: View {
             SleepView(selectedTab: $selectedTab)
         case .inbox:
             InboxListView()
-        case .contributors:
-            ContributorsView()
-        case .connections:
-            ConnectionsView()
-        case .connect:
-            ConnectView()
-        case .sources:
-            SourcesView()
-        case .usage:
-            UsageView()
+        case .activity:
+            ActivityView()
         }
+    }
+
+    /// SwiftUI has no API for opening the `Settings` scene programmatically,
+    /// so the footer gear posts the same AppKit action ⌘, does.
+    private func openSettings() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 }
 
@@ -220,6 +232,10 @@ struct GraphContainerView: View {
                     .transition(.opacity)
 
                 EntityDetailCard(entity: entity, defaultRaw: false)
+                    // One card identity PER ENTITY. Without this, following a
+                    // wikilink A → B reuses A's @State — A's claims, repos,
+                    // fact sources and selected tab render under B's name.
+                    .id(entity.id)
                     .frame(maxWidth: 620, maxHeight: 680)
                     .padding(CicadaTheme.spacingXL)
                     .transition(.scale(scale: 0.97).combined(with: .opacity))

@@ -36,6 +36,36 @@ enum CicadaTheme {
     // MARK: - Accent
     static var accent: Color { mode == .dark ? Dark.accent : Light.accent }
 
+    // MARK: - Semantic State Colors (G68)
+    // Mode-aware success/warning/danger/info, following the `entityColor`
+    // pattern above: one accessor here, one hue per palette below. Every page
+    // that used to hardcode 0x22C55E / 0xF59E0B / 0xEF4444 / 0x3B82F6 (or the
+    // near-duplicate blue 0x4A9EFF) reads these instead, so a state colour is
+    // legible in BOTH modes and moves in one place. Brand hues (a vendor's own
+    // colour — OriginPill, channel tints, AgentSetup.brand, provider badges)
+    // stay literal at their call sites — they are identity, not state.
+    static var success: Color { mode == .dark ? Dark.success : Light.success }
+    static var warning: Color { mode == .dark ? Dark.warning : Light.warning }
+    static var danger: Color { mode == .dark ? Dark.danger : Light.danger }
+    static var info: Color { mode == .dark ? Dark.info : Light.info }
+
+    /// Plate behind a monospaced command/config snippet (`CommandBox`). The
+    /// old flat `Color.black.opacity(0.35)` put near-black `textPrimary` on a
+    /// near-black plate in light mode; this is one step darker than the
+    /// surface it sits on, in both modes.
+    static var codeBackground: Color { mode == .dark ? Dark.codeBackground : Light.codeBackground }
+
+    /// Timeline dot hue per commit change type (entity History tab). Replaces
+    /// `HistoryChangeType.color`, which returned a hex STRING that the view
+    /// re-parsed — a model has no business naming a colour.
+    static func historyColor(for change: HistoryChangeType) -> Color {
+        switch change {
+        case .created: success
+        case .updated, .relationAdded: info
+        case .statusChange, .confidenceChange: warning
+        }
+    }
+
     // MARK: - Entity Type Colors
     // Mirrors the `typeColors` map in graph.js so the SwiftUI chrome and the d3
     // canvas agree on hue per type. Light mode reuses the same hue family, just
@@ -103,15 +133,19 @@ enum CicadaTheme {
         mode == .dark ? Dark.inboxColor(for: kind) : Light.inboxColor(for: kind)
     }
 
-    // MARK: - Diff Colors (G67)
+    // MARK: - Diff / Decay Colors (G67 / G66)
     // Added/removed line color in the shared commit-diff renderer (`DiffView`,
-    // reused by the entity History tab and the Contributors drill-down). Its
-    // own token rather than reusing `entityColor(.concept)`/`.deadline` so a
-    // future retune of entity-type hues can't accidentally recolor diffs.
-    static var diffAdded: Color { mode == .dark ? Dark.diffAdded : Light.diffAdded }
-    static var decayDurable: Color { mode == .dark ? Dark.decayDurable : Light.decayDurable }
-    static var decayVolatile: Color { mode == .dark ? Dark.decayVolatile : Light.decayVolatile }
-    static var diffRemoved: Color { mode == .dark ? Dark.diffRemoved : Light.diffRemoved }
+    // reused by the entity History tab and the Contributors drill-down), and
+    // the decay-chip tint. Both are THIN ALIASES of the semantic state tokens
+    // above (G68) rather than their own hex pairs — dark mode was already the
+    // exact same hex as success/danger/info/warning; light mode's separate
+    // ~600-band values are dropped in favor of the deeper, higher-contrast
+    // ~700-band the state tokens use. No duplicated hex pairs left in the
+    // theme.
+    static var diffAdded: Color { success }
+    static var diffRemoved: Color { danger }
+    static var decayDurable: Color { info }
+    static var decayVolatile: Color { warning }
 }
 
 // MARK: - Dark Palette
@@ -138,6 +172,14 @@ private extension CicadaTheme {
 
         // Periwinkle, nudged one notch brighter so it pops on the darker base.
         static let accent = Color(hex: 0x8896FF)
+
+        // State hues, Tailwind ~500 band — same brightness register as the
+        // entity hues above so they read as one system on the near-black base.
+        static let success = Color(hex: 0x22C55E)
+        static let warning = Color(hex: 0xF59E0B)
+        static let danger = Color(hex: 0xEF4444)
+        static let info = Color(hex: 0x4A9EFF)
+        static let codeBackground = Color(hex: 0x0A0B0F)
 
         static func entityColor(for type: EntityType) -> Color {
             // Tailwind-400-band hues: each keeps its type identity but is pushed
@@ -203,13 +245,6 @@ private extension CicadaTheme {
             case .mergeSuggestion: Color(hex: 0xF2C744)
             }
         }
-
-        // Tailwind-500 band — reads fine directly on the dark near-black base,
-        // no extra lift needed (unlike the deepened Light values below).
-        static let diffAdded = Color(hex: 0x22C55E)
-        static let decayDurable = Color(hex: 0x4A9EFF)
-        static let decayVolatile = Color(hex: 0xF59E0B)
-        static let diffRemoved = Color(hex: 0xEF4444)
     }
 }
 
@@ -242,6 +277,15 @@ private extension CicadaTheme {
         // Same periwinkle family, deepened for AA contrast on a near-white
         // surface (~4.7:1 vs the dark mode value's ~1.7:1 on white).
         static let accent = Color(hex: 0x5A62E0)
+
+        // Same families, deepened into the Tailwind ~700 band so each clears
+        // ~4.5:1 on the near-white surface instead of the ~1.8:1 the dark
+        // values give.
+        static let success = Color(hex: 0x15803D)
+        static let warning = Color(hex: 0xB45309)
+        static let danger = Color(hex: 0xB91C1C)
+        static let info = Color(hex: 0x1D4ED8)
+        static let codeBackground = Color(hex: 0xE7E9F0)
 
         static func entityColor(for type: EntityType) -> Color {
             switch type {
@@ -297,15 +341,6 @@ private extension CicadaTheme {
             case .mergeSuggestion: Color(hex: 0xB48A00)
             }
         }
-
-        // Deepened into the Tailwind ~600 band (same treatment as
-        // `entityColor` above) so added/removed text clears ~4.5:1 on the
-        // near-white surface instead of the washed-out contrast the 500-band
-        // Dark values would give here.
-        static let diffAdded = Color(hex: 0x16A34A)     // green-600
-        static let decayDurable = Color(hex: 0x2563EB)  // blue-600
-        static let decayVolatile = Color(hex: 0xD97706) // amber-600
-        static let diffRemoved = Color(hex: 0xDC2626)   // red-600
     }
 }
 

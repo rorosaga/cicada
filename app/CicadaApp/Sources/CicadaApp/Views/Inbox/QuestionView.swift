@@ -61,7 +61,7 @@ struct QuestionView: View {
                 HStack {
                     Spacer()
                     InboxActionButton(title: "Not sure — remind me later",
-                                      icon: "clock", color: 0xF59E0B) {
+                                      icon: "clock", color: CicadaTheme.warning) {
                         onResolve(QuestionResolution(action: "defer"))
                     }
                 }
@@ -159,7 +159,7 @@ struct QuestionView: View {
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .focused($otherFocused)
                         .onSubmit(submitOther)
-                    InboxActionButton(title: "Submit", icon: "paperplane", color: 0x22C55E,
+                    InboxActionButton(title: "Submit", icon: "paperplane", color: CicadaTheme.success,
                                       disabled: otherText.trimmed.isEmpty,
                                       action: submitOther)
                 }

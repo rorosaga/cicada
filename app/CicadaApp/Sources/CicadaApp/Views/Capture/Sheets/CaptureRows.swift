@@ -1,43 +1,5 @@
 import SwiftUI
 
-// MARK: - Import tile button
-
-struct ImportTileButton: View {
-    let icon: String
-    let label: String
-    var isBusy: Bool = false
-    var isActive: Bool = false
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(isActive ? CicadaTheme.accent : CicadaTheme.textSecondary)
-                Text(label)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(isActive ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, CicadaTheme.spacingLG)
-            .background(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                    .fill(isActive ? CicadaTheme.accent.opacity(0.12) : (isHovered ? CicadaTheme.surfaceHover : CicadaTheme.surfaceElevated))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                    .stroke(isActive ? CicadaTheme.accent.opacity(0.5) : CicadaTheme.border, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(isBusy)
-        .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
-    }
-}
-
 // MARK: - Feed subscription row
 
 struct FeedSubscriptionRow: View {

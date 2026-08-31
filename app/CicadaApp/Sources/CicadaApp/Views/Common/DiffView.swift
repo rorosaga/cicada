@@ -18,7 +18,7 @@ import SwiftUI
 /// never a safe cache key: keying by hash alone let one entity's cached diff
 /// leak into another entity's row for a shared commit (G67 fix round 1).
 /// Shared by both call sites (`EntityDetailCard`'s History tab,
-/// `ContributorsView`'s commit drill-down) so the composition rule lives in
+/// `ContributorsSection`'s commit drill-down) so the composition rule lives in
 /// one place and is unit-testable without a view hierarchy.
 struct DiffCacheKey: Hashable {
     let entityId: String

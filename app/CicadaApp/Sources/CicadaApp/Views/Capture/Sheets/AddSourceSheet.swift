@@ -26,7 +26,7 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .browserBookmarks: "Chrome & Safari bookmarks"
         case .appleNotes: "Apple Notes"
         case .telegram: "Telegram bot"
-        case .savedContent: "Instagram saved / YouTube playlists"
+        case .savedContent: "Instagram & YouTube"
         }
     }
 
@@ -83,6 +83,23 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     static func forChannel(_ channelId: String) -> AddSourceTile? {
         allCases.first { $0.channelIds.contains(channelId) }
     }
+
+    /// Which export vendors this tile's walkthrough offers.
+    ///
+    /// The panel used to render `WalkthroughVendor.allCases` for BOTH
+    /// walkthrough tiles, so "Chat export" offered Google Takeout and
+    /// Instagram — whose files belong to `POST /sources/upload`, not
+    /// `POST /conversations/upload` — and the saved-content tile offered
+    /// Claude and ChatGPT with the mismatch running the other way. Picking the
+    /// wrong one uploaded the file to the wrong parser and reported "Imported
+    /// 0". The tile, not the panel, decides.
+    var vendors: [WalkthroughVendor] {
+        switch self {
+        case .chatExport: [.claude, .chatgpt]
+        case .savedContent: [.takeout, .instagram]
+        default: []
+        }
+    }
 }
 
 struct AddSourceSheet: View {
@@ -105,7 +122,20 @@ struct AddSourceSheet: View {
     private var feeds: [FeedSubscription] { store.feeds.value ?? [] }
     private var calendars: [CalendarSubscription] { store.calendars.value ?? [] }
 
-    private let columns = [GridItem(.adaptive(minimum: 190), spacing: CicadaTheme.spacingMD)]
+    /// Fixed three columns. `.adaptive(minimum: 190)` gave four cramped
+    /// columns at 640 pt and forced `lineLimit(1)` on the titles.
+    private static let columns = Array(
+        repeating: GridItem(.flexible(), spacing: CicadaTheme.spacingMD),
+        count: 3
+    )
+
+    /// What Esc does. Backing out of a focused tile before closing the sheet
+    /// means one keypress can't discard both a half-typed URL and the sheet.
+    enum EscapeAction: Equatable { case back, close }
+
+    static func escapeAction(expanded: AddSourceTile?) -> EscapeAction {
+        expanded == nil ? .close : .back
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -113,12 +143,19 @@ struct AddSourceSheet: View {
             Divider().background(CicadaTheme.border)
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                    LazyVGrid(columns: columns, spacing: CicadaTheme.spacingMD) {
-                        ForEach(AddSourceTile.allCases) { tile in
-                            tileButton(tile)
+                    // Focused mode: one tile at a time, with its own back
+                    // control. The grid + an expanded flow together pushed the
+                    // action buttons below the fold on a 620 pt sheet.
+                    if let expanded {
+                        backControl(from: expanded)
+                        flow(for: expanded)
+                    } else {
+                        LazyVGrid(columns: Self.columns, spacing: CicadaTheme.spacingMD) {
+                            ForEach(AddSourceTile.allCases) { tile in
+                                tileButton(tile)
+                            }
                         }
                     }
-                    if let expanded { flow(for: expanded) }
                     statusLine
                 }
                 .padding(CicadaTheme.spacingXL)
@@ -128,10 +165,50 @@ struct AddSourceSheet: View {
         .background(CicadaTheme.background)
         .onAppear {
             if expanded == nil, let initialTile {
-                expanded = initialTile
-                vendor = initialTile == .savedContent ? .instagram : .claude
+                open(initialTile)
             }
         }
+        .onKeyPress(.escape) {
+            switch Self.escapeAction(expanded: expanded) {
+            case .back: collapse()
+            case .close: onClose()
+            }
+            return .handled
+        }
+    }
+
+    private func backControl(from tile: AddSourceTile) -> some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Button(action: collapse) {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
+                    Text("All sources").font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(CicadaTheme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to all sources")
+
+            Text(tile.title)
+                .font(CicadaTheme.headingFont)
+                .foregroundStyle(CicadaTheme.textPrimary)
+            Spacer()
+        }
+    }
+
+    /// Opening a tile resets the transient status AND pins the vendor picker
+    /// to a vendor this tile actually offers.
+    private func open(_ tile: AddSourceTile) {
+        error = nil
+        result = nil
+        expanded = tile
+        if let first = tile.vendors.first { vendor = first }
+    }
+
+    private func collapse() {
+        error = nil
+        result = nil
+        expanded = nil
     }
 
     private var header: some View {
@@ -154,11 +231,7 @@ struct AddSourceSheet: View {
 
     private func tileButton(_ tile: AddSourceTile) -> some View {
         Button {
-            error = nil
-            result = nil
-            expanded = expanded == tile ? nil : tile
-            if tile == .savedContent { vendor = .instagram }
-            if tile == .chatExport { vendor = .claude }
+            if expanded == tile { collapse() } else { open(tile) }
         } label: {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Image(systemName: tile.icon)
@@ -167,7 +240,7 @@ struct AddSourceSheet: View {
                 Text(tile.title)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(tile.blurb)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
@@ -196,9 +269,9 @@ struct AddSourceSheet: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             switch tile {
             case .chatExport:
-                WalkthroughPanel(vendor: $vendor) { pickChatExport() }
+                WalkthroughPanel(vendors: tile.vendors, vendor: $vendor) { pickChatExport() }
             case .savedContent:
-                WalkthroughPanel(vendor: $vendor) { pickSavedContent() }
+                WalkthroughPanel(vendors: tile.vendors, vendor: $vendor) { pickSavedContent() }
             case .bookmarksFile:
                 Text("A Netscape-format .html, a Chrome .json, a YouTube playlist .csv, or a whole Takeout .zip.")
                     .font(CicadaTheme.bodyFont)
@@ -311,9 +384,9 @@ struct AddSourceSheet: View {
                 Text("Working…").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             }
         } else if let result {
-            Text(result).font(CicadaTheme.captionFont).foregroundStyle(Color(hex: 0x22C55E))
+            Text(result).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.success)
         } else if let error {
-            Text(error).font(CicadaTheme.captionFont).foregroundStyle(Color(hex: 0xEF4444))
+            Text(error).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
         }
     }
 
@@ -384,7 +457,7 @@ struct AddSourceSheet: View {
         panel.allowedContentTypes = [.json, .html]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
-        panel.message = "Select a Claude, ChatGPT, or Gemini conversation export"
+        panel.message = "Select a Claude or ChatGPT conversation export"
         guard panel.runModal() == .OK else { return }
         let files = Self.expandToFiles(panel.urls, exts: ["json", "html"])
         guard !files.isEmpty else { error = "No JSON or HTML files found"; return }

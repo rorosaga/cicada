@@ -218,7 +218,9 @@ final class FakeSyncAPI: SyncAPI {
         try answer(.calendars, fallback: [])
     }
     func fetchContributors(etag: String?) async throws -> Conditional<[Contributor]> {
-        try answer(.contributors, fallback: [])
+        let result: Conditional<[Contributor]> = try answer(.contributors, fallback: [])
+        await gateIfNeeded(.contributors)
+        return result
     }
     func fetchOrigins(etag: String?) async throws -> Conditional<[OriginStat]> {
         try answer(.origins, fallback: [])
@@ -226,8 +228,8 @@ final class FakeSyncAPI: SyncAPI {
     func fetchConnections(etag: String?) async throws -> Conditional<[ConnectionStatus]> {
         try answer(.connections, fallback: [])
     }
-    func fetchConsumption(etag: String?) async throws -> Conditional<ConsumptionBundle> {
-        try answer(.consumption, fallback: try decodeFixture(consumptionJSON) as ConsumptionBundle)
+    func fetchConsumption(etag: String?, current: ConsumptionBundle?) async throws -> Conditional<ConsumptionBundle> {
+        try answer(.consumption, fallback: current ?? (try decodeFixture(consumptionJSON) as ConsumptionBundle))
     }
     func fetchStatus() async throws -> StatusSnapshot {
         calls.append(.status)
@@ -325,6 +327,29 @@ final class StoreTests: XCTestCase {
         await store.refresh([.contributors])
         XCTAssertNil(store.contributors.value)
         XCTAssertNotNil(store.toast)
+    }
+
+    /// PR #19 round-4 review: `refreshStatus()` has its own loop separate from
+    /// `refreshOne` and used to only set `toast` on a failed first fetch,
+    /// never `domainErrors[.status]` — so `SleepQueueCard.loadState`, which
+    /// reads that key, could never reach `.failed` and spun on `.loading`
+    /// forever. A failed first status fetch must latch the domain error, and
+    /// a later successful fetch must clear it, exactly like every other
+    /// domain in `refreshOne`.
+    func testFailedStatusFetchLatchesDomainErrorAndSuccessClearsIt() async throws {
+        let api = FakeSyncAPI()
+        api.replies[.status] = .failure
+        let store = Store(cache: tempCache(), api: api)
+
+        await store.refresh([.status])
+        XCTAssertNil(store.status.value, "no snapshot has ever landed")
+        XCTAssertFalse(store.status.isRefreshing, "a failed fetch must not leave the domain spinning")
+        XCTAssertEqual(store.domainErrors[.status], "Couldn't load status")
+
+        api.replies[.status] = nil
+        await store.refresh([.status])
+        XCTAssertNotNil(store.status.value)
+        XCTAssertNil(store.domainErrors[.status], "a landed response clears the latched failure")
     }
 
     /// entity(_:) caches full bodies so a second lookup is free.
