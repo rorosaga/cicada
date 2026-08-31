@@ -48,11 +48,13 @@ extension AddSourceTile {
     /// week-old success — while its nightly poll is 401-ing is the exact kind of
     /// quiet lie the transparency principle rules out.
     ///
-    /// A Connect-route tile with no `channelIds` at all (X today — its
-    /// connector is a later backend task) has nothing to resolve state
-    /// against, ever. Rather than show a "Connect" button that opens a flow
-    /// leading nowhere, it reads "Coming soon" — driven by the same channels
-    /// payload every other tile reads, just permanently absent from it.
+    /// A Connect-route tile with no `channelIds` at all (none, currently —
+    /// Pinterest, Reddit, and X all resolve against a live backend channel as
+    /// of Task 14) has nothing to resolve state against, ever. Rather than
+    /// show a "Connect" button that opens a flow leading nowhere, it would
+    /// read "Coming soon" — driven by the same channels payload every other
+    /// tile reads, just permanently absent from it. Kept here as the rail for
+    /// whichever Connect-route tile lands next with its backend not yet wired.
     static func tileState(_ tile: AddSourceTile, channels: [SourceChannel]) -> ImportTileState {
         let mine = tile.channels(in: channels)
         if let failing = mine.first(where: { ($0.lastError ?? "").isEmpty == false }) {

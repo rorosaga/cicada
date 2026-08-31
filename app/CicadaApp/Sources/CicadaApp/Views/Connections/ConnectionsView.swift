@@ -112,7 +112,7 @@ private struct ConnectionCard: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(spacing: CicadaTheme.spacingMD) {
                 if let logo {
-                    LogoImage(name: logo, size: 28).cornerRadius(6)
+                    LogoImage.platformTile(name: logo, size: 28)
                 } else {
                     Image(systemName: connection.isKeyBased ? "key.fill" : "cpu").frame(width: 28, height: 28)
                 }

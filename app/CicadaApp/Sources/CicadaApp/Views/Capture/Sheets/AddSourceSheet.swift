@@ -17,10 +17,9 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     // tile: the routes differ (two are Connect, four are Import file) and a
     // single "Instagram & YouTube" tile could not carry a route badge.
     case instagram, youtube, pinterest, reddit, tiktok, linkedin
-    /// X's own connector is a later backend task — this tile exists so the
-    /// catalog is honest about what's coming, but `tileState` resolves it to
-    /// a permanent "Coming soon" (its `channelIds` is empty, on purpose)
-    /// rather than a Connect button with nowhere to go.
+    /// X's connector (Task 14, registry-driven) — a real Connect route,
+    /// exactly like Pinterest and Reddit, now that `x.py` is wired into
+    /// `ADAPTERS` and `channelIds` resolves against a live backend channel.
     case x
 
     var id: String { rawValue }
@@ -73,7 +72,7 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .reddit: "Saved posts and comments, pulled every night."
         case .tiktok: "Favourites and likes, from a data export."
         case .linkedin: "Saved items — links and dates, nothing more."
-        case .x: "Bookmarks and likes — connector coming soon."
+        case .x: "Bookmarks, pulled straight from your account."
         }
     }
 
@@ -103,9 +102,9 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     /// where the user chooses Claude or ChatGPT, so one tile covers two rows.
     /// `pasteLink` owns none: it is an alternative route into `files`, which
     /// `bookmarksFile` already claims. The four Import-file platform tiles
-    /// (Instagram, YouTube, TikTok, LinkedIn) and `x` also own none — none of
-    /// them has a persisted backend channel yet — and a channel must map back
-    /// to exactly one tile for "Manage…" to be unambiguous.
+    /// (Instagram, YouTube, TikTok, LinkedIn) also own none — none of them
+    /// has a persisted backend channel yet — and a channel must map back to
+    /// exactly one tile for "Manage…" to be unambiguous.
     var channelIds: [String] {
         switch self {
         case .chatExport: ["chat-export:claude", "chat-export:chatgpt"]
@@ -118,7 +117,32 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .telegram: ["telegram"]
         case .pinterest: ["pinterest"]
         case .reddit: ["reddit"]
-        case .instagram, .youtube, .tiktok, .linkedin, .x: []
+        // Task 14 — x.py joined ADAPTERS, so X resolves against a live
+        // backend channel exactly like Pinterest and Reddit.
+        case .x: ["x"]
+        case .instagram, .youtube, .tiktok, .linkedin: []
+        }
+    }
+
+    /// The bundled brand-mark PNG for this tile (Task 13), when the
+    /// maintainers fetched one — `nil` for a tile whose row isn't a single
+    /// platform's logo: multi-vendor exports, local file/paste actions, or a
+    /// platform GROUP with no single brand mark (Chrome+Safari together,
+    /// Apple Notes, RSS, Calendar all kept their SF Symbol — no sensible
+    /// single logo exists for any of them).
+    var logoName: String? {
+        switch self {
+        case .instagram: "instagram"
+        case .youtube: "youtube"
+        case .pinterest: "pinterest"
+        case .reddit: "reddit"
+        case .tiktok: "tiktok"
+        case .linkedin: "linkedin"
+        case .x: "x"
+        case .telegram: "telegram"
+        case .chatExport, .bookmarksFile, .pasteLink, .rssFeed, .calendar,
+             .browserBookmarks, .appleNotes:
+            nil
         }
     }
 
@@ -309,9 +333,13 @@ struct AddSourceSheet: View {
             open(tile)
         } label: {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Image(systemName: tile.icon)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(CicadaTheme.textSecondary)
+                if let logoName = tile.logoName {
+                    LogoImage.platformTile(name: logoName, size: 32, systemFallback: tile.icon)
+                } else {
+                    Image(systemName: tile.icon)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
                 Text(tile.title)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -372,12 +400,8 @@ struct AddSourceSheet: View {
                     }
                     return true
                 }
-            case .pinterest, .reddit:
+            case .pinterest, .reddit, .x:
                 ConnectorSetupPanel(connectorId: tile.rawValue, vendors: tile.vendors, vendor: $vendor)
-            case .x:
-                Text("X's connector isn't wired up yet — check back soon.")
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
             case .bookmarksFile:
                 Text("A Netscape-format .html, a Chrome .json, a YouTube playlist .csv, or a whole Takeout .zip.")
                     .font(CicadaTheme.bodyFont)

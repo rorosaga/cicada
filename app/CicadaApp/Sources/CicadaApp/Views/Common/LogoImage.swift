@@ -135,4 +135,52 @@ struct LogoImage: View {
         if let loaded { await MainActor.run { cache[name] = loaded } }
         return loaded
     }
+
+    // MARK: - Platform tile (Task 13)
+
+    /// Linear-style "Connected accounts" tile: a rounded-square card with a
+    /// subtle background and a hairline border, the brand mark centered and
+    /// inset so a full-bleed source PNG (X's plain black square, same deal as
+    /// the existing `codex.png`) and a transparent-cornered one (Instagram,
+    /// Reddit, …) read the same. Radius scales proportionally with `size` (8pt
+    /// at the reference 40pt).
+    ///
+    /// Missing-logo fallback is `systemFallback` — the tile's OWN existing SF
+    /// Symbol, not a generic glyph — checked with the same synchronous
+    /// `exists(name:)` lookup `AddSourceTile.tileButton` used before this
+    /// existed, so a platform with no fetched PNG (or, vanishingly rarely, a
+    /// corrupt one `LogoImage`'s own decode falls back on) never renders
+    /// blank.
+    static func platformTile(name: String, size: CGFloat = 40, systemFallback: String = "app") -> some View {
+        PlatformTile(name: name, size: size, systemFallback: systemFallback)
+    }
+}
+
+private struct PlatformTile: View {
+    let name: String
+    let size: CGFloat
+    let systemFallback: String
+
+    /// 8pt at the reference 40pt size, scaling proportionally either way.
+    private var cornerRadius: CGFloat { size * 0.2 }
+    private var markSize: CGFloat { size * 0.6 }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(CicadaTheme.surfaceElevated)
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(CicadaTheme.border, lineWidth: 1)
+            if LogoImage.exists(name: name) {
+                LogoImage(name: name, size: markSize)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius * 0.5))
+            } else {
+                Image(systemName: systemFallback)
+                    .font(.system(size: size * 0.42, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
 }

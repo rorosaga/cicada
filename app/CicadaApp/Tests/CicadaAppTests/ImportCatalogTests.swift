@@ -85,24 +85,22 @@ final class ImportCatalogTests: XCTestCase {
         XCTAssertEqual(state.detail, "3 conversations")
     }
 
-    /// X has no backend channel to resolve state against (its `channelIds` is
-    /// deliberately empty), so it must never claim to be reachable via
-    /// "Connect" — the flow behind that button leads nowhere until a later
-    /// task wires the connector up.
-    func testXReadsComingSoonRatherThanADeadConnectButton() {
+    /// Task 14 wired `x.py` into `ADAPTERS`, and Task 13 gave the tile
+    /// `channelIds: ["x"]` to match — X now resolves against a live backend
+    /// channel exactly like Pinterest and Reddit, never "Coming soon".
+    func testXIsNowConnectableLikePinterestAndReddit() {
         let state = AddSourceTile.tileState(.x, channels: [])
-        XCTAssertEqual(state.badge, "Coming soon")
+        XCTAssertEqual(state.badge, "Connect")
         XCTAssertFalse(state.connected)
         XCTAssertNil(state.detail)
     }
 
-    /// Even a channels payload that unexpectedly carried an "x" row (a
-    /// misconfigured backend, a copy-paste bug) can't flip this — X's tile
-    /// has no channel id to match against, on purpose.
-    func testXStaysComingSoonEvenIfAStrayXChannelAppears() {
-        let state = AddSourceTile.tileState(.x, channels: [channel("x", connected: true)])
-        XCTAssertEqual(state.badge, "Coming soon")
-        XCTAssertFalse(state.connected)
+    func testXShowsConnectedWhenItsChannelIsLive() {
+        let state = AddSourceTile.tileState(
+            .x, channels: [channel("x", connected: true, detail: "12 bookmarks · synced 2026-08-30")]
+        )
+        XCTAssertTrue(state.connected)
+        XCTAssertEqual(state.detail, "12 bookmarks · synced 2026-08-30")
     }
 
     // MARK: - Coverage
@@ -118,5 +116,48 @@ final class ImportCatalogTests: XCTestCase {
 
     func testTheRetiredCombinedTileIsGone() {
         XCTAssertNil(AddSourceTile(rawValue: "savedContent"))
+    }
+
+    // MARK: - Logos (Task 13)
+
+    /// Every tile that declares a brand-mark name must have a bundled PNG to
+    /// back it up — a mapping with no matching `Resources/logos/*.png` would
+    /// silently fall back to a generic SF Symbol at runtime (`LogoImage`'s own
+    /// decode-tolerant path swallows the miss), so this is the only place that
+    /// miss becomes a loud test failure instead.
+    func testEveryDeclaredLogoNameResolvesToABundledImage() {
+        for tile in AddSourceTile.allCases {
+            guard let name = tile.logoName else { continue }
+            XCTAssertTrue(
+                LogoImage.exists(name: name),
+                "\(tile.rawValue) declares logo \"\(name)\" but no bundled Resources/logos/\(name).png exists"
+            )
+        }
+    }
+
+    /// The eight platforms Task 13 fetched real brand marks for. Locks the
+    /// catalog against a future edit accidentally dropping a tile back to nil
+    /// (which `testEveryDeclaredLogoNameResolvesToABundledImage` alone
+    /// wouldn't catch — `nil` trivially "passes" that loop).
+    func testTheEightBrandedPlatformsAllDeclareALogo() {
+        let expected: [AddSourceTile: String] = [
+            .instagram: "instagram", .youtube: "youtube", .pinterest: "pinterest",
+            .reddit: "reddit", .tiktok: "tiktok", .linkedin: "linkedin",
+            .x: "x", .telegram: "telegram",
+        ]
+        for (tile, name) in expected {
+            XCTAssertEqual(tile.logoName, name, tile.rawValue)
+        }
+    }
+
+    /// Chrome/Safari (combined under one tile), Apple Notes, RSS, and Calendar
+    /// have no single sensible brand mark and deliberately kept their SF
+    /// Symbol (Task 13 controller amendment) — same for the non-platform rows
+    /// (chat export's two vendors, a local file pick, pasting a link).
+    func testNonBrandedTilesDeclareNoLogo() {
+        for tile in [AddSourceTile.chatExport, .bookmarksFile, .pasteLink, .rssFeed,
+                     .calendar, .browserBookmarks, .appleNotes] {
+            XCTAssertNil(tile.logoName, tile.rawValue)
+        }
     }
 }
