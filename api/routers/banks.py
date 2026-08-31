@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 
+from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
 from loguru import logger
 
@@ -98,7 +99,9 @@ async def activate_bank(
     # next API restart. Every migration is marker-guarded and never raises, so
     # this is a few `stat`s on an already-migrated bank and can't fail the
     # switch.
-    run_bank_migrations(bank_registry.bank_dir(settings.memory_root, name))
+    # A first activate of a big bank rewrites hundreds of pages + git — keep it
+    # off the event loop like every other blocking route in this codebase.
+    await run_in_threadpool(run_bank_migrations, bank_registry.bank_dir(settings.memory_root, name))
     data = bank_registry.list_banks(settings.memory_root)
     return BankListResponse(
         banks=[BankInfo(**b) for b in data["banks"]],
