@@ -337,6 +337,7 @@ async def get_entity_history(
             author=author,
             commit_hash=commit_hash,
             diff=diff,
+            sessions=_parse_sessions(body),
         ))
 
     return entries
@@ -606,6 +607,7 @@ async def get_contributor_commits(
                 entities=entities[:MAX_COMMIT_ENTITIES],
                 entities_total=len(entities),
                 files_changed=len(files),
+                sessions=_parse_sessions(body),
             )
         )
         if len(commits) >= limit:

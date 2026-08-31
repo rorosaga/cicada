@@ -137,6 +137,11 @@ class EntityHistoryEntry(CamelModel):
     author: str = "unknown"
     commit_hash: str = ""
     diff: Optional[EntityDiff] = None
+    # G48: the conversations that produced this commit, parsed from its
+    # ``Cicada-Session:`` trailers. Empty for every pre-G48 commit and for
+    # user-action writes, so the app's "from conversation" affordance simply
+    # doesn't render there.
+    sessions: list[str] = []
 
 
 # --- Contributors (git-trailer attribution, backlog A2) ---
@@ -185,6 +190,8 @@ class ContributorCommit(CamelModel):
     entities: list[str] = []
     entities_total: int = 0
     files_changed: int = 0
+    # G48: same trailer, same contract as EntityHistoryEntry.sessions.
+    sessions: list[str] = []
 
 
 class ContributorCommitsResponse(CamelModel):
