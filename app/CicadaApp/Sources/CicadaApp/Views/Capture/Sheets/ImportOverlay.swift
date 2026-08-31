@@ -5,9 +5,14 @@ enum ImportStage: Equatable {
     case idle
     /// Parsing the dropped file server-side. Nothing has been staged.
     case parsing(String)
-    /// The parse came back: this is what the file contains, and the file to
-    /// re-post if the user confirms.
-    case preview(UploadPreview, URL)
+    /// The parse came back: this is what the file contains, the file to
+    /// re-post if the user confirms, and the `includeHistory` value the
+    /// PREVIEW was actually requested with (Devin round-1, finding 4) —
+    /// captured here rather than read live off the toggle at confirm time,
+    /// so a user who flips it between seeing the preview and pressing
+    /// Confirm still gets exactly what was previewed, not a live-drifted
+    /// value the preview never described.
+    case preview(UploadPreview, URL, Bool)
     case importing
     case done(String)
     case failed(String)
@@ -46,12 +51,17 @@ enum ImportOverlayState {
 
     /// A preview only earns a Confirm button if it actually found something;
     /// otherwise the overlay says why, in the backend's own words.
-    static func afterPreview(_ preview: UploadPreview, file: URL) -> ImportStage {
+    /// ``includeHistory`` is the value the preview REQUEST actually used —
+    /// captured into the resulting stage so Confirm can re-post with it,
+    /// not whatever the toggle has since drifted to (Devin round-1, finding 4).
+    static func afterPreview(
+        _ preview: UploadPreview, file: URL, includeHistory: Bool = false
+    ) -> ImportStage {
         guard preview.recognized, preview.total > 0 else {
             return .failed(preview.warnings.first
                 ?? "Cicada could not read this file as a saved-content export.")
         }
-        return .preview(preview, file)
+        return .preview(preview, file, includeHistory)
     }
 }
 
@@ -72,7 +82,7 @@ struct ImportPreviewSection: View {
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
-        case .preview(let preview, let file):
+        case .preview(let preview, let file, _):
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 Text(ImportOverlayState.totalLine(preview))
                     .font(.system(size: 13, weight: .semibold))

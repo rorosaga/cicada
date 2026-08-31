@@ -109,7 +109,33 @@ final class ImportOverlayTests: XCTestCase {
             collections: [UploadCollection(name: "Recipes", kind: "collection", count: 3)],
             warnings: [])
         let url = URL(fileURLWithPath: "/tmp/saved_posts.json")
-        XCTAssertEqual(ImportOverlayState.afterPreview(preview, file: url), .preview(preview, url))
+        XCTAssertEqual(ImportOverlayState.afterPreview(preview, file: url),
+                       .preview(preview, url, false))
+    }
+
+    /// Devin round-1, finding 4: the toggle-after-preview bug. `.preview`
+    /// must carry the EXACT `includeHistory` value the preview request was
+    /// actually made with — not the toggle's value at some later point (a
+    /// live re-read at confirm time is exactly what let the two drift).
+    /// Both directions: capturing `true`, and capturing `false`.
+    func testAfterPreviewCapturesIncludeHistoryTrue() {
+        let preview = UploadPreview(
+            recognized: true, platform: "tiktok", total: 3,
+            collections: [UploadCollection(name: "Favourites", kind: "saved", count: 3)],
+            warnings: [])
+        let url = URL(fileURLWithPath: "/tmp/user_data.json")
+        let stage = ImportOverlayState.afterPreview(preview, file: url, includeHistory: true)
+        XCTAssertEqual(stage, .preview(preview, url, true))
+    }
+
+    func testAfterPreviewCapturesIncludeHistoryFalse() {
+        let preview = UploadPreview(
+            recognized: true, platform: "tiktok", total: 3,
+            collections: [UploadCollection(name: "Favourites", kind: "saved", count: 3)],
+            warnings: [])
+        let url = URL(fileURLWithPath: "/tmp/user_data.json")
+        let stage = ImportOverlayState.afterPreview(preview, file: url, includeHistory: false)
+        XCTAssertEqual(stage, .preview(preview, url, false))
     }
 
     // MARK: - Step paths

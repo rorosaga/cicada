@@ -637,12 +637,20 @@ struct AddSourceSheet: View {
 
     private func preview(_ url: URL) {
         stage = .parsing(url.lastPathComponent)
+        // Devin round-1, finding 4: capture the toggle's value at the moment
+        // the PREVIEW is actually requested, not read live again later — the
+        // network round trip (and the time the user spends looking at the
+        // resulting preview) is exactly the window `includeHistory` could
+        // drift in. `requestedIncludeHistory` is what both this preview
+        // request AND the eventual Confirm use.
+        let requestedIncludeHistory = includeHistory
         startImportTask { generation in
             do {
                 let result = try await APIClient.shared.previewSource(
-                    fileURL: url, includeHistory: includeHistory)
+                    fileURL: url, includeHistory: requestedIncludeHistory)
                 guard generation == self.importGeneration else { return }
-                self.stage = ImportOverlayState.afterPreview(result, file: url)
+                self.stage = ImportOverlayState.afterPreview(
+                    result, file: url, includeHistory: requestedIncludeHistory)
             } catch {
                 guard generation == self.importGeneration else { return }
                 self.stage = .failed(Self.friendlyError(error))
@@ -651,21 +659,23 @@ struct AddSourceSheet: View {
     }
 
     /// Confirm re-posts the SAME file without the preview flag, carrying the
-    /// same `includeHistory` toggle the preview was shown under (G71 fix
-    /// round 1, H2) — otherwise the real import's counts can silently
-    /// disagree with what the preview promised. Nothing is cached
-    /// server-side: a preview that stages nothing must not stage bytes.
+    /// EXACT `includeHistory` value the preview stage CAPTURED at request
+    /// time (Devin round-1, finding 4 — replaces reading the live toggle
+    /// here, which could have drifted since the preview was shown: flipping
+    /// TikTok's "Also import browsing history" after previewing must not
+    /// silently change what Confirm posts). Nothing is cached server-side:
+    /// a preview that stages nothing must not stage bytes.
     ///
     /// Guards against a double-tap firing two imports (M4): once `stage` has
     /// left `.preview`, a repeat activation is a no-op rather than a second
     /// upload.
     private func confirmImport(_ url: URL) {
-        guard case .preview = stage else { return }
+        guard case .preview(_, _, let previewedIncludeHistory) = stage else { return }
         stage = .importing
         startImportTask { generation in
             do {
                 let response = try await APIClient.shared.uploadSource(
-                    fileURL: url, includeHistory: self.includeHistory)
+                    fileURL: url, includeHistory: previewedIncludeHistory)
                 await self.store.refresh([.channels, .status, .sources])
                 guard generation == self.importGeneration else { return }
                 self.stage = .done(ImportOverlayState.summary(response))
