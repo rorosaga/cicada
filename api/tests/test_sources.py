@@ -1136,6 +1136,33 @@ def test_parse_upload_routes_takeout_zip():
     assert len(items) == 4
 
 
+def test_parse_upload_of_a_non_takeout_zip_labels_it_generically(tmp_path):
+    """L4 (final review): a zip is sniffed by extension alone, but
+    `parse_youtube_takeout_zip` only recognizes `playlists/*.csv` /
+    `watch-history.json` — an Instagram/TikTok export zip (or anything else)
+    must not be previewed as "YouTube Takeout (zip)" just because it's a
+    .zip with nothing Takeout-shaped inside."""
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("saved_posts.json", "{}")
+    data = buf.getvalue()
+
+    items, label, from_bookmark = media_ingestor.parse_upload(data, "instagram_export.zip")
+    assert items == []
+    assert label == "ZIP archive"
+    assert from_bookmark is False
+
+    preview = media_ingestor.preview_upload(data, "instagram_export.zip")
+    assert preview.recognized is False
+    assert any(
+        "Read this as ZIP archive" in w and "YouTube Takeout" not in w
+        for w in preview.warnings
+    )
+
+
 def test_ingest_takeout_zip_dedups_on_second_import(tmp_path, monkeypatch):
     _offline_enrich(monkeypatch)
     memory = tmp_path / "memory"

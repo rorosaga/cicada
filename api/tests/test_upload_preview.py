@@ -74,6 +74,34 @@ def test_preview_of_a_recognized_but_empty_file_warns_honestly():
     assert any("no saved links" in w for w in preview.warnings)
 
 
+def test_preview_warns_when_item_count_exceeds_the_batch_cap():
+    """M3 (final review): preview must not promise an import Confirm then
+    413s — `POST /sources/upload` (no ``?preview=true``) hard-rejects any
+    upload past ``MAX_BATCH`` items (`test_post_rss_rejects_oversized_feed`
+    pins the same cap for the RSS path); preview must warn about that same
+    outcome instead of silently showing "N items across M collections" as if
+    Confirm would just work.
+    """
+    payload = "\n".join(
+        f"https://example.com/{i}" for i in range(media_ingestor.MAX_BATCH + 1)
+    )
+    preview = media_ingestor.preview_upload(payload.encode(), "links.txt")
+    assert preview.recognized is True
+    assert preview.total == media_ingestor.MAX_BATCH + 1
+    assert any(
+        "batch cap" in w and f"{media_ingestor.MAX_BATCH:,}" in w for w in preview.warnings
+    )
+
+
+def test_preview_at_exactly_the_batch_cap_does_not_warn():
+    payload = "\n".join(
+        f"https://example.com/{i}" for i in range(media_ingestor.MAX_BATCH)
+    )
+    preview = media_ingestor.preview_upload(payload.encode(), "links.txt")
+    assert preview.total == media_ingestor.MAX_BATCH
+    assert not any("batch cap" in w for w in preview.warnings)
+
+
 def test_preview_ungrouped_items_fall_into_one_bucket():
     preview = media_ingestor.preview_upload(
         b"https://example.com/a\nhttps://example.com/b\n", "links.txt"

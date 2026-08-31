@@ -1107,7 +1107,19 @@ def parse_upload(
             return linkedin_items, "LinkedIn Saved", False
         return parse_csv_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     if name.endswith(".zip"):
-        return parse_youtube_takeout_zip(content, warnings), "YouTube Takeout (zip)", False
+        # L4 (final review): a zip is sniffed by extension alone, but
+        # `parse_youtube_takeout_zip` only recognizes `playlists/*.csv` /
+        # `watch-history.json` members — a non-Takeout archive (an Instagram
+        # or TikTok export, say) reads as an empty zip to it and previously
+        # still carried the "YouTube Takeout (zip)" label into the preview's
+        # "found no saved links" warning, naming the wrong platform. Only
+        # claim the specific label when it actually found Takeout-shaped
+        # content; otherwise a generic one, same "unzip it and drop the
+        # individual file" guidance either way (via the caller's `total == 0`
+        # warning below).
+        zip_items = parse_youtube_takeout_zip(content, warnings)
+        zip_label = "YouTube Takeout (zip)" if zip_items else "ZIP archive"
+        return zip_items, zip_label, False
     if name.endswith(".txt"):
         return parse_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     raise ValueError(
@@ -1210,6 +1222,19 @@ def preview_upload(
         warnings.append(
             f"Read this as {label} but found no saved links in it — if you dropped "
             "an archive, unzip it and drop the individual export file instead."
+        )
+    # M3 (final review): mirror the SAME check `POST /sources/upload`'s
+    # confirm path enforces (`len(items) > MAX_BATCH` -> 413), on the SAME
+    # basis (`items`, before the URL-filtering `counts` above) — the preview
+    # promising an import Confirm then refuses is the bug being fixed, so the
+    # two checks must agree exactly. Deliberately a warning only: Confirm
+    # still hard-rejects rather than silently importing a truncated first
+    # slice, so this preview must not claim partial success either.
+    if len(items) > MAX_BATCH:
+        warnings.append(
+            f"{len(items):,} items exceeds the {MAX_BATCH:,}-item batch cap — "
+            "Confirm will reject this import; split the export into smaller "
+            "files first."
         )
 
     collections = [
