@@ -105,6 +105,29 @@ def record_credentials_changed(
     return state
 
 
+def record_skip(
+    memory_path: Path, channel: str, reason: str, *, at: str | None = None
+) -> dict:
+    """Record that ``channel``'s last poll was SKIPPED — not attempted, not
+    failed — preserving its last success/error, same convention as
+    ``record_error`` (final-review H2).
+
+    Before this existed, an unattended background poll gated off by
+    ``CICADA_ALLOW_CONNECTOR_FETCH=off`` returned ``{"status": "skipped", ...}``
+    with nothing written anywhere: a user who connected a pay-per-use adapter
+    and never saw a nightly pull had no way to tell "the gate is closed" from
+    "nothing new to pull" from "silently broken." ``reason`` is a short,
+    non-credential-bearing string (e.g. "network fetch disabled").
+    """
+    state = read_sync_state(memory_path)
+    entry = dict(state.get(channel) or {})
+    entry["last_skip"] = at or _now_iso()
+    entry["last_skip_reason"] = str(reason)[:200]
+    state[channel] = entry
+    _write_state(memory_path, state)
+    return state
+
+
 def record_error(
     memory_path: Path, channel: str, error: str, *, at: str | None = None
 ) -> dict:

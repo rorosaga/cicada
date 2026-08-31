@@ -119,6 +119,137 @@ def test_run_sync_is_idempotent_via_the_url_index(tmp_path, monkeypatch):
     assert second["seen"] == 1
 
 
+# --- final-review H2: an opt-OUT gate, and a gate-skip that stays visible ---
+
+
+def test_network_allowed_defaults_to_on_and_off_disables_it(monkeypatch):
+    """Opt-OUT, mirroring ``logo_service.fetch_allowed()`` — on by default,
+    ``=off``/``=0``/``=false`` disables it. An explicit ``allow_fetch``
+    override always wins over the env value either direction."""
+    monkeypatch.delenv(base.GATE_ENV, raising=False)
+    assert base.network_allowed() is True, "unset must default to allowed"
+    monkeypatch.setenv(base.GATE_ENV, "off")
+    assert base.network_allowed() is False
+    monkeypatch.setenv(base.GATE_ENV, "0")
+    assert base.network_allowed() is False
+    monkeypatch.setenv(base.GATE_ENV, "false")
+    assert base.network_allowed() is False
+    monkeypatch.setenv(base.GATE_ENV, "1")
+    assert base.network_allowed() is True, "any non-off-ish value still allows"
+    monkeypatch.setenv(base.GATE_ENV, "off")
+    assert base.network_allowed(True) is True, "an explicit override always wins"
+    monkeypatch.delenv(base.GATE_ENV, raising=False)
+    assert base.network_allowed(False) is False, "override wins even against the default-on env"
+
+
+def test_run_sync_records_a_skip_not_an_error_when_the_gate_is_closed(tmp_path, monkeypatch):
+    """A gate-skipped BACKGROUND poll must stay visible in ``sync_state.json``
+    — distinctly from ``record_error``, since the connector is configured
+    and working, not broken."""
+    memory = _memory(tmp_path, monkeypatch)
+    called = []
+
+    async def fetch(fn):
+        called.append(1)
+        return [], None
+
+    result = run(base.run_sync(
+        "acme", memory, fetch, is_connected=lambda: True, allow_fetch=False))
+    assert result["status"] == "skipped"
+    assert called == [], "fetch must never run with the gate closed"
+
+    entry = sync_state.read_sync_state(memory)["acme"]
+    assert entry.get("last_skip")
+    assert entry.get("last_skip_reason") == "network fetch disabled"
+    assert "last_error" not in entry
+
+
+# --- final-review H3: a >MAX_BATCH fetch must never silently drop a tail ----
+
+
+def test_run_sync_chunks_ingestion_so_a_batch_larger_than_max_batch_is_never_dropped(
+    tmp_path, monkeypatch,
+):
+    """Before this fix, ``items[:MAX_BATCH]`` silently truncated a larger
+    fetch: ``seen``/``count`` still claimed everything was handled, and a
+    cursor-based connector's ``extra`` (already computed by the time
+    ``fetch()`` returns, from the FULL list) would advance the stored cursor
+    past items that were never actually ingested — permanently losing them.
+    Chunking must call ``ingest_batch`` more than once and account for every
+    item across all of the calls."""
+    memory = _memory(tmp_path, monkeypatch)
+    monkeypatch.setattr(media_ingestor, "MAX_BATCH", 3)
+
+    items = [RawItem(url=f"https://example.com/{i}", origin="acme") for i in range(7)]
+    chunk_sizes: list[int] = []
+    real_ingest_batch = media_ingestor.ingest_batch
+
+    async def counting_ingest_batch(batch_items, memory_path, from_bookmark_file=False, **kw):
+        chunk_sizes.append(len(batch_items))
+        return await real_ingest_batch(
+            batch_items, memory_path, from_bookmark_file=from_bookmark_file, **kw
+        )
+
+    monkeypatch.setattr(media_ingestor, "ingest_batch", counting_ingest_batch)
+
+    async def fetch(fn):
+        return items, {"cursor": "last-of-all-seven"}
+
+    result = run(base.run_sync("acme", memory, fetch, is_connected=lambda: True,
+                                http_fn=lambda *a, **k: None))
+
+    assert chunk_sizes == [3, 3, 1], "chunked into MAX_BATCH-sized slices, nothing dropped"
+    assert result["seen"] == 7, "seen must count every fetched item, not just the first slice"
+    assert result["new"] == 7, "every item across every chunk must have been ingested"
+    entry = sync_state.read_sync_state(memory)["acme"]
+    assert entry["count"] == 7
+    # The cursor only ever advances over items that were actually ingested —
+    # true here because the chunking loop ingested the whole list.
+    assert entry["cursor"] == "last-of-all-seven"
+
+
+# --- final-review L1: no URL (PII) in a sync_state.json error, ever --------
+
+
+def test_run_sync_sanitizes_an_http_status_error_to_status_only_no_url(tmp_path, monkeypatch):
+    """``sync_state.json`` lives INSIDE the bank and is git-committed — unlike
+    a log line, it is versioned memory. ``httpx.HTTPStatusError``'s own
+    ``str()`` embeds the full request URL (for Reddit that is
+    ``/user/<username>/saved``) — not a credential, but PII that must never
+    land in committed history. Recorded down to ``ClassName: HTTP <status>``."""
+    import httpx
+
+    memory = _memory(tmp_path, monkeypatch)
+
+    async def fetch(fn):
+        request = httpx.Request("GET", "https://oauth.reddit.com/user/janedoe123/saved")
+        response = httpx.Response(429, request=request)
+        raise httpx.HTTPStatusError("rate limited", request=request, response=response)
+
+    result = run(base.run_sync("acme", memory, fetch, is_connected=lambda: True,
+                                http_fn=lambda *a, **k: None))
+    assert result["status"] == "error"
+    assert result["error"] == "HTTPStatusError: HTTP 429"
+    assert "janedoe123" not in result["error"]
+    assert "janedoe123" not in sync_state.read_sync_state(memory)["acme"]["last_error"]
+
+
+def test_run_sync_scrubs_a_url_from_a_generic_exception_message(tmp_path, monkeypatch):
+    """Defensive fallback for a non-httpx exception whose message happens to
+    embed a URL (a raw response body, a lower-level connection error)."""
+    memory = _memory(tmp_path, monkeypatch)
+
+    async def fetch(fn):
+        raise RuntimeError(
+            "connection refused to https://oauth.reddit.com/user/janedoe123/saved"
+        )
+
+    result = run(base.run_sync("acme", memory, fetch, is_connected=lambda: True,
+                                http_fn=lambda *a, **k: None))
+    assert "janedoe123" not in result["error"]
+    assert result["error"] == "RuntimeError: connection refused to <url>"
+
+
 def test_run_sync_drops_no_platform_specific_counters(tmp_path, monkeypatch):
     """Task 15 §2: the canonical dict carries no ``boards``/``pages`` (or any
     other per-platform) counter — a caller that wants one adds it itself

@@ -111,16 +111,34 @@ def _connector_channel(
     whatever detail line the state above produces — and stands in for it
     entirely when there is otherwise none, so a pay-per-use connector's cost
     model is visible even before the user connects it, not only after.
+
+    A gate-skipped background poll (final-review H2, ``sync_state.record_skip``)
+    renders too, same "wins the detail line" priority as a failure — since
+    ``record_sync``/``record_error``/``record_skip`` each merge onto the
+    entry rather than replace it wholesale, an old error and a newer skip (or
+    vice versa) can coexist; whichever is more recent wins the line, same as
+    the feed/calendar channels' "the last thing that actually happened" rule.
     """
     entry = state.get(channel_id) or {}
     last = entry.get("last_sync") or None
     count = int(entry.get("count") or 0)
     error = entry.get("last_error") or None
+    error_at = entry.get("last_error_at") or ""
+    skip_reason = entry.get("last_skip_reason") or None
+    skip_at = entry.get("last_skip") or ""
 
-    if error:
+    show_error = bool(error) and (not skip_reason or error_at >= skip_at)
+
+    if show_error:
         detail = f"Last sync failed · {error}"
+    elif skip_reason:
+        detail = f"Last sync skipped · {skip_reason}"
     elif connected and last:
-        detail = f"{_plural(count, noun)} · synced {_short_date(last)}"
+        # L2 (final review): `count` is "items pulled THIS run", not the
+        # channel total (unlike `_sync_channel`'s bookmarks/notes rows, which
+        # really do report a running total) — "+N {noun} this sync" says so,
+        # instead of implying "N {noun} exist" the way a bare count read.
+        detail = f"+{_plural(count, noun)} this sync · synced {_short_date(last)}"
     elif connected:
         detail = "Connected · not synced yet"
     else:

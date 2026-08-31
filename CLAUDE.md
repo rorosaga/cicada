@@ -76,10 +76,16 @@ Continuous episode capture during conversations. Raw timestamped chunks go to `e
   cap), and **X/Twitter** (OAuth 2.0 + PKCE, `/2/users/:id/bookmarks`, pay-per-use "owned reads" billing
   — the sync summary surfaces `resources_read` so a cost is never hidden behind a plain "connected"
   checkbox). Credentials live in `~/.cicada/secrets.env` (0600), never in a bank. Polled at the tail of
-  every Sleep cycle (including an idle one) and on demand via `POST /sources/connectors/{id}/sync`; both
-  are gated by `CICADA_ALLOW_CONNECTOR_FETCH=1` so the test suite and an unconfigured install never reach
-  the network. A failed poll is recorded per-channel (`sync_state.record_error`) and surfaces on
-  `GET /sources/channels` as `lastError` — never as a stale success.
+  every Sleep cycle — after `_finalize`'s own commit, so the poll's `git add -A` sweeps only its own
+  files instead of the cycle's still-uncommitted entity writes (G71 final review H1) — including an idle
+  cycle, and on demand via `POST /sources/connectors/{id}/sync`. `CICADA_ALLOW_CONNECTOR_FETCH` gates
+  ONLY that unattended nightly poll's default transport — opt-OUT (on by default, mirroring
+  `CICADA_ALLOW_LOGO_FETCH`; `=off` disables it, which is what the test suite sets). A user-initiated
+  `sync_now` and every OAuth `authorize_url`/`exchange_code` call are never gated by it — they always
+  need the network to do what the user just asked (G71 final review H2). A failed poll is recorded
+  per-channel (`sync_state.record_error`) and surfaces on `GET /sources/channels` as `lastError`; a
+  gate-skipped poll is recorded too (`sync_state.record_skip`) and surfaces as a skip, distinctly from
+  both a failure and a stale success.
 - **Export parsers** (`media_ingestor.parse_upload`): Instagram saved, YouTube playlist export, Google
   Takeout (JSON/CSV/zip), Chrome/Safari bookmarks, **LinkedIn saved items** (URL + date only — post bodies
   are deliberately never fetched, so these stay thin, `origin: linkedin-saved`), **TikTok favourites/likes**
@@ -292,9 +298,13 @@ the single roster every consumer (the `connectors` router, `channel_registry`'s
 `CHANNEL_IDS` splice, and the Sleep-tail poll) iterates instead of re-declaring
 its own copy of "which connectors exist." `base.run_sync` is the shared driver
 every adapter's `sync()` delegates to: the not-connected skip, the
-`CICADA_ALLOW_CONNECTOR_FETCH` network gate, the try/except that turns any
-failure into a recorded-not-raised error, and the `media_ingestor.ingest_batch`
-call all live there once. Credentials are stored under `SECRET_NAMES` in
+`CICADA_ALLOW_CONNECTOR_FETCH` background-fetch gate (opt-OUT, on by default —
+gates only an unattended Sleep-tail poll, never a user-initiated `sync_now`/OAuth
+call), the try/except that turns any failure into a recorded-not-raised error
+(`sync_state.record_error`; a gate-skipped poll is recorded distinctly via
+`sync_state.record_skip`), and the `media_ingestor.ingest_batch` call
+(chunked in `MAX_BATCH`-sized slices so a >2,000-item pull is never silently
+truncated) all live there once. Credentials are stored under `SECRET_NAMES` in
 `~/.cicada/secrets.env` (0600) and removed by the shared `base.forget()`, so a
 FIELDS-vs-what's-actually-stored drift can never orphan a secret on disconnect.
 A credential save, a disconnect, and a completed OAuth exchange all call

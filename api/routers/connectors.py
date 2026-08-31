@@ -223,7 +223,12 @@ async def connector_callback(
 
 @router.post("/{connector_id}/sync", response_model=ConnectorSyncResult)
 async def sync_now(connector_id: str, settings: Settings = Depends(get_settings)):
-    """Run one poll immediately. Mirrors the nightly Sleep-tail poll exactly."""
+    """Run one poll immediately, user-initiated — NOT a mirror of the nightly
+    Sleep-tail poll (final-review H2: that claim was false). ``allow_fetch=True``
+    always bypasses ``CICADA_ALLOW_CONNECTOR_FETCH`` — that gate exists only to
+    let an UNATTENDED background poll be turned off; a user who just pressed
+    "sync now" always gets the real network call, gate or no gate.
+    """
     adapter = _adapter(connector_id)
     result = await adapter.sync(settings.memory_path, allow_fetch=True)
     return ConnectorSyncResult(

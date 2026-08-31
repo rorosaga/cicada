@@ -44,11 +44,19 @@ def _disable_telemetry(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _disable_connector_fetch(monkeypatch):
-    """G71: no test may reach Pinterest (or, later, Reddit).
+    """G71: no test may reach Pinterest, Reddit, or X's default transport.
 
     Connector transports are injected in tests, but the default transport is
     additionally gated on this variable so a developer who has real credentials
     in ``~/.cicada/secrets.env`` — which `cicada_home()` resolves to by default
     — cannot have a shell export turn a test run into live API traffic.
+
+    Final-review H2: the gate flipped from opt-IN to opt-OUT (default ON,
+    mirroring ``CICADA_ALLOW_LOGO_FETCH``), so belt-and-braces this explicitly
+    to "off" — deleting the var (the old opt-in-era approach) would now leave
+    it at its new default of allowed. Every connector test still injects its
+    own ``http_fn`` regardless (which bypasses this gate entirely), so this is
+    a second, redundant layer, not the only thing standing between the suite
+    and the network — same posture as ``_disable_logo_fetch`` above.
     """
-    monkeypatch.delenv("CICADA_ALLOW_CONNECTOR_FETCH", raising=False)
+    monkeypatch.setenv("CICADA_ALLOW_CONNECTOR_FETCH", "off")

@@ -14,10 +14,17 @@ House rules, meant to hold for every adapter added to this package:
   an error string, or an HTTP response;
 * every HTTP call goes through an injected ``http_fn``, so the test suite has
   zero network and the default transport is the only code path that does;
-* the default transport is additionally gated on ``CICADA_ALLOW_CONNECTOR_FETCH=1``
-  (mirroring ``CICADA_ALLOW_FEED_FETCH`` / ``CICADA_ALLOW_LOGO_FETCH``);
+* the default transport, for an UNATTENDED background call only (the
+  Sleep-tail poll), is additionally gated on ``CICADA_ALLOW_CONNECTOR_FETCH`` —
+  opt-OUT, mirroring ``CICADA_ALLOW_LOGO_FETCH`` (on by default, ``=off``
+  disables it). A user-initiated call — ``sync_now``, or an OAuth adapter's
+  ``authorize_url``/``exchange_code`` — is never gated by it (final-review H2:
+  the gate exists to stop an unattended poll from reaching an unconfigured
+  install's network, not to block a user who just clicked something);
 * ``sync()`` never raises: a failure is recorded through
   ``sync_state.record_error`` and surfaces per-channel on ``GET /sources/channels``;
+  a background poll the gate skipped is likewise recorded, through
+  ``sync_state.record_skip`` — never silently, and never as an error;
 * nothing new is invented downstream — a connector emits ``RawItem``s into
   ``media_ingestor.ingest_batch`` and the Sleep pipeline absorbs them unchanged.
 
