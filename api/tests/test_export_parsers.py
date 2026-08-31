@@ -177,3 +177,45 @@ def test_preview_of_a_generic_json_url_list_is_unaffected_by_the_tiktok_sniff():
     )
     assert preview.platform == "urls"
     assert preview.total == 2
+
+
+# --- Reddit GDPR export ------------------------------------------------------
+
+REDDIT_CSV = (
+    b"id,permalink\n"
+    b"abc123,https://www.reddit.com/r/example/comments/abc123/a_title/\n"
+    b"def456,/r/example/comments/def456/another_title/\n"
+)
+
+
+def test_parse_reddit_saved_csv_absolutizes_relative_permalinks():
+    items = media_ingestor.parse_reddit_saved_csv(REDDIT_CSV, "saved_posts.csv")
+    assert [i.url for i in items] == [
+        "https://www.reddit.com/r/example/comments/abc123/a_title/",
+        "https://www.reddit.com/r/example/comments/def456/another_title/",
+    ]
+    assert {i.origin for i in items} == {"reddit-saved"}
+    assert {i.folder for i in items} == {"Saved posts"}
+
+
+def test_parse_reddit_saved_comments_get_their_own_folder():
+    items = media_ingestor.parse_reddit_saved_csv(REDDIT_CSV, "saved_comments.csv")
+    assert {i.folder for i in items} == {"Saved comments"}
+
+
+def test_parse_reddit_saved_csv_ignores_an_unrelated_csv():
+    assert media_ingestor.parse_reddit_saved_csv(b"name,age\nAda,36\n", "people.csv") == []
+    assert media_ingestor.parse_reddit_saved_csv(b"\x00binary", "saved_posts.csv") == []
+
+
+def test_parse_upload_routes_the_reddit_export():
+    items, label, from_bookmark = media_ingestor.parse_upload(REDDIT_CSV, "saved_posts.csv")
+    assert label == "Reddit Saved Export"
+    assert from_bookmark is False
+    assert len(items) == 2
+
+
+def test_preview_reports_the_reddit_export_as_saved_posts():
+    preview = media_ingestor.preview_upload(REDDIT_CSV, "saved_posts.csv")
+    assert preview.platform == "reddit"
+    assert preview.collections == [{"name": "Saved posts", "kind": "saved", "count": 2}]

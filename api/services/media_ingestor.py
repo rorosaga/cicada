@@ -760,6 +760,64 @@ def parse_linkedin_saved(content: bytes, filename: str) -> list[RawItem]:
     return items
 
 
+_REDDIT_PERMALINK_FIELDS = ("permalink",)
+_REDDIT_FALLBACK_URL_FIELDS = ("permalink url", "url", "link")
+REDDIT_BASE_URL = "https://www.reddit.com"
+
+
+def _is_reddit_saved_filename(filename: str) -> bool:
+    stem = Path(filename or "").stem.lower().replace("-", "_")
+    return stem.startswith("saved_posts") or stem.startswith("saved_comments")
+
+
+def parse_reddit_saved_csv(content: bytes, filename: str) -> list[RawItem]:
+    """Reddit GDPR export ``saved_posts.csv`` / ``saved_comments.csv`` (G71 §2).
+
+    Rows are ``id,permalink`` and nothing else. The export exists to backfill
+    past the API's ~1,000-item listing cap (G69) — it is not the primary route.
+    No Reddit-specific hydration call is needed: ``ingest_one`` already runs
+    every URL through the OpenGraph enrichment path and reddit.com serves OG
+    tags, so an online install gets a real title and an offline one degrades to
+    the permalink slug, exactly like every other save.
+
+    Permalinks may be relative (``/r/x/comments/...``); they are absolutized
+    against ``https://www.reddit.com`` so ``normalize_url``/``url_hash`` dedup
+    them against the same items pulled by the API connector.
+
+    An unrecognized CSV yields ``[]`` — never raises.
+    """
+    import csv
+    import io
+
+    try:
+        text = content.decode("utf-8-sig", errors="replace")
+        reader = csv.DictReader(io.StringIO(text))
+        fieldnames = reader.fieldnames
+    except Exception:
+        return []
+
+    url_col = _pick_column(fieldnames, _REDDIT_PERMALINK_FIELDS)
+    if url_col is None and _is_reddit_saved_filename(filename):
+        url_col = _pick_column(fieldnames, _REDDIT_FALLBACK_URL_FIELDS)
+    if url_col is None:
+        return []
+
+    stem = Path(filename or "").stem.lower()
+    folder = "Saved comments" if "comment" in stem else "Saved posts"
+
+    items: list[RawItem] = []
+    for row in reader:
+        raw = (row.get(url_col) or "").strip()
+        if not raw:
+            continue
+        if raw.startswith("/"):
+            raw = REDDIT_BASE_URL + raw
+        if not raw.startswith(("http://", "https://")):
+            continue
+        items.append(RawItem(url=raw, folder=folder, origin="reddit-saved"))
+    return items
+
+
 # Cap on the number of members walked inside an uploaded zip archive — a
 # saved-content export zip has at most a handful of playlist CSVs + one
 # watch-history.json; this just bounds a maliciously/accidentally huge zip.
@@ -1041,6 +1099,9 @@ def parse_upload(
         playlist_items = parse_youtube_playlist_csv(content, filename or name)
         if playlist_items:
             return playlist_items, "YouTube Playlist", False
+        reddit_items = parse_reddit_saved_csv(content, filename or name)
+        if reddit_items:
+            return reddit_items, "Reddit Saved Export", False
         linkedin_items = parse_linkedin_saved(content, filename or name)
         if linkedin_items:
             return linkedin_items, "LinkedIn Saved", False
@@ -1071,6 +1132,7 @@ PLATFORM_BY_LABEL = {
     "URL List": "urls",
     "LinkedIn Saved": "linkedin",
     "TikTok Export": "tiktok",
+    "Reddit Saved Export": "reddit",
 }
 
 # What ONE grouping is called on each platform, so the overlay can say
@@ -1084,6 +1146,7 @@ COLLECTION_KIND_BY_PLATFORM = {
     "urls": "list",
     "linkedin": "saved",
     "tiktok": "list",
+    "reddit": "saved",
     "unknown": "list",
 }
 
