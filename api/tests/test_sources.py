@@ -942,6 +942,50 @@ def test_ingest_instagram_saved_stamps_origin_and_folder_end_to_end(tmp_path, mo
         assert ep_fm["origin"] == "instagram-saved"
 
 
+def test_ingest_linkedin_saved_performs_zero_http_calls(tmp_path, monkeypatch):
+    """Fix round (G71 §3 task-3-review.md Critical): a STAGED (non-preview)
+    LinkedIn ingest must never touch the network — LinkedIn §8.2 bans fetching
+    the post body, and that's a binding rail, not just a preview-time promise.
+
+    Deliberately does NOT use ``_offline_enrich`` (which would monkeypatch
+    ``enrich`` itself away and prove nothing about the real short-circuit).
+    Instead this spies on the actual ``httpx.AsyncClient.get`` the real
+    ``enrich``/``_enrich_opengraph`` path would call, so a regression that
+    re-opens the ToS violation fails loudly here.
+    """
+    import httpx
+
+    calls: list[str] = []
+
+    async def spy_get(self, url, *args, **kwargs):
+        calls.append(str(url))
+        raise AssertionError(f"unexpected network fetch during LinkedIn ingest: {url}")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", spy_get)
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    item = RawItem(
+        url="https://www.linkedin.com/posts/aaa",
+        added="2026-01-02 10:00:00",
+        folder="Saved Items",
+        origin="linkedin-saved",
+    )
+    created, dups = run(media_ingestor.ingest_batch([item], memory, commit=False))
+
+    assert created == 1
+    assert dups == 0
+    assert calls == [], "enrich() must short-circuit a linkedin.com URL before any client.get"
+
+    entities = list((memory / "entities").glob("media-*.md"))
+    assert len(entities) == 1
+    fm = markdown_parser.parse(entities[0]).frontmatter
+    assert fm["media"]["media_type"] == "linkedin"
+    assert fm["origin"] == "linkedin-saved"
+
+
 # --- YouTube playlist CSV ----------------------------------------------------
 
 

@@ -134,6 +134,41 @@ def test_preview_reports_tiktok_lists_with_counts():
         {"name": "Favorites", "kind": "list", "count": 2},
         {"name": "Likes", "kind": "list", "count": 1},
     ]
+    # Browsing History is excluded by default (ambient exhaust, not a save) —
+    # but the preview must still SAY so rather than silently hiding it.
+    assert preview.warnings == [
+        "Browsing history (1 item) excluded by default — enable it when importing."
+    ]
+
+
+def test_preview_reports_tiktok_history_count_with_plural_and_omits_warning_when_opted_in():
+    preview_default = media_ingestor.preview_upload(
+        json.dumps(TIKTOK_EXPORT).encode(), "user_data.json"
+    )
+    assert len(preview_default.warnings) == 1
+
+    with_extra_history = {
+        "Activity": {
+            **TIKTOK_EXPORT["Activity"],
+            "Video Browsing History": {"VideoList": [
+                {"Date": "2026-01-05 10:00:00", "Link": "https://example.com/video/4"},
+                {"Date": "2026-01-06 10:00:00", "Link": "https://example.com/video/5"},
+            ]},
+        }
+    }
+    preview_plural = media_ingestor.preview_upload(
+        json.dumps(with_extra_history).encode(), "user_data.json"
+    )
+    assert preview_plural.warnings == [
+        "Browsing history (2 items) excluded by default — enable it when importing."
+    ]
+
+    # Opting in via include_history=True: history is no longer EXCLUDED, so no
+    # warning — it shows up in the parsed items instead.
+    preview_opted_in = media_ingestor.preview_upload(
+        json.dumps(TIKTOK_EXPORT).encode(), "user_data.json", include_history=True
+    )
+    assert preview_opted_in.warnings == []
 
 
 def test_preview_of_a_generic_json_url_list_is_unaffected_by_the_tiktok_sniff():

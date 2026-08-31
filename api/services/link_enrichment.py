@@ -176,6 +176,15 @@ def _candidates(memory_path: Path, max_per_cycle: int) -> list[Path]:
             continue
         if "instagram.com" in url:
             continue
+        # G71 §3 fix round: LinkedIn is ToS-walled (§8.2 bans fetching the
+        # post body) same as Instagram is login-walled. Excluding it here
+        # closes the backdoor that ingest-time's ``enrich()`` short-circuit
+        # would otherwise leave open — without this, a LinkedIn media page
+        # (no description at save time by design) would be the *first* thing
+        # this Sleep-time subagent's live fetch path (``summarize_fn``) picks
+        # up and scrapes.
+        if "linkedin.com" in url:
+            continue
         out.append((str(fm.get("last_referenced", "") or ""), fp))
     out.sort(key=lambda t: t[0], reverse=True)
     return [fp for _, fp in out[:max_per_cycle]]

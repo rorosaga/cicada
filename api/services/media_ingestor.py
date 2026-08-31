@@ -174,6 +174,8 @@ def _classify(url: str, from_bookmark_file: bool = False) -> str:
         return "youtube"
     if "instagram.com" in host:
         return "instagram"
+    if "linkedin.com" in host:
+        return "linkedin"
     if from_bookmark_file:
         return "bookmark"
     return "url"
@@ -214,6 +216,12 @@ async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMet
             return await _enrich_youtube(url, client, fallback)
         if media_type == "instagram":
             # Login-walled — never attempt scraping; URL-only by design.
+            return fallback
+        if media_type == "linkedin":
+            # ToS-walled (G69: §8.2 bans fetching the post body) — never
+            # attempt scraping; URL-only by design, same as Instagram above.
+            # This is what makes ``parse_linkedin_saved``'s "thin by design"
+            # claim actually true once an item is STAGED, not just previewed.
             return fallback
         return await _enrich_opengraph(url, client, fallback)
     except Exception as e:
@@ -993,7 +1001,23 @@ def parse_upload(
         # TikTok's export nests everything under an activity wrapper, so it can
         # never collide with the Instagram (`saved_*`) or Takeout (list) sniffs.
         if _is_tiktok_export_json(data):
-            return parse_tiktok_export(data, include_history=include_history), "TikTok Export", False
+            items = parse_tiktok_export(data, include_history=include_history)
+            if not include_history and warnings is not None:
+                # Browsing History was intentionally dropped by the
+                # ``include_history`` opt-in above — a preview caller must
+                # still be told it exists, or "recognized" silently hides
+                # data the export actually contains (G71 §3 fix round: the
+                # Task 4 brief under-specified this). Re-run with history
+                # included just to size the gap; cheap in-memory JSON walk,
+                # no I/O.
+                excluded = len(parse_tiktok_export(data, include_history=True)) - len(items)
+                if excluded > 0:
+                    warnings.append(
+                        f"Browsing history ({excluded} item"
+                        f"{'s' if excluded != 1 else ''}) excluded by default — "
+                        "enable it when importing."
+                    )
+            return items, "TikTok Export", False
         # Takeout JSON is a list of watch entries; otherwise a generic URL list.
         if isinstance(data, list) and data and isinstance(data[0], dict) and (
             "titleUrl" in data[0] or "subtitles" in data[0]
