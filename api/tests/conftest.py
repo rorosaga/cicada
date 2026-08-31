@@ -117,6 +117,22 @@ def agent_envelopes():
                                                 "costUSD": 0.0003, "costBasis": "list"}},
             "total_cost_usd": 0.0003, "duration_ms": 900,
         },
+        "schema_constrained_success": {
+            # Review fix round 1, nit 2: the exact live-verified ground-truth
+            # shape for a --json-schema call (spec §9 V1b) — `stop_reason`
+            # "tool_use" with `is_error: False`, `subtype: "success"` and
+            # `terminal_reason: "completed"`. This is THE specific trap: code
+            # that (wrongly) treated `stop_reason == "tool_use"` as a failure
+            # would break every structured call.
+            "type": "result", "subtype": "success", "is_error": False,
+            "result": '{"decision": "same"}', "structured_output": {"decision": "same"},
+            "stop_reason": "tool_use", "terminal_reason": "completed",
+            "usage": {"input_tokens": 3, "output_tokens": 12},
+            "modelUsage": {"claude-haiku-4-5": {"canonicalModel": "claude-haiku-4-5",
+                                                "inputTokens": 3, "outputTokens": 12,
+                                                "costUSD": 0.0001, "costBasis": "list"}},
+            "total_cost_usd": 0.0001, "duration_ms": 500,
+        },
         "budget_exhausted": {
             "type": "result", "subtype": "error", "is_error": True,
             "terminal_reason": "budget_exhausted",

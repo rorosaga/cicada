@@ -38,7 +38,14 @@ class EngineExhausted(EngineError):
 
 
 class EngineModelNotFound(EngineError):
-    """The CLI rejected the model id. A configuration bug, not a transient."""
+    """The model id/alias is unusable. A configuration bug, not a transient.
+
+    Raised either after the fact (the CLI rejected the model id — an
+    ``api_error_status == 404``/"model not found" envelope) or pre-flight, in
+    ``agent_engine.build_argv``, when a caller-supplied value fails the
+    conservative id/alias charset check before any subprocess spawns (review
+    fix round 1, M1: a value beginning with ``-`` would otherwise be appended
+    as a raw argv token right after ``--model`` with no validation)."""
 
 
 class EngineProtocolError(EngineError):

@@ -27,7 +27,47 @@ def test_argv_pins_the_verified_flag_set():
     # `--tools ""` is the empty-string value right after the flag.
     assert argv[argv.index("--tools") + 1] == ""
     assert argv[argv.index("--model") + 1] == "sonnet"
-    assert argv[argv.index("--system-prompt") + 1] == "SYS"
+    # `--system-prompt` is a single `--flag=value` token (fix round 1, M1) —
+    # see test_argv_joins_the_system_prompt_into_one_token below for why.
+    assert "--system-prompt=SYS" in argv
+
+
+# --------------------------------------------------------------------------- #
+# argv hardening (review fix round 1, M1)
+# --------------------------------------------------------------------------- #
+
+def test_argv_rejects_a_model_id_that_could_be_read_as_a_flag():
+    """A `--model` value beginning with `-` would otherwise be appended as a
+    bare argv token right after `--model` with no validation. Reject it here,
+    before any subprocess spawns."""
+    with pytest.raises(engine_errors.EngineModelNotFound):
+        agent_engine.build_argv(model="-oops", system_prompt="S")
+
+
+def test_argv_rejects_a_model_id_with_shell_metacharacters():
+    with pytest.raises(engine_errors.EngineModelNotFound):
+        agent_engine.build_argv(model="sonnet; rm -rf /", system_prompt="S")
+
+
+def test_argv_accepts_the_conservative_model_id_charset():
+    """Aliases and canonical ids alike: alphanumerics, dash, dot, slash, colon."""
+    argv = agent_engine.build_argv(model="claude-sonnet-5", system_prompt="S")
+    assert argv[argv.index("--model") + 1] == "claude-sonnet-5"
+
+
+def test_argv_joins_the_system_prompt_into_one_token():
+    """Verified live against `claude` 2.1.252: `--flag=value` is accepted as a
+    single token, and a leading `-` in `value` is never read as a new option —
+    confirmed with `--model=-oops --output-format bogus`, which failed on the
+    *forced* `--output-format` error, never on `-oops`. Joining
+    `--system-prompt` this way makes a leading `-` structurally safe with no
+    content rejected (the system prompt is free-form template text, not a
+    value from a small known set like `model`)."""
+    argv = agent_engine.build_argv(model="sonnet", system_prompt="-alsobad")
+    assert "--system-prompt=-alsobad" in argv
+    # and the value never appears as its own bare argv token that a parser
+    # could mistake for a flag.
+    assert "-alsobad" not in argv
 
 
 def test_argv_never_uses_bare_mode():
@@ -162,6 +202,38 @@ def test_model_from_envelope_falls_back_to_the_heaviest_model_for_an_alias(agent
     assert agent_engine.model_from_envelope(agent_envelopes["success"], "sonnet") == "claude-sonnet-5"
 
 
+def test_model_from_envelope_alias_heuristic_can_misattribute_a_verbose_side_call():
+    """Review nit 3, pinned as a known/accepted limitation (see the WHY
+    comment on model_from_envelope): called by alias, there is nothing in
+    `modelUsage` that identifies which key answered the alias, so the
+    heuristic is "whichever model produced the most output tokens" — correct
+    for the real V1d shape (sonnet 57 out, haiku 8 out), but a verbose
+    internal side-call can in principle out-output a terse main-model turn
+    and get mis-attributed, as constructed here."""
+    envelope = {
+        "modelUsage": {
+            "claude-sonnet-5": {"canonicalModel": "claude-sonnet-5", "outputTokens": 5},
+            "claude-haiku-4-5": {"canonicalModel": "claude-haiku-4-5", "outputTokens": 500},
+        }
+    }
+    assert agent_engine.model_from_envelope(envelope, "sonnet") == "claude-haiku-4-5"
+
+
+def test_schema_constrained_tool_use_success_is_not_treated_as_a_failure(agent_envelopes):
+    """Review nit 2 — the specific fixture trap: `stop_reason: "tool_use"`
+    with `is_error: False`, `subtype: "success"`, `terminal_reason:
+    "completed"` (spec §9 V1b ground truth). Neither `parse_envelope` nor
+    `_classify_error` may ever branch on `stop_reason` for success/failure —
+    this fixture is the regression guard for that."""
+    env = agent_engine.parse_envelope(
+        CliResult(0, json.dumps(agent_envelopes["schema_constrained_success"]), "")
+    )
+    assert env["is_error"] is False
+    resp = agent_engine.response_shim(env, "haiku")
+    assert json.loads(resp.choices[0].message.content) == {"decision": "same"}
+    assert resp.choices[0].finish_reason == "tool_use"
+
+
 def test_equiv_cost_reads_the_envelope_total(agent_envelopes):
     assert agent_engine.equiv_cost_from_envelope(agent_envelopes["success"]) == 0.092
 
@@ -178,7 +250,7 @@ def test_complete_sends_the_prompt_on_stdin_and_runs_in_the_scratch_dir(agent_ru
     call = runner.calls[0]
     assert call["stdin"] == "BODY"
     assert call["cwd"] == str(agent_engine.scratch_dir())
-    assert "--system-prompt" in call["argv"]
+    assert "--system-prompt=S" in call["argv"]
 
 
 def test_complete_appends_a_json_only_instruction_when_no_schema_is_registered(agent_runner, agent_envelopes):
@@ -188,7 +260,8 @@ def test_complete_appends_a_json_only_instruction_when_no_schema_is_registered(a
                           model="sonnet", stage="skills", want_json=True, runner=runner)
     argv = runner.calls[0]["argv"]
     assert "--json-schema" not in argv
-    assert agent_engine.JSON_ONLY_SUFFIX in argv[argv.index("--system-prompt") + 1]
+    sp_token = next(a for a in argv if a.startswith("--system-prompt="))
+    assert agent_engine.JSON_ONLY_SUFFIX in sp_token
 
 
 def test_complete_uses_the_registered_schema_for_disambiguation(agent_runner, agent_envelopes):
@@ -205,6 +278,16 @@ def test_complete_honours_the_timeout_it_is_given(agent_runner, agent_envelopes)
     agent_engine.complete(messages=[{"role": "user", "content": "B"}], model="sonnet",
                           timeout=17.0, runner=runner)
     assert runner.calls[0]["timeout"] == 17.0
+
+
+def test_complete_rejects_an_unsafe_model_before_spawning(agent_runner, agent_envelopes):
+    """The model-id validation in build_argv (M1) fires from inside complete()
+    too, and fires BEFORE the runner is ever invoked."""
+    runner = agent_runner(agent_envelopes["success"])
+    with pytest.raises(engine_errors.EngineModelNotFound):
+        agent_engine.complete(messages=[{"role": "user", "content": "B"}],
+                              model="-oops", runner=runner)
+    assert runner.calls == []
 
 
 def test_breaker_fails_fast_without_spawning(agent_runner, agent_envelopes):

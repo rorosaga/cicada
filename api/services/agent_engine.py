@@ -29,6 +29,7 @@ where ``asyncio.run`` raises.
 from __future__ import annotations
 
 import json
+import re
 import threading
 from pathlib import Path
 from typing import Any, Callable
@@ -130,6 +131,19 @@ def model_from_envelope(envelope: dict, requested_model: str) -> str:
     never assume one key. Prefer the entry whose ``canonicalModel`` matches
     what we asked for; when we asked by alias ("sonnet"), fall back to the
     entry that emitted the most output tokens.
+
+    Why the heaviest-output-tokens fallback specifically (review nit 3): when
+    the request named an alias, nothing in ``modelUsage`` identifies *which*
+    key answered that alias — the envelope carries no "this is the one you
+    asked for" flag, only a bag of ``{canonical_model: usage}`` entries. Most
+    output tokens is the best available proxy (the requested main-model turn
+    is normally the substantive one; a side-call is normally a short internal
+    check), and it is exactly correct for the real recorded V1d shape (sonnet:
+    57 output tokens, haiku side-call: 8). It is still a heuristic, not exact
+    matching: a verbose internal side-call could in principle out-output a
+    terse main-model turn and get mis-attributed — pinned as a known,
+    accepted limitation by
+    ``test_model_from_envelope_alias_heuristic_can_misattribute_a_verbose_side_call``.
     """
     per_model = envelope.get("modelUsage")
     if not isinstance(per_model, dict) or not per_model:
@@ -205,6 +219,14 @@ def response_shim(envelope: dict, requested_model: str) -> _D:
 # argv + prompt
 # --------------------------------------------------------------------------- #
 
+#: Conservative charset for a `--model` value: alphanumerics, dash, dot,
+#: slash, colon — and NEVER a leading `-` (review fix round 1, M1). A model
+#: id/alias is always drawn from a small known set (an alias like "sonnet" or
+#: a canonical id like "claude-sonnet-5"); nothing legitimate needs any other
+#: character, so a value that fails this is rejected here, before any
+#: subprocess spawns, rather than shipped as a raw argv token.
+_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:-]*$")
+
 
 def build_argv(
     *,
@@ -213,12 +235,41 @@ def build_argv(
     json_schema: dict | None = None,
     binary: str = "claude",
 ) -> list[str]:
-    """The pinned invocation. Never grows a ``--bare``, never a ``--mcp-config``."""
+    """The pinned invocation. Never grows a ``--bare``, never a ``--mcp-config``.
+
+    Argv hardening (review fix round 1, M1): a `--model`/`--system-prompt`
+    value beginning with ``-`` would otherwise be appended as a bare argv
+    token right after its flag, with no ``--`` end-of-options sentinel and no
+    validation — not shell injection (list-form ``subprocess.run``/
+    ``create_subprocess_exec``, never a shell), but a value that could be
+    misread as a flag by the CLI's own parser. Two different fixes, chosen
+    per field:
+
+    - ``model`` is validated against :data:`_MODEL_ID_RE` and rejected with
+      :class:`engine_errors.EngineModelNotFound` before any subprocess spawns.
+      A model id is always drawn from a small known set, so this never fires
+      on a legitimate value.
+    - ``system_prompt`` is joined into a single ``--system-prompt=<value>``
+      token instead of two. Verified live against `claude` 2.1.252:
+      ``--flag=value`` is accepted as one token, and a leading ``-`` in
+      ``value`` is never read as a new option — confirmed with
+      ``--model=-oops --output-format bogus``, which failed on the *forced*
+      ``--output-format`` error and never on ``-oops``. This makes the whole
+      prompt structurally safe regardless of its first character, with no
+      content rejected (the system prompt is free-form template text, not a
+      value from a small known set, so validate-and-reject would be the wrong
+      tool here).
+    """
+    if model and not _MODEL_ID_RE.match(model):
+        raise engine_errors.EngineModelNotFound(
+            f"invalid model id/alias: {model!r} — expected alphanumerics, "
+            "'.', '-', '/', ':' only, and never a leading '-'"
+        )
     argv = [binary, *PINNED_FLAGS]
     if model:
         argv += ["--model", model]
     if system_prompt:
-        argv += ["--system-prompt", system_prompt]
+        argv += [f"--system-prompt={system_prompt}"]
     if json_schema is not None:
         argv += ["--json-schema", json.dumps(json_schema, separators=(",", ":"))]
     return argv
