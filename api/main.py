@@ -36,6 +36,7 @@ from api.routers import (
 from api.services import bank_registry, sleep_scheduler
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
+from api.services.decay_migration import backfill_decay_classes
 from api.services.inbox_migration import dedup_open_items, migrate_to_inbox
 
 # --- Logging setup ---
@@ -110,6 +111,17 @@ async def lifespan(app: FastAPI):
     deduped = dedup_open_items(settings.memory_path)
     if deduped:
         logger.info(f"Collapsed {deduped} duplicate open inbox item(s)")
+
+    # G66: one-time backfill of `decay_class` for pages written before the
+    # class vocabulary existed (media -> evergreen, skills -> durable). Same
+    # never-crash-boot contract; marker-guarded, authored `cicada`.
+    classed = backfill_decay_classes(settings.memory_path)
+    if classed["media"] or classed["skills"]:
+        logger.info(
+            f"Backfilled decay classes: {classed['media']} media -> evergreen, "
+            f"{classed['skills']} skills -> durable, "
+            f"{classed['restored']} restored to active"
+        )
 
     entities_count = len(list((settings.memory_path / "entities").glob("*.md")))
     episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))
