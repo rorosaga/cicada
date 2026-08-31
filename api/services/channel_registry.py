@@ -24,6 +24,7 @@ from api.services import (
     origin_stats,
     sync_state,
 )
+from api.services.connectors import x as x_connector
 
 # Canonical order; the app sorts the *connected* rows by last_sync itself.
 CHANNEL_IDS = (
@@ -35,6 +36,7 @@ CHANNEL_IDS = (
     "calendar",
     "pinterest",
     "reddit",
+    "x",
     "telegram",
     "files",
 )
@@ -92,7 +94,8 @@ def _sync_channel(channel_id: str, label: str, state: dict, noun: str) -> dict:
 
 
 def _connector_channel(
-    channel_id: str, label: str, state: dict, noun: str, *, connected: bool
+    channel_id: str, label: str, state: dict, noun: str, *, connected: bool,
+    price_note: str | None = None,
 ) -> dict:
     """A direct-API connector row (G71 §2).
 
@@ -100,6 +103,11 @@ def _connector_channel(
     ``$CICADA_HOME/secrets.env``, outside the bank, so this module stays pure
     filesystem-over-the-bank. A recorded failure wins the detail line: a channel
     whose last poll 401'd must not keep advertising a week-old success.
+
+    ``price_note`` (Task 14, X's cost-honesty requirement) is appended to
+    whatever detail line the state above produces — and stands in for it
+    entirely when there is otherwise none, so a pay-per-use connector's cost
+    model is visible even before the user connects it, not only after.
     """
     entry = state.get(channel_id) or {}
     last = entry.get("last_sync") or None
@@ -114,6 +122,9 @@ def _connector_channel(
         detail = "Connected · not synced yet"
     else:
         detail = None
+
+    if price_note:
+        detail = f"{detail} · {price_note}" if detail else price_note
 
     return {
         "id": channel_id,
@@ -182,6 +193,10 @@ def build_channels(
         "reddit": _connector_channel(
             "reddit", "Reddit", state, "saved item",
             connected=bool(connected_map.get("reddit"))),
+        "x": _connector_channel(
+            "x", "X (Twitter)", state, "bookmark",
+            connected=bool(connected_map.get("x")),
+            price_note=x_connector.PRICE_NOTE),
         "telegram": {
             "id": "telegram",
             "label": "Telegram bot",

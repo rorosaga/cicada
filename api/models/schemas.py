@@ -1203,6 +1203,10 @@ class ConnectorSyncResult(CamelModel):
     new: int = 0
     seen: int = 0
     error: Optional[str] = None
+    # G71 follow-up (Task 14): pay-per-use connectors (X) report the number of
+    # billed resource reads this sync incurred, distinct from `new`/`seen` —
+    # every connector defaults to 0, so this is additive, not a shape change.
+    resources_read: int = 0
 
 
 # --- Provider connections (G50) ---

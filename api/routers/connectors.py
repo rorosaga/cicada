@@ -10,8 +10,15 @@ Credential values enter through ``PUT .../credentials`` and are written to
 never included in an error message.
 
 ``ADAPTERS`` / ``LOGIN_MODES`` are dicts keyed by ``CHANNEL_ID``, so Pinterest
-(``oauth``) and Reddit (``credentials`` — a script app needs no redirect round
-trip) sit side by side as peer connectors; a third would be additive too.
+(``oauth``), Reddit (``credentials`` — a script app needs no redirect round
+trip), and X (``oauth`` again, but PKCE — a public client, no client secret)
+sit side by side as peer connectors.
+
+Both OAuth connectors share ``_pending_states`` — one in-process nonce table
+keyed by ``state`` — but each entry also records which connector minted it
+(``connector``) so a state minted for one can never be replayed against the
+other's callback, and X's entry additionally carries the PKCE ``verifier``
+generated at ``authorize()`` time and spent once at ``exchange_code()``.
 """
 
 from __future__ import annotations
@@ -34,20 +41,29 @@ from api.models.schemas import (
 )
 from api.services import sync_state
 from api.services.connections import secrets as secret_store
-from api.services.connectors import base, pinterest, reddit
+from api.services.connectors import base, pinterest, reddit, x
 
 router = APIRouter(prefix="/sources/connectors")
 
 ADAPTERS = {
     pinterest.CHANNEL_ID: pinterest,
     reddit.CHANNEL_ID: reddit,
+    x.CHANNEL_ID: x,
 }
 
-LOGIN_MODES = {pinterest.CHANNEL_ID: "oauth", reddit.CHANNEL_ID: "credentials"}
+LOGIN_MODES = {
+    pinterest.CHANNEL_ID: "oauth",
+    reddit.CHANNEL_ID: "credentials",
+    x.CHANNEL_ID: "oauth",
+}
 
-# Single-use OAuth nonces: {state: expires_at}. In-process and deliberately not
-# persisted — an interrupted sign-in is retried, not resumed.
-_pending_states: dict[str, float] = {}
+# Single-use OAuth nonces: {state: {"expires": ts, "connector": id,
+# "verifier": str | None}}. In-process and deliberately not persisted — an
+# interrupted sign-in is retried, not resumed. `verifier` is X's PKCE code
+# verifier (None for Pinterest, which has no PKCE step); `connector` stops a
+# state minted for one OAuth connector from being replayed against the other's
+# callback route.
+_pending_states: dict[str, dict] = {}
 _STATE_TTL_SECONDS = 600
 
 
@@ -134,27 +150,56 @@ async def forget_credentials(connector_id: str, settings: Settings = Depends(get
 async def authorize(connector_id: str, settings: Settings = Depends(get_settings)):
     """Mint the vendor consent URL the app opens in the user's own browser."""
     adapter = _adapter(connector_id)
-    if adapter is not pinterest:
+    if LOGIN_MODES.get(connector_id) != "oauth":
         raise HTTPException(
             status_code=400,
             detail=f"{connector_id} uses credentials, not an authorization flow",
         )
-    if not secret_store.has_secret(pinterest.APP_ID_ENV) or not secret_store.has_secret(
-        pinterest.APP_SECRET_ENV
-    ):
-        raise HTTPException(status_code=422, detail="Save the app ID and secret first")
+    missing = [f["name"] for f in adapter.FIELDS if not secret_store.has_secret(f["name"])]
+    if missing:
+        raise HTTPException(status_code=422, detail="Save the app credentials first")
 
     now = time.time()
-    for state, expires in list(_pending_states.items()):
-        if expires < now:
-            _pending_states.pop(state, None)
+    for st, entry in list(_pending_states.items()):
+        if entry["expires"] < now:
+            _pending_states.pop(st, None)
 
     state = pysecrets.token_urlsafe(24)
-    _pending_states[state] = now + _STATE_TTL_SECONDS
     base_url = f"http://{settings.host}:{settings.port}"
-    return ConnectorAuthorizeResponse(
-        authorize_url=pinterest.authorize_url(state, base_url=base_url), state=state
-    )
+
+    if adapter is pinterest:
+        url = pinterest.authorize_url(state, base_url=base_url)
+        verifier = None
+    elif adapter is x:
+        verifier, challenge = x.generate_pkce_pair()
+        url = x.authorize_url(state, challenge, base_url=base_url)
+    else:  # pragma: no cover — defensive; every OAuth adapter above is handled
+        raise HTTPException(status_code=400, detail=f"{connector_id} has no authorize flow wired")
+
+    _pending_states[state] = {
+        "expires": now + _STATE_TTL_SECONDS,
+        "connector": connector_id,
+        "verifier": verifier,
+    }
+    return ConnectorAuthorizeResponse(authorize_url=url, state=state)
+
+
+def _pop_valid_state(state: str, connector_id: str) -> dict:
+    """Pop and validate a pending OAuth state, or raise the standard 400.
+
+    Shared by both callback routes: unknown, expired, or minted for the OTHER
+    OAuth connector are all treated identically — a state is single-use and
+    connector-scoped.
+    """
+    entry = _pending_states.pop(state, None)
+    if (
+        not state
+        or entry is None
+        or entry["expires"] < time.time()
+        or entry.get("connector") != connector_id
+    ):
+        raise HTTPException(status_code=400, detail="Invalid or expired sign-in state")
+    return entry
 
 
 @router.get("/pinterest/callback", response_class=HTMLResponse)
@@ -165,13 +210,11 @@ async def pinterest_callback(
 ):
     """Pinterest's OAuth redirect target.
 
-    This is the one route in the API with no bearer token (the browser cannot
-    send one), so it is gated by the single-use ``state`` nonce minted above:
-    an unknown, expired or replayed state exchanges nothing.
+    This is one of two OAuth callback routes with no bearer token (the browser
+    cannot send one), so it is gated by the single-use ``state`` nonce minted
+    above: an unknown, expired or replayed state exchanges nothing.
     """
-    expires = _pending_states.pop(state, None)
-    if not state or expires is None or expires < time.time():
-        raise HTTPException(status_code=400, detail="Invalid or expired sign-in state")
+    _pop_valid_state(state, pinterest.CHANNEL_ID)
     if not code:
         raise HTTPException(status_code=400, detail="No authorization code returned")
 
@@ -198,6 +241,42 @@ async def pinterest_callback(
     )
 
 
+@router.get("/x/callback", response_class=HTMLResponse)
+async def x_callback(
+    code: str = Query(""),
+    state: str = Query(""),
+    settings: Settings = Depends(get_settings),
+):
+    """X's OAuth PKCE redirect target — same shape as Pinterest's callback,
+    plus the stored PKCE ``code_verifier`` for this state, spent exactly once.
+    """
+    entry = _pop_valid_state(state, x.CHANNEL_ID)
+    if not code:
+        raise HTTPException(status_code=400, detail="No authorization code returned")
+
+    base_url = f"http://{settings.host}:{settings.port}"
+    try:
+        await x.exchange_code(code, entry.get("verifier") or "", base_url=base_url)
+    except base.ConnectorError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception as exc:
+        # Never echo the response body: a token error can carry client context.
+        logger.warning(f"X code exchange failed: {type(exc).__name__}")
+        raise HTTPException(status_code=502, detail="Could not complete X sign-in")
+
+    # Fix round 1, M2 (extended to X): the token landed in secrets.env, outside
+    # memory_path — bump sync_state.json so "sources" reflects the
+    # freshly-connected account instead of staying stale forever.
+    sync_state.record_credentials_changed(settings.memory_path, x.CHANNEL_ID)
+
+    return HTMLResponse(
+        "<html><body style='font:14px -apple-system;padding:40px'>"
+        "<h2>X connected</h2>"
+        "<p>You can close this tab and go back to Cicada.</p>"
+        "</body></html>"
+    )
+
+
 @router.post("/{connector_id}/sync", response_model=ConnectorSyncResult)
 async def sync_now(connector_id: str, settings: Settings = Depends(get_settings)):
     """Run one poll immediately. Mirrors the nightly Sleep-tail poll exactly."""
@@ -209,4 +288,5 @@ async def sync_now(connector_id: str, settings: Settings = Depends(get_settings)
         new=int(result.get("new") or 0),
         seen=int(result.get("seen") or 0),
         error=result.get("error"),
+        resources_read=int(result.get("resources_read") or 0),
     )

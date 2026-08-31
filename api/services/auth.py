@@ -11,9 +11,10 @@ overrides the file; ``CICADA_API_AUTH=off`` disables the check (tests/dev only
 Open paths (no bearer token required): ``GET /healthz`` (installer/doctor
 liveness probe), ``POST /capture/telegram`` (Telegram's servers hit this
 webhook through a public tunnel and cannot send our bearer header), and
-``GET /sources/connectors/pinterest/callback`` (G71 — Pinterest's OAuth
-redirect lands in the user's own browser, which likewise cannot send it;
-gated instead by a single-use, 10-minute ``state`` nonce). Today the Telegram
+``GET /sources/connectors/pinterest/callback`` + ``GET
+/sources/connectors/x/callback`` (G71 — both OAuth redirects land in the
+user's own browser, which likewise cannot send it; each is gated instead by
+its own single-use, 10-minute ``state`` nonce). Today the Telegram
 route is gated only by Telegram being *configured* (``CICADA_TELEGRAM_BOT_TOKEN``
 set, checked in ``api/routers/capture.py``), not by a per-request secret
 verifying the caller really is Telegram — see G57.
@@ -35,6 +36,10 @@ _OPEN_PATHS = frozenset({
     # send the bearer token. Gated instead by a single-use, 10-minute `state`
     # nonce minted by POST /sources/connectors/pinterest/authorize.
     "/sources/connectors/pinterest/callback",
+    # G71 follow-up (Task 14): same reasoning, for X's PKCE OAuth redirect —
+    # gated by its own single-use `state` nonce minted by POST
+    # /sources/connectors/x/authorize.
+    "/sources/connectors/x/callback",
 })
 
 

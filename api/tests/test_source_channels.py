@@ -174,12 +174,61 @@ def test_connector_channel_surfaces_the_last_failure(tmp_path):
     assert ch["detail"].startswith("Last sync failed")
 
 
-def test_channel_ids_now_include_both_connectors(client):
+# --- Task 14: the X (Twitter) bookmarks connector as a capture channel -----
+#
+# Unlike Pinterest/Reddit, X's row must show its pay-per-use cost model
+# (G71 cost honesty) BEFORE the user ever connects — the point is to disclose
+# the billing shape up front, not just once they're already paying for reads.
+
+
+def test_x_channel_shows_the_cost_note_even_when_disconnected(tmp_path):
+    from api.services.connectors import x as x_connector
+
+    ch = _channels(tmp_path)["x"]
+    assert ch["connected"] is False
+    assert ch["actions"] == ["connect"]
+    assert ch["label"] == "X (Twitter)"
+    assert ch["detail"] == x_connector.PRICE_NOTE
+
+
+def test_x_channel_reports_connected_but_never_synced_with_the_cost_note(tmp_path):
+    from api.services.connectors import x as x_connector
+
+    ch = _channels(tmp_path, connectors_connected={"x": True})["x"]
+    assert ch["connected"] is True
+    assert ch["detail"] == f"Connected · not synced yet · {x_connector.PRICE_NOTE}"
+    assert ch["actions"] == ["sync", "disconnect"]
+
+
+def test_x_channel_reports_a_successful_sync_with_the_cost_note(tmp_path):
+    from api.services.connectors import x as x_connector
+
+    sync_state.record_sync(tmp_path, "x", count=17, at="2026-08-30T10:00:00Z")
+    ch = _channels(tmp_path, connectors_connected={"x": True})["x"]
+    assert ch["count"] == 17
+    assert "17 bookmarks" in ch["detail"]
+    assert "2026-08-30" in ch["detail"]
+    assert ch["detail"].endswith(x_connector.PRICE_NOTE)
+    assert ch["last_error"] is None
+
+
+def test_x_channel_surfaces_the_last_failure_with_the_cost_note(tmp_path):
+    from api.services.connectors import x as x_connector
+
+    sync_state.record_sync(tmp_path, "x", count=17, at="2026-08-30T10:00:00Z")
+    sync_state.record_error(tmp_path, "x", "RuntimeError: 429 rate limited")
+    ch = _channels(tmp_path, connectors_connected={"x": True})["x"]
+    assert ch["last_error"] == "RuntimeError: 429 rate limited"
+    assert ch["detail"].startswith("Last sync failed")
+    assert ch["detail"].endswith(x_connector.PRICE_NOTE)
+
+
+def test_channel_ids_now_include_all_three_connectors(client):
     c, _ = client
     ids = [ch["id"] for ch in c.get("/sources/channels").json()["channels"]]
     assert ids == [
         "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
-        "rss", "calendar", "pinterest", "reddit", "telegram", "files",
+        "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
     ]
 
 
@@ -230,7 +279,7 @@ def test_get_sources_channels_returns_every_known_channel(client):
     ids = [ch["id"] for ch in resp.json()["channels"]]
     assert ids == [
         "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
-        "rss", "calendar", "pinterest", "reddit", "telegram", "files",
+        "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
     ]
     assert all(ch["connected"] is False for ch in resp.json()["channels"])
 
