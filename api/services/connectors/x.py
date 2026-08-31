@@ -114,9 +114,10 @@ def credential_fields() -> list[dict]:
 
 def forget() -> None:
     """Remove every stored X credential, including the derived user id and
-    refresh token — a disconnect must leave nothing an old session could use."""
-    for name in (CLIENT_ID_ENV, TOKEN_ENV, REFRESH_TOKEN_ENV, USER_ID_ENV):
-        secrets.remove_secret(name)
+    refresh token — a disconnect must leave nothing an old session could use
+    (Task 15 §4: the orphan-fix — SECRET_NAMES is the single declared surface
+    ``forget()`` sweeps, so it can never drift from what's actually stored)."""
+    base.forget(SECRET_NAMES)
 
 
 # --- OAuth (PKCE) --------------------------------------------------------------

@@ -72,8 +72,8 @@ def credential_fields() -> list[dict]:
 
 
 def forget() -> None:
-    for field in FIELDS:
-        secrets.remove_secret(field["name"])
+    """Remove every stored Reddit credential (Task 15 §4)."""
+    base.forget(SECRET_NAMES)
 
 
 # --- reads -------------------------------------------------------------------

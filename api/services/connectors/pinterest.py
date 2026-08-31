@@ -73,9 +73,8 @@ def credential_fields() -> list[dict]:
 
 
 def forget() -> None:
-    """Remove every stored Pinterest credential."""
-    for name in (APP_ID_ENV, APP_SECRET_ENV, TOKEN_ENV):
-        secrets.remove_secret(name)
+    """Remove every stored Pinterest credential (Task 15 §4)."""
+    base.forget(SECRET_NAMES)
 
 
 # --- OAuth -------------------------------------------------------------------
