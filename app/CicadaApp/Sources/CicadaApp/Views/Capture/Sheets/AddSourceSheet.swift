@@ -372,17 +372,8 @@ struct AddSourceSheet: View {
                     }
                     return true
                 }
-            case .pinterest:
-                // ConnectorSetupPanel lands in Task 11; the backend connector
-                // (Task 8) is already live.
-                Text(tile.blurb)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-            case .reddit:
-                // Connect-first, but the GDPR export walkthrough rides along
-                // as a temporary placeholder until Task 11's
-                // ConnectorSetupPanel lands.
-                WalkthroughPanel(vendors: tile.vendors, vendor: $vendor) { pickSavedContent() }
+            case .pinterest, .reddit:
+                ConnectorSetupPanel(connectorId: tile.rawValue, vendors: tile.vendors, vendor: $vendor)
             case .x:
                 Text("X's connector isn't wired up yet — check back soon.")
                     .font(CicadaTheme.bodyFont)

@@ -113,4 +113,16 @@ enum Copy {
         case .redditExport: return redditExportStepPath
         }
     }
+
+    // MARK: - Connectors (G71 §2)
+
+    /// Shown after the browser is handed the consent URL — the callback lands
+    /// back on the local backend, so there is nothing to paste back.
+    static let connectorAuthorizeHint =
+        "Approve it in the browser tab, then come back — Cicada finishes on its own."
+
+    /// Why a Connect-route tile still offers an export walkthrough.
+    static let connectorExportBackfill =
+        "The API only reaches your most recent ~1,000 saves. A one-off data "
+        + "export backfills everything older."
 }

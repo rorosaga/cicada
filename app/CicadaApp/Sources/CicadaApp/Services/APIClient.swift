@@ -1042,6 +1042,34 @@ actor APIClient {
         try await put("/connections/\(id)/prefs", body: ["tier": tier ?? NSNull()])
     }
 
+    // MARK: - Saved-content connectors (G71)
+
+    func fetchConnectors() async throws -> [ConnectorStatus] {
+        let response: ConnectorsResponse = try await get("/sources/connectors")
+        return response.connectors
+    }
+
+    func saveConnectorCredentials(
+        _ id: String, fields: [String: String]
+    ) async throws -> ConnectorStatus {
+        try await put("/sources/connectors/\(id)/credentials", body: ["fields": fields])
+    }
+
+    /// `delete(_:)` returns raw `Data` (mirrors `removeKey`'s DELETE-then-decode
+    /// pattern) — there is no generic `delete<T: Decodable>` helper on this actor.
+    func forgetConnector(_ id: String) async throws -> ConnectorStatus {
+        let data = try await delete("/sources/connectors/\(id)/credentials")
+        return try decoder.decode(ConnectorStatus.self, from: data)
+    }
+
+    func authorizeConnector(_ id: String) async throws -> ConnectorAuthorizeResponse {
+        try await post("/sources/connectors/\(id)/authorize")
+    }
+
+    func syncConnector(_ id: String) async throws -> ConnectorSyncResult {
+        try await post("/sources/connectors/\(id)/sync")
+    }
+
     // MARK: - Consumption (G51)
     //
     // Plain (non-conditional) fetches for a range the Store's default
