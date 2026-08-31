@@ -291,6 +291,11 @@ struct AddSourceSheet: View {
         result = nil
         expanded = tile
         if let first = tile.vendors.first { vendor = first }
+        // L5 (final review): `includeHistory` was never reset, so a TikTok
+        // import's "Also import browsing history" toggle silently persisted
+        // into a LATER Instagram/YouTube import — inert there today (only
+        // TikTok reads it), but still wrong state to carry across tiles.
+        includeHistory = false
     }
 
     private func collapse() {
