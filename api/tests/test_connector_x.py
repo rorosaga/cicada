@@ -136,6 +136,24 @@ def test_bookmarks_to_items_skips_junk_rows():
     assert x.bookmarks_to_items([None, {}, "nope", {"id": ""}]) == []
 
 
+# --- pagination bound (Task 15 §5) -------------------------------------------
+
+
+def test_fetch_bookmarks_stops_at_the_hard_cap_when_the_stored_anchor_is_never_found():
+    """A `stop_at` cursor whose tweet was since deleted/unbookmarked is never
+    encountered on any page — `hit_cursor` never fires, so the walk must stop
+    at `MAX_PAGES` (the hard cap) rather than paging through the API's entire
+    `next_token` chain looking for an id that is gone."""
+    endless_page = {"data": [{"id": "9999", "text": "still bookmarked"}],
+                     "meta": {"next_token": "cursor-forever"}}  # always claims more
+    tweets, newest = run(x.fetch_bookmarks(
+        "u-42", "tok-abc", http_fn=_fake_http(pages=[endless_page]),
+        stop_at="deleted-anchor-999",
+    ))
+    assert len(tweets) == x.MAX_PAGES, "the walk stops at the cap, not when next_token runs out"
+    assert newest == "9999"
+
+
 # --- sync --------------------------------------------------------------------
 
 
@@ -194,6 +212,29 @@ def test_sync_stops_at_the_previously_seen_id(tmp_path, monkeypatch):
     assert result["status"] == "ok"
     assert result["seen"] == 1, "only the tweet newer than the stored cursor is new"
     assert result["resources_read"] == 1
+
+
+def test_sync_stops_at_the_cap_and_still_reports_honestly_when_the_anchor_is_gone(
+    tmp_path, monkeypatch,
+):
+    """Task 15 §5: the stored cursor points at a since-deleted bookmark, so
+    it is never encountered — `sync()` must still stop at `MAX_PAGES` (not
+    walk the API's whole `next_token` chain) and its counters must reflect
+    exactly what was actually read, not silently under- or over-report."""
+    memory = _memory(tmp_path, monkeypatch)
+    secrets.set_secret(x.TOKEN_ENV, "tok-abc")
+    secrets.set_secret(x.USER_ID_ENV, "u-42")
+    sync_state.record_sync(memory, "x", count=1, extra={"last_seen_id": "deleted-anchor-999"})
+
+    endless_page = {"data": [{"id": "9999", "text": "still bookmarked"}],
+                     "meta": {"next_token": "cursor-forever"}}
+    result = run(x.sync(memory, http_fn=_fake_http(pages=[endless_page])))
+    assert result["status"] == "ok"
+    assert result["seen"] == x.MAX_PAGES
+    assert result["resources_read"] == x.MAX_PAGES
+    # The walk actually stopped at the cap rather than being fed forever by
+    # the fixture's ever-present next_token.
+    assert sync_state.read_sync_state(memory)["x"]["last_seen_id"] == "9999"
 
 
 def test_sync_is_idempotent_via_the_url_index(tmp_path, monkeypatch):

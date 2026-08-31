@@ -87,7 +87,15 @@ DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 PAGE_SIZE = 100
 # 100 x 10 = 1 000 tweet-reads per sync at worst, each one a billed "owned
 # read" — bounded the same conservative way Reddit's ~1,000-item cap is, but
-# here it is a cost decision, not a platform limit.
+# here it is a cost decision, not a platform limit. This is the HARD cap on
+# `fetch_bookmarks`'s newest-first walk in every case, including the
+# degenerate one where the stored `stop_at` anchor was unbookmarked and is
+# never encountered on any page: `hit_cursor` then never fires, but the
+# surrounding `for _ in range(MAX_PAGES)` still stops the walk here rather
+# than paging through the user's entire bookmark history looking for an id
+# that is gone (Task 15 §5). RE-CHECK against current $/read pricing before
+# raising this — every extra page here is 100 more billed reads on a sync
+# that, absent the missing anchor, would normally cost 0-1 pages.
 MAX_PAGES = 10
 SEEN_KEY = "last_seen_id"
 
