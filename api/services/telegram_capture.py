@@ -42,8 +42,33 @@ from api.services import markdown_parser
 # embedded somewhere in a sentence", so this connector owns a small regex.
 _URL_RE = re.compile(r"https?://[^\s<>\"')\]]+")
 
+# `/save`, `/note`, `/remind` — with or without the `@botname` suffix Telegram
+# appends in group chats. Stripped before the reason is read so the command
+# token never becomes part of the reason.
+_COMMAND_RE = re.compile(r"^/(save|note|remind)(?:@\w+)?\b\s*", re.IGNORECASE)
+
 SaveUrlFn = Callable[..., Any]
 SaveEpisodeFn = Callable[..., Any]
+
+
+def extract_reason(text: str, urls: list[str]) -> str | None:
+    """Everything the user typed *around* the URL — the reason they saved it.
+
+    The bot command and every URL are removed, whitespace is collapsed, and a
+    leading separator ("— ", ": ", "- ") is trimmed so "https://x — worth
+    rereading" yields "worth rereading". Returns ``None`` when nothing is left,
+    and always ``None`` for a message with no URL at all (there the whole text
+    IS the note, staged as an episode, and calling it a "reason" would double
+    it into a claim about nothing).
+    """
+    if not urls:
+        return None
+    body = _COMMAND_RE.sub("", text or "", count=1)
+    for url in urls:
+        body = body.replace(url, " ")
+    body = re.sub(r"\s+", " ", body).strip()
+    body = body.lstrip("-–—:;,. ").strip()
+    return body or None
 
 
 # --- Stage 1: pure parse ----------------------------------------------------
@@ -118,11 +143,15 @@ def parse_telegram_update(update: dict) -> dict | None:
     )
     from_self = bool(sender) and not sender.get("is_bot", False) and not is_forwarded
 
+    chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
+
     return {
         "text": text,
         "urls": urls,
         "date": date_iso,
         "from_self": from_self,
+        "reason": extract_reason(text, urls),
+        "chat_id": chat.get("id"),
     }
 
 

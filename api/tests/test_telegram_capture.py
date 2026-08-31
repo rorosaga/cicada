@@ -254,3 +254,37 @@ def test_settings_telegram_enabled_reflects_token(monkeypatch):
 
     assert Settings(telegram_bot_token="").telegram_enabled is False
     assert Settings(telegram_bot_token="abc123").telegram_enabled is True
+
+
+# --- reason extraction (G71 §1) ---------------------------------------------
+
+
+def test_parse_extracts_reason_after_the_url():
+    update = _text_update("/save https://example.com/recipe great for meal prep")
+    parsed = parse_telegram_update(update)
+    assert parsed["urls"] == ["https://example.com/recipe"]
+    assert parsed["reason"] == "great for meal prep"
+
+
+def test_parse_extracts_reason_written_before_the_url():
+    update = _text_update("great for meal prep https://example.com/recipe")
+    assert parse_telegram_update(update)["reason"] == "great for meal prep"
+
+
+def test_parse_strips_the_bot_command_and_its_at_suffix():
+    update = _text_update("/save@cicada_bot https://example.com/x — worth rereading")
+    assert parse_telegram_update(update)["reason"] == "worth rereading"
+
+
+def test_parse_reason_is_none_when_only_a_url_was_sent():
+    update = _text_update("https://example.com/bare")
+    assert parse_telegram_update(update)["reason"] is None
+
+
+def test_parse_reason_is_none_for_a_text_only_message():
+    update = _text_update("remember to buy milk")
+    assert parse_telegram_update(update)["reason"] is None
+
+
+def test_parse_returns_the_chat_id():
+    assert parse_telegram_update(_text_update("hello"))["chat_id"] == 111
