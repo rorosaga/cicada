@@ -2,7 +2,7 @@
 blocker #2, 2026-07-13): ``write_claim`` with a subject that resolves to no
 exact page but NEAR-matches existing entities must refuse to create a
 duplicate stub — return ``ambiguous_subject`` with candidates instead of
-guessing ("Raul" landing on a fresh raul.md while raul-perez-pelaez.md
+guessing ("Marta" landing on a fresh marta.md while marta-oliveira-santos.md
 exists). ``force_new_entity=True`` overrides after an explicit decision.
 """
 
@@ -27,15 +27,15 @@ def _page(tmp_path, entity_id, name=None, type_="person"):
 
 
 def test_near_match_returns_ambiguous_and_writes_nothing(tmp_path):
-    _page(tmp_path, "raul-perez-pelaez", "Raul Perez Pelaez")
+    _page(tmp_path, "marta-oliveira-santos", "Marta Oliveira Santos")
 
     result = agentic_write.write_claim(
-        tmp_path, "Raul", "supervises", "the capstone", observer="agent"
+        tmp_path, "Marta", "advises", "the capstone", observer="agent"
     )
 
     assert result["action"] == "ambiguous_subject"
-    assert [c["entity_id"] for c in result["candidates"]] == ["raul-perez-pelaez"]
-    assert not (tmp_path / "entities" / "raul.md").exists()
+    assert [c["entity_id"] for c in result["candidates"]] == ["marta-oliveira-santos"]
+    assert not (tmp_path / "entities" / "marta.md").exists()
 
 
 def test_containment_both_directions(tmp_path):
@@ -73,7 +73,7 @@ def test_exact_match_still_writes_directly(tmp_path):
 
 
 def test_novel_subject_creates_stub_as_before(tmp_path):
-    _page(tmp_path, "raul-perez-pelaez", "Raul Perez Pelaez")
+    _page(tmp_path, "marta-oliveira-santos", "Marta Oliveira Santos")
 
     result = agentic_write.write_claim(
         tmp_path, "HallBayes", "verifies", "sleep output", observer="agent"
@@ -92,17 +92,17 @@ def test_mcp_handler_renders_candidates_and_passes_force_flag(tmp_path, monkeypa
     spec.loader.exec_module(mod)
     monkeypatch.setattr(mod, "get_memory_path", lambda: tmp_path)
 
-    _page(tmp_path, "raul-perez-pelaez", "Raul Perez Pelaez")
+    _page(tmp_path, "marta-oliveira-santos", "Marta Oliveira Santos")
 
     rendered = mod.handle_write_claim(
-        "Raul", "supervises", "the capstone", "agent", None, None, None
+        "Marta", "advises", "the capstone", "agent", None, None, None
     )
     assert "ambiguous subject" in rendered
-    assert "raul-perez-pelaez" in rendered
+    assert "marta-oliveira-santos" in rendered
     assert "force_new_entity" in rendered
 
     forced = mod.handle_write_claim(
-        "Raul", "supervises", "the capstone", "agent", None, None, None, True
+        "Marta", "advises", "the capstone", "agent", None, None, None, True
     )
     assert "Recorded" in forced
-    assert (tmp_path / "entities" / "raul.md").exists()
+    assert (tmp_path / "entities" / "marta.md").exists()

@@ -4,9 +4,35 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project
 
-**Cicada** — A Cognitive Agent Architecture for Personal Knowledge Evolution via Structured Memory Consolidation. BSc Capstone Thesis at IE University. Author: Rodrigo Sagastegui. Supervisor: Prof. Raul Perez Pelaez.
+**Cicada** — Author: Rodrigo Sagastegui.
 
-Cicada is a personal AI agent memory system using a biologically-inspired Awake/Sleep consolidation architecture. It compresses episodic noise into a structured, versioned knowledge graph. The biological analogy: Awake = hippocampal encoding (fast, episodic), Sleep = cortical consolidation (slow, semantic), temporal decay = synaptic homeostasis.
+Cicada started as a BSc capstone thesis at IE University — *A Cognitive Agent Architecture for
+Personal Knowledge Evolution via Structured Memory Consolidation* — and has since evolved into a
+personal project with a larger goal: **capture the human experience seamlessly, and make it
+something you can hold a conversation over — with agents that can understand it, contribute to it,
+and draw their own relations across it.**
+
+Concretely, that means Cicada aims to span:
+
+- **Every kind of media ingestion** — links, articles, papers, videos, images, bookmarks, RSS,
+  files, saved collections exported from the platforms where they pile up.
+- **Every conversation** — the ones with agents (MCP-native clients, plus imported ChatGPT/Claude
+  exports), and, as recording becomes part of the workflow, **conversations with other people**:
+  meetings ingested the same way, through the same source-agnostic pipeline.
+- **The moving parts of a life** — projects, ideas, current interests, the things being decided and
+  the things quietly going stale.
+
+The design principle that follows from that goal: memory must be **legible to an agent without
+ceremony**. An agent should be able to arrive, be told what Cicada is and how to use it, read the
+graph, contribute beliefs with provenance, and leave the store better than it found it. The
+markdown-and-git substrate, the claim layer, the author/session trailers and the MCP surface all
+exist to make that true.
+
+The architecture is biologically inspired: **Awake** = hippocampal encoding (fast, episodic capture,
+no processing at capture time), **Sleep** = cortical consolidation (slow, semantic, batch), and
+**temporal decay** = synaptic homeostasis (absence of mention is itself a signal). Episodic noise
+gets compressed into a structured, versioned knowledge graph rather than accumulating as a
+transcript pile.
 
 ## Branches
 
