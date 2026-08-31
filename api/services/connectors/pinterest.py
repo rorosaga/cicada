@@ -24,6 +24,8 @@ from api.services.media_ingestor import RawItem
 
 CHANNEL_ID = "pinterest"
 LABEL = "Pinterest"
+LOGIN_MODE = "oauth"
+CHANNEL_NOUN = "pin"
 
 APP_ID_ENV = "PINTEREST_APP_ID"
 APP_SECRET_ENV = "PINTEREST_APP_SECRET"
@@ -35,6 +37,10 @@ FIELDS: tuple[dict, ...] = (
     {"name": APP_ID_ENV, "label": "App ID", "secret": False},
     {"name": APP_SECRET_ENV, "label": "App secret", "secret": True},
 )
+
+# Every secret this adapter can write: FIELDS' env names plus the derived
+# access token — the single source `forget()` sweeps (Task 15 §4).
+SECRET_NAMES: tuple[str, ...] = (APP_ID_ENV, APP_SECRET_ENV, TOKEN_ENV)
 
 # G71: these scope strings are UNVERIFIED against Pinterest's live developer
 # docs at the time of writing (no network access to check them from here) —

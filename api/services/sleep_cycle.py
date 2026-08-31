@@ -97,9 +97,9 @@ async def _poll_connectors_safely(memory_path: Path) -> None:
     is consolidated by tomorrow's cycle — the same "it joins the graph after the
     next Sleep cycle" contract every other capture path already states.
     """
-    from api.services.connectors import pinterest, reddit, x
+    from api.services.connectors import ADAPTERS
 
-    for adapter in (pinterest, reddit, x):
+    for adapter in ADAPTERS.values():
         try:
             result = await adapter.sync(memory_path)
             if result.get("status") == "ok" and result.get("new"):

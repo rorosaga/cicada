@@ -28,6 +28,8 @@ from api.services.media_ingestor import RawItem
 
 CHANNEL_ID = "reddit"
 LABEL = "Reddit"
+LOGIN_MODE = "credentials"
+CHANNEL_NOUN = "saved item"
 
 CLIENT_ID_ENV = "REDDIT_CLIENT_ID"
 CLIENT_SECRET_ENV = "REDDIT_CLIENT_SECRET"
@@ -40,6 +42,12 @@ FIELDS: tuple[dict, ...] = (
     {"name": USERNAME_ENV, "label": "Reddit username", "secret": False},
     {"name": PASSWORD_ENV, "label": "Reddit password", "secret": True},
 )
+
+# Every secret this adapter can write. Reddit has no derived token (a script
+# app's password grant is re-run on every sync) — FIELDS' names are the whole
+# surface, but this is declared explicitly rather than derived from FIELDS at
+# `forget()` time, matching the other two adapters (Task 15 §4).
+SECRET_NAMES: tuple[str, ...] = (CLIENT_ID_ENV, CLIENT_SECRET_ENV, USERNAME_ENV, PASSWORD_ENV)
 
 TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
 API_BASE = "https://oauth.reddit.com"

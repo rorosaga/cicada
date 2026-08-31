@@ -36,6 +36,8 @@ from api.services.media_ingestor import RawItem
 
 CHANNEL_ID = "x"
 LABEL = "X (Twitter)"
+LOGIN_MODE = "oauth"
+CHANNEL_NOUN = "bookmark"
 
 CLIENT_ID_ENV = "X_CLIENT_ID"
 TOKEN_ENV = "X_ACCESS_TOKEN"
@@ -50,6 +52,13 @@ USER_ID_ENV = "X_USER_ID"
 FIELDS: tuple[dict, ...] = (
     {"name": CLIENT_ID_ENV, "label": "Client ID", "secret": False},
 )
+
+# Every secret this adapter can write: FIELDS' one name plus every derived
+# token — the access/refresh token pair and the resolved user id. This is the
+# orphan-fix (Task 15 §4): `forget()` sweeps exactly this tuple, so a token
+# this module derives can never outlive a disconnect just because someone
+# updates FIELDS without remembering to update a second, separate list.
+SECRET_NAMES: tuple[str, ...] = (CLIENT_ID_ENV, TOKEN_ENV, REFRESH_TOKEN_ENV, USER_ID_ENV)
 
 # G71 follow-up (Task 14): OAuth 2.0 PKCE user-context scopes for the X API v2
 # bookmarks endpoint (route verified 2026-08-31, docs/goals/saved-content-

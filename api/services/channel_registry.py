@@ -24,22 +24,25 @@ from api.services import (
     origin_stats,
     sync_state,
 )
-from api.services.connectors import x as x_connector
+from api.services.connectors import ADAPTERS
 
 # Canonical order; the app sorts the *connected* rows by last_sync itself.
-CHANNEL_IDS = (
+# The direct-API connector ids splice in from the shared registry (Task 15
+# §1) at the position they've always occupied — between "calendar" and
+# "telegram" — so adding a fourth adapter to ``ADAPTERS`` needs no edit here.
+_NON_CONNECTOR_HEAD = (
     "chat-export:claude",
     "chat-export:chatgpt",
     "bookmarks",
     "notes",
     "rss",
     "calendar",
-    "pinterest",
-    "reddit",
-    "x",
+)
+_NON_CONNECTOR_TAIL = (
     "telegram",
     "files",
 )
+CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 
 
 def _plural(n: int, singular: str, plural: str | None = None) -> str:
@@ -187,16 +190,6 @@ def build_channels(
             "rss", "RSS feeds", feed_registry.list_feeds(memory_path), "feed"),
         "calendar": _subscription_channel(
             "calendar", "Calendars", calendar_registry.list_calendars(memory_path), "calendar"),
-        "pinterest": _connector_channel(
-            "pinterest", "Pinterest", state, "pin",
-            connected=bool(connected_map.get("pinterest"))),
-        "reddit": _connector_channel(
-            "reddit", "Reddit", state, "saved item",
-            connected=bool(connected_map.get("reddit"))),
-        "x": _connector_channel(
-            "x", "X (Twitter)", state, "bookmark",
-            connected=bool(connected_map.get("x")),
-            price_note=x_connector.PRICE_NOTE),
         "telegram": {
             "id": "telegram",
             "label": "Telegram bot",
@@ -217,4 +210,10 @@ def build_channels(
             "actions": ["import"],
         },
     }
+    for cid, adapter in ADAPTERS.items():
+        channels[cid] = _connector_channel(
+            cid, adapter.LABEL, state, adapter.CHANNEL_NOUN,
+            connected=bool(connected_map.get(cid)),
+            price_note=getattr(adapter, "PRICE_NOTE", None),
+        )
     return [channels[cid] for cid in CHANNEL_IDS]

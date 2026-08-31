@@ -9,10 +9,11 @@ Credential values enter through ``PUT .../credentials`` and are written to
 ``$CICADA_HOME/secrets.env`` (0600). They are never returned, never logged, and
 never included in an error message.
 
-``ADAPTERS`` / ``LOGIN_MODES`` are dicts keyed by ``CHANNEL_ID``, so Pinterest
-(``oauth``), Reddit (``credentials`` — a script app needs no redirect round
-trip), and X (``oauth`` again, but PKCE — a public client, no client secret)
-sit side by side as peer connectors.
+``ADAPTERS`` (the shared registry, ``api/services/connectors/__init__.py``) is
+keyed by ``CHANNEL_ID``, so Pinterest (``oauth``), Reddit (``credentials`` — a
+script app needs no redirect round trip), and X (``oauth`` again, but PKCE —
+a public client, no client secret) sit side by side as peer connectors.
+``LOGIN_MODE`` is a per-adapter module constant, not a second parallel dict.
 
 Both OAuth connectors share ``_pending_states`` — one in-process nonce table
 keyed by ``state`` — but each entry also records which connector minted it
@@ -41,21 +42,9 @@ from api.models.schemas import (
 )
 from api.services import sync_state
 from api.services.connections import secrets as secret_store
-from api.services.connectors import base, pinterest, reddit, x
+from api.services.connectors import ADAPTERS, base, pinterest, x
 
 router = APIRouter(prefix="/sources/connectors")
-
-ADAPTERS = {
-    pinterest.CHANNEL_ID: pinterest,
-    reddit.CHANNEL_ID: reddit,
-    x.CHANNEL_ID: x,
-}
-
-LOGIN_MODES = {
-    pinterest.CHANNEL_ID: "oauth",
-    reddit.CHANNEL_ID: "credentials",
-    x.CHANNEL_ID: "oauth",
-}
 
 # Single-use OAuth nonces: {state: {"expires": ts, "connector": id,
 # "verifier": str | None}}. In-process and deliberately not persisted — an
@@ -89,7 +78,7 @@ def _status(connector_id: str, memory_path) -> ConnectorStatus:
         last_sync=entry.get("last_sync") or None,
         last_error=entry.get("last_error") or None,
         detail=None,
-        login_mode=LOGIN_MODES[connector_id],
+        login_mode=adapter.LOGIN_MODE,
     )
 
 
@@ -150,7 +139,7 @@ async def forget_credentials(connector_id: str, settings: Settings = Depends(get
 async def authorize(connector_id: str, settings: Settings = Depends(get_settings)):
     """Mint the vendor consent URL the app opens in the user's own browser."""
     adapter = _adapter(connector_id)
-    if LOGIN_MODES.get(connector_id) != "oauth":
+    if adapter.LOGIN_MODE != "oauth":
         raise HTTPException(
             status_code=400,
             detail=f"{connector_id} uses credentials, not an authorization flow",
