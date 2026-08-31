@@ -605,6 +605,82 @@ def parse_youtube_playlist_csv(content: bytes, filename: str) -> list[RawItem]:
     return items
 
 
+# --- Shared CSV header sniffing (LinkedIn + Reddit exports) ------------------
+
+
+def _norm_header(name: str | None) -> str:
+    """Lowercased, BOM- and whitespace-stripped column name for comparison."""
+    return (name or "").strip().lstrip("﻿").lower()
+
+
+def _pick_column(fieldnames: list[str] | None, candidates: tuple[str, ...]) -> str | None:
+    """The first real column name whose normalized form is in ``candidates``."""
+    for name in fieldnames or []:
+        if _norm_header(name) in candidates:
+            return name
+    return None
+
+
+# LinkedIn has renamed this column across export generations, so match a set
+# rather than one string. The SPECIFIC names are safe to match anywhere; the
+# GENERIC ones (``url``, ``link``) are only trusted when the filename already
+# says LinkedIn, or every plain URL CSV in the world would be claimed here.
+_LINKEDIN_SPECIFIC_URL_FIELDS = ("saveditem", "saved item", "saveditemurl", "saved item url")
+_LINKEDIN_GENERIC_URL_FIELDS = ("url", "link", "itemurl", "item url")
+_LINKEDIN_DATE_FIELDS = (
+    "savedat", "saved at", "saveddate", "saved date", "createdtime", "created time", "date",
+)
+
+
+def _is_linkedin_saved_filename(filename: str) -> bool:
+    stem = Path(filename or "").stem.lower().replace("_", " ").replace("-", " ")
+    return "saved item" in stem
+
+
+def parse_linkedin_saved(content: bytes, filename: str) -> list[RawItem]:
+    """LinkedIn "Get a copy of your data" — the Saved Items file.
+
+    Thin by design (G69): the export carries a URL and a saved date and nothing
+    else — no post text, no author. LinkedIn §8.2 bans fetching the post body,
+    so these stay thin nodes whose only edges come from the folder tag, and the
+    UI says so. Never invents a title.
+
+    An unrecognized CSV yields ``[]`` — never raises.
+    """
+    import csv
+    import io
+
+    try:
+        text = content.decode("utf-8-sig", errors="replace")
+        reader = csv.DictReader(io.StringIO(text))
+        fieldnames = reader.fieldnames
+    except Exception:
+        return []
+
+    url_col = _pick_column(fieldnames, _LINKEDIN_SPECIFIC_URL_FIELDS)
+    if url_col is None and _is_linkedin_saved_filename(filename):
+        url_col = _pick_column(fieldnames, _LINKEDIN_GENERIC_URL_FIELDS)
+    if url_col is None:
+        return []
+    date_col = _pick_column(fieldnames, _LINKEDIN_DATE_FIELDS)
+
+    items: list[RawItem] = []
+    for row in reader:
+        url = (row.get(url_col) or "").strip()
+        if not url.startswith(("http://", "https://")):
+            continue
+        added = None
+        if date_col:
+            added = (row.get(date_col) or "").strip() or None
+        items.append(RawItem(
+            url=url,
+            added=added,
+            folder="Saved Items",
+            origin="linkedin-saved",
+        ))
+    return items
+
+
 # Cap on the number of members walked inside an uploaded zip archive — a
 # saved-content export zip has at most a handful of playlist CSVs + one
 # watch-history.json; this just bounds a maliciously/accidentally huge zip.
@@ -866,6 +942,9 @@ def parse_upload(
         playlist_items = parse_youtube_playlist_csv(content, filename or name)
         if playlist_items:
             return playlist_items, "YouTube Playlist", False
+        linkedin_items = parse_linkedin_saved(content, filename or name)
+        if linkedin_items:
+            return linkedin_items, "LinkedIn Saved", False
         return parse_csv_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     if name.endswith(".zip"):
         return parse_youtube_takeout_zip(content, warnings), "YouTube Takeout (zip)", False
@@ -891,6 +970,7 @@ PLATFORM_BY_LABEL = {
     "Chrome Bookmarks": "bookmarks",
     "RSS Feed": "rss",
     "URL List": "urls",
+    "LinkedIn Saved": "linkedin",
 }
 
 # What ONE grouping is called on each platform, so the overlay can say
@@ -902,6 +982,7 @@ COLLECTION_KIND_BY_PLATFORM = {
     "bookmarks": "folder",
     "rss": "feed",
     "urls": "list",
+    "linkedin": "saved",
     "unknown": "list",
 }
 
