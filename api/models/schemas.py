@@ -114,14 +114,46 @@ class NudgeType(str, Enum):
 # --- Entity ---
 
 
+class DiffLine(CamelModel):
+    """One row of a unified diff for an entity file (G69).
+
+    ``kind`` is one of ``context`` / ``add`` / ``remove`` / ``hunk``. Line
+    numbers are 1-based and follow git's own accounting: a ``context`` row
+    carries both, an ``add`` row only ``new_line``, a ``remove`` row only
+    ``old_line``, and a ``hunk`` row (whose ``text`` is the raw ``@@ … @@``
+    header) carries neither. Serialized camelCase (``oldLine`` / ``newLine``).
+    """
+
+    kind: str
+    old_line: Optional[int] = None
+    new_line: Optional[int] = None
+    text: str = ""
+
+
 class EntityDiff(CamelModel):
-    # Added / removed line blocks for one entity file at one commit, newline-joined.
-    # git_service caps each side at DIFF_MAX_LINES so the response can't explode on
-    # a huge rewrite; when the cap is hit a truncation marker is appended to the
-    # affected side and ``truncated`` is set so the client can show "diff clipped".
+    # G69: ``lines`` is the real, ordered unified diff — additions, removals AND
+    # the unchanged context around them, each with its old/new line number, so
+    # the app can render a GitHub-style interleaved view instead of two blocks.
+    # Capped at DIFF_MAX_CONTEXT_LINES.
+    #
+    # ``added`` / ``removed`` are the pre-G69 newline-joined blocks, KEPT for
+    # back-compat: an older app build (and any client decoding a cached payload)
+    # still renders from them. git_service caps each side at DIFF_MAX_LINES so
+    # the response can't explode on a huge rewrite; when either cap is hit a
+    # truncation marker is appended to the affected side and ``truncated`` is set
+    # so the client can show "diff clipped".
     added: str = ""
     removed: str = ""
+    # ``truncated`` is the UNION flag — true when ANY of the three sinks was
+    # clipped — and keeps its exact pre-G69 meaning for the two flat blocks.
+    # ``lines_truncated`` is specifically "the ORDERED list was cut", which is
+    # what a client rendering ``lines`` must show its "diff clipped" banner on:
+    # a 500-addition commit clips the 400-cap flat side while ``lines`` is
+    # whole, and a banner driven by ``truncated`` would sit above a complete
+    # diff claiming it was shortened.
     truncated: bool = False
+    lines: list[DiffLine] = Field(default_factory=list)
+    lines_truncated: bool = False
 
 
 class EntityHistoryEntry(CamelModel):

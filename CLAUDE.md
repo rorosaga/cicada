@@ -394,7 +394,22 @@ GET  /healthz, GET /status                → backend health + summary status
 GET  /entities/{id}                       → single entity page
 GET  /entities/{id}/history               → git blame on entity file, enriched with structured commit metadata
                                             (+ per-commit author from Cicada-Author trailer; ?include_diff=true inlines diffs)
-GET  /entities/{id}/history/{commit}/diff → added/removed lines for that entity file at that commit
+GET  /entities/{id}/history/{commit}/diff → unified diff for that entity file at that commit (G69):
+                                            ordered `lines: [{kind: context|add|remove|hunk, oldLine,
+                                            newLine, text}]` from `git show -U4 --first-parent`, so
+                                            unchanged context is shown with line numbers, GitHub-style.
+                                            A file's FIRST commit has no parent — `git show` diffs it
+                                            against the empty tree, so it comes back as all-adds; a MERGE
+                                            commit needs `--first-parent`, else git emits a combined
+                                            (`--cc`) `@@@` diff the parser can't read and the endpoint
+                                            silently returns nothing. `added`/`removed`/`truncated` are
+                                            kept alongside for back-compat (an older app build, or a
+                                            payload cached pre-G69, falls back to those two blocks).
+                                            Capped: DIFF_MAX_LINES (400) per flat side,
+                                            DIFF_MAX_CONTEXT_LINES (2000) for `lines`. `truncated` is the
+                                            UNION of the three caps; `linesTruncated` is specifically
+                                            "the ordered list was cut" and is what a client rendering
+                                            `lines` shows its "diff clipped" banner on.
                                             (rendered inline by the app's shared DiffView — entity History rows
                                              and the Contributors drill-down both expand into it)
 GET  /entities/{id}/location              → directory-entity listing
