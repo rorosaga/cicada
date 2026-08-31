@@ -15,8 +15,7 @@ struct SourcesView: View {
 
     @State private var showAddSheet = false
     @State private var sheetTile: AddSourceTile?
-    @State private var actionResult: String?
-    @State private var actionError: String?
+    @State private var feedback: ChannelFeedback?
     @State private var busyChannel: String?
 
     // MARK: - Store projections (§5.5)
@@ -79,8 +78,7 @@ struct SourcesView: View {
     }
 
     private func openSheet(_ tile: AddSourceTile?) {
-        actionError = nil
-        actionResult = nil
+        feedback = nil
         sheetTile = tile
         showAddSheet = true
     }
@@ -104,20 +102,23 @@ struct SourcesView: View {
             } else {
                 VStack(spacing: 2) {
                     ForEach(connected) { channel in
-                        ConnectedChannelRow(channel: channel) { action in
+                        ConnectedChannelRow(channel: channel, isBusy: busyChannel == channel.id) { action in
                             handle(action, for: channel)
                         }
-                        .opacity(busyChannel == channel.id ? 0.5 : 1)
                     }
                 }
-                if let actionResult {
-                    Text(actionResult)
+                if let feedback {
+                    Text(feedback.text)
                         .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.success)
-                } else if let actionError {
-                    Text(actionError)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.danger)
+                        .foregroundStyle(feedback.isError ? CicadaTheme.danger : CicadaTheme.success)
+                        // Clears itself after 5 s. Keyed on the value, so a
+                        // second result restarts the timer instead of
+                        // inheriting the first one's remaining time.
+                        .task(id: feedback) {
+                            try? await Task.sleep(for: .seconds(5))
+                            guard !Task.isCancelled else { return }
+                            self.feedback = nil
+                        }
                 }
             }
         }
@@ -145,11 +146,8 @@ struct SourcesView: View {
     }
 
     private func handle(_ action: String, for channel: SourceChannel) {
-        actionResult = nil
-        actionError = nil
+        feedback = nil
         switch action {
-        case "manage", "import", "remove":
-            openSheet(AddSourceTile.forChannel(channel.id))
         case "poll":
             Task { await run(channel) { try await Self.poll(channel) } }
         case "sync":
@@ -162,9 +160,9 @@ struct SourcesView: View {
     private func run(_ channel: SourceChannel, _ work: @escaping () async throws -> String) async {
         busyChannel = channel.id
         do {
-            actionResult = try await work()
+            feedback = ChannelFeedback(text: try await work(), isError: false)
         } catch {
-            actionError = AddSourceSheet.friendlyError(error)
+            feedback = ChannelFeedback(text: AddSourceSheet.friendlyError(error), isError: true)
         }
         busyChannel = nil
         await store.refresh([.channels, .status, .sources, .feeds, .calendars])
@@ -208,10 +206,11 @@ struct SourcesView: View {
                 let count = status?.episodes.unprocessed ?? 0
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
                     Image(systemName: count == 0 ? "checkmark.circle" : "tray.full")
-                        .font(.system(size: 18))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(count == 0 ? CicadaTheme.success : CicadaTheme.accent)
-                        .frame(width: 44, height: 44)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(CicadaTheme.surfaceElevated))
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill((count == 0 ? CicadaTheme.success : CicadaTheme.accent).opacity(0.12)))
+                        .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(count == 0
@@ -233,6 +232,16 @@ struct SourcesView: View {
                     Spacer()
 
                     consolidateButton(count: count)
+                }
+
+                // A failed trigger used to be visible only on the Sleep page.
+                // The button that failed is here, so the reason belongs here.
+                if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
+                    Text(err)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.danger)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
