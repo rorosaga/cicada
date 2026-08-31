@@ -65,12 +65,6 @@ final class ThemeTokenTests: XCTestCase {
         XCTAssertEqual(rgb(CicadaTheme.historyColor(for: .confidenceChange)), rgb(CicadaTheme.warning))
     }
 
-    /// A multi-line snippet wraps; a single long command scrolls sideways.
-    func testCommandBoxWrapsOnlyMultiLineSnippets() {
-        XCTAssertFalse(CommandBox.wraps("claude mcp add cicada --scope user -- /a/b/python /a/b/server.py"))
-        XCTAssertTrue(CommandBox.wraps("[mcp_servers.cicada]\ncommand = \"/a/b/python\""))
-    }
-
     /// CI-style grep: the nine state hexes may appear ONLY in the theme file.
     /// Brand hues (OriginPill, provider badges, AgentSetup.brand) are exempt
     /// by construction — they are not in this list.

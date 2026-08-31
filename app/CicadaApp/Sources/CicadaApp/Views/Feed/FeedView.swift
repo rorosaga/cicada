@@ -42,14 +42,26 @@ struct FeedView: View {
             // ZStack child; Feed keeps a fixed header, so it must fill explicitly).
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            // Top-right controls (Upload + Sleep), shared chrome.
+            // Top-right controls (Add + Upload + Sleep + Help), shared chrome.
+            // `addButton` used to live inline in the page header's trailing
+            // slot (PageHeader's own right-aligned HStack), which put it at
+            // nearly the same top-right coordinates as this floating overlay
+            // — the header's blue "+" circle bled out from behind the Help
+            // button on every Feed render (G68 §1, round 2). Feed is the only
+            // page that pairs a PageHeader trailing action with the floating
+            // TopBarControls row, so folding the button into this same row
+            // (same pattern as GraphContainerView's AskButton) removes the
+            // collision entirely instead of just tuning padding.
             VStack {
                 HStack {
                     Spacer()
-                    TopBarControls(
-                        selectedTab: $selectedTab,
-                        showUploadOverlay: $showUploadOverlay
-                    )
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        addButton
+                        TopBarControls(
+                            selectedTab: $selectedTab,
+                            showUploadOverlay: $showUploadOverlay
+                        )
+                    }
                     .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
@@ -85,7 +97,7 @@ struct FeedView: View {
     }
 
     private var header: some View {
-        PageHeader(title: Copy.feed, subtitle: Copy.feedSubtitle) { addButton }
+        PageHeader(title: Copy.feed, subtitle: Copy.feedSubtitle)
     }
 
     private var addButton: some View {

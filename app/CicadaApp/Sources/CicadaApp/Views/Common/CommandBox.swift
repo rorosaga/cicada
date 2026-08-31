@@ -3,23 +3,24 @@ import AppKit
 
 // MARK: - Copyable command box
 
-/// A monospaced, horizontally-scrollable command/config snippet with a
-/// one-click copy button. Originally introduced on the Connect page for
-/// MCP registration commands; shared here so any setup/onboarding page
-/// (Connect, Sync sources, …) gets the same copy-paste affordance.
+/// A monospaced, wrapping command/config snippet with a one-click copy
+/// button. Originally introduced on the Connect page for MCP registration
+/// commands; shared here so any setup/onboarding page (Connect, Sync
+/// sources, …) gets the same copy-paste affordance.
+///
+/// Every snippet — a single-line command or a multi-line JSON/TOML/YAML
+/// block — wraps fully to the box's width; nothing is ever clipped off past
+/// the visible edge (G68 §1, round 2: single-line commands used to scroll
+/// sideways inside a fixed-width box instead of wrapping, clipping mid-word).
 struct CommandBox: View {
     let command: String
     @State private var copied = false
 
-    /// Multi-line snippets (a JSON / TOML / YAML block) wrap; a single long
-    /// command scrolls sideways. Deriving it from the content means no call
-    /// site has to decide, and a config block no longer has its right-hand
-    /// side clipped off inside a horizontal scroll view (G68 §1).
-    static func wraps(_ command: String) -> Bool { command.contains("\n") }
-
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            commandText
+            snippet
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
                 NSPasteboard.general.clearContents()
@@ -51,19 +52,6 @@ struct CommandBox: View {
                 .stroke(CicadaTheme.border, lineWidth: 1)
         )
         .animation(.easeInOut(duration: 0.15), value: copied)
-    }
-
-    @ViewBuilder
-    private var commandText: some View {
-        if Self.wraps(command) {
-            snippet
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            ScrollView(.horizontal, showsIndicators: false) {
-                snippet.fixedSize(horizontal: true, vertical: false)
-            }
-        }
     }
 
     private var snippet: some View {
