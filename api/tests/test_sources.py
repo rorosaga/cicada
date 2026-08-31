@@ -1108,3 +1108,27 @@ def test_ingest_takeout_zip_dedups_on_second_import(tmp_path, monkeypatch):
     created2, dups2 = run(media_ingestor.ingest_batch(items2, memory, commit=False))
     assert created2 == 0
     assert dups2 == 4
+
+
+# --- G71 §1: the reason on the episode body ---------------------------------
+
+
+def test_write_media_episode_renders_the_saved_because_section(tmp_path):
+    episodes = tmp_path / "episodes"
+    item = media_ingestor.RawItem(
+        url="https://example.com/recipe", reason="great for meal prep"
+    )
+    meta = MediaMeta(title="A Recipe", site="example.com", media_type="url")
+    episode_id = media_ingestor.write_media_episode(episodes, item, meta, "media-a-recipe")
+
+    body = (episodes / f"{episode_id}.md").read_text(encoding="utf-8")
+    assert "## Saved because" in body
+    assert "great for meal prep" in body
+
+
+def test_write_media_episode_omits_the_section_without_a_reason(tmp_path):
+    episodes = tmp_path / "episodes"
+    item = media_ingestor.RawItem(url="https://example.com/plain")
+    meta = MediaMeta(title="Plain", site="example.com", media_type="url")
+    episode_id = media_ingestor.write_media_episode(episodes, item, meta, "media-plain")
+    assert "Saved because" not in (episodes / f"{episode_id}.md").read_text(encoding="utf-8")

@@ -75,6 +75,12 @@ class RawItem:
     session_id: str | None = None
     harness: str | None = None
     project_dir: str | None = None
+    # G71 §1 — why the user saved this, in their own words (the text around the
+    # URL in a Telegram `/save`). Rendered verbatim on the episode body as a
+    # `## Saved because` section so Stage 1 extraction can pull concepts out of
+    # it exactly as it would from conversation text, and written separately as a
+    # `saved-because` claim by the caller that has one.
+    reason: str | None = None
 
 
 @dataclass
@@ -935,7 +941,12 @@ def _next_episode_id(episodes_dir: Path, ep_date: str) -> str:
 
 
 def _episode_body(
-    meta: MediaMeta, url: str, saved_date: str, note: str | None, folder: str | None = None
+    meta: MediaMeta,
+    url: str,
+    saved_date: str,
+    note: str | None,
+    folder: str | None = None,
+    reason: str | None = None,
 ) -> str:
     lines = [
         f"# {meta.title}",
@@ -952,6 +963,8 @@ def _episode_body(
     lines.append(f"**Saved:** {saved_date}")
     if meta.description:
         lines += ["", "## Description", meta.description]
+    if reason:
+        lines += ["", "## Saved because", reason]
     if note:
         lines += ["", "## User note", note]
     return "\n".join(lines)
@@ -977,7 +990,9 @@ def write_media_episode(
     timestamp = now.isoformat() + "Z"
     saved_date = ep_date
 
-    body = _episode_body(meta, item.url, saved_date, item.note, folder=item.folder)
+    body = _episode_body(
+        meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason
+    )
     content_hash = hashlib.sha256(normalize_url(item.url).encode()).hexdigest()[:12]
 
     frontmatter = {
