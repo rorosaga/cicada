@@ -176,4 +176,38 @@ final class SleepViewModelTests: XCTestCase {
         XCTAssertEqual(completedCount, 2,
                        "one completion per cycle — a duplicate poll would add a third")
     }
+
+    // MARK: PR #19 review — overlapping load() calls must not restore stale rows
+
+    /// `SleepView` fires an untracked `load()` for every live queue-count
+    /// change; with no arrival-identity guard a slower, older response can
+    /// land after a newer one and repaint the queue with stale data. Mirrors
+    /// `UsageRangeTests.testStaleRangeResponseIsDiscarded`: the first call
+    /// parks mid-fetch, a second (newer) call runs to completion first and
+    /// wins, and releasing the first call's gate afterwards must not let its
+    /// now-stale response overwrite the newer one.
+    func test_overlappingLoadCalls_aStaleStatusResponseIsDiscarded() async throws {
+        let store = idleStore()
+        var gate: CheckedContinuation<Void, Never>?
+        var callCount = 0
+        let fetch: () async throws -> SleepStatusResponse = {
+            callCount += 1
+            if callCount == 1 {
+                await withCheckedContinuation { gate = $0 }   // first call parks here
+                return try self.sleepStatus(status: "idle", stage: 1)
+            }
+            return try self.sleepStatus(status: "idle", stage: 4)
+        }
+        let vm = SleepViewModel(store: store, fetchSleepStatus: fetch)
+
+        let firstLoad = Task { await vm.load() }
+        try await Task.sleep(for: .milliseconds(150))     // let the first call park on the gate
+        await vm.load()                                    // the newer call — wins immediately
+        XCTAssertEqual(vm.status?.stage, 4, "the newer load() call must win as soon as it completes")
+
+        gate?.resume()                                      // release the stale first call
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(vm.status?.stage, 4, "a stale load() response must not overwrite the newer one")
+        await firstLoad.value
+    }
 }

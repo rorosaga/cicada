@@ -5,6 +5,12 @@ import SwiftUI
 struct SleepView: View {
     @Binding var selectedTab: AppTab
     @Environment(SleepViewModel.self) private var sleepVM
+    // H1: the "EPISODES QUEUED" header and `SleepQueueCard` above it must
+    // agree on one count. `Store.status` is the SSE-live source; reading it
+    // here (instead of only `sleepVM.queuedEpisodes.count`, which is fetched
+    // once per visit) keeps the two readouts from disagreeing when an MCP
+    // capture lands while this page is open.
+    @Environment(Store.self) private var store
     @State private var scheduleDate: Date = Self.defaultDate()
     @State private var scheduleEnabled: Bool = false
     @State private var loadedOnce: Bool = false
@@ -12,6 +18,16 @@ struct SleepView: View {
     // Default to descending (newest first) — the common case when reviewing
     // what's about to be consolidated.
     @State private var sortAscending: Bool = false
+    // PR #19 review: rapid live-count changes (a capture landing, then
+    // another one right behind it) fired an untracked `sleepVM.load()` Task
+    // per change with no cancellation. Mirrors `UsageViewModel.rangeTask`:
+    // cancelling the previous reconcile the moment a newer one supersedes it
+    // frees the abandoned in-flight work instead of leaving it to run to
+    // completion for nothing — `SleepViewModel.load()`'s own `loadToken`
+    // guard is the real backstop that makes a stale response harmless either
+    // way (cancellation isn't guaranteed to unwind a parked continuation, in
+    // tests or otherwise).
+    @State private var reconcileTask: Task<Void, Never>?
 
     private var sortedQueuedEpisodes: [EpisodeQueueItem] {
         let base = sleepVM.queuedEpisodes
@@ -43,6 +59,7 @@ struct SleepView: View {
                     if let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty {
                         errorBanner(error)
                     }
+                    SleepQueueCard()
                     scheduleCard
                     progressCard
                     queueCard
@@ -90,6 +107,68 @@ struct SleepView: View {
                 Task { @MainActor in await sleepVM.load() }
             }
         }
+        // PR #19 review: the header count reads SSE-live `store.status`
+        // while the rows below it stay pinned to whatever `sleepVM.load()`
+        // last fetched, once per visit. A capture (or another Sleep cycle
+        // finishing elsewhere) bumps the live count without touching the
+        // rows, so the header and the list contradict each other for as
+        // long as the page stays open. One freshness model: whenever the
+        // live unprocessed count disagrees with the loaded rows, refetch.
+        .onChange(of: store.status.value?.episodes.unprocessed) { _, newValue in
+            if Self.queueNeedsReconcile(liveUnprocessed: newValue,
+                                        loadedQueuedCount: sleepVM.queuedEpisodes.count) {
+                // Every new count change supersedes whichever reconcile is
+                // still in flight — cancel it and start fresh so only the
+                // newest count's fetch can ever publish rows, and a count
+                // that changes again mid-load still gets its own attempt
+                // rather than being silently dropped.
+                reconcileTask?.cancel()
+                reconcileTask = Task { @MainActor in await runReconcile() }
+            }
+        }
+    }
+
+    /// PR #19 round-4 review: a single `sleepVM.load()` was fired per live
+    /// count change with no follow-up. `load()` swallows its own per-fetch
+    /// errors into `sleepVM.errorMessage` rather than throwing (each of
+    /// status/episodes/schedule is caught independently), so a failed
+    /// episodes fetch never surfaced as a thrown error here — it just left
+    /// `sleepVM.queuedEpisodes` stale. And even on a clean fetch, the
+    /// returned rows can still disagree with the live count (a Sleep cycle
+    /// racing the fetch). Either way, if the live count doesn't move again,
+    /// `.onChange` above never re-fires and the header/rows stay
+    /// inconsistent for as long as the page is open. This loop re-checks
+    /// `queueNeedsReconcile` after every attempt and retries with bounded
+    /// backoff instead of giving up silently after one try — bounded so a
+    /// persistent mismatch (a real bug, not a transient blip) cannot turn
+    /// into an unbounded request loop; `queueNeedsReconcile` itself stays
+    /// visible (the header and rows keep disagreeing) rather than being
+    /// papered over.
+    private func runReconcile() async {
+        var attempt = 0
+        while !Task.isCancelled {
+            await sleepVM.load()
+            guard !Task.isCancelled else { return }
+            let stillNeedsReconcile = Self.queueNeedsReconcile(
+                liveUnprocessed: store.status.value?.episodes.unprocessed,
+                loadedQueuedCount: sleepVM.queuedEpisodes.count)
+            guard Self.shouldRetryReconcile(attempt: attempt, stillNeedsReconcile: stillNeedsReconcile) else { return }
+            attempt += 1
+            try? await Task.sleep(for: Self.reconcileBackoff(attempt: attempt))
+        }
+    }
+
+    /// Reconcile retry policy, pulled out as pure functions (mirrors
+    /// `queueCount`/`queueNeedsReconcile` above) so the bound and the backoff
+    /// curve are unit-testable without standing up a view or a live Task loop.
+    static let maxReconcileAttempts = 3
+
+    static func shouldRetryReconcile(attempt: Int, stillNeedsReconcile: Bool) -> Bool {
+        stillNeedsReconcile && attempt < maxReconcileAttempts
+    }
+
+    static func reconcileBackoff(attempt: Int) -> Duration {
+        .seconds(min(8, 1 << attempt))
     }
 
     private func syncScheduleState() {
@@ -112,7 +191,7 @@ struct SleepView: View {
             Text("Sleep Cycle")
                 .font(CicadaTheme.titleFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
-            Text("Consolidate today's episodes into the memory graph.")
+            Text(Copy.sleepSubtitle)
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
@@ -199,29 +278,12 @@ struct SleepView: View {
 
     private var progressCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            HStack {
-                Text("PROGRESS")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .tracking(1.2)
-                Spacer()
-                Button {
-                    Task { @MainActor in await sleepVM.triggerManually() }
-                } label: {
-                    HStack(spacing: CicadaTheme.spacingXS) {
-                        Image(systemName: sleepVM.isRunning ? "hourglass" : "play.fill")
-                            .font(.system(size: 11))
-                        Text(sleepVM.isRunning ? "Running…" : "Run now")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .foregroundStyle(sleepVM.isRunning ? CicadaTheme.textTertiary : CicadaTheme.accent)
-                    .padding(.horizontal, CicadaTheme.spacingMD)
-                    .padding(.vertical, CicadaTheme.spacingSM)
-                }
-                .buttonStyle(.plain)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .disabled(sleepVM.isRunning)
-            }
+            // H1: the trigger lives solely on `SleepQueueCard` now (spec
+            // §2.8/§2.9 — "one voice"). This card is read-only progress.
+            Text("PROGRESS")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.2)
 
             ProgressView(value: sleepVM.progressFraction)
                 .progressViewStyle(.linear)
@@ -280,10 +342,31 @@ struct SleepView: View {
 
     // MARK: Queue
 
+    /// The count `queueCard`'s header and `SleepQueueCard` must agree on
+    /// (H1): SSE-live `store.status.episodes.unprocessed` when a snapshot has
+    /// arrived, falling back to the once-per-visit `sleepVM.queuedEpisodes`
+    /// count before the first one does. Pulled out as a pure function so the
+    /// precedence is unit-testable without standing up a view.
+    static func queueCount(status: StatusSnapshot?, fallback: Int) -> Int {
+        status?.episodes.unprocessed ?? fallback
+    }
+
+    /// Whether the SSE-live unprocessed count has drifted from the rows
+    /// `sleepVM.queuedEpisodes` is currently showing — the signal that owes
+    /// `queueCard` a refetch (H1 follow-up, PR #19 review). `nil` (no status
+    /// snapshot yet) never triggers a reconcile — `queueCount` already falls
+    /// back to `loadedQueuedCount` in that case, so there is nothing to
+    /// disagree with. Pulled out as a pure function, mirroring `queueCount`
+    /// above, so the trigger condition is unit-testable without a view.
+    static func queueNeedsReconcile(liveUnprocessed: Int?, loadedQueuedCount: Int) -> Bool {
+        guard let liveUnprocessed else { return false }
+        return liveUnprocessed != loadedQueuedCount
+    }
+
     private var queueCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             HStack(spacing: CicadaTheme.spacingSM) {
-                Text("EPISODES QUEUED (\(sleepVM.queuedEpisodes.count))")
+                Text("EPISODES QUEUED (\(Self.queueCount(status: store.status.value, fallback: sleepVM.queuedEpisodes.count)))")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .tracking(1.2)
@@ -355,7 +438,7 @@ struct SleepView: View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 12))
-                .foregroundStyle(Color(hex: 0xF59E0B))
+                .foregroundStyle(CicadaTheme.warning)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Completed with warnings")
                     .font(.system(size: 11, weight: .semibold))
@@ -369,7 +452,7 @@ struct SleepView: View {
         }
         .padding(CicadaTheme.spacingSM)
         .frame(maxWidth: .infinity)
-        .background(Color(hex: 0xF59E0B).opacity(0.10))
+        .background(CicadaTheme.warning.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
     }
 
@@ -379,7 +462,7 @@ struct SleepView: View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 13))
-                .foregroundStyle(Color(hex: 0xEF4444))
+                .foregroundStyle(CicadaTheme.danger)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Sleep cycle error")
                     .font(.system(size: 12, weight: .semibold))
@@ -393,7 +476,7 @@ struct SleepView: View {
         }
         .padding(CicadaTheme.spacingMD)
         .frame(maxWidth: .infinity)
-        .background(Color(hex: 0xEF4444).opacity(0.12))
+        .background(CicadaTheme.danger.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
     }
 }

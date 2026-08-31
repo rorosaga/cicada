@@ -190,7 +190,7 @@ struct SupersededRow: View {
             // Left rail
             VStack(spacing: 0) {
                 Circle()
-                    .fill(isCurrent ? Color(hex: 0x22C55E) : CicadaTheme.contextColor(claim.context))
+                    .fill(isCurrent ? CicadaTheme.success : CicadaTheme.contextColor(claim.context))
                     .frame(width: 10, height: 10)
                 if !isLast {
                     Rectangle()

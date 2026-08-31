@@ -62,12 +62,21 @@ struct HeatmapView: View {
         }
     }
 
+    /// Mon / Wed / Fri labelled, the rest blank — but every row still needs a
+    /// DISTINCT id or `ForEach` folds the three blank rows into one and the
+    /// column renders 5 rows against a 7-row grid.
+    static let weekdayLabels = ["Mon", "", "Wed", "", "Fri", "", ""]
+
     private var weekdayColumn: some View {
         VStack(spacing: gap) {
-            ForEach(["Mon", "", "Wed", "", "Fri", "", ""], id: \.self) { d in
-                Text(d).font(.system(size: 9)).foregroundStyle(CicadaTheme.textTertiary).frame(width: 28, height: cellSize, alignment: .leading)
+            ForEach(Array(Self.weekdayLabels.enumerated()), id: \.offset) { _, day in
+                Text(day)
+                    .font(.system(size: 9))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .frame(width: 28, height: cellSize, alignment: .leading)
             }
         }
+        .accessibilityHidden(true)
     }
 
     private var legend: some View {

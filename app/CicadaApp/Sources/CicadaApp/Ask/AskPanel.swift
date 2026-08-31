@@ -118,8 +118,8 @@ struct AskPanel: View {
                         .tracking(1.2)
 
                     AskChipFlowLayout(spacing: CicadaTheme.spacingSM) {
-                        ForEach(answer.citations) { citation in
-                            citationChip(citation)
+                        ForEach(answer.citationRows, id: \.id) { row in
+                            citationChip(row.citation)
                         }
                     }
                 }
@@ -131,10 +131,10 @@ struct AskPanel: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textSecondary)
 
-                    ForEach(answer.gaps, id: \.self) { gap in
+                    ForEach(answer.gapRows, id: \.id) { row in
                         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
                             Text("•").foregroundStyle(CicadaTheme.textTertiary)
-                            Text(gap)
+                            Text(row.text)
                                 .font(.system(size: 12))
                                 .foregroundStyle(CicadaTheme.textSecondary)
                         }

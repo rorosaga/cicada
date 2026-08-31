@@ -151,6 +151,20 @@ struct CicadaApp: App {
                 // and the bookworm is fed by the Store's status snapshot.
         }
         .defaultSize(width: 1200, height: 800)
+
+        // ⌘, and the sidebar's footer gear. Gets the same environment as the
+        // main window — `ConnectionsView` is a projection over the same Store.
+        Settings {
+            SettingsScene()
+                .environment(connectionsVM)
+                .environment(store)
+                .preferredColorScheme(appColorScheme == .light ? .light : .dark)
+                // M3: `CicadaTheme.*` are static reads SwiftUI doesn't track
+                // (see `ContentView`'s `.id(colorSchemeRaw)` above), so without
+                // this the Settings window keeps a stale palette after a
+                // theme toggle even though `.preferredColorScheme` updates.
+                .id(colorSchemeRaw)
+        }
     }
 
     /// Keeps the native AppKit window chrome (titlebar material + background)

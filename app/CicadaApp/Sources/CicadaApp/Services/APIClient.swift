@@ -1006,7 +1006,7 @@ actor APIClient {
     // "month" bundle doesn't cover — `UsageViewModel.loadRange()` calls these
     // directly, the same way `ConnectionsViewModel` bypasses the Store for a
     // `fresh: true` probe. The Store's own default-view fetch is
-    // `fetchConsumption(etag:)` below, in the `SyncAPI` conformance.
+    // `fetchConsumption(etag:current:)` below, in the `SyncAPI` conformance.
 
     func fetchConsumptionSummary(range: String) async throws -> ConsumptionSummary {
         try await get("/consumption/summary?range=\(range)")
@@ -1592,10 +1592,12 @@ extension APIClient: SyncAPI {
         }
     }
 
-    /// Fallback for the (rare) mixed-staleness case where `/summary` or
-    /// `/calendar` changed but `/stats` came back 304 — `ConsumptionStats`
-    /// has no custom initializer, only `init(from decoder:)`, so build it by
-    /// decoding its own tolerant defaults from an empty object.
+    /// Last-resort fallback for `fetchConsumption` when `/stats` comes back
+    /// 304 and there is no `current` bundle to reuse instead (the very first
+    /// fetch can't 304 at all, so in practice this only fires if the caller
+    /// passes `current: nil`) — `ConsumptionStats` has no custom initializer,
+    /// only `init(from decoder:)`, so build it by decoding its own tolerant
+    /// defaults from an empty object.
     private static let emptyConsumptionStats: ConsumptionStats =
         // swiftlint:disable:next force_try — every field of `init(from:)` is
         // tolerant of a missing key, so decoding "{}" can never throw.
@@ -1605,11 +1607,23 @@ extension APIClient: SyncAPI {
     /// default view (range "month", 53-week calendar) and folds them into one
     /// `ConsumptionBundle`. Only `/summary`, `/calendar` and `/stats` carry a
     /// server-side ETag (see `api/routers/consumption.py`) — `/connections`
-    /// and `/harness` are always refetched, so `notModified` is decided by the
-    /// three ETag'd endpoints alone. The combined etag is the three
-    /// sub-etags pipe-joined; a 404 on any endpoint is treated as "this
-    /// backend doesn't ship the dashboard yet", not an empty payload.
-    func fetchConsumption(etag: String?) async throws -> Conditional<ConsumptionBundle> {
+    /// and `/harness` are always refetched.
+    ///
+    /// A 304 on any of the three ETag'd endpoints must only short-circuit
+    /// *that* section, never the whole bundle: `/connections`/`/harness` are
+    /// freshly polled on every single call (a 304 there is impossible), so
+    /// discarding the response outright whenever the other three happened to
+    /// be unchanged — the old behaviour — silently dropped real, new
+    /// connections/harness data on the floor (worst case: on every app
+    /// bootstrap, since the reconcile fetch typically lands right after the
+    /// cache-hydrated etags were already current). Each 304'd section falls
+    /// back to `current`'s matching section instead, so the merged bundle is
+    /// always complete and this always returns a value (`notModified` is
+    /// only ever `true` via the 404 branch below, i.e. "no dashboard at
+    /// all" — not "nothing new"). The combined etag is the three sub-etags
+    /// pipe-joined; a 404 on any endpoint is treated as "this backend
+    /// doesn't ship the dashboard yet", not an empty payload.
+    func fetchConsumption(etag: String?, current: ConsumptionBundle?) async throws -> Conditional<ConsumptionBundle> {
         let range = "month"
         let weeks = 53
         let rawParts = (etag ?? "").components(separatedBy: "|")
@@ -1624,13 +1638,10 @@ extension APIClient: SyncAPI {
             async let conn: ConsumptionConnections = get("/consumption/connections?range=\(range)")
             async let h: HarnessStats = get("/consumption/harness")
             let (summaryResult, calendarResult, statsResult, connections, harness) = try await (s, c, st, conn, h)
-            if summaryResult.notModified, calendarResult.notModified, statsResult.notModified {
-                return Conditional(value: nil, etag: etag, notModified: true)
-            }
             let bundle = ConsumptionBundle(
-                summary: summaryResult.value ?? ConsumptionSummary(),
-                calendar: calendarResult.value ?? ConsumptionCalendar(days: [], weeks: weeks),
-                stats: statsResult.value ?? Self.emptyConsumptionStats,
+                summary: summaryResult.value ?? current?.summary ?? ConsumptionSummary(),
+                calendar: calendarResult.value ?? current?.calendar ?? ConsumptionCalendar(days: [], weeks: weeks),
+                stats: statsResult.value ?? current?.stats ?? Self.emptyConsumptionStats,
                 connections: connections,
                 harness: harness
             )

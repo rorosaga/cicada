@@ -11,8 +11,8 @@ struct ConnectionsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            PageHeader(title: "Plans & keys",
-                       subtitle: "What Cicada bills against. Subscriptions sign in through their own CLI — Cicada never sees the token.") {
+            PageHeader(title: Copy.plansAndKeys,
+                       subtitle: Copy.plansAndKeysSubtitle) {
                 Button { Task { await viewModel.load(fresh: true) } } label: { Image(systemName: "arrow.clockwise") }
             }
 
@@ -156,6 +156,10 @@ private struct ConnectionCard: View {
             }
 
             if connection.showsTierPicker {
+                // The Picker's own label renders as the row label to the left
+                // of the segmented control — a second, duplicate caption
+                // below it used to repeat the exact same string (G68 §1,
+                // round 2).
                 Picker("Your Max tier (for cost estimates only)",
                        selection: Binding(get: { connection.tier ?? "" },
                                           set: { onTier($0.isEmpty ? nil : $0) })) {
@@ -164,9 +168,6 @@ private struct ConnectionCard: View {
                     Text("20x").tag("20x")
                 }
                 .pickerStyle(.segmented).frame(maxWidth: 300)
-                Text("Your Max tier (for cost estimates only)")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
             }
 
             actions

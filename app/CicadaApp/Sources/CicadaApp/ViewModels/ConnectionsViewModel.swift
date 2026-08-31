@@ -38,6 +38,15 @@ final class ConnectionsViewModel {
 
     var isLoading: Bool { store.connections.isEmpty && store.connections.isRefreshing }
 
+    /// A subscription whose CLI is installed but is no longer signed in —
+    /// the one connection state that quietly degrades Sleep, Ask and
+    /// clarification wording, so it earns the gear's dot. A key-based
+    /// connection with no key is "not set up yet", not "expired", and a CLI
+    /// that isn't installed can't have expired.
+    var needsAttention: Bool {
+        connections.contains { $0.billing == "subscription" && $0.available && !$0.connected }
+    }
+
     /// Writes a freshly-probed connections array straight into the Store
     /// (value + cache), so this VM never holds a copy that can drift from
     /// what every other reader of `store.connections` sees.

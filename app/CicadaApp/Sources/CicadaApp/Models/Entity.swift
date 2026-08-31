@@ -92,14 +92,6 @@ enum DecayClass: String, Codable, CaseIterable, Identifiable {
 enum HistoryChangeType: String, Codable {
     case created, updated, statusChange, confidenceChange, relationAdded
 
-    var color: String {
-        switch self {
-        case .created: "22C55E"
-        case .updated, .relationAdded: "4A9EFF"
-        case .statusChange, .confidenceChange: "F59E0B"
-        }
-    }
-
     var icon: String {
         switch self {
         case .created: "plus.circle.fill"
