@@ -271,7 +271,7 @@ async def exchange_code(
         user_id = await resolve_user_id(token, http_fn=fn)
         secrets.set_secret(USER_ID_ENV, user_id)
     except Exception as e:
-        logger.warning(f"X: could not resolve user id at connect time: {type(e).__name__}: {e}")
+        logger.warning(f"X: could not resolve user id at connect time: {base._sanitize_error(e)}")
 
 
 async def refresh_access_token(*, http_fn: base.HttpFn | None = None) -> str:
