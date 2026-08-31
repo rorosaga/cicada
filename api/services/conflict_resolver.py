@@ -10,7 +10,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import entity_body, markdown_parser
+from api.services import decay_policy, entity_body, markdown_parser
 from api.services.providers import resolve_llm_fn
 
 
@@ -194,14 +194,21 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             entity = change.get("entity", {})
             created_date = _earliest_change_date(change) or str(date.today())
             last_referenced = _latest_change_date(change) or created_date
+            entity_type = entity.get("type", "concept")
+            # Stage-1 may PROPOSE a class; `agent_class` re-applies the rail here
+            # so an `evergreen` that slipped past extraction can never be written.
+            decay_class = (
+                decay_policy.agent_class(entity.get("decay_class"))
+                or decay_policy.default_class_for(entity_type)
+            )
             frontmatter = {
                 "name": entity.get("name", entity_id.replace("-", " ").title()),
-                "type": entity.get("type", "concept"),
+                "type": entity_type,
                 "status": "active",
                 "confidence": entity.get("confidence", 0.5),
                 "created": created_date,
                 "last_referenced": last_referenced,
-                "decay_rate": 0.05,
+                **decay_policy.frontmatter_fields(decay_class),
                 "source_episodes": _change_source_episodes(change),
                 "tags": entity.get("tags", []) or [],
                 "aliases": entity.get("aliases", []) or [],

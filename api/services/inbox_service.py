@@ -15,7 +15,7 @@ from fastapi import HTTPException
 
 from api.config import Settings
 from api.models.schemas import InboxItem, InboxOption, InboxResolveRequest
-from api.services import inbox_questions, markdown_parser
+from api.services import decay_policy, inbox_questions, markdown_parser
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 logger = logging.getLogger(__name__)
@@ -589,16 +589,19 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             body = entity.body.rstrip() + f"\n\n{answer_text}"
             markdown_parser.write(entity_path, entity.frontmatter, body)
         else:
+            entity_type = str(
+                parsed.frontmatter.get("suggested_classification", "concept")
+            ).split(" ")[0].lower()
             frontmatter = {
                 "name": entity_mention,
-                "type": str(
-                    parsed.frontmatter.get("suggested_classification", "concept")
-                ).split(" ")[0].lower(),
+                "type": entity_type,
                 "status": "active",
                 "confidence": parsed.frontmatter.get("suggested_confidence", 0.5),
                 "created": source_date,
                 "last_referenced": source_date,
-                "decay_rate": 0.05,
+                **decay_policy.frontmatter_fields(
+                    decay_policy.default_class_for(entity_type)
+                ),
                 "source_episodes": [source_episode] if source_episode else [],
                 "tags": [],
                 "related": [],

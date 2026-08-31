@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 from loguru import logger
 
-from api.services import markdown_parser
+from api.services import decay_policy, markdown_parser
 from api.services.id_utils import sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
@@ -1051,7 +1051,9 @@ def write_media_entity(
         "confidence": 0.7,
         "created": today.strftime("%Y-%m-%d"),
         "last_referenced": today.strftime("%Y-%m-%d"),
-        "decay_rate": 0.03,
+        **decay_policy.frontmatter_fields(
+            decay_policy.default_class_for("media", source="media")
+        ),
         "source_episodes": [episode_id],
         "tags": tags,
         "related": [],
