@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from loguru import logger
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.models.schemas import ConversationSummary, ConversationUploadResponse
+from api.models.schemas import ConversationSummary, ConversationUploadResponse, ResumeDescriptor
 from api.services import markdown_parser, session_stats, sync_service
 
 router = APIRouter()
@@ -16,6 +17,15 @@ router = APIRouter()
 # Injectable seam: tests replace this with a fake so no test ever probes the
 # real ``~/.claude``. Production always resolves to the isfile() probe.
 transcript_exists = session_stats.default_transcript_exists
+
+# The binary name is a FIXED LITERAL. Never read from settings, env, or a
+# request body: it is the head of an argv list the app executes.
+CLAUDE_BINARY = "claude"
+
+# Conservative cwd charset. A path that fails this is dropped rather than
+# sanitised, because it is about to be interpolated into AppleScript source
+# on the app side.
+CWD_SAFE_RE = re.compile(r"^[A-Za-z0-9/_.~-]+$")
 
 
 @router.post("/conversations/upload", response_model=ConversationUploadResponse)
@@ -108,6 +118,52 @@ async def recent_conversations(
         transcript_exists=transcript_exists,
     )
     return [ConversationSummary(**row) for row in rows]
+
+
+@router.post("/conversations/{conversation_id}/resume", response_model=ResumeDescriptor)
+async def resume_conversation(
+    conversation_id: str,
+    settings: Settings = Depends(get_settings),
+):
+    """Validate a conversation and hand the app a launch descriptor (G48 §5).
+
+    400 — not a canonical session uuid (a minted ``ses_`` id lands here by
+    construction). 404 — this bank has never seen that conversation, so there
+    is no ``project_dir`` and therefore no transcript path to check. 409 —
+    the transcript was retention-cleaned since the list was fetched.
+
+    No transcript is opened. Nothing about the transcript beyond "it exists"
+    influences the response.
+    """
+    conversation_id = (conversation_id or "").strip()
+    if not session_stats.is_uuid(conversation_id):
+        raise HTTPException(400, "not a resumable conversation id")
+
+    convo = await run_in_threadpool(
+        session_stats.find_conversation, settings.memory_path, conversation_id
+    )
+    if convo is None:
+        raise HTTPException(404, "unknown conversation")
+
+    project_dir = (convo.get("project_dir") or "").strip()
+    if not transcript_exists(project_dir, conversation_id):
+        raise HTTPException(409, {"reason": "transcript_gone"})
+
+    cwd = None
+    if (
+        project_dir
+        and (project_dir.startswith("/") or project_dir.startswith("~"))
+        and CWD_SAFE_RE.match(project_dir)
+        and Path(project_dir).expanduser().is_dir()
+    ):
+        cwd = project_dir
+
+    return ResumeDescriptor(
+        mode="terminal",
+        argv=[CLAUDE_BINARY, "--resume", conversation_id],
+        cwd=cwd,
+        display_command=f"{CLAUDE_BINARY} --resume {conversation_id}",
+    )
 
 
 # --- Source Detection ---

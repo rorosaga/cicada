@@ -250,6 +250,21 @@ class ConversationSummary(CamelModel):
     resumable: bool = False
 
 
+class ResumeDescriptor(CamelModel):
+    """How to reopen a conversation. The BACKEND validates; the APP launches.
+
+    ``argv`` is a fixed list — never a shell string — whose head is the literal
+    binary name ``claude`` (never API-configurable). ``cwd`` is present only
+    when the stamped ``project_dir`` passed a conservative charset gate AND
+    still exists; the app falls back to ``$HOME`` when it is null.
+    """
+
+    mode: str = "terminal"
+    argv: list[str] = []
+    cwd: Optional[str] = None
+    display_command: str = ""
+
+
 class EntityMedia(CamelModel):
     """Structured media metadata for a ``type: media`` entity (G11).
 
