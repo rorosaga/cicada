@@ -274,3 +274,68 @@ def test_pending_defer_scan_is_cached_on_the_inbox_mtime(tmp_path, monkeypatch):
     comps3 = sync_service.components(tmp_path)
     assert calls["n"] == 3
     assert ":" not in comps3["inbox"]
+
+
+def _logo_meta(tmp_path, monkeypatch, entries):
+    from api.services import logo_service
+
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    bank = logo_service.bank_name(tmp_path)
+    logo_service.write_meta(bank, entries)
+    return logo_service, bank
+
+
+def test_logos_component_moves_when_an_entry_ages_past_its_ttl(tmp_path, monkeypatch):
+    """PR14 review: the `logos` component was `meta.json`'s mtime alone, but a
+    TTL expiry writes NOTHING — `is_fresh` just starts returning False at read
+    time, so `/graph`'s `has_logo` flips true->false behind an ETag that never
+    moved and the app 304s into a permanently wrong graph."""
+    import os
+    from datetime import datetime, timedelta, timezone
+
+    (tmp_path / "entities").mkdir()
+    now = datetime.now(timezone.utc)
+    logo_service, bank = _logo_meta(tmp_path, monkeypatch, {
+        "mongodb": {"fetched_at": now.isoformat(), "miss": False, "ext": "png"},
+    })
+    sync_service._LOGO_TTL_CACHE.clear()
+    before = sync_service.components(tmp_path)["logos"]
+
+    # Same index, same mtime — only the clock moved past the entry's TTL.
+    meta_path = logo_service.meta_path(bank)
+    stamps = meta_path.stat()
+    logo_service.write_meta(bank, {
+        "mongodb": {"fetched_at": (now - logo_service.HIT_TTL - timedelta(days=1)).isoformat(),
+                    "miss": False, "ext": "png"},
+    })
+    os.utime(meta_path, (stamps.st_atime, stamps.st_mtime))
+    # Standing in for the next-expiry deadline passing, which is what makes
+    # `_logos_component` rescan on its own.
+    sync_service._LOGO_TTL_CACHE.clear()
+
+    after = sync_service.components(tmp_path)["logos"]
+    assert after != before, "an expired logo entry must change the logos component"
+
+
+def test_logo_expiry_scan_is_memoized_between_polls(tmp_path, monkeypatch):
+    """`components()` is polled ~1/s, so the index must not be re-parsed per
+    call — the memo is keyed on the mtime plus the next expiry deadline."""
+    from datetime import datetime, timezone
+
+    (tmp_path / "entities").mkdir()
+    logo_service, _bank = _logo_meta(tmp_path, monkeypatch, {
+        "mongodb": {"fetched_at": datetime.now(timezone.utc).isoformat(),
+                    "miss": False, "ext": "png"},
+    })
+    sync_service._LOGO_TTL_CACHE.clear()
+    calls = {"n": 0}
+    real = logo_service.expiry_state
+
+    def counting(bank, **kw):
+        calls["n"] += 1
+        return real(bank, **kw)
+
+    monkeypatch.setattr(logo_service, "expiry_state", counting)
+    for _ in range(5):
+        sync_service.components(tmp_path)
+    assert calls["n"] == 1

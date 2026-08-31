@@ -30,12 +30,16 @@ legitimate public host cannot bounce this fetcher into an internal service.
 
 Pillow is deliberately not a dependency. Whatever the site serves is stored
 as-is with the right ``Content-Type``; ``min_dimension`` sniffs PNG/GIF/ICO/JPEG
-headers directly so a 1×1 tracking pixel is rejected without a decode.
+headers directly so a 1×1 tracking pixel is rejected without a decode. Raster
+formats only — an SVG is a scriptable document and this module stores nothing
+it would have to sanitize, so ``_accept`` refuses ``image/svg+xml`` and any
+payload that sniffs as SVG regardless of the header the site sent.
 """
 
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import ipaddress
 import json
 import os
@@ -56,6 +60,9 @@ from api.services.claims import parse_claims
 
 CACHE_DIR_NAME = "logos"
 META_FILENAME = "meta.json"
+# Sidecar for the cross-process `flock` (deliberately NOT `meta.json.lock`, so
+# it can never be mistaken for one of `write_meta`'s `meta.json.<pid>.tmp`).
+LOCK_FILENAME = "meta.lock"
 HIT_TTL = timedelta(days=30)
 MISS_TTL = timedelta(days=7)
 MAX_BYTES = 512 * 1024
@@ -72,17 +79,24 @@ _ICON_LINK_RE = re.compile(
 )
 _HREF_RE = re.compile(r"""\bhref\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
 
+# Raster formats only, deliberately. `image/svg+xml` is NOT here: an SVG is a
+# document — it can carry <script>, external <image xlink:href>, and CSS — and
+# `GET /entities/{id}/logo` serves these bytes straight back with their stored
+# media type. Storing an attacker-chosen SVG (any site can serve one for its
+# apple-touch-icon) would put arbitrary script on the logo endpoint's origin.
+# There is no sanitizer here and one is not worth carrying for a favicon, so
+# the answer is "don't accept the format".
 _EXT_BY_TYPE = {
     "image/png": "png",
     "image/jpeg": "jpg",
     "image/jpg": "jpg",
     "image/gif": "gif",
     "image/webp": "webp",
-    "image/svg+xml": "svg",
     "image/x-icon": "ico",
     "image/vnd.microsoft.icon": "ico",
     "image/ico": "ico",
 }
+_SVG_SNIFF_BYTES = 1024
 
 
 @dataclass
@@ -274,9 +288,10 @@ def domain_for(frontmatter: dict, body: str) -> str | None:
 def min_dimension(data: bytes) -> int | None:
     """Smaller of width/height, read straight from the header.
 
-    Returns None for a format we don't sniff (SVG, WEBP) — "unknown" means
-    "accept", because refusing a perfectly good vector mark would be worse
-    than letting a rare oddity through.
+    Returns None for a format we don't sniff (WEBP) — "unknown" means
+    "accept", because refusing a perfectly good mark would be worse than
+    letting a rare oddity through. (SVG never reaches here: ``_accept``
+    refuses the format outright, header *and* sniffed body.)
     """
     if len(data) < 8:
         return None
@@ -336,13 +351,30 @@ async def _http_get(url: str) -> FetchResult:
         )
 
 
+def looks_like_svg(data: bytes) -> bool:
+    """True when the payload is (or opens as) an SVG/XML document.
+
+    The ``Content-Type`` is attacker-controlled, so a refusal keyed only on the
+    header is trivially bypassed by serving SVG bytes as ``image/png``. Sniff
+    the head of the body too: an SVG starts with ``<svg``, or with an XML
+    prolog / doctype / comment that leads to one.
+    """
+    head = data[:_SVG_SNIFF_BYTES].lstrip(b"\xef\xbb\xbf").lstrip()
+    if not head.startswith(b"<"):
+        return False
+    return b"<svg" in head.lower()
+
+
 def _accept(result: FetchResult) -> tuple[bytes, str, str | None] | None:
     if result.status != 200 or not result.body:
         return None
     if len(result.body) > MAX_BYTES:
         return None
     ext = ext_for(result.content_type)
-    if ext is None:
+    if ext is None:  # includes image/svg+xml — see _EXT_BY_TYPE
+        return None
+    if looks_like_svg(result.body):
+        logger.debug("logo refused: SVG payload behind a raster content-type")
         return None
     smallest = min_dimension(result.body)
     if smallest is not None and smallest < MIN_PIXELS:
@@ -471,17 +503,72 @@ def write_meta(bank: str, meta: dict) -> None:
 def is_fresh(entry: dict, *, now: datetime | None = None) -> bool:
     """A hit is good for 30 days, a miss for 7 — a brand mark changes rarely,
     but a site that had no icon last week might have one now."""
-    raw = (entry or {}).get("fetched_at")
-    if not raw:
+    fetched = _fetched_at(entry)
+    if fetched is None:
         return False
-    try:
-        fetched = datetime.fromisoformat(str(raw))
-    except ValueError:
-        return False
-    if fetched.tzinfo is None:
-        fetched = fetched.replace(tzinfo=timezone.utc)
     ttl = MISS_TTL if (entry or {}).get("miss") else HIT_TTL
     return (now or datetime.now(timezone.utc)) - fetched < ttl
+
+
+def _fetched_at(entry: dict) -> datetime | None:
+    """The entry's ``fetched_at`` as an aware datetime, or None if unusable."""
+    raw = (entry or {}).get("fetched_at")
+    if not raw:
+        return None
+    try:
+        stamp = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    return stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
+
+
+def expiry_state(bank: str, *, now: datetime | None = None) -> tuple[int, float | None]:
+    """``(entries past their TTL, epoch of the next expiry)`` for this index.
+
+    Nothing on disk changes when an entry merely *ages* past its TTL, so a
+    version component built from ``meta.json``'s mtime alone cannot see it —
+    and ``/graph``'s ``has_logo`` (which is computed from
+    :func:`cached_ids`, i.e. from :func:`is_fresh` at read time) silently
+    flips true→false behind an ETag that never moved. The first number moves
+    on every expiry, giving ``sync_service`` something to fold in; the second
+    says when it will next move, so the scan runs once per expiry rather than
+    once per poll.
+    """
+    now = now or datetime.now(timezone.utc)
+    expired = 0
+    soonest: float | None = None
+    for entry in read_meta(bank).values():
+        if not isinstance(entry, dict):
+            continue
+        fetched = _fetched_at(entry)
+        if fetched is None:
+            expired += 1  # an unusable stamp is never fresh
+            continue
+        due = fetched + (MISS_TTL if entry.get("miss") else HIT_TTL)
+        if due <= now:
+            expired += 1
+        elif soonest is None or due.timestamp() < soonest:
+            soonest = due.timestamp()
+    return expired, soonest
+
+
+def page_edited_since_fetch(entity_file: Path, entry: dict) -> bool:
+    """True when the entity page was written after its logo was cached.
+
+    The logo domain is *resolved from the page* (``logo:``, a ``sources:``
+    URL, the first ``## Links`` URL, ``media.url``, a ``website`` claim). Edit
+    any of those and a 30-day-fresh cache entry kept serving the old brand.
+    An mtime compare answers it without a parse, let alone a fetch — so
+    ``/graph`` (which only reads the index) still touches no network.
+    """
+    try:
+        mtime = entity_file.stat().st_mtime
+    except OSError:
+        return False  # no page to have been edited
+    fetched = _fetched_at(entry)
+    if fetched is None:
+        return True
+    return mtime > fetched.timestamp()
 
 
 def cached_path(bank: str, entity_id: str) -> Path | None:
@@ -515,8 +602,9 @@ def cached_ids(bank: str) -> set[str]:
 # image would sit on disk unreferenced, silently re-fetched next request while
 # `has_logo` flickers. (Within one loop the read and the write are adjacent, so
 # the window opens when a second loop or a second process — the CLI sleep cycle
-# beside the running server — writes the same index; `write_meta`'s atomic
-# rename covers the rest of that case.)
+# beside the running server — writes the same index; that case is closed by the
+# `fcntl` lock in `_record_meta_sync`, with `write_meta`'s atomic rename keeping
+# concurrent *readers* from ever seeing a half-written file.)
 #
 # `_lock(f"entity:{bank}/{id}")` makes two concurrent requests for the same
 # entity run the three-rung fetch ladder once: the loser waits and then finds a
@@ -557,17 +645,21 @@ async def ensure_logo(memory_path: Path, entity_id: str, *, fetcher: Fetcher | N
 async def _ensure_logo_locked(
     memory_path: Path, bank: str, entity_id: str, *, fetcher: Fetcher | None = None
 ) -> Path | None:
+    entity_file = memory_path / "entities" / f"{entity_id}.md"
     entry = read_meta(bank).get(entity_id)
-    if entry and is_fresh(entry):
+    cached_ok = bool(entry) and is_fresh(entry)
+    # An edit to the page can change which domain this entity resolves to, so a
+    # fresh entry is only good while the page is older than it.
+    if cached_ok and not page_edited_since_fetch(entity_file, entry):
         return cached_path(bank, entity_id)
 
-    entity_file = memory_path / "entities" / f"{entity_id}.md"
     if not entity_file.exists():
         return None
     try:
         parsed = markdown_parser.parse(entity_file)
     except Exception:
-        return None
+        # Unreadable page: keep serving whatever is already cached.
+        return cached_path(bank, entity_id) if cached_ok else None
 
     domain = domain_for(parsed.frontmatter or {}, parsed.body or "")
     if not domain:
@@ -575,13 +667,20 @@ async def _ensure_logo_locked(
 
     if fetcher is None and not fetch_allowed():
         # Not a miss: we never asked. Caching one would suppress the real fetch
-        # for a week once the gate is turned back on.
-        return None
+        # for a week once the gate is turned back on. A page edit alone must not
+        # cost the user the logo they already have, so keep serving the cache.
+        return cached_path(bank, entity_id) if cached_ok else None
 
     result = await fetch_logo(domain, fetcher=fetcher)
     now = datetime.now(timezone.utc).isoformat()
 
     if result is None:
+        if cached_ok and not (entry or {}).get("miss"):
+            # This was a re-validation (the page changed), not a first fetch: a
+            # site being down for a minute must not cost the user a mark we
+            # already have. Keep the entry and retry when its own TTL expires.
+            logger.debug(f"logo re-validation for {entity_id} failed; keeping the cached mark")
+            return cached_path(bank, entity_id)
         await _record_meta(
             bank, entity_id,
             {"fetched_at": now, "domain": domain, "miss": True, "etag": None, "ext": None},
@@ -602,16 +701,56 @@ async def _ensure_logo_locked(
     return path
 
 
-async def _record_meta(bank: str, entity_id: str, entry: dict) -> None:
-    """Read-modify-write one entry under ``_lock("meta")``.
+def _record_meta_sync(bank: str, entity_id: str, entry: dict) -> None:
+    """Read-modify-write one entry under an exclusive ``fcntl`` file lock.
 
-    The re-read *inside* the lock is the point: the copy this coroutine loaded
-    before its ``await``ed fetch is stale by now.
+    ``_lock("meta")`` only serialises coroutines in THIS process, and
+    ``write_meta``'s tmp+``os.replace`` only buys atomicity — neither makes the
+    read-modify-write merge-safe across processes. The CLI sleep cycle warms
+    logos beside a running API server, and without this both would load their
+    own copy of the index and the second ``os.replace`` would silently drop the
+    first's entry (its image left on disk, unreferenced, ``has_logo`` flickering
+    until something re-fetched it). ``flock`` on a sidecar lock file closes that
+    window; the lock is released with the ``with`` block, and a filesystem that
+    cannot lock degrades to the previous behavior rather than failing the fetch.
     """
-    async with _lock("meta"):
+    lock_path = logos_dir(bank) / LOCK_FILENAME
+    try:
+        handle = open(lock_path, "a+")
+    except OSError as exc:
+        logger.warning(f"logo meta lock unavailable for {bank}: {type(exc).__name__}: {exc}")
         meta = read_meta(bank)
         meta[entity_id] = entry
         write_meta(bank, meta)
+        return
+    with handle:
+        locked = True
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except OSError as exc:  # e.g. a filesystem without flock support
+            locked = False
+            logger.debug(f"flock unsupported for {lock_path}: {type(exc).__name__}: {exc}")
+        try:
+            meta = read_meta(bank)
+            meta[entity_id] = entry
+            write_meta(bank, meta)
+        finally:
+            if locked:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+
+
+async def _record_meta(bank: str, entity_id: str, entry: dict) -> None:
+    """Read-modify-write one entry under ``_lock("meta")`` + a file lock.
+
+    The re-read *inside* the lock is the point: the copy this coroutine loaded
+    before its ``await``ed fetch is stale by now. The blocking file lock runs
+    off the event loop so a second process holding it can't stall the server.
+    """
+    async with _lock("meta"):
+        await asyncio.to_thread(_record_meta_sync, bank, entity_id, entry)
 
 
 async def warm_logos(memory_path: Path, *, limit: int = 50, fetcher: Fetcher | None = None) -> int:

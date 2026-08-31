@@ -463,3 +463,155 @@ def test_write_meta_never_corrupts_the_index_when_a_write_fails(workspace, monke
     assert logo_service.read_meta("claude-chats") == good, "a failed write corrupted the index"
     leftovers = list(logo_service.logos_dir("claude-chats").glob("meta.json.*"))
     assert leftovers == [], f"a failed write left a temp file behind: {leftovers}"
+
+
+# --- cache invalidation on a page edit --------------------------------------
+
+
+def _touch_after_fetch(path):
+    """Bump the page's mtime a second past its cache entry's `fetched_at`."""
+    import os
+
+    future = datetime.now(timezone.utc).timestamp() + 1
+    os.utime(path, (future, future))
+
+
+def test_editing_the_entity_page_invalidates_its_cached_logo(workspace):
+    """The logo domain is resolved FROM the page, so a fresh 30-day entry must
+    not outlive an edit to `logo:` / `sources:` / `## Links` / a website claim —
+    it kept painting the old brand for up to a month."""
+    page = write_entity(workspace, "mongodb",
+                        ["name: MongoDB", "type: tool", "logo: https://mongodb.com/x.png"])
+    calls: list[str] = []
+    fetcher = make_fetcher({
+        "https://mongodb.com/apple-touch-icon.png":
+            logo_service.FetchResult(200, png_bytes(180, 180), "image/png"),
+        "https://acme.example/apple-touch-icon.png":
+            logo_service.FetchResult(200, png_bytes(180, 180), "image/png"),
+    }, calls)
+    run(logo_service.ensure_logo(workspace, "mongodb", fetcher=fetcher))
+    assert logo_service.read_meta("claude-chats")["mongodb"]["domain"] == "mongodb.com"
+    calls.clear()
+
+    write_entity(workspace, "mongodb",
+                 ["name: MongoDB", "type: tool", "logo: https://acme.example/x.png"])
+    _touch_after_fetch(page)
+
+    run(logo_service.ensure_logo(workspace, "mongodb", fetcher=fetcher))
+    assert calls, "an edited page must be re-resolved, not served from the stale entry"
+    assert logo_service.read_meta("claude-chats")["mongodb"]["domain"] == "acme.example"
+
+
+def test_an_edited_page_keeps_its_cached_logo_when_fetching_is_gated_off(workspace, monkeypatch):
+    """Invalidation must not become deletion: with fetching off (or the site
+    down) the mark we already have is still the best answer available."""
+    page = write_entity(workspace, "mongodb",
+                        ["name: MongoDB", "type: tool", "logo: https://mongodb.com/x.png"])
+    fetcher = make_fetcher({
+        "https://mongodb.com/apple-touch-icon.png":
+            logo_service.FetchResult(200, png_bytes(180, 180), "image/png"),
+    })
+    cached = run(logo_service.ensure_logo(workspace, "mongodb", fetcher=fetcher))
+    _touch_after_fetch(page)
+
+    monkeypatch.setenv("CICADA_ALLOW_LOGO_FETCH", "off")
+    assert run(logo_service.ensure_logo(workspace, "mongodb")) == cached
+
+    # Same for a re-validation whose fetch simply misses.
+    assert run(logo_service.ensure_logo(
+        workspace, "mongodb", fetcher=make_fetcher({}))) == cached
+    assert logo_service.read_meta("claude-chats")["mongodb"]["miss"] is False
+
+
+# --- SVG refusal ------------------------------------------------------------
+
+
+SVG_BYTES = b"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"
+
+
+def test_an_svg_logo_is_refused_by_content_type(workspace):
+    """`GET /entities/{id}/logo` serves stored bytes back with their stored
+    media type, so an attacker-supplied SVG would be script on that origin."""
+    assert logo_service.ext_for("image/svg+xml") is None
+    result = logo_service.FetchResult(200, SVG_BYTES, "image/svg+xml")
+    assert logo_service._accept(result) is None
+
+
+def test_svg_bytes_are_refused_even_behind_a_raster_content_type():
+    """The header is attacker-controlled; the body decides."""
+    assert logo_service.looks_like_svg(SVG_BYTES)
+    assert logo_service.looks_like_svg(
+        b"<?xml version='1.0'?>\n<!-- c -->\n<svg xmlns='http://www.w3.org/2000/svg'/>")
+    assert not logo_service.looks_like_svg(png_bytes(180, 180))
+    assert logo_service._accept(
+        logo_service.FetchResult(200, SVG_BYTES, "image/png")) is None
+
+
+def test_fetch_logo_skips_an_svg_rung_and_keeps_laddering(workspace):
+    fetcher = make_fetcher({
+        "https://acme.example/apple-touch-icon.png":
+            logo_service.FetchResult(200, SVG_BYTES, "image/svg+xml"),
+        "https://icons.duckduckgo.com/ip3/acme.example.ico":
+            logo_service.FetchResult(200, png_bytes(64, 64), "image/png"),
+    })
+    got = run(logo_service.fetch_logo("acme.example", fetcher=fetcher))
+    assert got is not None and got[1] == "png"
+
+
+# --- cross-process meta.json safety -----------------------------------------
+
+
+def test_record_meta_holds_an_exclusive_file_lock_while_it_rewrites(workspace, monkeypatch):
+    """The asyncio lock is per-process; the CLI sleep cycle warms logos in a
+    SECOND process beside the running server, and two read-modify-writes there
+    drop each other's entries (atomic rename buys atomicity, not merge safety).
+    `flock` is per open-file-description, so a second `open()` — here standing
+    in for the other process — must not be able to take it."""
+    import fcntl
+
+    real_write_meta = logo_service.write_meta
+    observed: list[bool] = []
+
+    def spy(bank, meta):
+        lock_path = logo_service.logos_dir(bank) / logo_service.LOCK_FILENAME
+        with open(lock_path, "a+") as other:
+            try:
+                fcntl.flock(other.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                observed.append(False)
+                fcntl.flock(other.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                observed.append(True)
+        real_write_meta(bank, meta)
+
+    monkeypatch.setattr(logo_service, "write_meta", spy)
+    run(logo_service._record_meta("claude-chats", "mongodb", {"fetched_at": "x"}))
+
+    assert observed == [True], "meta.json was rewritten without an exclusive file lock"
+    assert logo_service.read_meta("claude-chats")["mongodb"] == {"fetched_at": "x"}
+
+
+def test_record_meta_merges_an_entry_written_by_another_process(workspace):
+    """The re-read happens under the lock, so an entry that landed while this
+    coroutine was fetching survives instead of being replaced wholesale."""
+    logo_service.write_meta("claude-chats", {"acme": {"fetched_at": "elsewhere"}})
+    run(logo_service._record_meta("claude-chats", "mongodb", {"fetched_at": "here"}))
+    assert set(logo_service.read_meta("claude-chats")) == {"acme", "mongodb"}
+
+
+# --- TTL expiry is visible to the version vector ----------------------------
+
+
+def test_expiry_state_counts_aged_entries_and_reports_the_next_due(workspace):
+    now = datetime.now(timezone.utc)
+    logo_service.write_meta("claude-chats", {
+        "aged": {"fetched_at": (now - logo_service.HIT_TTL - timedelta(days=1)).isoformat(),
+                 "miss": False, "ext": "png"},
+        "aged_miss": {"fetched_at": (now - logo_service.MISS_TTL - timedelta(days=1)).isoformat(),
+                      "miss": True, "ext": None},
+        "fresh": {"fetched_at": (now - timedelta(days=1)).isoformat(),
+                  "miss": False, "ext": "png"},
+        "unusable": {"fetched_at": "not-a-date", "miss": False, "ext": "png"},
+    })
+    expired, next_due = logo_service.expiry_state("claude-chats", now=now)
+    assert expired == 3
+    assert next_due == (now - timedelta(days=1) + logo_service.HIT_TTL).timestamp()
