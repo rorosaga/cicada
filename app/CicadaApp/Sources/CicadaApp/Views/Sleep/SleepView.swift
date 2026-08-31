@@ -97,6 +97,19 @@ struct SleepView: View {
                 Task { @MainActor in await sleepVM.load() }
             }
         }
+        // PR #19 review: the header count reads SSE-live `store.status`
+        // while the rows below it stay pinned to whatever `sleepVM.load()`
+        // last fetched, once per visit. A capture (or another Sleep cycle
+        // finishing elsewhere) bumps the live count without touching the
+        // rows, so the header and the list contradict each other for as
+        // long as the page stays open. One freshness model: whenever the
+        // live unprocessed count disagrees with the loaded rows, refetch.
+        .onChange(of: store.status.value?.episodes.unprocessed) { _, newValue in
+            if Self.queueNeedsReconcile(liveUnprocessed: newValue,
+                                        loadedQueuedCount: sleepVM.queuedEpisodes.count) {
+                Task { @MainActor in await sleepVM.load() }
+            }
+        }
     }
 
     private func syncScheduleState() {
@@ -277,6 +290,18 @@ struct SleepView: View {
     /// precedence is unit-testable without standing up a view.
     static func queueCount(status: StatusSnapshot?, fallback: Int) -> Int {
         status?.episodes.unprocessed ?? fallback
+    }
+
+    /// Whether the SSE-live unprocessed count has drifted from the rows
+    /// `sleepVM.queuedEpisodes` is currently showing — the signal that owes
+    /// `queueCard` a refetch (H1 follow-up, PR #19 review). `nil` (no status
+    /// snapshot yet) never triggers a reconcile — `queueCount` already falls
+    /// back to `loadedQueuedCount` in that case, so there is nothing to
+    /// disagree with. Pulled out as a pure function, mirroring `queueCount`
+    /// above, so the trigger condition is unit-testable without a view.
+    static func queueNeedsReconcile(liveUnprocessed: Int?, loadedQueuedCount: Int) -> Bool {
+        guard let liveUnprocessed else { return false }
+        return liveUnprocessed != loadedQueuedCount
     }
 
     private var queueCard: some View {

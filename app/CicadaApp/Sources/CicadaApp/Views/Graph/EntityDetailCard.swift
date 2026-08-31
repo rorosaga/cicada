@@ -33,6 +33,11 @@ struct EntityDetailCard: View {
     // fetch explicitly rather than inferring from an empty array.
     @State private var fetchedHistory: [EntityHistoryEntry]?
     @State private var historyLoading = false
+    /// Set when `fetchEntityHistory` throws, cleared at the start of every
+    /// attempt. Kept separate from `fetchedHistory` so a failure is never
+    /// mistaken for "fetched successfully, and it was empty" (see
+    /// `HistoryTabState.error`).
+    @State private var historyLoadFailed = false
 
     /// G66 — the decay class the user just picked, shown immediately while the
     /// PUT is in flight. Cleared once the reload lands (or on failure, so the
@@ -947,6 +952,21 @@ struct EntityDetailCard: View {
             .frame(maxWidth: .infinity)
             .padding(CicadaTheme.spacingXXL)
 
+        case .error:
+            VStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 26))
+                    .foregroundStyle(CicadaTheme.danger)
+                Text("Couldn't load history")
+                    .font(CicadaTheme.headingFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Button("Retry") { Task { await loadHistoryIfNeeded() } }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Retry loading history")
+            }
+            .frame(maxWidth: .infinity)
+            .padding(CicadaTheme.spacingXXL)
+
         case .entries(let rows):
             historyList(rows)
         }
@@ -1324,18 +1344,25 @@ struct EntityDetailCard: View {
     }
 
     private var historyState: HistoryTabState {
-        HistoryTabState.resolve(embedded: entity.history, fetched: fetchedHistory)
+        HistoryTabState.resolve(embedded: entity.history, fetched: fetchedHistory, failed: historyLoadFailed)
     }
 
     /// One shot per card. Skipped entirely when the entity payload already
     /// carried its history — the common case once the full body has landed.
-    /// A failure resolves to `[]` (the "empty" branch) rather than spinning
-    /// forever: the tab has no other way to report a dead backend, and the
-    /// page-level toast already does.
+    /// A failure leaves `fetchedHistory` `nil` and sets `historyLoadFailed`
+    /// instead of coercing to `[]` — coercing used to read as "no commits
+    /// touch this page" AND permanently block retries (the guard below only
+    /// re-fetches while `fetchedHistory == nil`). Re-selecting the History
+    /// tab (or a future retry action) calls this again and clears the flag.
     private func loadHistoryIfNeeded() async {
         guard entity.history.isEmpty, fetchedHistory == nil, !historyLoading else { return }
         historyLoading = true
-        fetchedHistory = (try? await APIClient.shared.fetchEntityHistory(id: entity.id)) ?? []
+        historyLoadFailed = false
+        do {
+            fetchedHistory = try await APIClient.shared.fetchEntityHistory(id: entity.id)
+        } catch {
+            historyLoadFailed = true
+        }
         historyLoading = false
     }
 

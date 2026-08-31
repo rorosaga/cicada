@@ -218,7 +218,9 @@ final class FakeSyncAPI: SyncAPI {
         try answer(.calendars, fallback: [])
     }
     func fetchContributors(etag: String?) async throws -> Conditional<[Contributor]> {
-        try answer(.contributors, fallback: [])
+        let result: Conditional<[Contributor]> = try answer(.contributors, fallback: [])
+        await gateIfNeeded(.contributors)
+        return result
     }
     func fetchOrigins(etag: String?) async throws -> Conditional<[OriginStat]> {
         try answer(.origins, fallback: [])

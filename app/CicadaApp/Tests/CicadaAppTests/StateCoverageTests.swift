@@ -80,6 +80,53 @@ final class StateCoverageTests: XCTestCase {
         XCTAssertNil(vm.errorMessage)
     }
 
+    /// PR #19 review: `errorMessage` used to mirror `Store.toast` directly.
+    /// `ContentView` auto-clears `store.toast` ~4s after it's set, so a
+    /// never-loaded screen fell through to the "loading" branch forever once
+    /// that timer fired, even though nothing had ever loaded. The VM's own
+    /// error state must survive the global toast clearing.
+    func testErrorMessagePersistsAfterStoreToastAutoClears() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        let vm = ContributorsViewModel(store: store)
+
+        api.replies[.contributors] = .failure
+        await store.refresh([.contributors])
+        XCTAssertEqual(vm.errorMessage, "Couldn't load contributors")
+
+        // Simulate ContentView's `.task(id: toast)` 4s auto-clear timer.
+        store.toast = nil
+
+        XCTAssertFalse(vm.hasLoaded, "still nothing has ever loaded")
+        XCTAssertEqual(vm.errorMessage, "Couldn't load contributors",
+                       "the VM's own error state must outlive the transient global toast")
+    }
+
+    /// `load()` (the Retry button) clears the stale error immediately, before
+    /// the retry lands — so the view falls back to its loading branch instead
+    /// of showing Retry beside a request that's already in flight — and the
+    /// error state is gone for good once the retry actually succeeds.
+    func testLoadClearsThePersistedErrorBeforeRetryingAndOnSuccess() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        let vm = ContributorsViewModel(store: store)
+
+        api.replies[.contributors] = .failure
+        await store.refresh([.contributors])
+        XCTAssertNotNil(vm.errorMessage, "precondition: a persisted error is showing")
+
+        api.gatedDomains = [.contributors]
+        api.replies[.contributors] = .value([Contributor]())
+        let retry = Task { await vm.load() }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(vm.errorMessage, "retrying must clear the stale error immediately")
+
+        api.releaseGate(.contributors)
+        await retry.value
+        XCTAssertTrue(vm.hasLoaded)
+        XCTAssertNil(vm.errorMessage)
+    }
+
     // MARK: Inbox — no "All caught up" mid-load
 
     func testInboxIsLoadingWhileTheFirstFetchIsStillInFlight() async throws {

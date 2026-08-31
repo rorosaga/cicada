@@ -54,6 +54,28 @@ final class FixWaveTests: XCTestCase {
                        "before the first status snapshot arrives, fall back to sleepVM's count")
     }
 
+    // MARK: PR #19 review — queue count/rows reconcile trigger
+
+    /// Even after the H1 fix above, the header COUNT and the queue ROWS were
+    /// still two different freshness models: the header reads SSE-live
+    /// `store.status`, the rows are `sleepVM.episodes` fetched once per
+    /// visit. A capture landing while the page is open bumps the live count
+    /// without touching the rows — contradictory totals and contents. The
+    /// reconcile trigger must fire whenever they disagree, in EITHER
+    /// direction (a new capture bumping the count up, or another Sleep
+    /// cycle finishing elsewhere and draining it down), and never spin on a
+    /// missing snapshot.
+    func testQueueNeedsReconcileFiresWhenLiveCountDisagreesWithLoadedRows() {
+        XCTAssertTrue(SleepView.queueNeedsReconcile(liveUnprocessed: 3, loadedQueuedCount: 2),
+                      "a new capture bumped the live count above the loaded rows — must refetch")
+        XCTAssertTrue(SleepView.queueNeedsReconcile(liveUnprocessed: 0, loadedQueuedCount: 2),
+                      "another Sleep cycle drained the queue elsewhere — must refetch")
+        XCTAssertFalse(SleepView.queueNeedsReconcile(liveUnprocessed: 2, loadedQueuedCount: 2),
+                       "counts agree — no refetch owed")
+        XCTAssertFalse(SleepView.queueNeedsReconcile(liveUnprocessed: nil, loadedQueuedCount: 2),
+                       "no status snapshot yet — queueCount already falls back to the loaded rows, nothing to disagree with")
+    }
+
     // MARK: M1 — advanced view spinner during month reconcile
 
     /// The old guard was `viewModel.isLoadingRange` alone, which is
