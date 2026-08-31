@@ -9,6 +9,7 @@ no real pin, no real credential.
 from __future__ import annotations
 
 import asyncio
+import os
 
 import pytest
 
@@ -23,10 +24,21 @@ def run(coro):
 
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path, monkeypatch):
-    """Credentials go to a throwaway $CICADA_HOME — never the real ~/.cicada."""
+    """Credentials go to a throwaway $CICADA_HOME — never the real ~/.cicada.
+
+    ``secrets.set_secret`` also exports straight into ``os.environ`` (so
+    litellm/connectors see it without a reload), which ``monkeypatch`` cannot
+    auto-revert since it never made that write. Pop the three Pinterest names
+    on teardown too, or a credential set by one test leaks into every test
+    file collected afterward in the same session (e.g. it flips
+    `test_source_channels.py`'s "every channel starts disconnected" case).
+    """
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
     for name in (pinterest.APP_ID_ENV, pinterest.APP_SECRET_ENV, pinterest.TOKEN_ENV):
         monkeypatch.delenv(name, raising=False)
+    yield
+    for name in (pinterest.APP_ID_ENV, pinterest.APP_SECRET_ENV, pinterest.TOKEN_ENV):
+        os.environ.pop(name, None)
 
 
 BOARDS = {"items": [

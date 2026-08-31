@@ -32,6 +32,7 @@ from api.services import (
     sync_service,
     sync_state,
 )
+from api.services.connectors import pinterest
 from api.services.media_ingestor import MAX_BATCH, RawItem
 
 router = APIRouter()
@@ -429,13 +430,16 @@ async def list_source_channels(
     on a cold launch.
     """
     memory_path = settings.memory_path
-    # `telegram_enabled` is a config/env fact, not a filesystem one: configuring
-    # a bot token and restarting flips a channel to "connected" without touching
-    # any component below, so without it in the ETag a warm client 304s and
-    # keeps showing "not connected" forever.
+    connectors_connected = {"pinterest": pinterest.is_connected()}
+    # `telegram_enabled` and connector credentials are config/secrets facts, not
+    # filesystem-in-the-bank ones: configuring a bot token, or connecting an
+    # account, flips a channel to "connected" without touching any component
+    # below, so without them in the ETag a warm client 304s and keeps showing
+    # "not connected" forever.
+    connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
     etag = sync_service.etag_for(
         memory_path, "sources", "episodes", "entities",
-        extra=f"telegram:{settings.telegram_enabled}",
+        extra=f"telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
@@ -446,6 +450,7 @@ async def list_source_channels(
         channel_registry.build_channels,
         memory_path,
         telegram_enabled=settings.telegram_enabled,
+        connectors_connected=connectors_connected,
     )
     return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
 

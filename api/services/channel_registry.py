@@ -33,6 +33,7 @@ CHANNEL_IDS = (
     "notes",
     "rss",
     "calendar",
+    "pinterest",
     "telegram",
     "files",
 )
@@ -89,6 +90,42 @@ def _sync_channel(channel_id: str, label: str, state: dict, noun: str) -> dict:
     }
 
 
+def _connector_channel(
+    channel_id: str, label: str, state: dict, noun: str, *, connected: bool
+) -> dict:
+    """A direct-API connector row (G71 §2).
+
+    ``connected`` is credential presence, passed in by the router — it lives in
+    ``$CICADA_HOME/secrets.env``, outside the bank, so this module stays pure
+    filesystem-over-the-bank. A recorded failure wins the detail line: a channel
+    whose last poll 401'd must not keep advertising a week-old success.
+    """
+    entry = state.get(channel_id) or {}
+    last = entry.get("last_sync") or None
+    count = int(entry.get("count") or 0)
+    error = entry.get("last_error") or None
+
+    if error:
+        detail = f"Last sync failed · {error}"
+    elif connected and last:
+        detail = f"{_plural(count, noun)} · synced {_short_date(last)}"
+    elif connected:
+        detail = "Connected · not synced yet"
+    else:
+        detail = None
+
+    return {
+        "id": channel_id,
+        "label": label,
+        "connected": connected,
+        "count": count,
+        "last_sync": last,
+        "last_error": error,
+        "detail": detail,
+        "actions": ["sync", "disconnect"] if connected else ["connect"],
+    }
+
+
 def _origin_channel(
     channel_id: str, label: str, origin: str, by_origin: dict, noun: str
 ) -> dict:
@@ -107,10 +144,16 @@ def _origin_channel(
     }
 
 
-def build_channels(memory_path: Path, *, telegram_enabled: bool) -> list[dict]:
+def build_channels(
+    memory_path: Path,
+    *,
+    telegram_enabled: bool,
+    connectors_connected: dict[str, bool] | None = None,
+) -> list[dict]:
     memory_path = Path(memory_path)
     state = sync_state.read_sync_state(memory_path)
     by_origin = {o["origin"]: o for o in origin_stats.aggregate_origins(memory_path)}
+    connected_map = connectors_connected or {}
 
     try:
         url_index = media_ingestor.load_url_index(memory_path)
@@ -132,6 +175,9 @@ def build_channels(memory_path: Path, *, telegram_enabled: bool) -> list[dict]:
             "rss", "RSS feeds", feed_registry.list_feeds(memory_path), "feed"),
         "calendar": _subscription_channel(
             "calendar", "Calendars", calendar_registry.list_calendars(memory_path), "calendar"),
+        "pinterest": _connector_channel(
+            "pinterest", "Pinterest", state, "pin",
+            connected=bool(connected_map.get("pinterest"))),
         "telegram": {
             "id": "telegram",
             "label": "Telegram bot",

@@ -1149,12 +1149,61 @@ class SourceChannel(CamelModel):
     connected: bool = False
     count: int = 0
     last_sync: Optional[str] = None
+    # G71 — the last poll's failure, when there was one. Present so the Capture
+    # page can say "last sync failed · <reason>" instead of silently showing a
+    # stale success. Never carries a credential: connectors build this string
+    # from an exception type + message only.
+    last_error: Optional[str] = None
     detail: Optional[str] = None
     actions: list[str] = []
 
 
 class SourceChannelsResponse(CamelModel):
     channels: list[SourceChannel] = []
+
+
+# --- Saved-content connectors (G71 §2) ---
+
+
+class ConnectorField(CamelModel):
+    """One credential the connector needs. ``present`` says whether it is
+    stored; the VALUE is never returned by any endpoint, ever."""
+
+    name: str
+    label: str
+    secret: bool = False
+    present: bool = False
+
+
+class ConnectorStatus(CamelModel):
+    id: str
+    label: str
+    connected: bool = False
+    fields: list[ConnectorField] = []
+    last_sync: Optional[str] = None
+    last_error: Optional[str] = None
+    detail: Optional[str] = None
+    # "oauth" (Pinterest: save app id/secret, then authorize in a browser) or
+    # "credentials" (a script-app-style connector needs no redirect round trip).
+    login_mode: str = "credentials"
+
+
+class ConnectorsResponse(CamelModel):
+    connectors: list[ConnectorStatus] = []
+
+
+class ConnectorAuthorizeResponse(CamelModel):
+    authorize_url: str
+    state: str
+
+
+class ConnectorSyncResult(CamelModel):
+    status: str            # ok | skipped | error
+    reason: Optional[str] = None
+    new: int = 0
+    seen: int = 0
+    error: Optional[str] = None
+
 
 # --- Provider connections (G50) ---
 
