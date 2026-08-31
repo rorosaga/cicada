@@ -20,12 +20,15 @@ struct InboxListView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerBar
 
-            // Error branch MUST come before the empty-items check — otherwise a
-            // failed `GET /inbox` (items stays []) falls through to the "All
-            // caught up" happy state and a real backend error looks like
-            // nothing needed attention.
+            // Order matters. Error first: a failed `GET /inbox` leaves `items`
+            // empty and would otherwise read as the happy state. Loading
+            // second: an empty snapshot mid-first-fetch is not "all caught up",
+            // and claiming it is for a round-trip is the worst possible lie for
+            // this page to tell.
             if let err = viewModel.errorMessage, viewModel.items.isEmpty {
                 errorState(err)
+            } else if viewModel.isLoading {
+                loadingState
             } else if viewModel.items.isEmpty {
                 emptyState
             } else {
@@ -124,6 +127,21 @@ struct InboxListView: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Loading state (first fetch, nothing cached)
+
+    private var loadingState: some View {
+        VStack(spacing: CicadaTheme.spacingMD) {
+            Spacer()
+            ProgressView().controlSize(.small)
+            Text("Checking what needs you…")
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
             Spacer()
             Spacer()
         }

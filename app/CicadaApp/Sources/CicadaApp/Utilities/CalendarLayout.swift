@@ -34,17 +34,24 @@ enum CalendarLayout {
         return stride(from: 0, to: flat.count, by: 7).map { Array(flat[$0..<$0 + 7]) }
     }
 
+    /// Minimum column gap between two month labels. At an 11 pt cell + 3 pt
+    /// gap a three-letter label spans roughly three columns; anything closer
+    /// overprints its neighbour ("AugSep").
+    static let minLabelSpacing = 3
+
     static func monthLabels(_ columns: [[CalendarCell?]]) -> [(column: Int, label: String)] {
         var out: [(Int, String)] = []
         var seen = ""
         for (i, col) in columns.enumerated() {
             guard let firstDay = col.compactMap({ $0 }).first else { continue }
             let month = String(firstDay.date.prefix(7))
-            if month != seen {
-                seen = month
-                let idx = Int(firstDay.date.dropFirst(5).prefix(2)) ?? 1
-                out.append((i, formatter.shortMonthSymbols[idx - 1]))
-            }
+            guard month != seen else { continue }
+            // Advance `seen` even when the label is dropped, so the NEXT month
+            // is still considered rather than being swallowed by this one.
+            seen = month
+            if let last = out.last, i - last.0 < minLabelSpacing { continue }
+            let idx = Int(firstDay.date.dropFirst(5).prefix(2)) ?? 1
+            out.append((i, formatter.shortMonthSymbols[idx - 1]))
         }
         return out.map { (column: $0.0, label: $0.1) }
     }

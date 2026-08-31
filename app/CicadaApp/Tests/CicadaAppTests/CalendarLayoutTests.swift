@@ -29,10 +29,36 @@ final class CalendarLayoutTests: XCTestCase {
         XCTAssertEqual(cols[1][6]?.date, "2026-08-16")
     }
 
+    /// Jul30's first column (weekday offset 3) fills with Jul30/31 + Aug1/2,
+    /// so Aug's first column lands right next to Jul's (index 1 vs. 0) — this
+    /// fixture is itself the "AugSep" smudge case `minLabelSpacing` (below)
+    /// exists to suppress, so only the earlier label survives.
     func testMonthLabelsAtFirstColumnOfEachMonth() {
         let cols = CalendarLayout.columns([cell("2026-07-30"), cell("2026-07-31"), cell("2026-08-01"), cell("2026-08-02"), cell("2026-08-03"), cell("2026-08-04")])
         let labels = CalendarLayout.monthLabels(cols)
-        XCTAssertEqual(labels.map(\.label), ["Jul", "Aug"])
-        XCTAssertEqual(labels.map(\.column), [0, 1])
+        XCTAssertEqual(labels.map(\.label), ["Jul"])
+        XCTAssertEqual(labels.map(\.column), [0])
+    }
+
+    /// Two months whose first columns are adjacent used to print both labels
+    /// on top of each other — the "AugSep" smudge. Keep the earlier one.
+    func testAdjacentMonthLabelsAreThinnedOut() {
+        let columns: [[CalendarCell?]] = [
+            [cell("2026-08-24")] + Array(repeating: nil, count: 6),
+            [cell("2026-09-01")] + Array(repeating: nil, count: 6),
+            [cell("2026-09-08")] + Array(repeating: nil, count: 6),
+        ]
+        let labels = CalendarLayout.monthLabels(columns)
+        XCTAssertEqual(labels.map(\.label), ["Aug"])
+    }
+
+    /// A month that starts far enough along still gets its own label.
+    func testWellSpacedMonthLabelsAreAllKept() {
+        var columns: [[CalendarCell?]] = []
+        for week in 0..<8 {
+            let day = week < 4 ? "2026-08-0\(week + 1)" : "2026-09-0\(week - 3)"
+            columns.append([cell(day)] + Array(repeating: nil, count: 6))
+        }
+        XCTAssertEqual(CalendarLayout.monthLabels(columns).map(\.label), ["Aug", "Sep"])
     }
 }

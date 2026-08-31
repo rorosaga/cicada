@@ -2,10 +2,6 @@ import SwiftUI
 
 // M3 (backlog A2): "which model authored which belief" — repo-wide attribution
 // parsed from Cicada-Author commit trailers.
-//
-// NOT BUILD-VERIFIED — this view was written without an Xcode compile. It mirrors
-// the app's existing @Observable + APIClient + CicadaTheme conventions but needs
-// Rodrigo to verify it builds and to wire it into the sidebar navigation.
 struct ContributorsView: View {
     @Environment(ContributorsViewModel.self) private var viewModel
 
@@ -21,12 +17,20 @@ struct ContributorsView: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             header
 
-            if viewModel.isLoading {
-                ProgressView().frame(maxWidth: .infinity, alignment: .center)
-            } else if let err = viewModel.errorMessage {
-                Text(err)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.statusColor(for: .decaying))
+            // Error → never-loaded → loaded-but-empty → list. Without the
+            // never-loaded branch a cold launch with the backend down showed
+            // "No attributed commits yet", which is a claim about the repo, not
+            // about the request that failed.
+            if let err = viewModel.errorMessage {
+                errorState(err)
+            } else if !viewModel.hasLoaded {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading commit trailers…")
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
             } else if viewModel.contributors.isEmpty {
                 Text("No attributed commits yet.")
                     .font(CicadaTheme.bodyFont)
@@ -64,6 +68,17 @@ struct ContributorsView: View {
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func errorState(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text(message)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.danger)
+            Button("Retry") { Task { await viewModel.load() } }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Retry loading contributors")
+        }
     }
 }
 

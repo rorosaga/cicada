@@ -67,6 +67,21 @@ struct AskResponse: Codable, Equatable {
         self.gaps = gaps
         self.usedEntities = usedEntities
     }
+
+    // MARK: Row identities
+    //
+    // `AskCitation.id` is the entity id and gaps are bare strings, so a second
+    // snippet from the same entity — or a repeated gap phrase — silently
+    // disappears from a `ForEach`. Both lists are short and fixed for the life
+    // of one answer, so the index IS the identity.
+
+    var citationRows: [(id: Int, citation: AskCitation)] {
+        citations.enumerated().map { (id: $0.offset, citation: $0.element) }
+    }
+
+    var gapRows: [(id: Int, text: String)] {
+        gaps.enumerated().map { (id: $0.offset, text: $0.element) }
+    }
 }
 
 // MARK: - Ask history (per-bank, persisted via SnapshotCache under .askHistory)
