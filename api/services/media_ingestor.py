@@ -547,6 +547,77 @@ def _is_instagram_saved_json(data) -> bool:
     )
 
 
+# TikTok's "Download your data" JSON, one row per section:
+# (activity-section key, the list key inside it, the folder name, is_history).
+_TIKTOK_SECTIONS = (
+    ("Favorite Videos", "FavoriteVideoList", "Favorites", False),
+    ("Like List", "ItemFavoriteList", "Likes", False),
+    ("Video Browsing History", "VideoList", "Browsing History", True),
+)
+
+
+def _tiktok_activity(data) -> dict | None:
+    """The activity dict, under either the old ``Activity`` key or the newer
+    ``Your Activity`` one."""
+    if not isinstance(data, dict):
+        return None
+    for key in ("Activity", "Your Activity"):
+        section = data.get(key)
+        if isinstance(section, dict):
+            return section
+    return None
+
+
+def _is_tiktok_export_json(data) -> bool:
+    """Sniff rule: an activity wrapper holding at least one known section."""
+    activity = _tiktok_activity(data)
+    return isinstance(activity, dict) and any(
+        name in activity for name, _list_key, _folder, _hist in _TIKTOK_SECTIONS
+    )
+
+
+def parse_tiktok_export(data, *, include_history: bool = False) -> list[RawItem]:
+    """TikTok "Download your data" ``user_data.json`` (G71 §3).
+
+    Favourites and Likes are intentional saves and are always parsed.
+    Browsing History is ambient exhaust (G69: high noise) and is parsed only
+    when the caller opts in; even then it keeps a distinct ``tiktok-history``
+    origin so ``/origins`` — and anyone reading the graph later — can tell a
+    save from a scroll.
+
+    Entry shape is ``{"Date": "...", "Link": "https://..."}``; older exports
+    lowercase ``link``. Malformed input degrades to ``[]`` rather than raising.
+    """
+    activity = _tiktok_activity(data)
+    if not isinstance(activity, dict):
+        return []
+
+    items: list[RawItem] = []
+    for section_name, list_key, folder, is_history in _TIKTOK_SECTIONS:
+        if is_history and not include_history:
+            continue
+        section = activity.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        rows = section.get(list_key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            url = row.get("Link") or row.get("link") or row.get("URL") or row.get("url")
+            if not isinstance(url, str) or not url.strip():
+                continue
+            date = row.get("Date") or row.get("date")
+            items.append(RawItem(
+                url=url.strip(),
+                added=date if isinstance(date, str) else None,
+                folder=folder,
+                origin="tiktok-history" if is_history else "tiktok-saved",
+            ))
+    return items
+
+
 def _playlist_name_from_filename(filename: str) -> str:
     """``"Watch later-videos.csv"`` -> ``"Watch later"``; ``"<Name>-videos.csv"`` -> ``"<Name>"``."""
     stem = Path(filename).stem  # strips ".csv"
@@ -919,6 +990,10 @@ def parse_upload(
         # between the two doesn't matter).
         if _is_instagram_saved_json(data):
             return parse_instagram_saved(data), "Instagram Saved", False
+        # TikTok's export nests everything under an activity wrapper, so it can
+        # never collide with the Instagram (`saved_*`) or Takeout (list) sniffs.
+        if _is_tiktok_export_json(data):
+            return parse_tiktok_export(data, include_history=include_history), "TikTok Export", False
         # Takeout JSON is a list of watch entries; otherwise a generic URL list.
         if isinstance(data, list) and data and isinstance(data[0], dict) and (
             "titleUrl" in data[0] or "subtitles" in data[0]
@@ -971,6 +1046,7 @@ PLATFORM_BY_LABEL = {
     "RSS Feed": "rss",
     "URL List": "urls",
     "LinkedIn Saved": "linkedin",
+    "TikTok Export": "tiktok",
 }
 
 # What ONE grouping is called on each platform, so the overlay can say
@@ -983,6 +1059,7 @@ COLLECTION_KIND_BY_PLATFORM = {
     "rss": "feed",
     "urls": "list",
     "linkedin": "saved",
+    "tiktok": "list",
     "unknown": "list",
 }
 
