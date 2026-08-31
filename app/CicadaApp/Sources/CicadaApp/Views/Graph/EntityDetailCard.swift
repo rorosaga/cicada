@@ -1070,6 +1070,7 @@ struct EntityDetailCard: View {
                         .clipShape(Capsule())
                         .foregroundStyle(entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
                 }
+                FromConversationButton(sessionIds: entry.sessions)
             }
 
             Text(entry.description)
