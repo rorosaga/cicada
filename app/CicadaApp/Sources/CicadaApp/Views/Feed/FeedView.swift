@@ -155,6 +155,7 @@ struct FeedView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 200)
+            .accessibilityLabel("Sort feed items")
         }
         .padding(.horizontal, CicadaTheme.spacingXL)
         .padding(.bottom, CicadaTheme.spacingMD)

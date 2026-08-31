@@ -73,6 +73,22 @@ final class UsageRangeTests: XCTestCase {
         XCTAssertTrue(vm.isEmptyRange)
     }
 
+    /// M2: a failed range fetch left `summary` all-zero (the `catch` path
+    /// never sets `rangeSummary`, so `summary` falls back to a blank
+    /// `ConsumptionSummary()`), so `isEmptyRange` read `true` and the page
+    /// rendered the error banner AND "No usage in this range" for a range it
+    /// never actually loaded.
+    func testFailedRangeFetchIsNotReportedAsEmpty() async throws {
+        struct Boom: Error {}
+        let vm = UsageViewModel(store: Store(cache: tempCache(), api: FakeSyncAPI())) { _ in throw Boom() }
+
+        vm.range = "30d"
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertFalse(vm.isEmptyRange, "a failed fetch must not also claim the range is empty")
+    }
+
     /// The controller ruling on top of the brief: the race guard is not just
     /// an identity check on arrival — the superseded range's own `Task` must
     /// actually be cancelled the moment a newer range wins, not merely have

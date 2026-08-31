@@ -159,6 +159,11 @@ struct CicadaApp: App {
                 .environment(connectionsVM)
                 .environment(store)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
+                // M3: `CicadaTheme.*` are static reads SwiftUI doesn't track
+                // (see `ContentView`'s `.id(colorSchemeRaw)` above), so without
+                // this the Settings window keeps a stale palette after a
+                // theme toggle even though `.preferredColorScheme` updates.
+                .id(colorSchemeRaw)
         }
     }
 

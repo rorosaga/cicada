@@ -5,6 +5,12 @@ import SwiftUI
 struct SleepView: View {
     @Binding var selectedTab: AppTab
     @Environment(SleepViewModel.self) private var sleepVM
+    // H1: the "EPISODES QUEUED" header and `SleepQueueCard` above it must
+    // agree on one count. `Store.status` is the SSE-live source; reading it
+    // here (instead of only `sleepVM.queuedEpisodes.count`, which is fetched
+    // once per visit) keeps the two readouts from disagreeing when an MCP
+    // capture lands while this page is open.
+    @Environment(Store.self) private var store
     @State private var scheduleDate: Date = Self.defaultDate()
     @State private var scheduleEnabled: Bool = false
     @State private var loadedOnce: Bool = false
@@ -200,29 +206,12 @@ struct SleepView: View {
 
     private var progressCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            HStack {
-                Text("PROGRESS")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .tracking(1.2)
-                Spacer()
-                Button {
-                    Task { @MainActor in await sleepVM.triggerManually() }
-                } label: {
-                    HStack(spacing: CicadaTheme.spacingXS) {
-                        Image(systemName: sleepVM.isRunning ? "hourglass" : "play.fill")
-                            .font(.system(size: 11))
-                        Text(sleepVM.isRunning ? Copy.consolidating : Copy.consolidateNow)
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .foregroundStyle(sleepVM.isRunning ? CicadaTheme.textTertiary : CicadaTheme.accent)
-                    .padding(.horizontal, CicadaTheme.spacingMD)
-                    .padding(.vertical, CicadaTheme.spacingSM)
-                }
-                .buttonStyle(.plain)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .disabled(sleepVM.isRunning)
-            }
+            // H1: the trigger lives solely on `SleepQueueCard` now (spec
+            // §2.8/§2.9 — "one voice"). This card is read-only progress.
+            Text("PROGRESS")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.2)
 
             ProgressView(value: sleepVM.progressFraction)
                 .progressViewStyle(.linear)
@@ -281,10 +270,19 @@ struct SleepView: View {
 
     // MARK: Queue
 
+    /// The count `queueCard`'s header and `SleepQueueCard` must agree on
+    /// (H1): SSE-live `store.status.episodes.unprocessed` when a snapshot has
+    /// arrived, falling back to the once-per-visit `sleepVM.queuedEpisodes`
+    /// count before the first one does. Pulled out as a pure function so the
+    /// precedence is unit-testable without standing up a view.
+    static func queueCount(status: StatusSnapshot?, fallback: Int) -> Int {
+        status?.episodes.unprocessed ?? fallback
+    }
+
     private var queueCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             HStack(spacing: CicadaTheme.spacingSM) {
-                Text("EPISODES QUEUED (\(sleepVM.queuedEpisodes.count))")
+                Text("EPISODES QUEUED (\(Self.queueCount(status: store.status.value, fallback: sleepVM.queuedEpisodes.count)))")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .tracking(1.2)

@@ -105,8 +105,12 @@ final class UsageViewModel {
 
     /// Nothing was recorded in this range. Drives the "No usage in this range"
     /// placeholders — a row of honest zeroes reads as a broken page.
+    /// M2: a failed fetch also leaves `summary` all-zero (`ConsumptionSummary()`
+    /// above), so without the `errorMessage == nil` guard a failed range fetch
+    /// rendered both the error banner AND "No usage in this range" — claiming
+    /// a fact about a range that was never actually loaded.
     var isEmptyRange: Bool {
-        !isLoading && !isLoadingRange
+        !isLoading && !isLoadingRange && errorMessage == nil
             && summary.invocations == 0 && summary.tokens == 0 && summary.memoryWrites == 0
     }
 

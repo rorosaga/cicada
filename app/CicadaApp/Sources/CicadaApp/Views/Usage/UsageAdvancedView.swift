@@ -7,10 +7,21 @@ import SwiftUI
 struct UsageAdvancedView: View {
     let viewModel: UsageViewModel
 
+    /// M1: the old guard (`viewModel.isLoadingRange` alone) only covers a
+    /// non-month range fetch. For `range == "month"`, `viewModel.stats` reads
+    /// straight from `store.consumption` — `nil` on a first-ever launch and
+    /// after a bank switch — so the plain `isLoadingRange` check let the
+    /// month view fall through to "No usage in this range" mid-reconcile.
+    /// `viewModel.isLoading` covers that case. Pulled out as a pure function
+    /// (rather than inlined in `body`) so the precedence is unit-testable.
+    static func showsProgress(isLoadingRange: Bool, isLoading: Bool) -> Bool {
+        isLoadingRange || isLoading
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             connectionCards
-            if viewModel.isLoadingRange {
+            if Self.showsProgress(isLoadingRange: viewModel.isLoadingRange, isLoading: viewModel.isLoading) {
                 ProgressView().frame(maxWidth: .infinity)
             } else if let stats = viewModel.stats {
                 charts(stats)
