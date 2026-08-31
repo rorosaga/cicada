@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import numpy as np
 
+import pytest
+
 from api.services import markdown_parser
-from api.services.claims import Claim, parse_claims, write_claims
+from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.vector_index import SqliteVecIndexer
 
 # Reuse the bag-of-words fake from the vector-index tests so claim texts that
@@ -193,6 +195,44 @@ def test_malformed_claims_block_degrades_to_empty():
 def test_claims_block_with_non_list_yaml_degrades_to_empty():
     body = _PROSE_BEFORE + "\n```claims\nsubject: cicada\n```\n"
     assert parse_claims(body) == []
+
+
+# --- D3: strict mode must never silently drop a malformed entry -----------
+
+
+def test_strict_parse_raises_for_a_non_mapping_list_entry():
+    """Lenient mode still degrades gracefully (a read-only path like the index
+    rebuild), but a read-modify-write caller in strict mode must abort instead
+    of quietly returning a truncated list that `write_claims` would then
+    re-render WITHOUT the malformed entry — permanently deleting it."""
+    body = (
+        _PROSE_BEFORE
+        + "\n```claims\n- id: clm_a\n  text: fine\n- just a bare string\n```\n"
+        + _PROSE_AFTER
+    )
+    # lenient: unchanged behavior — skip the bad entry, keep the good one
+    assert [c.id for c in parse_claims(body)] == ["clm_a"]
+
+    with pytest.raises(MalformedClaimsBlockError):
+        parse_claims(body, strict=True)
+
+
+def test_strict_parse_raises_for_a_field_conversion_failure():
+    """A field that fails conversion (e.g. a non-numeric `confidence`) is just
+    as malformed as a non-mapping entry — it used to raise an uncaught
+    ValueError straight out of `parse_claims` (even in lenient mode), which a
+    caller's `except MalformedClaimsBlockError` would NOT catch."""
+    body = (
+        _PROSE_BEFORE
+        + "\n```claims\n- id: clm_a\n  text: fine\n"
+        + "- id: clm_bad\n  text: bad confidence\n  confidence: not-a-number\n```\n"
+        + _PROSE_AFTER
+    )
+    # lenient: the bad entry is skipped, not left to crash the caller
+    assert [c.id for c in parse_claims(body)] == ["clm_a"]
+
+    with pytest.raises(MalformedClaimsBlockError):
+        parse_claims(body, strict=True)
 
 
 def test_crlf_page_round_trips_claims():

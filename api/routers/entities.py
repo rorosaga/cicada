@@ -97,18 +97,27 @@ async def get_entity_logo(
     """The entity's logo as an image (G59).
 
     404 means "no logo" — no resolvable domain, or the fetch ladder came up
-    empty — and the app draws its monogram fallback. The first request for an
-    uncached entity performs the fetch (bounded by a semaphore of 4); every
-    later one is served straight off ``~/.cicada/logos/<bank>/``. ``GET /graph``
-    never comes through here: it reads the cache index only.
+    empty — and the app draws its monogram fallback. The fast path (no
+    semaphore, no ``ensure_logo`` call at all) only applies when there's a
+    fresh cache entry AND the page hasn't changed since it was fetched — an
+    edited page must still go through ``ensure_logo`` to re-resolve, or this
+    endpoint would keep painting a stale (or, per M2, a since-deleted) domain
+    for up to 30 days after every edit, same as the router-less callers
+    already did. The first request that actually needs to touch the network
+    is bounded by a semaphore of 4; a re-resolve that lands on the same
+    domain (M1) or a failed revalidation (kept, not deleted) never reaches the
+    network at all. ``GET /graph`` never comes through here: it reads the
+    cache index only.
     """
     memory_path = settings.memory_path
-    if not (memory_path / "entities" / f"{entity_id}.md").exists():
+    entity_file = memory_path / "entities" / f"{entity_id}.md"
+    if not entity_file.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
 
     bank = logo_service.bank_name(memory_path)
+    entry = logo_service.read_meta(bank).get(entity_id)
     path = logo_service.cached_path(bank, entity_id)
-    if path is None:
+    if path is None or logo_service.page_edited_since_fetch(entity_file, entry):
         async with _LOGO_FETCH_SEMAPHORE:
             path = await logo_service.ensure_logo(memory_path, entity_id)
     if path is None or not path.exists():

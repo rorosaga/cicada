@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic.alias_generators import to_camel
@@ -31,6 +31,18 @@ def _range(range_: str = Query("30d", alias="range")) -> str:
     return range_
 
 
+def _utc_today() -> date:
+    """Today in UTC — the ledger's own clock.
+
+    Every telemetry event is stamped ``datetime.now(timezone.utc)`` and every
+    day bucket downstream is that stamp's ``ts[:10]``. Bounding those events
+    with the *machine's* local day (``date.today()``) shifted or dropped a
+    day's usage for anyone west of UTC (their "today" starts hours after the
+    ledger's) and east of it (their "today" ends before the ledger's).
+    """
+    return datetime.now(timezone.utc).date()
+
+
 @router.get("/summary", response_model=ConsumptionSummary)
 async def summary(
     request: Request,
@@ -39,10 +51,14 @@ async def summary(
     settings: Settings = Depends(get_settings),
 ):
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "telemetry", "git_head", extra=range_)
+    today = _utc_today()
+    # The UTC date is part of the answer: a rolling range ("last 30 days"), a
+    # streak and a calendar all move at UTC midnight with no new event to bump
+    # the "telemetry" component — without it the app 304s into yesterday.
+    etag = sync_service.etag_for(memory_path, "telemetry", "git_head", extra=f"{range_}:{today}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
-    return ConsumptionSummary(**await consumption_stats.summary(memory_path, range_=range_, today=date.today()))
+    return ConsumptionSummary(**await consumption_stats.summary(memory_path, range_=range_, today=today))
 
 
 @router.get("/calendar", response_model=ConsumptionCalendar)
@@ -53,10 +69,11 @@ async def calendar(
     settings: Settings = Depends(get_settings),
 ):
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "telemetry", "git_head", extra=str(weeks))
+    today = _utc_today()
+    etag = sync_service.etag_for(memory_path, "telemetry", "git_head", extra=f"{weeks}:{today}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
-    days = await consumption_stats.calendar(memory_path, weeks=weeks, today=date.today())
+    days = await consumption_stats.calendar(memory_path, weeks=weeks, today=today)
     return ConsumptionCalendar(days=[CalendarDay(**d) for d in days], weeks=weeks)
 
 
@@ -68,10 +85,11 @@ async def stats(
     settings: Settings = Depends(get_settings),
 ):
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "telemetry", "git_head", extra=range_)
+    today = _utc_today()
+    etag = sync_service.etag_for(memory_path, "telemetry", "git_head", extra=f"{range_}:{today}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
-    data = await consumption_stats.stats(memory_path, range_=range_, today=date.today())
+    data = await consumption_stats.stats(memory_path, range_=range_, today=today)
     for key in ("by_model", "by_stage", "by_connection", "by_bank", "series"):
         data[key] = _camel_rows(data[key])
     return ConsumptionStats(**data)
@@ -80,8 +98,9 @@ async def stats(
 @router.get("/connections", response_model=ConsumptionConnections)
 async def connections(range_: str = Depends(_range), settings: Settings = Depends(get_settings)):
     statuses = [s.model_dump() for s in await get_registry(settings).statuses()]
-    start = consumption_stats.resolve_range(range_, date.today())
-    events = telemetry.read_events(start=start, end=date.today())
+    today = _utc_today()
+    start = consumption_stats.resolve_range(range_, today)
+    events = telemetry.read_events(start=start, end=today)
     rows = consumption_stats.per_connection(events, statuses)
     for r in rows:
         r["by_model"] = _camel_rows(r["by_model"])

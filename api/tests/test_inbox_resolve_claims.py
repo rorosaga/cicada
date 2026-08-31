@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
 from api.models.schemas import InboxResolveRequest
 from api.services import inbox_service, markdown_parser
@@ -373,3 +374,161 @@ def test_defer_commits_only_the_inbox_file(tmp_path):
     files = _git(repo, "show", "--name-only", "--format=", "HEAD").split()
     assert files == ["inbox/inbox-001.md"]
     assert (repo / "entities" / "stray.md").exists()
+
+
+# --- Malformed resolve requests (PR13 review) -------------------------------
+
+
+def _untouched(repo: Path) -> None:
+    """Nothing was written: both claims still open, the question still there."""
+    claims = _claims(repo)
+    assert claims["clm_a"].valid_to is None and claims["clm_b"].valid_to is None
+    assert (repo / "inbox" / "inbox-001.md").exists()
+    body = markdown_parser.parse(repo / "entities" / "rodrigo.md").body
+    assert "None of the previously recorded values" not in body
+
+
+def test_an_unknown_option_key_is_rejected_not_treated_as_neither(tmp_path):
+    """An `optionKey` matching no option used to fall through to the "neither"
+    branch, permanently closing EVERY competing claim from one malformed
+    request. It must 400 with nothing written."""
+    repo = _workspace(tmp_path)
+    with pytest.raises(HTTPException) as exc:
+        run(inbox_service.resolve(
+            "inbox-001", InboxResolveRequest(action="resolve", optionKey="z"), _Settings(repo)
+        ))
+    assert exc.value.status_code == 400 and "z" in exc.value.detail
+    _untouched(repo)
+
+
+def test_a_missing_option_key_with_no_answer_is_rejected(tmp_path):
+    """"Resolve" with neither a pick nor free text says nothing about the
+    facts, so it must not be read as "none of these are current"."""
+    repo = _workspace(tmp_path)
+    with pytest.raises(HTTPException) as exc:
+        run(inbox_service.resolve(
+            "inbox-001", InboxResolveRequest(action="resolve"), _Settings(repo)
+        ))
+    assert exc.value.status_code == 400
+    _untouched(repo)
+
+
+# --- M3: legacy pre-G60 conflict items must remain dismissable -------------
+
+
+def _make_legacy_unquestioned(repo: Path) -> None:
+    """Rewrite the seeded item to the legacy pre-G60 shape: no `options`, no
+    `question` — exactly what a pre-G60 conflict item looks like on disk."""
+    path = repo / "inbox" / "inbox-001.md"
+    parsed = markdown_parser.parse(path)
+    parsed.frontmatter.pop("options", None)
+    parsed.frontmatter.pop("question", None)
+    markdown_parser.write(path, parsed.frontmatter, parsed.body)
+
+
+def test_dismiss_with_no_key_removes_a_legacy_item_without_touching_claims(tmp_path):
+    """M3: a conflict item with no `options` and no `question` (legacy
+    pre-G60) must stay dismissable via action="dismiss" with no key/answer —
+    exactly the shape `InboxCardView`'s bare Dismiss button and the deprecated
+    `/nudges` shim send. Nothing claim-wise is closed."""
+    repo = _workspace(tmp_path)
+    _make_legacy_unquestioned(repo)
+
+    out = run(inbox_service.resolve(
+        "inbox-001", InboxResolveRequest(action="dismiss"), _Settings(repo)
+    ))
+
+    assert out["status"] == "resolved"
+    assert not (repo / "inbox" / "inbox-001.md").exists()
+    claims = _claims(repo)
+    assert claims["clm_a"].valid_to is None and claims["clm_b"].valid_to is None
+
+
+def test_dismiss_with_no_key_still_400s_for_a_modern_question_item(tmp_path):
+    """A modern item (has `options` and/or a `question`) must keep the strict
+    400 even for action="dismiss" — only the legacy no-options/no-question
+    shape gets the bypass."""
+    repo = _workspace(tmp_path)
+    with pytest.raises(HTTPException) as exc:
+        run(inbox_service.resolve(
+            "inbox-001", InboxResolveRequest(action="dismiss"), _Settings(repo)
+        ))
+    assert exc.value.status_code == 400
+    _untouched(repo)
+
+
+def test_the_deprecated_nudges_shim_can_dismiss_a_legacy_conflict_item(tmp_path, monkeypatch):
+    """`NudgeResolveRequest` carries no `optionKey` field at all, so before
+    this fix no conflict item was resolvable through the deprecated shim. A
+    legacy item must still be dismissable through `/nudges/{id}/resolve`."""
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+
+    repo = _workspace(tmp_path)
+    _make_legacy_unquestioned(repo)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(repo))
+    config.get_settings.cache_clear()
+    client = TestClient(main.app)
+    try:
+        resp = client.post("/nudges/inbox-001/resolve", json={"action": "dismiss"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "resolved"
+    finally:
+        config.get_settings.cache_clear()
+
+    assert not (repo / "inbox" / "inbox-001.md").exists()
+    claims = _claims(repo)
+    assert claims["clm_a"].valid_to is None and claims["clm_b"].valid_to is None
+
+
+def test_a_corrupt_claims_block_aborts_the_resolve_entirely(tmp_path):
+    """A ```claims block that will not parse must abort BEFORE the entity is
+    rewritten and before the question is deleted — the old code skipped only
+    the claim edits and then rewrote the page (through the LLM) and unlinked
+    the item, losing the trapped claims for good."""
+    repo = _workspace(tmp_path)
+    entity_path = repo / "entities" / "rodrigo.md"
+    entity = markdown_parser.parse(entity_path)
+    corrupt = "Rodrigo is a student.\n\n```claims\n- id: clm_a\n  text: \"unterminated\n```\n"
+    markdown_parser.write(entity_path, entity.frontmatter, corrupt)
+    before = entity_path.read_text(encoding="utf-8")
+
+    with pytest.raises(HTTPException) as exc:
+        run(inbox_service.resolve(
+            "inbox-001", InboxResolveRequest(action="resolve", optionKey="a"), _Settings(repo)
+        ))
+
+    assert exc.value.status_code == 409
+    assert entity_path.read_text(encoding="utf-8") == before, "the page must be byte-identical"
+    assert (repo / "inbox" / "inbox-001.md").exists(), "the question must be kept"
+
+
+def test_a_malformed_claims_entry_also_aborts_the_resolve_with_a_409(tmp_path):
+    """D3: a claims block that parses as valid YAML but contains a malformed
+    ENTRY (a bare scalar list item, or a field that fails conversion) must
+    abort the resolve exactly like unparseable YAML does — before this fix
+    `parse_claims(strict=True)` silently dropped such entries, and the
+    subsequent `write_claims` call would then re-render the (now truncated)
+    list, permanently deleting the trapped claim."""
+    repo = _workspace(tmp_path)
+    entity_path = repo / "entities" / "rodrigo.md"
+    entity = markdown_parser.parse(entity_path)
+    malformed = (
+        "Rodrigo is a student.\n\n```claims\n"
+        "- id: clm_a\n  text: fine\n  subject: rodrigo\n  predicate: works-at\n"
+        "  object: mongodb\n"
+        "- just a bare string, not a mapping\n"
+        "```\n"
+    )
+    markdown_parser.write(entity_path, entity.frontmatter, malformed)
+    before = entity_path.read_text(encoding="utf-8")
+
+    with pytest.raises(HTTPException) as exc:
+        run(inbox_service.resolve(
+            "inbox-001", InboxResolveRequest(action="resolve", optionKey="a"), _Settings(repo)
+        ))
+
+    assert exc.value.status_code == 409
+    assert entity_path.read_text(encoding="utf-8") == before, "the page must be byte-identical"
+    assert (repo / "inbox" / "inbox-001.md").exists(), "the question must be kept"

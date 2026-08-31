@@ -236,6 +236,31 @@ def test_status_binary_vanishes_between_which_and_exec(tmp_path, monkeypatch):
     assert "install" in s.detail.lower()
 
 
+def test_a_failed_spawn_orphans_no_pending_session(tmp_path, monkeypatch):
+    """The binary can vanish between `available()` and the spawn. Registering
+    the session first left a "pending" entry in `login_sessions` that nothing
+    ever prunes (pruning only touches terminal sessions) and that the app polls
+    forever, behind a bare 500."""
+    import pytest
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
+    codex_cli._live.pop("chatgpt-plan", None)  # other tests in this module leave one
+    before = dict(codex_cli.login_sessions)
+
+    async def spawn(argv):
+        raise FileNotFoundError("codex")
+
+    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), codex_home=tmp_path, spawn=spawn)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(adapter.begin_login())
+
+    assert exc.value.status_code == 502
+    assert "codex login" in exc.value.detail
+    assert codex_cli.login_sessions == before, "a failed spawn registered a session anyway"
+    assert codex_cli._live.get(adapter.id) is None
+
+
 def test_logout_runs_cli(tmp_path):
     run = _runner()
     asyncio.run(codex_cli.CodexPlanAdapter(runner=run, codex_home=tmp_path).logout())

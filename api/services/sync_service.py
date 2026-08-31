@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import Request, Response
@@ -25,6 +26,10 @@ from api.services.sync_state import SYNC_STATE_FILENAME
 class VersionInfo:
     version: str
     components: dict
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def git_head(memory_path: Path) -> str:
@@ -98,6 +103,37 @@ def _inbox_has_pending_defer(mp: Path, mtime: float) -> bool:
     return result
 
 
+# Per-bank memo for :func:`_logos_component`: (meta mtime, expired count, epoch
+# of the next expiry). Rescanned when `meta.json` is rewritten OR when the next
+# TTL deadline passes — so the ~1/s `/sync/version` poll costs one dict lookup,
+# not a JSON parse, while still noticing an expiry the same second it happens.
+_LOGO_TTL_CACHE: dict[str, tuple[float, int, float | None]] = {}
+
+
+def _logos_component(mp: Path) -> str:
+    """The logo cache's version stamp: ``<meta.json mtime>:<expired entries>``.
+
+    The mtime alone is blind to a purely time-based TTL expiry — nothing is
+    written when an entry simply ages out — yet ``/graph``'s ``has_logo`` is
+    computed from ``logo_service.is_fresh`` at read time, so the node silently
+    stops claiming a logo behind an ETag that never moved. The expired count
+    moves on exactly those transitions (see ``logo_service.expiry_state``).
+    """
+    bank = logo_service.bank_name(mp)
+    mtime = file_mtime(logo_service.meta_path(bank))
+    cached = _LOGO_TTL_CACHE.get(bank)
+    if (
+        cached is None
+        or cached[0] != mtime
+        or (cached[2] is not None and time.time() >= cached[2])
+    ):
+        expired, next_expiry = logo_service.expiry_state(bank)
+        _LOGO_TTL_CACHE[bank] = (mtime, expired, next_expiry)
+    else:
+        expired = cached[1]
+    return f"{mtime:.6f}:{expired}"
+
+
 def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
     mp = Path(memory_path)
     ep_count, ep_max = bank_index.dir_stamp(mp, "episodes")
@@ -132,13 +168,19 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # on-demand fetch flips an entity to "has a logo" — and `/graph` bakes
         # `has_logo` into every node's `content_hash`. Without this the app's
         # conditional GET 304s and the node keeps painting a monogram forever.
-        "logos": f"{file_mtime(logo_service.meta_path(logo_service.bank_name(mp))):.6f}",
+        # (The other direction — an entry aging out of its TTL, which writes
+        # nothing — rides the expired count; see `_logos_component`.)
+        "logos": _logos_component(mp),
         # The consumption ledger lives at `$CICADA_HOME/telemetry/events-YYYY-MM.jsonl`,
         # *outside* the memory bank (it's machine-global, not per-bank), so no other
         # component notices a new usage event landing. Modelled on "logos" above for
         # the same reason. Only the current month's file is watched: a new LLM call,
-        # sleep run, or agentic write always appends to it.
-        "telemetry": f"{file_mtime(telemetry.telemetry_dir() / f'events-{date.today():%Y-%m}.jsonl'):.6f}",
+        # sleep run, or agentic write always appends to it. The month is UTC's,
+        # because that is the clock `telemetry.record` stamps events with — the
+        # machine's local month names the wrong file either side of a boundary.
+        "telemetry": (
+            f"{file_mtime(telemetry.telemetry_dir() / f'events-{_utc_now():%Y-%m}.jsonl'):.6f}"
+        ),
         "git_head": git_head(mp),
         "bank": mp.name,
         "sleep": f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}",

@@ -152,14 +152,24 @@ def refresh_open_questions(
     4. Deferred items are skipped entirely.
 
     Returns ``{"bumped": n, "organic_resolutions": n, "escalated": n,
-    "resolved_paths": [str, ...]}`` — ``resolved_paths`` lists the
-    memory-relative paths (e.g. ``"inbox/inbox-001.md"``) of items removed
-    by organic resolution, so the caller can tag exactly those paths with
-    the ``inbox/organic_resolution`` commit trigger instead of the generic
-    ``sleep/inbox_generation`` one every other ``inbox/`` write gets.
+    "resolved_paths": [str, ...], "rewritten_paths": [str, ...]}`` —
+    ``resolved_paths`` lists the memory-relative paths (e.g.
+    ``"inbox/inbox-001.md"``) of items removed by organic resolution, so the
+    caller can tag exactly those paths with the ``inbox/organic_resolution``
+    commit trigger instead of the generic ``sleep/inbox_generation`` one every
+    other ``inbox/`` write gets. ``rewritten_paths`` lists every item bumped
+    and/or escalated IN PLACE (not removed) — together with ``resolved_paths``
+    this is the exact file set this sweep touched, so a caller committing on
+    its own (the idle-cycle twin in ``sleep_cycle._refresh_questions_safely``)
+    can pass those exact pathspecs to ``git_service.commit_paths`` instead of
+    the whole ``inbox`` directory, which would sweep in an unrelated dirty
+    file under ``inbox/`` that this sweep never touched.
     """
     inbox = Path(memory_path) / "inbox"
-    counts = {"bumped": 0, "organic_resolutions": 0, "escalated": 0, "resolved_paths": []}
+    counts = {
+        "bumped": 0, "organic_resolutions": 0, "escalated": 0,
+        "resolved_paths": [], "rewritten_paths": [],
+    }
     if not inbox.exists():
         return counts
 
@@ -280,6 +290,7 @@ def _refresh_one(
         fm["options"] = options
         fm["updated_date"] = today
         markdown_parser.write(filepath, fm, parsed.body)
+        counts["rewritten_paths"].append(f"inbox/{filepath.name}")
 
 
 def _really_superseded(options: list[dict], by_id: dict) -> bool:

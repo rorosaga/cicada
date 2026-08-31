@@ -8,7 +8,9 @@ by an in-process semaphore so opening a busy graph can't fan out.
 from __future__ import annotations
 
 import asyncio
+import os
 import struct
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -50,6 +52,12 @@ def seed_cached_logo(memory, entity_id, domain="acme.example"):
     return asyncio.run(logo_service.ensure_logo(memory, entity_id, fetcher=fetcher))
 
 
+def _touch_after_fetch(path):
+    """Bump the page's mtime a second past its cache entry's `fetched_at`."""
+    future = datetime.now(timezone.utc).timestamp() + 1
+    os.utime(path, (future, future))
+
+
 def test_logo_404_for_an_unknown_entity(client):
     c, _ = client
     assert c.get("/entities/nope/logo").status_code == 404
@@ -77,6 +85,72 @@ def test_logo_200_then_304_from_the_cache(client):
 
     again = c.get("/entities/acme/logo", headers={"If-None-Match": etag})
     assert again.status_code == 304
+
+
+def test_logo_endpoint_re_resolves_an_edited_page_instead_of_shortcutting(client, monkeypatch):
+    """D1: the endpoint used to return `cached_path` before `ensure_logo` ever
+    ran, so `page_edited_since_fetch` never executed on the real GET path — a
+    page edit was invisible to it for up to 30 days. Editing the page to a
+    NEW domain must be picked up here too, not just when calling
+    `ensure_logo` directly."""
+    c, memory = client
+    page = memory / "entities" / "acme.md"
+    write_entity(memory, "acme", ["name: Acme", "type: company", "logo: https://acme.example/x.png"])
+    assert seed_cached_logo(memory, "acme", domain="acme.example") is not None
+    bank_index.invalidate()
+
+    first = c.get("/entities/acme/logo")
+    assert first.status_code == 200, first.text
+    old_bytes = first.content
+
+    # Point the page at a DIFFERENT domain, past the cache entry's mtime, and
+    # turn fetching on with a fake HTTP layer so the router's own call can
+    # actually revalidate (conftest gates real fetching off for the suite).
+    write_entity(memory, "acme", ["name: Acme", "type: company", "logo: https://rebrand.example/x.png"])
+    _touch_after_fetch(page)
+    bank_index.invalidate()
+    monkeypatch.setenv("CICADA_ALLOW_LOGO_FETCH", "on")
+
+    async def fake_http_get(url):
+        if url == "https://rebrand.example/apple-touch-icon.png":
+            return logo_service.FetchResult(200, png_bytes(64, 64), "image/png", '"v2"')
+        return logo_service.FetchResult(404, b"", "text/html")
+
+    monkeypatch.setattr(logo_service, "_http_get", fake_http_get)
+
+    second = c.get("/entities/acme/logo")
+    assert second.status_code == 200, second.text
+    assert second.content != old_bytes, (
+        "an edited page's new domain must be re-fetched by the endpoint, not shortcut past"
+    )
+    assert logo_service.read_meta("work")["acme"]["domain"] == "rebrand.example"
+
+
+def test_logo_endpoint_keeps_a_stale_revalidation_failure(client, monkeypatch):
+    """The M1/M2 fallback behaviour (keep-old-logo-on-failed-revalidation)
+    must survive going through the router, not just direct `ensure_logo`
+    calls: a page edit whose re-fetch comes up empty must not turn a live
+    cache entry into a 404."""
+    c, memory = client
+    page = memory / "entities" / "acme.md"
+    write_entity(memory, "acme", ["name: Acme", "type: company", "logo: https://acme.example/x.png"])
+    assert seed_cached_logo(memory, "acme", domain="acme.example") is not None
+    bank_index.invalidate()
+    old_bytes = c.get("/entities/acme/logo").content
+
+    write_entity(memory, "acme", ["name: Acme", "type: company", "logo: https://dead.example/x.png"])
+    _touch_after_fetch(page)
+    bank_index.invalidate()
+    monkeypatch.setenv("CICADA_ALLOW_LOGO_FETCH", "on")
+
+    async def all_miss(url):
+        return logo_service.FetchResult(404, b"", "text/html")
+
+    monkeypatch.setattr(logo_service, "_http_get", all_miss)
+
+    resp = c.get("/entities/acme/logo")
+    assert resp.status_code == 200, "a failed revalidation must keep serving the old mark, not 404"
+    assert resp.content == old_bytes
 
 
 def test_graph_nodes_report_has_logo_from_the_cache_only(client):

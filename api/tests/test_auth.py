@@ -73,6 +73,33 @@ def test_auth_off_switch_disables_check(home, monkeypatch):
         assert client.get("/status").status_code == 200
 
 
+def test_cors_allows_loopback_origins_only(home):
+    """A local-only backend has no business echoing `*`: any page the user has
+    open could otherwise script requests at localhost:8000 (provider keys,
+    logout, memory writes). Native clients send no Origin and are unaffected."""
+    with TestClient(main.app) as client:
+        for origin in ("http://localhost:5173", "http://127.0.0.1:8000", "https://localhost"):
+            resp = client.get("/healthz", headers={"Origin": origin})
+            assert resp.headers.get("access-control-allow-origin") == origin, origin
+
+        for origin in ("https://evil.example", "http://localhost.evil.example",
+                       "http://notlocalhost:8000"):
+            resp = client.get("/healthz", headers={"Origin": origin})
+            assert "access-control-allow-origin" not in resp.headers, origin
+
+
+def test_cors_preflight_still_allows_the_bearer_header_from_loopback(home):
+    with TestClient(main.app) as client:
+        resp = client.options("/status", headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization",
+        })
+        assert resp.status_code == 200
+        assert resp.headers["access-control-allow-origin"] == "http://localhost:5173"
+        assert "authorization" in resp.headers["access-control-allow-headers"].lower()
+
+
 def test_capture_telegram_is_exempt_from_bearer_check(home):
     """Telegram's servers POST this webhook through a public tunnel and cannot
     send our bearer header, so it's in ``_OPEN_PATHS`` — gated only by its own
