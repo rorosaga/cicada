@@ -6,6 +6,11 @@ import XCTest
 /// preview endpoint.
 final class ImportOverlayTests: XCTestCase {
 
+    override func tearDown() {
+        MockURLProtocol.handler = nil
+        super.tearDown()
+    }
+
     // MARK: - Wire decoding
 
     func testPreviewDecodesTheBackendEnvelope() throws {
@@ -132,5 +137,94 @@ final class ImportOverlayTests: XCTestCase {
         let paths = Set(WalkthroughVendor.allCases.map(\.stepPath))
         XCTAssertEqual(paths.count, WalkthroughVendor.allCases.count,
                        "two vendors share a step path")
+    }
+
+    // MARK: - Network — APIClient.previewSource / uploadSource (G71 fix round 1, M3)
+    //
+    // Injected-session pattern from EntitySourceTests.swift: `MockURLProtocol`
+    // intercepts every request on a dedicated `URLSession`, so these assert
+    // exactly what hits the wire without ever touching a real backend.
+
+    private static func writeTempExportFile(named name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString)-\(name)")
+        try Data("{}".utf8).write(to: url)
+        return url
+    }
+
+    func testPreviewSourceRequestsPreviewTrueAndOmitsIncludeHistoryByDefault() async throws {
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/sources/upload")
+            XCTAssertEqual(request.url?.query, "preview=true")
+            let body = """
+            {"recognized": true, "platform": "instagram", "total": 1, "collections": [], "warnings": []}
+            """.data(using: .utf8)!
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                            httpVersion: nil, headerFields: nil)!
+            return (response, body)
+        }
+
+        let file = try Self.writeTempExportFile(named: "saved_posts.json")
+        let preview = try await APIClient(session: MockURLProtocol.makeSession())
+            .previewSource(fileURL: file)
+
+        XCTAssertTrue(preview.recognized)
+    }
+
+    func testPreviewSourceCarriesIncludeHistoryWhenToggled() async throws {
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.query, "preview=true&include_history=true")
+            let body = """
+            {"recognized": true, "platform": "tiktok", "total": 1, "collections": [], "warnings": []}
+            """.data(using: .utf8)!
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                            httpVersion: nil, headerFields: nil)!
+            return (response, body)
+        }
+
+        let file = try Self.writeTempExportFile(named: "user_data.json")
+        _ = try await APIClient(session: MockURLProtocol.makeSession())
+            .previewSource(fileURL: file, includeHistory: true)
+    }
+
+    /// H2's regression test: Confirm must re-post the SAME file without ever
+    /// repeating `preview=true`, and it must carry whatever `includeHistory`
+    /// the preview was shown under.
+    func testUploadSourceOmitsThePreviewFlagAndCarriesIncludeHistory() async throws {
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/sources/upload")
+            let query = request.url?.query ?? ""
+            XCTAssertFalse(query.contains("preview"), "Confirm must not repeat the preview flag")
+            XCTAssertEqual(query, "include_history=true")
+            let body = """
+            {"status":"ok","episodesCreated":3,"episodesUpdated":0,"duplicatesSkipped":0,"message":"","source":"TikTok"}
+            """.data(using: .utf8)!
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                            httpVersion: nil, headerFields: nil)!
+            return (response, body)
+        }
+
+        let file = try Self.writeTempExportFile(named: "user_data.json")
+        let result = try await APIClient(session: MockURLProtocol.makeSession())
+            .uploadSource(fileURL: file, includeHistory: true)
+
+        XCTAssertEqual(result.episodesCreated, 3)
+    }
+
+    func testUploadSourceHasNoQueryAtAllWhenIncludeHistoryIsFalse() async throws {
+        MockURLProtocol.handler = { request in
+            XCTAssertNil(request.url?.query)
+            let body = """
+            {"status":"ok","episodesCreated":1,"episodesUpdated":0,"duplicatesSkipped":0,"message":"","source":"Instagram Saved"}
+            """.data(using: .utf8)!
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                            httpVersion: nil, headerFields: nil)!
+            return (response, body)
+        }
+
+        let file = try Self.writeTempExportFile(named: "saved_posts.json")
+        _ = try await APIClient(session: MockURLProtocol.makeSession()).uploadSource(fileURL: file)
     }
 }

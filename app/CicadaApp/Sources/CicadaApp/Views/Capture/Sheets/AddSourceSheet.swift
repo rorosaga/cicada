@@ -170,6 +170,18 @@ struct AddSourceSheet: View {
     @State private var removingCalendar: String?
     @State private var stage: ImportStage = .idle
     @State private var includeHistory = false
+    /// The in-flight preview/import network Task, if any. Cancelled — not
+    /// just abandoned — whenever a newer one supersedes it (G71 fix round 1,
+    /// H1): a bare, unstored `Task {}` keeps running after `collapse()`, and
+    /// its late response would otherwise overwrite whichever flow the user
+    /// has since opened.
+    @State private var importTask: Task<Void, Never>?
+    /// Bumped every time `preview()`/`confirmImport()` starts a new request
+    /// and every time `collapse()` tears one down. A response is only ever
+    /// applied to `stage` if its captured generation still matches this one
+    /// — belt-and-suspenders alongside `importTask` cancellation for the
+    /// case where cancellation doesn't land before the response does.
+    @State private var importGeneration = 0
 
     private var feeds: [FeedSubscription] { store.feeds.value ?? [] }
     private var calendars: [CalendarSubscription] { store.calendars.value ?? [] }
@@ -262,6 +274,12 @@ struct AddSourceSheet: View {
         result = nil
         expanded = nil
         stage = .idle
+        // H1: cancel the in-flight request AND bump the generation, so a
+        // response already past its cancellation checkpoint still can't land
+        // on the next flow's `stage`.
+        importTask?.cancel()
+        importTask = nil
+        importGeneration += 1
     }
 
     private var header: some View {
@@ -583,30 +601,57 @@ struct AddSourceSheet: View {
         preview(url)
     }
 
+    /// Cancels any prior in-flight preview/import and mints a new generation
+    /// token before launching under it (G71 fix round 1, H1) — a response
+    /// captured under an older generation is dropped rather than applied to
+    /// `stage`, whether it lands after `collapse()` or after a newer drop on
+    /// the SAME flow superseded it.
+    private func startImportTask(_ work: @escaping (Int) async -> Void) {
+        importTask?.cancel()
+        importGeneration += 1
+        let generation = importGeneration
+        importTask = Task {
+            await work(generation)
+        }
+    }
+
     private func preview(_ url: URL) {
         stage = .parsing(url.lastPathComponent)
-        Task {
+        startImportTask { generation in
             do {
                 let result = try await APIClient.shared.previewSource(
                     fileURL: url, includeHistory: includeHistory)
-                stage = ImportOverlayState.afterPreview(result, file: url)
+                guard generation == self.importGeneration else { return }
+                self.stage = ImportOverlayState.afterPreview(result, file: url)
             } catch {
-                stage = .failed(Self.friendlyError(error))
+                guard generation == self.importGeneration else { return }
+                self.stage = .failed(Self.friendlyError(error))
             }
         }
     }
 
-    /// Confirm re-posts the SAME file without the preview flag. Nothing is
-    /// cached server-side: a preview that stages nothing must not stage bytes.
+    /// Confirm re-posts the SAME file without the preview flag, carrying the
+    /// same `includeHistory` toggle the preview was shown under (G71 fix
+    /// round 1, H2) — otherwise the real import's counts can silently
+    /// disagree with what the preview promised. Nothing is cached
+    /// server-side: a preview that stages nothing must not stage bytes.
+    ///
+    /// Guards against a double-tap firing two imports (M4): once `stage` has
+    /// left `.preview`, a repeat activation is a no-op rather than a second
+    /// upload.
     private func confirmImport(_ url: URL) {
+        guard case .preview = stage else { return }
         stage = .importing
-        Task {
+        startImportTask { generation in
             do {
-                let response = try await APIClient.shared.uploadSource(fileURL: url)
-                stage = .done(ImportOverlayState.summary(response))
-                await store.refresh([.channels, .status, .sources])
+                let response = try await APIClient.shared.uploadSource(
+                    fileURL: url, includeHistory: self.includeHistory)
+                await self.store.refresh([.channels, .status, .sources])
+                guard generation == self.importGeneration else { return }
+                self.stage = .done(ImportOverlayState.summary(response))
             } catch {
-                stage = .failed(Self.friendlyError(error))
+                guard generation == self.importGeneration else { return }
+                self.stage = .failed(Self.friendlyError(error))
             }
         }
     }

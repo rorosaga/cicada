@@ -1128,8 +1128,14 @@ actor APIClient {
 
     /// Upload a single source file (bookmarks HTML/JSON, Takeout) to
     /// `POST /sources/upload`. Multipart, same envelope as conversation upload.
-    func uploadSource(fileURL: URL) async throws -> UploadResponse {
-        return try await uploadMultipart(path: "/sources/upload", fileURL: fileURL)
+    ///
+    /// `includeHistory` mirrors `previewSource`'s flag (G71 fix round 1, H2):
+    /// Confirm must carry whatever toggle state the preview was shown under,
+    /// or the real import's counts can silently disagree with what the
+    /// preview promised.
+    func uploadSource(fileURL: URL, includeHistory: Bool = false) async throws -> UploadResponse {
+        let query = includeHistory ? "?include_history=true" : ""
+        return try await uploadMultipart(path: "/sources/upload" + query, fileURL: fileURL)
     }
 
     /// Fetch the saved-media feed (`GET /sources`). `sort` is `relevance` (the
