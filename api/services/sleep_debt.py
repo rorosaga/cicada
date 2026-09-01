@@ -9,14 +9,20 @@ numbers come out of this, both driven off the same raw inputs:
   Falls as episodes pile up AND as the oldest one waits longer, whichever is
   worse. Never a black box: ``volume_pct``/``age_pct`` are the two
   components it's built from, and both are exposed alongside it.
-- Progress, DURING a cycle, is deliberately NOT computed here — it's already
-  a straight ``episodes_processed / episodes_total`` of ``SleepState``
-  (see ``api/routers/sleep.py`` / ``api/routers/sync.py``), which needs no
-  filesystem or git read at all.
+- Progress, DURING a cycle, is deliberately NOT computed here — it's
+  ``sleep_cycle.progress_pct``, live "episodes processed / episodes in this
+  cycle" scoped to Stage 1 (``SleepState.stage1_progress`` /
+  ``episodes_total`` — see that function's own docstring for why it's
+  Stage-1-only), not a whole-cycle ``episodes_processed`` count (that field
+  stays 0 until Stage 5 has already written and committed, so it can't
+  report anything live). Needs no filesystem or git read at all — see
+  ``api/routers/sleep.py`` / ``api/routers/sync.py``.
 
 No LLM call, no `claude` spawn, no litellm — this is pure filesystem
 frontmatter (via the already-cached ``bank_index``) plus one bounded git-log
-read. Safe to compute on every ``/sleep/status`` request and every SSE tick.
+read, itself cached and invalidated only on a git-HEAD change (see
+``_last_cycle_at``) rather than re-run on every call. Safe to compute on
+every ``/sleep/status`` request and every SSE tick.
 """
 from __future__ import annotations
 
@@ -25,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from api.config import Settings
-from api.services import bank_index, git_service
+from api.services import bank_index, git_service, sync_service
 
 # Reference points the two debt components are measured against.
 # Deliberately simple, round numbers — legibility over precision; both are
@@ -36,11 +42,13 @@ from api.services import bank_index, git_service
 # it — one old episode is enough to matter.
 AGE_REFERENCE_HOURS = 72.0
 
-# Default episode-cap fallback, mirrored from `Settings.
-# sleep_max_episodes_per_cycle` / `sleep_cycle.DEFAULT_EPISODE_CAP` — used as
-# `volume_pct`'s reference (one full cycle's worth of episodes = "fully
-# behind" on volume) when `settings` doesn't carry the field.
-DEFAULT_VOLUME_REFERENCE = 25
+# Default episode-cap fallback, used as `volume_pct`'s reference (one full
+# cycle's worth of episodes = "fully behind" on volume) when `settings`
+# doesn't carry the field. Review fix (L5): reflected off `Settings`'s own
+# field default — the SAME expression `sleep_cycle.DEFAULT_EPISODE_CAP`
+# uses — rather than a separate hardcoded `25` that could silently drift
+# from the real cap if only `api/config.py` were ever changed.
+DEFAULT_VOLUME_REFERENCE: int = Settings.model_fields["sleep_max_episodes_per_cycle"].default
 
 
 @dataclass
@@ -97,13 +105,27 @@ def rested_pct_from_components(
 
 
 def _parse_episode_timestamp(raw: str) -> datetime | None:
-    """Episode timestamps are naive local time throughout this codebase
-    (``datetime.now().isoformat()`` at capture, no explicit tz) — parsed the
-    same way here so age math never silently applies a spurious UTC offset."""
+    """Episode timestamps on disk are NOT one shape: MCP capture writes naive
+    local time (``datetime.now().isoformat()``, no explicit tz), but imports
+    and other sources write ``Z``-suffixed UTC. Both must compare correctly
+    against ``datetime.now()`` (naive local) in ``_count_and_oldest``.
+
+    Review fix (M1): this used to do ``raw.replace("Z", "")`` before
+    ``fromisoformat`` — which defeated Python 3.11+'s native ``Z`` handling
+    and silently discarded the UTC marker, so a ``...Z`` timestamp was read
+    as naive *local* time. Verified empirically: a just-captured ``Z``
+    episode reported ``age_hours == 2.00`` (a UTC+2 machine's own offset)
+    instead of ~0. Fixed by letting ``fromisoformat`` parse the offset for
+    real, then converting AWARE results down to local-naive via
+    ``astimezone().replace(tzinfo=None)`` — the exact pattern
+    ``_last_cycle_at`` below already uses correctly for git's own
+    always-offset commit dates; this function was the one place still doing
+    it wrong.
+    """
     if not raw:
         return None
     try:
-        dt = datetime.fromisoformat(raw.replace("Z", ""))
+        dt = datetime.fromisoformat(raw)
     except ValueError:
         return None
     if dt.tzinfo is not None:
@@ -134,6 +156,21 @@ def _count_and_oldest(memory_path: Path, *, now: datetime) -> tuple[int, float |
     return count, oldest_hours
 
 
+# Review fix (M2): `_last_cycle_at` used to run an uncached `git log`
+# subprocess on EVERY call — and `compute()` runs on every `/sleep/status`
+# request AND every 1s SSE tick, per connected client. `rested_pct` can only
+# move roughly once every 43 minutes at the fastest (1% of
+# AGE_REFERENCE_HOURS = 72h), so a subprocess spawn per second to answer a
+# question whose answer is almost always identical to the last one was pure
+# waste. `sync_service.git_head` (already on the `/sync/version` hot path —
+# a `.git/HEAD` file read, no subprocess) changes if and only if a NEW
+# commit lands, which is the exact and only event that can change this
+# answer — so keying the cache on it is exact, never a time-based
+# approximation that could show a stale answer past a real new commit.
+# One entry per bank; unbounded but trivially small (a handful of banks).
+_last_cycle_cache: dict[str, tuple[str, datetime | None]] = {}
+
+
 async def _last_cycle_at(memory_path: Path) -> datetime | None:
     """The most recent REAL Sleep-cycle commit's local-naive timestamp.
 
@@ -144,15 +181,33 @@ async def _last_cycle_at(memory_path: Path) -> datetime | None:
     commit at the same timestamp, so excluding it never loses information).
     ``None`` if Sleep has never produced a real cycle commit in this bank —
     including a bank with no ``.git`` at all.
+
+    Cached (M2 above), invalidated only when ``git_head`` changes — never a
+    stand-alone TTL, so a real new commit is always visible on the very next
+    call, not up to N minutes later.
     """
     if not (memory_path / ".git").exists():
         return None
+
+    key = str(memory_path)
+    head = sync_service.git_head(memory_path)
+    cached = _last_cycle_cache.get(key)
+    if cached is not None and cached[0] == head:
+        return cached[1]
+
+    result = await _read_last_cycle_from_git(memory_path)
+    _last_cycle_cache[key] = (head, result)
+    return result
+
+
+async def _read_last_cycle_from_git(memory_path: Path) -> datetime | None:
+    """The actual (uncached) ``git log`` read ``_last_cycle_at`` caches."""
     sep, rec = "\x1f", "\x1e"
     try:
         # Bounded scan: the most recent real cycle is virtually always within
         # the last handful of commits; 200 comfortably covers a bank that has
         # gone quiet for a long stretch without scanning the entire history
-        # of a mature repo on every SSE tick.
+        # of a mature repo on every cache miss.
         output = await git_service._run_git(
             memory_path, "log", "-n", "200", f"--format=%aI{sep}%s{rec}",
         )

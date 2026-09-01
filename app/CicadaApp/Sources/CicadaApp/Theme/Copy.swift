@@ -73,9 +73,18 @@ enum Copy {
     /// What tapping Cancel actually does — cooperative, not instant, nothing
     /// lost. Shown as both a caption on the Sleep page and the cancel
     /// button's tooltip.
+    ///
+    /// Review fix L4: the backend's structural tail (logo warm-up, connector
+    /// poll, question refresh) still runs after a cancel is acknowledged —
+    /// correct (spec: it runs on every exit path, cancel included, no
+    /// regressions) but means "Cancelling…" can outlast the cycle itself by
+    /// a few seconds. Said plainly rather than left for the user to wonder
+    /// why the button didn't clear the instant the cycle stopped.
     static let cancelSleepExplainer =
         "Stops at the next safe point — never mid-write. Nothing is lost: any "
-        + "episodes not yet consolidated stay queued for the next cycle."
+        + "episodes not yet consolidated stay queued for the next cycle. A few "
+        + "housekeeping checks (logos, connectors) can still run right after, "
+        + "so \"Cancelling…\" may stay up a few seconds longer than expected."
 
     /// Pause/resume the nightly auto-run schedule — the third quick control
     /// on the Sleep page (alongside run + cancel). The full time editor

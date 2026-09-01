@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 
-from api.services import markdown_parser, predicates, sleep_debt
+from api.services import git_service, markdown_parser, predicates, sleep_debt
 
 
 # --------------------------------------------------------------------------- #
@@ -107,12 +107,68 @@ def _init_bank(tmp_path):
 
 
 def _write_episode(memory, ep_id, *, hours_ago: float, processed: bool = False):
-    ts = (datetime.now() - timedelta(hours=hours_ago)).isoformat()
+    """`Z`-suffixed UTC — the realistic on-disk shape (review M1): the live
+    bank's actual episodes use this format, not naive local time. The
+    ORIGINAL version of this fixture wrote `datetime.now().isoformat()`
+    (naive local) and so encoded the exact same wrong assumption
+    `_parse_episode_timestamp` made — which is why the M1 timezone bug
+    shipped with a green test suite. Every test below now exercises the
+    real bug path.
+    """
+    ts = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
     markdown_parser.write(
         memory / "episodes" / f"{ep_id}.md",
         {"id": ep_id, "processed": processed, "source": "mcp", "timestamp": ts},
         f"Episode {ep_id} body.",
     )
+
+
+# --------------------------------------------------------------------------- #
+# M1 regression: Z-suffixed UTC timestamps must not be misread as local time
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_episode_timestamp_reads_z_suffix_as_utc_not_naive_local():
+    """The bug, directly: the old code did `raw.replace("Z", "")` before
+    `fromisoformat`, discarding the UTC marker so a `...Z` timestamp was
+    parsed as naive LOCAL time — on a machine east of UTC (CEST, say) a
+    just-captured episode reported hours old. The fix must produce a value
+    that, compared against local `now()`, reads as "now" — not the same
+    digits with `Z` merely stripped, which would drift by the local UTC
+    offset (0 only by coincidence, e.g. on a UTC machine)."""
+    now_utc = datetime.now(timezone.utc)
+    z_ts = now_utc.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+
+    parsed = sleep_debt._parse_episode_timestamp(z_ts)
+
+    assert parsed is not None
+    assert abs((parsed - datetime.now()).total_seconds()) < 5, (
+        f"parsed {parsed} should read as ~now in LOCAL time, not now()'s "
+        f"UTC digits taken as-is"
+    )
+
+
+def test_a_just_written_z_suffixed_episode_reports_near_zero_age(tmp_path):
+    """End to end, through `compute()`: this is the exact assertion that
+    would have caught M1 before it shipped — the original fixture wrote
+    naive-local timestamps, which never exercised the `Z` code path at all."""
+    memory = _init_bank(tmp_path)
+    _write_episode(memory, "ep_just_now", hours_ago=0.0)
+
+    debt = asyncio.run(sleep_debt.compute(memory, SimpleNamespace()))
+
+    assert debt.oldest_unprocessed_age_hours is not None
+    assert debt.oldest_unprocessed_age_hours == pytest.approx(0.0, abs=0.05)
+    assert debt.age_pct == 0
+
+
+def test_parse_episode_timestamp_still_handles_naive_local_input():
+    """MCP capture writes naive local time (`datetime.now().isoformat()`,
+    no explicit tz) — the OTHER real on-disk shape. Must pass through
+    unchanged rather than being (wrongly) assumed UTC."""
+    naive = datetime.now().replace(microsecond=0)
+    parsed = sleep_debt._parse_episode_timestamp(naive.isoformat())
+    assert parsed == naive
 
 
 def test_compute_on_a_never_run_empty_bank_has_no_baseline(tmp_path):
@@ -200,6 +256,68 @@ def test_compute_accepts_settings_none(tmp_path):
     predicates.install_predicate_map(memory)
     debt = asyncio.run(sleep_debt.compute(memory, None))
     assert debt.unprocessed_count == 0
+
+
+# --------------------------------------------------------------------------- #
+# M2: `_last_cycle_at`'s git-log read is cached, invalidated on HEAD change
+# --------------------------------------------------------------------------- #
+
+
+def _spy_on_run_git(monkeypatch):
+    calls = {"n": 0}
+    orig = git_service._run_git
+
+    async def counting(*args, **kwargs):
+        calls["n"] += 1
+        return await orig(*args, **kwargs)
+
+    monkeypatch.setattr(git_service, "_run_git", counting)
+    return calls
+
+
+def test_last_cycle_at_spawns_git_only_once_across_repeated_calls(tmp_path, monkeypatch):
+    """review M2: a `git log` subprocess on every call — the SSE loop calls
+    `compute()` once a second, per connected client — was pure waste, since
+    `rested_pct` can only move roughly once every 43 minutes. HEAD unchanged
+    between calls must mean zero additional subprocess spawns."""
+    memory = _init_bank(tmp_path)
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "--allow-empty", "-q", "-m", "Sleep cycle 2026-08-30")
+    calls = _spy_on_run_git(monkeypatch)
+
+    first = asyncio.run(sleep_debt._last_cycle_at(memory))
+    after_first = calls["n"]
+    assert after_first >= 1, "the first call must actually read git"
+
+    second = asyncio.run(sleep_debt._last_cycle_at(memory))
+    third = asyncio.run(sleep_debt.compute(memory, SimpleNamespace()))
+
+    assert calls["n"] == after_first, (
+        f"expected no additional git log spawns with HEAD unchanged "
+        f"({after_first} -> {calls['n']})"
+    )
+    assert second == first
+    assert third.hours_since_last_cycle is not None
+
+
+def test_last_cycle_at_recomputes_after_a_new_commit_lands(tmp_path, monkeypatch):
+    """The cache must never show a stale answer past a REAL new commit —
+    keyed on `git_head`, not a time-based TTL, so this is exact rather than
+    an approximation that could lag."""
+    memory = _init_bank(tmp_path)
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "--allow-empty", "-q", "-m", "Sleep cycle 2026-08-30")
+    calls = _spy_on_run_git(monkeypatch)
+
+    first = asyncio.run(sleep_debt._last_cycle_at(memory))
+    after_first = calls["n"]
+
+    _git(memory, "commit", "--allow-empty", "-q", "-m", "Sleep cycle 2026-08-31")
+    second = asyncio.run(sleep_debt._last_cycle_at(memory))
+
+    assert calls["n"] > after_first, "a new commit must trigger a fresh read"
+    assert second is not None and first is not None
+    assert second >= first, "the newer commit's timestamp must win"
 
 
 # --------------------------------------------------------------------------- #

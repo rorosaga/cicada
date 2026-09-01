@@ -107,6 +107,15 @@ final class SleepViewModel {
 
     var isRunning: Bool { status?.status == "running" }
 
+    /// Review fix L2: `cancelRequested` (above) is this CLIENT's own tap —
+    /// instant feedback with no network round-trip, but blind to a cancel
+    /// requested by another client, or one already in flight before this
+    /// app instance started or reconnected. `status?.cancelRequested` is
+    /// the server's own authoritative flag. ORing them means whichever one
+    /// knows first wins — never stuck disagreeing with the server the way
+    /// reading only the local flag could.
+    var isCancelling: Bool { cancelRequested || (status?.cancelRequested ?? false) }
+
     var progressFraction: Double {
         guard let s = status, s.totalStages > 0 else { return 0 }
         return min(1.0, Double(s.stage) / Double(s.totalStages))
@@ -204,7 +213,12 @@ final class SleepViewModel {
     /// for `isRunning` to gate this call) is what observes and reports the
     /// eventual running -> idle edge, exactly like a normal completion.
     func cancel() async {
-        guard isRunning, !cancelRequested else { return }
+        // `isCancelling`, not the bare local flag: a cancel already known to
+        // the server (another client, or one already in flight before this
+        // instance connected) must also short-circuit a redundant POST —
+        // the request is idempotent server-side, but there is nothing to gain
+        // from sending it again.
+        guard isRunning, !isCancelling else { return }
         cancelRequested = true
         do {
             _ = try await requestCancel()

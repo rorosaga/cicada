@@ -159,12 +159,12 @@ struct SleepQueueCard: View {
             Task { await sleepVM.cancel() }
         } label: {
             HStack(spacing: 4) {
-                if sleepVM.cancelRequested {
+                if sleepVM.isCancelling {
                     ProgressView().controlSize(.small).frame(width: 10, height: 10)
                 } else {
                     Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
                 }
-                Text(sleepVM.cancelRequested ? Copy.cancellingSleep : Copy.cancelSleep)
+                Text(sleepVM.isCancelling ? Copy.cancellingSleep : Copy.cancelSleep)
                     .font(.system(size: 12, weight: .semibold))
             }
             .foregroundStyle(CicadaTheme.textSecondary)
@@ -174,7 +174,7 @@ struct SleepQueueCard: View {
             .clipShape(Capsule())
         }
         .buttonStyle(.cicadaPlain)
-        .disabled(sleepVM.cancelRequested)
+        .disabled(sleepVM.isCancelling)
         .help(Copy.cancelSleepExplainer)
         .accessibilityLabel(Copy.cancelSleep)
     }

@@ -5,6 +5,17 @@ import SwiftUI
 /// amendment) so the Sleep debt breakdown's per-source grouping can reuse
 /// the exact same iconography instead of re-declaring its own switch
 /// statements that would inevitably drift from this one.
+///
+/// `label(for:)`'s cases for every id `OriginPill` already handled before
+/// this extraction are byte-for-byte what it returned — including
+/// `reddit-saved` ("Reddit Saved") and `x-bookmarks` ("X Bookmarks"), both
+/// deliberate, already-reviewed choices (the G71 final-review M2 fix that
+/// first added them) an earlier pass of this extraction briefly shortened
+/// to "Reddit"/"X" by mistake; restored here (review M3). The bare
+/// `"reddit"`/`"x"` cases are NEW, defensive aliases this extraction added
+/// — no real episode ever carries them (connector-authored episodes use
+/// the `-saved`/`-bookmarks` forms) — and get their own, intentionally
+/// shorter labels since they aren't standing in for an existing behavior.
 enum OriginIconography {
     static func label(for origin: String) -> String {
         switch origin {
@@ -26,13 +37,16 @@ enum OriginIconography {
         case "instagram-saved": "Instagram Saved"
         case "youtube-playlist": "YouTube Playlist"
         case "pinterest": "Pinterest"
-        case "reddit-saved", "reddit": "Reddit"
-        case "x-bookmarks", "x": "X"
+        case "reddit-saved": "Reddit Saved"
+        case "x-bookmarks": "X Bookmarks"
         case "linkedin-saved": "LinkedIn Saved"
         case "tiktok-saved": "TikTok Saved"
         case "tiktok-history": "TikTok History"
         case "bookmark": "Bookmark"
         case "unknown": "Unknown"
+        // Defensive aliases only — see the type doc above.
+        case "reddit": "Reddit"
+        case "x": "X"
         default: origin.capitalized
         }
     }

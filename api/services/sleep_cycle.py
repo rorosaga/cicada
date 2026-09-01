@@ -97,9 +97,13 @@ _lock = asyncio.Lock()
 
 # Default episode cap when `settings` doesn't carry
 # `sleep_max_episodes_per_cycle` (e.g. a `SimpleNamespace` stand-in in an
-# older test). Mirrors `Settings.sleep_max_episodes_per_cycle`'s own default
-# and rationale — see api/config.py.
-DEFAULT_EPISODE_CAP = 25
+# older test). Review fix (L5): reflected off `Settings`'s own field default
+# rather than a THIRD hardcoded `25` (the other two: `Settings.
+# sleep_max_episodes_per_cycle` itself in api/config.py, and `sleep_debt.
+# DEFAULT_VOLUME_REFERENCE`, the same fallback for the same reason) — one
+# literal, defined once, so changing the real cap can never silently desync
+# a fallback used elsewhere from it. See api/config.py for the rationale.
+DEFAULT_EPISODE_CAP: int = Settings.model_fields["sleep_max_episodes_per_cycle"].default
 
 
 def get_sleep_state() -> SleepState:

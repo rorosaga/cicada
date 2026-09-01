@@ -16,11 +16,14 @@ final class SleepViewModelTests: XCTestCase {
     /// Builds a `SleepStatusResponse` fixture. The type has no memberwise
     /// init (only `Codable`'s `init(from:)`), so fixtures are constructed by
     /// round-tripping through JSON.
-    private func sleepStatus(status: String, stage: Int, totalStages: Int = 5) throws -> SleepStatusResponse {
+    private func sleepStatus(
+        status: String, stage: Int, totalStages: Int = 5, cancelRequested: Bool = false
+    ) throws -> SleepStatusResponse {
         let json = """
         {"status":"\(status)","cycleId":"c1","startedAt":null,"progress":null,"error":null,
          "indexWarning":null,"stage":\(stage),"totalStages":\(totalStages),"episodesTotal":0,
-         "entitiesCreated":0,"entitiesUpdated":0,"relationshipsCreated":0,"skillsDetected":0}
+         "entitiesCreated":0,"entitiesUpdated":0,"relationshipsCreated":0,"skillsDetected":0,
+         "cancelRequested":\(cancelRequested)}
         """
         return try JSONDecoder().decode(SleepStatusResponse.self, from: Data(json.utf8))
     }
@@ -300,5 +303,68 @@ final class SleepViewModelTests: XCTestCase {
 
         try await Task.sleep(for: .seconds(3))   // past the idle tick; loop closes out
         XCTAssertFalse(vm.cancelRequested, "must clear once the cycle is actually observed stopped")
+    }
+
+    // MARK: isCancelling — review fix L2 (local flag disagreed with the server's own)
+
+    /// The bug L2 named: `SleepQueueCard` used to read only the local
+    /// `cancelRequested` flag, which is blind to a cancel the SERVER
+    /// already knows about (another client, or a cancel already in flight
+    /// before this app instance connected/restarted). `isCancelling` ORs
+    /// the two so the button is never stuck disagreeing with the server.
+    func test_isCancelling_isTrueFromServerState_evenWithoutALocalTap() async throws {
+        let store = idleStore()
+        let vm = SleepViewModel(store: store, fetchSleepStatus: { try self.sleepStatus(status: "running", stage: 2) })
+        vm.status = try sleepStatus(status: "running", stage: 2, cancelRequested: true)
+
+        XCTAssertTrue(vm.isCancelling)
+        XCTAssertFalse(vm.cancelRequested, "the LOCAL flag stays false — this is purely the server's own state")
+    }
+
+    func test_isCancelling_isTrueFromTheLocalTap_evenBeforeTheServerConfirms() async throws {
+        let store = idleStore()
+        let cancel: () async throws -> SleepCancelResponse = {
+            SleepCancelResponse(status: "cancelling", message: "stopping", cycleId: "c1")
+        }
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "running", stage: 2) },
+            requestCancel: cancel
+        )
+        vm.status = try sleepStatus(status: "running", stage: 2, cancelRequested: false)
+
+        await vm.cancel()
+
+        XCTAssertTrue(vm.isCancelling)
+    }
+
+    func test_isCancelling_isFalse_whenNeitherLocalNorServerReportsIt() async throws {
+        let store = idleStore()
+        let vm = SleepViewModel(store: store, fetchSleepStatus: { try self.sleepStatus(status: "running", stage: 2) })
+        vm.status = try sleepStatus(status: "running", stage: 2, cancelRequested: false)
+
+        XCTAssertFalse(vm.isCancelling)
+    }
+
+    /// `cancel()` must not send a redundant request when the server ALREADY
+    /// reports one pending — the request is idempotent server-side, but
+    /// there's nothing to gain from sending it again.
+    func test_cancel_sendsNoRedundantRequest_whenServerAlreadyReportsCancelling() async throws {
+        let store = idleStore()
+        var cancelCalls = 0
+        let cancel: () async throws -> SleepCancelResponse = {
+            cancelCalls += 1
+            return SleepCancelResponse(status: "cancelling", message: "stopping", cycleId: "c1")
+        }
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "running", stage: 2) },
+            requestCancel: cancel
+        )
+        vm.status = try sleepStatus(status: "running", stage: 2, cancelRequested: true)
+
+        await vm.cancel()
+
+        XCTAssertEqual(cancelCalls, 0)
     }
 }

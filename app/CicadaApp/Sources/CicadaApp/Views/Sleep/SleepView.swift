@@ -359,6 +359,18 @@ struct SleepView: View {
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            // Review fix L1/L4: `cancelled`/`episodeCap`/`episodesQueued` were
+            // decoded but read by no view — only the free-text `progress`
+            // sentence mentioned either. Both get a real, structured
+            // readout here rather than depending on the human sitting there
+            // to parse a sentence.
+            if sleepVM.status?.cancelled == true {
+                cancelledBanner
+            }
+            if let s = sleepVM.status, s.episodesQueued > s.episodesTotal {
+                capBanner(processed: s.episodesTotal, queued: s.episodesQueued, cap: s.episodeCap)
+            }
+
             // Non-fatal warnings (e.g. LEANN episode index rebuild failed
             // even though entity writes + commit succeeded). Surfaced so a
             // "completed with warnings" cycle never looks like a clean pass.
@@ -367,7 +379,11 @@ struct SleepView: View {
             }
 
             HStack(spacing: CicadaTheme.spacingMD) {
-                counterChip(label: "Episodes", value: sleepVM.status?.episodesTotal ?? 0)
+                counterChip(
+                    label: "Episodes",
+                    value: sleepVM.status?.episodesTotal ?? 0,
+                    caption: episodesCaption
+                )
                 counterChip(
                     label: "Entities",
                     value: (sleepVM.status?.entitiesCreated ?? 0)
@@ -385,7 +401,67 @@ struct SleepView: View {
         .glassCard()
     }
 
-    private func counterChip(label: String, value: Int) -> some View {
+    /// "25 of 230" under the Episodes chip when the cap truncated this
+    /// cycle — `nil` (chip shows just the count, as before) otherwise.
+    private var episodesCaption: String? {
+        guard let s = sleepVM.status, s.episodesQueued > s.episodesTotal else { return nil }
+        return "of \(s.episodesQueued) queued"
+    }
+
+    /// Episode cap (sleep control) truncated this cycle — informational,
+    /// not a warning: the cap is a deliberate safety feature (spec: bound
+    /// one cycle's wall-clock instead of an unbounded first run), and the
+    /// remaining episodes are simply picked up next cycle, nothing lost.
+    private func capBanner(processed: Int, queued: Int, cap: Int) -> some View {
+        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+            Image(systemName: "tray.and.arrow.down")
+                .font(.system(size: 12))
+                .foregroundStyle(CicadaTheme.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Episode cap reached (\(cap))")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text("\(processed) of \(queued) processed — the rest stay queued for the next cycle.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Spacer()
+        }
+        .padding(CicadaTheme.spacingSM)
+        .frame(maxWidth: .infinity)
+        .background(CicadaTheme.accent.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+    }
+
+    /// The last cycle stopped early because of a `/sleep/cancel` request
+    /// (as opposed to completing normally, or a cancel that arrived too
+    /// late to matter — see `sleep_cycle._cycle_cancelled`). Informational
+    /// tone, matching `Copy.cancelSleepExplainer`'s own promise: nothing
+    /// was lost.
+    private var cancelledBanner: some View {
+        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+            Image(systemName: "xmark.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(CicadaTheme.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Cancelled")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text("Stopped cleanly before any writes — nothing was lost.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Spacer()
+        }
+        .padding(CicadaTheme.spacingSM)
+        .frame(maxWidth: .infinity)
+        .background(CicadaTheme.accent.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+    }
+
+    private func counterChip(label: String, value: Int, caption: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label.uppercased())
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
@@ -396,6 +472,11 @@ struct SleepView: View {
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .contentTransition(.numericText())
                 .animation(.easeInOut(duration: 0.3), value: value)
+            if let caption {
+                Text(caption)
+                    .font(.system(size: 9))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
