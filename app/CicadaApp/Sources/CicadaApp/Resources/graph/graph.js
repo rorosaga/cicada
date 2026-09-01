@@ -151,7 +151,12 @@ let filters = {
     statuses: null,     // null = all except dropped; otherwise Set<string>
     minConfidence: 0,
     tags: null,         // null/empty = no tag filter; otherwise Set<string>
-    minDegree: 1,       // default drops only fully isolated nodes
+    // G84a: must agree with Swift's default (GraphFilter.swift `minDegree = 0`).
+    // This used to default to 1 here while Swift defaulted to 0, so the very
+    // first cold paint (before Swift's applyFilters push landed) ran on this
+    // stricter default and dropped every zero-degree node until the user
+    // touched any filter control. Now both start at "show isolated nodes."
+    minDegree: 0,
     contexts: null,     // null = all contexts; otherwise Set<string> — DROPS non-matching edges/facets
     observers: null,    // null = all observers; otherwise Set<string> — DIMS non-matching nodes (kept visible)
     // G59: draw cached brand marks inside the node discs. Off by default —
@@ -203,6 +208,19 @@ let draggingNode = null;
 let pressStart = null;          // { x, y } screen coords of mousedown for click-vs-drag
 let lastClickTime = 0;          // for double-click detection
 let lastClickId = null;
+
+// G84b: throw-velocity tracking for the dragged node. While fx/fy are set,
+// d3 zeroes the node's OWN vx/vy every tick (it's pinned, not physically
+// simulated), so at release vx/vy are exactly 0 and a throw is impossible by
+// construction unless we seed them ourselves from the pointer's own motion.
+// `dragVX`/`dragVY` are an exponentially-smoothed world-units-per-tick
+// velocity estimate, sampled in onMouseMove and consumed (then reset) in
+// onMouseUp.
+let dragVX = 0;
+let dragVY = 0;
+let lastDragSample = null;      // { t, x, y } world coords + Date.now() at last sample
+const DRAG_VELOCITY_SMOOTHING = 0.35;  // weight given to each new sample (EMA)
+const SIM_TICK_MS = 1000 / 60;         // d3's timer runs on rAF, ~60fps
 
 let hubsOnlyMode = false;       // set true when the payload is the hubs-only tier
 
@@ -767,7 +785,17 @@ function startSimulation({ reheat = 1.0 } = {}) {
         // Alpha/velocity tuning for dense graphs. Defaults are fine for a
         // hundred nodes; at 1500 they keep the sim bouncing indefinitely.
         .alphaDecay(0.05)
-        .velocityDecay(0.55)
+        // G84b: was 0.55 (d3's default is 0.4), which damped a thrown node's
+        // seeded velocity to near-zero in ~4 ticks (~65ms) — motion stopped
+        // before it was visible. Relaxed partway toward the default rather
+        // than all the way to it: 0.4 is exactly the value the comment above
+        // says caused indefinite bouncing at ~1500 nodes, so going there
+        // risks reintroducing that. 0.45 buys a noticeably longer, visible
+        // coast on a throw while keeping most of the extra damping margin
+        // above the value that was unstable at scale. If the full graph
+        // still oscillates/bounces persistently after this change, raise it
+        // back toward 0.55 rather than lowering it further.
+        .velocityDecay(0.45)
         .alphaMin(0.05)
         .force("link", d3.forceLink(visibleLinks)
             .id(d => d.id)
@@ -1300,6 +1328,16 @@ function wireMouseEvents() {
     canvas.addEventListener("mousemove", onMouseMove, true);
     canvas.addEventListener("mouseup", onMouseUp, true);
     canvas.addEventListener("mouseleave", onMouseLeave);
+    // G84b: mouseup on the canvas only fires when the release point is over
+    // the canvas (or, for our capture-phase listener, when canvas is on the
+    // event's path at all). Releasing the button after dragging the cursor
+    // OUTSIDE the canvas bounds never reached that listener, so the node
+    // stayed pinned (fx/fy never cleared) until the next click. A window-level
+    // listener catches every release regardless of where the cursor ends up.
+    // onMouseUp doesn't read `event`, and it's a no-op once draggingNode is
+    // already null, so this is safe to also fire for an ordinary in-canvas
+    // release (it just runs twice, second time as a no-op).
+    window.addEventListener("mouseup", onMouseUp);
 }
 
 function screenToWorld(sx, sy) {
@@ -1332,6 +1370,10 @@ function onMouseDown(event) {
         draggingNode = picked;
         picked.fx = picked.x;
         picked.fy = picked.y;
+        // G84b: reset the throw-velocity estimate for this new drag gesture.
+        dragVX = 0;
+        dragVY = 0;
+        lastDragSample = { t: Date.now(), x: picked.x, y: picked.y };
         if (simulation) simulation.alphaTarget(0.3).restart();
         canvas.classList.add("dragging");
         // Claim this gesture: d3-zoom's own mousedown listener (registered on
@@ -1368,6 +1410,23 @@ function onMouseMove(event) {
             const [wx, wy] = screenToWorld(sx, sy);
             draggingNode.fx = wx;
             draggingNode.fy = wy;
+
+            // G84b: sample the pointer's world-space velocity so onMouseUp
+            // can seed vx/vy on release and let the node coast instead of
+            // stopping dead. EMA-smoothed so a single jittery sub-frame move
+            // doesn't dominate the throw.
+            const now = Date.now();
+            if (lastDragSample) {
+                const dt = now - lastDragSample.t;
+                if (dt > 0) {
+                    const instVX = ((wx - lastDragSample.x) / dt) * SIM_TICK_MS;
+                    const instVY = ((wy - lastDragSample.y) / dt) * SIM_TICK_MS;
+                    dragVX = dragVX + (instVX - dragVX) * DRAG_VELOCITY_SMOOTHING;
+                    dragVY = dragVY + (instVY - dragVY) * DRAG_VELOCITY_SMOOTHING;
+                }
+            }
+            lastDragSample = { t: now, x: wx, y: wy };
+
             scheduleRedraw();
         }
         return;
@@ -1391,11 +1450,29 @@ function onMouseUp(event) {
         // drag pin if this node isn't a frozen context node.
         const keepPinned = focusNodeId && focusSet && !focusSet.has(clickedId);
         if (!keepPinned) {
+            // G84b: seed the node's velocity from the tracked pointer motion
+            // BEFORE clearing fx/fy. While fx/fy are set d3 zeroes vx/vy every
+            // tick, so this MUST happen first — clearing the pin first would
+            // hand the node back to the simulation already at rest, same as
+            // before this fix. A click (never crossed the drag threshold)
+            // leaves dragVX/dragVY at their reset 0, so a plain click still
+            // releases the node motionless, as before.
+            draggingNode.vx = dragVX;
+            draggingNode.vy = dragVY;
             draggingNode.fx = null;
             draggingNode.fy = null;
         }
         draggingNode = null;
-        if (simulation) simulation.alphaTarget(0);
+        dragVX = 0;
+        dragVY = 0;
+        lastDragSample = null;
+        if (simulation) {
+            // Leave enough alpha for the seeded velocity to actually animate
+            // a visible coast instead of alphaTarget(0) alone, which only
+            // stops pulling the sim back UP — it doesn't guarantee alpha is
+            // above alphaMin (0.05) for the few ticks a throw needs to read.
+            simulation.alphaTarget(0).alpha(Math.max(simulation.alpha(), 0.2)).restart();
+        }
         canvas.classList.remove("dragging");
 
         if (wasClick) {
