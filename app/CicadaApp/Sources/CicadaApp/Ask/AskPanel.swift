@@ -52,6 +52,11 @@ struct AskPanel: View {
         }
         .frame(width: 560, height: 460)
         .background(CicadaTheme.surface)
+        // The grounded answer (`MarkdownBody` at line ~109) can contain
+        // `[[wikilinks]]` in its own prose, not just the citation chips
+        // below — without this they rendered as accent-colored links that
+        // did nothing on tap (bug 2). Same destination as a citation chip.
+        .wikilinkNavigation(onSelect: onSelectEntity)
         .task {
             if vm == nil {
                 let newVM = AskViewModel(store: store)

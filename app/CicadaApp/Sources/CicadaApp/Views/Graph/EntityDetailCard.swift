@@ -1,8 +1,30 @@
 import SwiftUI
 
+// MARK: - EntityCardNavigation
+//
+// Bug 3 / G108 — the entity-card "go deeper, then come back" stack. By
+// default `EntityDetailCard` reads/drives `GraphViewModel`'s own history
+// (the graph tab's floating card). A host that shows this card OUTSIDE that
+// context — the Clusters/Topics detail page, which keeps its own local
+// selection rather than sharing `graphVM.selectedEntity` — supplies its own
+// `EntityCardNavigation` so "go deeper" stays scoped to that presentation
+// instead of silently hijacking the graph tab's card. Either way, the actual
+// push/pop/reset logic is the SAME pure `EntityNavigationStack` type.
+struct EntityCardNavigation {
+    let canGoBack: Bool
+    let backTargetName: String?
+    let goBack: () -> Void
+    /// Navigate deeper to `id` — a wikilink tap, a transclusion click, a
+    /// claim citation.
+    let navigate: (String) -> Void
+}
+
 struct EntityDetailCard: View {
     let entity: Entity
     @Environment(GraphViewModel.self) private var graphVM
+    /// `nil` (the default) means "use `graphVM`'s own history" — see
+    /// `EntityCardNavigation` above.
+    let navigation: EntityCardNavigation?
     @State private var selectedTab: DetailTab = .content
     @State private var showRawMarkdown: Bool
 
@@ -89,10 +111,29 @@ struct EntityDetailCard: View {
 
     /// `defaultRaw` opens the card on the verbatim Source view — used by the
     /// graph's click-to-preview overlay so a node tap shows raw markdown first.
-    init(entity: Entity, defaultRaw: Bool = false, showsCloseButton: Bool = true) {
+    init(
+        entity: Entity, defaultRaw: Bool = false, showsCloseButton: Bool = true,
+        navigation: EntityCardNavigation? = nil
+    ) {
         self.entity = entity
         self.showsCloseButton = showsCloseButton
+        self.navigation = navigation
         _showRawMarkdown = State(initialValue: defaultRaw)
+    }
+
+    // MARK: - Navigation (bug 3 / G108)
+
+    private var canGoBack: Bool { navigation?.canGoBack ?? graphVM.canGoBack }
+    private var backTargetName: String? { navigation?.backTargetName ?? graphVM.backTargetName }
+
+    private func goBack() {
+        if let navigation { navigation.goBack() } else { graphVM.goBackEntity() }
+    }
+
+    /// Every wikilink/transclusion/claim-citation tap inside this card routes
+    /// here via `.wikilinkNavigation` below.
+    private func navigate(to id: String) {
+        if let navigation { navigation.navigate(id) } else { graphVM.pushEntity(id: id) }
     }
 
     var body: some View {
@@ -117,6 +158,11 @@ struct EntityDetailCard: View {
             graphVM.clearSelection()
             return .handled
         }
+        // Installed ONCE here, before `.sheet` below so the Belief Timeline
+        // sheet's `ClaimChip`s inherit it too — see `View.wikilinkNavigation`
+        // in MarkdownBody.swift. Covers the summary box, the rendered body,
+        // transcluded embeds, and every claim chip in Perspectives/Timeline.
+        .wikilinkNavigation(onSelect: navigate)
         .sheet(item: $timelineKey) { key in
             beliefTimelineSheet(key)
         }
@@ -126,6 +172,33 @@ struct EntityDetailCard: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            // Back — bug 3 / G108: only shown once the user has actually
+            // navigated deeper (a wikilink/transclusion/claim tap), and
+            // labeled with what it goes back TO rather than a bare
+            // "Back", following the "< Clusters" precedent
+            // (`TopicsView.TopicDetailView`'s own Back button).
+            if canGoBack {
+                HStack {
+                    Button(action: goBack) {
+                        HStack(spacing: CicadaTheme.spacingXS) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text(backTargetName.map { "Back to \($0)" } ?? "Back")
+                                .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                    }
+                    .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
+                    .keyboardShortcut("[", modifiers: .command)
+                    .help((backTargetName.map { "Back to \($0)" } ?? "Back") + " (⌘[)")
+                    .frame(maxWidth: 220, alignment: .leading)
+
+                    Spacer()
+                }
+            }
+
             HStack {
                 // Type badge
                 Label(entity.type.label, systemImage: entity.type.icon)
@@ -1426,7 +1499,11 @@ private struct SummaryBox: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(CicadaTheme.accent)
 
-                Text(text)
+                // Routed through `MarkdownBody.inlineAttributed` — the same
+                // wikilink-rewrite path every other prose surface uses —
+                // rather than a plain `Text(text)`, which rendered
+                // `[[Entity Name]]` verbatim instead of as a link.
+                Text(MarkdownBody.inlineAttributed(text))
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .textSelection(.enabled)

@@ -213,12 +213,18 @@ struct EpisodePill: View {
 
 // MARK: - Wikilink rendering helper (shared with the claim layer)
 
-/// Parse `[[Wikilinks]]` into an `AttributedString` where the link text is
-/// highlighted in the accent color. Mirrors `EntityDetailCard`'s private
-/// renderer so claim text reads consistently with entity bodies.
+/// Parse `[[Wikilinks]]` / `[[id|Alias]]` into an `AttributedString` where
+/// the link text is highlighted in the accent color AND carries a real
+/// `cicada://entity/<ref>` link attribute — a `Text` showing this is tappable
+/// wherever a `.wikilinkNavigation` handler is ambient (see MarkdownBody.swift),
+/// exactly like any other wikilink in the app. The URL is minted by
+/// `MarkdownBody.entityLink(for:)` (the ref verbatim, resolved to a real id
+/// at click time) rather than re-deriving its own convention, so a claim's
+/// wikilink and an entity body's wikilink for the same name can never resolve
+/// to two different ids.
 func renderWikilinks(_ text: String) -> AttributedString {
     var result = AttributedString()
-    guard let regex = try? NSRegularExpression(pattern: "\\[\\[(.+?)\\]\\]") else {
+    guard let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\[\\]|]+)(?:\\|([^\\[\\]]+))?\\]\\]") else {
         var plain = AttributedString(text)
         plain.foregroundColor = CicadaTheme.textPrimary
         return plain
@@ -231,10 +237,15 @@ func renderWikilinks(_ text: String) -> AttributedString {
         if beforeRange.length > 0 {
             result.append(AttributedString(nsText.substring(with: beforeRange)))
         }
-        let linkRange = match.range(at: 1)
-        var link = AttributedString(nsText.substring(with: linkRange))
+        let name = nsText.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
+        let alias = match.range(at: 2).location != NSNotFound
+            ? nsText.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespaces)
+            : nil
+        var link = AttributedString(alias ?? name)
         link.foregroundColor = CicadaTheme.accent
         link.font = CicadaTheme.bodyFont.weight(.medium)
+        link.underlineStyle = .single
+        link.link = URL(string: MarkdownBody.entityLink(for: name))
         result.append(link)
         lastEnd = match.range.location + match.range.length
     }

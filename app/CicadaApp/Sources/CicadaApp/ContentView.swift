@@ -75,6 +75,10 @@ struct ContentView: View {
         }
         .onChange(of: selectedTab) { _, newValue in
             selectedTabRaw = newValue.rawValue
+            // Bug 3 / G108 — a different tab drops the entity card's stale
+            // "go deeper" trail (the currently-open card, if any, is left
+            // alone; only its click-through history is cleared).
+            graphVM.resetNavigationHistory()
         }
         .sheet(isPresented: $showOnboarding) {
             ConnectView(isOnboarding: true) {

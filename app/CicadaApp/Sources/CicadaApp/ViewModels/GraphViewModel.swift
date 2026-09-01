@@ -42,6 +42,16 @@ final class GraphViewModel {
         observerRoster.count > 1
     }
     var selectedEntity: Entity?
+    /// Bug 3 / G108 — the entity card's "go deeper, then come back" trail for
+    /// the graph tab's floating card. Pure logic lives in
+    /// `EntityNavigationStack` (unit tested independently); this VM just
+    /// owns one instance and keeps it in step with `selectedEntity`.
+    private var navHistory = EntityNavigationStack<Entity>()
+    /// Whether the entity card's Back control has somewhere to return to.
+    var canGoBack: Bool { !navHistory.isEmpty }
+    /// Name of the entity Back would return to — nil at the trail's root, so
+    /// the card's Back label can say what it actually goes back TO.
+    var backTargetName: String? { navHistory.backTarget?.name }
     var isGraphReady = false
     var zoomAction: ZoomAction?
     var showFilterPopover = false
@@ -163,6 +173,10 @@ final class GraphViewModel {
             observerRoster = []
             contextRoster = []
             selectedEntity = nil
+            // A bank switch invalidates any "go deeper" trail just as much
+            // as the selection itself — the entities in it belong to a graph
+            // that's no longer loaded.
+            navHistory.reset()
             // A blank always goes over the full path: there is no meaningful
             // delta from "the previous bank's graph" to "nothing".
             forceFullNextPush = true
@@ -389,13 +403,55 @@ final class GraphViewModel {
         )
     }
 
+    /// A FRESH pick from OUTSIDE the card — a graph node click, a search/Ask
+    /// jump, an Activity entity chip. Resets the "go deeper" trail: a
+    /// stale multi-level history from an old exploration is worse than none.
     func selectEntity(id: String) {
-        // Set a placeholder immediately for responsive UI
+        navHistory.reset()
+        applySelection(id: id)
+    }
+
+    /// Navigate DEEPER from within an already-open card — a wikilink tap, a
+    /// transclusion click, a claim citation (routed here via
+    /// `EntityDetailCard.navigate(to:)`). Remembers the entity being left so
+    /// `goBackEntity()` can return to it, to arbitrary depth.
+    ///
+    /// History is committed only once a destination is ACCEPTED: a graph
+    /// stub on the spot (the responsive path), any other id only when its
+    /// full body actually arrives. A wikilink to an id the bank doesn't have
+    /// used to push history first and fail the fetch second — a Back control
+    /// pointing at the card the user never left (PR #29 round 2).
+    func pushEntity(id: String) {
+        if entities.contains(where: { $0.id == id }) {
+            navHistory.push(leaving: selectedEntity)
+            applySelection(id: id)
+            return
+        }
+        let origin = selectedEntity
+        Task {
+            guard let fullEntity = await store.entity(id) else { return }
+            // The user moved on (a node click, Back, a tab switch) while the
+            // fetch was in flight — a late arrival must not yank them away.
+            guard selectedEntity?.id == origin?.id else { return }
+            navHistory.push(leaving: origin)
+            selectedEntity = fullEntity
+        }
+    }
+
+    /// Return to the entity that was open before the last `pushEntity` call.
+    /// No-op at the trail's root (no Back control is shown there anyway).
+    func goBackEntity() {
+        guard let previous = navHistory.pop() else { return }
+        selectedEntity = previous
+    }
+
+    /// Set a placeholder immediately for responsive UI, then fetch full
+    /// entity data from the Store's memoised entity cache. No manual
+    /// main-actor hop needed — the whole VM is already @MainActor.
+    private func applySelection(id: String) {
         if let existing = entities.first(where: { $0.id == id }) {
             selectedEntity = existing
         }
-        // Then fetch full entity data from the Store's memoised entity cache.
-        // No manual main-actor hop needed — the whole VM is already @MainActor.
         Task {
             await loadFullEntity(id: id)
         }
@@ -403,6 +459,15 @@ final class GraphViewModel {
 
     func clearSelection() {
         selectedEntity = nil
+        navHistory.reset()
+    }
+
+    /// Drop the "go deeper" trail without touching the current selection —
+    /// called on a tab switch (bug 3 / G108). The card the user last had
+    /// open, if any, is left exactly as they saw it; only the stale
+    /// click-through history behind it is cleared.
+    func resetNavigationHistory() {
+        navHistory.reset()
     }
 
     /// Ask the Store to refresh the graph domain. `syncFromStore()` picks up

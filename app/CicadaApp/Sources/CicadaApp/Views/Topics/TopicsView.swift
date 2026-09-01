@@ -694,8 +694,52 @@ private struct TopicDetailView: View {
     @Environment(GraphViewModel.self) private var graphVM
     @State private var fullEntity: Entity?
 
+    // Bug 3 / G108 — this page keeps its OWN local "go deeper, then come
+    // back" trail rather than sharing `graphVM`'s, since this detail view
+    // has always tracked its own selection independently of the graph tab's
+    // floating card (see `EntityCardNavigation`'s doc comment). Naturally
+    // resets whenever this view itself is torn down and recreated — leaving
+    // the detail page (`onBack`) or picking a different entity from the list
+    // both go through `TopicsView`'s `selectedEntity = nil` transition first,
+    // and a tab switch tears down the whole Clusters subtree — so no
+    // explicit reset call is needed here, unlike `GraphViewModel`'s
+    // long-lived instance. The trail, the pushed entity and the "is this
+    // response still wanted" decision all live in `TopicDetailNavigation`
+    // (PR #29 round 2) so a fetch that lands after Back can't undo it.
+    @State private var nav = TopicDetailNavigation<Entity>()
+    /// The one in-flight full-body fetch; cancelled on every new
+    /// `navigate`/`goBackEntity`. `nav`'s token check is the backstop for a
+    /// cancellation that arrives too late to stop the response.
+    @State private var navTask: Task<Void, Never>?
+
     private var displayEntity: Entity {
-        fullEntity ?? entity
+        nav.pushed ?? fullEntity ?? entity
+    }
+
+    private func navigate(to id: String) {
+        navTask?.cancel()
+        // Instant placeholder from the graph's stub cache (already has at
+        // least id/name/summary), then upgrade to the full body.
+        let token = nav.navigate(from: displayEntity,
+                                 toStub: graphVM.entities.first(where: { $0.id == id }))
+        navTask = Task {
+            guard let full = try? await APIClient.shared.fetchEntity(id: id) else { return }
+            nav.apply(full, token: token)
+        }
+    }
+
+    private func goBackEntity() {
+        navTask?.cancel()
+        nav.goBack(rootID: entity.id)
+    }
+
+    private var cardNavigation: EntityCardNavigation {
+        EntityCardNavigation(
+            canGoBack: nav.canGoBack,
+            backTargetName: nav.backTarget?.name,
+            goBack: goBackEntity,
+            navigate: navigate
+        )
     }
 
     var body: some View {
@@ -725,10 +769,12 @@ private struct TopicDetailView: View {
             // Detail card — EntityDetailCard already has its own internal
             // ScrollView, so wrapping it in a second one broke the width
             // proposal chain for long markdown bodies (the "zoomed in" bug).
-            EntityDetailCard(entity: displayEntity, showsCloseButton: false)
-                // Same identity rule as the graph overlay. Keyed on the OUTER
-                // `entity.id`, which is stable while `fullEntity` loads.
-                .id(entity.id)
+            EntityDetailCard(entity: displayEntity, showsCloseButton: false, navigation: cardNavigation)
+                // One card identity PER ENTITY (matches the graph overlay's
+                // rule) — keyed on `displayEntity.id` rather than the outer
+                // `entity.id` now that a wikilink push can swap the shown
+                // entity without `entity` itself changing.
+                .id(displayEntity.id)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(CicadaTheme.spacingXL)
