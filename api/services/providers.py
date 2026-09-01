@@ -140,19 +140,50 @@ AGENT_DEFAULT_TIMEOUT_S = 300.0
 # One process-wide cap on concurrent `claude -p` subprocesses. Stage 1 fans out
 # at MAX_CONCURRENCY (10) and Stage 2 is sequential, so without this the rung
 # would put 10 CLI processes on the machine at once and walk straight into the
-# plan's own rate limit. A threading (not asyncio) semaphore because the agent
-# core is synchronous and is shared by both the sync and async call paths.
+# plan's own rate limit. Two flavors, one per call path (fix round 1, L1): a
+# ``threading.BoundedSemaphore`` for the genuinely-sync branch, and an
+# ``asyncio.Semaphore`` for the async branch, acquired BEFORE the work is
+# dispatched to ``asyncio.to_thread`` so a caller blocked on the cap parks on
+# the event loop instead of occupying (and starving) one of the default
+# executor's threads for up to ``timeout`` seconds. Both are keyed by the
+# requested limit (fix round 1, L2) rather than rebuilt in place, so a caller
+# passing a different ``agent_max_concurrency`` gets its own persistent
+# semaphore instead of replacing the shared one out from under a caller that
+# already holds a permit on it.
 _AGENT_SEM_LOCK = threading.Lock()
-_AGENT_SEM: tuple[int, threading.BoundedSemaphore] | None = None
+_AGENT_SEMS: dict[int, threading.BoundedSemaphore] = {}
+_AGENT_ASYNC_SEM_LOCK = threading.Lock()
+_AGENT_ASYNC_SEMS: dict[tuple[int, int], asyncio.Semaphore] = {}
 
 
 def _agent_semaphore(limit: int) -> threading.BoundedSemaphore:
-    global _AGENT_SEM
     limit = max(1, int(limit or 1))
     with _AGENT_SEM_LOCK:
-        if _AGENT_SEM is None or _AGENT_SEM[0] != limit:
-            _AGENT_SEM = (limit, threading.BoundedSemaphore(limit))
-        return _AGENT_SEM[1]
+        sem = _AGENT_SEMS.get(limit)
+        if sem is None:
+            sem = threading.BoundedSemaphore(limit)
+            _AGENT_SEMS[limit] = sem
+        return sem
+
+
+def _agent_async_semaphore(limit: int) -> asyncio.Semaphore:
+    """Async-branch twin of :func:`_agent_semaphore` (fix round 1, L1).
+
+    Created lazily per RUNNING loop — never at import — so it can't bind to a
+    loop that has since gone away: ``asyncio.Semaphore`` binds to whichever
+    loop is running the first time it's awaited, and a module-level instance
+    built at import time (or bound to one process's first loop) would raise
+    on every later ``asyncio.run()`` in a different loop, exactly the trap
+    that keeps this lazy and keyed by ``(loop id, limit)``.
+    """
+    limit = max(1, int(limit or 1))
+    key = (id(asyncio.get_running_loop()), limit)
+    with _AGENT_ASYNC_SEM_LOCK:
+        sem = _AGENT_ASYNC_SEMS.get(key)
+        if sem is None:
+            sem = asyncio.Semaphore(limit)
+            _AGENT_ASYNC_SEMS[key] = sem
+        return sem
 
 
 def resolve_llm_fn(
@@ -184,8 +215,11 @@ def resolve_llm_fn(
             defaults to ``telemetry.record`` (the on-disk ledger).
         bank: label recorded on the event; defaults to
             ``telemetry.bank_name(settings)``.
-        is_async: force the returned callable to be awaitable (``True``) or
-            blocking (``False``). Defaults to
+        is_async: force the AGENT rung's returned callable to be awaitable
+            (``True``) or blocking (``False``). Outside ``llm_mode="agent"``
+            this is a no-op (fix round 1, L4) — the byok/local ``_call``
+            always branches on ``inspect.isawaitable(completion(...))`` at
+            call time, exactly as before this parameter existed. Defaults to
             ``inspect.iscoroutinefunction(completion)``: verified sound
             (``litellm.acompletion`` is a coroutine function,
             ``litellm.completion`` is not), but in ``llm_mode="agent"`` the
@@ -214,7 +248,18 @@ def resolve_llm_fn(
         interception point for the consumption dashboard.
     """
     resolved_model = (model or settings.litellm_model).strip()
-    if completion is None:
+    # "auto" is resolved ONCE per Sleep cycle by ``engine_select`` (it has to
+    # probe the connections registry, which is async and shells out). An
+    # unresolved "auto" reaching this synchronous seam degrades to byok rather
+    # than blocking a request thread on a subprocess probe.
+    mode = (settings.llm_mode or "byok").strip().lower()
+    is_agent = mode == "agent"
+    if completion is None and not is_agent:
+        # Fix round 1, N2: never imported on the agent rung — a multi-second
+        # import for a callable that branch is built specifically to avoid
+        # calling. `iscoroutinefunction(None)` below is False, same as
+        # `iscoroutinefunction(litellm.completion)` would have been, so
+        # leaving `completion` unset here changes no inferred behavior.
         import litellm
 
         completion = litellm.completion
@@ -225,12 +270,6 @@ def resolve_llm_fn(
     if is_async is None:
         is_async = inspect.iscoroutinefunction(completion)
 
-    # "auto" is resolved ONCE per Sleep cycle by ``engine_select`` (it has to
-    # probe the connections registry, which is async and shells out). An
-    # unresolved "auto" reaching this synchronous seam degrades to byok rather
-    # than blocking a request thread on a subprocess probe.
-    mode = (settings.llm_mode or "byok").strip().lower()
-    is_agent = mode == "agent"
     is_local = (not is_agent) and (mode == "local" or resolved_model.startswith("ollama/"))
     if is_local and not resolved_model.startswith("ollama/"):
         resolved_model = f"ollama/{settings.ollama_model}"
@@ -302,40 +341,74 @@ def resolve_llm_fn(
             logger.warning(f"telemetry sink failed: {sink_exc}")
 
     def _agent_invoke(messages, response_format, timeout: float):
+        """One `claude -p` call, the response shim, and telemetry.
+
+        Fix round 1, M1: the shim and cost extraction now sit INSIDE the
+        guarded region, and the catch is widened from
+        ``engine_errors.EngineError`` to ``Exception`` — a bare runner
+        exception, or a ``response_shim``/``equiv_cost_from_envelope``
+        failure, must still emit exactly one event rather than vanishing on
+        the one path whose entire job is making failures visible.
+
+        Callers own their own concurrency gate — the threading semaphore for
+        the sync branch, the asyncio semaphore for the async branch (L1) —
+        so this function never acquires one itself.
+        """
         started = time.perf_counter()
-        with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-            try:
-                envelope = agent_engine.complete(
-                    messages=messages, model=argv_model, stage=stage,
-                    want_json=response_format is not None, timeout=timeout, runner=runner,
-                )
-            except engine_errors.EngineThrottled as exc:
-                # Trip BEFORE emitting so a concurrent caller cannot also trip.
-                newly_tripped = agent_engine.trip_breaker(str(exc))
-                _emit(None, started, ok=False)
-                if newly_tripped:
-                    _emit_throttle(exc)
-                raise
-            except engine_errors.EngineError:
-                _emit(None, started, ok=False)
-                raise
-        resp = agent_engine.response_shim(envelope, argv_model)
-        used = resp["model"]
-        agent_engine.record_model_used(used)
-        _emit(resp, started, ok=True, model_used=used,
-              equiv_override=agent_engine.equiv_cost_from_envelope(envelope))
+        try:
+            envelope = agent_engine.complete(
+                messages=messages, model=argv_model, stage=stage,
+                want_json=response_format is not None, timeout=timeout, runner=runner,
+            )
+            resp = agent_engine.response_shim(envelope, argv_model)
+            used = resp["model"]
+            agent_engine.record_model_used(used)
+            equiv = agent_engine.equiv_cost_from_envelope(envelope)
+        except engine_errors.EngineThrottled as exc:
+            # Trip BEFORE emitting so a concurrent caller cannot also trip.
+            newly_tripped = agent_engine.trip_breaker(str(exc))
+            _emit(None, started, ok=False)
+            if newly_tripped:
+                _emit_throttle(exc)
+            raise
+        except Exception:
+            _emit(None, started, ok=False)
+            raise
+        _emit(resp, started, ok=True, model_used=used, equiv_override=equiv)
         return resp
+
+    def _agent_invoke_sync(messages, response_format, timeout: float):
+        with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
+            return _agent_invoke(messages, response_format, timeout)
+
+    async def _agent_invoke_async(messages, response_format, timeout: float):
+        # Fix round 1, L1: gate BEFORE dispatching to the thread pool, so a
+        # caller blocked on the cap parks on the event loop rather than
+        # occupying (and starving) one of the default executor's threads for
+        # up to `timeout` seconds.
+        async with _agent_async_semaphore(getattr(settings, "agent_max_concurrency", 3)):
+            return await asyncio.to_thread(_agent_invoke, messages, response_format, timeout)
 
     def _agent_call(*, messages, response_format=None, **kw):
         # Accept-and-drop every unknown kwarg (`extra_body`, `temperature`,
         # `max_tokens`, `api_base`, ...) — none of them have an argv form.
         # `timeout` is the exception: it is the only wall-clock guard Stage 1
-        # has (entity_extractor.py:138).
+        # has (entity_extractor.py:138). Coerced defensively (fix round 1,
+        # L3): a non-numeric or non-positive value falls back to the default
+        # rather than raising out of the seam before any telemetry is
+        # emitted for the call.
+        timeout = AGENT_DEFAULT_TIMEOUT_S
         raw_timeout = kw.get("timeout")
-        timeout = float(raw_timeout) if raw_timeout else AGENT_DEFAULT_TIMEOUT_S
+        if raw_timeout is not None:
+            try:
+                parsed = float(raw_timeout)
+            except (TypeError, ValueError):
+                parsed = None
+            if parsed is not None and parsed > 0:
+                timeout = parsed
         if is_async:
-            return asyncio.to_thread(_agent_invoke, messages, response_format, timeout)
-        return _agent_invoke(messages, response_format, timeout)
+            return _agent_invoke_async(messages, response_format, timeout)
+        return _agent_invoke_sync(messages, response_format, timeout)
 
     if is_agent:
         return _agent_call

@@ -79,6 +79,33 @@ def test_stage_selects_the_cheaper_judge_model(agent_runner, agent_envelopes):
     assert argv[argv.index("--model") + 1] == "haiku"
 
 
+def test_is_async_false_override_forces_the_sync_path(agent_runner, agent_envelopes):
+    """Fix round 1, L4: only the True direction was tested; False (forcing
+    the blocking path even though completion=litellm.acompletion infers
+    async) had no coverage."""
+    import litellm
+
+    fn = providers.resolve_llm_fn(_agent_settings(), completion=litellm.acompletion,
+                                  is_async=False, sink=lambda e: None,
+                                  runner=agent_runner(agent_envelopes["success"]))
+    resp = fn(messages=[{"role": "user", "content": "hi"}])
+    assert not asyncio.iscoroutine(resp) and not hasattr(resp, "__await__")
+    assert resp["model"] == "claude-sonnet-5"
+
+
+def test_a_non_numeric_or_non_positive_timeout_falls_back_without_raising(agent_runner, agent_envelopes):
+    """Fix round 1, L3: `float(raw_timeout)` used to raise out of the seam
+    before any telemetry for a non-numeric value, and `timeout=0` silently
+    (accidentally) degraded to the default rather than by deliberate rule."""
+    runner = agent_runner(agent_envelopes["success"])
+    fn = providers.resolve_llm_fn(_agent_settings(), sink=lambda e: None, runner=runner)
+    fn(messages=[{"role": "user", "content": "hi"}], timeout="not-a-number")
+    fn(messages=[{"role": "user", "content": "hi"}], timeout=0)
+    fn(messages=[{"role": "user", "content": "hi"}], timeout=-5)
+    for call in runner.calls:
+        assert call["timeout"] == providers.AGENT_DEFAULT_TIMEOUT_S
+
+
 # --------------------------------------------------------------------------- #
 # Telemetry: honest numbers for a subscription call (spec §6)
 # --------------------------------------------------------------------------- #
@@ -131,6 +158,25 @@ def test_a_failed_agent_call_records_not_ok_and_reraises(agent_runner, agent_env
     with pytest.raises(engine_errors.EngineExhausted):
         fn(messages=[{"role": "user", "content": "hi"}])
     assert len(events) == 1 and events[0].ok is False and events[0].engine == "claude-cli"
+
+
+def test_a_non_engine_error_from_the_runner_still_emits_an_event():
+    """Fix round 1, M1: the agent branch used to catch only
+    `engine_errors.EngineError`, where byok catches `except Exception`. A
+    runner that raises anything else — or a `response_shim`/
+    `equiv_cost_from_envelope` failure, which used to sit OUTSIDE the try —
+    produced NO UsageEvent at all, on the one path whose entire justification
+    is making failures visible."""
+    events: list[UsageEvent] = []
+
+    def _boom(argv, *, stdin=None, timeout=None, cwd=None):
+        raise RuntimeError("the subprocess machinery itself blew up")
+
+    fn = providers.resolve_llm_fn(_agent_settings(), sink=events.append, runner=_boom)
+    with pytest.raises(RuntimeError):
+        fn(messages=[{"role": "user", "content": "hi"}])
+    assert len(events) == 1
+    assert events[0].ok is False and events[0].engine == "claude-cli"
 
 
 def test_the_first_throttle_writes_the_first_ever_throttle_event(agent_runner, agent_envelopes):
