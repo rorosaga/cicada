@@ -22,7 +22,7 @@ ICS feed by convention).
 
 Each ``VEVENT`` whose start date falls within the ingestion window (past
 ``WINDOW_PAST_DAYS`` to next ``WINDOW_FUTURE_DAYS`` days) becomes ONE episode
-via the shared episode-id scheme (``media_ingestor._next_episode_id``),
+via the shared episode-id scheme (``episode_ids.next_episode_id``),
 ``origin: "calendar"``. Dedup keys on UID + DTSTART (+ SEQUENCE when present)
 so an edited event (SEQUENCE bumped) re-ingests as an updated episode while an
 unchanged event is never duplicated across polls.
@@ -48,8 +48,7 @@ from urllib.parse import urlparse
 import yaml
 from loguru import logger
 
-from api.services import markdown_parser
-from api.services.media_ingestor import _next_episode_id
+from api.services import episode_ids, markdown_parser
 
 CALENDARS_FILENAME = "calendars.yaml"
 CALENDAR_INDEX_FILENAME = "calendar_index.json"
@@ -342,7 +341,7 @@ def _write_calendar_episode(episodes_dir: Path, event: ICSEvent, calendar_url: s
     episodes_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
     ep_date = now.strftime("%Y-%m-%d")
-    episode_id = _next_episode_id(episodes_dir, ep_date)
+    episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
     timestamp = now.isoformat() + "Z"
 
     body = _episode_body(event, calendar_url)

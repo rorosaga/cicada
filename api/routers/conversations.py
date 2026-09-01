@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import ConversationSummary, ConversationUploadResponse, ResumeDescriptor
-from api.services import markdown_parser, session_stats, sync_service
+from api.services import episode_ids, markdown_parser, session_stats, sync_service
 
 router = APIRouter()
 
@@ -723,10 +723,15 @@ def _stage_episodes(
     # Single pre-scan of the episodes dir:
     #  - source_index: source_id -> {path, content_hash, source_updated_at}
     #  - existing_hashes: all known content hashes (no-id fallback dedup)
-    #  - date_counts: per-date episode counts for sequential id numbering
+    #  - date_counts: per-date HIGHEST existing suffix, so each write is an O(1)
+    #    dict bump instead of a per-file re-glob. Seeded from the max (G114 R1),
+    #    never from a file count: a count collides — and `markdown_parser.write`
+    #    silently overwrites — the moment a same-day episode was deleted or the
+    #    sequence has a gap (a lone `_003` on disk made the old count mint
+    #    `_002`, then `_003` on the very next write, clobbering the original).
     source_index: dict[str, dict] = {}
     existing_hashes: set[str] = set()
-    date_counts: dict[str, int] = {}
+    date_counts: dict[str, int] = episode_ids.max_suffix_by_date(episodes_dir)
     for filepath in episodes_dir.glob("*.md"):
         parsed = markdown_parser.parse(filepath)
         fm = parsed.frontmatter
@@ -740,10 +745,6 @@ def _stage_episodes(
                 "content_hash": h,
                 "source_updated_at": fm.get("source_updated_at"),
             }
-    for filepath in episodes_dir.glob("ep_*.md"):
-        # ep_2026-04-08_001.md -> date = 2026-04-08
-        date_part = filepath.stem[3:13]
-        date_counts[date_part] = date_counts.get(date_part, 0) + 1
 
     created = 0
     updated = 0
@@ -815,7 +816,13 @@ def _write_new_episode(
     content_hash: str,
     date_counts: dict[str, int],
 ) -> Path:
-    """Write a fresh episode file with a chronological id. Returns its path."""
+    """Write a fresh episode file with a chronological id. Returns its path.
+
+    ``date_counts`` holds the highest suffix already minted per date (seeded by
+    ``_stage_episodes`` from ``episode_ids.max_suffix_by_date``); bumping it is
+    the same max+1 rule as ``episode_ids.next_episode_id`` (G114 R1), kept as a
+    dict so a thousand-episode export doesn't re-glob the directory per write.
+    """
     # Use the episode's original date for the ID, preserving chronological order
     ep_date = episode.get("original_date") or datetime.now().strftime("%Y-%m-%d")
     date_counts[ep_date] = date_counts.get(ep_date, 0) + 1

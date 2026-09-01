@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 from loguru import logger
 
-from api.services import decay_policy, markdown_parser, saved_at
+from api.services import decay_policy, episode_ids, markdown_parser, saved_at
 from api.services.id_utils import sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
@@ -1316,23 +1316,6 @@ def compute_relevance(fm: dict, *, now: datetime | None = None) -> float:
     return max(0.0, min(1.0, score))
 
 
-# --- Episode ID generation (shared, collision-safe) ---
-
-
-def _next_episode_id(episodes_dir: Path, ep_date: str) -> str:
-    """Next ``ep_<date>_NNN`` id = max existing seq for that date + 1.
-
-    Max-based (not ``len(glob)+1``) so deletions never cause a collision.
-    """
-    max_num = 0
-    for filepath in episodes_dir.glob(f"ep_{ep_date}_*.md"):
-        try:
-            max_num = max(max_num, int(filepath.stem.split("_")[-1]))
-        except ValueError:
-            continue
-    return f"ep_{ep_date}_{max_num + 1:03d}"
-
-
 # --- Writers ---
 
 
@@ -1388,7 +1371,7 @@ def write_media_episode(
     episodes_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
     ep_date = now.strftime("%Y-%m-%d")
-    episode_id = _next_episode_id(episodes_dir, ep_date)
+    episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
     timestamp = now.isoformat() + "Z"
     saved_date = ep_date
 

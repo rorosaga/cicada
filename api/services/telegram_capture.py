@@ -34,7 +34,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import markdown_parser
+from api.services import episode_ids, markdown_parser
 
 # Telegram doesn't ship its own "find URLs in free text" primitive, and
 # media_ingestor's URL handling assumes a URL is already the whole field
@@ -396,12 +396,7 @@ def _default_save_episode(memory_path: Path, text: str, *, title: str | None = N
             continue
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    max_num = 0
-    for filepath in episodes_dir.glob(f"ep_{today}_*.md"):
-        suffix = filepath.stem.rsplit("_", 1)[-1]
-        if suffix.isdigit():
-            max_num = max(max_num, int(suffix))
-    episode_id = f"ep_{today}_{max_num + 1:03d}"
+    episode_id = episode_ids.next_episode_id(episodes_dir, today)
 
     frontmatter = {
         "id": episode_id,

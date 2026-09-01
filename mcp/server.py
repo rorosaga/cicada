@@ -25,6 +25,8 @@ if str(_REPO_ROOT) not in sys.path:
 # so tests can monkeypatch `server.agentic_write.write_claim` — the name
 # binding lives here, but handle_write_claim's body still calls through it.
 from api.services import agentic_write  # noqa: E402
+# Pure filesystem + datetime, no bank/config state — safe to hoist alongside.
+from api.services import episode_ids  # noqa: E402
 
 # MCP protocol uses JSON-RPC 2.0 over stdin/stdout
 
@@ -1689,12 +1691,8 @@ def handle_save_episode(content: str, title: str | None) -> str:
     today = datetime.now().strftime("%Y-%m-%d")
     # ID = max existing suffix + 1 (NOT count+1): count-based numbering collides
     # and overwrites if any same-day episode was deleted/consolidated away.
-    max_num = 0
-    for filepath in episodes_dir.glob(f"ep_{today}_*.md"):
-        suffix = filepath.stem.rsplit("_", 1)[-1]
-        if suffix.isdigit():
-            max_num = max(max_num, int(suffix))
-    episode_id = f"ep_{today}_{max_num + 1:03d}"
+    # One rule for every writer lives in episode_ids (G114 R1).
+    episode_id = episode_ids.next_episode_id(episodes_dir, today)
 
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
 

@@ -208,3 +208,41 @@ def test_noid_format_dedups_by_hash(tmp_path):
     assert updated2 == 0  # never "updated" for a no-id format
     assert skipped2 == 1
     assert len(list(ep_dir.glob("*.md"))) == 1
+
+
+# --- (f) G114 R1: ids seed from the max existing suffix, not the file count --
+
+
+def test_import_ids_seed_from_max_suffix_not_count(tmp_path):
+    ep_dir = tmp_path / "episodes"
+    ep_dir.mkdir()
+    # A lone _003 on the export's date: a count-based rule would mint _002
+    # (1 file + 1) and then collide with _003 on the very next write.
+    (ep_dir / "ep_2026-02-24_003.md").write_text(
+        "---\nid: ep_2026-02-24_003\ntimestamp: '2026-02-24T00:00:00+00:00'\n"
+        "processed: true\ncontent_hash: deadbeef0000\n---\nplaceholder\n",
+        encoding="utf-8",
+    )
+
+    first = _claude_export(
+        "uuid-1",
+        "2026-02-24T13:00:00.000000Z",
+        [("human", "Q1"), ("assistant", "A1")],
+    )
+    second = _claude_export(
+        "uuid-2",
+        "2026-02-24T14:00:00.000000Z",
+        [("human", "Q2"), ("assistant", "A2")],
+    )
+    eps = conv.parse_anthropic_conversations(first) + conv.parse_anthropic_conversations(second)
+    assert all(e["original_date"] == "2026-02-24" for e in eps)
+
+    created, updated, skipped = conv._stage_episodes(eps, ep_dir)
+    assert (created, updated, skipped) == (2, 0, 0)
+
+    names = sorted(p.name for p in ep_dir.glob("ep_*.md"))
+    assert names == [
+        "ep_2026-02-24_003.md",
+        "ep_2026-02-24_004.md",  # seeded from max(3) + 1, not count(1) + 1
+        "ep_2026-02-24_005.md",  # the per-batch dict keeps incrementing
+    ]

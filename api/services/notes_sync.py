@@ -34,8 +34,7 @@ from typing import Any
 
 from loguru import logger
 
-from api.services import markdown_parser
-from api.services.media_ingestor import _next_episode_id
+from api.services import episode_ids, markdown_parser
 
 NOTES_INDEX_FILENAME = "notes_index.json"
 
@@ -227,7 +226,7 @@ def _write_note_episode(episodes_dir: Path, note: NoteRecord) -> str:
     episodes_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
     ep_date = now.strftime("%Y-%m-%d")
-    episode_id = _next_episode_id(episodes_dir, ep_date)
+    episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
     timestamp = now.isoformat() + "Z"
 
     body = _episode_body(note)
