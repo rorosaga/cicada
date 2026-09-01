@@ -79,9 +79,11 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 ## How work is run here
 
 - **PRs merge to `dev`**; `main` is a manual promotion. Never commit directly to `dev` except docs.
-- **Devin gate: one round.** Fix round-1 findings, then merge. A second round only after a
-  High/Critical. Docs-only PRs skip it. Devin has been consistently worth it — it caught the stale
-  drag-throw, three Sleep/Ask concurrency bugs, and a re-import path that discarded save dates.
+- **Devin reviews are ignored (Rodrigo 2026-09-01: "from now on ignore them, they only slow us
+  down").** Do not wait on a round, fix its findings, or reply to them. Merge on the session's own
+  verification — an independent re-run of both suites plus a diff read. (The earlier one-round gate
+  did catch real bugs — the stale drag-throw, three Sleep/Ask concurrency bugs, a re-import path that
+  discarded save dates — so a reviewer of our own is worth keeping; Devin's latency is not.)
 - **One writer per worktree.** Parallel work goes in `.worktrees/<name>` on its own branch. Never
   `git add -A` there (an untracked `api/.venv` symlink lives in each).
 - **Verify, do not trust reports.** Run the suites yourself before merging. This session: an agent

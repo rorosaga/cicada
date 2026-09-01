@@ -34,6 +34,53 @@ no processing at capture time), **Sleep** = cortical consolidation (slow, semant
 gets compressed into a structured, versioned knowledge graph rather than accumulating as a
 transcript pile.
 
+### Why: the human-to-agent experience port
+
+Cicada is the **port between a human's experience and the agents that will act on it** — the first
+step toward capturing everything of a person's experience and their interactions with the world in
+a form an agent can understand, so that, eventually, agents, humans and robots coexist on one
+legible record of what happened and what it meant. Two papers frame the design, and every backlog
+row should be readable against them.
+
+**Silver & Sutton, *Welcome to the Era of Experience* (2025).** Their claim: the next generation of
+agents will learn predominantly from *streams* of experience rather than snippets of human data,
+with actions and observations grounded in an environment, rewards grounded in that environment
+(the human being part of it), and reasoning that is not confined to human terms. Cicada's reading:
+**the person's life is the environment, and Cicada is the instrument that turns it into a stream an
+agent can inhabit.** Four correspondences, each a design constraint:
+
+1. **Streams, not sessions.** A conversation is a snippet; a life is a stream. Awake capture is the
+   stream's intake, Sleep is what makes it more than a transcript pile, and decay is the stream's
+   own clock — silence is data. Anything that fragments the stream (a resumed conversation
+   consolidated twice, G104; capture that depends on a model choosing to call a tool, G105) is a
+   defect against this, not a nicety.
+2. **Observations *and* actions.** Every capture channel is an observation. Every agent write with
+   provenance — a claim, a `Cicada-Author:` trailer, an inbox resolution — is an action on the
+   shared record. The port is two-way or it is a diary.
+3. **Grounded rewards.** When the person answers a nudge, overrules a claim, keeps or archives an
+   entity, that is a reward signal *from the environment*, not a prejudgement of the agent's
+   output. Cicada should treat these resolutions as the signal it learns from, not just as edits to
+   apply (G113).
+4. **Reasoning beyond prose.** The claim layer — typed predicates, bi-temporal validity, observer
+   and trust — exists so an agent can reason over the record structurally. Prose is for humans;
+   claims are the machine-legible half.
+
+**Tang et al., *WikiSkill: Compiling Agent Experience into Persistent Knowledge for Skill
+Evolution* (2026, arXiv:2608.27454).** Their result: separating *raw experience* from a
+*persistent wiki* from *executable skills* is what makes skill evolution work (the wiki is worth
++15 points to the skill proposer in ablation), and evolved skills **transfer across models and
+model families** — a skill evolved by a stronger model can beat one the target model evolved for
+itself. Cicada already holds the first two layers: `episodes/` is the raw layer and the
+entity-plus-claim graph, with its provenance trailers, is the wiki. The third layer — compiling what
+the graph knows about *how this person works* into portable, agent-loadable skills — is **G112**.
+The bar it sets: **a skill compiled from one person's experience should load into any harness on
+any plan, with Cicada being nothing more than its provenance.**
+
+**Portability is the point, not a feature.** The goal is other people running this on their own
+plans and harnesses (G50 connections, G76 install, G92 onboarding). A hardcoded owner name, a path
+that only exists on the author's machine, a bank that cannot be handed over intact — each is a bug
+against the mission, not a polish item.
+
 ## Branches
 
 - `main`: production/stable branch

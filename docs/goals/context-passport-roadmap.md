@@ -19,7 +19,7 @@ Everything below is organized around that yardstick, grounded in a code-verified
 | Projects | ✅ Strong | First-class type, repo links, due claims. No status/lifecycle board (G13) |
 | Code repositories | ✅ Strong | `repos:` frontmatter + live git oracle + graph nodes + MCP tool (shipped 2026-07-13). No activity history over time (by design — live, never cached) |
 | People | ✅ Strong | Extraction, dedup, sweep. Predicates are career-skewed: no `friend-of`, `family-of`, `likes` seeds → Track A3 |
-| Skills/procedural | ✅ Strong | Stage-4 pattern detection. Interaction-scoped only, not hobbies/abilities |
+| Skills/procedural | 🟡 Thin | Stage-4 pattern detection exists, but the writer is create-only with `source_episodes: []` and nothing exports a skill (verified 2026-09-01) — *captured, not grounded, not exported* → G112. Interaction-scoped only, not hobbies/abilities |
 | Calendar | 🟡 Partial | ICS connector shipped (2026-07-13), events → episodes. No event semantics, no "my week" view → Track B5 |
 | Ideas | 🟡 Thin | Implicit `concept` entities only. G13 backlog-as-memory unbuilt → Track B6 |
 | Preferences/taste | 🟡 Thin | Procedural prefs only; no `likes`/`enjoys` predicate seeds, mood-boards postponed (G14) |
