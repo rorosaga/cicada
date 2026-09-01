@@ -2,15 +2,17 @@
 
 - :func:`retrieve_full` is Condition A. Calls the same ``handle_recall``
   path the MCP Bookworm tool uses — semantic entity search, keyword entity
-  fallback, one-hop wikilink traversal, episode LEANN excerpts, and
+  fallback, one-hop wikilink traversal, episode sqlite-vec excerpts, and
   proactive nudges/clarifications. The condition-A retrieval IS the
   full product behavior; we do not reimplement it.
 
 - :func:`retrieve_episodes_only` is Condition B. Queries only the raw
-  episode LEANN index. No entity pages, no keyword fallback, no wikilink
-  hops, no nudges, no clarifications. This is the clean episodic
-  baseline the ablation in experiments.tex asks for — it isolates "what
-  does Cicada look like with zero consolidation."
+  episode sqlite-vec index (``api.services.vector_index.SqliteVecIndexer`` —
+  the LEANN wrapper this once used, ``leann_indexer.py``, has been deleted).
+  No entity pages, no keyword fallback, no wikilink hops, no nudges, no
+  clarifications. This is the clean episodic baseline the ablation in
+  experiments.tex asks for — it isolates "what does Cicada look like with
+  zero consolidation."
 
 - Condition C (commercial baseline) is deliberately NOT automated. The
   Table 1 runner writes stub rows for Condition C so the user can paste
@@ -67,17 +69,17 @@ def retrieve_episodes_only(
     query: str,
     top_k: int = 5,
 ) -> Retrieval:
-    """Condition B — raw LEANN episode search, nothing else.
+    """Condition B — raw sqlite-vec episode search, nothing else.
 
     Returns the top-k episode chunks joined into a single context string
-    that the answerer can use. If the episode LEANN index doesn't exist
-    or the search fails, returns an empty-context Retrieval so the
+    that the answerer can use. If the episode sqlite-vec index doesn't
+    exist or the search fails, returns an empty-context Retrieval so the
     downstream answerer can still report a clean "insufficient
     information" answer instead of crashing.
     """
-    from api.services.leann_indexer import LeannIndexer
+    from api.services.vector_index import SqliteVecIndexer
 
-    indexer = LeannIndexer(memory_path)
+    indexer = SqliteVecIndexer(memory_path)
     try:
         hits = indexer.search_episodes(query, top_k=top_k)
     except Exception as e:

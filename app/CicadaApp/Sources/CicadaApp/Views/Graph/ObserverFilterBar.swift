@@ -58,6 +58,6 @@ struct ObserverFilterBar: View {
             .frame(height: 32)
             .background(isSelected ? CicadaTheme.surfaceHover : .clear)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
     }
 }

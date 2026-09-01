@@ -119,7 +119,7 @@ private struct ContributorRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Button(action: onToggle) { summary }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .accessibilityLabel("\(contributor.author), \(contributor.commitCount) commits")
 
             if isExpanded { drillDown }
@@ -226,7 +226,7 @@ private struct ContributorRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .accessibilityLabel("Retry loading commits for \(contributor.author)")
         } else if let commits, commits.isEmpty {
             Text("No commits found for this author.")
@@ -326,7 +326,7 @@ private struct ContributorRow: View {
                 .foregroundStyle(CicadaTheme.accent)
                 .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help("Show what changed on \(entityId) in this commit")
     }
 

@@ -91,7 +91,7 @@ struct AskPanel: View {
                     .font(.system(size: 14))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
         }
         .padding(CicadaTheme.spacingLG)
     }
@@ -159,7 +159,7 @@ struct AskPanel: View {
             .padding(.vertical, 4)
             .background(Capsule().fill(CicadaTheme.accent.opacity(0.12)))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help(citation.snippet)
         .accessibilityLabel("Open \(citation.entityName)")
     }
@@ -227,7 +227,7 @@ struct AskPanel: View {
                     .background(CicadaTheme.surfaceHover)
                     .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
         }
     }

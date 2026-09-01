@@ -215,7 +215,7 @@ struct ConversationRow: View {
 
         if let onSelectEntity {
             Button { onSelectEntity(entityId) } label: { label }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .help("Open \(entityId)")
                 .accessibilityLabel("Open entity \(entityId)")
         } else {

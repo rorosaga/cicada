@@ -40,8 +40,7 @@ struct TopBarControls: View {
                 .padding(.horizontal, CicadaTheme.spacingMD)
                 .padding(.vertical, CicadaTheme.spacingSM)
             }
-            .buttonStyle(.plain)
-            .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
             .help(sleepVM.status?.progress ?? "Run memory consolidation")
 
             // Upload button
@@ -60,8 +59,7 @@ struct TopBarControls: View {
                 .padding(.horizontal, CicadaTheme.spacingMD)
                 .padding(.vertical, CicadaTheme.spacingSM)
             }
-            .buttonStyle(.plain)
-            .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
 
             // Help button
             Button {
@@ -74,8 +72,7 @@ struct TopBarControls: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(width: 32, height: 28)
             }
-            .buttonStyle(.plain)
-            .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
             .popover(isPresented: $showHelpOverlay, arrowEdge: .bottom) {
                 HelpPopoverContent()
             }

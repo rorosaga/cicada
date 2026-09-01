@@ -205,7 +205,7 @@ private struct TopicsListView: View {
                                 .font(.system(size: 11))
                                 .foregroundStyle(CicadaTheme.textTertiary)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.cicadaPlain)
                     }
                 }
                 .padding(.horizontal, CicadaTheme.spacingMD)
@@ -225,8 +225,7 @@ private struct TopicsListView: View {
                     .padding(.horizontal, CicadaTheme.spacingMD)
                     .padding(.vertical, CicadaTheme.spacingSM)
                 }
-                .buttonStyle(.plain)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
                 .popover(isPresented: $showFilterPopover, arrowEdge: .top) {
                     TopicsFilterPopover(enabledTypes: $enabledTypes)
                 }
@@ -244,8 +243,7 @@ private struct TopicsListView: View {
                     .padding(.horizontal, CicadaTheme.spacingMD)
                     .padding(.vertical, CicadaTheme.spacingSM)
                 }
-                .buttonStyle(.plain)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
                 .popover(isPresented: $showLabelPopover, arrowEdge: .top) {
                     TopicsLabelPopover(
                         allLabels: allLabels,
@@ -296,7 +294,7 @@ private struct TopicsListView: View {
                                 }
                                 .foregroundStyle(CicadaTheme.textSecondary)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cicadaPlain)
                         }
 
                         Spacer()
@@ -403,7 +401,7 @@ private struct TypeSectionHeader: View {
                     .fill(isHovered ? CicadaTheme.surfaceHover : .clear)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
     }
@@ -470,7 +468,7 @@ private struct TypeChip: View {
                     .stroke(isFocused ? color.opacity(0.6) : CicadaTheme.border, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
     }
@@ -512,7 +510,7 @@ private struct TopicsFilterPopover: View {
                     }
                     .padding(.vertical, 3)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
         }
         .padding(CicadaTheme.spacingMD)
@@ -602,7 +600,7 @@ private struct TopicsLabelPopover: View {
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 3)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cicadaPlain)
                         }
 
                         if hiddenCount > 0 {
@@ -631,7 +629,7 @@ private struct TopicsLabelPopover: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .padding(.vertical, 4)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
         }
         .padding(CicadaTheme.spacingMD)
@@ -682,7 +680,7 @@ private struct TopicRowListItem: View {
                     .fill(isHovered ? CicadaTheme.surfaceHover : .clear)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
     }
@@ -717,8 +715,7 @@ private struct TopicDetailView: View {
                     .padding(.horizontal, CicadaTheme.spacingMD)
                     .padding(.vertical, CicadaTheme.spacingSM)
                 }
-                .buttonStyle(.plain)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
 
                 Spacer()
             }

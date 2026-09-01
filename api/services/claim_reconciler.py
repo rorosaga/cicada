@@ -30,7 +30,7 @@ the human-protection rule must be deterministic and auditable.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable
 
 from loguru import logger
@@ -60,6 +60,13 @@ _DECAY_FACTOR = {
 # twice as fast. See ``schemas.CLAIM_DECAY_MULTIPLIERS``.
 
 _HUMAN_ORIGINS = {"manual_edit", "clarification"}
+
+# G85 §2 / Wave-1 1.8: mirrors conflict_resolver.MAX_DECAY_DAYS_PER_CYCLE — a
+# single decay pass never charges more than one week's worth, regardless of
+# the actual elapsed gap. Independent safety rail from the one-shot
+# `decayed_through` backfill migration: a future outage/paused-schedule gap
+# degrades gradually over several cycles instead of one cliff.
+MAX_DECAY_DAYS_PER_CYCLE = 7
 
 
 # --------------------------------------------------------------------------- #
@@ -452,6 +459,12 @@ def _days_since(ref: str | None, today: str) -> int:
     return max(0, (a - b).days)
 
 
+def _max_date(left: str | None, right: str | None) -> str | None:
+    """The later of two ISO date/date-time strings; either may be missing."""
+    candidates = [str(c)[:10] for c in (left, right) if c]
+    return max(candidates) if candidates else None
+
+
 def _decay_claims(
     reconciled: dict[str, list[Claim]],
     referenced_subjects: set[str],
@@ -475,35 +488,53 @@ def _decay_claims(
                 continue  # closed claims don't decay; they're history
             base = _DECAY_BASE.get(c.epistemic, 0.02)
             factor = _DECAY_FACTOR.get(c.source_trust, 1.0)
-            ref = c.recorded_at or c.valid_from
-            days = _days_since(ref, today)
-            amount = base * factor * multiplier * (days / 7.0)
-            if amount <= 0:
-                continue
-            new_conf = max(0.0, c.confidence - amount)
-            if new_conf == c.confidence:
-                continue
-            c.confidence = new_conf
-            # Decay never closes a claim and never touches a human claim's
-            # validity — it only lowers the retrieval weight + may nudge.
-            if new_conf < archive_threshold:
-                nudges.append({
-                    "id": subject,
-                    "action": "decay_nudge",
-                    "entity": {"name": _entity_name(c)},
-                    "new_confidence": new_conf,
-                    "claim_id": c.id,
-                    "trigger": "sleep/decay",
-                })
-            elif new_conf < nudge_threshold:
-                nudges.append({
-                    "id": subject,
-                    "action": "decay_nudge",
-                    "entity": {"name": _entity_name(c)},
-                    "new_confidence": new_conf,
-                    "claim_id": c.id,
-                    "trigger": "sleep/decay",
-                })
+            # G85 §2 / Wave-1 1.1: `recorded_at`/`valid_from` never move, so
+            # anchoring decay to them alone re-charges the SAME elapsed span
+            # on every Sleep run. `decayed_through` is the watermark this pass
+            # itself stamps below; anchor to whichever is more recent so an
+            # interval is charged exactly once.
+            anchor = _max_date(c.decayed_through, c.recorded_at or c.valid_from)
+            raw_days = _days_since(anchor, today)
+            # Wave-1 1.8: cap the charge at MAX_DECAY_DAYS_PER_CYCLE and
+            # advance the watermark by only that capped amount (not to
+            # `today`) — a long gap works off gradually over several cycles
+            # instead of charging the whole span as one cliff.
+            charged_days = min(raw_days, MAX_DECAY_DAYS_PER_CYCLE)
+            amount = base * factor * multiplier * (charged_days / 7.0)
+            today_date = date.fromisoformat(today[:10])
+            try:
+                anchor_date = date.fromisoformat((anchor or today)[:10])
+                new_watermark = min(today_date, anchor_date + timedelta(days=charged_days))
+            except ValueError:
+                new_watermark = today_date
+            if amount > 0:
+                new_conf = max(0.0, c.confidence - amount)
+                if new_conf != c.confidence:
+                    c.confidence = new_conf
+                    # Decay never closes a claim and never touches a human
+                    # claim's validity — it only lowers the retrieval weight
+                    # + may nudge.
+                    if new_conf < archive_threshold:
+                        nudges.append({
+                            "id": subject,
+                            "action": "decay_nudge",
+                            "entity": {"name": _entity_name(c)},
+                            "new_confidence": new_conf,
+                            "claim_id": c.id,
+                            "trigger": "sleep/decay",
+                        })
+                    elif new_conf < nudge_threshold:
+                        nudges.append({
+                            "id": subject,
+                            "action": "decay_nudge",
+                            "entity": {"name": _entity_name(c)},
+                            "new_confidence": new_conf,
+                            "claim_id": c.id,
+                            "trigger": "sleep/decay",
+                        })
+            # Stamp the watermark regardless of whether `amount` moved
+            # anything this pass — the next pass must measure from here.
+            c.decayed_through = new_watermark.isoformat()
 
 
 # --------------------------------------------------------------------------- #

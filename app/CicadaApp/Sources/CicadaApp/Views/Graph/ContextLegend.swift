@@ -30,7 +30,7 @@ struct ContextLegend: View {
                                 .font(CicadaTheme.captionFont)
                                 .foregroundStyle(CicadaTheme.accent)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.cicadaPlain)
                         .padding(.top, 2)
                     }
                 }
@@ -53,7 +53,7 @@ struct ContextLegend: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
         }
     }
 
@@ -75,6 +75,6 @@ struct ContextLegend: View {
             }
             .padding(.vertical, 2)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
     }
 }

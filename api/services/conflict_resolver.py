@@ -2,7 +2,7 @@
 
 import json
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import litellm
@@ -20,11 +20,28 @@ from api.services.providers import resolve_llm_fn
 # single passing mention doesn't outrank a well-established belief.
 RECOVERY_CONFIDENCE = 0.6
 
+# G85 §2 / Wave-1 1.8: a single decay pass never charges more than one
+# week's worth of decay, regardless of how many days have actually elapsed
+# since the baseline. `decay_rate` is defined per-week, so a week is the
+# natural unit. This is a safety rail INDEPENDENT of the one-shot
+# `decayed_through` backfill migration (`decay_migration.py`) — a future gap
+# (a paused schedule, a laptop off for a month, an engine outage) must
+# degrade gracefully over several cycles instead of charging the whole gap
+# as if it were user disinterest in one cliff. The watermark advances by
+# only the CAPPED amount, so the remaining "debt" persists and gets worked
+# off on subsequent cycles rather than being silently dropped.
+MAX_DECAY_DAYS_PER_CYCLE = 7
+
 
 async def resolve_and_prune(
-    resolved: list[dict], existing: list[dict], settings: Settings
+    resolved: list[dict], existing: list[dict], settings: Settings, *, now: datetime | None = None
 ) -> list[dict]:
-    """Apply conflict resolution and temporal decay to all entities."""
+    """Apply conflict resolution and temporal decay to all entities.
+
+    ``now``: decay reference time; defaults to ``datetime.now()``. Mirrors
+    ``claim_reconciler.reconcile_stage3``'s ``now_date`` — injectable so a test
+    can simulate elapsed time without monkeypatching the stdlib clock.
+    """
     changes: list[dict] = list(resolved)
 
     # IDs of entities referenced in this cycle
@@ -125,7 +142,7 @@ async def resolve_and_prune(
 
     # Temporal decay for unreferenced entities. The per-week rate and the class
     # both come from `decay_policy.resolve` — evergreen entities are skipped.
-    now = datetime.now()
+    now = now or datetime.now()
     decay_candidates = [e for e in existing if e["id"] not in referenced_ids]
     decay_progress = tqdm(
         total=len(decay_candidates),
@@ -153,12 +170,34 @@ async def resolve_and_prune(
             # An artifact, not a belief: it does not become less true by going
             # unmentioned. No decay math, no decay nudge, never auto-archived.
             continue
-        days_since = _days_since_last_referenced(fm.get("last_referenced"), now)
+        # G85 §2 / Wave-1 1.1: decay must be charged exactly once per elapsed
+        # interval. The write branch below stamps `decayed_through` on every
+        # decay pass; read it back here and measure `days_since` from
+        # whichever is more recent — `last_referenced` (moved forward by an
+        # actual re-mention) or `decayed_through` (moved forward by the last
+        # decay pass itself, referenced or not). Without this, an unreferenced
+        # entity's `last_referenced` never advances and every Sleep run
+        # re-subtracts the SAME full interval from the already-decayed value.
+        baseline = _max_date(
+            _extract_date_string(fm.get("last_referenced")),
+            _extract_date_string(fm.get("decayed_through")),
+        )
+        days_since = _days_since_last_referenced(baseline, now)
         if days_since is None:
             # Fallback: single step if we cannot determine last reference
             decay_amount = decay_rate
+            decay_today = now.date().isoformat()
         else:
-            decay_amount = decay_rate * (days_since / 7.0)
+            # Wave-1 1.8: cap the charge at MAX_DECAY_DAYS_PER_CYCLE and
+            # advance the watermark by only that capped amount — a long gap
+            # (outage, paused schedule) works off gradually over several
+            # cycles instead of hitting the whole gap in one.
+            charged_days = min(days_since, MAX_DECAY_DAYS_PER_CYCLE)
+            decay_amount = decay_rate * (charged_days / 7.0)
+            baseline_date = date.fromisoformat(baseline) if baseline else now.date()
+            decay_today = min(
+                now.date(), baseline_date + timedelta(days=charged_days)
+            ).isoformat()
         new_confidence = max(0.0, confidence - decay_amount)
 
         if new_confidence < settings.archive_threshold:
@@ -169,6 +208,7 @@ async def resolve_and_prune(
                 "new_status": "archived",
                 "source_episode": "",
                 "trigger": "sleep/decay",
+                "decayed_through": decay_today,
             })
         elif new_confidence < settings.decay_nudge_threshold:
             changes.append({
@@ -178,6 +218,7 @@ async def resolve_and_prune(
                 "new_status": "decaying",
                 "source_episode": "",
                 "trigger": "sleep/decay",
+                "decayed_through": decay_today,
             })
         else:
             changes.append({
@@ -187,6 +228,7 @@ async def resolve_and_prune(
                 "new_status": status,
                 "source_episode": "",
                 "trigger": "sleep/decay",
+                "decayed_through": decay_today,
             })
 
     decay_progress.close()
@@ -349,6 +391,12 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             parsed.frontmatter["confidence"] = change.get("new_confidence", 0.0)
             if "new_status" in change:
                 parsed.frontmatter["status"] = change["new_status"]
+            # G85 §2 / Wave-1 1.1: stamp the watermark so the NEXT decay pass
+            # charges only the interval elapsed since today, not the whole
+            # span back to `last_referenced` again. Uses the SAME reference
+            # date the decay pass computed against (falls back to the real
+            # today for a change dict built outside `resolve_and_prune`).
+            parsed.frontmatter["decayed_through"] = change.get("decayed_through") or str(date.today())
             markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
 
     write_progress.close()

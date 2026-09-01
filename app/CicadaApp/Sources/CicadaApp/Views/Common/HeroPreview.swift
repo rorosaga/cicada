@@ -138,7 +138,7 @@ private struct YouTubeHero: View {
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help("Open video")
     }
 }
@@ -174,7 +174,7 @@ private struct HeroImage: View {
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help("Click to enlarge")
         .sheet(isPresented: $showLightbox) {
             ImageLightbox(url: url)
@@ -236,7 +236,7 @@ private struct WebsiteHero: View {
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help("Open \(model.site ?? "site")")
     }
 
@@ -295,7 +295,7 @@ private struct CompactSiteHero: View {
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
     }
 }
 
@@ -401,7 +401,7 @@ private struct LocationHero: View {
                 .padding(6)
                 .background(.ultraThinMaterial, in: Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help("Open in Maps")
     }
 

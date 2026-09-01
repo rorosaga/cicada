@@ -1017,6 +1017,11 @@ class BankImportResponse(CamelModel):
     duplicates_skipped: int = 0
     date_range: BankImportDateRange = Field(default_factory=BankImportDateRange)
     format: str = "unknown"
+    # G87 / Wave-1 1.6: whether `{name}` is the bank Sleep actually consolidates.
+    # An import into a NON-active bank stages real episodes that nothing will
+    # ever process — the app branches its toast on this rather than showing a
+    # plain success message that silently hides the consequence.
+    active: bool = False
 
 
 # --- Sources (media ingestion) ---

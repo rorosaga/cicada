@@ -136,9 +136,14 @@ struct BankImportResponse: Codable {
     let duplicatesSkipped: Int
     let format: String?
     let dateRange: BankImportDateRange?
+    /// G87 / Wave-1 1.6: whether the target bank is the one Sleep actually
+    /// consolidates. Absent on a legacy backend defaults to `true` (today's
+    /// silent-success behavior) rather than false, which would wrongly warn
+    /// every import against a backend that hasn't shipped this field yet.
+    let active: Bool
 
     enum CodingKeys: String, CodingKey {
-        case episodesStaged, episodesUpdated, duplicatesSkipped, format, dateRange
+        case episodesStaged, episodesUpdated, duplicatesSkipped, format, dateRange, active
     }
 
     init(from decoder: Decoder) throws {
@@ -148,6 +153,7 @@ struct BankImportResponse: Codable {
         duplicatesSkipped = (try? c.decode(Int.self, forKey: .duplicatesSkipped)) ?? 0
         format = try c.decodeIfPresent(String.self, forKey: .format)
         dateRange = try c.decodeIfPresent(BankImportDateRange.self, forKey: .dateRange)
+        active = (try? c.decode(Bool.self, forKey: .active)) ?? true
     }
 }
 

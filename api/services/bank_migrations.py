@@ -23,6 +23,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services.decay_migration import backfill_decay_classes
+from api.services.decay_watermark_migration import backfill_decay_watermarks
 from api.services.inbox_migration import dedup_open_items, migrate_to_inbox
 
 
@@ -30,8 +31,9 @@ def run_bank_migrations(memory_path) -> dict:
     """Run every one-shot migration for one bank. Returns what each one did.
 
     ``{"moved": int, "deduped": int, "classed": {"media": int, "skills": int,
-    "restored": int}}``. Logs only when something actually changed, so a
-    no-op re-run on every bank switch is silent.
+    "restored": int}, "watermarked": {"entities": int, "claims": int}}``.
+    Logs only when something actually changed, so a no-op re-run on every
+    bank switch is silent.
     """
     memory_path = Path(memory_path)
 
@@ -57,4 +59,19 @@ def run_bank_migrations(memory_path) -> dict:
             f"{classed['restored']} restored to active"
         )
 
-    return {"moved": moved, "deduped": deduped, "classed": classed}
+    # G85 §2 / Wave-1 1.8: one-time watermark backfill so the first decay
+    # cycle after an outage (Sleep not having run in a while) never charges
+    # the whole gap as a cliff — see decay_watermark_migration for why.
+    watermarked = backfill_decay_watermarks(memory_path)
+    if watermarked["entities"] or watermarked["claims"]:
+        logger.info(
+            f"Backfilled decay watermarks: {watermarked['entities']} page(s), "
+            f"{watermarked['claims']} open claim(s)"
+        )
+
+    return {
+        "moved": moved,
+        "deduped": deduped,
+        "classed": classed,
+        "watermarked": watermarked,
+    }
