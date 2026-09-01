@@ -319,6 +319,9 @@ def test_import_claude_backdates_episodes(tmp_path, monkeypatch):
     assert body["duplicatesSkipped"] == 0
     assert body["dateRange"]["from"] == "2025-11-03"
     assert body["dateRange"]["to"] == "2026-02-24"
+    # G87 / Wave-1 1.6: "imports" was created but never activated — "default"
+    # still is, so these episodes are staged into a bank Sleep never touches.
+    assert body["active"] is False
 
     # Episodes land in the TARGET bank, backdated to the conversation date.
     ep_dir = tmp_path / "banks" / "imports" / "episodes"
@@ -348,6 +351,26 @@ def test_import_dedup_against_target_bank(tmp_path, monkeypatch):
     assert r2.json()["episodesStaged"] == 0
     assert r2.json()["duplicatesSkipped"] == 2
     config.get_settings.cache_clear()
+
+
+def test_import_into_the_active_bank_reports_active_true(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    # "default" is the legacy bank and is active from the start (no create/
+    # activate call needed) — importing straight into it must report active.
+    r = _upload(client, "default", _CLAUDE_EXPORT)
+    assert r.status_code == 200, r.text
+    assert r.json()["active"] is True
+
+
+def test_import_after_switching_active_reports_active_true(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/banks", json={"name": "Imports"})
+    activate = client.post("/banks/imports/activate")
+    assert activate.status_code == 200, activate.text
+
+    r = _upload(client, "imports", _CLAUDE_EXPORT)
+    assert r.status_code == 200, r.text
+    assert r.json()["active"] is True
 
 
 def test_import_unknown_bank_404(tmp_path, monkeypatch):

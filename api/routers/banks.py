@@ -199,10 +199,21 @@ async def import_into_bank(
         f"  Staged {created} new, {updated} updated, {skipped} unchanged ({fmt})"
     )
 
+    # G87 / Wave-1 1.6: `name` need not be the ACTIVE bank — episodes staged
+    # into a non-active bank are invisible to Sleep until someone switches to
+    # it. Surface that in the response instead of a plain "imported" success.
+    is_active = name == registry.get("active", bank_registry.DEFAULT_BANK)
+    if not is_active:
+        logger.warning(
+            f"Import into bank '{name}' staged {created + updated} episode(s) into a "
+            "NON-active bank — they will not be consolidated until it is switched to."
+        )
+
     return BankImportResponse(
         episodes_staged=created,
         episodes_updated=updated,
         duplicates_skipped=skipped,
         date_range=date_range,
         format=fmt,
+        active=is_active,
     )
