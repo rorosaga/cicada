@@ -28,6 +28,8 @@ where ``asyncio.run`` raises.
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import re
 import threading
@@ -416,33 +418,88 @@ def _raise(exc: engine_errors.EngineError):
 
 
 # --------------------------------------------------------------------------- #
-# Circuit breaker + models-used ledger (process-global, reset per Sleep cycle)
+# Circuit breaker (scoped per workload — Devin PR #25 round 1, finding 1) +
+# models-used ledger (process-global, reset per Sleep cycle)
 # --------------------------------------------------------------------------- #
 
+#: The breaker used to be one process-global reason shared across Sleep, Ask,
+#: MCP and every other agent call — a throttle discovered by a CONCURRENT Ask
+#: request tripped the SAME breaker Sleep's Stage 1 was checking, aborting an
+#: unrelated Sleep cycle for a throttle it never itself hit. `_BREAKER` is now
+#: keyed by an opaque ``scope`` string, one bucket per active workload
+#: (a Sleep cycle scopes to ``f"sleep:{cycle_id}"``; anything that never opts
+#: in shares `_DEFAULT_SCOPE`, exactly the old single-bucket behavior for
+#: those callers). ``_CURRENT_SCOPE`` is a contextvar rather than a plain
+#: global so the "current" scope is per-asyncio-Task: FastAPI hands each
+#: request its own Task with its own copy of the ambient context, and
+#: `asyncio.to_thread`/`asyncio.gather` COPY that context into the child
+#: task/thread they spawn — so a scope `use_scope` sets inside a Sleep cycle's
+#: background task is visible to every stage that cycle awaits (Stage 1's
+#: fan-out included), but invisible to a sibling Task handling a concurrent
+#: Ask or MCP call, with no explicit `scope=` plumbing required through
+#: entity_extractor/entity_resolver/conflict_resolver/skill_extractor/
+#: link_enrichment. `trip_breaker`/`breaker_reason`/`reset_breaker`/`complete`
+#: all accept an explicit ``scope`` override for a caller that wants one
+#: (tests, and any future caller that wants real isolation from the shared
+#: default bucket) and fall back to the ambient scope otherwise.
+_DEFAULT_SCOPE = "_unscoped"
+_CURRENT_SCOPE: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "cicada_agent_engine_scope", default=_DEFAULT_SCOPE
+)
+_BREAKER: dict[str, str] = {}
 
-def trip_breaker(reason: str) -> bool:
-    """Trip the throttle breaker. Returns ``True`` only for the call that tripped it.
+
+def current_scope() -> str:
+    """The ambient breaker scope for whatever is executing right now."""
+    return _CURRENT_SCOPE.get()
+
+
+@contextlib.contextmanager
+def use_scope(name: str):
+    """Make ``name`` the ambient scope for the duration of the ``with`` block
+    (and everything it awaits/gathers/dispatches to a thread — contextvars
+    propagate to child tasks and `asyncio.to_thread` workers, never to
+    siblings). Purges any breaker trip recorded under ``name`` on exit, so a
+    workload's throttle can never outlive the workload that discovered it —
+    ``_BREAKER`` stays bounded by "workloads in flight", not by "every
+    workload that ever ran".
+    """
+    token = _CURRENT_SCOPE.set(name)
+    try:
+        yield name
+    finally:
+        _CURRENT_SCOPE.reset(token)
+        reset_breaker(scope=name)
+
+
+def trip_breaker(reason: str, *, scope: str | None = None) -> bool:
+    """Trip the throttle breaker for ``scope``. Returns ``True`` only for the
+    call that tripped it.
 
     Stage 1 fans out per-episode with no batch abort, so one throttle would be
     re-hit once per remaining episode. After the first, every subsequent call
-    fails fast WITHOUT spawning and the cycle stops cleanly, leaving
-    ``processed: false`` to do the rest.
+    IN THE SAME SCOPE fails fast WITHOUT spawning and that workload stops
+    cleanly, leaving ``processed: false`` to do the rest — a concurrent call
+    in a DIFFERENT scope is untouched.
     """
+    scope = scope or current_scope()
     with _STATE_LOCK:
-        if _BREAKER["reason"]:
+        if _BREAKER.get(scope):
             return False
-        _BREAKER["reason"] = reason or "Claude plan throttled"
+        _BREAKER[scope] = reason or "Claude plan throttled"
         return True
 
 
-def breaker_reason() -> str | None:
+def breaker_reason(*, scope: str | None = None) -> str | None:
+    scope = scope or current_scope()
     with _STATE_LOCK:
-        return _BREAKER["reason"]
+        return _BREAKER.get(scope)
 
 
-def reset_breaker() -> None:
+def reset_breaker(*, scope: str | None = None) -> None:
+    scope = scope or current_scope()
     with _STATE_LOCK:
-        _BREAKER["reason"] = None
+        _BREAKER.pop(scope, None)
 
 
 def record_model_used(model: str | None) -> None:
@@ -483,12 +540,17 @@ def complete(
     timeout: float = DEFAULT_TIMEOUT_S,
     runner: Runner | None = None,
     binary: str = "claude",
+    scope: str | None = None,
 ) -> dict:
     """One `claude -p` call. Returns the parsed envelope; raises ``EngineError``.
 
-    Synchronous by design — see the module docstring.
+    Synchronous by design — see the module docstring. ``scope``: the breaker
+    bucket this call checks/trips — defaults to :func:`current_scope`, so a
+    Sleep cycle's ``use_scope`` wrapper covers every call made underneath it
+    with no explicit threading required at this call site.
     """
-    tripped = breaker_reason()
+    scope = scope or current_scope()
+    tripped = breaker_reason(scope=scope)
     if tripped:
         # Fix round 1, L1: tagged ``.spawned = False`` so the seam can tell
         # this fail-fast (no subprocess ever touched) apart from a call that

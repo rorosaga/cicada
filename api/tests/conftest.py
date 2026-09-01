@@ -211,12 +211,21 @@ def agent_runner():
 
 @pytest.fixture(autouse=True)
 def _reset_agent_engine_state():
-    """The breaker and the models-used ledger are process-global; a tripped
-    breaker leaking into the next test would make it fail-fast for free."""
+    """The models-used ledger is process-global; a tripped breaker or a
+    leftover model leaking into the next test would make it fail-fast (or
+    misattribute a commit trailer) for free.
+
+    The breaker is now scoped (Devin PR #25 round 1, finding 1) — `_BREAKER`
+    is keyed by whatever scope string a test used, not a single slot — so a
+    plain unscoped `reset_breaker()` only clears the DEFAULT bucket. Clearing
+    the dict directly catches every scope a test may have tripped (custom
+    scope names included), the same blanket guarantee the old single-slot
+    reset gave for free.
+    """
     from api.services import agent_engine
 
-    agent_engine.reset_breaker()
+    agent_engine._BREAKER.clear()
     agent_engine.reset_models_used()
     yield
-    agent_engine.reset_breaker()
+    agent_engine._BREAKER.clear()
     agent_engine.reset_models_used()

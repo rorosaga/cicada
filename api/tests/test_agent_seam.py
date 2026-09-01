@@ -293,3 +293,61 @@ def test_the_rung_semaphore_caps_concurrent_spawns():
 
     asyncio.run(_fan_out())
     assert peak <= 2
+
+
+def test_the_rung_semaphore_is_shared_across_sync_and_async_callers():
+    """Devin PR #25 round 1, finding 2: the sync branch (a synchronous Ask,
+    say) and the async branch (a Sleep cycle) used to draw from two
+    INDEPENDENT semaphore pools, so together they could spawn up to DOUBLE
+    the configured `agent_max_concurrency` — exactly the machine-wide cap
+    this limiter exists to enforce. One shared `threading.BoundedSemaphore`
+    now backs both call styles, so mixed concurrent use still caps at the
+    configured limit."""
+    import threading
+    import time as _t
+
+    live = 0
+    peak = 0
+    lock = threading.Lock()
+
+    def runner(argv, *, stdin=None, timeout=None, cwd=None):
+        nonlocal live, peak
+        with lock:
+            live += 1
+            peak = max(peak, live)
+        try:
+            _t.sleep(0.05)
+            return CliResult(0, json.dumps({
+                "is_error": False, "result": "{}", "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1}}), "")
+        finally:
+            with lock:
+                live -= 1
+
+    import litellm
+
+    settings = _agent_settings(agent_max_concurrency=2)
+    sync_fn = providers.resolve_llm_fn(settings, sink=lambda e: None, runner=runner)
+    async_fn = providers.resolve_llm_fn(settings, completion=litellm.acompletion,
+                                        sink=lambda e: None, runner=runner)
+
+    async def _drive():
+        loop = asyncio.get_event_loop()
+        # Four "synchronous Ask" callers, each dispatched to its own worker
+        # thread (mirroring how a sync call site is actually invoked outside
+        # an event loop) ...
+        sync_futures = [
+            loop.run_in_executor(
+                None, lambda: sync_fn(messages=[{"role": "user", "content": "x"}])
+            )
+            for _ in range(4)
+        ]
+        # ... running AT THE SAME TIME as four native async ("Sleep cycle")
+        # callers.
+        async_coros = [
+            async_fn(messages=[{"role": "user", "content": "x"}]) for _ in range(4)
+        ]
+        await asyncio.gather(*sync_futures, *async_coros)
+
+    asyncio.run(_drive())
+    assert peak <= 2

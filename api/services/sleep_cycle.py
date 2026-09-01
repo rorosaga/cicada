@@ -387,17 +387,29 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
 
     memory_path = settings.memory_path
 
-    # G74(a) — the throttle breaker and the models-used ledger are
-    # process-global (L4, Task 4 review, handed to Task 5). A breaker left
-    # tripped by last night's cycle would make this one fail fast for free,
-    # for a throttle that has long since cleared.
+    # G74(a) — the models-used ledger is process-global still (L4, Task 4
+    # review, handed to Task 5 — a disclosed, accepted same-alias limitation,
+    # see agent_engine._MODELS_USED). The throttle breaker is NOT: Devin PR
+    # #25 round 1, finding 1 — a concurrent Ask/MCP call that also routes
+    # through the agent rung used to trip the SAME process-global breaker
+    # Sleep's Stage 1 checked, aborting an unrelated cycle for a throttle it
+    # never itself hit. This cycle now runs inside its own breaker scope
+    # (`agent_engine.use_scope`), keyed by ``cycle_id`` — a value nothing else
+    # in the process can ever collide with — so a throttle discovered inside
+    # this cycle can only ever stop THIS cycle, and a throttle discovered by
+    # a concurrent Ask/MCP call (which never enters this scope) can never
+    # abort it. No explicit `reset_breaker()` needed at cycle start any more:
+    # a fresh `cycle_id` means a fresh, never-tripped scope, and `use_scope`
+    # purges its own scope's entry on exit regardless.
     from api.services import agent_engine
-    agent_engine.reset_breaker()
     agent_engine.reset_models_used()
 
     outcome = _StageOutcome()
     try:
-        outcome = await _run_stages(settings, cycle_id, memory_path, user_triggered=user_triggered)
+        with agent_engine.use_scope(f"sleep:{cycle_id}"):
+            outcome = await _run_stages(
+                settings, cycle_id, memory_path, user_triggered=user_triggered
+            )
     except Exception as e:
         _state.progress = f"Failed: {e}"
         _state.error = f"{type(e).__name__}: {e}"

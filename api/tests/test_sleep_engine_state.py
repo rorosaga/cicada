@@ -347,12 +347,30 @@ def test_a_scheduled_cycle_never_selects_claude_cli_end_to_end(tmp_path, monkeyp
     assert "user-triggered" in (state.engine_detail or "")
 
 
-def test_the_breaker_is_reset_at_the_top_of_every_cycle(tmp_path, monkeypatch, tail_spy):
+def test_an_unrelated_scopes_trip_never_touches_or_blocks_a_new_cycle(tmp_path, monkeypatch, tail_spy):
+    """Devin PR #25 round 1, finding 1: the breaker used to be one
+    process-global slot, reset unconditionally at the top of every cycle —
+    so a throttle a CONCURRENT Ask/MCP call hit (tripping that same global
+    slot) would make an unrelated Sleep cycle fail fast for a throttle it
+    never itself hit, and the cycle's own `reset_breaker()` would blow away
+    that unrelated caller's in-progress backoff state too.
+
+    The breaker is now scoped per cycle_id (`agent_engine.use_scope`), so a
+    trip sitting in some OTHER scope (standing in for "a concurrent Ask")
+    neither blocks this brand-new cycle NOR gets reset by it — each scope
+    owns only its own breaker state.
+    """
     memory = _seed(tmp_path, unprocessed=0)
     monkeypatch.setattr(Settings, "memory_path", property(lambda self: memory))
-    agent_engine.trip_breaker("left over from the last cycle")
+    agent_engine.trip_breaker("a concurrent Ask hit a throttle", scope="ask")
     asyncio.run(sleep_cycle.run(Settings(), "sleep_test"))
-    assert agent_engine.breaker_reason() is None
+    # The cycle completed without ever seeing the unrelated scope's trip.
+    assert sleep_cycle.get_sleep_state().error is None
+    # And it never reset a scope that was never its own to reset.
+    assert agent_engine.breaker_reason(scope="ask") == "a concurrent Ask hit a throttle"
+    # This cycle's OWN scope was never tripped, and is gone (use_scope purges
+    # it on exit) rather than lingering for the next cycle to worry about.
+    assert agent_engine.breaker_reason(scope="sleep:sleep_test") is None
 
 
 def test_sleep_status_exposes_the_engine():

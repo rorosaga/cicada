@@ -1611,6 +1611,14 @@ async def ingest_batch(
     sem = asyncio.Semaphore(8)
     lock = asyncio.Lock()
     created = 0
+    # Devin PR #25 round 1, finding 3: `_commit_media` used to `git add -A`,
+    # which absorbs any PRE-EXISTING dirty edit in the bank (a hand-edit in
+    # Obsidian, say) into a media/connector commit under false `user`
+    # provenance. Track exactly the paths THIS batch wrote — the same
+    # `commit_paths` mechanism the decay-watermark/decay-only commits use —
+    # so the commit stages only its own outputs regardless of what else is
+    # sitting dirty in the working tree.
+    created_paths: list[str] = []
 
     async with httpx.AsyncClient() as client:
         async def worker(item: RawItem) -> None:
@@ -1627,6 +1635,8 @@ async def ingest_batch(
             if result.status == "created":
                 async with lock:
                     created += 1
+                    created_paths.append(f"entities/{result.media_entity_id}.md")
+                    created_paths.append(f"episodes/{result.episode_id}.md")
 
         await asyncio.gather(*(worker(it) for it in fresh))
 
@@ -1634,26 +1644,31 @@ async def ingest_batch(
 
     if commit and created:
         try:
-            await _commit_media(memory_path, created)
+            await _commit_media(memory_path, created, ["sources/url_index.json", *created_paths])
         except Exception as e:
             logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
 
     return created, len(items) - len(fresh)
 
 
-async def _commit_media(memory_path: Path, count: int) -> None:
+async def _commit_media(memory_path: Path, count: int, paths: list[str]) -> None:
+    """Commit scoped to exactly ``paths`` — never ``git add -A`` (finding 3
+    above). ``paths`` is memory-relative: ``sources/url_index.json`` plus one
+    ``entities/<id>.md`` + ``episodes/<id>.md`` pair per item this batch
+    actually created.
+    """
     from api.services import git_service
 
     date_str = datetime.now().strftime("%Y-%m-%d")
     message = git_service.build_commit_message(
         f"Sources ingest {date_str}",
         [
-            "memory/sources/url_index.json: updated (trigger: user/media_save)",
+            "sources/url_index.json: updated (trigger: user/media_save)",
             f"{count} media item(s) saved (trigger: user/media_save)",
         ],
         authors=["user"],
     )
-    await git_service.commit_changes(memory_path, message)
+    await git_service.commit_paths(memory_path, message, paths)
 
 
 # --- Sleep-cycle media edge injection (CRITIC FIX) ---

@@ -89,7 +89,7 @@ def _memory(tmp_path, monkeypatch):
             title=media_ingestor._fallback_title(url), description="",
             site=media_ingestor._site_of(url), media_type="url")
 
-    async def no_commit(memory_path, count):
+    async def no_commit(memory_path, count, paths=None):
         return None
 
     monkeypatch.setattr(media_ingestor, "enrich", offline)

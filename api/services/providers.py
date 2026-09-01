@@ -140,20 +140,29 @@ AGENT_DEFAULT_TIMEOUT_S = 300.0
 # One process-wide cap on concurrent `claude -p` subprocesses. Stage 1 fans out
 # at MAX_CONCURRENCY (10) and Stage 2 is sequential, so without this the rung
 # would put 10 CLI processes on the machine at once and walk straight into the
-# plan's own rate limit. Two flavors, one per call path (fix round 1, L1): a
-# ``threading.BoundedSemaphore`` for the genuinely-sync branch, and an
-# ``asyncio.Semaphore`` for the async branch, acquired BEFORE the work is
-# dispatched to ``asyncio.to_thread`` so a caller blocked on the cap parks on
-# the event loop instead of occupying (and starving) one of the default
-# executor's threads for up to ``timeout`` seconds. Both are keyed by the
-# requested limit (fix round 1, L2) rather than rebuilt in place, so a caller
-# passing a different ``agent_max_concurrency`` gets its own persistent
-# semaphore instead of replacing the shared one out from under a caller that
-# already holds a permit on it.
+# plan's own rate limit.
+#
+# Devin PR #25 round 1, finding 2: fix round 1 gave the sync and async
+# branches TWO INDEPENDENT pools — a ``threading.BoundedSemaphore`` for sync,
+# a per-loop ``asyncio.Semaphore`` for async — so a Sleep cycle (async) and a
+# concurrent synchronous Ask could each hold a full ``agent_max_concurrency``
+# worth of permits AT THE SAME TIME, doubling the one machine-wide limit this
+# cap exists to enforce (ten `claude` processes are ten Node runtimes). Both
+# call styles now acquire the SAME ``threading.BoundedSemaphore`` — the one
+# real capacity limiter, keyed by the requested limit (fix round 1, L2) so a
+# caller passing a different ``agent_max_concurrency`` gets its own
+# persistent semaphore instead of replacing the shared one out from under a
+# caller that already holds a permit on it.
+#
+# The async branch still never blocks the event loop: the acquire, the call,
+# and the release all happen inside ONE ``asyncio.to_thread`` dispatch, so a
+# waiting async caller parks a worker thread, never the loop itself. And
+# because nothing asyncio-native is created here at all, the "cannot bind to
+# a dead loop" property the old per-loop ``asyncio.Semaphore`` existed to
+# protect is preserved for free — a ``threading.BoundedSemaphore`` was never
+# loop-bound to begin with.
 _AGENT_SEM_LOCK = threading.Lock()
 _AGENT_SEMS: dict[int, threading.BoundedSemaphore] = {}
-_AGENT_ASYNC_SEM_LOCK = threading.Lock()
-_AGENT_ASYNC_SEMS: dict[tuple[int, int], asyncio.Semaphore] = {}
 
 
 def _agent_semaphore(limit: int) -> threading.BoundedSemaphore:
@@ -163,26 +172,6 @@ def _agent_semaphore(limit: int) -> threading.BoundedSemaphore:
         if sem is None:
             sem = threading.BoundedSemaphore(limit)
             _AGENT_SEMS[limit] = sem
-        return sem
-
-
-def _agent_async_semaphore(limit: int) -> asyncio.Semaphore:
-    """Async-branch twin of :func:`_agent_semaphore` (fix round 1, L1).
-
-    Created lazily per RUNNING loop — never at import — so it can't bind to a
-    loop that has since gone away: ``asyncio.Semaphore`` binds to whichever
-    loop is running the first time it's awaited, and a module-level instance
-    built at import time (or bound to one process's first loop) would raise
-    on every later ``asyncio.run()`` in a different loop, exactly the trap
-    that keeps this lazy and keyed by ``(loop id, limit)``.
-    """
-    limit = max(1, int(limit or 1))
-    key = (id(asyncio.get_running_loop()), limit)
-    with _AGENT_ASYNC_SEM_LOCK:
-        sem = _AGENT_ASYNC_SEMS.get(key)
-        if sem is None:
-            sem = asyncio.Semaphore(limit)
-            _AGENT_ASYNC_SEMS[key] = sem
         return sem
 
 
@@ -196,6 +185,7 @@ def resolve_llm_fn(
     bank: str | None = None,
     is_async: bool | None = None,
     runner: Callable[..., Any] | None = None,
+    scope: str | None = None,
 ) -> LlmFn:
     """Resolve a model spec -> a callable bound to that model.
 
@@ -229,6 +219,14 @@ def resolve_llm_fn(
             (``runner(argv, *, stdin, timeout, cwd) -> CliResult``). Tests
             always pass one; production leaves it ``None`` and gets
             ``connections.base.run_cli_sync``.
+        scope: the ``agent_engine`` throttle-breaker bucket this call's
+            AGENT-rung requests check/trip — only meaningful when
+            ``llm_mode == "agent"``. Defaults to ``agent_engine.current_scope()``
+            (a Sleep cycle wraps its whole run in ``agent_engine.use_scope(...)``,
+            so every stage's ``resolve_llm_fn`` call inherits that cycle's
+            scope with no explicit passing needed); pass an explicit value to
+            isolate a one-off caller (Ask, dedup-sweep, source-rewrite) from
+            the shared default bucket instead.
 
     Returns:
         ``fn(messages, *, response_format=None, **kw)`` forwarding to
@@ -350,15 +348,20 @@ def resolve_llm_fn(
         failure, must still emit exactly one event rather than vanishing on
         the one path whose entire job is making failures visible.
 
-        Callers own their own concurrency gate — the threading semaphore for
-        the sync branch, the asyncio semaphore for the async branch (L1) —
-        so this function never acquires one itself.
+        Callers own their own concurrency gate (the ONE shared
+        ``threading.BoundedSemaphore``, round 2 finding 2) — this function
+        never acquires it itself. The breaker check/trip is scoped (round 2
+        finding 1): ``resolved_scope`` is captured ONCE so the check inside
+        ``agent_engine.complete`` and the trip below always agree, even
+        though ``agent_engine.current_scope()`` is re-readable at any point.
         """
+        resolved_scope = scope or agent_engine.current_scope()
         started = time.perf_counter()
         try:
             envelope = agent_engine.complete(
                 messages=messages, model=argv_model, stage=stage,
                 want_json=response_format is not None, timeout=timeout, runner=runner,
+                scope=resolved_scope,
             )
             resp = agent_engine.response_shim(envelope, argv_model)
             used = resp["model"]
@@ -366,7 +369,7 @@ def resolve_llm_fn(
             equiv = agent_engine.equiv_cost_from_envelope(envelope)
         except engine_errors.EngineThrottled as exc:
             # Trip BEFORE emitting so a concurrent caller cannot also trip.
-            newly_tripped = agent_engine.trip_breaker(str(exc))
+            newly_tripped = agent_engine.trip_breaker(str(exc), scope=resolved_scope)
             # Fix round 1, L1: a fail-fast call (the breaker was ALREADY
             # tripped before this call — `agent_engine.complete` tags it
             # `.spawned = False`) never touched the runner, so it is not a
@@ -392,12 +395,16 @@ def resolve_llm_fn(
             return _agent_invoke(messages, response_format, timeout)
 
     async def _agent_invoke_async(messages, response_format, timeout: float):
-        # Fix round 1, L1: gate BEFORE dispatching to the thread pool, so a
-        # caller blocked on the cap parks on the event loop rather than
-        # occupying (and starving) one of the default executor's threads for
-        # up to `timeout` seconds.
-        async with _agent_async_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-            return await asyncio.to_thread(_agent_invoke, messages, response_format, timeout)
+        # Round 2 finding 2: the acquire, the call, and the release all
+        # happen INSIDE this one `asyncio.to_thread` dispatch, sharing the
+        # exact same `threading.BoundedSemaphore` a sync caller blocks on —
+        # so a waiting async caller parks a worker thread, never the event
+        # loop, while still drawing from the ONE process-wide capacity pool.
+        def _run_with_permit():
+            with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
+                return _agent_invoke(messages, response_format, timeout)
+
+        return await asyncio.to_thread(_run_with_permit)
 
     def _agent_call(*, messages, response_format=None, **kw):
         # Accept-and-drop every unknown kwarg (`extra_body`, `temperature`,
