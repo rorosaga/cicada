@@ -1,6 +1,6 @@
 ---
 name: thesis-benchmarks
-description: Use when running or modifying Cicada's thesis benchmarks (Tables 1-3, the ablation sweep, or the sqlite-vec index rebuild) — the runbook, the fresh-workspace rails, and the personal-data privacy pattern for questions/queries files.
+description: Use when running or modifying Cicada's thesis benchmarks (Tables 1-3 or the ablation sweep) — the runbook, the fresh-workspace rails, and the personal-data privacy pattern for questions/queries files.
 ---
 
 # Thesis benchmarks runbook
@@ -8,11 +8,16 @@ description: Use when running or modifying Cicada's thesis benchmarks (Tables 1-
 Benchmark tooling for the Results chapter lives in `benchmarks/`. The canonical runbook is
 [`benchmarks/README.md`](../../../benchmarks/README.md); this skill is the agent-facing summary.
 
-## The four scripts
+## The three scripts
 
-- `benchmarks.rebuild_leann` — one-shot index rebuild. **Historical name**: the index is sqlite-vec
-  now, and this script still imports the deleted `api.services.leann_indexer`, so treat it as a
-  LEANN-era artifact pending a port, not a working script.
+Note: `benchmarks.rebuild_leann` (a LEANN-era one-shot index rebuild — it imported the deleted
+`api.services.leann_indexer` and never worked against sqlite-vec) has been deleted (Wave-1 1.7).
+Condition B in `run_table1` now queries the live `vector_index.db` directly via
+`api.services.vector_index.SqliteVecIndexer` — the same derived, disposable index the app itself
+builds via the Sleep cycle — so there is no separate benchmark-side rebuild step; if the target
+memory dir's index is stale or missing, run a Sleep cycle against it (or `SqliteVecIndexer(...).
+index_episodes()` directly) before scoring Condition B.
+
 - `benchmarks.run_table1` — three-condition recall eval (Cicada full vs episodes-index-only vs a
   manual commercial baseline). Writes JSONL + a scoring-sheet CSV; scoring is manual against the
   four-dimensional rubric in `sections/experiments.tex`.

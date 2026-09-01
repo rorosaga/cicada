@@ -302,7 +302,7 @@ result carries an additional `resources_read` count so the cost is stated
 plainly rather than hidden behind a plain "connected" checkbox.
 
 ### sqlite-vec (Vector Index)
-Lightweight on-device semantic search (`api/services/vector_index.py`, replaces the earlier LEANN wrapper — `leann_indexer.py` has been deleted). Embeddings are stored, not recomputed at query time, so search is a single in-process ANN lookup with no latency tax. Default backend is **EmbeddingGemma-300M** (768-dim, on-device, gated HF model) with asymmetric query/document embedding prompts; the index is *derived and disposable* — rebuilt from entity/episode markdown by the Sleep cycle, and can be deleted and regenerated at any time (see the Thesis Benchmarks note below on `benchmarks.rebuild_leann`'s historical name). Runs locally, zero cloud costs for the default backend.
+Lightweight on-device semantic search (`api/services/vector_index.py`, replaces the earlier LEANN wrapper — `leann_indexer.py` has been deleted). Embeddings are stored, not recomputed at query time, so search is a single in-process ANN lookup with no latency tax. Default backend is **EmbeddingGemma-300M** (768-dim, on-device, gated HF model) with asymmetric query/document embedding prompts; the index is *derived and disposable* — rebuilt from entity/episode markdown by the Sleep cycle, and can be deleted and regenerated at any time. Runs locally, zero cloud costs for the default backend.
 
 ### Telemetry ledger (`~/.cicada/telemetry/`)
 Append-only JSONL under `~/.cicada/telemetry/events-YYYY-MM.jsonl` (machine-global, never in a bank or git), fed by `providers.resolve_llm_fn` (every LLM call is now routed through it), Sleep `_finalize`, and MCP `cicada_write_claim`. `CICADA_TELEMETRY=off` disables recording.
@@ -650,11 +650,11 @@ Tracked in [`docs/goals/memory-evolution.md`](docs/goals/memory-evolution.md) (G
 
 ## Thesis Benchmarks (`benchmarks/` package)
 
-Benchmark tooling for the thesis `Results` section lives in `benchmarks/`. Four runnable scripts plus a shared fresh-workspace scaffold, all at repo root. Runbook is `benchmarks/README.md`.
+Benchmark tooling for the thesis `Results` section lives in `benchmarks/`. Three runnable scripts plus a shared fresh-workspace scaffold, all at repo root. Runbook is `benchmarks/README.md`.
 
 ### Scripts and safety rails
 
-Four runnable scripts plus a shared fresh-workspace scaffold; the runbook is
+Three runnable scripts plus a shared fresh-workspace scaffold; the runbook is
 [`benchmarks/README.md`](benchmarks/README.md) and the how-to-run detail lives in the
 `thesis-benchmarks` skill. Two rails that are NOT derivable: no runner ever mutates the live
 `memory/` directory (sleep-cycle runs happen in `/tmp/cicada_bench_*` workspaces), and

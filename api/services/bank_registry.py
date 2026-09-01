@@ -33,6 +33,7 @@ from typing import Any
 
 import yaml
 
+from api.services import predicates
 from api.services.id_utils import sanitize_id
 
 REGISTRY_FILENAME = "banks.yaml"
@@ -218,9 +219,12 @@ def scaffold_bank(path: Path, *, git_init: bool = True) -> None:
         with gitignore_path.open("a", encoding="utf-8") as fh:
             fh.write("\n" + _BANK_GITIGNORE)
 
-    predicates_path = path / "_predicates.yaml"
-    if not predicates_path.exists():
-        predicates_path.write_text("{}\n", encoding="utf-8")
+    # Wave-1 1.3: seed the real predicate map (canonical/synonyms/cardinality)
+    # rather than a bare `{}` placeholder — an unpopulated map left every
+    # predicate to fall through the cardinality oracle's conservative
+    # "unseen => coexist" default, silently disabling conflict detection for
+    # a brand-new bank until Sleep happened to install the seed itself.
+    predicates.install_predicate_map(path)
     preferences_path = path / "_preferences.md"
     if not preferences_path.exists():
         preferences_path.write_text(

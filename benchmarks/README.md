@@ -37,7 +37,7 @@ Runs every question in the YAML through three conditions:
 | Condition | Retrieval path |
 |---|---|
 | `A_cicada_full` | MCP Bookworm `handle_recall` — entities, keyword fallback, wikilink hops, episode excerpts, nudges, clarifications. |
-| `B_cicada_no_sleep` | Raw episode LEANN only. No entities, no keyword, no hops, no nudges, no clarifications. |
+| `B_cicada_no_sleep` | Raw episode sqlite-vec index only. No entities, no keyword, no hops, no nudges, no clarifications. |
 | `C_commercial_manual` | Stub row. Paste your ChatGPT / Claude answer into the `final_answer` CSV column before scoring. |
 
 Conditions A and B both use the same answerer LLM with the same prompt,

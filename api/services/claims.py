@@ -99,6 +99,13 @@ class Claim:
     # included); `session_stats._group` reads this list, falling back to the
     # scalar `session_id` for claims written before this field existed.
     session_ids: list[str] = field(default_factory=list)
+    # G85 §2 / Wave-1 1.1: the decay watermark. Decay must be charged exactly
+    # once per elapsed interval, not re-charged from `recorded_at`/`valid_from`
+    # on every Sleep run. `_decay_claims` measures `days_since` from
+    # `max(recorded_at or valid_from, decayed_through)` and stamps this to
+    # `today` every time it evaluates an unreferenced subject's claim — the
+    # claim-engine mirror of the entity engine's `decayed_through` frontmatter.
+    decayed_through: str | None = None
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -143,6 +150,7 @@ class Claim:
             origin=_opt_str(data.get("origin")),
             session_id=_opt_str(data.get("session_id")),
             session_ids=[str(s) for s in (data.get("session_ids") or []) if str(s).strip()],
+            decayed_through=_opt_str(data.get("decayed_through")),
         )
 
 

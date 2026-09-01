@@ -414,3 +414,83 @@ def _default_save_episode(memory_path: Path, text: str, *, title: str | None = N
     }
     markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, text)
     return {"status": "created", "episode_id": episode_id}
+
+
+# --- Webhook secret auto-provisioning (G57 / Wave-1 1.5 round 2) ------------
+
+# CICADA_TELEGRAM_WEBHOOK_SECRET — the per-request secret Telegram echoes
+# back on ``X-Telegram-Bot-Api-Secret-Token``, stored in the same
+# ``~/.cicada/secrets.env`` seam as every other Cicada-held credential (never
+# through ``Settings``, which is constructed and cached in ``main.py``'s
+# lifespan BEFORE that seam is projected into the environment). Defined here
+# rather than in ``api/routers/capture.py`` so this module's own
+# ``ensure_webhook_secret`` can reference it without an import cycle (the
+# router already imports FROM this module) — the router re-exports it.
+TELEGRAM_WEBHOOK_SECRET_ENV = "CICADA_TELEGRAM_WEBHOOK_SECRET"
+
+
+async def ensure_webhook_secret(bot_token: str) -> tuple[bool, str]:
+    """Make the secure per-request webhook secret the AUTOMATIC default
+    rather than something the operator has to opt into by hand (Devin PR #24
+    round 1, finding 5: "bot token configured" is not per-request
+    authentication — anyone who finds the public webhook URL can write to
+    memory until a secret is set).
+
+    A no-op (returns ``(False, "already configured")``) if
+    ``CICADA_TELEGRAM_WEBHOOK_SECRET`` is already set. Otherwise:
+
+    1. Generate a new random secret.
+    2. Discover the CURRENTLY REGISTERED webhook url via ``getWebhookInfo`` —
+       Cicada never stores its own public URL (the user's tunnel is out of
+       its control, per the module docstring above), so this is the only
+       way to learn it without asking the user.
+    3. Re-register that SAME url with the new secret via ``setWebhook`` —
+       Telegram then starts sending ``X-Telegram-Bot-Api-Secret-Token`` on
+       every subsequent request.
+    4. Only on success is the secret persisted (``connections.secrets``).
+       An unregistered secret would just reject every real request from
+       Telegram — exactly the "lock out a working bot" failure mode this
+       feature exists to avoid.
+
+    Returns ``(provisioned, detail)``: ``provisioned`` is True only when a
+    new secret was generated, registered with Telegram, AND persisted this
+    call; ``detail`` is a short human-readable reason it wasn't (e.g. "no
+    webhook currently registered yet", a Telegram API error, a network
+    error). Never raises — any failure degrades to "not provisioned" so the
+    caller can fall back to today's behavior with its own warning.
+    """
+    import os
+    import secrets as secrets_mod
+
+    from api.services.connections import secrets as connection_secrets
+
+    if (os.environ.get(TELEGRAM_WEBHOOK_SECRET_ENV) or "").strip():
+        return False, "already configured"
+
+    import httpx
+
+    api_base = f"https://api.telegram.org/bot{bot_token}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            info_resp = await client.get(f"{api_base}/getWebhookInfo")
+            info_resp.raise_for_status()
+            info = info_resp.json()
+            if not info.get("ok"):
+                return False, f"getWebhookInfo failed: {info.get('description', 'unknown error')}"
+            url = (info.get("result") or {}).get("url") or ""
+            if not url:
+                return False, "no webhook currently registered yet"
+
+            new_secret = secrets_mod.token_urlsafe(32)
+            set_resp = await client.get(
+                f"{api_base}/setWebhook", params={"url": url, "secret_token": new_secret}
+            )
+            set_resp.raise_for_status()
+            result = set_resp.json()
+            if not result.get("ok"):
+                return False, f"setWebhook failed: {result.get('description', 'unknown error')}"
+    except Exception as exc:  # network error, timeout, bad JSON, etc.
+        return False, f"{type(exc).__name__}: {exc}"
+
+    connection_secrets.set_secret(TELEGRAM_WEBHOOK_SECRET_ENV, new_secret)
+    return True, "provisioned"
