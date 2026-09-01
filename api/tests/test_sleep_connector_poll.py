@@ -150,7 +150,7 @@ def test_tail_poll_runs_after_finalize_so_neither_commits_steals_the_others_prov
     """
     memory = _seed_bank_with_one_episode(tmp_path)
 
-    async def fake_extract(episodes, settings):
+    async def fake_extract(episodes, settings, **_kw):
         return [{
             "episode_id": "ep_2026-08-31_001",
             "episode_timestamp": "2026-08-31T10:00:00",
@@ -160,7 +160,7 @@ def test_tail_poll_runs_after_finalize_so_neither_commits_steals_the_others_prov
             "relationships": [],
         }]
 
-    async def fake_resolve(extracted_arg, existing, settings):
+    async def fake_resolve(extracted_arg, existing, settings, **_kw):
         return {
             "changes": [{
                 "id": "cicada", "action": "create",

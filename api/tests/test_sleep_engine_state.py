@@ -52,7 +52,7 @@ def tail_spy(monkeypatch):
 
 def _no_engine(monkeypatch):
     """Stage 1 returns nothing for every episode — the total-failure case."""
-    async def extract(episodes, settings):
+    async def extract(episodes, settings, **_kw):
         return []
 
     monkeypatch.setattr("api.services.entity_extractor.extract", extract)
@@ -86,7 +86,7 @@ def test_a_raised_exception_mid_pipeline_still_runs_the_tail(tmp_path, monkeypat
     memory = _seed(tmp_path, unprocessed=2)
     monkeypatch.setattr(Settings, "memory_path", property(lambda self: memory))
 
-    async def boom(episodes, settings):
+    async def boom(episodes, settings, **_kw):
         raise RuntimeError("stage 1 exploded")
 
     monkeypatch.setattr("api.services.entity_extractor.extract", boom)
@@ -213,7 +213,7 @@ def test_the_preflight_probe_aborts_before_stage_1_with_the_fix(tmp_path, monkey
 
     called = {"extract": False}
 
-    async def extract(episodes, settings):
+    async def extract(episodes, settings, **_kw):
         called["extract"] = True
         return []
 
@@ -258,7 +258,7 @@ def test_the_preflight_prefers_a_warm_registry_cache_over_a_spawn(tmp_path, monk
     # Stage 1 itself then succeeds is a different concern (covered above).
     called = {"extract": False}
 
-    async def extract(episodes, settings):
+    async def extract(episodes, settings, **_kw):
         called["extract"] = True
         return []
 
