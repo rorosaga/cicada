@@ -140,7 +140,7 @@ def test_cancel_before_writes_leaves_bank_clean_queue_untouched_status_idle_and_
     ids = ["ep_2026-09-01_001", "ep_2026-09-01_002"]
     memory = _seed_git_bank(tmp_path, ids)
 
-    async def fake_extract(episodes, settings, cancel_check=None):
+    async def fake_extract(episodes, settings, cancel_check=None, **_kw):
         was_running, cycle_id = sleep_cycle.request_cancel()
         assert was_running is True
         assert cycle_id == "cycle-cancel"
@@ -185,7 +185,7 @@ def test_cancel_between_stage2_and_stage3_also_aborts_clean(tmp_path, monkeypatc
     ids = ["ep_2026-09-01_001"]
     memory = _seed_git_bank(tmp_path, ids)
 
-    async def fake_extract(episodes, settings, cancel_check=None):
+    async def fake_extract(episodes, settings, cancel_check=None, **_kw):
         return [{
             "episode_id": ep["id"], "episode_timestamp": ep["timestamp"],
             "origin": "mcp",
@@ -231,7 +231,7 @@ def test_cancel_after_writes_began_still_commits_normally(tmp_path, monkeypatch,
     ids = ["ep_2026-09-01_001"]
     memory = _seed_git_bank(tmp_path, ids)
 
-    async def fake_extract(episodes, settings, cancel_check=None):
+    async def fake_extract(episodes, settings, cancel_check=None, **_kw):
         return [{
             "episode_id": ep["id"], "episode_timestamp": ep["timestamp"],
             "origin": "mcp",
@@ -321,7 +321,7 @@ def test_a_cancelled_cycle_never_wedges_status_for_the_next_trigger(tmp_path, mo
     ids = ["ep_2026-09-01_001"]
     memory = _seed_git_bank(tmp_path, ids)
 
-    async def fake_extract(episodes, settings, cancel_check=None):
+    async def fake_extract(episodes, settings, cancel_check=None, **_kw):
         sleep_cycle.request_cancel()
         return []
 
@@ -407,7 +407,7 @@ def test_episode_cap_truncates_the_batch_and_leaves_the_rest_queued(tmp_path, mo
 
     seen_ids: list[str] = []
 
-    async def fake_extract(episodes, settings, cancel_check=None):
+    async def fake_extract(episodes, settings, cancel_check=None, **_kw):
         seen_ids.extend(e["id"] for e in episodes)
         return [{
             "episode_id": ep["id"], "episode_timestamp": ep["timestamp"],
@@ -474,7 +474,7 @@ def test_episode_cap_is_a_noop_when_the_queue_fits(tmp_path, monkeypatch, tail_s
     ids = ["ep_2026-09-01_001", "ep_2026-09-01_002"]
     memory = _seed_git_bank(tmp_path, ids)
 
-    async def fake_extract(episodes, settings, cancel_check=None):
+    async def fake_extract(episodes, settings, cancel_check=None, **_kw):
         return []
 
     monkeypatch.setattr("api.services.entity_extractor.extract", fake_extract)

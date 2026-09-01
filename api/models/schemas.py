@@ -909,6 +909,23 @@ class SleepCancelResponse(CamelModel):
     cycle_id: Optional[str] = None
 
 
+class SleepDebtResponse(CamelModel):
+    """How far behind Sleep is, right now — independent of whether a cycle
+    is currently running (that's `stage`/`progress` on `SleepStatusResponse`).
+    See `api/services/sleep_debt.py::SleepDebt` for the formula.
+    """
+    unprocessed_count: int
+    oldest_unprocessed_age_hours: Optional[float] = None
+    hours_since_last_cycle: Optional[float] = None
+    has_run_before: bool
+    volume_pct: int
+    age_pct: int
+    # None ONLY when the queue is empty AND Sleep has never run in this bank
+    # — no baseline to call "rested". Every other state gets an honest
+    # number (see `sleep_debt.rested_pct_from_components`).
+    rested_pct: Optional[int] = None
+
+
 class SleepStatusResponse(CamelModel):
     status: str
     cycle_id: Optional[str] = None
@@ -956,6 +973,16 @@ class SleepStatusResponse(CamelModel):
     # writes began — which the cycle still finishes and commits normally).
     cancel_requested: bool = False
     cancelled: bool = False
+    # Sleep debt (G106) — always present, computed fresh from the current
+    # queue + git log on every response. See `api/services/sleep_debt.py`
+    # for the formula and full field contract.
+    debt: SleepDebtResponse
+    # Sleep debt (G106) — live "episodes processed / episodes in this cycle"
+    # DURING a cycle. `None` — never a fabricated 0 — whenever there's no
+    # honest live number: idle, or Stage 1 has already finished and stages
+    # 2-5 have no per-episode unit to report (see
+    # `sleep_cycle.progress_pct`'s docstring for the full contract).
+    progress_pct: Optional[int] = None
 
 
 class SleepHistoryEntry(CamelModel):
@@ -975,6 +1002,12 @@ class EpisodeQueueItem(CamelModel):
     id: str
     timestamp: str
     source: str
+    # G9 origin — the harness-normalized id (`claude-code`, `chatgpt-export`,
+    # `telegram`, `pinterest`, ...), derived the same way Stage 1 extraction
+    # already does (`sleep_cycle._derive_origin`) so the Sleep debt
+    # breakdown groups by the SAME identity the rest of the app's origin
+    # iconography already keys on, not the legacy `source` string.
+    origin: str = "unknown"
     title: Optional[str] = None
     preview: str
     processed: bool

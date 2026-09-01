@@ -28,6 +28,13 @@ struct SleepView: View {
     // way (cancellation isn't guaranteed to unwind a parked continuation, in
     // tests or otherwise).
     @State private var reconcileTask: Task<Void, Never>?
+    // G106 amendment: set the moment this view's own observation of
+    // `sleepVM.status?.status` sees a running -> idle transition. Purely
+    // local — `SleepViewModel.onCycleCompleted`/`Store.onStatus` are both
+    // single-slot closures already claimed elsewhere (graph refresh, the
+    // menu-bar bookworm respectively), so this view tracks its own edge via
+    // `.onChange` instead of contending for either slot.
+    @State private var justFinishedAt: Date?
 
     private var sortedQueuedEpisodes: [EpisodeQueueItem] {
         let base = sleepVM.queuedEpisodes
@@ -56,6 +63,7 @@ struct SleepView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     headerRow
+                    moodCard
                     if let engine = sleepVM.status?.lastEngine {
                         engineLine(engine, detail: sleepVM.status?.engineDetail)
                     }
@@ -63,7 +71,8 @@ struct SleepView: View {
                         errorBanner(error)
                     }
                     SleepQueueCard()
-                    scheduleCard
+                    pauseCard
+                    SleepDebtBreakdown(episodes: sleepVM.queuedEpisodes)
                     progressCard
                     queueCard
                 }
@@ -102,6 +111,15 @@ struct SleepView: View {
         }
         .onChange(of: sleepVM.schedule) { _, _ in
             syncScheduleState()
+        }
+        // G106 amendment: this view's own edge-detection for the mood
+        // card's `.digesting` window — see `justFinishedAt`'s declaration
+        // for why this can't reuse `SleepViewModel.onCycleCompleted` or
+        // `Store.onStatus`.
+        .onChange(of: sleepVM.status?.status) { oldValue, newValue in
+            if oldValue == "running" && newValue == "idle" {
+                justFinishedAt = Date()
+            }
         }
         .onChange(of: showUploadOverlay) { _, isOpen in
             // When the import overlay closes, refresh the episode queue so
@@ -201,57 +219,100 @@ struct SleepView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: Schedule
+    // MARK: Mood (G106 amendment)
 
-    private var scheduleCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text("SCHEDULE")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+    /// The interim mascot screen: one bracketed, monospaced status line
+    /// (see `SleepMood.swift` — `BookwormView`'s ~16×16 template sprite
+    /// can't show mood at page scale; real art is backlog G107), plus the
+    /// Rested % reading and the components it's built from underneath —
+    /// "explainable, not a black box" (spec). Both the mood and the debt
+    /// numbers prefer the continuously-updating SSE `sleep` event
+    /// (`store.sleepEvent`) and fall back to the last REST `/sleep/status`
+    /// fetch, via `resolveSleepDebt`/`resolveProgressPct`.
+    private var moodCard: some View {
+        let debt = resolveSleepDebt(sse: store.sleepEvent, status: sleepVM.status)
+        let progress = resolveProgressPct(sse: store.sleepEvent, status: sleepVM.status)
+        let mood = deriveSleepPageMood(status: sleepVM.status, debt: debt, justFinishedAt: justFinishedAt)
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text(sleepDebtBracketText(mood, debt: debt))
+                .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                .foregroundStyle(sleepDebtBracketColor(mood))
+
+            moodDetailLine(mood: mood, debt: debt, progress: progress)
+        }
+        .padding(CicadaTheme.spacingLG)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    @ViewBuilder
+    private func moodDetailLine(mood: BookwormState, debt: SleepDebtView?, progress: Int?) -> some View {
+        if case .sleeping = mood, let progress {
+            // Progress % — literally "episodes processed / episodes in this
+            // cycle", live during Stage 1 (the only stage with a natural
+            // per-episode unit; see the backend's `sleep_cycle.progress_pct`
+            // docstring). Absent (this branch skipped) once Stage 1 finishes
+            // rather than freezing at 100% while stages 2-5 still run.
+            Text("Stage 1 progress: \(progress)%")
+                .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
-
-            Toggle(isOn: Binding(
-                get: { scheduleEnabled },
-                set: { newValue in
-                    scheduleEnabled = newValue
-                    commitSchedule()
-                }
-            )) {
-                Text("Auto-run Sleep cycle daily")
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-            }
-            .toggleStyle(.switch)
-
-            HStack(spacing: CicadaTheme.spacingMD) {
-                Text("At")
+        } else if let debt {
+            if let rested = debt.restedPct {
+                Text("Rested \(rested)% — volume \(debt.volumePct)%, age \(debt.agePct)%")
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
-                DatePicker(
-                    "",
-                    selection: Binding(
-                        get: { scheduleDate },
-                        set: { newDate in
-                            scheduleDate = newDate
-                            commitSchedule()
-                        }
-                    ),
-                    displayedComponents: .hourAndMinute
-                )
-                .labelsHidden()
-                .disabled(!scheduleEnabled)
-                Spacer()
-            }
-
-            if scheduleEnabled {
-                Text("Next run: \(formattedTime(scheduleDate))")
-                    .font(.system(size: 11))
-                    .foregroundStyle(CicadaTheme.textSecondary)
             } else {
-                Text("Manual triggers only.")
-                    .font(.system(size: 11))
+                // No baseline: the queue is empty and Sleep has never run in
+                // this bank — an honest state, not a fabricated 100%.
+                Text("No baseline yet — Sleep hasn't run in this bank.")
+                    .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
+        }
+    }
+
+    // MARK: Schedule (quick control — the full editor moved to Settings → Schedule)
+
+    /// One of the Sleep page's three quick controls (run — `SleepQueueCard`
+    /// — pause, cancel — G106 amendment). Flips the SAME `ScheduleConfig.
+    /// enabled` the Settings → Schedule tab's time picker edits; the hour/
+    /// minute this toggle preserves is whatever was last set there, never
+    /// reset to a default. No time picker here on purpose — that lives in
+    /// exactly one place (`SettingsSleepView`) so the two can't disagree.
+    private var pauseCard: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            Image(systemName: scheduleEnabled ? "moon.fill" : "moon.zzz")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(scheduleEnabled ? CicadaTheme.accent : CicadaTheme.textTertiary)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill((scheduleEnabled ? CicadaTheme.accent : CicadaTheme.textTertiary).opacity(0.12)))
+                .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(scheduleEnabled ? "Auto-run at \(formattedTime(scheduleDate)) daily" : "Manual triggers only")
+                    .font(CicadaTheme.headingFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text("Change the time in \(Copy.settingsSchedule).")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+
+            Spacer()
+
+            Button {
+                scheduleEnabled.toggle()
+                commitSchedule()
+            } label: {
+                Text(scheduleEnabled ? Copy.pauseAutoRun : Copy.resumeAutoRun)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .padding(.horizontal, CicadaTheme.spacingLG)
+                    .padding(.vertical, CicadaTheme.spacingSM)
+                    .background(CicadaTheme.surfaceElevated)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.cicadaPlain)
+            .accessibilityLabel(scheduleEnabled ? Copy.pauseAutoRun : Copy.resumeAutoRun)
         }
         .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, alignment: .leading)

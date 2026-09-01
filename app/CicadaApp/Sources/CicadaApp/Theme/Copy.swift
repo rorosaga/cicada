@@ -18,10 +18,17 @@ enum Copy {
     static let agents = "Agents"
     static let feed = "Feed"
     static let activity = "Activity"
+    /// The Settings scene's third tab (G106 amendment) — the schedule
+    /// editor moved out of the Sleep page proper. Named "Schedule", not
+    /// "Sleep", so a reader is never asked to tell it apart from the
+    /// sidebar's own "Sleep" row by context alone.
+    static let schedule = "Schedule"
 
     /// The canonical way to send someone to the connections settings. Built
     /// from the parts above so a rename can never desync the two halves.
     static let settingsPlansAndKeys = "\(settings) → \(plansAndKeys)"
+    /// Ditto, for the new Schedule tab.
+    static let settingsSchedule = "\(settings) → \(schedule)"
 
     // MARK: Shared action verbs
     //
@@ -70,6 +77,13 @@ enum Copy {
         "Stops at the next safe point — never mid-write. Nothing is lost: any "
         + "episodes not yet consolidated stay queued for the next cycle."
 
+    /// Pause/resume the nightly auto-run schedule — the third quick control
+    /// on the Sleep page (alongside run + cancel). The full time editor
+    /// lives in Settings → Schedule (`settingsSchedule`); this only flips
+    /// `enabled`.
+    static let pauseAutoRun = "Pause auto-run"
+    static let resumeAutoRun = "Resume auto-run"
+
     // MARK: Observer
 
     /// The user's own observer label. Never the account holder's first name —
@@ -85,6 +99,7 @@ enum Copy {
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."
     static let activitySubtitle = "What Cicada spent, and who authored what."
+    static let scheduleSubtitle = "When Sleep runs on its own, and what powers it."
 
     // MARK: Pointers
 

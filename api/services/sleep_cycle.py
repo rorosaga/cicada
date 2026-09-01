@@ -82,6 +82,14 @@ class SleepState:
     # before capping — see `SleepStatusResponse` for the field contract.
     episode_cap: int = 0
     episodes_queued: int = 0
+    # Sleep debt (G106 amendment) — LIVE Stage-1 progress. Ticks up by one
+    # every time `entity_extractor.extract`'s fan-out finishes an episode
+    # (success, failure, empty-content fast path, or cancelled-skip all
+    # count — mirrors its own tqdm bar). This is the ONLY stage with a
+    # natural per-episode unit of work, so "Progress %" is deliberately
+    # scoped to it — see `progress_pct()` below — rather than inventing a
+    # blended cross-stage metric stages 2-5 have no honest way to report.
+    stage1_progress: int = 0
 
 
 _state = SleepState()
@@ -96,6 +104,23 @@ DEFAULT_EPISODE_CAP = 25
 
 def get_sleep_state() -> SleepState:
     return _state
+
+
+def progress_pct(state: SleepState | None = None) -> int | None:
+    """Live "episodes processed / episodes in this cycle" — G106 amendment's
+    literal Progress % definition, scoped to Stage 1 (the only stage with a
+    natural per-episode unit; see `SleepState.stage1_progress`).
+
+    ``None`` — not 0, not a stale leftover — whenever there is no honest
+    live number to show: idle, or Stage 1 has already finished (``stage``
+    already advanced past 0) and stages 2-5 don't have a per-episode count
+    to report. The Sleep page falls back to the coarse ``stage``/``progress``
+    text in that gap rather than a placeholder.
+    """
+    s = state or _state
+    if s.status != "running" or s.stage != 0 or s.episodes_total <= 0:
+        return None
+    return round(100 * min(1.0, s.stage1_progress / s.episodes_total))
 
 
 def request_cancel() -> tuple[bool, str | None]:
@@ -470,6 +495,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.cancelled = False
     _state.episode_cap = 0
     _state.episodes_queued = 0
+    _state.stage1_progress = 0
 
     memory_path = settings.memory_path
 
@@ -611,7 +637,13 @@ async def _run_stages(
     _state.progress = f"Stage 1/5: Extracting entities from {len(episodes)} episodes..."
     logger.info(f"Stage 1: Extracting entities from {len(episodes)} episodes")
     from api.services.entity_extractor import extract
-    extracted = await extract(episodes, settings, cancel_check=_cancel_requested)
+
+    def _tick_stage1() -> None:
+        _state.stage1_progress += 1
+
+    extracted = await extract(
+        episodes, settings, cancel_check=_cancel_requested, progress_callback=_tick_stage1,
+    )
     total_entities = sum(len(e.get("entities", [])) for e in extracted)
     total_rels = sum(len(e.get("relationships", [])) for e in extracted)
     logger.info(f"Stage 1 complete: {total_entities} entities, {total_rels} relationships extracted")
@@ -1042,10 +1074,16 @@ def list_all_episodes(memory_path: Path) -> list[dict]:
             logger.warning(f"list_all_episodes: skipping malformed episode {filepath}: {exc}")
             continue
         fm = parsed.frontmatter
+        source = fm.get("source", "unknown")
         results.append({
             "id": fm.get("id", filepath.stem),
             "timestamp": str(fm.get("timestamp", "") or ""),
-            "source": fm.get("source", "unknown"),
+            "source": source,
+            # G9 origin, same derivation as `_get_unprocessed_episodes` — an
+            # explicit `origin:` field if present, else derived from the
+            # legacy `source`. Lets the Sleep debt breakdown (and any other
+            # consumer of this endpoint) group by the harness-normalized id.
+            "origin": fm.get("origin") or _derive_origin(source),
             "title": fm.get("title"),
             "body": parsed.body or "",
             "processed": bool(fm.get("processed", False)),

@@ -7,12 +7,19 @@ from api.models.schemas import (
     EpisodeQueueItem,
     ScheduleConfig,
     SleepCancelResponse,
+    SleepDebtResponse,
     SleepHistoryEntry,
     SleepStatusResponse,
     SleepTriggerResponse,
 )
-from api.services import git_service, sleep_scheduler
-from api.services.sleep_cycle import get_sleep_state, list_all_episodes, request_cancel, run
+from api.services import git_service, sleep_debt, sleep_scheduler
+from api.services.sleep_cycle import (
+    get_sleep_state,
+    list_all_episodes,
+    progress_pct,
+    request_cancel,
+    run,
+)
 
 router = APIRouter()
 
@@ -74,8 +81,9 @@ async def cancel_sleep():
 
 
 @router.get("/sleep/status", response_model=SleepStatusResponse)
-async def sleep_status():
+async def sleep_status(settings: Settings = Depends(get_settings)):
     state = get_sleep_state()
+    debt = await sleep_debt.compute(settings.memory_path, settings)
     return SleepStatusResponse(
         status=state.status,
         cycle_id=state.cycle_id,
@@ -100,6 +108,16 @@ async def sleep_status():
         episodes_queued=state.episodes_queued,
         cancel_requested=state.cancel_requested,
         cancelled=state.cancelled,
+        progress_pct=progress_pct(state),
+        debt=SleepDebtResponse(
+            unprocessed_count=debt.unprocessed_count,
+            oldest_unprocessed_age_hours=debt.oldest_unprocessed_age_hours,
+            hours_since_last_cycle=debt.hours_since_last_cycle,
+            has_run_before=debt.has_run_before,
+            volume_pct=debt.volume_pct,
+            age_pct=debt.age_pct,
+            rested_pct=debt.rested_pct,
+        ),
     )
 
 
@@ -120,6 +138,7 @@ async def sleep_episodes(settings: Settings = Depends(get_settings)):
                 id=ep["id"],
                 timestamp=ep.get("timestamp", ""),
                 source=ep.get("source", "unknown"),
+                origin=ep.get("origin", "unknown"),
                 title=ep.get("title"),
                 preview=preview,
                 processed=ep.get("processed", False),

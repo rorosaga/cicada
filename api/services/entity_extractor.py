@@ -258,6 +258,7 @@ async def extract(
     settings: Settings,
     *,
     cancel_check: Callable[[], bool] | None = None,
+    progress_callback: Callable[[], None] | None = None,
 ) -> list[dict]:
     """Extract entities and relationships from unprocessed episodes (parallel).
 
@@ -272,6 +273,14 @@ async def extract(
     NOT interrupted — they finish normally ("let in-flight work finish").
     ``None`` (the default, and every existing call site) means "never
     cancel" — behavior is unchanged.
+
+    ``progress_callback`` (sleep debt, G106 amendment): an optional zero-arg
+    callback fired exactly once per episode, the instant that episode is
+    fully done with THIS stage — success, failure, empty-content fast path,
+    or cancelled-skip all count (mirrors the existing ``tqdm`` bar's own
+    ``update(1)``, which fires on every one of those paths already). This is
+    what makes ``SleepStatusResponse``'s live "Progress %" during Stage 1
+    possible without waiting for the whole fan-out to finish.
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
     results: list[dict | None] = [None] * len(episodes)
@@ -398,6 +407,8 @@ async def extract(
             await _do_process(i, episode)
         finally:
             progress.update(1)
+            if progress_callback is not None:
+                progress_callback()
 
     # Fire all tasks with semaphore-controlled concurrency
     try:

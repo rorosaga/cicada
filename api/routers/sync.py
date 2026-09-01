@@ -9,8 +9,8 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.services import sync_service
-from api.services.sleep_cycle import get_sleep_state
+from api.services import sleep_debt, sync_service
+from api.services.sleep_cycle import get_sleep_state, progress_pct
 
 router = APIRouter(prefix="/sync")
 POLL_SECONDS = 1.0
@@ -45,11 +45,31 @@ async def events(settings: Settings = Depends(get_settings)):
                 yield _event("version", {"version": info.version, "components": info.components})
                 since_ping = 0.0
             state = get_sleep_state()
-            sleep_key = (state.status, state.cycle_id, state.stage, state.progress)
+            # G106 amendment: Rested % and Progress % are both "SSE-driven,
+            # continuous" — computed fresh every tick alongside the existing
+            # status fields so the mascot screen never needs its own poll
+            # loop just to watch these two numbers move. `sleep_debt.compute`
+            # is cheap (a cached frontmatter scan + one bounded git-log read)
+            # and safe on every tick per its own docstring.
+            debt = await sleep_debt.compute(settings.memory_path, settings)
+            progress = progress_pct(state)
+            sleep_key = (
+                state.status, state.cycle_id, state.stage, state.progress,
+                debt.rested_pct, debt.unprocessed_count, progress,
+            )
             if sleep_key != last_sleep:
                 last_sleep = sleep_key
-                yield _event("sleep", {"status": state.status, "cycleId": state.cycle_id, "stage": state.stage,
-                                       "totalStages": state.total_stages, "progress": state.progress, "error": state.error})
+                yield _event("sleep", {
+                    "status": state.status, "cycleId": state.cycle_id, "stage": state.stage,
+                    "totalStages": state.total_stages, "progress": state.progress, "error": state.error,
+                    "progressPct": progress,
+                    "restedPct": debt.rested_pct,
+                    "volumePct": debt.volume_pct,
+                    "agePct": debt.age_pct,
+                    "unprocessedCount": debt.unprocessed_count,
+                    "hasRunBefore": debt.has_run_before,
+                    "hoursSinceLastCycle": debt.hours_since_last_cycle,
+                })
             if since_ping >= PING_SECONDS:
                 yield "event: ping\ndata: {}\n\n"
                 since_ping = 0.0

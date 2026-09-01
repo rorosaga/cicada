@@ -498,6 +498,58 @@ struct OriginsResponse: Codable {
     enum CodingKeys: String, CodingKey { case origins }
 }
 
+/// How far behind Sleep is, right now — independent of whether a cycle is
+/// currently running. Mirrors `api/models/schemas.py::SleepDebtResponse`;
+/// see `api/services/sleep_debt.py` for the formula. Decode-tolerant (every
+/// numeric field defaults to a safe value) so an older cached app build
+/// reading a payload that lacks this block entirely still constructs one via
+/// `SleepDebtInfo.unknown`.
+struct SleepDebtInfo: Codable, Equatable {
+    let unprocessedCount: Int
+    let oldestUnprocessedAgeHours: Double?
+    let hoursSinceLastCycle: Double?
+    let hasRunBefore: Bool
+    let volumePct: Int
+    let agePct: Int
+    /// `nil` ONLY when the queue is empty AND Sleep has never run in this
+    /// bank — no baseline to call "rested" (see the backend docstring).
+    let restedPct: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case unprocessedCount, oldestUnprocessedAgeHours, hoursSinceLastCycle
+        case hasRunBefore, volumePct, agePct, restedPct
+    }
+
+    init(unprocessedCount: Int, oldestUnprocessedAgeHours: Double?, hoursSinceLastCycle: Double?,
+         hasRunBefore: Bool, volumePct: Int, agePct: Int, restedPct: Int?) {
+        self.unprocessedCount = unprocessedCount
+        self.oldestUnprocessedAgeHours = oldestUnprocessedAgeHours
+        self.hoursSinceLastCycle = hoursSinceLastCycle
+        self.hasRunBefore = hasRunBefore
+        self.volumePct = volumePct
+        self.agePct = agePct
+        self.restedPct = restedPct
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        unprocessedCount = try c.decodeIfPresent(Int.self, forKey: .unprocessedCount) ?? 0
+        oldestUnprocessedAgeHours = try c.decodeIfPresent(Double.self, forKey: .oldestUnprocessedAgeHours)
+        hoursSinceLastCycle = try c.decodeIfPresent(Double.self, forKey: .hoursSinceLastCycle)
+        hasRunBefore = try c.decodeIfPresent(Bool.self, forKey: .hasRunBefore) ?? false
+        volumePct = try c.decodeIfPresent(Int.self, forKey: .volumePct) ?? 0
+        agePct = try c.decodeIfPresent(Int.self, forKey: .agePct) ?? 0
+        restedPct = try c.decodeIfPresent(Int.self, forKey: .restedPct)
+    }
+
+    /// A backend too old to send `debt` at all — the honest "we don't know"
+    /// shape, not a fabricated zero-debt reading.
+    static let unknown = SleepDebtInfo(
+        unprocessedCount: 0, oldestUnprocessedAgeHours: nil, hoursSinceLastCycle: nil,
+        hasRunBefore: false, volumePct: 0, agePct: 0, restedPct: nil
+    )
+}
+
 struct SleepStatusResponse: Codable {
     let status: String
     let cycleId: String?
@@ -529,6 +581,14 @@ struct SleepStatusResponse: Codable {
     /// stopped early because of one. Both absent (false) on an older backend.
     let cancelRequested: Bool
     let cancelled: Bool
+    /// Sleep debt (G106) — always present on a current backend; `.unknown`
+    /// on an older one that never sent the block at all.
+    let debt: SleepDebtInfo
+    /// Live "episodes processed / episodes in this cycle" DURING a cycle.
+    /// `nil` — never a fabricated 0 — whenever there is no honest live
+    /// number: idle, or Stage 1 has already finished (see the backend's
+    /// `sleep_cycle.progress_pct` docstring for the full contract).
+    let progressPct: Int?
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
@@ -536,6 +596,7 @@ struct SleepStatusResponse: Codable {
         case relationshipsCreated, skillsDetected
         case lastEngine, engineDetail
         case episodeCap, episodesQueued, cancelRequested, cancelled
+        case debt, progressPct
     }
 
     init(from decoder: Decoder) throws {
@@ -559,6 +620,8 @@ struct SleepStatusResponse: Codable {
         episodesQueued = try c.decodeIfPresent(Int.self, forKey: .episodesQueued) ?? 0
         cancelRequested = try c.decodeIfPresent(Bool.self, forKey: .cancelRequested) ?? false
         cancelled = try c.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
+        debt = try c.decodeIfPresent(SleepDebtInfo.self, forKey: .debt) ?? .unknown
+        progressPct = try c.decodeIfPresent(Int.self, forKey: .progressPct)
     }
 }
 
@@ -580,9 +643,30 @@ struct EpisodeQueueItem: Codable, Identifiable {
     let id: String
     let timestamp: String
     let source: String
+    /// G9 origin — the harness-normalized id (`claude-code`, `chatgpt-export`,
+    /// `telegram`, `pinterest`, …), used by the Sleep debt catch-up
+    /// breakdown to group by the same identity the rest of the app's origin
+    /// iconography keys on. `"unknown"` on an older backend that doesn't
+    /// send it.
+    let origin: String
     let title: String?
     let preview: String
     let processed: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, source, origin, title, preview, processed
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        timestamp = try c.decode(String.self, forKey: .timestamp)
+        source = try c.decode(String.self, forKey: .source)
+        origin = try c.decodeIfPresent(String.self, forKey: .origin) ?? "unknown"
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        preview = try c.decode(String.self, forKey: .preview)
+        processed = try c.decode(Bool.self, forKey: .processed)
+    }
 }
 
 struct ScheduleConfig: Codable, Equatable {

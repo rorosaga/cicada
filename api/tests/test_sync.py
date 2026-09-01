@@ -116,6 +116,34 @@ def test_sse_first_event_is_version(client):
     assert "version" in data
 
 
+def test_sse_sleep_event_carries_debt_and_progress(client):
+    """G106 amendment: Rested %/Progress % are SSE-driven, not just on
+    `/sleep/status` — the `sleep` event (which fires right alongside
+    `version` on the very first tick, since `last_sleep` starts as `None`)
+    must carry the same debt fields the REST endpoint does."""
+    import asyncio
+
+    from api.config import get_settings
+    from api.routers import sync as sync_router
+
+    async def _drive():
+        settings = get_settings()
+        resp = await sync_router.events(settings=settings)
+        gen = resp.body_iterator
+        await gen.__anext__()          # "version" — first on every tick
+        sleep_raw = await gen.__anext__()  # "sleep" — fires alongside it
+        await gen.aclose()
+        return sleep_raw
+
+    raw = asyncio.run(_drive())
+    lines = raw.splitlines()
+    assert lines[0] == "event: sleep"
+    data = json.loads(lines[1].split(":", 1)[1])
+    for key in ("restedPct", "volumePct", "agePct", "unprocessedCount",
+                "hasRunBefore", "hoursSinceLastCycle", "progressPct"):
+        assert key in data, f"sleep event missing {key}"
+
+
 def test_status_does_not_spawn_git_twice_when_head_unchanged(client, monkeypatch):
     c, _ = client
     from api.services import git_service
