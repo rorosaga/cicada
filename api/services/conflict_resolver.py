@@ -627,7 +627,8 @@ async def _synthesize_entity_update(
     # and consolidation_model overrides apply uniformly here too. completion
     # stays litellm.acompletion, so this is still awaited exactly as before.
     llm_fn = resolve_llm_fn(
-        settings, model=settings.effective_consolidation_model, completion=litellm.acompletion
+        settings, model=settings.effective_consolidation_model,
+        completion=litellm.acompletion, stage="merge",
     )
     response = await llm_fn(
         messages=[{"role": "user", "content": prompt}],
@@ -730,7 +731,8 @@ async def _detect_contradiction(
         new_description=new_description[:2000],
     )
     llm_fn = resolve_llm_fn(
-        settings, model=settings.effective_consolidation_model, completion=litellm.acompletion
+        settings, model=settings.effective_consolidation_model,
+        completion=litellm.acompletion, stage="conflict",
     )
     response = await llm_fn(
         messages=[{"role": "user", "content": prompt}],

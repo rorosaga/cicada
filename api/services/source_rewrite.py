@@ -48,7 +48,8 @@ def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
 
     if llm_fn is None:  # pragma: no cover - runtime
         from api.services.providers import resolve_llm_fn
-        llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model)
+        llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model,
+                                stage="rewrite")
 
     resp = llm_fn(messages=[{"role": "user",
                              "content": _PROMPT.format(page=par.body[:4000], sources=sources)}],

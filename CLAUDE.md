@@ -344,14 +344,37 @@ disambiguation model is recorded too when distinct) for sleep-cycle/agent writes
 literal **`user`** for manual/companion-app/media-save writes; legacy untrailered commits
 are attributed to **`unknown`**. A third literal, **`cicada`**, is reserved for *system
 maintenance* writes the system performs on its own behalf with no model and no user in the
-loop — currently only the one-shot inbox dedup migration (`inbox_migration._commit_dedup`,
-trigger `inbox/dedup`). It classifies as an author like any other, so it shows up in
+loop — the one-shot inbox dedup migration (`inbox_migration._commit_dedup`, trigger
+`inbox/dedup`), the one-shot decay-class backfill (`decay_migration.backfill_decay_classes`),
+and, every Sleep cycle, the split-out decay-only commit (G85, below). It classifies as an
+author like any other, so it shows up in
 `GET /contributors` as a distinct, provider-less contributor. The trailer carries no entity id, so it is **inert to the
 entity-line parsing** above — extend it, don't break it. Built by
 `git_service.build_commit_message(subject, body_lines, authors=...)` and parsed by
 `git_service._parse_authors`. This powers `GET /contributors` (repo-wide per-author
 commit/file/entity counts + last-active) and the per-commit `author` field on
 `GET /entities/{id}/history` — a memory system honest about which model authored each belief.
+
+**G85 — decay changes get their own `cicada`-authored commit.** `conflict_resolver`'s
+temporal-decay math (`trigger: sleep/decay` — the `archive`/`decay_nudge`/`decay` actions) runs
+over EXISTING entities a Sleep cycle never referenced: no LLM call, no source episode, pure
+confidence arithmetic. Folding it into the same commit as everything else stamped it with
+whichever model happened to run Stage 1/2 that cycle, inflating that model's `GET /contributors`
+counts for arithmetic it never touched. `sleep_cycle._finalize` now splits any `sleep/decay`
+entity lines into their OWN commit — subject `Sleep cycle <date> (decay)`, `Cicada-Author: cicada`,
+touching only the entity files those changes wrote — committed *before* the cycle's main commit so
+the main commit's `git status` scan never sees them. Everything a decay change indirectly causes
+(e.g. a `decay_nudge`'s own new inbox item) still rides in the main commit; only the
+entity-frontmatter line itself moves.
+
+**Commit-engine trailer (`Cicada-Engine:`).** A Sleep cycle's main commit also carries exactly one
+`Cicada-Engine: claude-cli|ollama|litellm` line — which engine drove that cycle's extraction/
+resolution/conflict/skills pipeline, mirroring `/sleep/status`'s `lastEngine` field into git history
+so `GET /sleep/history` can report it too. Singular (a commit has one engine, unlike the
+author/session lists) and omitted entirely — never a guessed value — when no LLM engine ran at all,
+which is always true of the `cicada`-authored decay-only commit above. Built by
+`git_service.build_commit_message(..., engine=...)` and parsed by `git_service._parse_engine`;
+inert to entity-line parsing by the same contract as the other two trailers.
 
 **Commit-session trailers (`Cicada-Session:`).** Alongside *which model* wrote a belief,
 a Sleep commit records *which conversations* it consolidated: one `Cicada-Session: <id>`

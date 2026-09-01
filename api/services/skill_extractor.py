@@ -80,7 +80,8 @@ async def detect_patterns(
         # completion callable stays litellm.acompletion, so this is still an
         # async call, byte-identical when neither override is configured.
         llm_fn = resolve_llm_fn(
-            settings, model=settings.effective_consolidation_model, completion=litellm.acompletion
+            settings, model=settings.effective_consolidation_model,
+            completion=litellm.acompletion, stage="skills",
         )
         response = await llm_fn(
             messages=[{"role": "user", "content": prompt}],

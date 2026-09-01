@@ -929,6 +929,12 @@ class SleepHistoryEntry(CamelModel):
     date: str
     message: str
     files_changed: list[str]
+    # G74(a) Task 6 — which engine drove this cycle's commit, parsed from the
+    # commit's optional ``Cicada-Engine:`` trailer. ``None`` for every commit
+    # made before this trailer existed, and for the `cicada`-authored
+    # decay-only commit (G85 split): no LLM engine ran for pure decay
+    # arithmetic, so the honest answer is "no engine", never a guess.
+    engine: Optional[str] = None
 
 
 class EpisodeQueueItem(CamelModel):

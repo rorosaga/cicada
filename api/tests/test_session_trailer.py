@@ -157,13 +157,20 @@ def test_episode_session_map_skips_an_episode_with_no_id():
 
 
 def test_finalize_stamps_each_entitys_own_manifest_line_with_its_sessions(monkeypatch, tmp_path):
+    """G85: the decay change (``stale-thing``) is split into its OWN
+    ``cicada``-authored commit (via ``commit_paths``), so its manifest line
+    shows up in a DIFFERENT ``build_commit_message`` call than the two
+    real (session-bearing) entity changes — every call is captured, not just
+    the last."""
     import asyncio
 
+    calls: list[dict] = []
     seen: dict = {}
 
-    def fake_build(subject, body_lines, authors=None, sessions=None):
-        seen["body_lines"] = body_lines
-        return "msg"
+    def fake_build(subject, body_lines, authors=None, sessions=None, engine=None):
+        calls.append({"subject": subject, "body_lines": body_lines,
+                      "authors": authors, "sessions": sessions, "engine": engine})
+        return f"msg-{len(calls)}"
 
     async def fake_status(_mp):
         return ""
@@ -171,9 +178,14 @@ def test_finalize_stamps_each_entitys_own_manifest_line_with_its_sessions(monkey
     async def fake_commit(_mp, _msg):
         return "abc1234"
 
+    async def fake_commit_paths(_mp, message, paths):
+        seen["decay_message"] = message
+        seen["decay_paths"] = paths
+
     monkeypatch.setattr(git_service, "build_commit_message", fake_build)
     monkeypatch.setattr(git_service, "porcelain_status", fake_status)
     monkeypatch.setattr(git_service, "commit_changes", fake_commit)
+    monkeypatch.setattr(git_service, "commit_paths", fake_commit_paths)
 
     changes = [
         {"id": "postgres", "action": "created", "source_episode": "ep_1",
@@ -189,11 +201,21 @@ def test_finalize_stamps_each_entitys_own_manifest_line_with_its_sessions(monkey
         episode_sessions={"ep_1": "sess-a", "ep_2": "sess-b"},
     ))
 
-    lines = seen["body_lines"]
+    # The decay commit came first, built and committed via `commit_paths`.
+    assert len(calls) == 2
+    decay_call, main_call = calls
+    assert decay_call["authors"] == ["cicada"]
+    assert decay_call["body_lines"] == [
+        "entities/stale-thing.md: archive (source: n/a, trigger: sleep/decay)"
+    ]
+    assert seen["decay_paths"] == ["entities/stale-thing.md"]
+    assert seen["decay_message"] == "msg-1"
+
+    lines = main_call["body_lines"]
     assert "entities/postgres.md: created (source: ep_1, trigger: sleep/extraction, sessions: sess-a)" in lines
     assert "entities/sqlite.md: created (source: ep_2, trigger: sleep/extraction, sessions: sess-b)" in lines
-    # No episode -> no sessions clause; falls back to the commit trailer.
-    assert "entities/stale-thing.md: archive (source: n/a, trigger: sleep/decay)" in lines
+    # The decay-only line moved to its own commit — it must not also appear here.
+    assert not any(line.startswith("entities/stale-thing.md:") for line in lines)
 
 
 def test_finalize_without_episode_sessions_leaves_manifest_lines_unchanged(monkeypatch, tmp_path):
@@ -203,7 +225,7 @@ def test_finalize_without_episode_sessions_leaves_manifest_lines_unchanged(monke
 
     seen: dict = {}
 
-    def fake_build(subject, body_lines, authors=None, sessions=None):
+    def fake_build(subject, body_lines, authors=None, sessions=None, engine=None):
         seen["body_lines"] = body_lines
         return "msg"
 
@@ -231,7 +253,7 @@ def test_finalize_passes_the_collected_sessions_to_build_commit_message(monkeypa
 
     seen: dict = {}
 
-    def fake_build(subject, body_lines, authors=None, sessions=None):
+    def fake_build(subject, body_lines, authors=None, sessions=None, engine=None):
         seen["authors"] = authors
         seen["sessions"] = sessions
         return "msg"

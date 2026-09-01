@@ -718,6 +718,10 @@ async def _run_stages(settings: Settings, cycle_id: str, memory_path: Path) -> _
         _state.index_warning = "; ".join(index_warnings)
 
     # Commit
+    from api.services import agent_engine
+
+    engine = _state.last_engine or "litellm"
+    engine_models = agent_engine.models_used()
     await _finalize(
         memory_path,
         cycle_id,
@@ -725,6 +729,15 @@ async def _run_stages(settings: Settings, cycle_id: str, memory_path: Path) -> _
         settings,
         organic_resolution_paths=organic_resolution_paths,
         started=_state.started_monotonic,
+        engine=engine,
+        # A plan cycle belongs to the claude-plan card and is billed
+        # against the subscription, not as money.
+        connection="claude-plan" if engine == "claude-cli" else None,
+        billing="subscription" if engine == "claude-cli" else None,
+        # The models the engine ACTUALLY used this cycle — the CLI may
+        # route an internal side-call to a different model than the one we
+        # asked for (V1d), and the trailer should say so.
+        authors=engine_models or None,
         sessions=_collect_session_ids(processed_episodes),
         episode_sessions=_episode_session_map(processed_episodes),
     )
@@ -934,6 +947,9 @@ async def _finalize(
     organic_resolution_paths: set[str] | None = None,
     started: float | None = None,
     engine: str = "litellm",
+    connection: str | None = None,
+    billing: str | None = None,
+    authors: list[str] | None = None,
     sessions: list[str] | None = None,
     episode_sessions: dict[str, str] | None = None,
 ) -> None:
@@ -941,9 +957,38 @@ async def _finalize(
 
     Entity-level lines from ``changes`` have source + trigger; file-level
     additions (nudges, clarifications, graph_edges, etc.) are inferred from
-    ``git status`` so the commit message remains a complete manifest. The
-    authoring model(s) for this cycle (main + disambiguation, per ``settings``)
-    are recorded as ``Cicada-Author:`` trailers for repo-wide attribution.
+    ``git status`` so the commit message remains a complete manifest.
+
+    ``engine`` / ``connection`` / ``billing`` / ``authors`` (G74(a) Task 6):
+    what actually ran. Left to their defaults these reproduce the old
+    behaviour exactly — engine ``"litellm"``, connection derived from the
+    model via ``telemetry.connection_for_model``, authors derived from
+    ``settings`` (main + Stage-2 disambiguation model, when distinct). The
+    agent rung passes all four, because ``connection_for_model`` maps any
+    model containing "claude" to ``("byok-anthropic", "usage")``: left
+    alone, every plan cycle would be attributed to the *disconnected* BYOK
+    API-key card and billed as real money. ``authors``, when given, is what
+    the engine REPORTED using (``agent_engine.models_used()``) rather than
+    what ``settings`` merely CONFIGURED — the Claude CLI can route an
+    internal side-call to a different model than the one requested (V1d),
+    and the ``Cicada-Author:`` trailers should say so. ``engine`` is also
+    stamped as a single ``Cicada-Engine:`` trailer on the main commit, so
+    ``GET /sleep/history`` can report which engine drove each cycle instead
+    of leaving the field unextended forever (Ruling 4).
+
+    G85 — the decay-authorship bug: entity changes whose ``trigger`` is
+    ``"sleep/decay"`` are purely arithmetic (``conflict_resolver``'s decay
+    math runs over EXISTING entities this cycle never referenced — no LLM
+    call, no source episode) yet used to be folded into the same commit as
+    everything else and stamped with whichever model happened to run
+    Stage 1/2 that cycle, inflating that model's ``GET /contributors``
+    counts for arithmetic it never touched. They are split into their OWN
+    commit FIRST, authored the literal ``"cicada"`` (system maintenance —
+    the same literal the inbox-dedup migration already uses), touching only
+    the entity files those changes wrote and carrying no engine/session
+    trailer (no engine ran). Everything else a decay change indirectly
+    causes — e.g. a ``decay_nudge``'s own new inbox item — stays in the
+    main commit; only the entity-frontmatter line itself moves.
 
     ``episode_sessions`` (PR #20 review fix, ``_episode_session_map``): when
     given, each entity manifest line also carries a precise
@@ -971,10 +1016,37 @@ async def _finalize(
     """
     date_str = datetime.now().strftime("%Y-%m-%d")
 
-    # --- Entity lines from structured change data ---
+    # --- G85: split purely-arithmetic decay changes into their own commit,
+    # authored `cicada`, committed FIRST so the main commit's `git status`
+    # (below) never sees their entity files as dirty.
+    decay_changes: list[dict] = []
+    other_changes: list = []
+    for change in changes:
+        if isinstance(change, dict) and change.get("trigger") == "sleep/decay":
+            decay_changes.append(change)
+        else:
+            other_changes.append(change)
+
+    if decay_changes:
+        decay_lines: list[str] = []
+        decay_paths: list[str] = []
+        for change in decay_changes:
+            entity_id = change.get("id", "unknown")
+            action = change.get("action", "updated")
+            path = f"entities/{entity_id}.md"
+            decay_paths.append(path)
+            decay_lines.append(f"{path}: {action} (source: n/a, trigger: sleep/decay)")
+        decay_message = git_service.build_commit_message(
+            f"Sleep cycle {date_str} (decay)", decay_lines, authors=["cicada"]
+        )
+        async with _lock:
+            await git_service.commit_paths(memory_path, decay_message, decay_paths)
+
+    # --- Entity lines from structured change data (decay changes excluded —
+    # already committed above) ---
     entity_lines: list[str] = []
     entity_files_covered: set[str] = set()
-    for change in changes:
+    for change in other_changes:
         if not isinstance(change, dict):
             continue
         entity_id = change.get("id", "unknown")
@@ -1022,18 +1094,21 @@ async def _finalize(
 
     body_lines = entity_lines + extra_lines
 
-    # Author trailers: the models that actually wrote this consolidation. The
-    # disambiguation model (Stage 2 judge) is recorded too when distinct.
-    authors: list[str] = []
-    if settings is not None:
+    # Author trailers: the models that actually wrote this consolidation.
+    # `authors` (G74(a)) is what the engine REPORTED using; without it we
+    # fall back to what settings CONFIGURED (main + Stage-2 judge when
+    # distinct).
+    resolved_authors: list[str] = [a for a in (authors or []) if a]
+    if not resolved_authors and settings is not None:
         if settings.litellm_model:
-            authors.append(settings.litellm_model)
+            resolved_authors.append(settings.litellm_model)
         disambig = (settings.litellm_disambiguation_model or "").strip()
-        if disambig and disambig not in authors:
-            authors.append(disambig)
+        if disambig and disambig not in resolved_authors:
+            resolved_authors.append(disambig)
 
     message = git_service.build_commit_message(
-        f"Sleep cycle {date_str}", body_lines, authors=authors, sessions=sessions or []
+        f"Sleep cycle {date_str}", body_lines, authors=resolved_authors,
+        sessions=sessions or [], engine=engine,
     )
     async with _lock:
         commit = await git_service.commit_changes(memory_path, message)
@@ -1041,14 +1116,19 @@ async def _finalize(
     from api.services import telemetry
 
     duration_ms = int((time.monotonic() - started) * 1000) if started is not None else None
-    model = authors[0] if authors else None
-    connection, billing = telemetry.connection_for_model(model) if model else (None, "free")
+    model = resolved_authors[0] if resolved_authors else None
+    if connection is not None:
+        event_connection, event_billing = connection, (billing or "subscription")
+    elif model:
+        event_connection, event_billing = telemetry.connection_for_model(model)
+    else:
+        event_connection, event_billing = None, "free"
     telemetry.record(telemetry.UsageEvent(
         kind="sleep_run", stage="structural", engine=engine,
-        connection=connection,
+        connection=event_connection,
         model=model,
         bank=telemetry.bank_name(settings) if settings is not None else memory_path.name,
-        billing=billing,
+        billing=event_billing,
         invocations=0, duration_ms=duration_ms, ok=True,
         refs={
             "cycle_id": cycle_id,

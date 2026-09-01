@@ -106,7 +106,7 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
 def _default_judge_fn(settings):  # pragma: no cover - needs a real model
     from api.services import json_parse
     from api.services.providers import resolve_llm_fn
-    llm = resolve_llm_fn(settings, model=settings.effective_consolidation_model)
+    llm = resolve_llm_fn(settings, model=settings.effective_consolidation_model, stage="dedup")
 
     def judge(a_body, b_body, a_id, b_id):
         prompt = (

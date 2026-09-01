@@ -35,6 +35,18 @@ UNKNOWN_AUTHOR = "unknown"
 SESSION_TRAILER = "Cicada-Session"
 _SESSION_RE = re.compile(rf"^{SESSION_TRAILER}:\s*(.+?)\s*$")
 
+# Engine trailer (G74(a) Task 6). Records WHICH ENGINE drove a Sleep commit —
+# "claude-cli" | "ollama" | "litellm" — mirroring `/sleep/status`'s
+# `lastEngine` field into the git history so `/sleep/history` can stop being
+# the one place in the app "reflects what actually ran" (Ruling 4) never
+# reached. Singular (one trailer, not a list like authors/sessions): a commit
+# is driven by exactly one engine. Omitted entirely for a commit where no LLM
+# engine ran at all (the `cicada`-authored decay-only commit, G85) — the
+# honest absence, never a guessed value. Inert to the entity-line parsing by
+# the same contract as the other two trailers: it carries no entity id.
+ENGINE_TRAILER = "Cicada-Engine"
+_ENGINE_RE = re.compile(rf"^{ENGINE_TRAILER}:\s*(.+?)\s*$")
+
 # Cap on session trailers in ONE commit. `build_commit_message` does not cap —
 # the call site does (sleep_cycle._collect_session_ids), so a caller that
 # genuinely wants every id can have it. 50 distinct conversations consolidated
@@ -109,15 +121,20 @@ def build_commit_message(
     body_lines: list[str],
     authors: list[str] | None = None,
     sessions: list[str] | None = None,
+    engine: str | None = None,
 ) -> str:
     """Assemble a structured commit message with optional trailers.
 
     ``subject`` is line 1, ``body_lines`` are the per-file manifest. Each
     distinct, non-empty ``authors`` entry becomes one ``Cicada-Author:`` line
     and each distinct, non-empty ``sessions`` entry one ``Cicada-Session:``
-    line, in that order, in ONE trailer block after a blank line (git-trailer
-    convention). Caller order is preserved and duplicates are dropped, per
-    list independently — an author id equal to a session id emits both.
+    line; a non-empty ``engine`` becomes exactly one ``Cicada-Engine:`` line
+    (singular — a commit is driven by one engine, unlike the author/session
+    lists). Order in the trailer block: authors, then engine, then sessions,
+    in ONE block after a blank line (git-trailer convention). Caller order is
+    preserved and duplicates are dropped, per list independently — an author
+    id equal to a session id emits both. ``engine`` defaults to ``None``
+    (no trailer at all) so every pre-existing call site stays byte-identical.
     """
     parts = [subject]
     if body_lines:
@@ -132,6 +149,10 @@ def build_commit_message(
             continue
         seen_authors.add(name)
         trailers.append(f"{AUTHOR_TRAILER}: {name}")
+
+    eng = (engine or "").strip()
+    if eng:
+        trailers.append(f"{ENGINE_TRAILER}: {eng}")
 
     seen_sessions: set[str] = set()
     for s in sessions or []:
@@ -182,6 +203,18 @@ def _parse_sessions(body: str) -> list[str]:
                 seen.add(sid)
                 out.append(sid)
     return out
+
+
+def _parse_engine(body: str) -> str | None:
+    """Extract the ``Cicada-Engine:`` trailer value from a commit body, or
+    ``None`` when absent (a pre-trailer commit, a non-Sleep commit, or the
+    `cicada`-authored decay-only commit, which carries no engine)."""
+    for line in body.splitlines():
+        m = _ENGINE_RE.match(line.strip())
+        if m:
+            value = m.group(1).strip()
+            return value or None
+    return None
 
 
 # Matches the optional `, sessions: <id>[,<id>...]` clause `sleep_cycle._finalize`
@@ -794,23 +827,36 @@ async def get_contributor_commits(
 
 
 async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:
-    """Get chronological Sleep cycle history from git log."""
+    """Get chronological Sleep cycle history from git log.
+
+    Each entry's ``engine`` (G74(a) Task 6, Ruling 4 extended) is parsed from
+    the commit's optional ``Cicada-Engine:`` trailer — the same one line
+    ``sleep_cycle._finalize`` now stamps on its main commit. NUL-record
+    ``git log`` (the ``get_contributors`` pattern) so the body, which the
+    engine trailer lives in, is read in the SAME invocation as the subject —
+    no per-commit follow-up call needed for it.
+    """
+    sep = "\x1f"
+    rec = "\x1e"
     try:
         output = await _run_git(
             memory_path,
-            "log", "--format=%H|%ad|%s", "--date=short",
+            "log", f"--format=%H{sep}%ad{sep}%s{sep}%b{rec}", "--date=short",
         )
     except GitError:
         return []
 
     entries: list[SleepHistoryEntry] = []
-    for line in output.strip().splitlines():
-        if not line:
+    for record in output.split(rec):
+        record = record.strip("\n")
+        if not record.strip():
             continue
-        parts = line.split("|", 2)
-        if len(parts) < 3:
+        fields = record.split(sep, 3)
+        if len(fields) < 4:
             continue
-        commit_hash, date, subject = parts
+        commit_hash, date, subject, body = (
+            fields[0].strip(), fields[1].strip(), fields[2].strip(), fields[3]
+        )
         subj = subject.lower()
         if subj.startswith("sleep cycle") or subj.startswith("inbox resolution"):
             # Get changed files for this commit
@@ -830,6 +876,7 @@ async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:
                 date=date,
                 message=subject,
                 files_changed=files,
+                engine=_parse_engine(body),
             ))
 
     return entries
