@@ -404,7 +404,17 @@ struct InboxActionButton: View {
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .background(color.opacity(isHovered ? 0.2 : 0.12))
             .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-            .scaleEffect(isHovered && !disabled ? 1.03 : 1.0)
+            // G83 review finding 1: this used to also carry
+            // `.scaleEffect(isHovered && !disabled ? 1.03 : 1.0)`. On the
+            // common hover-then-click path that 1.03 grow and
+            // CicadaPlainButtonStyle's own 0.97 press-shrink (applied outside
+            // this label, see the style) multiply to ≈0.999 — the pressed
+            // state became nearly invisible on exactly the highest-frequency
+            // buttons in the app (Dismiss/Keep Active/Archive/Answer/Merge).
+            // Dropped so the shared style is the ONE thing that owns the
+            // press transform here; the hover cue stays as the background
+            // tint above (`color.opacity(isHovered ? 0.2 : 0.12)`), which
+            // doesn't compete with it.
         }
         .buttonStyle(.cicadaPlain)
         .disabled(disabled)

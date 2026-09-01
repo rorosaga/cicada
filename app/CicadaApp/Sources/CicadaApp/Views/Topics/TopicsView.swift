@@ -225,8 +225,7 @@ private struct TopicsListView: View {
                     .padding(.horizontal, CicadaTheme.spacingMD)
                     .padding(.vertical, CicadaTheme.spacingSM)
                 }
-                .buttonStyle(.cicadaPlain)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
                 .popover(isPresented: $showFilterPopover, arrowEdge: .top) {
                     TopicsFilterPopover(enabledTypes: $enabledTypes)
                 }
@@ -244,8 +243,7 @@ private struct TopicsListView: View {
                     .padding(.horizontal, CicadaTheme.spacingMD)
                     .padding(.vertical, CicadaTheme.spacingSM)
                 }
-                .buttonStyle(.cicadaPlain)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
                 .popover(isPresented: $showLabelPopover, arrowEdge: .top) {
                     TopicsLabelPopover(
                         allLabels: allLabels,
@@ -717,8 +715,7 @@ private struct TopicDetailView: View {
                     .padding(.horizontal, CicadaTheme.spacingMD)
                     .padding(.vertical, CicadaTheme.spacingSM)
                 }
-                .buttonStyle(.cicadaPlain)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
 
                 Spacer()
             }

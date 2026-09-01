@@ -430,6 +430,44 @@ extension ButtonStyle where Self == CicadaPlainButtonStyle {
     static var cicadaPlain: CicadaPlainButtonStyle { CicadaPlainButtonStyle() }
 }
 
+// MARK: - Glass Plain Button Style (G83 review finding 2)
+
+/// `CicadaPlainButtonStyle` for a button whose visible chrome is a
+/// `.glassCard(...)` pill. `.glassCard()` chained AFTER `.buttonStyle(.cicadaPlain)`
+/// wraps the button's ALREADY-styled output — the pill background sits outside
+/// `CicadaPlainButtonStyle`'s own `scaleEffect`/`opacity`, which only reaches
+/// `configuration.label`. The result: on press, the label dips but the glass
+/// pill drawn behind it stays static — partial, not-quite-there feedback on
+/// exactly the top-bar/toolbar buttons the user hits constantly.
+///
+/// This style folds the SAME glass-card decoration (`.modifier(GlassCard(...))`
+/// — the existing `GlassCard` recipe, not a duplicated copy) into `makeBody`
+/// itself, so the card is composed BEFORE the pressed-state transform, and the
+/// whole pill — background, border, shadow included — scales/dims together.
+/// Replaces the `.buttonStyle(.cicadaPlain)` + `.glassCard(cornerRadius:)` pair
+/// at every site where they decorate the SAME button (not a container that
+/// merely happens to wrap several buttons in one shared card — that pattern is
+/// unaffected and stays as plain `.glassCard()` on the container).
+struct CicadaGlassButtonStyle: ButtonStyle {
+    var cornerRadius: CGFloat = CicadaTheme.cornerRadius
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .modifier(GlassCard(cornerRadius: cornerRadius))
+            .scaleEffect(configuration.isPressed ? CicadaPlainButtonStyle.pressedScale : 1.0)
+            .opacity(configuration.isPressed ? CicadaPlainButtonStyle.pressedOpacity : 1.0)
+            .animation(.easeOut(duration: CicadaPlainButtonStyle.pressAnimationDuration), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == CicadaGlassButtonStyle {
+    static var cicadaGlass: CicadaGlassButtonStyle { CicadaGlassButtonStyle() }
+    static func cicadaGlass(cornerRadius: CGFloat) -> CicadaGlassButtonStyle {
+        CicadaGlassButtonStyle(cornerRadius: cornerRadius)
+    }
+}
+
 // MARK: - Color Hex Init
 
 extension Color {

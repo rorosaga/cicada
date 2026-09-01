@@ -272,9 +272,8 @@ struct FilterButton: View {
                 .foregroundStyle(allEnabled ? (isHovered ? CicadaTheme.textPrimary : CicadaTheme.textSecondary) : CicadaTheme.accent)
                 .frame(width: 36, height: 32)
         }
-        .buttonStyle(.cicadaPlain)
+        .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
         .onHover { isHovered = $0 }
-        .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
         .popover(isPresented: Binding(
             get: { graphVM.showFilterPopover },
             set: { graphVM.showFilterPopover = $0 }
@@ -430,9 +429,8 @@ struct AskButton: View {
             .padding(.horizontal, CicadaTheme.spacingMD)
             .padding(.vertical, CicadaTheme.spacingSM)
         }
-        .buttonStyle(.cicadaPlain)
+        .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
         .onHover { isHovered = $0 }
-        .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
         .help("Ask your memory (⌘K)")
     }
 }
