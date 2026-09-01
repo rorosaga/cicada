@@ -103,6 +103,20 @@ def test_pins_to_items_skips_junk_rows():
     assert pinterest.pins_to_items("Recipes", [None, {}, "nope"]) == []
 
 
+def test_pins_to_items_normalizes_created_at_through_the_shared_normalizer():
+    """G99d (Devin round 1, PR #26 finding 2): a raw Pinterest `created_at`
+    must not leak into RawItem.added un-normalized — route it through the
+    same saved_at.from_iso8601 normalizer the export parsers use, so it
+    compares correctly in the recency sort against every other source.
+    """
+    items = pinterest.pins_to_items("Recipes", PINS_B1["items"])
+    # p1 carries a real-shaped Pinterest created_at (ISO-8601, no timezone
+    # offset — "2026-01-02T10:00:00") -> normalized to a bare ISO date.
+    assert items[0].added == "2026-01-02"
+    # p2 has no created_at at all -> None, never a guess.
+    assert items[1].added is None
+
+
 # --- sync --------------------------------------------------------------------
 
 

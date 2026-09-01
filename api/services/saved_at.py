@@ -129,6 +129,33 @@ def from_tiktok(raw: object) -> str | None:
     return None
 
 
+def validate(value: str | None) -> str | None:
+    """Guard the write boundary — the one place ``write_media_episode``,
+    ``write_media_entity``, ``ingest_one``, and ``_dedup_items``' backfill all
+    funnel through before ever persisting a ``RawItem.added`` value.
+
+    ``RawItem.added`` is contractually already normalized: every parser and
+    connector is supposed to call one of this module's ``from_*`` functions
+    first. But a future producer that forgets to — exactly what happened with
+    the Pinterest connector's raw ``created_at`` before this fix (Devin round
+    1, PR #26) — must not be able to leak a raw, un-normalized value (a Unix
+    epoch, a WebKit timestamp, a full ISO-8601 datetime with a time-of-day)
+    into frontmatter or ``url_index.json``. Rather than trust each producer
+    and hope, this is the ONE seam-wide guard every write site calls, so a
+    sixth future hole closes itself instead of needing its own review finding.
+
+    Returns ``value`` unchanged if it is already a genuine bare
+    ``YYYY-MM-DD`` date, else ``None`` — never guesses, never raises.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return value
+
+
 def sort_instant(value: str | None) -> datetime:
     """A recency-sort key's raw value (a bare ``YYYY-MM-DD`` from
     ``content_saved_at``, or a full ``YYYY-MM-DDTHH:MM:SS[.ffffff]Z``

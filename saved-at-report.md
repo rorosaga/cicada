@@ -165,14 +165,89 @@ recovered-true-date fields — episode/entity top-level `saved_at`), so the
 naming asymmetry is discoverable at the one place already referenced by
 every per-site comment, instead of scattered.
 
+## Devin round 1 (PR #26) — 2 Yellow findings, both closed
+
+1. **Duplicate imports discarded a carried save date.** `ingest_one`'s
+   duplicate branch, and `_dedup_items`' bulk-dedup path, returned early
+   without ever touching `content_saved_at` on the existing `url_index.json`
+   entry — so a re-import (the ONLY realistic way to ever recover a date for
+   an already-ingested item, given 0% were recoverable at original write
+   time) silently discarded it. Fixed with a shared
+   `_backfill_content_saved_at(existing, item)` helper, called from both
+   `ingest_one`'s duplicate branch and `_dedup_items`: backfills
+   `content_saved_at` onto the existing entry ONLY when it's currently
+   missing (never overwrites a different value — there's no "more precise"
+   value to protect since `content_saved_at` is always a validated bare
+   date), and runs the incoming value through the new `saved_at.validate`
+   guard rather than trusting the caller.
+
+   This surfaced a SECOND bug on the way to fixing the first: even with
+   `_dedup_items` correctly mutating `idx` in memory, three call sites
+   (`ingest_batch`'s `if not fresh: return` early-out, and two router-level
+   pre-dedup checks in `upload_sources`/`ingest_rss` that load their own
+   separate `idx` object purely to compute a duplicate count) would silently
+   discard that mutation by never calling `save_url_index`. All three now
+   persist whenever `_dedup_items` reports a backfill — including the
+   wholly-duplicate-batch case (`fresh` empty), which is the actual shape of
+   "re-upload the same bookmarks export a second time to backfill dates."
+   `_dedup_items`'s return grew a third value, `backfilled: bool`, that
+   every caller now checks.
+
+   Tests: `test_ingest_one_duplicate_backfills_content_saved_at_when_missing`,
+   `test_ingest_one_duplicate_never_overwrites_an_existing_content_saved_at`,
+   `test_ingest_batch_reimport_of_a_wholly_duplicate_batch_backfills_and_persists`
+   (reads `url_index.json` back off disk — proves persistence, not just an
+   in-memory mutation), and an end-to-end
+   `test_post_sources_upload_reimport_backfills_content_saved_at` through the
+   real `POST /sources/upload` endpoint with a Netscape bookmarks HTML file.
+
+2. **Pinterest's `created_at` bypassed the normalizer.** `pins_to_items`
+   handed Pinterest v5's raw ISO-8601 `created_at`
+   (`"2020-06-05T12:22:53"`-shaped) straight to `RawItem.added`, un-normalized
+   — a full datetime leaking into a field every other producer treats as an
+   already-normalized bare date, which also meant Pinterest dates wouldn't
+   compare correctly in `sort_instant`. Fixed: routed through
+   `saved_at.from_iso8601`, identical to how Takeout's `time` field is
+   handled. Test: `test_pins_to_items_normalizes_created_at_through_the_shared_normalizer`,
+   using the test file's existing real-shaped fixture
+   (`PINS_B1`'s `"created_at": "2026-01-02T10:00:00"`).
+
+**Seam audit, as asked** ("check whether any OTHER connector or parser feeds
+a date into that field without normalisation"): grepped every `added=`
+assignment across `api/services/media_ingestor.py` and
+`api/services/connectors/*.py` — exactly six sites total. The five parsers
+already used `saved_at.from_*` (unchanged, verified again); Pinterest was the
+only one bypassing it (now fixed). **Reddit's and X's connectors don't set
+`RawItem.added` at all** — Reddit's saved-listing API does return
+`created_utc`, and X's bookmarks endpoint would return `created_at` if
+requested (its call only asks for `tweet.fields=text`, so `created_at` isn't
+even fetched today) — but neither connector reads or maps a date into
+`RawItem.added` at all, so there is nothing un-normalized to fix; it's the
+same *adjacent* gap as Instagram's discarded `string_map_data["Saved
+on"]["timestamp"]` (see Scope notes below), not the "bypasses normalization"
+bug class Devin flagged. Beyond the six producer sites, also added a
+**write-boundary guard**, `saved_at.validate()`, called from
+`write_media_episode`, `write_media_entity`, `ingest_one`'s created branch,
+and `_backfill_content_saved_at` — so a *seventh*, not-yet-written producer
+that forgets to normalize can't leak a raw value into frontmatter either;
+the seam is closed once, at the write side, not just at each known producer.
+Tests: `test_validate_accepts_a_genuine_bare_date`,
+`test_validate_rejects_a_full_timestamp` (the literal shape of Pinterest's
+bug), `test_validate_rejects_other_raw_source_shapes` (epoch
+seconds/WebKit micros/TikTok-style — the other four raw shapes),
+`test_validate_none_empty_or_non_string_is_none`.
+
 ## Scope notes
 
-- Only the five parsers named in the brief were touched. Instagram's export
-  actually carries a per-record `timestamp` under `string_map_data["Saved
-  on"]` (visible in `parse_instagram_saved`'s own docstring) that is
-  similarly discarded today — a real, adjacent instance of the same bug
-  class, but outside the five sites the brief scoped and verified via grep.
-  Flagging it, not fixing it here.
+- Only the five parsers (+ now Pinterest) that actively feed `.added` were
+  touched for normalization. Instagram's export carries a per-record
+  `timestamp` under `string_map_data["Saved on"]` (visible in
+  `parse_instagram_saved`'s own docstring) that's discarded today, and
+  neither Reddit's nor X's connector maps a date into `RawItem.added` at all
+  (see the seam audit above) — three adjacent instances of "a date exists
+  upstream and nothing captures it," a different bug class from
+  "captured but un-normalized," and outside this fix's scope. Flagging all
+  three as a follow-up, not fixing them here.
 - `GET /entities/{id}` (`EntityResponse`) was not extended with an explicit
   `saved_at` field — the brief's wiring chain stops at `MediaSourceItem` /
   `GET /sources`, and the entity's raw frontmatter (including the new
@@ -182,28 +257,28 @@ every per-site comment, instead of scattered.
 
 ## Gate
 
-- `api/.venv/bin/python -m pytest api/tests`: **1411 passed, 8 failed** — the
+- `api/.venv/bin/python -m pytest api/tests`: **1420 passed, 8 failed** — the
   8 failures are exactly the pre-existing `test_calendar_registry.py` baseline
   named in the brief (unrelated date-dependent ICS-polling tests; this branch
   never touches `calendar_registry.py`).
-- `swift build`: clean. `swift test`: **395 passed, 0 failed**.
-- New test files: `api/tests/test_saved_at.py` (31 tests: one-per-format
-  normalizer coverage plus `sort_instant`'s same-day determinism), plus new
-  cases in `api/tests/test_sources.py` (episode/entity/url_index wiring, sort
-  correctness incl. the same-day mixed-format case) and
-  `api/tests/test_export_parsers.py` (two existing assertions updated for the
-  now-normalized `.added` value). Swift: `FeedIdentityTests.swift` gained the
-  `recencyDate` + same-day determinism cases.
+- `swift build`: clean. `swift test`: **395 passed, 0 failed** (unchanged this
+  round — no Swift files touched by the Devin-round fixes).
+- New/changed test files this round: `api/tests/test_saved_at.py` (+7:
+  `validate` coverage), `api/tests/test_sources.py` (+5: duplicate-backfill
+  unit tests, bulk-reimport persistence, end-to-end `POST /sources/upload`
+  reimport), `api/tests/test_connector_pinterest.py` (+1: normalization).
 
-## Files touched
+## Files touched (cumulative across both rounds)
 
 - `api/services/saved_at.py` (new)
 - `api/tests/test_saved_at.py` (new)
 - `api/services/media_ingestor.py`
+- `api/services/connectors/pinterest.py`
 - `api/models/schemas.py`
 - `api/routers/sources.py`
 - `api/tests/test_sources.py`
 - `api/tests/test_export_parsers.py`
+- `api/tests/test_connector_pinterest.py`
 - `docs/goals/memory-evolution.md`
 - `app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift`
 - `app/CicadaApp/Sources/CicadaApp/ViewModels/FeedViewModel.swift`

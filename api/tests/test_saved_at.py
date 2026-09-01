@@ -197,3 +197,31 @@ def test_sort_instant_none_or_empty_sorts_as_oldest():
 
 def test_sort_instant_unparseable_sorts_as_oldest_never_raises():
     assert saved_at.sort_instant("not a date") == datetime.min.replace(tzinfo=timezone.utc)
+
+
+# --- validate (the write-boundary seam guard, Devin round 1 PR #26) --------
+
+
+def test_validate_accepts_a_genuine_bare_date():
+    assert saved_at.validate("2026-03-14") == "2026-03-14"
+
+
+def test_validate_rejects_a_full_timestamp():
+    """The exact shape of bug Pinterest's un-normalized `created_at` leaked
+    into RawItem.added before this fix — a value that LOOKS date-shaped but
+    carries a time-of-day must not pass through to a writer."""
+    assert saved_at.validate("2026-03-14T09:22:00Z") is None
+    assert saved_at.validate("2026-03-14T09:22:00") is None
+
+
+def test_validate_rejects_other_raw_source_shapes():
+    """The other four raw shapes a producer might forget to normalize."""
+    assert saved_at.validate("1686830400") is None  # Netscape epoch seconds
+    assert saved_at.validate("13331304000000000") is None  # WebKit micros
+    assert saved_at.validate("2026-03-14 09:22:00") is None  # TikTok-style
+
+
+def test_validate_none_empty_or_non_string_is_none():
+    assert saved_at.validate(None) is None
+    assert saved_at.validate("") is None
+    assert saved_at.validate("not a date") is None

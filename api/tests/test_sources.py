@@ -671,6 +671,114 @@ def test_ingest_one_without_added_omits_content_saved_at(tmp_path, monkeypatch):
     assert "content_saved_at" not in entry
 
 
+# --- G99d follow-up (Devin round 1, PR #26 finding 1): duplicate re-imports
+# backfill a missing content_saved_at ------------------------------------
+
+
+def test_ingest_one_duplicate_backfills_content_saved_at_when_missing(tmp_path, monkeypatch):
+    """The realistic path to ever recovering a save date for an item already
+    on disk: import it once (no date recoverable at the time), then
+    re-import the SAME URL from a source that DOES carry one. The duplicate
+    hit must backfill it rather than silently discard it."""
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    idx: dict = {}
+    first = RawItem(url="https://example.com/a")
+    result1 = run(media_ingestor.ingest_one(first, memory, object(), idx))
+    assert result1.status == "created"
+    h = media_ingestor.url_hash(first.url)
+    assert "content_saved_at" not in idx[h]
+
+    second = RawItem(url="https://example.com/a", added="2023-06-15")
+    result2 = run(media_ingestor.ingest_one(second, memory, object(), idx))
+    assert result2.status == "duplicate"
+    assert idx[h]["content_saved_at"] == "2023-06-15"
+    # No new episode/entity was written — only the index entry changed.
+    assert len(list((memory / "entities").glob("media-*.md"))) == 1
+
+
+def test_ingest_one_duplicate_never_overwrites_an_existing_content_saved_at(
+    tmp_path, monkeypatch
+):
+    """Backfill fills a gap; it must never clobber a value that's already
+    there, even with a plausible-looking different date."""
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    idx: dict = {}
+    first = RawItem(url="https://example.com/a", added="2023-06-15")
+    run(media_ingestor.ingest_one(first, memory, object(), idx))
+    h = media_ingestor.url_hash(first.url)
+    assert idx[h]["content_saved_at"] == "2023-06-15"
+
+    second = RawItem(url="https://example.com/a", added="2024-01-01")
+    result2 = run(media_ingestor.ingest_one(second, memory, object(), idx))
+    assert result2.status == "duplicate"
+    assert idx[h]["content_saved_at"] == "2023-06-15"  # unchanged
+
+
+def test_ingest_batch_reimport_of_a_wholly_duplicate_batch_backfills_and_persists(
+    tmp_path, monkeypatch
+):
+    """The realistic bulk scenario: re-uploading the SAME bookmarks export a
+    second time (e.g. specifically to backfill dates) is a 100%-duplicate
+    batch — `fresh` ends up empty. The backfill must still be written to
+    `url_index.json` on disk, not just mutated in memory and discarded."""
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    first = RawItem(url="https://example.com/a")
+    created1, _ = run(media_ingestor.ingest_batch([first], memory, commit=False))
+    assert created1 == 1
+
+    on_disk = media_ingestor.load_url_index(memory)
+    h = media_ingestor.url_hash(first.url)
+    assert "content_saved_at" not in on_disk[h]
+
+    second = RawItem(url="https://example.com/a", added="2023-06-15")
+    created2, dups2 = run(media_ingestor.ingest_batch([second], memory, commit=False))
+    assert created2 == 0
+    assert dups2 == 1
+
+    reloaded = media_ingestor.load_url_index(memory)
+    assert reloaded[h]["content_saved_at"] == "2023-06-15"
+
+
+def test_post_sources_upload_reimport_backfills_content_saved_at(tmp_path, monkeypatch):
+    """End-to-end through the real endpoint users actually re-import
+    through: `POST /sources/upload` with a bookmarks HTML file whose
+    add_date now carries a real date for an already-saved URL."""
+    client, memory = _make_client(tmp_path, monkeypatch)
+
+    first = RawItem(url="https://example.com/reimport-me")
+    run(media_ingestor.ingest_batch([first], memory, commit=False))
+    h = media_ingestor.url_hash(first.url)
+    assert "content_saved_at" not in media_ingestor.load_url_index(memory)[h]
+
+    html = (
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n"
+        '<DL><p><DT><A HREF="https://example.com/reimport-me" '
+        'ADD_DATE="1686830400">Reimport me</A></DL>'
+    )
+    resp = client.post(
+        "/sources/upload",
+        files={"file": ("Bookmarks.html", html.encode(), "text/html")},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["episodesCreated"] == 0
+    assert body["duplicatesSkipped"] == 1
+
+    assert media_ingestor.load_url_index(memory)[h]["content_saved_at"] == "2023-06-15"
+
+
 def test_parse_chrome_bookmarks_json_populates_added_from_date_added():
     tree = {
         "roots": {
