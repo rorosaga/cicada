@@ -8,8 +8,9 @@
 # the currently-installed app is touched while any of that can still fail.
 # Only once the staged build passes `codesign --verify --deep --strict` do
 # we quit a running instance and swap it into place, moving the previous
-# app to a backup path first so a failed swap can restore it rather than
-# leave ~/Applications with no working Cicada at all. Uses `ditto`, not
+# app to a backup path first so a failed or interrupted swap can restore it
+# (and the next run restores it after a hard kill) rather than leave
+# ~/Applications with no working Cicada at all. Uses `ditto`, not
 # `cp -r` (ditto preserves the bundle correctly; cp -r can mangle it).
 # Ad-hoc code-signing (`codesign --force --deep --sign -`) also keeps one
 # stable Launch Services app identity across reinstalls instead of a new,
@@ -39,10 +40,27 @@ step() { printf '  \033[36m→\033[0m %s\n' "$1"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
 err()  { printf '  \033[31m✗\033[0m %s\n' "$1" >&2; }
 
-DEST="$HOME/Applications/Cicada.app"
-STAGING="$HOME/Applications/.Cicada.app.staging"
-BACKUP="$HOME/Applications/.Cicada.app.previous"
+# CICADA_APP_DIR exists so the swap below can be exercised against a scratch
+# directory; nothing in the app or the Makefile sets it.
+APP_DIR="${CICADA_APP_DIR:-$HOME/Applications}"
+DEST="$APP_DIR/Cicada.app"
+STAGING="$APP_DIR/.Cicada.app.staging"
+BACKUP="$APP_DIR/.Cicada.app.previous"
 QUIT_TIMEOUT="${QUIT_TIMEOUT:-10}"
+
+# --- Recover from an interrupted earlier run BEFORE doing anything else ---
+# The swap at the bottom is two moves: $DEST -> $BACKUP, then $STAGING ->
+# $DEST. A run killed hard between them (kill -9, a crashed terminal — the
+# trap below can't catch those) leaves $BACKUP as the only installed copy, so
+# it goes back to $DEST here, before this run can fail or be interrupted
+# again. A leftover $STAGING is never the only copy of anything and is simply
+# cleared.
+mkdir -p "$APP_DIR"
+if [ -d "$BACKUP" ] && [ ! -d "$DEST" ]; then
+  warn "An earlier run was interrupted mid-install — restoring the previous Cicada.app first"
+  mv "$BACKUP" "$DEST"
+fi
+rm -rf "$STAGING"
 
 step "Building ($CONFIG)…"
 if [ "$CONFIG" = "release" ]; then
@@ -64,8 +82,6 @@ fi
 # happened twice for real while building this: a bad Unicode-adjacent var
 # expansion, then codesign choking on an unsigned nested resource bundle)
 # leaves the previously installed app completely untouched.
-mkdir -p "$HOME/Applications"
-rm -rf "$STAGING"   # clear any leftover from an earlier interrupted run
 step "Staging to ${STAGING}…"
 ditto "$SRC" "$STAGING"
 ok "Staged ($CONFIG build)"
@@ -116,16 +132,30 @@ if pgrep -x CicadaApp >/dev/null 2>&1; then
 fi
 
 # --- Atomic-ish swap: move the old app aside, move the new one in, and if
-# the second move fails for any reason, put the old one straight back. ---
+# the second move fails for any reason — or this shell is interrupted
+# between the two moves — put the old one straight back. The trap is armed
+# only for the window in which $DEST is missing, and $BACKUP is only ever
+# cleared while $DEST exists, so no exit path leaves ~/Applications with no
+# Cicada.app at all. ---
+restore_previous() {
+  if [ ! -d "$DEST" ] && [ -d "$BACKUP" ]; then
+    mv "$BACKUP" "$DEST"
+    err "Interrupted mid-install — restored the previously installed Cicada.app at $DEST."
+  fi
+}
 step "Installing to ${DEST}…"
-rm -rf "$BACKUP"
 if [ -d "$DEST" ]; then
+  rm -rf "$BACKUP"
+  trap 'restore_previous' EXIT
+  trap 'restore_previous; exit 1' INT TERM
   mv "$DEST" "$BACKUP"
 fi
 if mv "$STAGING" "$DEST"; then
+  trap - EXIT INT TERM
   rm -rf "$BACKUP"
   ok "Installed ($CONFIG build)"
 else
+  trap - EXIT INT TERM
   err "Failed to move the verified build into place at $DEST."
   if [ -d "$BACKUP" ]; then
     mv "$BACKUP" "$DEST"
