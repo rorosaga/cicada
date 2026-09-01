@@ -24,15 +24,27 @@ round 2 came back **clean**. Its 🔴 is worth knowing: Stage 2 used to make cla
   (ii) `GraphViewModel.swift:420` — a broken link still pushes onto the back stack, creating false
   history; (iii) `TopicsView.swift:725` — a late topic load undoes navigation. **Decide whether to fix
   or merge with them filed** — (ii) is the one a user would actually feel.
-- **#28 dev loop** (`feat/devloop`, worktree `.worktrees/devloop`) — **fix round IN PROGRESS, not
-  finished**; the worktree has uncommitted edits to `api/models/schemas.py`, `api/routers/status.py`,
-  `APIClient.swift`. Devin found a **🔴 bank split-brain**: after a default install outside `~/cicada`,
-  `installRoot` points agent setup commands at the *checkout's* memory while the app uses another bank —
-  **the same class of bug this project already shipped a fix for once**, and its symptom is silent (you
-  talk to an agent, memory is written, the app shows nothing). Also a 🟡: `install_app.sh:85` deletes the
-  installed app *before* verifying the new one, so a failed `ditto`/`codesign` leaves no working Cicada.
-  The instruction given was to fix the **resolution** so both sides have one answer — not just the path
-  Devin named — and to force an install failure to prove the rollback rather than assert it.
+- **#28 dev loop** (`feat/devloop`, worktree `.worktrees/devloop`) — **fix round COMPLETE** (`688fb5f`,
+  pushed); `swift test` 414/414, `pytest` 1525 passed (8 pre-existing calendar failures). **Awaiting a
+  Devin round 2**, warranted because round 1 carried a 🔴. Both findings fixed:
+  - **🔴 bank split-brain, closed as a class rather than as a path.** The bug: after a default install
+    outside `~/cicada`, `installRoot` pointed agent setup commands at the *checkout's* memory while the
+    app used another bank — silent, because memory gets written and the app just shows nothing. The root
+    cause was **two independent computations that had to coincidentally agree** (a Swift heuristic vs.
+    `install.sh`/`Settings` defaults). Now there is one source of truth: `GET /healthz` reports
+    `memoryRoot` (raw `Settings.memory_root`/`CICADA_MEMORY_PATH`, distinct from the resolved-active-bank
+    `memoryPath` it already returned), and when the backend answers, that **overrides the local guess
+    everywhere** `CICADA_MEMORY_PATH` is emitted — every agent's steps, the shared `mcpJSON`, the Cursor
+    deeplink — not just the line Devin flagged. `installRoot()` survives only as a fallback until a
+    backend has ever answered, and still supplies `home` (python/mcp-server paths), where a wrong value
+    fails loudly instead of diverging silently. **Verified live**, not argued: a temp backend was pointed
+    at the main checkout's memory and the running app's Connect page showed the backend's real root
+    instead of the worktree-derived guess it would have shown before.
+  - **🟡 destructive update** (`install_app.sh`) — now stages, verifies, then swaps, with the old bundle
+    recoverable. **Proved by injecting two failures:** a `codesign` that always fails aborted *before
+    quitting the running app* (checksum/signature/PID untouched), and an `mv` that failed only the
+    staging→installed move restored the previous app byte-identically. A normal `make dev` afterwards ran
+    clean with no leftover `.staging`/`.previous`.
 
 **Live environment (verified):** backend runs under **launchd** (`com.cicada.backend`,
 RunAtLoad+KeepAlive, `python -m uvicorn`), keys in `~/.cicada/secrets.env` (0600). Cicada's MCP
@@ -84,9 +96,8 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 **Session paused 2026-09-01 on usage limits, mid-flight. Nothing is broken; two PRs are unfinished.**
 
-1. **Finish #28's fix round** — it was interrupted with uncommitted work in `.worktrees/devloop`.
-   Read that diff before re-dispatching; the 🔴 is the bank split-brain described above and the fix
-   must make bank resolution have ONE answer across app and agent, not patch one path.
+1. **Merge #28 once its Devin round 2 clears** — the fix round is done, pushed and live-verified
+   (details above); nothing to re-dispatch. A round 2 is owed only because round 1 had a 🔴.
 2. **Rule on #29's three 🟡** (above), then merge. No 🔴; it is mergeable as-is if the calls are filed.
 3. **G109 (urgent)** — graph physics: deceleration is tuned invisible and disconnected nodes explode
    into a ring; evaluate Obsidian/Pixi, cosmograph, sigma+graphology rather than re-tuning blindly.
@@ -99,7 +110,7 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
    re-close it on the strength of the old assertion.
 6. Then the waves below.
 
-**Worktrees left in place** (all with committed work except `devloop`): `.worktrees/wikilinks`,
+**Worktrees left in place** (all with committed, pushed work): `.worktrees/wikilinks`,
 `.worktrees/devloop`, `.worktrees/sleepctl`, `.worktrees/hygiene`. `git worktree list` to see them.
 
 ---
