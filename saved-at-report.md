@@ -28,15 +28,21 @@ would otherwise occur:
   `saved_at` key stays the ingest timestamp, unchanged).
 - `MediaSourceItem` wire model / Swift `MediaFeedItem`: new
   `content_saved_at` / `contentSavedAt` field (the existing `saved_at` /
-  `savedAt` stays as-is). A `recencyKey` helper (Swift) and a `_recency_key`
-  helper (Python) compute `content_saved_at or saved_at` wherever recency
-  sorting happens.
+  `savedAt` stays as-is). A `recencyDate` computed property (Swift) and a
+  `_recency_key` helper (Python) compute `content_saved_at or saved_at`,
+  parsed to a real instant via `saved_at.sort_instant` (Python) /
+  `MediaFeedItem.parseRecencyInstant` (Swift) — see "Review round" below —
+  wherever recency sorting happens.
+
+A single doc anchor enumerating all four things named `saved_at` (the two
+pre-existing ingest-time fields plus these two new ones) lives at the top of
+`api/services/saved_at.py`.
 
 Net effect: fully additive at every layer, zero renames, zero risk to
 existing consumers (verified: old `RawItem(...)` callers with no `added`
-produce byte-identical frontmatter to before — see
-`test_write_media_episode_without_added_is_byte_identical_to_before` /
-`test_write_media_entity_without_added_is_byte_identical_to_before`).
+produce no new key/line — see
+`test_write_media_episode_without_added_omits_the_new_saved_at_field` /
+`test_write_media_entity_without_added_omits_the_new_top_level_saved_at_field`).
 
 ## What was built
 
@@ -71,12 +77,14 @@ produce byte-identical frontmatter to before — see
 4. **Wired to the wire model**: `MediaSourceItem.content_saved_at:
    Optional[str]` (near the existing 13 fields), populated in
    `GET /sources` from `url_index.json`'s new key. Swift's `MediaFeedItem`
-   gained the matching `contentSavedAt: String?` + a `recencyKey` computed
+   gained the matching `contentSavedAt: String?` + a `recencyDate` computed
    property.
 
 5. **Sort correctness**: `GET /sources` (`sort=recent` and `sort=relevance`'s
    tiebreak) and the SwiftUI `FeedViewModel.recent` case now sort on
-   `content_saved_at or saved_at` instead of `saved_at` alone.
+   `content_saved_at or saved_at` instead of `saved_at` alone, both parsed to
+   a real instant (`saved_at.sort_instant` / `recencyDate`) rather than
+   compared as raw strings — see "Review round" below.
 
 ## Backfill: what fraction is recoverable
 
@@ -121,6 +129,42 @@ recoverable date but a more recent ingest time — i.e. a fresh bulk
 re-import of an old bookmark export will scatter across the Feed by real
 save date instead of clustering at "just now."
 
+## Review round (Spec ✅ / Ready, 3 Low findings — all closed)
+
+1. **Same-day sort tie-break was string-length-accidental, not deterministic.**
+   `_recency_key` (Python) / `recencyKey` (Swift) compared `content_saved_at`
+   (bare `YYYY-MM-DD`) against `saved_at` (full `…T…Z`) as raw strings; on the
+   same calendar day the bare date sorts as "less than" the full timestamp
+   purely because it's a shorter, equal-prefix string. Fixed by adding
+   `saved_at.sort_instant` (Python) and `MediaFeedItem.recencyDate` /
+   `parseRecencyInstant` (Swift, mirroring the existing
+   `SourceChannel.lastSyncDate` three-shape parser) — both parse to a real,
+   timezone-aware instant, anchoring a bare date to 00:00:00 UTC (documented
+   as the deliberate rule: "start of that day," so same-day ties still land
+   the same way, now on purpose rather than by string-length accident). New
+   tests with one bare-date item and one full-timestamp item on the SAME
+   day: `test_sort_instant_bare_date_and_same_day_full_timestamp_are_deterministic`
+   + `test_get_sources_recent_sort_same_day_bare_date_vs_full_timestamp_is_deterministic`
+   (Python), `testRecencyDateBareDateAndFullTimestampOnTheSameDaySortDeterministically`
+   (Swift).
+2. **Overstated test name.** Renamed
+   `test_write_media_episode_without_added_is_byte_identical_to_before` →
+   `test_write_media_episode_without_added_omits_the_new_saved_at_field`, and
+   the entity equivalent → `..._omits_the_new_top_level_saved_at_field`.
+   Docstrings now say plainly that these prove key/line absence, not a
+   byte-for-byte comparison against a pre-branch fixture (none exists).
+3. **Backlog row not marked shipped.** Updated the G99 row's G99d clause in
+   `docs/goals/memory-evolution.md` to "shipped," including the 0%-recoverable
+   finding, so a future reader doesn't re-open a fixed problem.
+
+Also added, per the reviewer's request: a single doc anchor at the top of
+`api/services/saved_at.py` enumerating the four things named `saved_at`
+side by side (the two pre-existing ingest-time fields — `url_index.json`'s
+`saved_at` key and the entity's nested `media.saved_at` — versus the two new
+recovered-true-date fields — episode/entity top-level `saved_at`), so the
+naming asymmetry is discoverable at the one place already referenced by
+every per-site comment, instead of scattered.
+
 ## Scope notes
 
 - Only the five parsers named in the brief were touched. Instagram's export
@@ -138,17 +182,18 @@ save date instead of clustering at "just now."
 
 ## Gate
 
-- `api/.venv/bin/python -m pytest api/tests`: **1405 passed, 8 failed** — the
+- `api/.venv/bin/python -m pytest api/tests`: **1411 passed, 8 failed** — the
   8 failures are exactly the pre-existing `test_calendar_registry.py` baseline
   named in the brief (unrelated date-dependent ICS-polling tests; this branch
   never touches `calendar_registry.py`).
-- `swift build`: clean. `swift test`: **394 passed, 0 failed** (includes 2 new
-  `FeedIdentityTests` cases).
-- New test files: `api/tests/test_saved_at.py` (26 tests, one-per-format plus
-  edge cases for the normalizer), plus new cases added to
-  `api/tests/test_sources.py` (episode/entity/url_index wiring, sort
-  correctness) and `api/tests/test_export_parsers.py` (two existing
-  assertions updated for the now-normalized `.added` value).
+- `swift build`: clean. `swift test`: **395 passed, 0 failed**.
+- New test files: `api/tests/test_saved_at.py` (31 tests: one-per-format
+  normalizer coverage plus `sort_instant`'s same-day determinism), plus new
+  cases in `api/tests/test_sources.py` (episode/entity/url_index wiring, sort
+  correctness incl. the same-day mixed-format case) and
+  `api/tests/test_export_parsers.py` (two existing assertions updated for the
+  now-normalized `.added` value). Swift: `FeedIdentityTests.swift` gained the
+  `recencyDate` + same-day determinism cases.
 
 ## Files touched
 
@@ -159,6 +204,7 @@ save date instead of clustering at "just now."
 - `api/routers/sources.py`
 - `api/tests/test_sources.py`
 - `api/tests/test_export_parsers.py`
+- `docs/goals/memory-evolution.md`
 - `app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift`
 - `app/CicadaApp/Sources/CicadaApp/ViewModels/FeedViewModel.swift`
 - `app/CicadaApp/Tests/CicadaAppTests/FeedIdentityTests.swift`

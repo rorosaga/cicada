@@ -38,7 +38,9 @@ final class FeedViewModel {
         case .relevance: return base
         // G99d: prefer the recovered true save date over the ingest
         // timestamp, falling back to it only when no source date parsed.
-        case .recent: return base.sorted { $0.recencyKey > $1.recencyKey }
+        // Compared as real Dates (review finding), not raw strings — see
+        // MediaFeedItem.recencyDate's doc for the same-day tie-break rule.
+        case .recent: return base.sorted { $0.recencyDate > $1.recencyDate }
         }
     }
 

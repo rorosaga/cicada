@@ -12,6 +12,8 @@ out-of-range timestamp, wrong types — returns `None` rather than a guess.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from api.services import saved_at
 
 
@@ -152,3 +154,46 @@ def test_freeform_non_string_or_empty_is_none():
 def test_freeform_junk_is_none():
     assert saved_at.from_freeform("whenever I got around to it") is None
     assert saved_at.from_freeform("15th of June") is None
+
+
+# --- sort_instant (review finding: same-day string-mixing) -----------------
+
+
+def test_sort_instant_bare_date_anchors_to_midnight_utc():
+    assert saved_at.sort_instant("2026-03-14") == datetime(
+        2026, 3, 14, 0, 0, 0, tzinfo=timezone.utc
+    )
+
+
+def test_sort_instant_full_timestamp_parses_exactly():
+    assert saved_at.sort_instant("2026-03-14T09:22:00Z") == datetime(
+        2026, 3, 14, 9, 22, 0, tzinfo=timezone.utc
+    )
+    # Microsecond precision (what the ingest-time saved_at actually emits).
+    assert saved_at.sort_instant("2026-03-14T09:22:00.123456Z") == datetime(
+        2026, 3, 14, 9, 22, 0, 123456, tzinfo=timezone.utc
+    )
+
+
+def test_sort_instant_bare_date_and_same_day_full_timestamp_are_deterministic():
+    """The review finding: raw-string comparison mixed a bare date against a
+    full timestamp and tie-broke by string length. A bare content_saved_at
+    date on the SAME calendar day as a full-timestamp saved_at must now
+    compare as real instants — the bare date (anchored to 00:00:00 UTC, the
+    START of that day) sorts strictly before the same-day full timestamp,
+    deterministically and for a documented reason, not by accident.
+    """
+    dated = saved_at.sort_instant("2026-03-14")
+    same_day_timestamp = saved_at.sort_instant("2026-03-14T09:22:00Z")
+    assert dated < same_day_timestamp
+
+
+def test_sort_instant_none_or_empty_sorts_as_oldest():
+    epoch_min = datetime.min.replace(tzinfo=timezone.utc)
+    assert saved_at.sort_instant(None) == epoch_min
+    assert saved_at.sort_instant("") == epoch_min
+    assert saved_at.sort_instant("   ") == epoch_min
+
+
+def test_sort_instant_unparseable_sorts_as_oldest_never_raises():
+    assert saved_at.sort_instant("not a date") == datetime.min.replace(tzinfo=timezone.utc)

@@ -595,9 +595,11 @@ def test_write_media_episode_records_saved_at_when_recoverable(tmp_path):
     assert "**Originally saved:** 2023-06-15" in parsed.body
 
 
-def test_write_media_episode_without_added_is_byte_identical_to_before(tmp_path):
-    """Additive only: an item with no recoverable saved_at must behave exactly
-    as before this feature existed — no `saved_at` key, no extra body line."""
+def test_write_media_episode_without_added_omits_the_new_saved_at_field(tmp_path):
+    """Additive only: an item with no recoverable saved_at gets no `saved_at`
+    frontmatter key and no extra body line — proves absence of the new field,
+    not a full byte-for-byte comparison against a pre-G99d fixture (there
+    isn't one to compare against)."""
     item = RawItem(url="https://example.com/a")
     meta = MediaMeta(title="A", media_type="url")
     episodes = tmp_path / "episodes"
@@ -622,7 +624,10 @@ def test_write_media_entity_records_top_level_saved_at_when_recoverable(tmp_path
     assert fm["media"]["saved_at"].endswith("Z")
 
 
-def test_write_media_entity_without_added_is_byte_identical_to_before(tmp_path):
+def test_write_media_entity_without_added_omits_the_new_top_level_saved_at_field(tmp_path):
+    """Additive only: proves absence of the new top-level `saved_at` key when
+    nothing was recoverable — not a full byte-for-byte comparison against a
+    pre-G99d fixture (there isn't one to compare against)."""
     item = RawItem(url="https://example.com/a")
     meta = MediaMeta(title="A", media_type="url")
     entities = tmp_path / "entities"
@@ -735,6 +740,47 @@ def test_get_sources_recent_sort_prefers_content_saved_at(tmp_path, monkeypatch)
     by_id = {i["mediaEntityId"]: i for i in items}
     assert by_id["media-a"]["contentSavedAt"] is None
     assert by_id["media-b"]["contentSavedAt"] == "2023-01-01"
+
+
+def test_get_sources_recent_sort_same_day_bare_date_vs_full_timestamp_is_deterministic(
+    tmp_path, monkeypatch,
+):
+    """Review finding: `_recency_key` used to compare `content_saved_at`
+    (bare `YYYY-MM-DD`) against `saved_at` (full `…T…Z` timestamp) as raw
+    strings — on the SAME calendar day a bare date is a string-prefix of a
+    full timestamp and sorts as "less than" it by accident of string length.
+    Documented rule (see `saved_at.sort_instant`): a bare date anchors to
+    00:00:00 UTC, so a same-day full-timestamp item — a later moment that
+    day — deterministically sorts first in a "most recent" ordering.
+    """
+    client, memory = _make_client(tmp_path, monkeypatch)
+
+    idx = {
+        # "dated": recovered a true save date, but only date-granularity —
+        # no time-of-day.
+        "hash-dated": {
+            "media_entity_id": "media-dated", "episode_id": "ep_dated",
+            "url": "https://dated.example", "title": "Dated", "media_type": "url",
+            "thumbnail": None, "saved_at": "2026-03-14T09:22:00.000000Z",
+            "content_saved_at": "2026-03-14",
+        },
+        # "undated": no recoverable save date, falls back to its full
+        # ingest timestamp — the SAME calendar day as "dated" above.
+        "hash-undated": {
+            "media_entity_id": "media-undated", "episode_id": "ep_undated",
+            "url": "https://undated.example", "title": "Undated", "media_type": "url",
+            "thumbnail": None, "saved_at": "2026-03-14T09:22:00.000000Z",
+        },
+    }
+    media_ingestor.save_url_index(memory, idx)
+
+    resp = client.get("/sources", params={"sort": "recent"})
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    # "undated"'s full 09:22 timestamp is a later instant than "dated"'s
+    # midnight-anchored bare date, so it sorts first — deterministic, not an
+    # artifact of string length.
+    assert [i["mediaEntityId"] for i in items] == ["media-undated", "media-dated"]
 
 
 # --- G9 origin threading + media filename byte-cap (live-test findings) ----

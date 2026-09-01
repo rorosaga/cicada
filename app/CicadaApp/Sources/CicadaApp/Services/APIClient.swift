@@ -192,7 +192,7 @@ struct MediaFeedItem: Codable, Identifiable {
     /// which — despite its name — has always meant "when Cicada ingested
     /// this" (kept as-is for back-compat rather than renamed out from under
     /// existing readers). `nil` means unknown, never a guess. Use
-    /// `recencyKey` for any "most recent first" sort.
+    /// `recencyDate` for any "most recent first" sort.
     let contentSavedAt: String?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
@@ -203,7 +203,35 @@ struct MediaFeedItem: Codable, Identifiable {
 
     /// Prefer the true save date; fall back to the ingest timestamp when no
     /// source date was recoverable (G99d) — what "Recent" should sort by.
-    var recencyKey: String { contentSavedAt ?? savedAt }
+    ///
+    /// Review finding: comparing `contentSavedAt`/`savedAt` as raw STRINGS
+    /// mixed a bare `YYYY-MM-DD` against a full `YYYY-MM-DDTHH:MM:SSZ`
+    /// timestamp — on the same calendar day the bare date is a string-prefix
+    /// of, and therefore sorts as "less than", the full timestamp, which
+    /// happened to look plausible by accident of string length, not by any
+    /// documented rule. Parsing both to real `Date`s makes the rule explicit
+    /// instead: a bare date has no time-of-day and is anchored to
+    /// 00:00:00 UTC (the start of that day), so same-day ties still land the
+    /// same way, now on purpose. Mirrors `SourceChannel.lastSyncDate`'s
+    /// three-shape tolerance (fractional-seconds ISO8601, plain ISO8601,
+    /// bare `yyyy-MM-dd`).
+    var recencyDate: Date {
+        Self.parseRecencyInstant(contentSavedAt) ?? Self.parseRecencyInstant(savedAt) ?? .distantPast
+    }
+
+    private static func parseRecencyInstant(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: value) { return d }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let d = plain.date(from: value) { return d }
+        let dayOnly = DateFormatter()
+        dayOnly.dateFormat = "yyyy-MM-dd"
+        dayOnly.timeZone = TimeZone(identifier: "UTC")
+        return dayOnly.date(from: value)
+    }
 
     enum CodingKeys: String, CodingKey {
         case mediaEntityId, url, title, mediaType, site, channel, thumbnail

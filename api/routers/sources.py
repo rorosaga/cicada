@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, UploadFile
@@ -29,6 +30,7 @@ from api.services import (
     feed_registry,
     media_ingestor,
     notes_sync,
+    saved_at as saved_at_service,
     sync_service,
     sync_state,
 )
@@ -412,8 +414,12 @@ async def list_sources(
     # G99d — recency prefers the recovered true save date, falling back to
     # the ingest timestamp only when no source date was recoverable. This
     # deliberately reorders the Feed relative to the old ingest-only sort.
-    def _recency_key(i: MediaSourceItem) -> str:
-        return i.content_saved_at or i.saved_at
+    # Parsed to a real instant (review finding) rather than compared as raw
+    # strings — a bare content_saved_at date and a full saved_at timestamp
+    # otherwise mix formats and tie-break by string length, not by time. See
+    # `saved_at.sort_instant`'s docstring for the exact same-day rule.
+    def _recency_key(i: MediaSourceItem) -> datetime:
+        return saved_at_service.sort_instant(i.content_saved_at or i.saved_at)
 
     if sort == "relevance":
         items.sort(key=lambda i: (i.relevance, _recency_key(i)), reverse=True)

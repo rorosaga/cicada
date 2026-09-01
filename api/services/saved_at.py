@@ -11,6 +11,36 @@ module is the missing other half. It never guesses: a value that fails to
 parse, or parses to a date outside a sane range, returns ``None`` rather than
 a wrong date. Callers must treat ``None`` as "unknown", never as "saved
 today".
+
+FOUR THINGS ARE NAMED ``saved_at`` IN THIS CODEBASE — this is the one place
+that enumerates all of them, so the asymmetry is discoverable rather than
+something a future reader trips over:
+
+1. ``url_index.json``'s per-entry ``saved_at`` key (`media_ingestor.ingest_one`)
+   → the *ingest* timestamp (full ``…T…Z`` datetime), feeding
+   ``MediaSourceItem.saved_at`` / Swift ``MediaFeedItem.savedAt``. Pre-existing,
+   unchanged by G99d.
+2. The media entity's NESTED ``media.saved_at`` frontmatter key
+   (`media_ingestor.write_media_entity`) → also the *ingest* timestamp
+   (full ``…T…Z`` datetime). Pre-existing, unchanged by G99d, and write-only —
+   nothing reads it back.
+3. The episode's TOP-LEVEL ``saved_at`` frontmatter key
+   (`media_ingestor.write_media_episode`) → the recovered TRUE user save date
+   (bare ``YYYY-MM-DD``). NEW in G99d; absent when nothing was recoverable.
+4. The media entity's TOP-LEVEL ``saved_at`` frontmatter key
+   (`media_ingestor.write_media_entity`) → also the recovered TRUE user save
+   date (bare ``YYYY-MM-DD``). NEW in G99d; absent when nothing was
+   recoverable.
+
+#1 and #2 predate this module and were never renamed (renaming a field read by
+`GET /sources`' response model and the Swift decoders was the actually risky
+move for zero functional gain). #3 and #4 are new and additive — no existing
+reader's meaning changed. Anywhere the TRUE date needs to leave the
+frontmatter layer (the wire model, ``url_index.json``), it is carried under
+the DISTINCT name ``content_saved_at`` (`MediaSourceItem.content_saved_at` /
+Swift ``MediaFeedItem.contentSavedAt`` / ``url_index.json``'s
+``content_saved_at`` key) specifically so it never collides with #1/#2's
+established, differently-scoped meaning.
 """
 
 from __future__ import annotations
@@ -97,6 +127,45 @@ def from_tiktok(raw: object) -> str | None:
         except ValueError:
             continue
     return None
+
+
+def sort_instant(value: str | None) -> datetime:
+    """A recency-sort key's raw value (a bare ``YYYY-MM-DD`` from
+    ``content_saved_at``, or a full ``YYYY-MM-DDTHH:MM:SS[.ffffff]Z``
+    timestamp from the legacy ingest-time ``saved_at``) -> a comparable,
+    timezone-aware ``datetime``.
+
+    Review finding: comparing the two RAW STRINGS directly (the pre-fix
+    behavior) mixed formats — on the same calendar day a bare date is a
+    strict string-prefix of, and therefore sorts as "less than", a
+    full-timestamp string, which happened to produce a plausible-looking
+    order by accident of string length rather than by any documented rule.
+
+    This function makes that rule explicit: a bare date carries no
+    time-of-day, so it is anchored to 00:00:00 UTC — the START of that day.
+    A same-day full-timestamp item (almost always a later moment that day)
+    therefore still sorts after it, same relative order as before for that
+    case, but now because 00:00:00 truly is earlier, not because "2026-03-14"
+    is a shorter string than "2026-03-14T09:22:00Z". Ties (two equal
+    instants) and cross-day comparisons were already correct and are
+    unaffected.
+
+    A missing/empty/unparseable value never raises — it sorts as the oldest
+    possible instant (``datetime.min``, UTC) rather than crashing a sort or
+    silently reading as "now".
+    """
+    text = (value or "").strip()
+    if not text:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def from_freeform(raw: object) -> str | None:

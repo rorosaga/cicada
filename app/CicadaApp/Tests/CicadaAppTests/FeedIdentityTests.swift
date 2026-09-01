@@ -37,16 +37,35 @@ final class FeedIdentityTests: XCTestCase {
         XCTAssertTrue(vm.scoresAreInformative)
     }
 
-    // G99d: recencyKey must prefer contentSavedAt (the recovered true save
+    // G99d: recencyDate must prefer contentSavedAt (the recovered true save
     // date) over savedAt (the ingest timestamp), falling back to savedAt only
     // when no source date was recoverable.
-    func testRecencyKeyPrefersContentSavedAtOverIngestTimestamp() {
-        let noTrueDate = item("a", "u1", savedAt: "2026-08-30")
+    func testRecencyDatePrefersContentSavedAtOverIngestTimestamp() {
+        let noTrueDate = item("a", "u1", savedAt: "2026-08-30T00:00:00Z")
         XCTAssertNil(noTrueDate.contentSavedAt)
-        XCTAssertEqual(noTrueDate.recencyKey, "2026-08-30")
+        XCTAssertEqual(noTrueDate.recencyDate, ISO8601DateFormatter().date(from: "2026-08-30T00:00:00Z"))
 
-        let withTrueDate = item("b", "u2", savedAt: "2026-08-30", contentSavedAt: "2023-01-01")
-        XCTAssertEqual(withTrueDate.recencyKey, "2023-01-01")
+        let withTrueDate = item("b", "u2", savedAt: "2026-08-30T00:00:00Z", contentSavedAt: "2023-01-01")
+        let dayOnly = DateFormatter()
+        dayOnly.dateFormat = "yyyy-MM-dd"
+        dayOnly.timeZone = TimeZone(identifier: "UTC")
+        XCTAssertEqual(withTrueDate.recencyDate, dayOnly.date(from: "2023-01-01"))
+    }
+
+    // Review finding: a bare contentSavedAt date and a full-timestamp savedAt
+    // on the SAME calendar day must compare as real instants, not as raw
+    // strings (where "2026-03-14" < "2026-03-14T09:22:00Z" by string length
+    // alone). Documented rule: a bare date anchors to 00:00:00 UTC — the
+    // START of that day — so the full-timestamp item (a later moment that
+    // same day) sorts after it, deterministically.
+    func testRecencyDateBareDateAndFullTimestampOnTheSameDaySortDeterministically() {
+        let dated = item("dated", "u1", savedAt: "2026-03-14T09:22:00Z", contentSavedAt: "2026-03-14")
+        let undated = item("undated", "u2", savedAt: "2026-03-14T09:22:00Z")
+
+        // dated.recencyDate is 2026-03-14T00:00:00Z (start of day, from the
+        // bare contentSavedAt); undated.recencyDate is the full 09:22
+        // ingest timestamp — later the same day.
+        XCTAssertLessThan(dated.recencyDate, undated.recencyDate)
     }
 
     @MainActor
