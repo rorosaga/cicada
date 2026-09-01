@@ -11,8 +11,28 @@ run on the user's Claude Max plan via `claude -p`, after ~2.5 months with no eng
 **correctness gate**, which fixed decay (see rulings below), #23's app fixes, and #26's `saved_at`
 fix (re-import backfill + Pinterest date normalisation).
 
-**Open PRs:** **#27** sleep cancel/cap/debt screen (Devin round running). **`feat/devloop`**
-(G88 `make install-app` / `make dev`) is being built, not yet a PR.
+**Also merged:** **#27** sleep cancel/cap/debt screen — Devin round 1 (1 🔴 + 5 🟡) fixed and
+round 2 came back **clean**. Its 🔴 is worth knowing: Stage 2 used to make clarifier/index writes
+*inline* inside the per-name judging loop, so cancelling mid-Stage-2 left partial writes — including a
+**deleted** inbox item. Writes are now queued as callables and flushed only if the loop completes.
+
+**Open PRs — both mid-flight, resume here:**
+
+- **#29 wikilinks** (`feat/wikilink-nav`, worktree `.worktrees/wikilinks`) — renders/clicks/back-stack,
+  424/424 green, **verified independently**. Devin left **3 🟡, no 🔴**, all unaddressed:
+  (i) `MarkdownBody.swift` — punctuated wikilinks sanitize to ids that target nonexistent entities;
+  (ii) `GraphViewModel.swift:420` — a broken link still pushes onto the back stack, creating false
+  history; (iii) `TopicsView.swift:725` — a late topic load undoes navigation. **Decide whether to fix
+  or merge with them filed** — (ii) is the one a user would actually feel.
+- **#28 dev loop** (`feat/devloop`, worktree `.worktrees/devloop`) — **fix round IN PROGRESS, not
+  finished**; the worktree has uncommitted edits to `api/models/schemas.py`, `api/routers/status.py`,
+  `APIClient.swift`. Devin found a **🔴 bank split-brain**: after a default install outside `~/cicada`,
+  `installRoot` points agent setup commands at the *checkout's* memory while the app uses another bank —
+  **the same class of bug this project already shipped a fix for once**, and its symptom is silent (you
+  talk to an agent, memory is written, the app shows nothing). Also a 🟡: `install_app.sh:85` deletes the
+  installed app *before* verifying the new one, so a failed `ditto`/`codesign` leaves no working Cicada.
+  The instruction given was to fix the **resolution** so both sides have one answer — not just the path
+  Devin named — and to force an install failure to prove the rollback rather than assert it.
 
 **Live environment (verified):** backend runs under **launchd** (`com.cicada.backend`,
 RunAtLoad+KeepAlive, `python -m uvicorn`), keys in `~/.cicada/secrets.env` (0600). Cicada's MCP
@@ -62,11 +82,25 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-1. Merge #27 once its Devin round clears.
-2. Finish **G88** (`feat/devloop`) — the one-command dev loop.
-3. **G109 (urgent)** — graph physics: deceleration is tuned invisible and disconnected nodes
-   explode into a ring; evaluate Obsidian/Pixi, cosmograph, sigma+graphology rather than re-tuning.
-4. Then the waves below.
+**Session paused 2026-09-01 on usage limits, mid-flight. Nothing is broken; two PRs are unfinished.**
+
+1. **Finish #28's fix round** — it was interrupted with uncommitted work in `.worktrees/devloop`.
+   Read that diff before re-dispatching; the 🔴 is the bank split-brain described above and the fix
+   must make bank resolution have ONE answer across app and agent, not patch one path.
+2. **Rule on #29's three 🟡** (above), then merge. No 🔴; it is mergeable as-is if the calls are filed.
+3. **G109 (urgent)** — graph physics: deceleration is tuned invisible and disconnected nodes explode
+   into a ring; evaluate Obsidian/Pixi, cosmograph, sigma+graphology rather than re-tuning blindly.
+4. **G110 is filed as RESEARCH, deliberately not started.** Its own cheapest-first ruling: build
+   **G53**/**G75** (state dictionary + handshake — a curated cursor with no transcript read) and see
+   whether the fork want survives, rather than building fork machinery first.
+5. **G7 is open again, on purpose.** The hygiene pass could not find the measurement TODO.md claimed
+   ("premise measured false") anywhere in tracked history — it was likely eyeballed on the live
+   (gitignored) bank and never written down. Either re-measure it or delete the claim; do not
+   re-close it on the strength of the old assertion.
+6. Then the waves below.
+
+**Worktrees left in place** (all with committed work except `devloop`): `.worktrees/wikilinks`,
+`.worktrees/devloop`, `.worktrees/sleepctl`, `.worktrees/hygiene`. `git worktree list` to see them.
 
 ---
 
@@ -77,7 +111,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-01 (docs-only backlog hygiene pass — PRs #21–#26 merged, #27 open)._
+_Last synced: 2026-09-01 (hygiene pass + G110 filed; PRs #21–#27 merged, #28/#29 open and mid-flight)._
 
 ---
 
