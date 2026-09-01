@@ -10,7 +10,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import decay_policy
+from api.services import decay_policy, engine_errors
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -148,10 +148,18 @@ EXTRACTION_EXTRA_BODY = {"reasoning": {"enabled": False}}
 # Errors worth one retry inside a single chunk call: transient rate limits,
 # timeouts, and a malformed/empty response (``_parse_json_lenient`` raises
 # ValueError; ``json.JSONDecodeError`` is a ValueError subclass).
+#
+# G74(a): the tuple was litellm-exception-typed ONLY, so under
+# ``llm_mode="agent"`` a CLI failure matched nothing and got zero retries.
+# ``engine_errors.RETRYABLE`` adds the three subprocess failures worth one more
+# attempt — deliberately NOT ``EngineThrottled`` (the breaker handles it; a
+# retry would just spawn again), ``EngineUnavailable``, ``EngineExhausted`` or
+# ``EngineModelNotFound``, all of which need a human rather than a retry.
 _EXTRACT_RETRYABLE = (
     litellm.exceptions.RateLimitError,
     litellm.exceptions.Timeout,
     ValueError,
+    *engine_errors.RETRYABLE,
 )
 
 
@@ -232,7 +240,8 @@ async def _extract_chunk(
         if _attempt >= 1:
             raise
         # Rate limits need a real cooldown; timeouts/parse failures retry fast.
-        backoff = 10 if isinstance(e, litellm.exceptions.RateLimitError) else 2
+        slow = isinstance(e, (litellm.exceptions.RateLimitError, engine_errors.EngineTimeout))
+        backoff = 10 if slow else 2
         logger.warning(
             f"  {ep_id} chunk {chunk_idx + 1}/{total_chunks} — "
             f"{type(e).__name__}, retrying in {backoff}s..."
@@ -325,9 +334,30 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
             except litellm.exceptions.AuthenticationError as e:
                 failed += 1
                 logger.error(f"  [{i+1}/{total}] {ep_id} — auth error (check API key): {e}")
-            except litellm.exceptions.NotFoundError as e:
+            except litellm.exceptions.NotFoundError:
                 failed += 1
                 logger.error(f"  [{i+1}/{total}] {ep_id} — model not found: {settings.litellm_model}")
+            # G74(a): the agent rung's failures are subprocess-shaped. Each one
+            # names its own fix so the Sleep page never says "check API credits"
+            # for a plan that has no credits to check.
+            except engine_errors.EngineThrottled as e:
+                failed += 1
+                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude plan throttled: {e}")
+            except engine_errors.EngineExhausted as e:
+                failed += 1
+                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude plan budget exhausted: {e}")
+            except engine_errors.EngineUnavailable as e:
+                failed += 1
+                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude Code is signed out or missing: {e}")
+            except engine_errors.EngineModelNotFound as e:
+                failed += 1
+                logger.error(
+                    f"  [{i+1}/{total}] {ep_id} — model not accepted by the Claude CLI "
+                    f"({settings.agent_model}): {e}"
+                )
+            except engine_errors.EngineError as e:
+                failed += 1
+                logger.error(f"  [{i+1}/{total}] {ep_id} — engine failure: {type(e).__name__}: {e}")
             except Exception as e:
                 failed += 1
                 logger.error(f"  [{i+1}/{total}] {ep_id} — {type(e).__name__}: {e}")
@@ -338,10 +368,31 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
         finally:
             progress.update(1)
 
+    # G74(a): in agent mode, run the FIRST episode alone before fanning the
+    # rest out concurrently. Stage 1 fans out at MAX_CONCURRENCY (10), further
+    # capped by ``agent_max_concurrency`` (default 3) at the seam — without
+    # this probe, a throttle on the very first call is discovered
+    # independently by up to ``agent_max_concurrency`` concurrent episodes,
+    # each a real `claude -p` spawn, before any of them can trip the circuit
+    # breaker (the breaker is only set AFTER a call fails, so calls already
+    # in flight when it trips can't be recalled). Running one alone first
+    # means every later episode's very first breaker check
+    # (``agent_engine.complete``) already sees the trip and fails fast with
+    # NO spawn — turning "up to agent_max_concurrency spawns" into exactly
+    # one. No behavior change for byok/local: those never populate the
+    # breaker, so this is gated to agent mode only, preserving the existing
+    # concurrent-fan-out timing byte-for-byte for every other mode.
+    remaining = list(enumerate(episodes))
+    is_agent = (getattr(settings, "llm_mode", "") or "").strip().lower() == "agent"
+
     # Fire all tasks with semaphore-controlled concurrency
     try:
-        tasks = [process_one(i, ep) for i, ep in enumerate(episodes)]
-        await asyncio.gather(*tasks)
+        if is_agent and remaining:
+            first_i, first_episode = remaining.pop(0)
+            await process_one(first_i, first_episode)
+        tasks = [process_one(i, ep) for i, ep in remaining]
+        if tasks:
+            await asyncio.gather(*tasks)
     finally:
         progress.close()
 

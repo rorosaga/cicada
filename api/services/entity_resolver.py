@@ -8,7 +8,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import json_parse
+from api.services import engine_errors, json_parse
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -708,6 +708,12 @@ async def _llm_judge_same_entity(
         if decision in {"same", "different", "unsure"}:
             return decision
         return "unsure"
+    except engine_errors.EngineError:
+        # G74(a): an ENGINE failure is not a model's uncertainty. Flattening it
+        # to "unsure" here created a clarification and split the entity page —
+        # the inbox floods and the graph fragments while the cycle reports
+        # success. Propagate so the cycle stops with the episode queue intact.
+        raise
     except Exception as e:
         logger.debug(f"Disambiguation judge failed for {new_name} vs {existing_name}: {e}")
         return "unsure"
