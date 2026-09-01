@@ -53,6 +53,12 @@ class SleepState:
     # questions answered by later conversation and closed without the user acting.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
+    # G74(a) — which engine this cycle actually ran on ("claude-cli" |
+    # "ollama" | "litellm"), and one sentence about its state. The Sleep page
+    # showed "check model id / API credits" on a Max plan that has no credits
+    # to check; these two make the real answer visible.
+    last_engine: str | None = None
+    engine_detail: str | None = None
 
 
 _state = SleepState()
@@ -181,6 +187,117 @@ async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> No
         logger.warning(f"Idle question refresh failed: {type(e).__name__}: {e}")
 
 
+@dataclass
+class _StageOutcome:
+    """What the LLM-dependent pipeline achieved, for the tail to react to.
+
+    ``committed``: ``_finalize`` ran, so the working tree is clean and the
+    connector poll's own ``git add -A`` can safely sweep only its own files.
+    ``questions_refreshed``: Stage 5.56 already re-scored the open questions,
+    so the tail must not do it a second time.
+    """
+    committed: bool = False
+    questions_refreshed: bool = False
+
+
+_ENGINE_LABELS = {"agent": "claude-cli", "local": "ollama", "byok": "litellm"}
+
+
+def _engine_label(settings: Settings) -> str:
+    """Which engine a resolved mode means. (Task 7 routes "auto" here too.)
+
+    ``getattr`` rather than a direct attribute read: several hermetic Sleep
+    tests pass a ``SimpleNamespace`` stand-in for ``Settings`` that predates
+    ``llm_mode`` and never sets it — those must still resolve to the
+    "byok"/"litellm" default rather than raising ``AttributeError`` before
+    Stage 1 even starts.
+    """
+    mode = (getattr(settings, "llm_mode", None) or "byok").strip().lower()
+    return _ENGINE_LABELS.get(mode, "litellm")
+
+
+def _stage1_failure_message(engine: str) -> str:
+    """The user-visible reason Stage 1 produced nothing — per engine.
+
+    L3 (Task 4 review, handed to Task 5): Stage 1 swallows ``EngineThrottled``
+    per-episode so the circuit breaker can fail every remaining call fast
+    without spawning — which means the only throttle signal left at THIS
+    boundary is ``agent_engine.breaker_reason()``, not the ``engine`` string.
+    Keyed on the breaker FIRST: a total failure caused by a throttle gets the
+    spec's exact sentence ("Claude plan throttled — stopped cleanly, N
+    episodes left queued") instead of the generic per-engine message below,
+    which would be true but would bury the one fact that matters — retry
+    later, don't reconfigure anything.
+
+    The old single string ("check model id / API credits") is a lie on a Max
+    plan: a subscription has no credits to check, and the real fixes are
+    completely different per rung.
+    """
+    from api.services import agent_engine
+
+    breaker = agent_engine.breaker_reason()
+    if breaker:
+        n = _state.episodes_total
+        return (
+            f"Claude plan throttled — stopped cleanly, {n} episode(s) left queued. "
+            f"({breaker})"
+        )
+    if engine == "claude-cli":
+        return (
+            "Stage 1 extracted nothing — every episode failed on the Claude Code engine. "
+            "Run `claude auth status` to check the plan is signed in. "
+            "The queue is intact; trigger Sleep again once it is."
+        )
+    if engine == "ollama":
+        return (
+            "Stage 1 extracted nothing — every episode failed on the local Ollama engine. "
+            "Check the Ollama server is running and the model is pulled. "
+            "The queue is intact for retry."
+        )
+    return (
+        "Stage 1 extracted nothing — every episode failed on the API engine "
+        "(check the model id, and that the key still has credit). "
+        "Queue left intact for retry."
+    )
+
+
+async def _tree_is_clean(memory_path: Path) -> bool:
+    try:
+        return not (await git_service.porcelain_status(memory_path)).strip()
+    except Exception:  # not a git workspace: there is nothing to protect
+        return True
+
+
+async def _run_engine_independent_tail(
+    memory_path: Path, settings: Settings, outcome: _StageOutcome
+) -> None:
+    """The work that never needed an LLM — on EVERY exit path.
+
+    Spec §1: the abort was upside-down. With a non-empty queue and no engine,
+    the Stage-1 abort ``return``ed before the logo warm-up and the connector
+    poll, and the question refresh only ever ran in the zero-episode idle
+    branch — so capturing more episodes made Sleep do strictly LESS work.
+    """
+    if outcome.committed or await _tree_is_clean(memory_path):
+        # Final-review H1 is preserved: on the happy path this still runs
+        # AFTER ``_finalize``'s commit, so the connectors' ``git add -A``
+        # finds a clean tree. On a failed cycle we only poll when the tree is
+        # already clean, so a partial Sleep write can never be swept into a
+        # media commit with no session provenance.
+        await _poll_connectors_safely(memory_path)
+    else:
+        logger.warning(
+            "connector poll skipped: the cycle left uncommitted writes, and the "
+            "connectors' own `git add -A` would absorb them into a media commit"
+        )
+    await _warm_logos_safely(memory_path)
+    if not outcome.questions_refreshed:
+        # Staleness is a function of TIME, not of episodes: a cycle that never
+        # reached Stage 5.56 must still escalate questions everyone stopped
+        # talking about (and clear ones answered organically).
+        await _refresh_questions_safely(memory_path, settings)
+
+
 async def run(settings: Settings, cycle_id: str) -> None:
     """Execute the 5-stage Sleep cycle pipeline."""
     global _state
@@ -204,327 +321,354 @@ async def run(settings: Settings, cycle_id: str) -> None:
     _state.episodes_requeued = 0
     _state.questions_refreshed = 0
     _state.organic_resolutions = 0
+    _state.last_engine = None
+    _state.engine_detail = None
 
     memory_path = settings.memory_path
-    logger.info(f"Sleep cycle {cycle_id} started — model: {settings.litellm_model}")
 
+    # G74(a) — the throttle breaker and the models-used ledger are
+    # process-global (L4, Task 4 review, handed to Task 5). A breaker left
+    # tripped by last night's cycle would make this one fail fast for free,
+    # for a throttle that has long since cleared.
+    from api.services import agent_engine
+    agent_engine.reset_breaker()
+    agent_engine.reset_models_used()
+
+    outcome = _StageOutcome()
     try:
-        # M5e: ensure the runtime predicate-normalization map exists (idempotent,
-        # non-clobbering) so Stage 2 predicate folding + Stage 3 cardinality keying
-        # have a controlled vocabulary to key on.
-        try:
-            from api.services import predicates
-            predicates.install_predicate_map(memory_path)
-        except Exception as e:
-            logger.warning(f"predicate map install skipped: {type(e).__name__}: {e}")
-
-        # Collect unprocessed episodes
-        episodes = _get_unprocessed_episodes(memory_path)
-        if not episodes:
-            logger.info("No unprocessed episodes found — skipping")
-            _state.progress = "No unprocessed episodes"
-            await _poll_connectors_safely(memory_path)
-            await _warm_logos_safely(memory_path)
-            # Question staleness is a function of TIME, not of episodes: an
-            # idle cycle still has to escalate questions everybody stopped
-            # talking about (and clear ones answered organically).
-            await _refresh_questions_safely(memory_path, settings)
-            _state.status = "idle"
-            return
-
-        logger.info(f"Found {len(episodes)} unprocessed episodes")
-        _state.episodes_total = len(episodes)
-
-        # Stage 1: Entity & Relationship Extraction
-        _state.progress = f"Stage 1/5: Extracting entities from {len(episodes)} episodes..."
-        logger.info(f"Stage 1: Extracting entities from {len(episodes)} episodes")
-        from api.services.entity_extractor import extract
-        extracted = await extract(episodes, settings)
-        total_entities = sum(len(e.get("entities", [])) for e in extracted)
-        total_rels = sum(len(e.get("relationships", [])) for e in extracted)
-        logger.info(f"Stage 1 complete: {total_entities} entities, {total_rels} relationships extracted")
-        _state.stage = 1
-
-        # Resumable queue — hard stop if EVERY episode failed Stage 1 (wrong
-        # model id, exhausted credits, total outage). Abort with the queue
-        # untouched instead of running the rest of the pipeline on nothing and
-        # committing a misleading empty "completed" cycle. Re-running after
-        # fixing the cause retries the whole batch.
-        if episodes and not extracted:
-            msg = (
-                "Stage 1 extracted nothing — all episodes failed "
-                "(check model id / API credits). Queue left intact for retry."
-            )
-            logger.error(msg)
-            _state.error = msg
-            _state.progress = f"Failed: {msg}"
-            return
-
-        # Stage 2: Entity Resolution & Deduplication
-        _state.progress = "Stage 2/5: Resolving entities..."
-        logger.info("Stage 2: Resolving entities against existing graph")
-        existing = _load_existing_entities(memory_path)
-        from api.services.entity_resolver import resolve
-        resolved_result = await resolve(extracted, existing, settings)
-        resolved_changes = resolved_result["changes"]
-        resolved_edges = resolved_result["relationships"]
-        episode_cooccurrences = resolved_result.get("episode_cooccurrences", {})
-        creates = sum(1 for r in resolved_changes if r.get("action") == "create")
-        updates = sum(1 for r in resolved_changes if r.get("action") == "update")
-        logger.info(f"Stage 2 complete: {creates} new entities, {updates} updates, {len(resolved_edges)} relationships")
-        _state.entities_created = creates
-        _state.entities_updated = updates
-        _state.relationships_created = len(resolved_edges)
-        _state.stage = 2
-
-        # Stage 3: Conflict Resolution & Pruning
-        _state.progress = "Stage 3/5: Resolving conflicts..."
-        logger.info("Stage 3: Conflict resolution & temporal decay")
-        from api.services.conflict_resolver import resolve_and_prune
-        changes = await resolve_and_prune(resolved_changes, existing, settings)
-        logger.info(f"Stage 3 complete: {len(changes)} total changes")
-        _state.stage = 3
-
-        # Stage 4: Pattern Detection & Skill Extraction
-        _state.progress = "Stage 4/5: Extracting skills..."
-        logger.info("Stage 4: Pattern detection & skill extraction")
-        from api.services.skill_extractor import detect_patterns
-        skills = await detect_patterns(
-            changes,
-            existing,
-            settings,
-            episode_cooccurrences=episode_cooccurrences,
-        )
-        logger.info(f"Stage 4 complete: {len(skills)} skills detected")
-        _state.skills_detected = len(skills)
-        _state.stage = 4
-
-        # Stage 5: Nudge Generation & Versioning
-        _state.progress = "Stage 5/5: Writing changes..."
-        logger.info("Stage 5: Writing entities, nudges, clarifications, and relationships")
-        from api.services.inbox_generator import generate
-        await generate(changes, skills, memory_path, relationships=resolved_edges)
-
-        # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
-        # graph stops ignoring them. Runs after relationships are written so the
-        # `mentions` wave merges into the same graph_edges.yaml. Idempotent.
-        try:
-            from api.services.wikilink_resolver import materialize_wikilink_edges
-            n_mentions = materialize_wikilink_edges(memory_path)
-            logger.info(f"Stage 5.5: materialized {n_mentions} wikilink `mentions` edges")
-        except Exception as e:
-            logger.warning(f"Stage 5.5 wikilink materialization failed: {type(e).__name__}: {e}")
-
-        # Stage 5.55: Wire media entities to the entities resolved this cycle by
-        # joining on shared source episodes. Bypasses the promotion gate — a
-        # saved bookmark connects to existing entities even when the concepts
-        # it mentions never cross the 2-conversation threshold.
-        try:
-            from api.services.media_ingestor import inject_media_edges
-            n_media = inject_media_edges(memory_path, changes)
-            logger.info(f"Stage 5.55: injected {n_media} media `about` edges")
-        except Exception as e:
-            logger.warning(f"Stage 5.55 media edge injection failed: {type(e).__name__}: {e}")
-
-        # Stage 5.56 (M5f): CLAIM LAYER — load-bearing in the live cycle now.
-        # Runs AFTER the entity path's Stage-5 page writes (so create-pages exist
-        # to host the ```claims block) and 5.55 media edges, but BEFORE the hub /
-        # edge-regen / index steps (so they project the freshly-written claims).
-        # This is ADDITIVE: the legacy entity extraction + conflict_resolver path
-        # above keeps working untouched; claims are emitted (Stage 1 projection),
-        # trust-reconciled (Stage 3 — no agent claim can close a human claim), and
-        # written into the same editable pages (Stage 5 — human prose preserved).
-        # `organic_resolution_paths` is threaded to `_finalize` (below) so those
-        # exact deletions get the specific `inbox/organic_resolution` trigger.
-        organic_resolution_paths: set[str] = set()
-        try:
-            from api.services.claim_pipeline import run_claim_pipeline
-            from api.services.inbox_generator import write_claim_nudges
-            claim_result = run_claim_pipeline(extracted, existing, memory_path, settings)
-            nudge_result = write_claim_nudges(claim_result.get("nudges", []), memory_path)
-
-            # G60 §2.3 — re-score the OPEN questions against the freshly-written
-            # claims (bump/re-order, organic resolution, stale escalation). Runs
-            # AFTER write_claim_nudges so this cycle's new competing values are
-            # already merged into their open question.
-            from api.services import inbox_questions
-            from api.services.claim_pipeline import _load_existing_claims_by_subject
-
-            refresh = inbox_questions.refresh_open_questions(
-                memory_path,
-                _load_existing_claims_by_subject(memory_path),
-                str(datetime.now().date()),
-                stale_after_days=settings.inbox_stale_after_days,
-            )
-            _state.questions_refreshed = refresh["bumped"] + refresh["escalated"]
-            _state.organic_resolutions = refresh["organic_resolutions"]
-            organic_resolution_paths = set(refresh.get("resolved_paths") or [])
-            logger.info(
-                f"Stage 5.56: refreshed {refresh['bumped']} question(s), "
-                f"escalated {refresh['escalated']}, "
-                f"organically resolved {refresh['organic_resolutions']}"
-            )
-            logger.info(
-                f"Stage 5.56: claim layer wrote {claim_result.get('claims_written', 0)} "
-                f"claims across {claim_result.get('subjects_written', 0)} pages "
-                f"({claim_result.get('subjects_skipped', 0)} page-less), "
-                f"{nudge_result.get('written', 0)} claim nudges written, "
-                f"{nudge_result.get('merged', 0)} merged into open items"
-            )
-        except Exception as e:
-            logger.warning(f"Stage 5.56 claim pipeline failed: {type(e).__name__}: {e}")
-
-        # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
-        # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
-        try:
-            from api.services.hub_builder import regenerate_hubs_and_index
-            hub_result = regenerate_hubs_and_index(memory_path, settings)
-            logger.info(f"Stage 5.6: regenerated {hub_result['hub_count']} hubs + _index.md")
-        except Exception as e:
-            logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
-
-        # Stage 5.57 (M5f): link-enrichment subagent — when a saved media link
-        # (e.g. a website Prof. John recommended) lacks a meaningful description,
-        # a bounded subagent fetches + summarizes it and records a `describes`
-        # claim + `recommends` claims, with bidirectional ![[…]] transclusion
-        # (m5-prep/link-enrichment.md). Offline-safe, LLM-call-capped; any failure
-        # logs a warning and continues — the cycle is never hard-blocked.
-        try:
-            from api.services.link_enrichment import default_summarize, enrich_media_links
-            n_enriched = await enrich_media_links(
-                memory_path, changes, settings, summarize_fn=default_summarize
-            )
-            if n_enriched:
-                logger.info(f"Stage 5.57: enriched {n_enriched} media link(s)")
-        except Exception as e:
-            logger.warning(f"Stage 5.57 link enrichment failed: {type(e).__name__}: {e}")
-
-        # Stage 5.7: Regenerate graph_edges.yaml as a valid-only projection of the
-        # claims layer (tagged with observer/context/claim_id). No-op on banks
-        # with no claims yet, so seeded/legacy edge graphs are not wiped (M5e).
-        try:
-            from api.services.graph_builder import regenerate_edges_from_claims
-            n_edges = regenerate_edges_from_claims(memory_path)
-            if n_edges:
-                logger.info(f"Stage 5.7: regenerated {n_edges} valid-only claim edges")
-        except Exception as e:
-            logger.warning(f"Stage 5.7 claim-edge regeneration failed: {type(e).__name__}: {e}")
-
-        # Mark ONLY the episodes that successfully extracted this cycle.
-        # Episodes whose Stage-1 extraction errored (e.g. a credit cap hit
-        # mid-run) are absent from `extracted` and stay `processed: false`, so
-        # re-triggering Sleep resumes exactly where it left off instead of
-        # re-spending the whole batch. (Empty-content episodes return a
-        # zero-entity result, so they ARE here — done, nothing to retry.)
-        extracted_ids = {r["episode_id"] for r in extracted if r.get("episode_id")}
-        processed_episodes = [ep for ep in episodes if ep["id"] in extracted_ids]
-        requeued = len(episodes) - len(processed_episodes)
-        _mark_episodes_processed(processed_episodes)
-        _state.episodes_processed = len(processed_episodes)
-        _state.episodes_requeued = requeued
-        if requeued:
-            logger.warning(
-                f"Marked {len(processed_episodes)} episodes processed; {requeued} "
-                f"failed extraction and remain queued — re-run Sleep to continue"
-            )
-        else:
-            logger.info(f"Marked {len(processed_episodes)} episodes as processed")
-
-        # Rebuild LEANN indexes so Bookworm reflects the post-sleep state.
-        # Entity and episode rebuilds are independent and we want to surface
-        # partial failures: if only the episode index fails, the cycle still
-        # wrote the markdown graph, committed, and should report success
-        # *with a warning* — not a silent pass, not a hard failure.
-        index_warnings: list[str] = []
-        try:
-            from api.services.vector_index import SqliteVecIndexer
-            indexer = SqliteVecIndexer(memory_path)
-        except Exception as e:
-            indexer = None
-            warning = f"vector indexer init failed: {type(e).__name__}: {e}"
-            logger.warning(warning)
-            index_warnings.append(warning)
-
-        if indexer is not None:
-            try:
-                indexer.index_entities()
-            except Exception as e:
-                warning = f"entity index rebuild failed: {type(e).__name__}: {e}"
-                logger.warning(f"vector {warning}")
-                index_warnings.append(warning)
-            try:
-                indexer.index_episodes()
-            except Exception as e:
-                warning = f"episode index rebuild failed: {type(e).__name__}: {e}"
-                logger.warning(f"vector {warning}")
-                index_warnings.append(warning)
-            # M5e: rebuild the derived claims index from the in-page ```claims
-            # blocks so claim-first /ask + get_perspective reflect the post-Sleep
-            # belief state. Only currently-valid claims are indexed.
-            try:
-                indexer.index_claims()
-            except Exception as e:
-                warning = f"claims index rebuild failed: {type(e).__name__}: {e}"
-                logger.warning(f"vector {warning}")
-                index_warnings.append(warning)
-
-        if index_warnings:
-            _state.index_warning = "; ".join(index_warnings)
-
-        await _warm_logos_safely(memory_path)
-
-        # Commit
-        await _finalize(
-            memory_path,
-            cycle_id,
-            changes,
-            settings,
-            organic_resolution_paths=organic_resolution_paths,
-            started=_state.started_monotonic,
-            sessions=_collect_session_ids(processed_episodes),
-            episode_sessions=_episode_session_map(processed_episodes),
-        )
-
-        # Final-review H1: runs AFTER `_finalize`'s commit, not before. Any
-        # connector that ingests reaches `media_ingestor.ingest_batch` ->
-        # `_commit_media` -> `git_service.commit_changes`, which is
-        # `git add -A` — before this fix, running the poll BEFORE `_finalize`
-        # meant that `git add -A` swept the Sleep cycle's own uncommitted
-        # entity pages, inbox items, and `_index.md` into a `Sources ingest`
-        # commit (`Cicada-Author: user`, no `Cicada-Session:` trailers, no
-        # per-entity trigger lines), leaving `_finalize` with a clean tree and
-        # nothing to commit — so no "Sleep cycle" commit existed at all, even
-        # though the cycle still reported `Completed`. Running it here means
-        # `_finalize` has already committed everything Sleep wrote, so the
-        # poll's own `git add -A` finds a clean tree and sweeps only the
-        # connector files it just wrote.
-        await _poll_connectors_safely(memory_path)
-
-        requeue_note = (
-            f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
-            if _state.episodes_requeued else ""
-        )
-        if _state.index_warning:
-            _state.progress = f"Completed with warnings: {_state.index_warning}{requeue_note}"
-            logger.warning(
-                f"Sleep cycle {cycle_id} completed with warnings — "
-                f"{len(changes)} changes committed; {_state.index_warning}{requeue_note}"
-            )
-        else:
-            _state.progress = f"Completed{requeue_note}"
-            logger.success(
-                f"Sleep cycle {cycle_id} completed — {len(changes)} changes committed"
-                f"{requeue_note}"
-            )
-        _state.stage = 5
-
+        outcome = await _run_stages(settings, cycle_id, memory_path)
     except Exception as e:
         _state.progress = f"Failed: {e}"
         _state.error = f"{type(e).__name__}: {e}"
         logger.error(f"Sleep cycle failed: {e}")
         logger.exception("Full traceback:")
     finally:
+        # Spec §1: this runs on EVERY exit path — idle, aborted before Stage
+        # 1, aborted after Stage 1, raised, or fully completed — so capturing
+        # more episodes can never make Sleep do less of the LLM-free work.
+        await _run_engine_independent_tail(memory_path, settings, outcome)
         _state.status = "idle"
+
+
+async def _run_stages(settings: Settings, cycle_id: str, memory_path: Path) -> _StageOutcome:
+    """The LLM-dependent pipeline. Returns what it achieved; never runs the tail."""
+    from api.services import agent_engine
+
+    _state.last_engine = _engine_label(settings)
+    logger.info(
+        f"Sleep cycle {cycle_id} started — engine: {_state.last_engine}, "
+        f"model: {settings.litellm_model}"
+    )
+
+    # M5e: ensure the runtime predicate-normalization map exists (idempotent,
+    # non-clobbering) so Stage 2 predicate folding + Stage 3 cardinality keying
+    # have a controlled vocabulary to key on.
+    try:
+        from api.services import predicates
+        predicates.install_predicate_map(memory_path)
+    except Exception as e:
+        logger.warning(f"predicate map install skipped: {type(e).__name__}: {e}")
+
+    # Collect unprocessed episodes
+    episodes = _get_unprocessed_episodes(memory_path)
+    if not episodes:
+        logger.info("No unprocessed episodes found — skipping")
+        _state.progress = "No unprocessed episodes"
+        return _StageOutcome()
+
+    logger.info(f"Found {len(episodes)} unprocessed episodes")
+    _state.episodes_total = len(episodes)
+
+    # G74(a) pre-flight: ask the engine whether it can work BEFORE spending a
+    # spawn per episode discovering it cannot. Only on a cycle with real work,
+    # so an idle bank never shells out. Cheap by construction: this is
+    # `claude auth status --json`, a local session-state read with no model
+    # invocation and no plan-quota cost — never a real `claude -p` completion
+    # call spent just to test availability. Gated to claude-cli only, so
+    # ollama/litellm cycles never touch the CLI at all.
+    if _state.last_engine == "claude-cli":
+        ok, detail = await asyncio.to_thread(agent_engine.probe)
+        _state.engine_detail = detail
+        if not ok:
+            logger.error(f"Sleep cycle {cycle_id} aborted before Stage 1 — {detail}")
+            _state.error = detail
+            _state.progress = f"Failed: {detail}"
+            return _StageOutcome()
+
+    # Stage 1: Entity & Relationship Extraction
+    _state.progress = f"Stage 1/5: Extracting entities from {len(episodes)} episodes..."
+    logger.info(f"Stage 1: Extracting entities from {len(episodes)} episodes")
+    from api.services.entity_extractor import extract
+    extracted = await extract(episodes, settings)
+    total_entities = sum(len(e.get("entities", [])) for e in extracted)
+    total_rels = sum(len(e.get("relationships", [])) for e in extracted)
+    logger.info(f"Stage 1 complete: {total_entities} entities, {total_rels} relationships extracted")
+    _state.stage = 1
+
+    # Resumable queue — hard stop if EVERY episode failed Stage 1 (wrong
+    # model id, exhausted credits, total outage). Abort with the queue
+    # untouched instead of running the rest of the pipeline on nothing and
+    # committing a misleading empty "completed" cycle. Re-running after
+    # fixing the cause retries the whole batch.
+    if episodes and not extracted:
+        msg = _stage1_failure_message(_state.last_engine or "litellm")
+        if _state.engine_detail:
+            msg = f"{msg} ({_state.engine_detail})"
+        logger.error(msg)
+        _state.error = msg
+        _state.progress = f"Failed: {msg}"
+        return _StageOutcome()
+
+    # Stage 2: Entity Resolution & Deduplication
+    _state.progress = "Stage 2/5: Resolving entities..."
+    logger.info("Stage 2: Resolving entities against existing graph")
+    existing = _load_existing_entities(memory_path)
+    from api.services.entity_resolver import resolve
+    resolved_result = await resolve(extracted, existing, settings)
+    resolved_changes = resolved_result["changes"]
+    resolved_edges = resolved_result["relationships"]
+    episode_cooccurrences = resolved_result.get("episode_cooccurrences", {})
+    creates = sum(1 for r in resolved_changes if r.get("action") == "create")
+    updates = sum(1 for r in resolved_changes if r.get("action") == "update")
+    logger.info(f"Stage 2 complete: {creates} new entities, {updates} updates, {len(resolved_edges)} relationships")
+    _state.entities_created = creates
+    _state.entities_updated = updates
+    _state.relationships_created = len(resolved_edges)
+    _state.stage = 2
+
+    # Stage 3: Conflict Resolution & Pruning
+    _state.progress = "Stage 3/5: Resolving conflicts..."
+    logger.info("Stage 3: Conflict resolution & temporal decay")
+    from api.services.conflict_resolver import resolve_and_prune
+    changes = await resolve_and_prune(resolved_changes, existing, settings)
+    logger.info(f"Stage 3 complete: {len(changes)} total changes")
+    _state.stage = 3
+
+    # Stage 4: Pattern Detection & Skill Extraction
+    _state.progress = "Stage 4/5: Extracting skills..."
+    logger.info("Stage 4: Pattern detection & skill extraction")
+    from api.services.skill_extractor import detect_patterns
+    skills = await detect_patterns(
+        changes,
+        existing,
+        settings,
+        episode_cooccurrences=episode_cooccurrences,
+    )
+    logger.info(f"Stage 4 complete: {len(skills)} skills detected")
+    _state.skills_detected = len(skills)
+    _state.stage = 4
+
+    # Stage 5: Nudge Generation & Versioning
+    _state.progress = "Stage 5/5: Writing changes..."
+    logger.info("Stage 5: Writing entities, nudges, clarifications, and relationships")
+    from api.services.inbox_generator import generate
+    await generate(changes, skills, memory_path, relationships=resolved_edges)
+
+    # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
+    # graph stops ignoring them. Runs after relationships are written so the
+    # `mentions` wave merges into the same graph_edges.yaml. Idempotent.
+    try:
+        from api.services.wikilink_resolver import materialize_wikilink_edges
+        n_mentions = materialize_wikilink_edges(memory_path)
+        logger.info(f"Stage 5.5: materialized {n_mentions} wikilink `mentions` edges")
+    except Exception as e:
+        logger.warning(f"Stage 5.5 wikilink materialization failed: {type(e).__name__}: {e}")
+
+    # Stage 5.55: Wire media entities to the entities resolved this cycle by
+    # joining on shared source episodes. Bypasses the promotion gate — a
+    # saved bookmark connects to existing entities even when the concepts
+    # it mentions never cross the 2-conversation threshold.
+    try:
+        from api.services.media_ingestor import inject_media_edges
+        n_media = inject_media_edges(memory_path, changes)
+        logger.info(f"Stage 5.55: injected {n_media} media `about` edges")
+    except Exception as e:
+        logger.warning(f"Stage 5.55 media edge injection failed: {type(e).__name__}: {e}")
+
+    # Stage 5.56 (M5f): CLAIM LAYER — load-bearing in the live cycle now.
+    # Runs AFTER the entity path's Stage-5 page writes (so create-pages exist
+    # to host the ```claims block) and 5.55 media edges, but BEFORE the hub /
+    # edge-regen / index steps (so they project the freshly-written claims).
+    # This is ADDITIVE: the legacy entity extraction + conflict_resolver path
+    # above keeps working untouched; claims are emitted (Stage 1 projection),
+    # trust-reconciled (Stage 3 — no agent claim can close a human claim), and
+    # written into the same editable pages (Stage 5 — human prose preserved).
+    # `organic_resolution_paths` is threaded to `_finalize` (below) so those
+    # exact deletions get the specific `inbox/organic_resolution` trigger.
+    organic_resolution_paths: set[str] = set()
+    questions_refreshed = False
+    try:
+        from api.services.claim_pipeline import run_claim_pipeline
+        from api.services.inbox_generator import write_claim_nudges
+        claim_result = run_claim_pipeline(extracted, existing, memory_path, settings)
+        nudge_result = write_claim_nudges(claim_result.get("nudges", []), memory_path)
+
+        # G60 §2.3 — re-score the OPEN questions against the freshly-written
+        # claims (bump/re-order, organic resolution, stale escalation). Runs
+        # AFTER write_claim_nudges so this cycle's new competing values are
+        # already merged into their open question.
+        from api.services import inbox_questions
+        from api.services.claim_pipeline import _load_existing_claims_by_subject
+
+        refresh = inbox_questions.refresh_open_questions(
+            memory_path,
+            _load_existing_claims_by_subject(memory_path),
+            str(datetime.now().date()),
+            stale_after_days=settings.inbox_stale_after_days,
+        )
+        _state.questions_refreshed = refresh["bumped"] + refresh["escalated"]
+        _state.organic_resolutions = refresh["organic_resolutions"]
+        organic_resolution_paths = set(refresh.get("resolved_paths") or [])
+        questions_refreshed = True
+        logger.info(
+            f"Stage 5.56: refreshed {refresh['bumped']} question(s), "
+            f"escalated {refresh['escalated']}, "
+            f"organically resolved {refresh['organic_resolutions']}"
+        )
+        logger.info(
+            f"Stage 5.56: claim layer wrote {claim_result.get('claims_written', 0)} "
+            f"claims across {claim_result.get('subjects_written', 0)} pages "
+            f"({claim_result.get('subjects_skipped', 0)} page-less), "
+            f"{nudge_result.get('written', 0)} claim nudges written, "
+            f"{nudge_result.get('merged', 0)} merged into open items"
+        )
+    except Exception as e:
+        logger.warning(f"Stage 5.56 claim pipeline failed: {type(e).__name__}: {e}")
+
+    # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
+    # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
+    try:
+        from api.services.hub_builder import regenerate_hubs_and_index
+        hub_result = regenerate_hubs_and_index(memory_path, settings)
+        logger.info(f"Stage 5.6: regenerated {hub_result['hub_count']} hubs + _index.md")
+    except Exception as e:
+        logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
+
+    # Stage 5.57 (M5f): link-enrichment subagent — when a saved media link
+    # (e.g. a website Prof. John recommended) lacks a meaningful description,
+    # a bounded subagent fetches + summarizes it and records a `describes`
+    # claim + `recommends` claims, with bidirectional ![[…]] transclusion
+    # (m5-prep/link-enrichment.md). Offline-safe, LLM-call-capped; any failure
+    # logs a warning and continues — the cycle is never hard-blocked.
+    try:
+        from api.services.link_enrichment import default_summarize, enrich_media_links
+        n_enriched = await enrich_media_links(
+            memory_path, changes, settings, summarize_fn=default_summarize
+        )
+        if n_enriched:
+            logger.info(f"Stage 5.57: enriched {n_enriched} media link(s)")
+    except Exception as e:
+        logger.warning(f"Stage 5.57 link enrichment failed: {type(e).__name__}: {e}")
+
+    # Stage 5.7: Regenerate graph_edges.yaml as a valid-only projection of the
+    # claims layer (tagged with observer/context/claim_id). No-op on banks
+    # with no claims yet, so seeded/legacy edge graphs are not wiped (M5e).
+    try:
+        from api.services.graph_builder import regenerate_edges_from_claims
+        n_edges = regenerate_edges_from_claims(memory_path)
+        if n_edges:
+            logger.info(f"Stage 5.7: regenerated {n_edges} valid-only claim edges")
+    except Exception as e:
+        logger.warning(f"Stage 5.7 claim-edge regeneration failed: {type(e).__name__}: {e}")
+
+    # Mark ONLY the episodes that successfully extracted this cycle.
+    # Episodes whose Stage-1 extraction errored (e.g. a credit cap hit
+    # mid-run) are absent from `extracted` and stay `processed: false`, so
+    # re-triggering Sleep resumes exactly where it left off instead of
+    # re-spending the whole batch. (Empty-content episodes return a
+    # zero-entity result, so they ARE here — done, nothing to retry.)
+    extracted_ids = {r["episode_id"] for r in extracted if r.get("episode_id")}
+    processed_episodes = [ep for ep in episodes if ep["id"] in extracted_ids]
+    requeued = len(episodes) - len(processed_episodes)
+    _mark_episodes_processed(processed_episodes)
+    _state.episodes_processed = len(processed_episodes)
+    _state.episodes_requeued = requeued
+    if requeued:
+        logger.warning(
+            f"Marked {len(processed_episodes)} episodes processed; {requeued} "
+            f"failed extraction and remain queued — re-run Sleep to continue"
+        )
+    else:
+        logger.info(f"Marked {len(processed_episodes)} episodes as processed")
+
+    # Rebuild LEANN indexes so Bookworm reflects the post-sleep state.
+    # Entity and episode rebuilds are independent and we want to surface
+    # partial failures: if only the episode index fails, the cycle still
+    # wrote the markdown graph, committed, and should report success
+    # *with a warning* — not a silent pass, not a hard failure.
+    index_warnings: list[str] = []
+    try:
+        from api.services.vector_index import SqliteVecIndexer
+        indexer = SqliteVecIndexer(memory_path)
+    except Exception as e:
+        indexer = None
+        warning = f"vector indexer init failed: {type(e).__name__}: {e}"
+        logger.warning(warning)
+        index_warnings.append(warning)
+
+    if indexer is not None:
+        try:
+            indexer.index_entities()
+        except Exception as e:
+            warning = f"entity index rebuild failed: {type(e).__name__}: {e}"
+            logger.warning(f"vector {warning}")
+            index_warnings.append(warning)
+        try:
+            indexer.index_episodes()
+        except Exception as e:
+            warning = f"episode index rebuild failed: {type(e).__name__}: {e}"
+            logger.warning(f"vector {warning}")
+            index_warnings.append(warning)
+        # M5e: rebuild the derived claims index from the in-page ```claims
+        # blocks so claim-first /ask + get_perspective reflect the post-Sleep
+        # belief state. Only currently-valid claims are indexed.
+        try:
+            indexer.index_claims()
+        except Exception as e:
+            warning = f"claims index rebuild failed: {type(e).__name__}: {e}"
+            logger.warning(f"vector {warning}")
+            index_warnings.append(warning)
+
+    if index_warnings:
+        _state.index_warning = "; ".join(index_warnings)
+
+    # Commit
+    await _finalize(
+        memory_path,
+        cycle_id,
+        changes,
+        settings,
+        organic_resolution_paths=organic_resolution_paths,
+        started=_state.started_monotonic,
+        sessions=_collect_session_ids(processed_episodes),
+        episode_sessions=_episode_session_map(processed_episodes),
+    )
+
+    # Logo warm-up and the connector poll (final-review H1: the poll must
+    # run AFTER `_finalize`'s commit so its own `git add -A` finds a clean
+    # tree instead of sweeping the cycle's own uncommitted entity writes
+    # into a session-less media commit) now live in the engine-independent
+    # tail (`_run_engine_independent_tail`), which `run` executes in its
+    # `finally` block on every exit path — not just this happy one.
+
+    requeue_note = (
+        f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
+        if _state.episodes_requeued else ""
+    )
+    if _state.index_warning:
+        _state.progress = f"Completed with warnings: {_state.index_warning}{requeue_note}"
+        logger.warning(
+            f"Sleep cycle {cycle_id} completed with warnings — "
+            f"{len(changes)} changes committed; {_state.index_warning}{requeue_note}"
+        )
+    else:
+        _state.progress = f"Completed{requeue_note}"
+        logger.success(
+            f"Sleep cycle {cycle_id} completed — {len(changes)} changes committed"
+            f"{requeue_note}"
+        )
+    _state.stage = 5
+    return _StageOutcome(committed=True, questions_refreshed=questions_refreshed)
 
 
 def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:

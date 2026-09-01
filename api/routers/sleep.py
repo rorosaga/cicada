@@ -59,6 +59,8 @@ async def sleep_status():
         episodes_requeued=state.episodes_requeued,
         questions_refreshed=state.questions_refreshed,
         organic_resolutions=state.organic_resolutions,
+        last_engine=state.last_engine,
+        engine_detail=state.engine_detail,
     )
 
 

@@ -56,6 +56,9 @@ struct SleepView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     headerRow
+                    if let engine = sleepVM.status?.lastEngine {
+                        engineLine(engine, detail: sleepVM.status?.engineDetail)
+                    }
                     if let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty {
                         errorBanner(error)
                     }
@@ -454,6 +457,30 @@ struct SleepView: View {
         .frame(maxWidth: .infinity)
         .background(CicadaTheme.warning.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+    }
+
+    // MARK: Engine line
+
+    /// Which engine the last cycle ran on. Named, not implied — a Sleep page
+    /// that says "check API credits" while running on a subscription is the
+    /// exact confusion this replaces.
+    private func engineLine(_ engine: String, detail: String?) -> some View {
+        HStack(spacing: CicadaTheme.spacingXS) {
+            Text("ENGINE")
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.1)
+            Text(Copy.engineLabel(engine))
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+            if let detail, !detail.isEmpty {
+                Text("· \(detail)")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(2)
+            }
+            Spacer()
+        }
     }
 
     // MARK: Error banner

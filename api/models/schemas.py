@@ -918,6 +918,10 @@ class SleepStatusResponse(CamelModel):
     # G60 — open-question re-scoring outcomes for the Sleep dashboard.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
+    # G74(a) — which engine this cycle ran on, and one sentence about its
+    # state ("Claude Code is signed out — run `claude auth login`").
+    last_engine: Optional[str] = None
+    engine_detail: Optional[str] = None
 
 
 class SleepHistoryEntry(CamelModel):

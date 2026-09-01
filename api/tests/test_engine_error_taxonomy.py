@@ -312,6 +312,12 @@ def test_a_partial_throttle_mid_cycle_stops_cleanly_with_the_queue_intact(
     runner = agent_runner(agent_envelopes["rate_limited"])
     _extract_with(monkeypatch, runner)
 
+    # G74(a) Task 5: sleep_cycle now pre-flights `agent_engine.probe()` before
+    # Stage 1 on the agent rung. This test predates that call site and exists
+    # to prove the mid-cycle (Stage 3) throttle, not the pre-flight gate — so
+    # report the engine as reachable and let Stage 1 (canned above) proceed.
+    monkeypatch.setattr(agent_engine, "probe", lambda **kw: (True, "Claude Code signed in on this Mac."))
+
     asyncio.run(sleep_cycle.run(_agent_settings(), "sleep_test"))
 
     state = sleep_cycle.get_sleep_state()

@@ -36,6 +36,18 @@ enum Copy {
     /// (G68 §1 — Capture merged into Feed).
     static let addASource = "Add a source"
 
+    // MARK: Sleep engine (G74(a))
+
+    /// The engine id the backend reports, in the user's words.
+    static func engineLabel(_ id: String) -> String {
+        switch id {
+        case "claude-cli": "Claude Code (your plan)"
+        case "ollama": "Ollama (on this Mac)"
+        case "litellm": "API key"
+        default: id
+        }
+    }
+
     // MARK: Observer
 
     /// The user's own observer label. Never the account holder's first name —

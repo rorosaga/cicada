@@ -506,11 +506,17 @@ struct SleepStatusResponse: Codable {
     let entitiesUpdated: Int
     let relationshipsCreated: Int
     let skillsDetected: Int
+    /// G74(a) — which engine the last cycle ran on ("claude-cli" | "ollama" |
+    /// "litellm"), and one sentence about its state. Both absent on an older
+    /// backend, so both are optional.
+    let lastEngine: String?
+    let engineDetail: String?
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
+        case lastEngine, engineDetail
     }
 
     init(from decoder: Decoder) throws {
@@ -528,6 +534,8 @@ struct SleepStatusResponse: Codable {
         entitiesUpdated = try c.decodeIfPresent(Int.self, forKey: .entitiesUpdated) ?? 0
         relationshipsCreated = try c.decodeIfPresent(Int.self, forKey: .relationshipsCreated) ?? 0
         skillsDetected = try c.decodeIfPresent(Int.self, forKey: .skillsDetected) ?? 0
+        lastEngine = try c.decodeIfPresent(String.self, forKey: .lastEngine)
+        engineDetail = try c.decodeIfPresent(String.self, forKey: .engineDetail)
     }
 }
 
