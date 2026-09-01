@@ -2,6 +2,7 @@
 
 import asyncio
 from collections import Counter
+from typing import Callable
 
 import litellm
 from loguru import logger
@@ -18,11 +19,25 @@ from api.services.vector_index import PendingEntity, SqliteVecIndexer
 
 
 async def resolve(
-    extracted: list[dict], existing: list[dict], settings: Settings
+    extracted: list[dict],
+    existing: list[dict],
+    settings: Settings,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> dict:
     """Resolve extracted entities against existing graph. Enforce promotion model.
 
     Returns dict with 'changes' (entity updates) and 'relationships' (resolved edges).
+
+    ``cancel_check`` (sleep-control): an optional zero-arg predicate polled at
+    the top of every iteration of the per-name judging loop below — the long
+    sequential LLM-judge loop the whole Stage exists to run. Once it starts
+    returning ``True``, the loop stops taking new names (no further judge
+    calls spent) and this returns whatever it has accumulated so far; the
+    caller (``sleep_cycle._run_stages``) discards a partial result like this
+    entirely on a cancelled cycle, so returning early rather than raising
+    keeps this function's contract simple. ``None`` (the default, and every
+    existing call site) means "never cancel" — behavior is unchanged.
     """
     disambig_model = (
         getattr(settings, "litellm_disambiguation_model", "") or settings.litellm_model
@@ -111,6 +126,12 @@ async def resolve(
     )
 
     for name_lower, entity in ordered_entities:
+        # Sleep-control checkpoint: the long sequential loop the task calls
+        # out by name. Checked BEFORE each name's own (possibly LLM-calling)
+        # judge — never mid-judge — so a cancel stops taking new names
+        # without ever interrupting one already in flight.
+        if cancel_check is not None and cancel_check():
+            break
         name = entity["name"]
         match = _find_direct_candidate_match(
             new_entity=entity,

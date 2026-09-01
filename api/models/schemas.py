@@ -892,6 +892,23 @@ class SleepTriggerResponse(CamelModel):
     cycle_id: Optional[str] = None
 
 
+class SleepCancelResponse(CamelModel):
+    """``POST /sleep/cancel`` — cooperative-cancel request for whatever cycle
+    is currently running.
+
+    Mirrors ``SleepTriggerResponse``'s own "no 404/409, just an honest 200
+    body" convention (see ``/sleep/trigger``'s ``already_running`` status):
+    ``status`` is ``"cancelling"`` when a cycle was found running (idempotent
+    — a second call while a cancel is already pending returns the same
+    shape), or ``"not_running"`` when there was nothing to cancel. ``message``
+    always states the cooperative contract plainly: this stops the cycle at
+    its next safe point, not instantly, and nothing already captured is lost.
+    """
+    status: str
+    message: str
+    cycle_id: Optional[str] = None
+
+
 class SleepStatusResponse(CamelModel):
     status: str
     cycle_id: Optional[str] = None
@@ -922,6 +939,23 @@ class SleepStatusResponse(CamelModel):
     # state ("Claude Code is signed out — run `claude auth login`").
     last_engine: Optional[str] = None
     engine_detail: Optional[str] = None
+    # Sleep control — episode cap (settings-driven; see
+    # ``Settings.sleep_max_episodes_per_cycle``). ``episodes_queued`` is the
+    # FULL unprocessed count found at the top of this cycle, BEFORE capping;
+    # ``episode_cap`` is the cap applied. ``episodes_total`` above is the
+    # (possibly capped) count this cycle actually attempted, so
+    # ``episodes_queued > episodes_total`` means the cap truncated this
+    # cycle and the rest stayed queued for the next one.
+    episode_cap: int = 0
+    episodes_queued: int = 0
+    # Sleep control — cooperative cancellation. ``cancel_requested`` is true
+    # from the moment ``POST /sleep/cancel`` is accepted for the currently
+    # running cycle until it reaches its next safe point; ``cancelled`` is
+    # true on the FIRST status read after a cycle actually stopped early
+    # because of one (as opposed to a cancel requested too late — after
+    # writes began — which the cycle still finishes and commits normally).
+    cancel_requested: bool = False
+    cancelled: bool = False
 
 
 class SleepHistoryEntry(CamelModel):

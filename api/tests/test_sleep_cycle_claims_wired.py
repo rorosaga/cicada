@@ -41,10 +41,10 @@ def _seed_bank(tmp_path):
 
 
 def _patch_boundaries(monkeypatch, memory, *, extracted, resolved_changes, resolved_edges):
-    async def fake_extract(episodes, settings):
+    async def fake_extract(episodes, settings, **_kw):
         return extracted
 
-    async def fake_resolve(extracted_arg, existing, settings):
+    async def fake_resolve(extracted_arg, existing, settings, **_kw):
         return {"changes": resolved_changes, "relationships": resolved_edges,
                 "episode_cooccurrences": {}}
 

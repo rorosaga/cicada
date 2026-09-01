@@ -75,14 +75,29 @@ final class SleepViewModel {
     /// sequence without a live backend. Defaults to the real network call.
     private let fetchSleepStatus: () async throws -> SleepStatusResponse
 
+    /// Injectable, same reasoning as `fetchSleepStatus`. Defaults to the
+    /// real `POST /sleep/cancel` call.
+    private let requestCancel: () async throws -> SleepCancelResponse
+
+    /// True from the moment `cancel()` is called until the poll loop
+    /// observes the cycle has actually stopped (whether because of the
+    /// cancel or otherwise) — cooperative cancellation means the backend
+    /// doesn't flip to idle the instant the request lands, so this is what
+    /// drives the button's "Cancelling…" state in between.
+    var cancelRequested = false
+
     init(
         store: Store,
         fetchSleepStatus: @escaping () async throws -> SleepStatusResponse = {
             try await APIClient.shared.fetchSleepStatus()
+        },
+        requestCancel: @escaping () async throws -> SleepCancelResponse = {
+            try await APIClient.shared.cancelSleep()
         }
     ) {
         self.store = store
         self.fetchSleepStatus = fetchSleepStatus
+        self.requestCancel = requestCancel
     }
 
     /// `/sleep/status` isn't a Store domain, so this mirrors the Store's
@@ -183,6 +198,25 @@ final class SleepViewModel {
         }
     }
 
+    /// Request cooperative cancellation of the running cycle. Does not touch
+    /// `status` locally — the cycle keeps running until it reaches its next
+    /// safe point, and the already-armed poll loop (a cycle must be running
+    /// for `isRunning` to gate this call) is what observes and reports the
+    /// eventual running -> idle edge, exactly like a normal completion.
+    func cancel() async {
+        guard isRunning, !cancelRequested else { return }
+        cancelRequested = true
+        do {
+            _ = try await requestCancel()
+        } catch {
+            // The request itself failed (network blip) — nothing was
+            // actually cancelled, so un-arm the button rather than leaving
+            // it stuck on "Cancelling…" for a request that never landed.
+            cancelRequested = false
+            errorMessage = "Cancel: \(error.localizedDescription)"
+        }
+    }
+
     func updateSchedule(_ new: ScheduleConfig) async {
         do {
             schedule = try await APIClient.shared.updateSchedule(new)
@@ -198,6 +232,9 @@ final class SleepViewModel {
         pollTask?.cancel()
         hasSeenRunning = false
         idleTicksSinceStart = 0
+        // A brand-new cycle never carries over a stale "Cancelling…" from
+        // whatever the button was showing for the previous one.
+        cancelRequested = false
         pollGeneration += 1
         let generation = pollGeneration
         pollTask = Task { [weak self] in
@@ -229,6 +266,10 @@ final class SleepViewModel {
                     let boundReached = !self.hasSeenRunning
                         && self.idleTicksSinceStart >= Self.idleTickBound
                     if (self.hasSeenRunning && next.status == "idle") || boundReached {
+                        // The cycle actually stopped (cancelled or not) —
+                        // clear the button's "Cancelling…" state now rather
+                        // than waiting for the next `startPolling()`.
+                        self.cancelRequested = false
                         // Refresh the queue once the cycle finishes so the
                         // UI shows the post-cycle state. `pollTask` is nilled
                         // *after* that call, not before: `load()` re-arms the

@@ -6,12 +6,13 @@ from api.config import Settings, get_settings
 from api.models.schemas import (
     EpisodeQueueItem,
     ScheduleConfig,
+    SleepCancelResponse,
     SleepHistoryEntry,
     SleepStatusResponse,
     SleepTriggerResponse,
 )
 from api.services import git_service, sleep_scheduler
-from api.services.sleep_cycle import get_sleep_state, list_all_episodes, run
+from api.services.sleep_cycle import get_sleep_state, list_all_episodes, request_cancel, run
 
 router = APIRouter()
 
@@ -41,6 +42,37 @@ async def trigger_sleep(
     )
 
 
+@router.post("/sleep/cancel", response_model=SleepCancelResponse)
+async def cancel_sleep():
+    """Cooperative-cancel whatever cycle is currently running.
+
+    Same "no 404/409, an honest 200 body" convention as ``/sleep/trigger``'s
+    own ``already_running`` status: ``status`` is ``"not_running"`` when there
+    was nothing to cancel (idempotent — calling this twice, or calling it
+    when nothing is running, is always safe), else ``"cancelling"``. The
+    cancel itself is cooperative: it takes effect at the pipeline's next safe
+    point (see ``sleep_cycle.request_cancel``), never mid-write or mid-commit,
+    so nothing already captured is ever lost — episodes not yet consolidated
+    simply stay queued for the next cycle.
+    """
+    was_running, cycle_id = request_cancel()
+    if not was_running:
+        return SleepCancelResponse(
+            status="not_running",
+            message="No sleep cycle is currently running",
+            cycle_id=None,
+        )
+    return SleepCancelResponse(
+        status="cancelling",
+        message=(
+            "Cancellation requested — the cycle stops at its next safe "
+            "point, never mid-write. Nothing already captured is lost: any "
+            "episodes not yet consolidated stay queued for the next cycle."
+        ),
+        cycle_id=cycle_id,
+    )
+
+
 @router.get("/sleep/status", response_model=SleepStatusResponse)
 async def sleep_status():
     state = get_sleep_state()
@@ -64,6 +96,10 @@ async def sleep_status():
         organic_resolutions=state.organic_resolutions,
         last_engine=state.last_engine,
         engine_detail=state.engine_detail,
+        episode_cap=state.episode_cap,
+        episodes_queued=state.episodes_queued,
+        cancel_requested=state.cancel_requested,
+        cancelled=state.cancelled,
     )
 
 

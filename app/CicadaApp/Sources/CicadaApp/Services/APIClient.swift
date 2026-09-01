@@ -517,12 +517,25 @@ struct SleepStatusResponse: Codable {
     /// backend, so both are optional.
     let lastEngine: String?
     let engineDetail: String?
+    /// Sleep control — episode cap. `episodesQueued` is the FULL unprocessed
+    /// count found before capping; `episodeCap` is the cap applied.
+    /// `episodesQueued > episodesTotal` means this cycle was truncated.
+    /// Both absent (0) on an older backend.
+    let episodeCap: Int
+    let episodesQueued: Int
+    /// Sleep control — cooperative cancellation. `cancelRequested` is true
+    /// while a `/sleep/cancel` is pending on the running cycle;
+    /// `cancelled` is true on the first status read after a cycle actually
+    /// stopped early because of one. Both absent (false) on an older backend.
+    let cancelRequested: Bool
+    let cancelled: Bool
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
         case lastEngine, engineDetail
+        case episodeCap, episodesQueued, cancelRequested, cancelled
     }
 
     init(from decoder: Decoder) throws {
@@ -542,10 +555,22 @@ struct SleepStatusResponse: Codable {
         skillsDetected = try c.decodeIfPresent(Int.self, forKey: .skillsDetected) ?? 0
         lastEngine = try c.decodeIfPresent(String.self, forKey: .lastEngine)
         engineDetail = try c.decodeIfPresent(String.self, forKey: .engineDetail)
+        episodeCap = try c.decodeIfPresent(Int.self, forKey: .episodeCap) ?? 0
+        episodesQueued = try c.decodeIfPresent(Int.self, forKey: .episodesQueued) ?? 0
+        cancelRequested = try c.decodeIfPresent(Bool.self, forKey: .cancelRequested) ?? false
+        cancelled = try c.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
     }
 }
 
 struct SleepTriggerResponse: Codable {
+    let status: String
+    let message: String
+    let cycleId: String?
+}
+
+/// `POST /sleep/cancel` — see `SleepCancelResponse` on the API side for the
+/// full contract (idempotent, "not_running" | "cancelling", no 404/409).
+struct SleepCancelResponse: Codable {
     let status: String
     let message: String
     let cycleId: String?
@@ -1413,6 +1438,13 @@ actor APIClient {
 
     func triggerSleep() async throws -> SleepTriggerResponse {
         return try await post("/sleep/trigger")
+    }
+
+    /// Cooperative-cancel whatever cycle is currently running. See
+    /// `SleepCancelResponse` — always 200, `status` says whether there was
+    /// anything to cancel.
+    func cancelSleep() async throws -> SleepCancelResponse {
+        return try await post("/sleep/cancel")
     }
 
     // MARK: - Ask (G52)

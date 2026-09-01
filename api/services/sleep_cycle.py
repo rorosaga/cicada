@@ -67,14 +67,90 @@ class SleepState:
     # that started writing and then never reached `_finalize`'s commit is a
     # genuine risk the `_tree_is_clean` check needs to guard.
     write_started: bool = False
+    # Sleep control (cancel + episode cap). ``cancel_requested`` is the INPUT
+    # flag ``request_cancel()`` sets and every safe-point check in
+    # `_run_stages` reads; ``cancelled`` is the OUTPUT flag set true only
+    # when a cycle actually stopped early because of it (never when a cancel
+    # arrived too late — after Stage 5 started writing — in which case the
+    # cycle finishes and commits normally; see ``_cycle_cancelled`` and the
+    # end-of-cycle handling in `_run_stages`). Both reset at the top of
+    # every `run()`, exactly like every other per-cycle counter here.
+    cancel_requested: bool = False
+    cancelled: bool = False
+    # Settings-driven episode cap for this cycle (`Settings.
+    # sleep_max_episodes_per_cycle`) and the FULL unprocessed count found
+    # before capping — see `SleepStatusResponse` for the field contract.
+    episode_cap: int = 0
+    episodes_queued: int = 0
 
 
 _state = SleepState()
 _lock = asyncio.Lock()
 
+# Default episode cap when `settings` doesn't carry
+# `sleep_max_episodes_per_cycle` (e.g. a `SimpleNamespace` stand-in in an
+# older test). Mirrors `Settings.sleep_max_episodes_per_cycle`'s own default
+# and rationale — see api/config.py.
+DEFAULT_EPISODE_CAP = 25
+
 
 def get_sleep_state() -> SleepState:
     return _state
+
+
+def request_cancel() -> tuple[bool, str | None]:
+    """Cooperative-cancel whatever cycle is currently running, if any.
+
+    Idempotent: calling this while a cancel is already pending, or while
+    nothing is running, is always safe and returns the same shape — it never
+    raises and never wedges ``_state.status``. The flag is only ever read at
+    the SAFE POINTS `_run_stages` checks (between stages, plus the internal
+    checks inside Stage 1's fan-out and Stage 2's per-name judging loop) —
+    never mid-write, mid-commit, or between a file write and its commit — so
+    a requested cancel takes effect either "nothing has been written to disk
+    yet" (the common case: abort clean, queue untouched) or, once Stage 5 has
+    started writing, not at all for THIS cycle — it finishes its own commit
+    first, exactly like an uninterrupted run, so the bank is never left dirty.
+
+    Returns ``(was_running, cycle_id)``. ``was_running`` is False when there
+    was nothing to cancel — mirrors ``/sleep/trigger``'s own "already_running"
+    200-body convention (no 404/409) rather than treating "nothing running"
+    as an error.
+    """
+    if _state.status != "running":
+        return False, None
+    _state.cancel_requested = True
+    return True, _state.cycle_id
+
+
+def _cancel_requested() -> bool:
+    """Cooperative-cancel predicate threaded into `entity_extractor.extract`
+    and `entity_resolver.resolve` as `cancel_check` — kept as a bare module
+    function (not a bound method / closure over `_state`) so those modules
+    never need to import `sleep_cycle` back."""
+    return _state.cancel_requested
+
+
+def _cycle_cancelled() -> "_StageOutcome":
+    """The cancel abort point: reached with `_state.write_started` still
+    False (a stage boundary in Stages 1-4, or an early exit from Stage 1's
+    fan-out / Stage 2's per-name loop) — so NOTHING has been written to disk
+    this cycle. Nothing to commit, nothing to clean up: the queue is
+    untouched (no episode is marked processed until Stage 5), so this costs
+    the user only the time already spent on the in-memory Stage 1-4 work
+    discarded here. The next trigger resumes the exact same queue.
+    """
+    _state.cancelled = True
+    _state.cancel_requested = False
+    _state.progress = (
+        f"Cancelled — stopped cleanly before any writes; "
+        f"{_state.episodes_queued} episode(s) remain queued for the next cycle"
+    )
+    logger.info(
+        f"Sleep cycle {_state.cycle_id} cancelled before Stage 5 — "
+        f"nothing written, queue untouched"
+    )
+    return _StageOutcome()
 
 
 async def _warm_logos_safely(memory_path: Path) -> None:
@@ -384,6 +460,16 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.last_engine = None
     _state.engine_detail = None
     _state.write_started = False
+    # Sleep control: a fresh cycle starts with no cancel pending and no
+    # leftover "was this cancelled" flag from whatever ran before it — those
+    # are reset here for the same reason every other per-cycle field above
+    # is. `episode_cap`/`episodes_queued` are set for real once `_run_stages`
+    # loads the queue; zeroed here so a request racing the very start of a
+    # cycle never reads stale numbers from the previous one.
+    _state.cancel_requested = False
+    _state.cancelled = False
+    _state.episode_cap = 0
+    _state.episodes_queued = 0
 
     memory_path = settings.memory_path
 
@@ -454,7 +540,30 @@ async def _run_stages(
         _state.progress = "No unprocessed episodes"
         return _StageOutcome()
 
-    logger.info(f"Found {len(episodes)} unprocessed episodes")
+    # Episode cap (sleep-control) — bound one cycle's worst-case wall-clock
+    # instead of letting it scale with however large the queue is (spec: a
+    # first-run queue on the live bank has ~1,200 episodes of history, and
+    # the agent rung's own timing measurement is ~200-350 subprocess calls
+    # PER 20 episodes, ~90% serialized). Episodes beyond the cap are simply
+    # never handed to Stage 1 — they stay `processed: false` on disk exactly
+    # as they already were, so this is a slice, not a mutation, and the next
+    # trigger picks up right where this one left off.
+    total_unprocessed = len(episodes)
+    cap = max(1, int(
+        getattr(settings, "sleep_max_episodes_per_cycle", DEFAULT_EPISODE_CAP)
+        or DEFAULT_EPISODE_CAP
+    ))
+    _state.episodes_queued = total_unprocessed
+    _state.episode_cap = cap
+    if total_unprocessed > cap:
+        episodes = episodes[:cap]
+        logger.warning(
+            f"Episode cap reached: processing {cap} of {total_unprocessed} "
+            f"queued episodes this cycle — the remaining "
+            f"{total_unprocessed - cap} stay queued for the next cycle"
+        )
+    else:
+        logger.info(f"Found {total_unprocessed} unprocessed episodes")
     _state.episodes_total = len(episodes)
 
     # Fix round 1, M1 (part 2): resolution moved to AFTER the idle-episode
@@ -476,6 +585,12 @@ async def _run_stages(
         f"model: {settings.litellm_model}"
     )
 
+    # Sleep control — safe point: nothing has touched disk or spawned a
+    # subprocess yet, so a cancel requested any time before this (including
+    # while `resolve_settings` above was resolving the engine) aborts clean.
+    if _state.cancel_requested:
+        return _cycle_cancelled()
+
     # G74(a) pre-flight: ask the engine whether it can work BEFORE spending a
     # spawn per episode discovering it cannot. Only on a cycle with real work,
     # so an idle bank never shells out, and ollama/litellm cycles never touch
@@ -496,11 +611,21 @@ async def _run_stages(
     _state.progress = f"Stage 1/5: Extracting entities from {len(episodes)} episodes..."
     logger.info(f"Stage 1: Extracting entities from {len(episodes)} episodes")
     from api.services.entity_extractor import extract
-    extracted = await extract(episodes, settings)
+    extracted = await extract(episodes, settings, cancel_check=_cancel_requested)
     total_entities = sum(len(e.get("entities", [])) for e in extracted)
     total_rels = sum(len(e.get("relationships", [])) for e in extracted)
     logger.info(f"Stage 1 complete: {total_entities} entities, {total_rels} relationships extracted")
     _state.stage = 1
+
+    # Sleep control — safe point: Stage 1 only ever computed `extracted` in
+    # memory (no disk write, `write_started` is still False), so a cancel
+    # requested during the fan-out (which itself stopped scheduling new
+    # episodes the moment it saw the flag — see `entity_extractor.extract`)
+    # aborts clean here, discarding whatever partial extraction completed.
+    # Checked BEFORE the total-Stage-1-failure check below: a cancelled
+    # cycle is not a failure and must not be reported as one.
+    if _state.cancel_requested:
+        return _cycle_cancelled()
 
     # Resumable queue — hard stop if EVERY episode failed Stage 1 (wrong
     # model id, exhausted credits, total outage). Abort with the queue
@@ -529,7 +654,7 @@ async def _run_stages(
     logger.info("Stage 2: Resolving entities against existing graph")
     existing = _load_existing_entities(memory_path)
     from api.services.entity_resolver import resolve
-    resolved_result = await resolve(extracted, existing, settings)
+    resolved_result = await resolve(extracted, existing, settings, cancel_check=_cancel_requested)
     resolved_changes = resolved_result["changes"]
     resolved_edges = resolved_result["relationships"]
     episode_cooccurrences = resolved_result.get("episode_cooccurrences", {})
@@ -541,6 +666,13 @@ async def _run_stages(
     _state.relationships_created = len(resolved_edges)
     _state.stage = 2
 
+    # Sleep control — safe point: still nothing on disk. Stage 2's own
+    # per-name judging loop already stopped early on the same flag (see
+    # `entity_resolver.resolve`), so this catches a cancel that arrived
+    # after the loop's last iteration but before Stage 3 starts.
+    if _state.cancel_requested:
+        return _cycle_cancelled()
+
     # Stage 3: Conflict Resolution & Pruning
     _state.progress = "Stage 3/5: Resolving conflicts..."
     logger.info("Stage 3: Conflict resolution & temporal decay")
@@ -548,6 +680,11 @@ async def _run_stages(
     changes = await resolve_and_prune(resolved_changes, existing, settings)
     logger.info(f"Stage 3 complete: {len(changes)} total changes")
     _state.stage = 3
+
+    # Sleep control — safe point: Stage 3 is pure in-memory arithmetic (no
+    # LLM call, no write) — still nothing on disk.
+    if _state.cancel_requested:
+        return _cycle_cancelled()
 
     # Stage 4: Pattern Detection & Skill Extraction
     _state.progress = "Stage 4/5: Extracting skills..."
@@ -562,6 +699,15 @@ async def _run_stages(
     logger.info(f"Stage 4 complete: {len(skills)} skills detected")
     _state.skills_detected = len(skills)
     _state.stage = 4
+
+    # Sleep control — the LAST safe point: one more check before Stage 5
+    # flips `write_started` and starts putting bytes on disk. Once that
+    # happens this cycle no longer checks the flag again — Stage 5 through
+    # `_finalize`'s commit runs to completion uninterrupted, so the bank is
+    # never left half-written (see the end-of-cycle handling below, which
+    # still reports honestly if a cancel arrived after this point).
+    if _state.cancel_requested:
+        return _cycle_cancelled()
 
     # Stage 5: Nudge Generation & Versioning
     _state.progress = "Stage 5/5: Writing changes..."
@@ -780,17 +926,39 @@ async def _run_stages(
         f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
         if _state.episodes_requeued else ""
     )
+    # Episode cap: `episodes_queued` (the FULL unprocessed count found before
+    # capping) > `episodes_total` (what this cycle actually attempted) means
+    # the cap truncated this cycle. Surfaced in the progress sentence — same
+    # convention `requeue_note` above already uses — so a capped cycle never
+    # reads as a complete pass over the whole queue.
+    cap_note = (
+        f" — episode cap reached: {_state.episodes_total} of "
+        f"{_state.episodes_queued} processed, "
+        f"{_state.episodes_queued - _state.episodes_total} more queued for the next cycle"
+        if _state.episodes_queued > _state.episodes_total else ""
+    )
+    # Sleep control: a cancel that arrived AFTER Stage 5 started writing is
+    # too late to stop THIS cycle — by design (see the last safe-point check
+    # above) it finishes and commits normally rather than risking a
+    # half-written bank. Still worth being honest about in the progress
+    # sentence rather than silently swallowing the request.
+    cancel_note = ""
+    if _state.cancel_requested:
+        cancel_note = " — cancel requested after writes began; this cycle finished its commit safely"
+        _state.cancel_requested = False
     if _state.index_warning:
-        _state.progress = f"Completed with warnings: {_state.index_warning}{requeue_note}"
+        _state.progress = (
+            f"Completed with warnings: {_state.index_warning}{requeue_note}{cap_note}{cancel_note}"
+        )
         logger.warning(
             f"Sleep cycle {cycle_id} completed with warnings — "
-            f"{len(changes)} changes committed; {_state.index_warning}{requeue_note}"
+            f"{len(changes)} changes committed; {_state.index_warning}{requeue_note}{cap_note}{cancel_note}"
         )
     else:
-        _state.progress = f"Completed{requeue_note}"
+        _state.progress = f"Completed{requeue_note}{cap_note}{cancel_note}"
         logger.success(
             f"Sleep cycle {cycle_id} completed — {len(changes)} changes committed"
-            f"{requeue_note}"
+            f"{requeue_note}{cap_note}{cancel_note}"
         )
     _state.stage = 5
     return _StageOutcome(committed=True, questions_refreshed=questions_refreshed)

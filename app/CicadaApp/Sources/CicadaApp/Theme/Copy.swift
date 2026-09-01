@@ -58,6 +58,18 @@ enum Copy {
         + "Only when you start a cycle yourself — never on the nightly schedule — and if the "
         + "plan throttles it stops cleanly with the queue intact."
 
+    // MARK: Sleep control (cancel + episode cap)
+
+    static let cancelSleep = "Cancel"
+    static let cancellingSleep = "Cancelling…"
+
+    /// What tapping Cancel actually does — cooperative, not instant, nothing
+    /// lost. Shown as both a caption on the Sleep page and the cancel
+    /// button's tooltip.
+    static let cancelSleepExplainer =
+        "Stops at the next safe point — never mid-write. Nothing is lost: any "
+        + "episodes not yet consolidated stay queued for the next cycle."
+
     // MARK: Observer
 
     /// The user's own observer label. Never the account holder's first name —

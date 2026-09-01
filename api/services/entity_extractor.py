@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import sys
 from pathlib import Path
+from typing import Callable
 
 import litellm
 from loguru import logger
@@ -252,8 +253,26 @@ async def _extract_chunk(
         )
 
 
-async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
-    """Extract entities and relationships from unprocessed episodes (parallel)."""
+async def extract(
+    episodes: list[dict],
+    settings: Settings,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+) -> list[dict]:
+    """Extract entities and relationships from unprocessed episodes (parallel).
+
+    ``cancel_check`` (sleep-control): an optional zero-arg predicate polled at
+    the natural per-episode checkpoints in this fan-out — before an episode
+    even queues for a semaphore slot, and again right after it acquires one
+    (it may have waited a while). Once it starts returning ``True``, no
+    NEW episode starts any work (no LLM call spent) — its slot in ``results``
+    stays ``None``, so it comes back out of ``extract`` exactly like a failed
+    episode: absent from the returned list, left ``processed: false`` by the
+    caller. Episodes already mid-``_extract_chunk`` when the flag flips are
+    NOT interrupted — they finish normally ("let in-flight work finish").
+    ``None`` (the default, and every existing call site) means "never
+    cancel" — behavior is unchanged.
+    """
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
     results: list[dict | None] = [None] * len(episodes)
     success = 0
@@ -275,6 +294,12 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
         ep_id = episode["id"]
         content = episode["content"]
 
+        # Sleep-control checkpoint 1: before this episode even queues for a
+        # semaphore slot. A cancel requested any time before this task got
+        # its turn on the event loop means it never spends a call.
+        if cancel_check is not None and cancel_check():
+            return
+
         if not content.strip():
             # No LLM call needed, but record a zero-entity result so the Sleep
             # cycle marks this episode processed (done — nothing to extract)
@@ -292,6 +317,12 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
         chunks = _chunk_content(content)
 
         async with semaphore:
+            # Sleep-control checkpoint 2: this task may have waited a while
+            # for a slot to free up — re-check right after acquiring one, so
+            # a cancel that arrived during that wait still stops it before
+            # its first (real) LLM call.
+            if cancel_check is not None and cancel_check():
+                return
             try:
                 # Extract from all chunks and merge results
                 all_entities = []
