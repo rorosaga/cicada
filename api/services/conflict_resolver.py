@@ -2,7 +2,7 @@
 
 import json
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import litellm
@@ -19,6 +19,18 @@ from api.services.providers import resolve_llm_fn
 # (0.4) and `archive_threshold` (0.2) with room to spare, low enough that a
 # single passing mention doesn't outrank a well-established belief.
 RECOVERY_CONFIDENCE = 0.6
+
+# G85 §2 / Wave-1 1.8: a single decay pass never charges more than one
+# week's worth of decay, regardless of how many days have actually elapsed
+# since the baseline. `decay_rate` is defined per-week, so a week is the
+# natural unit. This is a safety rail INDEPENDENT of the one-shot
+# `decayed_through` backfill migration (`decay_migration.py`) — a future gap
+# (a paused schedule, a laptop off for a month, an engine outage) must
+# degrade gracefully over several cycles instead of charging the whole gap
+# as if it were user disinterest in one cliff. The watermark advances by
+# only the CAPPED amount, so the remaining "debt" persists and gets worked
+# off on subsequent cycles rather than being silently dropped.
+MAX_DECAY_DAYS_PER_CYCLE = 7
 
 
 async def resolve_and_prune(
@@ -120,7 +132,6 @@ async def resolve_and_prune(
     # Temporal decay for unreferenced entities. The per-week rate and the class
     # both come from `decay_policy.resolve` — evergreen entities are skipped.
     now = now or datetime.now()
-    decay_today = now.date().isoformat()
     decay_candidates = [e for e in existing if e["id"] not in referenced_ids]
     decay_progress = tqdm(
         total=len(decay_candidates),
@@ -164,8 +175,18 @@ async def resolve_and_prune(
         if days_since is None:
             # Fallback: single step if we cannot determine last reference
             decay_amount = decay_rate
+            decay_today = now.date().isoformat()
         else:
-            decay_amount = decay_rate * (days_since / 7.0)
+            # Wave-1 1.8: cap the charge at MAX_DECAY_DAYS_PER_CYCLE and
+            # advance the watermark by only that capped amount — a long gap
+            # (outage, paused schedule) works off gradually over several
+            # cycles instead of hitting the whole gap in one.
+            charged_days = min(days_since, MAX_DECAY_DAYS_PER_CYCLE)
+            decay_amount = decay_rate * (charged_days / 7.0)
+            baseline_date = date.fromisoformat(baseline) if baseline else now.date()
+            decay_today = min(
+                now.date(), baseline_date + timedelta(days=charged_days)
+            ).isoformat()
         new_confidence = max(0.0, confidence - decay_amount)
 
         if new_confidence < settings.archive_threshold:

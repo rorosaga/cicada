@@ -26,9 +26,11 @@ def run(coro):
 
 
 def _existing(entity_id: str, days_ago: int = 35, **fm) -> dict:
-    """One unreferenced existing entity. 35 days = 5 weeks by default, chosen so
-    volatile floors to 0.0 while active and durable both stay above zero — the
-    three classes are then distinguishable in one assertion."""
+    """One unreferenced existing entity. 35 days = 5 weeks ago by default — well
+    past MAX_DECAY_DAYS_PER_CYCLE (Wave-1 1.8), so a single `resolve_and_prune`
+    call always charges exactly one capped week's worth regardless of the raw
+    gap; the three decay classes are still distinguishable by their per-week
+    rate in one assertion."""
     base = {
         "name": entity_id.replace("-", " ").title(),
         "type": "concept",
@@ -81,10 +83,14 @@ def test_volatile_decays_faster_than_active_which_decays_faster_than_durable():
     act = changes["act"]["new_confidence"]
     dur = changes["dur"]["new_confidence"]
     assert vol < act < dur
-    # 35 days = 5 weeks from 0.7: volatile (0.15/wk) drops 0.75 and floors at
-    # 0.0 -> archived; active drops 0.25; durable drops 0.10 and barely moves.
-    assert vol == 0.0
-    assert changes["vol"]["action"] == "archive"
+    # 35 days = 5 weeks of ACTUAL gap, but Wave-1 1.8 caps a single cycle at
+    # MAX_DECAY_DAYS_PER_CYCLE (7 days = 1 week): volatile (0.15/wk) drops
+    # 0.15, active drops 0.05, durable drops 0.02 — none archived off one
+    # cycle even though the raw gap alone would have floored volatile to 0.0.
+    assert round(vol, 10) == round(0.7 - 0.15, 10)
+    assert round(act, 10) == round(0.7 - 0.05, 10)
+    assert round(dur, 10) == round(0.7 - 0.02, 10)
+    assert changes["vol"]["action"] == "decay"
     assert changes["act"]["action"] == "decay"
     assert changes["dur"]["action"] == "decay"
 
@@ -101,7 +107,7 @@ def test_an_explicit_numeric_rate_still_wins_for_a_decaying_class():
     assert changes["slow"]["new_confidence"] == 0.7, "a 0.0 rate never moves confidence"
 
 
-def test_a_legacy_page_with_no_class_decays_exactly_as_before():
+def test_a_legacy_page_with_no_class_honors_the_per_cycle_decay_cap():
     changes = _by_id(
         run(
             conflict_resolver.resolve_and_prune(
@@ -109,10 +115,12 @@ def test_a_legacy_page_with_no_class_decays_exactly_as_before():
             )
         )
     )
-    # 140 days = 20 weeks * 0.05 = 1.0 drop -> floored at 0.0 -> archived,
-    # exactly what the pre-G66 engine did for this page.
-    assert changes["legacy"]["action"] == "archive"
-    assert changes["legacy"]["new_confidence"] == 0.0
+    # Pre-Wave-1-1.8 this page would have been charged the full 140 days
+    # (20 weeks * 0.05 = 1.0 drop -> floored to 0.0 -> archived) in one cycle
+    # — the exact "first-charge cliff" 1.8 exists to prevent. Capped at
+    # MAX_DECAY_DAYS_PER_CYCLE (7 days = 1 week), only 0.05 is charged.
+    assert changes["legacy"]["action"] == "decay"
+    assert round(changes["legacy"]["new_confidence"], 10) == round(0.7 - 0.05, 10)
 
 
 def test_archived_and_dropped_entities_are_still_skipped():
@@ -297,10 +305,14 @@ def test_a_subject_with_no_page_decays_at_the_neutral_active_rate(tmp_path):
 
 
 def test_entity_decay_rerun_at_the_same_instant_subtracts_zero(tmp_path):
+    # Gap kept WITHIN MAX_DECAY_DAYS_PER_CYCLE (Wave-1 1.8) so the first cycle
+    # fully closes it (watermark reaches `now`) — otherwise a second call at
+    # the same instant would still work off remaining CAPPED backlog, which
+    # is a different, deliberate behavior covered by the 1.8 cap tests below.
     path = _page(
         tmp_path, "octo",
         status="active", confidence=0.85, decay_class="active",
-        last_referenced="2026-06-01",  # 17 days before `now` below
+        last_referenced="2026-06-11",  # 7 days before `now` below
     )
     now = datetime(2026, 6, 18, 15, 0, 0)
 
@@ -339,14 +351,15 @@ def test_entity_decay_after_n_simulated_days_charges_exactly_n_days_once(tmp_pat
     assert fm_day0["confidence"] == 0.85
     assert fm_day0["decayed_through"] == "2026-06-01"
 
-    # Day 14 (2 weeks later): should charge exactly 14 days = 2 weeks * 0.05 = 0.10,
+    # Day 4 (within MAX_DECAY_DAYS_PER_CYCLE, Wave-1 1.8, so the cap does not
+    # interfere): should charge exactly 4 days = 4/7 weeks * 0.05,
     # NOT re-charge from `last_referenced` on top of an already-decayed value.
-    day14 = datetime(2026, 6, 15)
+    day4 = datetime(2026, 6, 5)
     existing_2 = [{"id": "steady-decay", "frontmatter": fm_day0, "body": "Body."}]
-    changes_2 = run(conflict_resolver.resolve_and_prune([], existing_2, _FakeSettings(), now=day14))
+    changes_2 = run(conflict_resolver.resolve_and_prune([], existing_2, _FakeSettings(), now=day4))
     conflict_resolver.apply_changes(changes_2, tmp_path)
-    fm_day14 = markdown_parser.parse(path).frontmatter
-    assert fm_day14["confidence"] == round(0.85 - 0.10, 10)
+    fm_day4 = markdown_parser.parse(path).frontmatter
+    assert round(fm_day4["confidence"], 10) == round(0.85 - 0.05 * (4 / 7.0), 10)
 
 
 def test_claim_decay_rerun_at_the_same_instant_subtracts_zero(tmp_path):
@@ -355,9 +368,12 @@ def test_claim_decay_rerun_at_the_same_instant_subtracts_zero(tmp_path):
     claim.recorded_at = "2026-01-01"
     claim.valid_from = "2026-01-01"
 
+    # Gap kept WITHIN MAX_DECAY_DAYS_PER_CYCLE (Wave-1 1.8) so the first pass
+    # fully closes it — see the entity-engine test above for why a bigger gap
+    # needs the separate cap/backlog tests instead.
     reconciled, _n, _a = reconcile_stage3(
         [], {"subj2": [claim]}, _ClaimSettings(tmp_path),
-        cardinality_fn=lambda _p: True, now_date="2026-04-01",
+        cardinality_fn=lambda _p: True, now_date="2026-01-06",
         decay_class_fn=lambda _sid: DecayClass("active"),
     )
     conf_after_first = reconciled["subj2"][0].confidence
@@ -365,10 +381,10 @@ def test_claim_decay_rerun_at_the_same_instant_subtracts_zero(tmp_path):
 
     # Rerun at the SAME now_date over the output of the first run — the
     # historical bug re-anchored to `recorded_at` and subtracted the same
-    # ~90-day span again.
+    # span again.
     reconciled_2, _n2, _a2 = reconcile_stage3(
         [], {"subj2": reconciled["subj2"]}, _ClaimSettings(tmp_path),
-        cardinality_fn=lambda _p: True, now_date="2026-04-01",
+        cardinality_fn=lambda _p: True, now_date="2026-01-06",
         decay_class_fn=lambda _sid: DecayClass("active"),
     )
     assert reconciled_2["subj2"][0].confidence == conf_after_first, (
@@ -400,3 +416,85 @@ def test_claim_decay_after_n_simulated_days_charges_exactly_n_days_once(tmp_path
         decay_class_fn=lambda _sid: DecayClass("active"),
     )
     assert abs(reconciled_2["subj3"][0].confidence - (0.9 - 0.02)) < 1e-9
+
+
+# --------------------------------------------------------------------------- #
+# G85 §2 / Wave-1 1.8 — the per-cycle cap, INDEPENDENT of the migration: an
+# entity/claim that somehow escapes the backfill (e.g. created fresh, then
+# somehow left stale with no watermark and a huge gap) still never has more
+# than one week's decay charged in a single cycle, and a big gap is worked
+# off gradually over several cycles rather than lost or cliffed.
+# --------------------------------------------------------------------------- #
+
+
+def test_entity_decay_cap_bounds_a_huge_unbackfilled_gap_to_one_week(tmp_path):
+    now = datetime(2026, 6, 18)
+    stale_date = (now.date() - timedelta(days=75)).isoformat()
+    path = _page(
+        tmp_path, "escaped", status="active", confidence=0.85, decay_class="active",
+        last_referenced=stale_date,  # no decayed_through — never backfilled
+    )
+    existing = [{"id": "escaped", "frontmatter": markdown_parser.parse(path).frontmatter, "body": "Body."}]
+
+    changes = run(conflict_resolver.resolve_and_prune([], existing, _FakeSettings(), now=now))
+    change = next(c for c in changes if c["id"] == "escaped")
+
+    assert change["action"] == "decay", "must not archive off one cliffed cycle"
+    assert round(change["new_confidence"], 10) == round(0.85 - 0.05, 10), (
+        "a single cycle must charge at most MAX_DECAY_DAYS_PER_CYCLE worth, "
+        "not the full 75-day gap"
+    )
+
+
+def test_entity_decay_gap_catches_up_gradually_never_more_than_a_week_per_cycle(tmp_path):
+    now = datetime(2026, 6, 18)
+    gap_days = 75
+    stale_date = (now.date() - timedelta(days=gap_days)).isoformat()
+    frontmatter = {
+        "name": "Gradual", "type": "concept", "status": "active", "confidence": 0.9,
+        "decay_class": "active", "last_referenced": stale_date,
+    }
+    entity_id = "gradual"
+
+    confidences = [0.9]
+    cycles = 0
+    while True:
+        existing = [{"id": entity_id, "frontmatter": dict(frontmatter), "body": "Body."}]
+        changes = run(conflict_resolver.resolve_and_prune([], existing, _FakeSettings(), now=now))
+        change = next(c for c in changes if c["id"] == entity_id)
+        frontmatter["confidence"] = change["new_confidence"]
+        frontmatter["decayed_through"] = change["decayed_through"]
+        if "new_status" in change:
+            frontmatter["status"] = change["new_status"]
+        confidences.append(change["new_confidence"])
+        cycles += 1
+        assert cycles <= 20, "must catch up well within a sane number of cycles"
+        if frontmatter["decayed_through"] == now.date().isoformat():
+            break
+
+    # No cliff: every single cycle's drop is capped at one week's rate (0.05).
+    for prev, cur in zip(confidences, confidences[1:]):
+        assert prev - cur <= 0.05 + 1e-9
+    # ceil(75/7) cycles to fully close the gap.
+    import math
+    assert cycles == math.ceil(gap_days / 7)
+    # Nothing lost: the TOTAL eventual drop equals the uncapped equivalent —
+    # capping only spreads the charge across cycles, it never discards it.
+    total_drop = 0.9 - frontmatter["confidence"]
+    assert abs(total_drop - 0.05 * (gap_days / 7.0)) < 1e-9
+
+
+def test_claim_decay_cap_bounds_a_huge_unbackfilled_gap_to_one_week(tmp_path):
+    predicates.install_predicate_map(tmp_path)
+    claim = _open_claim("escaped-subj", "clm_20")
+    claim.recorded_at = "2026-01-01"
+    claim.valid_from = "2026-01-01"  # no decayed_through — never backfilled
+
+    reconciled, _n, _a = reconcile_stage3(
+        [], {"escaped-subj": [claim]}, _ClaimSettings(tmp_path),
+        cardinality_fn=lambda _p: True, now_date="2026-03-17",  # 75 days later
+        decay_class_fn=lambda _sid: DecayClass("active"),
+    )
+    conf = reconciled["escaped-subj"][0].confidence
+    # explicit (0.02) * agent_extracted (1.0) * active (1.0) * (7/7) = 0.02
+    assert abs(conf - (0.9 - 0.02)) < 1e-9
