@@ -52,6 +52,9 @@ trailers, Ghostty resume)
 |---|---|---|
 | **G74(a) agent engine** | **PR #25 open, ready** — 14 commits, merged cleanly up from dev, 1,515 py / 400 swift green, first-cycle archive re-verified at **0** with a negative control | Merge, then run **one** cycle by hand. Do not enable a schedule. |
 | **G88 dev loop** | Restarts clean (stopped mid-build, nothing committed) | `make install-app`, `make dev`, `installRoot()` fix, README run-section |
+| **Devin round on #25** | 3 🟡 concurrency findings — fixes in flight | Sleep/Ask share a throttle breaker, double the concurrency cap, and a connector commit can absorb a dirty tree |
+| **`saved_at` fix** | In flight (`feat/saved-at`) | `RawItem.added` written by 5 parsers, read by nothing |
+| Claude Desktop | **Registered 2026-09-01** — needs a Desktop restart | Then: it captures only what an agent chooses to save (see G105) |
 | Backlog hygiene | Triage done, not applied | Close 12 shipped rows, delete/merge 15 — 63 open becomes ~38 real |
 
 ---
@@ -68,6 +71,11 @@ trailers, Ghostty resume)
 
 ### Wave B · make what exists trustworthy
 4. **G98 remainder** — the predicate/entity-resolution half (~15 of 27 conflicts are artifacts) — M
+4b. **G104** a resumed conversation is consolidated twice — reconsolidation is the likely answer
+   (the claim layer's `superseded_by` already models "replaced by a better-informed belief") — M
+4c. **G105** deterministic conversation extraction — stop capture depending on a model choosing to
+   call a tool (measured: 4 episodes from one long session, 0 MCP calls in 12 days). Includes
+   source logos in the Sleep queue — S/M
 5. **G97** inbox items show the conversation that caused them (43/49 reach an episode in ~100 ms,
    no LLM). Ship the ETag widening in the same commit or the app caches stale context forever. — S/M
 6. **G82** hub pages are unaddressable — your "Couldn't load history"; 15 sites hardcode
@@ -83,6 +91,8 @@ trailers, Ghostty resume)
 11. **G100** span citation — which *sentence* convinced the contributor, rendered in a
     DiffView-style source viewer with prev/next across conversations — M
 12. **G103** observer model in the UI — whose belief, who was in the room — S
+12b. **G106** two-way conversations ↔ entities browser — the inverse index works today; content
+    search next; deep-linked snippets gated on G100 — M
 13. **G93** cross-stream retrieval — the only row that advances the *unbuilt* half of the north
     star; everything above is intake or repair — L
 14. **G102** site recon → entities, not summaries. Cheap first slice: extract over the OG text
@@ -132,6 +142,4 @@ G2 → close
 - No episode cap / no cancel route on a running cycle *(Wave A #1)*
 - Bank `.git` is 69 MB against 16 MB of markdown — future growth stopped, **history not rewritten**
   (destructive; user's call)
-- `RawItem.added` is set by five parsers and **read by nothing** — every bookmark carries the import
-  date, so every temporal feature is worthless until it is plumbed through
 - 8 date-dependent `test_calendar_registry.py` failures — pre-existing baseline on dev
