@@ -209,6 +209,13 @@ struct MediaFeedItem: Codable, Identifiable {
     let relatedCount: Int
     let relevance: Double
     let personalRelevance: String?
+    /// G99d — the user's actual save/bookmark/like date, recovered from the
+    /// source export when the format allows. Distinct from `savedAt` above,
+    /// which — despite its name — has always meant "when Cicada ingested
+    /// this" (kept as-is for back-compat rather than renamed out from under
+    /// existing readers). `nil` means unknown, never a guess. Use
+    /// `recencyDate` for any "most recent first" sort.
+    let contentSavedAt: String?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -216,9 +223,42 @@ struct MediaFeedItem: Codable, Identifiable {
     // rendered blank row slots for every duplicate.
     var id: String { mediaEntityId + "|" + url }
 
+    /// Prefer the true save date; fall back to the ingest timestamp when no
+    /// source date was recoverable (G99d) — what "Recent" should sort by.
+    ///
+    /// Review finding: comparing `contentSavedAt`/`savedAt` as raw STRINGS
+    /// mixed a bare `YYYY-MM-DD` against a full `YYYY-MM-DDTHH:MM:SSZ`
+    /// timestamp — on the same calendar day the bare date is a string-prefix
+    /// of, and therefore sorts as "less than", the full timestamp, which
+    /// happened to look plausible by accident of string length, not by any
+    /// documented rule. Parsing both to real `Date`s makes the rule explicit
+    /// instead: a bare date has no time-of-day and is anchored to
+    /// 00:00:00 UTC (the start of that day), so same-day ties still land the
+    /// same way, now on purpose. Mirrors `SourceChannel.lastSyncDate`'s
+    /// three-shape tolerance (fractional-seconds ISO8601, plain ISO8601,
+    /// bare `yyyy-MM-dd`).
+    var recencyDate: Date {
+        Self.parseRecencyInstant(contentSavedAt) ?? Self.parseRecencyInstant(savedAt) ?? .distantPast
+    }
+
+    private static func parseRecencyInstant(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: value) { return d }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let d = plain.date(from: value) { return d }
+        let dayOnly = DateFormatter()
+        dayOnly.dateFormat = "yyyy-MM-dd"
+        dayOnly.timeZone = TimeZone(identifier: "UTC")
+        return dayOnly.date(from: value)
+    }
+
     enum CodingKeys: String, CodingKey {
         case mediaEntityId, url, title, mediaType, site, channel, thumbnail
         case savedAt, tags, status, relatedCount, relevance, personalRelevance
+        case contentSavedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -236,6 +276,7 @@ struct MediaFeedItem: Codable, Identifiable {
         relatedCount = (try? c.decode(Int.self, forKey: .relatedCount)) ?? 0
         relevance = (try? c.decode(Double.self, forKey: .relevance)) ?? 0
         personalRelevance = try c.decodeIfPresent(String.self, forKey: .personalRelevance)
+        contentSavedAt = try c.decodeIfPresent(String.self, forKey: .contentSavedAt)
     }
 }
 
@@ -520,6 +561,58 @@ struct OriginsResponse: Codable {
     enum CodingKeys: String, CodingKey { case origins }
 }
 
+/// How far behind Sleep is, right now — independent of whether a cycle is
+/// currently running. Mirrors `api/models/schemas.py::SleepDebtResponse`;
+/// see `api/services/sleep_debt.py` for the formula. Decode-tolerant (every
+/// numeric field defaults to a safe value) so an older cached app build
+/// reading a payload that lacks this block entirely still constructs one via
+/// `SleepDebtInfo.unknown`.
+struct SleepDebtInfo: Codable, Equatable {
+    let unprocessedCount: Int
+    let oldestUnprocessedAgeHours: Double?
+    let hoursSinceLastCycle: Double?
+    let hasRunBefore: Bool
+    let volumePct: Int
+    let agePct: Int
+    /// `nil` ONLY when the queue is empty AND Sleep has never run in this
+    /// bank — no baseline to call "rested" (see the backend docstring).
+    let restedPct: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case unprocessedCount, oldestUnprocessedAgeHours, hoursSinceLastCycle
+        case hasRunBefore, volumePct, agePct, restedPct
+    }
+
+    init(unprocessedCount: Int, oldestUnprocessedAgeHours: Double?, hoursSinceLastCycle: Double?,
+         hasRunBefore: Bool, volumePct: Int, agePct: Int, restedPct: Int?) {
+        self.unprocessedCount = unprocessedCount
+        self.oldestUnprocessedAgeHours = oldestUnprocessedAgeHours
+        self.hoursSinceLastCycle = hoursSinceLastCycle
+        self.hasRunBefore = hasRunBefore
+        self.volumePct = volumePct
+        self.agePct = agePct
+        self.restedPct = restedPct
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        unprocessedCount = try c.decodeIfPresent(Int.self, forKey: .unprocessedCount) ?? 0
+        oldestUnprocessedAgeHours = try c.decodeIfPresent(Double.self, forKey: .oldestUnprocessedAgeHours)
+        hoursSinceLastCycle = try c.decodeIfPresent(Double.self, forKey: .hoursSinceLastCycle)
+        hasRunBefore = try c.decodeIfPresent(Bool.self, forKey: .hasRunBefore) ?? false
+        volumePct = try c.decodeIfPresent(Int.self, forKey: .volumePct) ?? 0
+        agePct = try c.decodeIfPresent(Int.self, forKey: .agePct) ?? 0
+        restedPct = try c.decodeIfPresent(Int.self, forKey: .restedPct)
+    }
+
+    /// A backend too old to send `debt` at all — the honest "we don't know"
+    /// shape, not a fabricated zero-debt reading.
+    static let unknown = SleepDebtInfo(
+        unprocessedCount: 0, oldestUnprocessedAgeHours: nil, hoursSinceLastCycle: nil,
+        hasRunBefore: false, volumePct: 0, agePct: 0, restedPct: nil
+    )
+}
+
 struct SleepStatusResponse: Codable {
     let status: String
     let cycleId: String?
@@ -539,12 +632,34 @@ struct SleepStatusResponse: Codable {
     /// backend, so both are optional.
     let lastEngine: String?
     let engineDetail: String?
+    /// Sleep control — episode cap. `episodesQueued` is the FULL unprocessed
+    /// count found before capping; `episodeCap` is the cap applied.
+    /// `episodesQueued > episodesTotal` means this cycle was truncated.
+    /// Both absent (0) on an older backend.
+    let episodeCap: Int
+    let episodesQueued: Int
+    /// Sleep control — cooperative cancellation. `cancelRequested` is true
+    /// while a `/sleep/cancel` is pending on the running cycle;
+    /// `cancelled` is true on the first status read after a cycle actually
+    /// stopped early because of one. Both absent (false) on an older backend.
+    let cancelRequested: Bool
+    let cancelled: Bool
+    /// Sleep debt (G106) — always present on a current backend; `.unknown`
+    /// on an older one that never sent the block at all.
+    let debt: SleepDebtInfo
+    /// Live "episodes processed / episodes in this cycle" DURING a cycle.
+    /// `nil` — never a fabricated 0 — whenever there is no honest live
+    /// number: idle, or Stage 1 has already finished (see the backend's
+    /// `sleep_cycle.progress_pct` docstring for the full contract).
+    let progressPct: Int?
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
         case lastEngine, engineDetail
+        case episodeCap, episodesQueued, cancelRequested, cancelled
+        case debt, progressPct
     }
 
     init(from decoder: Decoder) throws {
@@ -564,6 +679,12 @@ struct SleepStatusResponse: Codable {
         skillsDetected = try c.decodeIfPresent(Int.self, forKey: .skillsDetected) ?? 0
         lastEngine = try c.decodeIfPresent(String.self, forKey: .lastEngine)
         engineDetail = try c.decodeIfPresent(String.self, forKey: .engineDetail)
+        episodeCap = try c.decodeIfPresent(Int.self, forKey: .episodeCap) ?? 0
+        episodesQueued = try c.decodeIfPresent(Int.self, forKey: .episodesQueued) ?? 0
+        cancelRequested = try c.decodeIfPresent(Bool.self, forKey: .cancelRequested) ?? false
+        cancelled = try c.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
+        debt = try c.decodeIfPresent(SleepDebtInfo.self, forKey: .debt) ?? .unknown
+        progressPct = try c.decodeIfPresent(Int.self, forKey: .progressPct)
     }
 }
 
@@ -573,13 +694,42 @@ struct SleepTriggerResponse: Codable {
     let cycleId: String?
 }
 
+/// `POST /sleep/cancel` — see `SleepCancelResponse` on the API side for the
+/// full contract (idempotent, "not_running" | "cancelling", no 404/409).
+struct SleepCancelResponse: Codable {
+    let status: String
+    let message: String
+    let cycleId: String?
+}
+
 struct EpisodeQueueItem: Codable, Identifiable {
     let id: String
     let timestamp: String
     let source: String
+    /// G9 origin — the harness-normalized id (`claude-code`, `chatgpt-export`,
+    /// `telegram`, `pinterest`, …), used by the Sleep debt catch-up
+    /// breakdown to group by the same identity the rest of the app's origin
+    /// iconography keys on. `"unknown"` on an older backend that doesn't
+    /// send it.
+    let origin: String
     let title: String?
     let preview: String
     let processed: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, source, origin, title, preview, processed
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        timestamp = try c.decode(String.self, forKey: .timestamp)
+        source = try c.decode(String.self, forKey: .source)
+        origin = try c.decodeIfPresent(String.self, forKey: .origin) ?? "unknown"
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        preview = try c.decode(String.self, forKey: .preview)
+        processed = try c.decode(Bool.self, forKey: .processed)
+    }
 }
 
 struct ScheduleConfig: Codable, Equatable {
@@ -1445,6 +1595,13 @@ actor APIClient {
 
     func triggerSleep() async throws -> SleepTriggerResponse {
         return try await post("/sleep/trigger")
+    }
+
+    /// Cooperative-cancel whatever cycle is currently running. See
+    /// `SleepCancelResponse` — always 200, `status` says whether there was
+    /// anything to cancel.
+    func cancelSleep() async throws -> SleepCancelResponse {
+        return try await post("/sleep/cancel")
     }
 
     // MARK: - Ask (G52)

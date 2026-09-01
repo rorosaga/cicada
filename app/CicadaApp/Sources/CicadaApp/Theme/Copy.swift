@@ -18,10 +18,17 @@ enum Copy {
     static let agents = "Agents"
     static let feed = "Feed"
     static let activity = "Activity"
+    /// The Settings scene's third tab (G106 amendment) — the schedule
+    /// editor moved out of the Sleep page proper. Named "Schedule", not
+    /// "Sleep", so a reader is never asked to tell it apart from the
+    /// sidebar's own "Sleep" row by context alone.
+    static let schedule = "Schedule"
 
     /// The canonical way to send someone to the connections settings. Built
     /// from the parts above so a rename can never desync the two halves.
     static let settingsPlansAndKeys = "\(settings) → \(plansAndKeys)"
+    /// Ditto, for the new Schedule tab.
+    static let settingsSchedule = "\(settings) → \(schedule)"
 
     // MARK: Shared action verbs
     //
@@ -58,6 +65,34 @@ enum Copy {
         + "Only when you start a cycle yourself — never on the nightly schedule — and if the "
         + "plan throttles it stops cleanly with the queue intact."
 
+    // MARK: Sleep control (cancel + episode cap)
+
+    static let cancelSleep = "Cancel"
+    static let cancellingSleep = "Cancelling…"
+
+    /// What tapping Cancel actually does — cooperative, not instant, nothing
+    /// lost. Shown as both a caption on the Sleep page and the cancel
+    /// button's tooltip.
+    ///
+    /// Review fix L4: the backend's structural tail (logo warm-up, connector
+    /// poll, question refresh) still runs after a cancel is acknowledged —
+    /// correct (spec: it runs on every exit path, cancel included, no
+    /// regressions) but means "Cancelling…" can outlast the cycle itself by
+    /// a few seconds. Said plainly rather than left for the user to wonder
+    /// why the button didn't clear the instant the cycle stopped.
+    static let cancelSleepExplainer =
+        "Stops at the next safe point — never mid-write. Nothing is lost: any "
+        + "episodes not yet consolidated stay queued for the next cycle. A few "
+        + "housekeeping checks (logos, connectors) can still run right after, "
+        + "so \"Cancelling…\" may stay up a few seconds longer than expected."
+
+    /// Pause/resume the nightly auto-run schedule — the third quick control
+    /// on the Sleep page (alongside run + cancel). The full time editor
+    /// lives in Settings → Schedule (`settingsSchedule`); this only flips
+    /// `enabled`.
+    static let pauseAutoRun = "Pause auto-run"
+    static let resumeAutoRun = "Resume auto-run"
+
     // MARK: Observer
 
     /// The user's own observer label. Never the account holder's first name —
@@ -73,6 +108,7 @@ enum Copy {
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."
     static let activitySubtitle = "What Cicada spent, and who authored what."
+    static let scheduleSubtitle = "When Sleep runs on its own, and what powers it."
 
     // MARK: Pointers
 

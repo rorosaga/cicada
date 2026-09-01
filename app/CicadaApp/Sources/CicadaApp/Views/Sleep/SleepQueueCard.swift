@@ -91,11 +91,23 @@ struct SleepQueueCard: View {
 
                     Spacer()
 
-                    consolidateButton(count: count)
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        consolidateButton(count: count)
+                        if sleepVM.isRunning {
+                            cancelButton
+                        }
+                    }
                 }
 
-                // A failed trigger explains itself under the button that failed.
-                if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
+                // A cancel that is running (or a failed trigger) explains
+                // itself under the buttons.
+                if sleepVM.isRunning {
+                    Text(Copy.cancelSleepExplainer)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
                     Text(err)
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.danger)
@@ -135,6 +147,36 @@ struct SleepQueueCard: View {
         .disabled(sleepVM.isRunning || count == 0)
         .help(count == 0 ? "Nothing queued right now" : "Run the Sleep cycle now")
         .accessibilityLabel(Copy.consolidateNow)
+    }
+
+    /// Only shown while a cycle is running (H1: the trigger button itself
+    /// stays disabled + read-only for "Consolidating…", so this is the one
+    /// live control the running state offers). Cooperative, not instant —
+    /// `Copy.cancelSleepExplainer` says so both here (tooltip) and in the
+    /// caption below the buttons.
+    private var cancelButton: some View {
+        Button {
+            Task { await sleepVM.cancel() }
+        } label: {
+            HStack(spacing: 4) {
+                if sleepVM.isCancelling {
+                    ProgressView().controlSize(.small).frame(width: 10, height: 10)
+                } else {
+                    Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+                }
+                Text(sleepVM.isCancelling ? Copy.cancellingSleep : Copy.cancelSleep)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(CicadaTheme.textSecondary)
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .padding(.vertical, CicadaTheme.spacingSM)
+            .background(CicadaTheme.surfaceElevated)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.cicadaPlain)
+        .disabled(sleepVM.isCancelling)
+        .help(Copy.cancelSleepExplainer)
+        .accessibilityLabel(Copy.cancelSleep)
     }
 
     private var formattedLastSleep: String? {

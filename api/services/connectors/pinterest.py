@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 
 from loguru import logger
 
+from api.services import saved_at
 from api.services.connections import secrets
 from api.services.connectors import base
 from api.services.media_ingestor import RawItem
@@ -176,6 +177,13 @@ def pins_to_items(board_name: str, pins: list) -> list[RawItem]:
     one (an uploaded image) falls back to its own Pinterest permalink so it is
     still addressable and still dedups. ``folder`` is the board name — G69 names
     board/collection names the strongest unused signal in the whole corpus.
+
+    ``created_at`` (Pinterest v5's pin-creation timestamp, ISO-8601 e.g.
+    ``"2020-06-05T12:22:53"``) is routed through ``saved_at.from_iso8601`` —
+    G99d's normalizer — exactly like the five export parsers, rather than
+    handed to ``RawItem.added`` raw (Devin round 1, PR #26 finding 2: it
+    previously wasn't, so a full datetime leaked into a field every other
+    producer treats as an already-normalized bare date).
     """
     items: list[RawItem] = []
     for pin in pins or []:
@@ -191,7 +199,7 @@ def pins_to_items(board_name: str, pins: list) -> list[RawItem]:
             url=url,
             title=(str(pin.get("title") or "").strip() or None),
             note=(str(pin.get("description") or "").strip() or None),
-            added=(str(pin.get("created_at") or "").strip() or None),
+            added=saved_at.from_iso8601(pin.get("created_at")),
             folder=board_name or "Pinterest",
             origin="pinterest",
         ))

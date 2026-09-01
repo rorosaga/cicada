@@ -903,6 +903,40 @@ class SleepTriggerResponse(CamelModel):
     cycle_id: Optional[str] = None
 
 
+class SleepCancelResponse(CamelModel):
+    """``POST /sleep/cancel`` — cooperative-cancel request for whatever cycle
+    is currently running.
+
+    Mirrors ``SleepTriggerResponse``'s own "no 404/409, just an honest 200
+    body" convention (see ``/sleep/trigger``'s ``already_running`` status):
+    ``status`` is ``"cancelling"`` when a cycle was found running (idempotent
+    — a second call while a cancel is already pending returns the same
+    shape), or ``"not_running"`` when there was nothing to cancel. ``message``
+    always states the cooperative contract plainly: this stops the cycle at
+    its next safe point, not instantly, and nothing already captured is lost.
+    """
+    status: str
+    message: str
+    cycle_id: Optional[str] = None
+
+
+class SleepDebtResponse(CamelModel):
+    """How far behind Sleep is, right now — independent of whether a cycle
+    is currently running (that's `stage`/`progress` on `SleepStatusResponse`).
+    See `api/services/sleep_debt.py::SleepDebt` for the formula.
+    """
+    unprocessed_count: int
+    oldest_unprocessed_age_hours: Optional[float] = None
+    hours_since_last_cycle: Optional[float] = None
+    has_run_before: bool
+    volume_pct: int
+    age_pct: int
+    # None ONLY when the queue is empty AND Sleep has never run in this bank
+    # — no baseline to call "rested". Every other state gets an honest
+    # number (see `sleep_debt.rested_pct_from_components`).
+    rested_pct: Optional[int] = None
+
+
 class SleepStatusResponse(CamelModel):
     status: str
     cycle_id: Optional[str] = None
@@ -933,6 +967,43 @@ class SleepStatusResponse(CamelModel):
     # state ("Claude Code is signed out — run `claude auth login`").
     last_engine: Optional[str] = None
     engine_detail: Optional[str] = None
+    # Sleep control — episode cap (settings-driven; see
+    # ``Settings.sleep_max_episodes_per_cycle``). ``episodes_queued`` is the
+    # FULL unprocessed count found at the top of this cycle, BEFORE capping;
+    # ``episode_cap`` is the cap applied. ``episodes_total`` above is the
+    # (possibly capped) count this cycle actually attempted, so
+    # ``episodes_queued > episodes_total`` means the cap truncated this
+    # cycle and the rest stayed queued for the next one.
+    episode_cap: int = 0
+    episodes_queued: int = 0
+    # Sleep control — cooperative cancellation. ``cancel_requested`` is true
+    # from the moment ``POST /sleep/cancel`` is accepted for the currently
+    # running cycle until it reaches its next safe point (as opposed to a
+    # cancel requested too late — after writes began — which the cycle
+    # still finishes and commits normally). ``cancelled`` is true when a
+    # cycle stopped early because of one, for a bounded time window after
+    # (``sleep_cycle.CANCELLED_DISPLAY_WINDOW_SECONDS``, currently 5
+    # minutes) rather than a fragile one-shot "first read only" — see
+    # ``sleep_cycle.cancelled_is_visible``'s docstring for why: a true
+    # read-and-clear would race across every concurrent reader of the
+    # backend's shared state, each "using up" the single display for every
+    # OTHER reader. A time window means every reader agrees, there is no
+    # mutation-on-read, and the flag still genuinely clears rather than
+    # sticking forever the way it originally did (Devin PR #27 round 1,
+    # finding 3 — the field used to document one-read semantics no code
+    # ever implemented).
+    cancel_requested: bool = False
+    cancelled: bool = False
+    # Sleep debt (G106) — always present, computed fresh from the current
+    # queue + git log on every response. See `api/services/sleep_debt.py`
+    # for the formula and full field contract.
+    debt: SleepDebtResponse
+    # Sleep debt (G106) — live "episodes processed / episodes in this cycle"
+    # DURING a cycle. `None` — never a fabricated 0 — whenever there's no
+    # honest live number: idle, or Stage 1 has already finished and stages
+    # 2-5 have no per-episode unit to report (see
+    # `sleep_cycle.progress_pct`'s docstring for the full contract).
+    progress_pct: Optional[int] = None
 
 
 class SleepHistoryEntry(CamelModel):
@@ -952,6 +1023,12 @@ class EpisodeQueueItem(CamelModel):
     id: str
     timestamp: str
     source: str
+    # G9 origin — the harness-normalized id (`claude-code`, `chatgpt-export`,
+    # `telegram`, `pinterest`, ...), derived the same way Stage 1 extraction
+    # already does (`sleep_cycle._derive_origin`) so the Sleep debt
+    # breakdown groups by the SAME identity the rest of the app's origin
+    # iconography already keys on, not the legacy `source` string.
+    origin: str = "unknown"
     title: Optional[str] = None
     preview: str
     processed: bool
@@ -1120,6 +1197,14 @@ class MediaSourceItem(CamelModel):
     # §3.4 relevance: confidence x recency-decay x personal weight, in [0,1].
     relevance: float = 0.0
     personal_relevance: Optional[str] = None
+    # G99d — the user's actual save/bookmark/like date, recovered from the
+    # source export (see api/services/saved_at.py). Distinct from `saved_at`
+    # above, which — despite its name — has always meant "when Cicada
+    # ingested the item" (kept as-is rather than rewritten out from under
+    # existing readers). `None` means unknown, never a guess. Recency sorts
+    # (GET /sources ?sort=recent, the app's Recent toggle) should prefer this
+    # and fall back to `saved_at`.
+    content_saved_at: Optional[str] = None
 
 
 class SourceListResponse(CamelModel):

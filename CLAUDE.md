@@ -39,6 +39,39 @@ transcript pile.
 - `main`: production/stable branch
 - `dev`: active development branch — all work goes here first
 
+PRs open against `dev`. Promotion to `main` is a manual, deliberate step — never a PR target.
+
+---
+
+## Backlog and handoff (`docs/goals/`)
+
+Two files, one split: **why** something is worth doing lives apart from **what to do next**.
+Read both before proposing work; a proposal that duplicates a `G` row or re-opens a settled
+ruling is wasted effort.
+
+**[`docs/goals/memory-evolution.md`](docs/goals/memory-evolution.md) — the backlog (reference).**
+One row per idea, `G<n>`, numbered in the order it was raised and never renumbered — a `G` id is
+a permanent address, so cite `G74a` in commits, PR bodies, and specs the way you would cite a
+ticket. A row carries the *reasoning*: the problem, the evidence for it (file:line, a measured
+number, a reproduction), and the design constraint any fix must respect. Rows are triaged
+**APPLY** / **RESEARCH** / **DECIDE**, and the 💸 flag marks anything needing paid LLM spend.
+When you learn something that changes a row's argument, edit the row — do not open a second one.
+
+**[`docs/goals/TODO.md`](docs/goals/TODO.md) — the execution view + handoff.** Same work,
+ordered by what to do next: Shipped / In progress / Next / To close / Known-broken. Its header
+is a **handoff document written for an agent picking the project up cold** — current state,
+open PRs, the verified live environment (how the backend runs, where secrets live, which bank is
+active, the one correct way to launch the app), the working agreements, and a "Pick up here"
+line. Above all it carries the **rulings**: decisions that cost real measurement to reach, each
+with the evidence that settled it. Treat a ruling as binding. Revisit one only on the trigger its
+row names, and only after reading why it was made — several were reached by disproving the
+obvious answer, so re-deriving them from first principles reliably gets them wrong.
+
+Keep the split honest: **add detail to the backlog, track state in TODO.md.** After finishing
+work, update both — mark the `G` row done and move its TODO entry to Shipped — and refresh the
+handoff header if anything it asserts about the environment or the in-flight PRs has changed. A
+handoff header that is stale is worse than none, because it is trusted.
+
 ---
 
 ## Repository Structure

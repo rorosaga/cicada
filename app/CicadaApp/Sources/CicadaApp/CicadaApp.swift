@@ -154,9 +154,14 @@ struct CicadaApp: App {
 
         // ⌘, and the sidebar's footer gear. Gets the same environment as the
         // main window — `ConnectionsView` is a projection over the same Store.
+        // `sleepVM` added for the Schedule tab (G106 amendment) — the SAME
+        // view model instance the main window's Sleep page uses, so a
+        // change made here (or a Pause tap over there) is visible in both
+        // without a refetch.
         Settings {
             SettingsScene()
                 .environment(connectionsVM)
+                .environment(sleepVM)
                 .environment(store)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 // M3: `CicadaTheme.*` are static reads SwiftUI doesn't track

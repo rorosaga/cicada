@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, UploadFile
@@ -29,6 +30,7 @@ from api.services import (
     feed_registry,
     media_ingestor,
     notes_sync,
+    saved_at as saved_at_service,
     sync_service,
     sync_state,
 )
@@ -170,7 +172,14 @@ async def upload_sources(
 
     memory_path = settings.memory_path
     idx = media_ingestor.load_url_index(memory_path)
-    fresh, duplicates = media_ingestor._dedup_items(items, idx)
+    fresh, duplicates, backfilled = media_ingestor._dedup_items(items, idx)
+    # G99d (Devin round 1, PR #26 finding 1): this router loads its OWN `idx`
+    # object purely to compute `duplicates`/dispatch mode — `ingest_batch`
+    # below does an independent reload, so a backfill mutated here must be
+    # persisted explicitly or it is silently lost (this is the primary path
+    # for backfilling dates on a full re-upload of an already-saved export).
+    if backfilled:
+        media_ingestor.save_url_index(memory_path, idx)
 
     if not fresh:
         return SourceUploadResponse(
@@ -265,7 +274,11 @@ async def ingest_rss(
             it.tags = sorted(set((it.tags or []) + request.tags))
 
     idx = media_ingestor.load_url_index(memory_path)
-    fresh, duplicates = media_ingestor._dedup_items(items, idx)
+    fresh, duplicates, backfilled = media_ingestor._dedup_items(items, idx)
+    # G99d (Devin round 1, PR #26 finding 1) — see the /sources/upload
+    # handler's identical comment above.
+    if backfilled:
+        media_ingestor.save_url_index(memory_path, idx)
     if not fresh:
         return SourceUploadResponse(
             status="ok",
@@ -400,6 +413,7 @@ async def list_sources(
                 channel=channel,
                 thumbnail=entry.get("thumbnail"),
                 saved_at=entry.get("saved_at", ""),
+                content_saved_at=entry.get("content_saved_at"),
                 tags=tags,
                 status=status,
                 related_count=related_count,
@@ -408,10 +422,20 @@ async def list_sources(
             )
         )
 
+    # G99d — recency prefers the recovered true save date, falling back to
+    # the ingest timestamp only when no source date was recoverable. This
+    # deliberately reorders the Feed relative to the old ingest-only sort.
+    # Parsed to a real instant (review finding) rather than compared as raw
+    # strings — a bare content_saved_at date and a full saved_at timestamp
+    # otherwise mix formats and tie-break by string length, not by time. See
+    # `saved_at.sort_instant`'s docstring for the exact same-day rule.
+    def _recency_key(i: MediaSourceItem) -> datetime:
+        return saved_at_service.sort_instant(i.content_saved_at or i.saved_at)
+
     if sort == "relevance":
-        items.sort(key=lambda i: (i.relevance, i.saved_at), reverse=True)
+        items.sort(key=lambda i: (i.relevance, _recency_key(i)), reverse=True)
     else:
-        items.sort(key=lambda i: i.saved_at, reverse=True)
+        items.sort(key=_recency_key, reverse=True)
     return SourceListResponse(items=items, total=len(items))
 
 

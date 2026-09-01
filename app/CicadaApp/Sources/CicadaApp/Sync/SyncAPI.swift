@@ -108,6 +108,15 @@ protocol SyncAPI: Sendable {
 
 /// The `event: sleep` payload pushed over `/sync/events`. Decode-tolerant so a
 /// backend that adds or drops a field doesn't kill the stream.
+///
+/// G106 amendment: also carries the Sleep debt block + live progress —
+/// Rested % and Progress % are both "SSE-driven, continuous" per that spec,
+/// so the Sleep page's mood/rested/progress readout can update every tick
+/// without running its own separate poll loop while idle. All seven new
+/// fields are optional and `nil`-tolerant on decode, same posture as every
+/// existing field here; `SleepViewModel`/the Sleep page fall back to the
+/// REST-polled `SleepStatusResponse.debt`/`.progressPct` whenever a field
+/// here is `nil` (see `resolveSleepDebt`/`resolveProgressPct` in SleepMood.swift).
 struct SleepEventPayload: Codable, Equatable {
     var status: String
     var cycleId: String?
@@ -115,13 +124,30 @@ struct SleepEventPayload: Codable, Equatable {
     var totalStages: Int
     var progress: Double?
     var error: String?
+    var progressPct: Int?
+    var restedPct: Int?
+    var volumePct: Int?
+    var agePct: Int?
+    var unprocessedCount: Int?
+    var hasRunBefore: Bool?
+    var hoursSinceLastCycle: Double?
 
-    enum CodingKeys: String, CodingKey { case status, cycleId, stage, totalStages, progress, error }
+    enum CodingKeys: String, CodingKey {
+        case status, cycleId, stage, totalStages, progress, error
+        case progressPct, restedPct, volumePct, agePct
+        case unprocessedCount, hasRunBefore, hoursSinceLastCycle
+    }
 
     init(status: String, cycleId: String? = nil, stage: Int = 0,
-         totalStages: Int = 5, progress: Double? = nil, error: String? = nil) {
+         totalStages: Int = 5, progress: Double? = nil, error: String? = nil,
+         progressPct: Int? = nil, restedPct: Int? = nil, volumePct: Int? = nil,
+         agePct: Int? = nil, unprocessedCount: Int? = nil, hasRunBefore: Bool? = nil,
+         hoursSinceLastCycle: Double? = nil) {
         self.status = status; self.cycleId = cycleId; self.stage = stage
         self.totalStages = totalStages; self.progress = progress; self.error = error
+        self.progressPct = progressPct; self.restedPct = restedPct; self.volumePct = volumePct
+        self.agePct = agePct; self.unprocessedCount = unprocessedCount
+        self.hasRunBefore = hasRunBefore; self.hoursSinceLastCycle = hoursSinceLastCycle
     }
 
     init(from decoder: Decoder) throws {
@@ -132,5 +158,12 @@ struct SleepEventPayload: Codable, Equatable {
         totalStages = (try? c.decode(Int.self, forKey: .totalStages)) ?? 5
         progress = try? c.decodeIfPresent(Double.self, forKey: .progress)
         error = try? c.decodeIfPresent(String.self, forKey: .error)
+        progressPct = try? c.decodeIfPresent(Int.self, forKey: .progressPct)
+        restedPct = try? c.decodeIfPresent(Int.self, forKey: .restedPct)
+        volumePct = try? c.decodeIfPresent(Int.self, forKey: .volumePct)
+        agePct = try? c.decodeIfPresent(Int.self, forKey: .agePct)
+        unprocessedCount = try? c.decodeIfPresent(Int.self, forKey: .unprocessedCount)
+        hasRunBefore = try? c.decodeIfPresent(Bool.self, forKey: .hasRunBefore)
+        hoursSinceLastCycle = try? c.decodeIfPresent(Double.self, forKey: .hoursSinceLastCycle)
     }
 }
