@@ -26,7 +26,10 @@ def test_parse_linkedin_saved_reads_url_and_date():
         "https://example.com/posts/aaa",
         "https://example.com/posts/bbb",
     ]
-    assert items[0].added == "2026-01-02 10:00:00"
+    # G99d: `.added` is normalized to an ISO date at parse time (see
+    # api/services/saved_at.py) — the raw "2026-01-02 10:00:00" collapses to
+    # its date component.
+    assert items[0].added == "2026-01-02"
     assert items[0].folder == "Saved Items"
     assert items[0].origin == "linkedin-saved"
     assert items[0].title is None, "the export carries no title — never invent one"
@@ -91,7 +94,8 @@ def test_parse_tiktok_export_reads_favorites_and_likes_but_not_history():
     ]
     assert [i.folder for i in items] == ["Favorites", "Favorites", "Likes"]
     assert {i.origin for i in items} == {"tiktok-saved"}
-    assert items[0].added == "2026-01-02 10:00:00"
+    # G99d: normalized to an ISO date at parse time.
+    assert items[0].added == "2026-01-02"
 
 
 def test_parse_tiktok_export_includes_history_only_when_opted_in():

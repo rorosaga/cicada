@@ -36,7 +36,11 @@ final class FeedViewModel {
         let base = store.sources.value ?? []
         switch sort {
         case .relevance: return base
-        case .recent: return base.sorted { $0.savedAt > $1.savedAt }
+        // G99d: prefer the recovered true save date over the ingest
+        // timestamp, falling back to it only when no source date parsed.
+        // Compared as real Dates (review finding), not raw strings — see
+        // MediaFeedItem.recencyDate's doc for the same-day tie-break rule.
+        case .recent: return base.sorted { $0.recencyDate > $1.recencyDate }
         }
     }
 

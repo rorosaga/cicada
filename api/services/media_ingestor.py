@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 from loguru import logger
 
-from api.services import decay_policy, markdown_parser
+from api.services import decay_policy, markdown_parser, saved_at
 from api.services.id_utils import sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
@@ -52,6 +52,13 @@ class RawItem:
     title: str | None = None
     tags: list[str] = field(default_factory=list)
     channel: str | None = None
+    # G99d: the user's actual save/bookmark/like date, ALREADY NORMALIZED to
+    # an ISO ``YYYY-MM-DD`` string by the parser that sets it (see
+    # ``api/services/saved_at.py`` — each of the five source-specific formats
+    # is converted at parse time, never carried raw). ``None`` means unknown
+    # — a source that provides no date, or one that failed to parse — and
+    # must never be guessed at downstream. Distinct from the episode's
+    # ``timestamp``/entity's ``created`` (when Cicada ingested the item).
     added: str | None = None
     note: str | None = None
     # Human-readable source folder/category path, e.g. "Bookmarks Bar/AI/Papers"
@@ -313,7 +320,7 @@ def parse_netscape_bookmarks(html: str) -> list[RawItem]:
             url=href,
             title=(a.get_text(strip=True) or None),
             tags=tags,
-            added=a.get("add_date"),
+            added=saved_at.from_netscape_epoch(a.get("add_date")),
             folder=folder_name or None,
         ))
     return items
@@ -409,7 +416,7 @@ def parse_chrome_bookmarks_json(data: dict) -> list[RawItem]:
             items.append(RawItem(
                 url=node["url"],
                 title=node.get("name") or None,
-                added=node.get("date_added"),
+                added=saved_at.from_webkit_micros(node.get("date_added")),
                 folder="/".join(path) if path else None,
             ))
             return
@@ -459,7 +466,7 @@ def parse_youtube_takeout(content: bytes, filename: str) -> list[RawItem]:
             url=url,
             title=entry.get("title") or None,
             channel=channel,
-            added=entry.get("time"),
+            added=saved_at.from_iso8601(entry.get("time")),
         ))
     return items
 
@@ -619,7 +626,7 @@ def parse_tiktok_export(data, *, include_history: bool = False) -> list[RawItem]
             date = row.get("Date") or row.get("date")
             items.append(RawItem(
                 url=url.strip(),
-                added=date if isinstance(date, str) else None,
+                added=saved_at.from_tiktok(date),
                 folder=folder,
                 origin="tiktok-history" if is_history else "tiktok-saved",
             ))
@@ -750,7 +757,7 @@ def parse_linkedin_saved(content: bytes, filename: str) -> list[RawItem]:
             continue
         added = None
         if date_col:
-            added = (row.get(date_col) or "").strip() or None
+            added = saved_at.from_freeform(row.get(date_col))
         items.append(RawItem(
             url=url,
             added=added,
@@ -1336,6 +1343,7 @@ def _episode_body(
     note: str | None,
     folder: str | None = None,
     reason: str | None = None,
+    content_saved_at: str | None = None,
 ) -> str:
     lines = [
         f"# {meta.title}",
@@ -1350,6 +1358,11 @@ def _episode_body(
     if folder:
         lines.append(f"**Folder:** {folder}")
     lines.append(f"**Saved:** {saved_date}")
+    # G99d — the source export's own recovered save date, when it differs
+    # from the ingest date above. Never shown when equal/absent so the common
+    # case (saved and imported the same day) doesn't grow a redundant line.
+    if content_saved_at and content_saved_at != saved_date:
+        lines.append(f"**Originally saved:** {content_saved_at}")
     if meta.description:
         lines += ["", "## Description", meta.description]
     if reason:
@@ -1379,8 +1392,16 @@ def write_media_episode(
     timestamp = now.isoformat() + "Z"
     saved_date = ep_date
 
+    # G99d seam guard (Devin round 1, PR #26): `RawItem.added` is
+    # contractually pre-normalized, but validate here anyway — the one place
+    # every write of this value funnels through — so a future producer that
+    # forgets to normalize (as Pinterest's `created_at` did) can never leak a
+    # raw value into frontmatter or the body.
+    validated_added = saved_at.validate(item.added)
+
     body = _episode_body(
-        meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason
+        meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason,
+        content_saved_at=validated_added,
     )
     content_hash = hashlib.sha256(normalize_url(item.url).encode()).hexdigest()[:12]
 
@@ -1395,6 +1416,12 @@ def write_media_episode(
         "media_entity_id": media_entity_id,
         "folder": item.folder or None,
     }
+    if validated_added:
+        # G99d — when the user actually saved/bookmarked this, recovered from
+        # the source export (normalized in api/services/saved_at.py). Absent
+        # (never a guess) when the source gave no date or it failed to parse.
+        # Distinct from `timestamp` above, which is when Cicada ingested it.
+        frontmatter["saved_at"] = validated_added
     if item.origin:
         frontmatter["origin"] = item.origin
     if item.session_id:
@@ -1483,6 +1510,18 @@ def write_media_entity(
         "version": 1,
         "folder": item.folder or None,
     }
+    # G99d seam guard (Devin round 1, PR #26): see write_media_episode's same
+    # comment — validate before persisting, don't just trust the producer.
+    validated_added = saved_at.validate(item.added)
+    if validated_added:
+        # G99d — the user's actual save/bookmark/like date (top-level, next
+        # to `created`/`last_referenced`), recovered from the source export.
+        # NOT the same thing as the nested `media.saved_at` below, which —
+        # despite its name — has always meant "when Cicada ingested this"
+        # (kept as-is for back-compat rather than rewritten under everyone's
+        # feet); `created` above is that same ingest moment. Absent when the
+        # source gave no date or it didn't parse — never a guess.
+        frontmatter["saved_at"] = validated_added
     if item.origin:
         frontmatter["origin"] = item.origin
     frontmatter["media"] = {
@@ -1522,12 +1561,44 @@ def save_url_index(memory_path: Path, idx: dict) -> None:
 # --- Single-item ingest + batch ---
 
 
+def _backfill_content_saved_at(existing: dict, item: RawItem) -> bool:
+    """A duplicate hit is not a pure no-op (Devin round 1, PR #26 finding 1).
+
+    If the existing ``url_index.json`` entry has no recoverable
+    ``content_saved_at`` and THIS item's parser/connector did recover one,
+    backfill it onto the existing entry in place. A re-import is the
+    realistic path to ever recovering a save date for an already-ingested
+    item — 0% of the 789 items on the live bank had one at write time — so
+    silently discarding a genuine value on every duplicate hit would make
+    that path permanently dead.
+
+    Never overwrites an existing value with a different one (only fills a
+    genuine gap) and never downgrades — ``content_saved_at`` is always a bare
+    date once validated, so there is no "more precise" value to lose here.
+    Runs the incoming value through ``saved_at.validate`` (the same
+    write-boundary guard every other write site uses) rather than trusting
+    the caller. Returns ``True`` iff ``existing`` was mutated.
+    """
+    if existing.get("content_saved_at"):
+        return False
+    validated = saved_at.validate(item.added)
+    if not validated:
+        return False
+    existing["content_saved_at"] = validated
+    return True
+
+
 async def ingest_one(
     item: RawItem, memory_path: Path, client, idx: dict, from_bookmark_file: bool = False
 ) -> IngestResult:
     h = url_hash(item.url)
     if h in idx:
         existing = idx[h]
+        # Caller is responsible for persisting `idx` afterward — every
+        # current caller (`POST /sources/save`, the Telegram `/save` path)
+        # already calls `save_url_index` unconditionally right after this
+        # returns, so a backfill here is never silently lost.
+        _backfill_content_saved_at(existing, item)
         return IngestResult(
             status="duplicate",
             media_entity_id=existing.get("media_entity_id", ""),
@@ -1559,8 +1630,15 @@ async def ingest_one(
         "title": meta.title,
         "media_type": meta.media_type,
         "thumbnail": meta.thumbnail,
+        # Kept as-is: despite the name, this has always been the *ingest*
+        # timestamp, not the user's save date — `GET /sources` reads it
+        # straight into `MediaSourceItem.saved_at`. `content_saved_at` below
+        # (G99d) is the genuinely new, distinct, optional field.
         "saved_at": datetime.now().isoformat() + "Z",
     }
+    validated_added = saved_at.validate(item.added)
+    if validated_added:
+        idx[h]["content_saved_at"] = validated_added
     return IngestResult(
         status="created",
         media_entity_id=entity_id,
@@ -1572,21 +1650,38 @@ async def ingest_one(
     )
 
 
-def _dedup_items(items: list[RawItem], idx: dict) -> tuple[list[RawItem], int]:
-    """Drop items already in the url_index and collapse in-batch dup URLs."""
+def _dedup_items(items: list[RawItem], idx: dict) -> tuple[list[RawItem], int, bool]:
+    """Drop items already in the url_index and collapse in-batch dup URLs.
+
+    A duplicate hit against an existing ``idx`` entry (not an in-batch dup —
+    those have no existing entry to backfill into yet) still gets a chance to
+    backfill ``content_saved_at`` via ``_backfill_content_saved_at`` (G99d,
+    Devin round 1 PR #26 finding 1) — this is THE bulk-reimport path, i.e.
+    the realistic way a user ever recovers save dates for items already on
+    disk. Returns ``(fresh_items, skipped_count, index_was_mutated)`` — every
+    caller MUST persist ``idx`` (``save_url_index``) whenever the third value
+    is ``True``, even when ``fresh_items`` ends up empty (a wholly-duplicate
+    re-import must not silently discard the backfill).
+    """
     seen: set[str] = set()
     fresh: list[RawItem] = []
     skipped = 0
+    backfilled = False
     for item in items:
         if not item.url:
             continue
         h = url_hash(item.url)
-        if h in idx or h in seen:
+        if h in idx:
+            skipped += 1
+            if _backfill_content_saved_at(idx[h], item):
+                backfilled = True
+            continue
+        if h in seen:
             skipped += 1
             continue
         seen.add(h)
         fresh.append(item)
-    return fresh, skipped
+    return fresh, skipped, backfilled
 
 
 async def ingest_batch(
@@ -1604,8 +1699,14 @@ async def ingest_batch(
     import httpx
 
     idx = load_url_index(memory_path)
-    fresh, _ = _dedup_items(items, idx)
+    fresh, _, backfilled = _dedup_items(items, idx)
     if not fresh:
+        # G99d (Devin round 1, PR #26 finding 1): a wholly-duplicate batch —
+        # e.g. re-importing the SAME bookmarks export to backfill dates —
+        # must not silently drop a backfill just because nothing new was
+        # created. Persist it before returning.
+        if backfilled:
+            save_url_index(memory_path, idx)
         return 0, len(items)
 
     sem = asyncio.Semaphore(8)
