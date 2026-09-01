@@ -55,7 +55,30 @@ func parseEpisodeTimestamp(_ raw: String) -> Date? {
     if let d = withFractional.date(from: raw) { return d }
     let plain = ISO8601DateFormatter()
     plain.formatOptions = [.withInternetDateTime]
-    return plain.date(from: raw)
+    if let d = plain.date(from: raw) { return d }
+
+    // Devin PR #27 round 1, finding 6: both attempts above REQUIRE a `Z`/
+    // offset designator — `ISO8601DateFormatter`'s `.withInternetDateTime`
+    // demands one and returns `nil` without it. But this bank's own MCP
+    // capture path writes naive LOCAL time (`datetime.now().isoformat()`,
+    // no explicit tz) — the same both-shapes reality the backend's
+    // `sleep_debt._parse_episode_timestamp` hit (M1). A naive timestamp
+    // used to fall straight to `nil` here, landing in `.older`
+    // unconditionally and disagreeing with the backend's own age math for
+    // the SAME episode. Interpreted in the LOCAL calendar (`TimeZone.
+    // current`), mirroring how the backend compares a naive value directly
+    // against `datetime.now()` (also naive-local) rather than assuming UTC.
+    let naiveWithFractional = DateFormatter()
+    naiveWithFractional.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
+    naiveWithFractional.timeZone = .current
+    naiveWithFractional.locale = Locale(identifier: "en_US_POSIX")
+    if let d = naiveWithFractional.date(from: raw) { return d }
+
+    let naive = DateFormatter()
+    naive.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+    naive.timeZone = .current
+    naive.locale = Locale(identifier: "en_US_POSIX")
+    return naive.date(from: raw)
 }
 
 /// Pure — `now` injected so bucket boundaries are exercisable exactly, not

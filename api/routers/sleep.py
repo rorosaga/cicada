@@ -14,10 +14,12 @@ from api.models.schemas import (
 )
 from api.services import git_service, sleep_debt, sleep_scheduler
 from api.services.sleep_cycle import (
+    cancelled_is_visible,
     get_sleep_state,
     list_all_episodes,
     progress_pct,
     request_cancel,
+    reserve_cycle,
     run,
 )
 
@@ -38,6 +40,14 @@ async def trigger_sleep(
         )
 
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
+    # Devin PR #27 round 1, finding 2: reserve the slot SYNCHRONOUSLY,
+    # before scheduling the background task — a FastAPI background task
+    # only starts running once this response has been sent, so without this
+    # an immediate `POST /sleep/cancel` would see `status == "idle"` and
+    # report "not_running", silently losing the cancel. `run()` (below)
+    # detects the reservation and preserves whatever got requested in the
+    # window between this call and its own first line.
+    reserve_cycle(cycle_id)
     # Fix round 1, H1: explicit, not just the default — this IS the
     # human-pressed-Run path spec §7 scopes the toggle/auto engine
     # selection to.
@@ -107,7 +117,7 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         episode_cap=state.episode_cap,
         episodes_queued=state.episodes_queued,
         cancel_requested=state.cancel_requested,
-        cancelled=state.cancelled,
+        cancelled=cancelled_is_visible(state),
         progress_pct=progress_pct(state),
         debt=SleepDebtResponse(
             unprocessed_count=debt.unprocessed_count,

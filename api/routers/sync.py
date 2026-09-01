@@ -53,9 +53,31 @@ async def events(settings: Settings = Depends(get_settings)):
             # and safe on every tick per its own docstring.
             debt = await sleep_debt.compute(settings.memory_path, settings)
             progress = progress_pct(state)
+            # Devin PR #27 round 1, finding 4: the key used to omit
+            # `volume_pct`/`age_pct`/`has_run_before` entirely, and
+            # `hours_since_last_cycle` (a continuously-increasing float, so
+            # it can't go in RAW without firing an event every single tick
+            # and defeating the whole point of change-gating). When volume
+            # dominates `rested_pct = 100 - max(volume_pct, age_pct)`, `age_pct`
+            # can move — or `hours_since_last_cycle` can cross a UI threshold
+            # (the Swift side's 48h "hungry" read) — with NOTHING in the old
+            # key changing, so no event ever fires and a connected client
+            # holds stale data indefinitely. Every discrete debt field the
+            # payload carries is now in the key exactly (no approximation
+            # needed — they're already coarse integers/booleans); the one
+            # continuous field is rounded to 0.1h (6-minute) buckets, which
+            # bounds event frequency to something sane while guaranteeing
+            # ANY threshold a client might read off it — 48h or otherwise —
+            # is crossed within one bucket's width of the real moment,
+            # rather than hardcoding one specific threshold value here.
+            hours_bucket = (
+                round(debt.hours_since_last_cycle, 1)
+                if debt.hours_since_last_cycle is not None else None
+            )
             sleep_key = (
                 state.status, state.cycle_id, state.stage, state.progress,
-                debt.rested_pct, debt.unprocessed_count, progress,
+                debt.rested_pct, debt.volume_pct, debt.age_pct, debt.has_run_before,
+                debt.unprocessed_count, progress, hours_bucket,
             )
             if sleep_key != last_sleep:
                 last_sleep = sleep_key

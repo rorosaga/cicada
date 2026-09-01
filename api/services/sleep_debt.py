@@ -200,35 +200,56 @@ async def _last_cycle_at(memory_path: Path) -> datetime | None:
     return result
 
 
+# Review fix (finding 5): a single bounded `-n 200` scan meant a bank whose
+# newest REAL Sleep-cycle commit is older than the 200 most recent commits
+# (a long run of manual edits, clarification resolutions, or other non-Sleep
+# activity since the last cycle) reported `has_run_before=False` and lost its
+# rested baseline entirely — even though Sleep genuinely HAS run before, just
+# further back. `_HISTORY_PAGE_SIZE` is the per-page size for the paging scan
+# below; `_HISTORY_MAX_PAGES` is a defensive (not expected-to-bite) ceiling —
+# any real personal-scale bank's whole history fits in a handful of pages,
+# but this stops a pathological repo from scanning forever. This only runs
+# on a cache miss (see `_last_cycle_at` above) — once per NEW commit, not
+# once per SSE tick — so paging further back costs nothing in the common
+# case where the match is still in the first page.
+_HISTORY_PAGE_SIZE = 200
+_HISTORY_MAX_PAGES = 50
+
+
 async def _read_last_cycle_from_git(memory_path: Path) -> datetime | None:
-    """The actual (uncached) ``git log`` read ``_last_cycle_at`` caches."""
+    """The actual (uncached) ``git log`` read ``_last_cycle_at`` caches.
+
+    Pages through history in ``_HISTORY_PAGE_SIZE``-sized batches
+    (``git log --skip=N -n 200``) until a real cycle commit is found or
+    history is exhausted (a page shorter than the page size) — see the
+    module-level comment above for why a single bounded scan was wrong.
+    """
     sep, rec = "\x1f", "\x1e"
-    try:
-        # Bounded scan: the most recent real cycle is virtually always within
-        # the last handful of commits; 200 comfortably covers a bank that has
-        # gone quiet for a long stretch without scanning the entire history
-        # of a mature repo on every cache miss.
-        output = await git_service._run_git(
-            memory_path, "log", "-n", "200", f"--format=%aI{sep}%s{rec}",
-        )
-    except git_service.GitError:
-        return None
-    for record in output.split(rec):
-        record = record.strip("\n")
-        if not record.strip():
-            continue
-        fields = record.split(sep, 1)
-        if len(fields) < 2:
-            continue
-        iso_date, subject = fields[0].strip(), fields[1].strip()
-        subj = subject.lower()
-        if not subj.startswith("sleep cycle") or "(decay)" in subj:
-            continue
+    for page in range(_HISTORY_MAX_PAGES):
+        skip = page * _HISTORY_PAGE_SIZE
         try:
-            dt = datetime.fromisoformat(iso_date)
-        except ValueError:
-            continue
-        return dt.astimezone().replace(tzinfo=None) if dt.tzinfo else dt
+            output = await git_service._run_git(
+                memory_path, "log", "-n", str(_HISTORY_PAGE_SIZE), "--skip", str(skip),
+                f"--format=%aI{sep}%s{rec}",
+            )
+        except git_service.GitError:
+            return None
+        records = [r.strip("\n") for r in output.split(rec) if r.strip("\n").strip()]
+        for record in records:
+            fields = record.split(sep, 1)
+            if len(fields) < 2:
+                continue
+            iso_date, subject = fields[0].strip(), fields[1].strip()
+            subj = subject.lower()
+            if not subj.startswith("sleep cycle") or "(decay)" in subj:
+                continue
+            try:
+                dt = datetime.fromisoformat(iso_date)
+            except ValueError:
+                continue
+            return dt.astimezone().replace(tzinfo=None) if dt.tzinfo else dt
+        if len(records) < _HISTORY_PAGE_SIZE:
+            return None  # history exhausted, no real cycle commit anywhere
     return None
 
 

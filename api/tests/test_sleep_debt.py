@@ -321,6 +321,68 @@ def test_last_cycle_at_recomputes_after_a_new_commit_lands(tmp_path, monkeypatch
 
 
 # --------------------------------------------------------------------------- #
+# Devin PR #27 round 1, finding 5: the history scan pages past one batch
+# --------------------------------------------------------------------------- #
+
+
+def _commit(memory, subject, filename):
+    (memory / filename).write_text("x")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-q", "-m", subject)
+
+
+def test_last_cycle_at_finds_a_real_cycle_commit_beyond_the_first_page(tmp_path, monkeypatch):
+    """A bank whose newest real Sleep-cycle commit is older than one page's
+    worth of commits must still find it — not report `has_run_before=False`
+    and lose the rested baseline. The page size is shrunk so the test
+    doesn't need hundreds of real commits to prove the paging loop works."""
+    monkeypatch.setattr(sleep_debt, "_HISTORY_PAGE_SIZE", 3)
+    memory = _init_bank(tmp_path)
+    _commit(memory, "Sleep cycle 2026-01-01", "a.txt")
+    # More non-Sleep commits than one page's worth (3) — the real cycle
+    # commit is now on page 2+.
+    for i in range(5):
+        _commit(memory, f"Manual edit {i}", f"b{i}.txt")
+
+    result = asyncio.run(sleep_debt._last_cycle_at(memory))
+
+    assert result is not None
+    debt = asyncio.run(sleep_debt.compute(memory, SimpleNamespace()))
+    assert debt.has_run_before is True
+
+
+def test_last_cycle_at_returns_none_when_truly_never_run_across_many_pages(tmp_path, monkeypatch):
+    """Control: exhausting every page with no match must still terminate
+    and correctly report never-run, not hang or false-positive."""
+    monkeypatch.setattr(sleep_debt, "_HISTORY_PAGE_SIZE", 3)
+    memory = _init_bank(tmp_path)
+    for i in range(8):   # more than two full pages, zero real cycle commits
+        _commit(memory, f"Manual edit {i}", f"c{i}.txt")
+
+    result = asyncio.run(sleep_debt._last_cycle_at(memory))
+
+    assert result is None
+
+
+def test_last_cycle_at_pages_efficiently_stopping_once_history_is_exhausted(tmp_path, monkeypatch):
+    """The loop must stop as soon as a page comes back shorter than the
+    page size (history exhausted) rather than always walking to
+    `_HISTORY_MAX_PAGES` — asserted via a spy on the underlying git calls."""
+    monkeypatch.setattr(sleep_debt, "_HISTORY_PAGE_SIZE", 3)
+    memory = _init_bank(tmp_path)
+    for i in range(4):   # seed commit + 4 = 5 total, less than 2 pages of 3
+        _commit(memory, f"Manual edit {i}", f"d{i}.txt")
+    calls = _spy_on_run_git(monkeypatch)
+
+    asyncio.run(sleep_debt._last_cycle_at(memory))
+
+    # 5 commits at page size 3: page 1 (3 commits, full -> keep going),
+    # page 2 (2 commits, short -> stop). Exactly 2 git log calls, not
+    # `_HISTORY_MAX_PAGES`.
+    assert calls["n"] == 2
+
+
+# --------------------------------------------------------------------------- #
 # Router: /sleep/status carries the debt block
 # --------------------------------------------------------------------------- #
 

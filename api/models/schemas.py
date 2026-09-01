@@ -967,10 +967,20 @@ class SleepStatusResponse(CamelModel):
     episodes_queued: int = 0
     # Sleep control — cooperative cancellation. ``cancel_requested`` is true
     # from the moment ``POST /sleep/cancel`` is accepted for the currently
-    # running cycle until it reaches its next safe point; ``cancelled`` is
-    # true on the FIRST status read after a cycle actually stopped early
-    # because of one (as opposed to a cancel requested too late — after
-    # writes began — which the cycle still finishes and commits normally).
+    # running cycle until it reaches its next safe point (as opposed to a
+    # cancel requested too late — after writes began — which the cycle
+    # still finishes and commits normally). ``cancelled`` is true when a
+    # cycle stopped early because of one, for a bounded time window after
+    # (``sleep_cycle.CANCELLED_DISPLAY_WINDOW_SECONDS``, currently 5
+    # minutes) rather than a fragile one-shot "first read only" — see
+    # ``sleep_cycle.cancelled_is_visible``'s docstring for why: a true
+    # read-and-clear would race across every concurrent reader of the
+    # backend's shared state, each "using up" the single display for every
+    # OTHER reader. A time window means every reader agrees, there is no
+    # mutation-on-read, and the flag still genuinely clears rather than
+    # sticking forever the way it originally did (Devin PR #27 round 1,
+    # finding 3 — the field used to document one-read semantics no code
+    # ever implemented).
     cancel_requested: bool = False
     cancelled: bool = False
     # Sleep debt (G106) — always present, computed fresh from the current

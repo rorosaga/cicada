@@ -56,6 +56,94 @@ final class SleepDebtBreakdownTests: XCTestCase {
         XCTAssertNil(parseEpisodeTimestamp("not a date"))
     }
 
+    // MARK: parseEpisodeTimestamp — naive local time (Devin PR #27 round 1, finding 6)
+    //
+    // The bank's own MCP capture path writes naive LOCAL time
+    // (`datetime.now().isoformat()`, no `Z`/offset) — the SAME both-shapes
+    // reality the backend's `sleep_debt._parse_episode_timestamp` hit (M1).
+    // `ISO8601DateFormatter`'s `.withInternetDateTime` REQUIRES a tz
+    // designator and returns `nil` without one, so a naive value used to
+    // fall straight through to `nil` and land in `.older` unconditionally
+    // — disagreeing with the backend's own age math for the SAME episode.
+
+    private func naiveLocalString(_ date: Date, includeFraction: Bool = false) -> String {
+        let f = DateFormatter()
+        f.dateFormat = includeFraction ? "yyyy-MM-dd'T'HH:mm:ss.SSSSSS" : "yyyy-MM-dd'T'HH:mm:ss"
+        f.timeZone = .current
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: date)
+    }
+
+    func test_parseEpisodeTimestamp_acceptsNaiveLocalTimestamp() throws {
+        let now = Date()
+        let raw = naiveLocalString(now)
+        // `try XCTUnwrap`, not `XCTAssertNotNil` + `!` — a regression here
+        // must fail just THIS test, not force-unwrap `nil` and crash the
+        // whole process before the rest of the suite gets to run.
+        let parsed = try XCTUnwrap(
+            parseEpisodeTimestamp(raw), "a naive (no Z, no offset) timestamp must still parse"
+        )
+        XCTAssertEqual(parsed.timeIntervalSince1970, now.timeIntervalSince1970, accuracy: 1.0)
+    }
+
+    func test_parseEpisodeTimestamp_acceptsNaiveLocalTimestampWithFractionalSeconds() throws {
+        let now = Date()
+        let raw = naiveLocalString(now, includeFraction: true)
+        let parsed = try XCTUnwrap(parseEpisodeTimestamp(raw))
+        XCTAssertEqual(parsed.timeIntervalSince1970, now.timeIntervalSince1970, accuracy: 1.0)
+    }
+
+    // MARK: groupEpisodesByAge — naive timestamps near the 24h / 7-day boundaries
+
+    func test_groupByAge_naiveTimestamp_justUnder24HoursIsToday() {
+        let now = Date()
+        let raw = naiveLocalString(now.addingTimeInterval(-23 * 3600))
+        let buckets = groupEpisodesByAge([episode(id: "1", origin: "mcp", timestamp: raw)], now: now)
+        XCTAssertEqual(buckets.first?.bucket, .today)
+    }
+
+    func test_groupByAge_naiveTimestamp_justOver24HoursIsThisWeek() {
+        let now = Date()
+        let raw = naiveLocalString(now.addingTimeInterval(-25 * 3600))
+        let buckets = groupEpisodesByAge([episode(id: "1", origin: "mcp", timestamp: raw)], now: now)
+        XCTAssertEqual(buckets.first?.bucket, .thisWeek)
+    }
+
+    func test_groupByAge_naiveTimestamp_justUnder7DaysIsThisWeek() {
+        let now = Date()
+        let raw = naiveLocalString(now.addingTimeInterval(-((24 * 7 - 1) * 3600)))
+        let buckets = groupEpisodesByAge([episode(id: "1", origin: "mcp", timestamp: raw)], now: now)
+        XCTAssertEqual(buckets.first?.bucket, .thisWeek)
+    }
+
+    func test_groupByAge_naiveTimestamp_justOver7DaysIsOlder() {
+        let now = Date()
+        let raw = naiveLocalString(now.addingTimeInterval(-((24 * 7 + 1) * 3600)))
+        let buckets = groupEpisodesByAge([episode(id: "1", origin: "mcp", timestamp: raw)], now: now)
+        XCTAssertEqual(buckets.first?.bucket, .older)
+    }
+
+    func test_groupByAge_naiveAndZSuffixedTimestampsAgreeForTheSameInstant() {
+        // The two shapes the bank actually contains, side by side, for the
+        // SAME real moment — both must land in the SAME bucket.
+        let now = Date()
+        let target = now.addingTimeInterval(-30 * 3600)   // -> this week either way
+        let naiveRaw = naiveLocalString(target)
+        let utcFormatter = DateFormatter()
+        utcFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        utcFormatter.timeZone = TimeZone(identifier: "UTC")
+        utcFormatter.locale = Locale(identifier: "en_US_POSIX")
+        let zRaw = utcFormatter.string(from: target) + "Z"
+
+        let buckets = groupEpisodesByAge([
+            episode(id: "naive", origin: "mcp", timestamp: naiveRaw),
+            episode(id: "z", origin: "claude-export", timestamp: zRaw),
+        ], now: now)
+
+        XCTAssertEqual(buckets.map(\.bucket), [.thisWeek])
+        XCTAssertEqual(buckets.first?.count, 2, "both shapes must bucket identically for the same instant")
+    }
+
     // MARK: groupEpisodesByAge
 
     func test_groupByAge_bucketsTodayThisWeekOlder() {

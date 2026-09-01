@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -590,3 +591,205 @@ def test_sleep_status_is_observable_while_a_cycle_is_running():
         state.last_engine = None
         state.episode_cap = 0
         state.episodes_queued = 0
+
+
+# --------------------------------------------------------------------------- #
+# Devin PR #27 round 1, finding 2: a cancel can't miss a just-started cycle
+# --------------------------------------------------------------------------- #
+#
+# A FastAPI `BackgroundTasks` task only starts running once the response
+# that scheduled it has been sent — a `POST /sleep/cancel` landing between
+# "the trigger response left the process" and "`run()`'s first line" used to
+# see `status == "idle"` and report `"not_running"`, silently losing the
+# cancel. `reserve_cycle` claims the slot SYNCHRONOUSLY inside the trigger
+# handler, before the background task is even scheduled — these tests call
+# the real route handler with a fresh, never-executed `BackgroundTasks()` so
+# the background task genuinely has not run by the time each assertion
+# fires, exactly reproducing the window the bug lived in.
+
+
+def test_trigger_reserves_the_cycle_synchronously_before_the_background_task_runs():
+    import asyncio
+
+    from starlette.background import BackgroundTasks
+
+    from api.config import Settings
+    from api.routers import sleep as sleep_router
+
+    state = sleep_cycle.get_sleep_state()
+    state.status = "idle"
+    state.cycle_id = None
+    try:
+        bg = BackgroundTasks()
+        resp = asyncio.run(sleep_router.trigger_sleep(background_tasks=bg, settings=Settings()))
+
+        assert resp.status == "started"
+        # The background task (`run`) has not executed — `bg` was never
+        # invoked, exactly as it wouldn't be until the real ASGI response
+        # cycle finishes. If the reservation only happened inside `run()`
+        # itself, `status` would still read "idle" here.
+        assert state.status == "running"
+        assert state.cycle_id == resp.cycle_id
+    finally:
+        state.status = "idle"
+        state.cycle_id = None
+
+
+def test_cancel_immediately_after_trigger_is_not_lost_in_the_startup_gap():
+    import asyncio
+
+    from starlette.background import BackgroundTasks
+
+    from api.config import Settings
+    from api.routers import sleep as sleep_router
+
+    state = sleep_cycle.get_sleep_state()
+    state.status = "idle"
+    state.cycle_id = None
+    try:
+        bg = BackgroundTasks()
+        resp = asyncio.run(sleep_router.trigger_sleep(background_tasks=bg, settings=Settings()))
+
+        was_running, cycle_id = sleep_cycle.request_cancel()
+
+        assert was_running is True, "the cancel must land, not report not_running"
+        assert cycle_id == resp.cycle_id
+        assert state.cancel_requested is True
+    finally:
+        state.status = "idle"
+        state.cycle_id = None
+        state.cancel_requested = False
+
+
+def test_run_preserves_a_cancel_requested_during_the_reservation_window(tmp_path, monkeypatch):
+    """End to end: `reserve_cycle` + an immediate `request_cancel()`, THEN
+    the background task actually starts — the cycle must still cancel
+    cleanly rather than silently dropping the early request."""
+    memory = _seed_git_bank(tmp_path, ["ep_2026-09-01_001"])
+    cycle_id = "sleep_reserve_test"
+
+    sleep_cycle.reserve_cycle(cycle_id)
+    was_running, _ = sleep_cycle.request_cancel()
+    assert was_running is True
+
+    async def fake_extract(episodes, settings, **_kw):
+        raise AssertionError("Stage 1 must never run — the cycle was already cancelled before it started")
+
+    monkeypatch.setattr("api.services.entity_extractor.extract", fake_extract)
+
+    asyncio.run(sleep_cycle.run(_settings(memory), cycle_id))
+
+    state = sleep_cycle.get_sleep_state()
+    assert state.status == "idle"
+    assert state.cancelled is True
+    assert state.cancel_requested is False
+
+
+def test_run_still_resets_cancel_requested_for_a_cycle_that_was_never_reserved(tmp_path, monkeypatch):
+    """Control: a stray `cancel_requested` left over for a DIFFERENT,
+    unrelated cycle_id (or set with no reservation at all — a direct
+    `run()` call, exactly how every existing test and the cron scheduler
+    call it) must NOT leak into a fresh cycle that never asked for it."""
+    memory = _seed_git_bank(tmp_path, ["ep_2026-09-01_001"])
+    state = sleep_cycle.get_sleep_state()
+    state.cancel_requested = True
+    state.cycle_id = "some-other-cycle-entirely"
+    state.status = "idle"
+
+    async def fake_extract(episodes, settings, **_kw):
+        return []
+
+    monkeypatch.setattr("api.services.entity_extractor.extract", fake_extract)
+
+    asyncio.run(sleep_cycle.run(_settings(memory), "cycle-fresh-never-reserved"))
+
+    # Stage 1 ran for real (not short-circuited by a leaked cancel) — the
+    # cycle failed for the ordinary "Stage 1 extracted nothing" reason, not
+    # because of a stray cancellation flag from an unrelated cycle_id.
+    assert sleep_cycle.get_sleep_state().cancelled is False
+
+
+# --------------------------------------------------------------------------- #
+# Devin PR #27 round 1, finding 3: `cancelled` must eventually clear
+# --------------------------------------------------------------------------- #
+
+
+def test_cancelled_is_visible_right_after_a_cancellation():
+    state = sleep_cycle.SleepState(cancelled=True, cancelled_at_monotonic=1000.0)
+    assert sleep_cycle.cancelled_is_visible(state, now=1000.0) is True
+    assert sleep_cycle.cancelled_is_visible(state, now=1000.0 + 60) is True
+
+
+def test_cancelled_is_visible_clears_after_the_window():
+    state = sleep_cycle.SleepState(cancelled=True, cancelled_at_monotonic=1000.0)
+    window = sleep_cycle.CANCELLED_DISPLAY_WINDOW_SECONDS
+    assert sleep_cycle.cancelled_is_visible(state, now=1000.0 + window - 1) is True
+    assert sleep_cycle.cancelled_is_visible(state, now=1000.0 + window + 1) is False
+
+
+def test_cancelled_is_visible_is_false_when_never_cancelled():
+    state = sleep_cycle.SleepState(cancelled=False, cancelled_at_monotonic=None)
+    assert sleep_cycle.cancelled_is_visible(state, now=1000.0) is False
+
+
+def test_cancelled_is_visible_is_false_with_no_timestamp_even_if_flagged():
+    """Defensive: `cancelled=True` with no timestamp (shouldn't happen via
+    `_cycle_cancelled`, which always sets both together) reads as invisible
+    rather than permanently visible."""
+    state = sleep_cycle.SleepState(cancelled=True, cancelled_at_monotonic=None)
+    assert sleep_cycle.cancelled_is_visible(state, now=1000.0) is False
+
+
+def test_get_sleep_status_reports_cancelled_false_once_the_window_elapses():
+    from fastapi.testclient import TestClient
+
+    from api import main
+
+    state = sleep_cycle.get_sleep_state()
+    state.cancelled = True
+    state.cancelled_at_monotonic = (
+        time.monotonic() - sleep_cycle.CANCELLED_DISPLAY_WINDOW_SECONDS - 1
+    )
+    try:
+        body = TestClient(main.app).get("/sleep/status").json()
+        assert body["cancelled"] is False, "must clear once the display window has elapsed"
+    finally:
+        state.cancelled = False
+        state.cancelled_at_monotonic = None
+
+
+def test_get_sleep_status_reports_cancelled_true_within_the_window():
+    from fastapi.testclient import TestClient
+
+    from api import main
+
+    state = sleep_cycle.get_sleep_state()
+    state.cancelled = True
+    state.cancelled_at_monotonic = time.monotonic()
+    try:
+        body = TestClient(main.app).get("/sleep/status").json()
+        assert body["cancelled"] is True
+    finally:
+        state.cancelled = False
+        state.cancelled_at_monotonic = None
+
+
+def test_a_real_cancellation_is_visible_immediately_and_via_the_endpoint():
+    """End to end: `_cycle_cancelled()` sets both fields together, so the
+    endpoint reports `cancelled: true` right after a real cancellation."""
+    from fastapi.testclient import TestClient
+
+    from api import main
+
+    state = sleep_cycle.get_sleep_state()
+    try:
+        outcome = sleep_cycle._cycle_cancelled()
+        assert outcome == sleep_cycle._StageOutcome()
+        assert state.cancelled is True
+        assert state.cancelled_at_monotonic is not None
+        body = TestClient(main.app).get("/sleep/status").json()
+        assert body["cancelled"] is True
+    finally:
+        state.cancelled = False
+        state.cancelled_at_monotonic = None
+        state.cancel_requested = False

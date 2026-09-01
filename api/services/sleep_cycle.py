@@ -77,6 +77,15 @@ class SleepState:
     # every `run()`, exactly like every other per-cycle counter here.
     cancel_requested: bool = False
     cancelled: bool = False
+    # Devin PR #27 round 1, finding 3: the monotonic timestamp `cancelled`
+    # was set `True` at (by `_cycle_cancelled()`). `cancelled` alone used to
+    # stay `True` forever once set — nothing ever cleared it, so every
+    # `GET /sleep/status` kept reporting it indefinitely and the Sleep
+    # page's cancelled banner never went away. Paired with this timestamp,
+    # `cancelled_is_visible()` computes a bounded-time-windowed answer
+    # instead — see that function's docstring for why a true read-and-clear
+    # would race across concurrent readers instead.
+    cancelled_at_monotonic: float | None = None
     # Settings-driven episode cap for this cycle (`Settings.
     # sleep_max_episodes_per_cycle`) and the FULL unprocessed count found
     # before capping — see `SleepStatusResponse` for the field contract.
@@ -105,9 +114,44 @@ _lock = asyncio.Lock()
 # a fallback used elsewhere from it. See api/config.py for the rationale.
 DEFAULT_EPISODE_CAP: int = Settings.model_fields["sleep_max_episodes_per_cycle"].default
 
+# Devin PR #27 round 1, finding 3: how long `cancelled` reads `True` after a
+# cycle stops because of one, before `cancelled_is_visible()` starts
+# reporting it as cleared. Generous — long enough that walking away from the
+# app for a few minutes and coming back still shows the confirmation — but
+# bounded, so it can never stick around indefinitely the way the un-cleared
+# flag used to.
+CANCELLED_DISPLAY_WINDOW_SECONDS = 300.0
+
 
 def get_sleep_state() -> SleepState:
     return _state
+
+
+def cancelled_is_visible(state: SleepState | None = None, *, now: float | None = None) -> bool:
+    """Whether ``cancelled`` should currently read ``True`` to a caller.
+
+    Devin PR #27 round 1, finding 3: ``SleepState.cancelled`` is set once by
+    ``_cycle_cancelled()`` and was documented as "true on the FIRST status
+    read after a cycle actually stopped early" — but nothing ever cleared
+    it, so every ``GET /sleep/status`` kept reporting ``True`` indefinitely
+    once a single cycle had ever been cancelled, and the Sleep page's
+    cancelled banner never went away.
+
+    A true read-and-clear was rejected: it would race across every
+    concurrent reader of the SAME ``_state`` (this endpoint polled from
+    more than one client, a future SSE exposure, …) — whichever read lands
+    first "uses up" the one display and every other reader never sees it at
+    all. This instead computes a bounded TIME window fresh on every call
+    from the same stored timestamp (``cancelled_at_monotonic``): every
+    reader agrees on the same answer, there is no mutation-on-read and
+    therefore no race, and the flag still genuinely clears rather than
+    sticking forever — see ``CANCELLED_DISPLAY_WINDOW_SECONDS``.
+    """
+    s = state or _state
+    if not s.cancelled or s.cancelled_at_monotonic is None:
+        return False
+    elapsed = (now if now is not None else time.monotonic()) - s.cancelled_at_monotonic
+    return elapsed < CANCELLED_DISPLAY_WINDOW_SECONDS
 
 
 def progress_pct(state: SleepState | None = None) -> int | None:
@@ -152,6 +196,35 @@ def request_cancel() -> tuple[bool, str | None]:
     return True, _state.cycle_id
 
 
+def reserve_cycle(cycle_id: str) -> None:
+    """Synchronously claim `_state` for `cycle_id` — called by ``POST
+    /sleep/trigger`` BEFORE it schedules ``run`` as a FastAPI background
+    task (Devin PR #27 round 1, finding 2).
+
+    A ``BackgroundTasks`` task only starts running after the HTTP response
+    is sent — there is a real window, between "the trigger response left
+    the process" and "``run()`` actually begins executing", during which
+    ``_state.status`` was still ``"idle"``. A ``POST /sleep/cancel`` landing
+    in that window used to see nothing running and report ``"not_running"``,
+    silently losing a cancel the user believed they'd just sent — the user
+    presses Run, immediately thinks better of it, and the long cycle
+    proceeds unstoppably anyway.
+
+    Reserving the slot here closes that window: from the instant this
+    returns, ``_state.status == "running"`` and ``request_cancel()`` works
+    correctly even though ``run()`` itself hasn't started a single line of
+    work yet. ``run()`` detects its own reservation (matching ``cycle_id``
+    + ``status == "running"``) and PRESERVES whatever ``cancel_requested``
+    this window accepted, instead of wiping it the way every other
+    per-cycle field gets a fresh reset — see ``run``'s own comment.
+    """
+    _state.status = "running"
+    _state.cycle_id = cycle_id
+    _state.cancel_requested = False
+    _state.cancelled = False
+    _state.cancelled_at_monotonic = None
+
+
 def _cancel_requested() -> bool:
     """Cooperative-cancel predicate threaded into `entity_extractor.extract`
     and `entity_resolver.resolve` as `cancel_check` — kept as a bare module
@@ -170,6 +243,7 @@ def _cycle_cancelled() -> "_StageOutcome":
     discarded here. The next trigger resumes the exact same queue.
     """
     _state.cancelled = True
+    _state.cancelled_at_monotonic = time.monotonic()
     _state.cancel_requested = False
     _state.progress = (
         f"Cancelled — stopped cleanly before any writes; "
@@ -467,6 +541,20 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     """
     global _state
 
+    # Sleep control (Devin PR #27 round 1, finding 2): if `reserve_cycle`
+    # already claimed this EXACT cycle_id (the synchronous trigger-time
+    # reservation that closes the "background task hasn't started yet"
+    # cancel-miss window — see that function's own docstring), a cancel
+    # accepted during that window must survive into this run. Every OTHER
+    # caller — the cron scheduler, a test calling `run()` directly with no
+    # prior reservation — never reserved anything for this cycle_id, so
+    # `cancel_requested` still gets the clean reset every other per-cycle
+    # field below gets; only a matching, already-reserved cycle_id is
+    # preserved, so a stray flag left over from some unrelated cycle can
+    # never leak into a fresh one that never asked for it.
+    reserved_here = _state.cycle_id == cycle_id and _state.status == "running"
+    preserved_cancel_requested = _state.cancel_requested if reserved_here else False
+
     _state.status = "running"
     _state.cycle_id = cycle_id
     _state.started_at = datetime.now().isoformat()
@@ -489,14 +577,16 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.last_engine = None
     _state.engine_detail = None
     _state.write_started = False
-    # Sleep control: a fresh cycle starts with no cancel pending and no
-    # leftover "was this cancelled" flag from whatever ran before it — those
-    # are reset here for the same reason every other per-cycle field above
-    # is. `episode_cap`/`episodes_queued` are set for real once `_run_stages`
+    # Sleep control: `cancelled` (the OUTPUT flag) always starts fresh — we
+    # haven't finished anything yet. `cancel_requested` (the INPUT flag)
+    # restores whatever `reserve_cycle` accepted for THIS cycle_id above,
+    # rather than the unconditional False every other per-cycle field gets.
+    # `episode_cap`/`episodes_queued` are set for real once `_run_stages`
     # loads the queue; zeroed here so a request racing the very start of a
     # cycle never reads stale numbers from the previous one.
-    _state.cancel_requested = False
+    _state.cancel_requested = preserved_cancel_requested
     _state.cancelled = False
+    _state.cancelled_at_monotonic = None
     _state.episode_cap = 0
     _state.episodes_queued = 0
     _state.stage1_progress = 0

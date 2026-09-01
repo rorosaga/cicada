@@ -144,6 +144,67 @@ def test_sse_sleep_event_carries_debt_and_progress(client):
         assert key in data, f"sleep event missing {key}"
 
 
+def test_sse_sleep_event_fires_when_age_pct_changes_even_though_rested_pct_does_not(
+    client, monkeypatch,
+):
+    """Devin PR #27 round 1, finding 4: `rested_pct = 100 - max(volume_pct,
+    age_pct)` — when volume dominates, `age_pct` can move (or the oldest
+    episode can cross a UI threshold via `hours_since_last_cycle`) with
+    `rested_pct` staying exactly where it was. The old `sleep_key` only
+    tracked `rested_pct`, so a connected client held stale `agePct`/
+    `hoursSinceLastCycle` indefinitely whenever that happened — and could
+    miss the Swift side's 48h "hungry" threshold entirely. Drives two real
+    poll ticks with `sleep_debt.compute` faked to return exactly that shape
+    (volume 80 dominates throughout; age moves 10 -> 30; rested pinned at
+    20) and asserts a SECOND `sleep` event still fires."""
+    import asyncio
+
+    from api.config import get_settings
+    from api.routers import sync as sync_router
+    from api.services import sleep_debt
+
+    calls = {"n": 0}
+
+    async def fake_compute(memory_path, settings):
+        calls["n"] += 1
+        age = 10 if calls["n"] == 1 else 30
+        return sleep_debt.SleepDebt(
+            unprocessed_count=5,
+            oldest_unprocessed_age_hours=7.0,
+            hours_since_last_cycle=1.0,
+            has_run_before=True,
+            volume_pct=80,
+            age_pct=age,
+            rested_pct=20,   # unchanged across both ticks — volume dominates
+        )
+
+    monkeypatch.setattr(sleep_debt, "compute", fake_compute)
+
+    async def _drive():
+        settings = get_settings()
+        resp = await sync_router.events(settings=settings)
+        gen = resp.body_iterator
+        await gen.__anext__()                    # "version" — tick 1
+        first_sleep = await gen.__anext__()       # "sleep" — tick 1 (age=10)
+        # `version` does not fire again (nothing on disk changed) — the
+        # next yield is tick 2's "sleep" event, if the fix works.
+        second_sleep = await asyncio.wait_for(gen.__anext__(), timeout=5)
+        await gen.aclose()
+        return first_sleep, second_sleep
+
+    first_raw, second_raw = asyncio.run(_drive())
+
+    def _agePct(raw: str) -> int:
+        lines = raw.splitlines()
+        assert lines[0] == "event: sleep"
+        return json.loads(lines[1].split(":", 1)[1])["agePct"]
+
+    assert _agePct(first_raw) == 10
+    assert _agePct(second_raw) == 30, (
+        "a second sleep event must fire even though restedPct never changed"
+    )
+
+
 def test_status_does_not_spawn_git_twice_when_head_unchanged(client, monkeypatch):
     c, _ = client
     from api.services import git_service
