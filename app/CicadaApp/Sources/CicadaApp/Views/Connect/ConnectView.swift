@@ -35,10 +35,18 @@ struct AgentSetup: Identifiable {
 /// (Desktop, Cursor, Hermes) get literal paths baked in because GUI-launched
 /// apps don't expand shell variables.
 enum AgentSetupCatalog {
-    static func all(home: String) -> [AgentSetup] {
+    /// `memoryRoot`, when given, is the LIVE backend's own configured
+    /// `CICADA_MEMORY_PATH` (from `GET /healthz`) and always wins over the
+    /// `<home>/memory` guess — see `ConnectView.refreshLiveMemoryRoot()`.
+    /// `home` (the checkout root, from `BackendProcess.installRoot()`)
+    /// still drives the python/server executable paths regardless, since
+    /// there's no live equivalent to ask "where is my own source code" and
+    /// a wrong value there fails loudly (file not found) rather than
+    /// silently registering the wrong bank.
+    static func all(home: String, memoryRoot: String? = nil) -> [AgentSetup] {
         let python = "\(home)/api/.venv/bin/python"
         let server = "\(home)/mcp/server.py"
-        let memory = "\(home)/memory"
+        let memory = (memoryRoot?.isEmpty == false) ? memoryRoot! : "\(home)/memory"
 
         let mcpJSON = """
         {
@@ -193,6 +201,15 @@ struct ConnectView: View {
 
     private let home = BackendProcess.installRoot().path
     @State private var agents: [AgentSetup] = []
+    /// The live backend's own configured memory root, once `/healthz`
+    /// answers (G88 follow-up). This is the single source of truth for
+    /// "which bank does the app actually use" — the app and any agent
+    /// registered from a copy-pasted command on this page must always
+    /// agree, and the only way to guarantee that regardless of install
+    /// layout is to ask the backend rather than re-derive the answer
+    /// independently (installRoot()'s checkout-relative guess is used only
+    /// until this arrives, or if the backend never answers).
+    @State private var liveMemoryRoot: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -235,8 +252,24 @@ struct ConnectView: View {
         }
         .background(CicadaTheme.background)
         .onAppear {
-            if agents.isEmpty { agents = AgentSetupCatalog.all(home: home) }
+            if agents.isEmpty { agents = AgentSetupCatalog.all(home: home, memoryRoot: liveMemoryRoot) }
         }
+        .task { await refreshLiveMemoryRoot() }
+    }
+
+    /// Ask the backend what memory root it's actually configured with
+    /// (`GET /healthz`, auth-exempt) and rebuild the setup commands against
+    /// that instead of the local `installRoot()` guess whenever it differs
+    /// (G88 follow-up). Renders instantly either way — this only refines an
+    /// already-visible page, never blocks it; a down/unreachable backend
+    /// just leaves the local guess in place.
+    private func refreshLiveMemoryRoot() async {
+        guard let health = try? await APIClient.shared.fetchHealth(),
+              let root = health.memoryRoot, !root.isEmpty,
+              root != liveMemoryRoot
+        else { return }
+        liveMemoryRoot = root
+        agents = AgentSetupCatalog.all(home: home, memoryRoot: root)
     }
 
     private var introCard: some View {

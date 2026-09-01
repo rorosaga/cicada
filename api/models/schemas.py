@@ -879,6 +879,17 @@ class HealthResponse(CamelModel):
     # installer/doctor can confirm the offline path is actually active.
     embedding_mode: str
     memory_path: str
+    # The raw *configured* root (Settings.memory_root / CICADA_MEMORY_PATH) —
+    # the container of banks.yaml + banks/<name>/, distinct from memory_path
+    # above (the *resolved active bank*). This is the single source of truth
+    # a client should copy into a fresh `CICADA_MEMORY_PATH=...` MCP
+    # registration: the app and any agent registered from this value are
+    # guaranteed to resolve the same bank, because both apply
+    # resolve_active_bank_path to the identical root (G88 follow-up — see
+    # ConnectView.swift, which fetches this instead of re-deriving a root
+    # from local heuristics that could disagree with whatever the backend
+    # was actually started with).
+    memory_root: str
     # True when any LEANN index sidecar (<name>.meta.json) exists on disk.
     leann_present: bool
 

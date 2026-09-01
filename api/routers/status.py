@@ -42,6 +42,7 @@ async def healthz(request: Request, settings: Settings = Depends(get_settings)):
         episode_count=episode_count,
         embedding_mode=settings.resolved_embedding_mode,
         memory_path=str(memory_path),
+        memory_root=str(settings.memory_root),
         leann_present=_leann_present(memory_path),
     )
 
