@@ -283,35 +283,18 @@ async def _probe_engine_cheaply(settings: Settings) -> tuple[bool, str]:
 
     Ruling 2 was violated by the original implementation, which always
     called ``agent_engine.probe()`` (``claude auth status --json``) with a
-    20 s timeout on every agent-mode cycle with a non-empty queue. Fixed by
-    consulting ``connections.registry``'s already-cached ``claude-plan``
-    status first: ``Registry.cached_statuses()`` NEVER probes — it is a pure
-    in-memory read (plus one cheap prefs-file read) of whatever
-    ``GET /connections``/``GET /status`` last warmed, on a 30 s TTL. Since
-    the companion app polls both routes while open, the common case (the
-    user has the app running when Sleep triggers) now costs a Sleep cycle
-    nothing at all to pre-flight.
-
-    A spawn is still genuinely unavoidable when the cache is cold — nothing
-    has probed Connections/Status recently in this process (a fresh backend
-    boot, or a headless/API-only trigger with the app never opened) — the
-    registry has no way to answer without one. That case falls back to
-    ``agent_engine.probe()`` directly, timeout dropped from 20 s to 5 s since
-    it is now a rare fallback rather than the primary path, not the shared,
-    cache-populating ``Registry.status()`` (whose own spawn is fixed at a
-    15 s default with no way to shorten it from here).
+    20 s timeout on every agent-mode cycle with a non-empty queue. Delegates
+    to ``engine_select.probe_claude_cheaply`` (Task 7 fix round 1, M1 round
+    2) — the cache-first + bounded-fallback pattern this docstring
+    describes now lives in exactly one place, shared with
+    ``engine_select.resolve_llm_mode``'s own Claude-plan probe, rather than
+    two copies that could drift apart again.
     """
-    from api.services import agent_engine
+    from api.services import engine_select
     from api.services.connections import registry as connections_registry
 
     reg = connections_registry.get_registry(settings)
-    for status in reg.cached_statuses():
-        if status.id != "claude-plan":
-            continue
-        if status.connected:
-            return True, status.how or "Claude Code signed in on this Mac."
-        return False, status.detail or "Claude Code is not connected."
-    return await asyncio.to_thread(agent_engine.probe, timeout=5.0)
+    return await engine_select.probe_claude_cheaply(reg)
 
 
 async def _tree_is_clean(memory_path: Path) -> bool:
@@ -366,8 +349,17 @@ async def _run_engine_independent_tail(
         await _refresh_questions_safely(memory_path, settings)
 
 
-async def run(settings: Settings, cycle_id: str) -> None:
-    """Execute the 5-stage Sleep cycle pipeline."""
+async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True) -> None:
+    """Execute the 5-stage Sleep cycle pipeline.
+
+    ``user_triggered`` (fix round 1, H1/H2): ``True`` for ``POST
+    /sleep/trigger`` (a human pressing Run — the default, so every existing
+    call site, test included, is unaffected), ``False`` for the nightly cron
+    (``sleep_scheduler._run_if_idle``). Threaded down to
+    ``engine_select.resolve_llm_mode`` so a scheduled cycle can never select
+    the agent rung even with the Claude card's "Use for Sleep" toggle on —
+    spec §7's trigger scope, and what `Copy.sleepEngineExplainer` promises.
+    """
     global _state
 
     _state.status = "running"
@@ -405,7 +397,7 @@ async def run(settings: Settings, cycle_id: str) -> None:
 
     outcome = _StageOutcome()
     try:
-        outcome = await _run_stages(settings, cycle_id, memory_path)
+        outcome = await _run_stages(settings, cycle_id, memory_path, user_triggered=user_triggered)
     except Exception as e:
         _state.progress = f"Failed: {e}"
         _state.error = f"{type(e).__name__}: {e}"
@@ -430,23 +422,10 @@ async def run(settings: Settings, cycle_id: str) -> None:
             _state.status = "idle"
 
 
-async def _run_stages(settings: Settings, cycle_id: str, memory_path: Path) -> _StageOutcome:
+async def _run_stages(
+    settings: Settings, cycle_id: str, memory_path: Path, *, user_triggered: bool = True,
+) -> _StageOutcome:
     """The LLM-dependent pipeline. Returns what it achieved; never runs the tail."""
-    from api.services import engine_select
-
-    # Task 7: "auto" (and a default install with the Use-for-Sleep toggle on)
-    # probes the connections registry, which shells out to vendor CLIs — so
-    # it is resolved ONCE here and the concrete mode travels down as a copy
-    # for the rest of this pipeline. The caller's Settings is never mutated:
-    # get_settings() is lru_cached and shared with every request handler.
-    settings, engine_why = await engine_select.resolve_settings(settings)
-    _state.last_engine = _engine_label(settings)
-    _state.engine_detail = engine_why
-    logger.info(
-        f"Sleep cycle {cycle_id} started — engine: {_state.last_engine}, "
-        f"model: {settings.litellm_model}"
-    )
-
     # M5e: ensure the runtime predicate-normalization map exists (idempotent,
     # non-clobbering) so Stage 2 predicate folding + Stage 3 cardinality keying
     # have a controlled vocabulary to key on.
@@ -465,6 +444,25 @@ async def _run_stages(settings: Settings, cycle_id: str, memory_path: Path) -> _
 
     logger.info(f"Found {len(episodes)} unprocessed episodes")
     _state.episodes_total = len(episodes)
+
+    # Fix round 1, M1 (part 2): resolution moved to AFTER the idle-episode
+    # return above — an idle cycle must never touch the connections registry
+    # at all, not even the bounded cache-first probe. "auto" (and a default
+    # install with the Use-for-Sleep toggle on) can shell out to vendor CLIs
+    # on a cold cache, so it is resolved ONCE here, only on a cycle with real
+    # work, and the concrete mode travels down as a copy for the rest of this
+    # pipeline. The caller's Settings is never mutated: get_settings() is
+    # lru_cached and shared with every request handler.
+    from api.services import engine_select
+    settings, engine_why = await engine_select.resolve_settings(
+        settings, user_triggered=user_triggered,
+    )
+    _state.last_engine = _engine_label(settings)
+    _state.engine_detail = engine_why
+    logger.info(
+        f"Sleep cycle {cycle_id} started — engine: {_state.last_engine}, "
+        f"model: {settings.litellm_model}"
+    )
 
     # G74(a) pre-flight: ask the engine whether it can work BEFORE spending a
     # spawn per episode discovering it cannot. Only on a cycle with real work,
@@ -499,7 +497,15 @@ async def _run_stages(settings: Settings, cycle_id: str, memory_path: Path) -> _
     # fixing the cause retries the whole batch.
     if episodes and not extracted:
         msg = _stage1_failure_message(_state.last_engine or "litellm")
-        if _state.engine_detail:
+        # Fix round 1, L2: `engine_detail` is now set on EVERY resolved
+        # cycle (Task 7), not just an agent-rung pre-flight abort — a plain
+        # byok install's `engine_detail` is just "why we're on byok"
+        # ("no Sleep engine chosen…"), not a diagnosis of a Stage-1 API
+        # failure, so appending it here read as confusing noise on an
+        # install that never chose an engine at all. Only the claude-cli
+        # rung's detail (the pre-flight probe's own sentence, e.g. "signed
+        # out — run `claude auth login`") is actually diagnostic.
+        if _state.last_engine == "claude-cli" and _state.engine_detail:
             msg = f"{msg} ({_state.engine_detail})"
         logger.error(msg)
         _state.error = msg

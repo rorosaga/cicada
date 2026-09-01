@@ -306,6 +306,47 @@ def test_the_probe_is_not_run_on_an_idle_cycle(tmp_path, monkeypatch, tail_spy):
     asyncio.run(sleep_cycle.run(Settings(llm_mode="agent"), "sleep_test"))
 
 
+def test_a_scheduled_cycle_never_selects_claude_cli_end_to_end(tmp_path, monkeypatch, tail_spy):
+    """Fix round 1, H1 — integration level: even with the toggle ON and the
+    plan connected in the registry's own cache, a scheduled
+    (``user_triggered=False``) full cycle must resolve to litellm, never
+    claude-cli. Booby-traps `agent_engine.probe` too, so this also proves
+    the resolver bails before ever touching the registry for a scheduled
+    cycle — no probe, cached or otherwise."""
+    import time as time_module
+
+    from api.models.schemas import ConnectionKind, ConnectionStatus
+    from api.services.connections import registry as connections_registry
+
+    memory = _seed(tmp_path, unprocessed=1)
+    monkeypatch.setattr(Settings, "memory_path", property(lambda self: memory))
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    connections_registry.reset_registry()
+
+    settings = Settings()
+    reg = connections_registry.get_registry(settings)
+    reg.set_pref("claude-plan", "use_for_sleep", True)
+    reg._cache["claude-plan"] = (time_module.monotonic(), ConnectionStatus(
+        id="claude-plan", label="Claude plan", kind=ConnectionKind.subscription,
+        available=True, connected=True, how="Claude Code signed in on this Mac.",
+    ))
+
+    def _boom(**kw):
+        raise AssertionError("a scheduled cycle spawned `claude`")
+
+    monkeypatch.setattr(agent_engine, "probe", _boom)
+    _no_engine(monkeypatch)
+
+    try:
+        asyncio.run(sleep_cycle.run(settings, "sleep_test", user_triggered=False))
+    finally:
+        connections_registry.reset_registry()
+
+    state = sleep_cycle.get_sleep_state()
+    assert state.last_engine == "litellm"
+    assert "user-triggered" in (state.engine_detail or "")
+
+
 def test_the_breaker_is_reset_at_the_top_of_every_cycle(tmp_path, monkeypatch, tail_spy):
     memory = _seed(tmp_path, unprocessed=0)
     monkeypatch.setattr(Settings, "memory_path", property(lambda self: memory))
