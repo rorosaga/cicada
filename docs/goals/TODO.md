@@ -1,4 +1,75 @@
-# Cicada — TODO
+# Cicada — TODO & handoff
+
+> **If you are an agent picking this project up cold, read this section first.** It is the
+> compacted context of the 2026-08-31/09-01 session: what is true right now, what is in flight,
+> the rulings that would be expensive to rediscover, and how work is run here.
+
+## Where things stand (2026-09-01)
+
+**Merged to `dev`:** PRs #21–#25. The big one is **#25 — the agent engine (G74a)**: Sleep can now
+run on the user's Claude Max plan via `claude -p`, after ~2.5 months with no engine. Also #24, the
+**correctness gate**, which fixed decay (see rulings below), and #23's app fixes.
+
+**Open PRs:** **#26** `saved_at` (Devin round in flight — re-import backfill + Pinterest date
+normalisation) and **#27** sleep cancel/cap/debt screen (Devin round running). **`feat/devloop`**
+(G88 `make install-app` / `make dev`) is being built, not yet a PR.
+
+**Live environment (verified):** backend runs under **launchd** (`com.cicada.backend`,
+RunAtLoad+KeepAlive, `python -m uvicorn`), keys in `~/.cicada/secrets.env` (0600). Cicada's MCP
+server is registered at **user scope** so every Claude Code session sees it, both skills are in
+`~/.claude/skills/`, and **Claude Desktop is registered** (needs a Desktop restart). Active bank:
+`claude-chats`, 1,731 entities.
+
+**How to run the app:** `make run-app` (NOT `swift run` — that produces a bundle-less executable
+whose window never becomes *key*, which silently breaks graph clicks and text-field focus).
+
+## Rulings that cost real work to derive — do not re-litigate without reading them
+
+1. **Decay charges once, and never for an outage.** Decay used to re-subtract the whole elapsed
+   interval every run (proven: `octo.md` 0.85 → 0.4714 → 0.0928 in three commits *on one day*).
+   Fixed with a `decayed_through` watermark + a per-cycle cap, plus a one-shot migration because
+   the first cycle after the 75-day engine outage would have **archived 1,536 of 1,882 pages**.
+   The principle: *an engine outage is a system failure, not user silence.* Migration has run;
+   first-cycle archive count is now **0**, verified with a negative control.
+2. **No relational tier** (G99). Measured, not assumed — three of four "SQL would fix this"
+   arguments collapsed. Revisit only on the named triggers in that row.
+3. **Markdown+git is the only source of truth.** A `.db` may exist only if deleting it costs CPU
+   and never a fact, and **no derived artifact is ever tracked in a bank's git** (the 35 MB index
+   was tracked and would have committed ~11 GB/yr once Sleep resumed).
+4. **Scheduled cycles cannot spend plan quota.** `user_triggered` is threaded through; a scheduled
+   cycle returns `byok` before the registry is touched. The UI copy says "never on the nightly
+   schedule" and that is now literally true.
+5. **Raw storage does not replace Sleep** (G101). Text cannot decay — only a belief can go stale or
+   be contradicted — so "time as a signal" needs a belief object.
+6. **Capture is agent-judgment and that is a measured problem** (G105): 0 MCP invocations in 12
+   days; 4 episodes from one very long session.
+
+## How work is run here
+
+- **PRs merge to `dev`**; `main` is a manual promotion. Never commit directly to `dev` except docs.
+- **Devin gate: one round.** Fix round-1 findings, then merge. A second round only after a
+  High/Critical. Docs-only PRs skip it. Devin has been consistently worth it — it caught the stale
+  drag-throw, three Sleep/Ask concurrency bugs, and a re-import path that discarded save dates.
+- **One writer per worktree.** Parallel work goes in `.worktrees/<name>` on its own branch. Never
+  `git add -A` there (an untracked `api/.venv` symlink lives in each).
+- **Verify, do not trust reports.** Run the suites yourself before merging. This session: an agent
+  disclosed spawning a fork that wrote concurrently into a shared worktree; a test fixture encoded
+  the same timezone bug as the code it tested; and a review predicted "0 deletions" that a sloppy
+  `awk` made me briefly misread as 1,851. Independent checks caught all three.
+- **Baseline:** 8 date-dependent `test_calendar_registry.py` failures are pre-existing on `dev`.
+  Everything else must be green.
+- Reports and briefs live in `.superpowers/sdd/<plan>/` (gitignored).
+
+## Pick up here
+
+1. Merge #26 and #27 once their Devin rounds clear.
+2. Finish **G88** (`feat/devloop`) — the one-command dev loop.
+3. **G109 (urgent)** — graph physics: deceleration is tuned invisible and disconnected nodes
+   explode into a ring; evaluate Obsidian/Pixi, cosmograph, sigma+graphology rather than re-tuning.
+4. Then the waves below.
+
+---
+
 
 The **execution view**. [`memory-evolution.md`](memory-evolution.md) stays the reference: it holds
 the full reasoning, evidence and file:line for every row. This file answers one question only —
@@ -66,6 +137,9 @@ trailers, Ghostty resume)
    killing the backend, and a kill mid-write leaves a dirty bank the next cycle mis-attributes.
    *Blocks any unattended cycle.* — S
 2. **G88** run Cicada like an installed app *(in progress)* — S
+2b. **G109 🔴** graph physics — deceleration invisible (velocityDecay 0.45 + alphaMin 0.05 swallow
+   the seeded throw) and zero-degree nodes fly to a ring now that the cold-paint fix renders them;
+   evaluate an established engine instead of re-tuning — S/M to decide, M to port
 3. **G90** README + screenshots. Blocked on #1 so Sleep is shown working; **demo bank or
    frame-by-frame review** — the live bank holds real people. — S
 
