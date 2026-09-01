@@ -53,6 +53,30 @@ SCAFFOLD_SUBDIRS = (
     "_procedures",
 )
 
+# Derived artifacts that live INSIDE a bank dir but are not memory: rebuildable
+# from the markdown, so they are never versioned and never copied by a bank
+# operation. The rule (G99): markdown+git is the only source of truth; a `.db`
+# may exist only if deleting it costs CPU time and never a fact.
+#
+# This is not hygiene — it is a size bomb. `git_service.commit_changes` stages
+# with `git add -A`, and `vector_index._rebuild_table` DROPs and rebuilds, so a
+# tracked index means every Sleep cycle commits the whole file again (~30 MB on
+# the live bank, ~11 GB/yr nightly). It also made `duplicate_bank` copy 30 MB
+# into commit #1 of every new bank.
+DERIVED_ARTIFACTS = (
+    "vector_index.db",
+    "vector_index.db-wal",
+    "vector_index.db-shm",
+)
+
+_BANK_GITIGNORE = "\n".join(
+    (
+        "# Derived, rebuildable from the markdown — never versioned (G99).",
+        *DERIVED_ARTIFACTS,
+        "",
+    )
+)
+
 
 # --- Resolution (the load-bearing path) ------------------------------------
 
@@ -182,6 +206,18 @@ def scaffold_bank(path: Path, *, git_init: bool = True) -> None:
     for subdir in SCAFFOLD_SUBDIRS:
         (path / subdir).mkdir(parents=True, exist_ok=True)
 
+    gitignore_path = path / ".gitignore"
+    if not gitignore_path.exists():
+        gitignore_path.write_text(_BANK_GITIGNORE, encoding="utf-8")
+    elif not any(
+        line.strip() == DERIVED_ARTIFACTS[0]
+        for line in gitignore_path.read_text(encoding="utf-8").splitlines()
+    ):
+        # Existing bank predating this rule: append rather than clobber a
+        # user-authored ignore file.
+        with gitignore_path.open("a", encoding="utf-8") as fh:
+            fh.write("\n" + _BANK_GITIGNORE)
+
     predicates_path = path / "_predicates.yaml"
     if not predicates_path.exists():
         predicates_path.write_text("{}\n", encoding="utf-8")
@@ -306,9 +342,15 @@ def duplicate_bank(root: Path, name: str, new_name: str) -> str:
 
     # Copy only memory content. When the source is the legacy default (== root),
     # we must NOT recurse into banks/ or copy banks.yaml.
-    _ignore = shutil.ignore_patterns(".git", BANKS_SUBDIR, REGISTRY_FILENAME)
+    _ignore = shutil.ignore_patterns(
+        ".git", BANKS_SUBDIR, REGISTRY_FILENAME, *DERIVED_ARTIFACTS
+    )
     for child in src.iterdir():
         if child.name in (".git", BANKS_SUBDIR, REGISTRY_FILENAME):
+            continue
+        if child.name in DERIVED_ARTIFACTS:
+            # Rebuilt on first use; copying it would put a ~30 MB blob in the
+            # new bank's first commit (G99).
             continue
         target = dst / child.name
         if child.is_dir():
