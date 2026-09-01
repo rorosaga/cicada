@@ -337,7 +337,7 @@ struct InboxCardView: View {
                     .stroke(isSelected ? CicadaTheme.accent.opacity(0.5) : CicadaTheme.border, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .disabled(name.isEmpty)
     }
 
@@ -406,7 +406,7 @@ struct InboxActionButton: View {
             .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
             .scaleEffect(isHovered && !disabled ? 1.03 : 1.0)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .disabled(disabled)
         .opacity(disabled ? 0.4 : 1.0)
         .onHover { isHovered = $0 }

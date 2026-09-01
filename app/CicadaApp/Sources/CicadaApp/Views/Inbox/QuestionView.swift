@@ -105,7 +105,7 @@ struct QuestionView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(CicadaTheme.accent)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .help("Open source")
             }
         }

@@ -188,7 +188,7 @@ struct TransclusionCard: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
 
             Image(systemName: "rectangle.on.rectangle.angled")
                 .font(.system(size: 10))
@@ -203,7 +203,7 @@ struct TransclusionCard: View {
                     .foregroundStyle(CicadaTheme.accent)
                     .lineLimit(1)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .help("Open \(targetEntityID)")
 
             Spacer()

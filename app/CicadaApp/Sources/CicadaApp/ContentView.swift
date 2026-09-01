@@ -89,7 +89,7 @@ struct ContentView: View {
         .background {
             Button("") { showAskPanel = true }
                 .keyboardShortcut("k", modifiers: .command)
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .frame(width: 0, height: 0)
                 .opacity(0)
         }
@@ -272,7 +272,7 @@ struct FilterButton: View {
                 .foregroundStyle(allEnabled ? (isHovered ? CicadaTheme.textPrimary : CicadaTheme.textSecondary) : CicadaTheme.accent)
                 .frame(width: 36, height: 32)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
         .popover(isPresented: Binding(
@@ -316,7 +316,7 @@ struct FilterPopoverContent: View {
                     }
                     .padding(.vertical, 3)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
 
             Divider()
@@ -346,7 +346,7 @@ struct FilterPopoverContent: View {
                     }
                     .padding(.vertical, 3)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
 
             Divider()
@@ -430,7 +430,7 @@ struct AskButton: View {
             .padding(.horizontal, CicadaTheme.spacingMD)
             .padding(.vertical, CicadaTheme.spacingSM)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
         .help("Ask your memory (⌘K)")
@@ -450,7 +450,7 @@ private struct ZoomButton: View {
                 .frame(width: 36, height: 32)
                 .background(isHovered ? CicadaTheme.surfaceHover : .clear)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
     }

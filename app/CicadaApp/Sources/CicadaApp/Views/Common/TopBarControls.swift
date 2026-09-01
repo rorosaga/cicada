@@ -40,7 +40,7 @@ struct TopBarControls: View {
                 .padding(.horizontal, CicadaTheme.spacingMD)
                 .padding(.vertical, CicadaTheme.spacingSM)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
             .help(sleepVM.status?.progress ?? "Run memory consolidation")
 
@@ -60,7 +60,7 @@ struct TopBarControls: View {
                 .padding(.horizontal, CicadaTheme.spacingMD)
                 .padding(.vertical, CicadaTheme.spacingSM)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
 
             // Help button
@@ -74,7 +74,7 @@ struct TopBarControls: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(width: 32, height: 28)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
             .popover(isPresented: $showHelpOverlay, arrowEdge: .bottom) {
                 HelpPopoverContent()

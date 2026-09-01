@@ -58,7 +58,7 @@ struct SleepQueueCard: View {
                         .foregroundStyle(CicadaTheme.textTertiary)
                     Spacer()
                     Button("Retry") { Task { await store.refresh([.status]) } }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.cicadaPlain)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(CicadaTheme.accent)
                         .accessibilityLabel("Retry loading the queue")
@@ -131,7 +131,7 @@ struct SleepQueueCard: View {
             .background(count == 0 && !sleepVM.isRunning ? CicadaTheme.surfaceElevated : CicadaTheme.accent.opacity(0.9))
             .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .disabled(sleepVM.isRunning || count == 0)
         .help(count == 0 ? "Nothing queued right now" : "Run the Sleep cycle now")
         .accessibilityLabel(Copy.consolidateNow)

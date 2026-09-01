@@ -37,7 +37,7 @@ struct CommandBox: View {
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .help("Copy to clipboard")
             .accessibilityLabel(copied ? "Copied to clipboard" : "Copy command to clipboard")
             .padding(.top, 2)

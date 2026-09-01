@@ -94,7 +94,7 @@ struct FromConversationButton: View {
                     .font(CicadaTheme.captionFont)
                     .labelStyle(.titleAndIcon)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .foregroundStyle(CicadaTheme.textSecondary)
             .help("Show the conversation that wrote this, and reopen it")
             .accessibilityLabel("Show the conversation that wrote this")

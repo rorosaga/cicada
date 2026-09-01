@@ -212,7 +212,7 @@ struct ConnectView: View {
                             .foregroundStyle(.white)
                             .clipShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cicadaPlain)
                 }
             }
 
@@ -333,7 +333,7 @@ private struct AgentSetupCard: View {
                             .clipShape(Capsule())
                             .overlay(Capsule().stroke(agent.brand.opacity(0.5), lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cicadaPlain)
                     .help("One-click install via the Cursor deeplink")
                 }
             }

@@ -390,6 +390,46 @@ extension View {
     }
 }
 
+// MARK: - Plain Button Style (G83)
+
+/// Shared replacement for `.buttonStyle(.cicadaPlain)`. Two problems in one fix:
+///
+/// 1. **Hit area.** A bare `Button { ... } label: { HStack { Image; Text } }`
+///    styled `.plain` paints no background of its own, so SwiftUI falls back
+///    to its default content shape — the union of the label's rendered
+///    glyphs. Padding grows the layout box but NOT the tap target, which is
+///    why clicking the icon/text works and the surrounding padded pill
+///    doesn't. Wrapping `configuration.label` in `.contentShape(Rectangle())`
+///    makes the tappable region match the label's full layout frame
+///    (including padding) every time, at every adopting call site, from one
+///    definition.
+/// 2. **Snappy feedback.** Plain buttons gave no visual acknowledgement of a
+///    click. A subtle scale-down + opacity dip keyed on `configuration.isPressed`,
+///    with a short eased animation, makes every adopting button feel
+///    responsive without changing its resting appearance.
+struct CicadaPlainButtonStyle: ButtonStyle {
+    /// Scale applied to the label while the button is pressed.
+    static let pressedScale: CGFloat = 0.97
+    /// Opacity applied to the label while the button is pressed.
+    static let pressedOpacity: Double = 0.85
+    /// Duration of the press/release transition.
+    static let pressAnimationDuration: Double = 0.12
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .scaleEffect(configuration.isPressed ? Self.pressedScale : 1.0)
+            .opacity(configuration.isPressed ? Self.pressedOpacity : 1.0)
+            .animation(.easeOut(duration: Self.pressAnimationDuration), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == CicadaPlainButtonStyle {
+    /// Drop-in replacement for `.buttonStyle(.cicadaPlain)` that also fixes the
+    /// hit-area bug and adds pressed-state feedback. See `CicadaPlainButtonStyle`.
+    static var cicadaPlain: CicadaPlainButtonStyle { CicadaPlainButtonStyle() }
+}
+
 // MARK: - Color Hex Init
 
 extension Color {

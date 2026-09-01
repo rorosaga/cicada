@@ -384,7 +384,7 @@ struct SleepView: View {
                         .frame(width: 18, height: 18)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .help(sortAscending ? "Oldest first" : "Newest first")
 
                 Button {
@@ -396,7 +396,7 @@ struct SleepView: View {
                         .frame(width: 18, height: 18)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .help("Refresh queue")
             }
 

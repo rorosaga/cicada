@@ -37,7 +37,7 @@ struct ClaimChip: View {
                         Image(systemName: "clock")
                             .font(.system(size: 11, weight: .medium))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cicadaPlain)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .help("Belief timeline")
                 }
