@@ -122,3 +122,65 @@ def test_ask_synthesis_survives_a_preambled_answer():
         '```json\n{"answer": "yes", "confidence": 0.8}\n```'
     )["answer"] == "yes"
     assert ask_service.json_parse is json_parse  # the module is wired in, not re-implemented
+
+
+# --------------------------------------------------------------------------- #
+# Ruling 1 pin: the brace-carving scan is a FALLBACK, tried only after the
+# whole-text ``json.loads`` fails. Nothing above isolates the ordering — a
+# refactor could route well-formed input through the lenient scanner first
+# and silently change results for edge-case-but-valid JSON. These three tests
+# prove it directly.
+# --------------------------------------------------------------------------- #
+
+
+def test_strict_json_loads_runs_first_and_wins_for_well_formed_input(monkeypatch):
+    """Spy on ``json.loads`` to prove the fast whole-text path is attempted,
+    and that for well-formed input it succeeds in exactly one call — the
+    carve-and-retry branch (which would issue a SECOND ``json.loads`` on a
+    hand-extracted substring) is never reached."""
+    calls: list[str] = []
+    real_loads = json.loads
+
+    def spy(*a, **kw):
+        calls.append(a[0])
+        return real_loads(*a, **kw)
+
+    monkeypatch.setattr(json_parse.json, "loads", spy)
+    raw = '{"a": 1, "b": {"c": 2}}'
+
+    result = json_parse.parse_json_object(raw)
+
+    assert result == {"a": 1, "b": {"c": 2}}
+    assert calls == [raw]  # exactly one call, on the whole text — never carved
+
+
+def test_lenient_carving_only_engages_after_the_strict_call_fails(monkeypatch):
+    """Companion to the above: a preambled answer DOES need the fallback, and
+    it costs a second ``json.loads`` call — the first, on the whole noisy
+    text, raises (caught internally) and is what triggers the carve; the
+    second, on the carved substring, succeeds."""
+    calls: list[str] = []
+    real_loads = json.loads
+
+    def spy(*a, **kw):
+        calls.append(a[0])
+        return real_loads(*a, **kw)
+
+    monkeypatch.setattr(json_parse.json, "loads", spy)
+
+    result = json_parse.parse_json_object(PREAMBLED)
+
+    assert result == {"decision": "same"}
+    assert len(calls) == 2
+    assert calls[0] == PREAMBLED  # first call: the whole noisy text, and it fails
+    assert calls[1] == '{"decision": "same"}'  # second call: the carved substring
+
+
+def test_strict_parse_wins_on_a_top_level_scalar_carving_cannot_handle():
+    """A bare JSON string or number has no top-level ``{`` at all — only the
+    strict fast-path ``json.loads`` can parse it. Brace-carving alone
+    (``text.find("{")`` -> -1) would raise on both, so a correct result here
+    is only possible because the strict call runs first and its success is
+    respected outright, never overridden by a later carve attempt."""
+    assert json_parse.parse_json_object('"hello world"') == "hello world"
+    assert json_parse.parse_json_object("42") == 42
