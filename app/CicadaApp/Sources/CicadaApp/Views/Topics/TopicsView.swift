@@ -703,39 +703,40 @@ private struct TopicDetailView: View {
     // both go through `TopicsView`'s `selectedEntity = nil` transition first,
     // and a tab switch tears down the whole Clusters subtree — so no
     // explicit reset call is needed here, unlike `GraphViewModel`'s
-    // long-lived instance.
-    @State private var navHistory = EntityNavigationStack<Entity>()
-    @State private var pushed: Entity?
+    // long-lived instance. The trail, the pushed entity and the "is this
+    // response still wanted" decision all live in `TopicDetailNavigation`
+    // (PR #29 round 2) so a fetch that lands after Back can't undo it.
+    @State private var nav = TopicDetailNavigation<Entity>()
+    /// The one in-flight full-body fetch; cancelled on every new
+    /// `navigate`/`goBackEntity`. `nav`'s token check is the backstop for a
+    /// cancellation that arrives too late to stop the response.
+    @State private var navTask: Task<Void, Never>?
 
     private var displayEntity: Entity {
-        pushed ?? fullEntity ?? entity
+        nav.pushed ?? fullEntity ?? entity
     }
 
     private func navigate(to id: String) {
-        navHistory.push(leaving: displayEntity)
+        navTask?.cancel()
         // Instant placeholder from the graph's stub cache (already has at
         // least id/name/summary), then upgrade to the full body.
-        if let stub = graphVM.entities.first(where: { $0.id == id }) {
-            pushed = stub
-        }
-        Task {
-            if let full = try? await APIClient.shared.fetchEntity(id: id) {
-                pushed = full
-            }
+        let token = nav.navigate(from: displayEntity,
+                                 toStub: graphVM.entities.first(where: { $0.id == id }))
+        navTask = Task {
+            guard let full = try? await APIClient.shared.fetchEntity(id: id) else { return }
+            nav.apply(full, token: token)
         }
     }
 
     private func goBackEntity() {
-        guard let previous = navHistory.pop() else { return }
-        // Back at the root entity — fall through to `fullEntity`/`entity`
-        // instead of pinning `pushed` to a possibly-stale snapshot.
-        pushed = previous.id == entity.id ? nil : previous
+        navTask?.cancel()
+        nav.goBack(rootID: entity.id)
     }
 
     private var cardNavigation: EntityCardNavigation {
         EntityCardNavigation(
-            canGoBack: !navHistory.isEmpty,
-            backTargetName: navHistory.backTarget?.name,
+            canGoBack: nav.canGoBack,
+            backTargetName: nav.backTarget?.name,
             goBack: goBackEntity,
             navigate: navigate
         )
