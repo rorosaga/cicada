@@ -133,10 +133,17 @@ def test_cardinality_fn_reads_single_and_multi_lists(tmp_path):
     card = predicates.build_cardinality_fn(tmp_path)
     # from the seed's single_valued list
     assert card("works-at") is True
-    assert card("located-in") is True
+    assert card("part-of") is True
     # from the seed's multi_valued list
     assert card("relates-to") is False
     assert card("includes") is False
+    # Wave-1 1.3 / G98: these were misclassified single-valued — a hybrid
+    # solver legitimately `uses` MPI AND OpenMP, a project can be `is-a`
+    # multiple things, an entity can be `located-in` more than one place.
+    assert card("uses") is False
+    assert card("is-a") is False
+    assert card("located-in") is False
+    assert card("depends-on") is False
     # unseen predicate => conservative coexist (never auto-close)
     assert card("some-unseen-predicate") is False
 

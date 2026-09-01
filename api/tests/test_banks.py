@@ -74,6 +74,38 @@ def test_activate_switches_resolution(tmp_path):
     assert bank_registry.resolve_active_bank_path(tmp_path) == tmp_path
 
 
+def test_scaffold_seeds_the_real_predicate_map_not_an_empty_placeholder(tmp_path):
+    """Wave-1 1.3: a bare `{}` left the cardinality oracle with no
+    single_valued/multi_valued data for every predicate — `uses`, `is-a`,
+    `located-in`, `depends-on` and friends all silently defaulted to
+    "unseen => coexist" until Sleep happened to install the seed itself.
+    """
+    from api.services import predicates
+
+    bank_registry.scaffold_bank(tmp_path, git_init=False)
+    predicates_path = tmp_path / "_predicates.yaml"
+    assert predicates_path.read_text(encoding="utf-8").strip() != "{}"
+
+    card = predicates.build_cardinality_fn(tmp_path)
+    assert card("works-at") is True  # still single-valued
+    # moved to multi-valued (G98: set-valued predicates, not primary choices)
+    assert card("uses") is False
+    assert card("is-a") is False
+    assert card("located-in") is False
+    assert card("depends-on") is False
+
+
+def test_scaffold_does_not_clobber_an_already_populated_predicate_map(tmp_path):
+    bank_registry.scaffold_bank(tmp_path, git_init=False)
+    predicates_path = tmp_path / "_predicates.yaml"
+    predicates_path.write_text(
+        "canonical: [custom]\nsynonyms: {}\nsingle_valued: [custom]\nmulti_valued: []\n",
+        encoding="utf-8",
+    )
+    bank_registry.scaffold_bank(tmp_path, git_init=False)  # idempotent re-run
+    assert "custom" in predicates_path.read_text(encoding="utf-8")
+
+
 def test_activate_unknown_rejected(tmp_path):
     with pytest.raises(ValueError):
         bank_registry.activate_bank(tmp_path, "nope")
