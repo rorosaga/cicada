@@ -447,7 +447,7 @@ def test_default_save_url_writes_a_saved_because_claim(tmp_path, monkeypatch):
         return MediaMeta(title="A Recipe", description="", site="example.com",
                          media_type="url")
 
-    async def no_commit(memory_path, count):
+    async def no_commit(memory_path, count, paths=None):
         return None
 
     monkeypatch.setattr(media_ingestor, "enrich", offline)
@@ -489,7 +489,7 @@ def test_default_save_url_updates_the_note_on_a_repeat_save_of_an_existing_url(
         return MediaMeta(title="A Recipe", description="", site="example.com",
                          media_type="url")
 
-    async def no_commit(memory_path, count):
+    async def no_commit(memory_path, count, paths=None):
         return None
 
     async def no_git_commit(memory_path, message):
@@ -548,7 +548,7 @@ def test_default_save_url_does_not_duplicate_the_section_on_a_third_save(tmp_pat
         return MediaMeta(title="A Recipe", description="", site="example.com",
                          media_type="url")
 
-    async def no_commit(memory_path, count):
+    async def no_commit(memory_path, count, paths=None):
         return None
 
     async def no_git_commit(memory_path, message):

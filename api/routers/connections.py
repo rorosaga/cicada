@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.config import Settings, get_settings
-from api.models.schemas import ConnectionsResponse, ConnectionStatus, LoginSession
+from api.models.schemas import CamelModel, ConnectionsResponse, ConnectionStatus, LoginSession
+from api.services import engine_select
 from api.services.connections import byok, codex_cli
 from api.services.connections.registry import VALID_TIERS, Registry, get_registry
 
@@ -16,9 +17,14 @@ class KeyBody(BaseModel):
     key: str
 
 
-class PrefsBody(BaseModel):
+class PrefsBody(CamelModel):
+    # CamelModel so `useForSleep` on the wire (what the app sends) binds to
+    # `use_for_sleep` here — `populate_by_name=True` still accepts the
+    # snake_case spelling too, so existing `tier`/`enabled` callers (both
+    # single-word, alias-invariant) are unaffected.
     tier: str | None = None
     enabled: bool | None = None
+    use_for_sleep: bool | None = None
 
 
 def _registry(settings: Settings = Depends(get_settings)) -> Registry:
@@ -101,4 +107,15 @@ async def set_prefs(connection_id: str, body: PrefsBody, reg: Registry = Depends
         reg.set_pref(connection_id, "tier", body.tier)
     if body.enabled is not None:
         reg.set_pref(connection_id, "enabled", body.enabled)
+    if body.use_for_sleep is not None:
+        # Exactly one connection can be the Sleep engine, and only the Claude
+        # plan implements the rung — accepting it elsewhere would store a
+        # preference nothing reads.
+        if connection_id != engine_select.CLAUDE_CONNECTION_ID:
+            raise HTTPException(
+                status_code=400,
+                detail="only the Claude plan can be used as the Sleep engine",
+            )
+        reg.set_pref(connection_id, engine_select.USE_FOR_SLEEP_PREF,
+                     True if body.use_for_sleep else None)
     return await reg.status_with_powers(connection_id, fresh=True)

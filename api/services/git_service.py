@@ -35,6 +35,24 @@ UNKNOWN_AUTHOR = "unknown"
 SESSION_TRAILER = "Cicada-Session"
 _SESSION_RE = re.compile(rf"^{SESSION_TRAILER}:\s*(.+?)\s*$")
 
+# Engine trailer (G74(a) Task 6). Records WHICH ENGINE drove a Sleep commit —
+# "claude-cli" | "ollama" | "litellm" — mirroring `/sleep/status`'s
+# `lastEngine` field into the git history so `/sleep/history` can stop being
+# the one place in the app "reflects what actually ran" (Ruling 4) never
+# reached. Singular (one trailer, not a list like authors/sessions): a commit
+# is driven by exactly one engine. Omitted entirely for a commit where no LLM
+# engine ran at all (the `cicada`-authored decay-only commit, G85) — the
+# honest absence, never a guessed value. Inert to the entity-line parsing by
+# the same contract as the other two trailers: it carries no entity id.
+#
+# No Python-side `_parse_ENGINE_RE`/regex parser for this one (unlike
+# authors/sessions): M1 review fix round 1 — `get_sleep_history` reads it
+# straight out of `git log` via `%(trailers:key=Cicada-Engine,valueonly,…)`,
+# so there is nothing left in this module that needs to scan a raw body for
+# it. Verified against git 2.50.1: empty string (not an error) when the
+# trailer is absent, one bare value with no key/prefix when present.
+ENGINE_TRAILER = "Cicada-Engine"
+
 # Cap on session trailers in ONE commit. `build_commit_message` does not cap —
 # the call site does (sleep_cycle._collect_session_ids), so a caller that
 # genuinely wants every id can have it. 50 distinct conversations consolidated
@@ -109,15 +127,20 @@ def build_commit_message(
     body_lines: list[str],
     authors: list[str] | None = None,
     sessions: list[str] | None = None,
+    engine: str | None = None,
 ) -> str:
     """Assemble a structured commit message with optional trailers.
 
     ``subject`` is line 1, ``body_lines`` are the per-file manifest. Each
     distinct, non-empty ``authors`` entry becomes one ``Cicada-Author:`` line
     and each distinct, non-empty ``sessions`` entry one ``Cicada-Session:``
-    line, in that order, in ONE trailer block after a blank line (git-trailer
-    convention). Caller order is preserved and duplicates are dropped, per
-    list independently — an author id equal to a session id emits both.
+    line; a non-empty ``engine`` becomes exactly one ``Cicada-Engine:`` line
+    (singular — a commit is driven by one engine, unlike the author/session
+    lists). Order in the trailer block: authors, then engine, then sessions,
+    in ONE block after a blank line (git-trailer convention). Caller order is
+    preserved and duplicates are dropped, per list independently — an author
+    id equal to a session id emits both. ``engine`` defaults to ``None``
+    (no trailer at all) so every pre-existing call site stays byte-identical.
     """
     parts = [subject]
     if body_lines:
@@ -132,6 +155,10 @@ def build_commit_message(
             continue
         seen_authors.add(name)
         trailers.append(f"{AUTHOR_TRAILER}: {name}")
+
+    eng = (engine or "").strip()
+    if eng:
+        trailers.append(f"{ENGINE_TRAILER}: {eng}")
 
     seen_sessions: set[str] = set()
     for s in sessions or []:
@@ -794,23 +821,44 @@ async def get_contributor_commits(
 
 
 async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:
-    """Get chronological Sleep cycle history from git log."""
+    """Get chronological Sleep cycle history from git log.
+
+    Each entry's ``engine`` (G74(a) Task 6, Ruling 4 extended) comes straight
+    from the commit's optional ``Cicada-Engine:`` trailer — the same one line
+    ``sleep_cycle._finalize`` now stamps on its main commit — via git's own
+    ``%(trailers:key=...,valueonly,separator=)`` pretty-format directive,
+    NOT ``%b``. M1 review fix round 1: pulling the full body (``%b``) for
+    every commit to extract one trailer line made this endpoint's payload
+    grow with the SIZE of every commit message ever written (measured on the
+    live bank: 787 B -> 378 KB for 8 commits; a year of nightly cycles would
+    be tens of MB parsed and NUL-split per request). The trailers directive
+    gets git itself to do the extraction — it returns the bare value with no
+    key/prefix, and an empty string (never an error) when the trailer is
+    absent — so the per-record payload is back to what it was before this
+    field existed. Verified against git 2.50.1.
+    """
+    sep = "\x1f"
+    rec = "\x1e"
+    engine_directive = "%(trailers:key=Cicada-Engine,valueonly,separator=)"
     try:
         output = await _run_git(
             memory_path,
-            "log", "--format=%H|%ad|%s", "--date=short",
+            "log", f"--format=%H{sep}%ad{sep}%s{sep}{engine_directive}{rec}", "--date=short",
         )
     except GitError:
         return []
 
     entries: list[SleepHistoryEntry] = []
-    for line in output.strip().splitlines():
-        if not line:
+    for record in output.split(rec):
+        record = record.strip("\n")
+        if not record.strip():
             continue
-        parts = line.split("|", 2)
-        if len(parts) < 3:
+        fields = record.split(sep, 3)
+        if len(fields) < 4:
             continue
-        commit_hash, date, subject = parts
+        commit_hash, date, subject, engine_field = (
+            fields[0].strip(), fields[1].strip(), fields[2].strip(), fields[3].strip()
+        )
         subj = subject.lower()
         if subj.startswith("sleep cycle") or subj.startswith("inbox resolution"):
             # Get changed files for this commit
@@ -830,6 +878,7 @@ async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:
                 date=date,
                 message=subject,
                 files_changed=files,
+                engine=engine_field or None,
             ))
 
     return entries

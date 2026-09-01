@@ -15,6 +15,7 @@ from pathlib import Path
 
 from api.config import Settings
 from api.models.schemas import ConnectionStatus
+from api.services import engine_select
 from api.services.auth import cicada_home
 from api.services.connections import base, byok, claude_cli, codex_cli, ollama
 
@@ -106,6 +107,12 @@ class Registry:
         if hit and not fresh and now - hit[0] < STATUS_TTL_SECONDS:
             return hit[1]
         status = await self.get(connection_id).status()
+        # G74(a): "is this the Sleep engine" is a stored user choice, not
+        # something an adapter probing itself can know — same shape as
+        # `assign_powers`. `set_pref` invalidates the cache, so this can never
+        # go stale behind a toggle.
+        if connection_id == engine_select.CLAUDE_CONNECTION_ID:
+            status.use_for_sleep = engine_select.use_for_sleep(self)
         self._cache[connection_id] = (now, status)
         return status
 

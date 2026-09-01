@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.models.schemas import DecayClass
-from api.services import decay_policy, entity_body, markdown_parser
+from api.services import decay_policy, engine_errors, entity_body, json_parse, markdown_parser
 from api.services.providers import resolve_llm_fn
 
 # Confidence floor a decaying/archived entity is restored to when it is
@@ -91,6 +91,13 @@ async def resolve_and_prune(
             )
             if synthesized:
                 change["synthesized_body"] = synthesized
+        except engine_errors.EngineError:
+            # G74(a), M2: an ENGINE failure is not "nothing to synthesize" —
+            # flattening it here let a partial throttle silently skip
+            # synthesis for every entity while the cycle still committed and
+            # reported "Completed". Propagate so the cycle stops with the
+            # episode queue intact, same contract as the resolver's judge.
+            raise
         except Exception as e:
             logger.debug(f"Synthesis failed for {entity_id}: {e}")
 
@@ -104,6 +111,10 @@ async def resolve_and_prune(
                 new_description=new_desc,
                 settings=settings,
             )
+        except engine_errors.EngineError:
+            # Same reasoning as the synthesis branch above: an engine failure
+            # must not be read as "no contradiction found".
+            raise
         except Exception as e:
             logger.debug(f"Contradiction check failed for {entity_id}: {e}")
             contradiction = None
@@ -664,7 +675,8 @@ async def _synthesize_entity_update(
     # and consolidation_model overrides apply uniformly here too. completion
     # stays litellm.acompletion, so this is still awaited exactly as before.
     llm_fn = resolve_llm_fn(
-        settings, model=settings.effective_consolidation_model, completion=litellm.acompletion
+        settings, model=settings.effective_consolidation_model,
+        completion=litellm.acompletion, stage="merge",
     )
     response = await llm_fn(
         messages=[{"role": "user", "content": prompt}],
@@ -767,11 +779,12 @@ async def _detect_contradiction(
         new_description=new_description[:2000],
     )
     llm_fn = resolve_llm_fn(
-        settings, model=settings.effective_consolidation_model, completion=litellm.acompletion
+        settings, model=settings.effective_consolidation_model,
+        completion=litellm.acompletion, stage="conflict",
     )
     response = await llm_fn(
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )
     raw = response.choices[0].message.content
-    return json.loads(raw)
+    return json_parse.parse_json_object(raw)

@@ -274,3 +274,90 @@ def test_tail_poll_runs_after_finalize_so_neither_commits_steals_the_others_prov
         or f.startswith("entities/media-")
         for f in sources_files
     ), f"Sources commit touched unexpected files: {sources_files}"
+
+
+# --- Devin PR #25 round 1, finding 3: a pre-existing dirty edit must never --
+# --- be swept into a connector/media commit, `git add -A` or otherwise.   --
+
+
+def test_a_preexisting_dirty_edit_is_never_swept_into_a_media_commit(tmp_path, monkeypatch):
+    """H1 (above) proved the ORDERING fix: poll-after-finalize means the
+    Sleep cycle's own writes are already committed by the time the connector
+    runs. This is the mirror case H1 does not cover — a dirty file that has
+    NOTHING to do with Sleep at all (a hand-edit made directly in Obsidian,
+    say) sitting in the working tree when a connector happens to poll.
+    `_commit_media` used to `git add -A`, which would silently absorb that
+    edit into a `Sources ingest` commit under `Cicada-Author: user`
+    provenance it never earned. `_commit_media` now stages only the paths
+    THIS batch actually wrote (`git_service.commit_paths`), so the
+    unrelated dirty file must survive, untouched and still uncommitted,
+    no matter what else is sitting dirty in the bank.
+    """
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "sources").mkdir(parents=True)
+
+    markdown_parser.write(
+        memory / "entities" / "unrelated-project.md",
+        {"name": "Unrelated Project", "type": "project", "status": "active",
+         "confidence": 0.8, "created": "2026-01-01", "last_referenced": "2026-01-01",
+         "decay_class": "active", "decay_rate": 0.05, "source_episodes": [],
+         "tags": [], "related": [], "version": 1},
+        "## Summary\n\nOriginal body.",
+    )
+    _git(memory, "init", "-q")
+    _git(memory, "config", "user.email", "test@cicada.local")
+    _git(memory, "config", "user.name", "Cicada Test")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-q", "-m", "seed")
+
+    # A hand-edit lands AFTER the seed commit — dirty, unrelated to anything
+    # the connector is about to write, and never staged.
+    markdown_parser.write(
+        memory / "entities" / "unrelated-project.md",
+        {"name": "Unrelated Project", "type": "project", "status": "active",
+         "confidence": 0.8, "created": "2026-01-01", "last_referenced": "2026-01-01",
+         "decay_class": "active", "decay_rate": 0.05, "source_episodes": [],
+         "tags": [], "related": [], "version": 2},
+        "## Summary\n\nA direct Obsidian edit, mid-flight.",
+    )
+    dirty_before = _git(memory, "status", "--porcelain").strip()
+    assert dirty_before, "sanity: the hand-edit must actually be dirty"
+
+    async def offline_enrich(url, client, from_bookmark_file=False):
+        return media_ingestor.MediaMeta(
+            title=media_ingestor._fallback_title(url), description="",
+            site=media_ingestor._site_of(url), media_type="url")
+
+    monkeypatch.setattr(media_ingestor, "enrich", offline_enrich)
+
+    from api.services.media_ingestor import RawItem
+
+    created, _ = asyncio.run(media_ingestor.ingest_batch(
+        [RawItem(url="https://example.com/finding-3", title="A pin",
+                 folder="Recipes", origin="pinterest")],
+        memory, from_bookmark_file=False,
+    ))
+    assert created == 1
+
+    log = _git(memory, "log", "--format=%H", "--reverse")
+    hashes = [h for h in log.splitlines() if h.strip()]
+    assert len(hashes) == 2, f"expected seed + Sources ingest, got {len(hashes)}"
+    _seed_hash, sources_hash = hashes
+
+    sources_files = _git(
+        memory, "diff-tree", "--no-commit-id", "--name-only", "-r", sources_hash
+    ).splitlines()
+    assert "entities/unrelated-project.md" not in sources_files, (
+        "the connector commit must not have swept the pre-existing dirty "
+        "edit via git add -A"
+    )
+    assert sources_files, "the connector must have actually ingested something"
+
+    # The hand-edit is STILL dirty and uncommitted after the connector ran —
+    # not silently absorbed, not silently discarded either.
+    dirty_after = _git(memory, "status", "--porcelain").strip()
+    assert "entities/unrelated-project.md" in dirty_after
+    diff_after = _git(memory, "diff", "--", "entities/unrelated-project.md")
+    assert "mid-flight" in diff_after

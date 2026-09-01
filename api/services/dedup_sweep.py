@@ -104,9 +104,9 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
 
 
 def _default_judge_fn(settings):  # pragma: no cover - needs a real model
-    import json
+    from api.services import json_parse
     from api.services.providers import resolve_llm_fn
-    llm = resolve_llm_fn(settings, model=settings.effective_consolidation_model)
+    llm = resolve_llm_fn(settings, model=settings.effective_consolidation_model, stage="dedup")
 
     def judge(a_body, b_body, a_id, b_id):
         prompt = (
@@ -118,6 +118,5 @@ def _default_judge_fn(settings):  # pragma: no cover - needs a real model
         resp = llm(messages=[{"role": "user", "content": prompt}],
                    response_format={"type": "json_object"})
         txt = resp["choices"][0]["message"]["content"]
-        s, e = txt.find("{"), txt.rfind("}")
-        return json.loads(txt[s:e + 1]) if s >= 0 else {"verdict": "unsure", "confidence": 0.0}
+        return json_parse.parse_json_object_or(txt, {"verdict": "unsure", "confidence": 0.0})
     return judge

@@ -98,16 +98,30 @@ class Settings(BaseSettings):
     # the matching *_API_KEY env var. "local" routes to an on-device Ollama
     # server instead — no API key required, fully offline — by binding the
     # model to ``ollama/<ollama_model>`` and pointing litellm's api_base at
-    # ``ollama_base_url``. "agent" is reserved for a future MCP-agent-driven
-    # mode; not yet implemented here. Setting llm_mode != "local" leaves
-    # resolve_llm_fn's byok/openrouter behavior byte-identical to before this
-    # field existed.
-    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|byok|local)
+    # ``ollama_base_url``. ``"agent"`` runs every call through the user's own
+    # ``claude`` CLI on their subscription (G74(a)); ``"auto"`` resolves to
+    # the agent rung when the Claude plan probes connected, else the local
+    # rung when Ollama is running, else ``"byok"``. Resolution happens once
+    # per Sleep cycle in ``engine_select``; ``resolve_llm_fn`` treats an
+    # unresolved ``"auto"`` as ``"byok"`` and never shells out synchronously.
+    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|auto|byok|local)
     # Model name passed to Ollama when llm_mode="local" (litellm bind:
     # "ollama/<ollama_model>"). Does NOT include the "ollama/" prefix itself.
     ollama_model: str = "llama3.1"             # CICADA_OLLAMA_MODEL
     # Base URL of the local Ollama server, forwarded to litellm as api_base.
     ollama_base_url: str = "http://localhost:11434"  # CICADA_OLLAMA_BASE_URL
+
+    # G74(a) — the agent rung (llm_mode="agent"): Sleep runs through the
+    # user's own `claude` CLI on their plan. `litellm_model` ids
+    # ("gpt-5.4-mini", "openrouter/z-ai/glm-5.2") are meaningless to
+    # `claude --model`, so the rung has its own two-model pair mirroring the
+    # main/disambiguation split: an alias or a full Claude model id.
+    agent_model: str = "sonnet"                     # CICADA_AGENT_MODEL
+    agent_disambiguation_model: str = "haiku"       # CICADA_AGENT_DISAMBIGUATION_MODEL
+    # Concurrent `claude -p` subprocesses. Stage 1 fans out at MAX_CONCURRENCY
+    # (10) and each fan-out slot would otherwise be one more process; 3 keeps
+    # the machine usable and the plan's own rate limit further away.
+    agent_max_concurrency: int = 3                  # CICADA_AGENT_MAX_CONCURRENCY
 
     # Server
     host: str = "127.0.0.1"

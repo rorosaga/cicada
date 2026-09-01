@@ -23,11 +23,14 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
     /// What this connection currently does for Cicada ("Sleep extraction",
     /// "Ask", … for the selected engine; "Standby" for the rest).
     let powers: [String]
+    /// G74(a) — the user picked this connection as the Sleep engine.
+    /// Meaningful only on `claude-plan`; absent on an older backend.
+    let useForSleep: Bool
     let login: LoginHint?
 
     enum CodingKeys: String, CodingKey {
         case id, label, kind, available, connected, plan, planLabel, tier, account
-        case priceUsdMonth, priceNote, billing, engineRole, detail, how, powers, login
+        case priceUsdMonth, priceNote, billing, engineRole, detail, how, powers, useForSleep, login
     }
 
     /// Memberwise init — declaring `init(from:)` below suppresses the
@@ -38,21 +41,22 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
          plan: String?, planLabel: String?, tier: String?, account: String?,
          priceUsdMonth: Double?, priceNote: String?, billing: String,
          engineRole: String?, detail: String?, how: String? = nil,
-         powers: [String] = [], login: LoginHint?) {
+         powers: [String] = [], useForSleep: Bool = false, login: LoginHint?) {
         self.id = id; self.label = label; self.kind = kind
         self.available = available; self.connected = connected
         self.plan = plan; self.planLabel = planLabel; self.tier = tier
         self.account = account; self.priceUsdMonth = priceUsdMonth
         self.priceNote = priceNote; self.billing = billing
         self.engineRole = engineRole; self.detail = detail
-        self.how = how; self.powers = powers; self.login = login
+        self.how = how; self.powers = powers; self.useForSleep = useForSleep; self.login = login
     }
 
     /// A copy with only the named fields replaced. `nil` arguments mean
     /// "keep what's there"; the double-optionals carry "set this to nil"
     /// through (`.some(nil)`).
     func patching(connected: Bool? = nil, tier: String?? = nil, planLabel: String?? = nil,
-                  priceUsdMonth: Double?? = nil, priceNote: String?? = nil) -> ConnectionStatus {
+                  priceUsdMonth: Double?? = nil, priceNote: String?? = nil,
+                  useForSleep: Bool? = nil) -> ConnectionStatus {
         ConnectionStatus(
             id: id, label: label, kind: kind, available: available,
             connected: connected ?? self.connected,
@@ -63,7 +67,7 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
             priceUsdMonth: priceUsdMonth ?? self.priceUsdMonth,
             priceNote: priceNote ?? self.priceNote,
             billing: billing, engineRole: engineRole, detail: detail,
-            how: how, powers: powers, login: login
+            how: how, powers: powers, useForSleep: useForSleep ?? self.useForSleep, login: login
         )
     }
 
@@ -85,6 +89,7 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
         detail = try c.decodeIfPresent(String.self, forKey: .detail)
         how = try c.decodeIfPresent(String.self, forKey: .how)
         powers = try c.decodeIfPresent([String].self, forKey: .powers) ?? []
+        useForSleep = (try? c.decode(Bool.self, forKey: .useForSleep)) ?? false
         login = try c.decodeIfPresent(LoginHint.self, forKey: .login)
     }
 
@@ -102,6 +107,10 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
     var showsTierPicker: Bool {
         connected && isSubscription && id == "claude-plan" && plan == "max"
     }
+
+    /// Only a connected Claude plan can drive the Sleep engine — the `claude
+    /// -p` rung does not exist for anything else.
+    var showsSleepEngineToggle: Bool { id == "claude-plan" && connected }
 
     /// "Claude Max 20x · $200/mo", "OpenAI API key · usage-based", "Ollama · free, local".
     var priceLine: String {

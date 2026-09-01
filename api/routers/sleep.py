@@ -30,7 +30,10 @@ async def trigger_sleep(
         )
 
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
-    background_tasks.add_task(run, settings, cycle_id)
+    # Fix round 1, H1: explicit, not just the default — this IS the
+    # human-pressed-Run path spec §7 scopes the toggle/auto engine
+    # selection to.
+    background_tasks.add_task(run, settings, cycle_id, user_triggered=True)
     return SleepTriggerResponse(
         status="started",
         message="Sleep cycle initiated",
@@ -59,6 +62,8 @@ async def sleep_status():
         episodes_requeued=state.episodes_requeued,
         questions_refreshed=state.questions_refreshed,
         organic_resolutions=state.organic_resolutions,
+        last_engine=state.last_engine,
+        engine_detail=state.engine_detail,
     )
 
 

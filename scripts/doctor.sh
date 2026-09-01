@@ -110,6 +110,72 @@ else
   note "run ./install.sh to bootstrap it (or use the dev BackendProcess path)"
 fi
 
+# 9. A Sleep engine resolves to something real.
+# Fix round 1, L1: when the backend itself never answered, check 1 already
+# reported the real cause — an empty $CONN_JSON from a dead backend must not
+# also print "no connection is live" (a Plans & keys / claude-auth remedy
+# that has nothing to do with a backend that isn't running).
+if [ -z "$HEALTH_JSON" ]; then
+  fail "Sleep engine: can't check — backend is unreachable (see check 1 above)"
+else
+  CONN_JSON=""
+  if [ -r "$TOKEN_FILE" ]; then
+    CONN_JSON=$(curl -fsS -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
+                     "http://127.0.0.1:$PORT/connections" 2>/dev/null || true)
+  fi
+  if printf '%s' "$CONN_JSON" | grep -q '"connected":true'; then
+    pass "Sleep engine: at least one connection is live"
+  else
+    fail "Sleep engine: no connection is live — Sleep has nothing to run on"
+    note "open Settings → Plans & keys, or run: claude auth login"
+  fi
+fi
+
+# 10. `claude -p` still authenticates with OAuth, not an API key.
+#     The announced flip of `-p` to bare-by-default would silently break the
+#     agent rung: --bare forces ANTHROPIC_API_KEY and never reads OAuth.
+#
+#     Fix round 1, M4: this is a REAL `claude -p` call — it spends a
+#     fraction of a cent of plan quota, and network trouble could otherwise
+#     hang it indefinitely. Opt-in only (CICADA_DOCTOR_PROBE=1), so a plain
+#     `bash scripts/doctor.sh` (CI, a casual run) never spends anything or
+#     blocks; and bounded by a portable background-watcher timeout — macOS
+#     ships neither GNU `timeout` nor `gtimeout` by default, so this can't
+#     rely on either.
+if [ "${CICADA_DOCTOR_PROBE:-0}" != "1" ]; then
+  pass "claude -p OAuth probe skipped (set CICADA_DOCTOR_PROBE=1 to run it — spends a fraction of a cent of plan quota)"
+elif command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
+  PROBE_OUT=$(mktemp)
+  ( env -u ANTHROPIC_API_KEY "$CLAUDE_CLI" -p --output-format json --safe-mode \
+        --strict-mcp-config --tools "" --no-session-persistence \
+        --system-prompt 'Reply with the single word ok.' <<< 'ok' >"$PROBE_OUT" 2>/dev/null ) &
+  PROBE_PID=$!
+  ( sleep 20; kill -TERM "$PROBE_PID" 2>/dev/null ) &
+  WATCHER_PID=$!
+  wait "$PROBE_PID" 2>/dev/null
+  kill "$WATCHER_PID" 2>/dev/null; wait "$WATCHER_PID" 2>/dev/null
+  PROBE=$(cat "$PROBE_OUT" 2>/dev/null)
+  rm -f "$PROBE_OUT"
+  if printf '%s' "$PROBE" | grep -q '"is_error":false'; then
+    pass "claude -p works on OAuth with no API key (agent rung is viable)"
+  else
+    fail "claude -p did not succeed without ANTHROPIC_API_KEY (or timed out after 20s)"
+    note "check 'claude auth status --json' shows loggedIn + authMethod claude.ai"
+    note "if -p has flipped to bare-by-default, the agent rung needs the OAuth flag"
+  fi
+else
+  pass "claude CLI absent — skipping the agent-rung probe (not a failure)"
+fi
+
+# 11. No stray ANTHROPIC_API_KEY diverting a plan call to metered billing.
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  fail "ANTHROPIC_API_KEY is set in this environment"
+  note "claude would bill the API key instead of your plan; unset it (Cicada's own"
+  note "subprocesses scrub it, but a shell export still misleads anything you run by hand)"
+else
+  pass "No ANTHROPIC_API_KEY in the environment"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   printf '\033[32m%s\033[0m\n' "All checks passed."

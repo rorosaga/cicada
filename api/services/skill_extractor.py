@@ -12,6 +12,7 @@ import litellm
 from loguru import logger
 
 from api.config import Settings
+from api.services import engine_errors, json_parse
 from api.services.providers import resolve_llm_fn
 
 SKILL_DETECTION_PROMPT = """You are analyzing patterns in a personal knowledge graph to extract procedural skills and preferences.
@@ -79,15 +80,22 @@ async def detect_patterns(
         # completion callable stays litellm.acompletion, so this is still an
         # async call, byte-identical when neither override is configured.
         llm_fn = resolve_llm_fn(
-            settings, model=settings.effective_consolidation_model, completion=litellm.acompletion
+            settings, model=settings.effective_consolidation_model,
+            completion=litellm.acompletion, stage="skills",
         )
         response = await llm_fn(
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
         )
         content = response.choices[0].message.content
-        parsed = json.loads(content)
+        parsed = json_parse.parse_json_object(content)
         return parsed.get("skills", [])
+    except engine_errors.EngineError:
+        # G74(a), M2: an ENGINE failure is not "no patterns found" — returning
+        # [] here let a partial throttle silently skip Stage 4 for the whole
+        # cycle while it still committed and reported "Completed". Propagate
+        # so the cycle stops with the episode queue intact.
+        raise
     except Exception as e:
         logger.error(f"Skill extraction failed: {type(e).__name__}: {e}")
         return []

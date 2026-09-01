@@ -36,6 +36,28 @@ enum Copy {
     /// (G68 §1 — Capture merged into Feed).
     static let addASource = "Add a source"
 
+    // MARK: Sleep engine (G74(a))
+
+    /// The engine id the backend reports, in the user's words.
+    static func engineLabel(_ id: String) -> String {
+        switch id {
+        case "claude-cli": "Claude Code (your plan)"
+        case "ollama": "Ollama (on this Mac)"
+        case "litellm": "API key"
+        default: id
+        }
+    }
+
+    static let sleepEngineTitle = "Use for Sleep"
+
+    /// The three honest things about running Sleep on a subscription: what it
+    /// spends, who starts it, and what a throttle does. Not "free" — plan
+    /// quota is a real budget, just not a dollar one.
+    static let sleepEngineExplainer =
+        "Sleep runs through the `claude` CLI on your plan: it spends plan quota, not money. "
+        + "Only when you start a cycle yourself — never on the nightly schedule — and if the "
+        + "plan throttles it stops cleanly with the queue intact."
+
     // MARK: Observer
 
     /// The user's own observer label. Never the account holder's first name —

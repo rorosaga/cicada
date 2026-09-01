@@ -918,6 +918,10 @@ class SleepStatusResponse(CamelModel):
     # G60 — open-question re-scoring outcomes for the Sleep dashboard.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
+    # G74(a) — which engine this cycle ran on, and one sentence about its
+    # state ("Claude Code is signed out — run `claude auth login`").
+    last_engine: Optional[str] = None
+    engine_detail: Optional[str] = None
 
 
 class SleepHistoryEntry(CamelModel):
@@ -925,6 +929,12 @@ class SleepHistoryEntry(CamelModel):
     date: str
     message: str
     files_changed: list[str]
+    # G74(a) Task 6 — which engine drove this cycle's commit, parsed from the
+    # commit's optional ``Cicada-Engine:`` trailer. ``None`` for every commit
+    # made before this trailer existed, and for the `cicada`-authored
+    # decay-only commit (G85 split): no LLM engine ran for pure decay
+    # arithmetic, so the honest answer is "no engine", never a guess.
+    engine: Optional[str] = None
 
 
 class EpisodeQueueItem(CamelModel):
@@ -1284,6 +1294,9 @@ class ConnectionStatus(CamelModel):
     # these across the probed set (only one adapter is the engine at a time),
     # so an adapter can't know its own answer.
     powers: list[str] = []
+    # G74(a) — the user has picked this connection as the Sleep engine. Only
+    # meaningful on `claude-plan`; a machine-global preference, never a probe.
+    use_for_sleep: bool = False
     login: Optional[LoginHint] = None
 
 
