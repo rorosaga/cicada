@@ -286,6 +286,10 @@ if backend_healthy; then
 else
   step "Writing launchd plist -> $PLIST_PATH"
   run mkdir -p "$LAUNCH_AGENTS_DIR"
+  # CICADA_ALLOW_FEED_FETCH=1 is the opt-in for the nightly RSS-feed + ICS-calendar
+  # refresh at the tail of every Sleep cycle (G114 R5); the user-initiated
+  # POST /sources/poll-feeds and POST /sources/poll-calendars are gated by the same
+  # var. Without it an installed backend's subscriptions would never refresh.
   write_plist() {
     cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -305,6 +309,7 @@ else
   <key>EnvironmentVariables</key>
   <dict>
     <key>CICADA_MEMORY_PATH</key><string>$MEMORY_PATH</string>
+    <key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>
     <key>PYTHONPATH</key><string>$REPO</string>
   </dict>
   <key>RunAtLoad</key><true/>

@@ -323,6 +323,68 @@ async def _poll_connectors_safely(memory_path: Path) -> None:
             )
 
 
+async def _poll_feeds_and_calendars_safely(memory_path: Path) -> None:
+    """G114 R5: refresh the subscribed RSS feeds and ICS calendars on the
+    nightly cycle.
+
+    Before this slot existed, ``feed_registry.poll_feeds`` and
+    ``calendar_registry.poll_calendars`` were only ever reached through the
+    two user-initiated routes (``POST /sources/poll-feeds`` /
+    ``POST /sources/poll-calendars``) — an installed backend's subscriptions
+    never refreshed unless someone pressed the button, which makes a
+    "subscription" a lie by construction.
+
+    Same contract as ``_poll_connectors_safely``: bounded, never fatal — a
+    dead feed host must not fail a Sleep cycle — and each registry runs in
+    its own ``try/except`` so a raising feed poll never stops the calendar
+    poll (or vice versa). With zero subscriptions in a registry the slot
+    logs nothing at all, so a bank with no feeds sees no noise.
+
+    Network gate: the EXISTING opt-in ``CICADA_ALLOW_FEED_FETCH=1`` — the
+    registries consult it themselves and answer ``skipped_no_network`` when
+    it is closed. Opt-IN, unlike the connectors' opt-OUT
+    ``CICADA_ALLOW_CONNECTOR_FETCH``: its semantics are deliberately left
+    unchanged (the test suite never sets it, so the gate stays closed there;
+    ``install.sh``'s LaunchAgent plist sets it, so an installed backend's
+    nightly refresh actually happens). A gate-closed poll is logged as a skip
+    rather than silently reported as "0 new", so the log never pretends a
+    subscription was refreshed when nothing was fetched.
+
+    MUST run in the same guarded branch as ``_poll_connectors_safely`` and
+    never on a tree with uncommitted Sleep writes: both registries commit
+    their ingest through ``_commit_poll`` -> ``git_service.commit_changes``,
+    which is ``git add -A`` — the exact sweep final-review H1 exists to keep
+    away from a half-written cycle.
+    """
+    try:
+        from api.services import calendar_registry, feed_registry
+    except Exception as e:
+        logger.warning(f"feed/calendar poll unavailable: {type(e).__name__}: {e}")
+        return
+
+    slots = (
+        ("Feed", "feed", "item", feed_registry.list_feeds, feed_registry.poll_feeds),
+        (
+            "Calendar", "calendar", "event",
+            calendar_registry.list_calendars, calendar_registry.poll_calendars,
+        ),
+    )
+    for label, noun, unit, list_fn, poll_fn in slots:
+        try:
+            if not list_fn(memory_path):
+                continue
+            result = await poll_fn(memory_path)
+            if result.get("skipped_no_network"):
+                logger.info(f'{label} poll skipped: CICADA_ALLOW_FEED_FETCH is not "1"')
+                continue
+            logger.info(
+                f"{label} poll: {result.get('new', 0)} new {unit}(s) "
+                f"from {result.get('polled', 0)} {noun}(s)"
+            )
+        except Exception as e:
+            logger.warning(f"{label} poll failed: {type(e).__name__}: {e}")
+
+
 async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> None:
     """G60 §2.3 on an IDLE cycle: keep open questions honest during quiet weeks.
 
@@ -505,20 +567,31 @@ async def _run_engine_independent_tail(
     false "the cycle left uncommitted writes" log line on a real bank with
     ANY unrelated dirty file (a direct Obsidian edit, a workflow this repo
     explicitly supports).
+
+    G114 R5: the feed + calendar poll (``_poll_feeds_and_calendars_safely``)
+    shares the connector poll's guarded branch — never the ``else`` — for
+    the same reason the guard exists at all: ``feed_registry._commit_poll``
+    and ``calendar_registry._commit_poll`` both commit through
+    ``git_service.commit_changes``, i.e. ``git add -A``, so a poll that
+    ingests on a half-written cycle would sweep the Sleep cycle's own
+    uncommitted entity pages into a ``Feed poll`` / ``Calendar poll`` commit
+    with no session provenance.
     """
     if outcome.committed or not _state.write_started or await _tree_is_clean(memory_path):
         # Final-review H1 is preserved: on the happy path this still runs
-        # AFTER ``_finalize``'s commit, so the connectors' ``git add -A``
-        # finds a clean tree. On a cycle that started writing and never
-        # committed, we only poll when the tree is already clean anyway, so
-        # a partial Sleep write can never be swept into a media commit with
-        # no session provenance.
+        # AFTER ``_finalize``'s commit, so the connectors' (and the feed /
+        # calendar registries') ``git add -A`` finds a clean tree. On a cycle
+        # that started writing and never committed, we only poll when the
+        # tree is already clean anyway, so a partial Sleep write can never be
+        # swept into a media/feed/calendar commit with no session provenance.
         await _poll_connectors_safely(memory_path)
+        await _poll_feeds_and_calendars_safely(memory_path)
     else:
         logger.warning(
-            "connector poll skipped: this cycle wrote entity/inbox changes but "
-            "never committed them, and the connectors' own `git add -A` would "
-            "absorb those uncommitted writes into a media commit"
+            "connector and feed/calendar polls skipped: this cycle wrote "
+            "entity/inbox changes but never committed them, and the polls' own "
+            "`git add -A` would absorb those uncommitted writes into a "
+            "media/feed/calendar commit"
         )
     await _warm_logos_safely(memory_path)
     if not outcome.questions_refreshed:
