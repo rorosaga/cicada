@@ -339,10 +339,11 @@ def _episode_body(event: ICSEvent, calendar_url: str) -> str:
 
 def _write_calendar_episode(episodes_dir: Path, event: ICSEvent, calendar_url: str) -> str:
     episodes_dir.mkdir(parents=True, exist_ok=True)
-    now = datetime.now()
-    ep_date = now.strftime("%Y-%m-%d")
+    ep_date = datetime.now().strftime("%Y-%m-%d")
     episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
-    timestamp = now.isoformat() + "Z"
+    # Aware UTC (G114 R2) — the old naive `now` + a bare "Z" suffix stamped
+    # LOCAL time and labelled it UTC, off by the machine's offset.
+    timestamp = episode_ids.utc_now_iso()
 
     body = _episode_body(event, calendar_url)
     content_hash = hashlib.sha256(_event_key(event).encode()).hexdigest()[:12]
@@ -403,7 +404,7 @@ def ingest_ics(
             "dtstart": event.dtstart_iso,
             "sequence": event.sequence,
             "calendar_url": calendar_url,
-            "ingested_at": datetime.now().isoformat() + "Z",
+            "ingested_at": episode_ids.utc_now_iso(),
         }
         created += 1
 

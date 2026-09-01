@@ -1369,10 +1369,11 @@ def write_media_episode(
     episodes_dir: Path, item: RawItem, meta: MediaMeta, media_entity_id: str
 ) -> str:
     episodes_dir.mkdir(parents=True, exist_ok=True)
-    now = datetime.now()
-    ep_date = now.strftime("%Y-%m-%d")
+    ep_date = datetime.now().strftime("%Y-%m-%d")
     episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
-    timestamp = now.isoformat() + "Z"
+    # Aware UTC (G114 R2) — the old naive `now` + a bare "Z" suffix stamped
+    # LOCAL time and labelled it UTC, off by the machine's offset.
+    timestamp = episode_ids.utc_now_iso()
     saved_date = ep_date
 
     # G99d seam guard (Devin round 1, PR #26): `RawItem.added` is
@@ -1513,7 +1514,9 @@ def write_media_entity(
         "site": meta.site,
         "channel": meta.channel,
         "thumbnail": meta.thumbnail,
-        "saved_at": today.isoformat() + "Z",
+        # Ingest moment as aware UTC (G114 R2); `created` above is the same
+        # moment as a bare local date.
+        "saved_at": episode_ids.utc_now_iso(),
         "url_hash": url_hash(item.url),
     }
     body = _entity_body(meta, item.note)
@@ -1616,8 +1619,9 @@ async def ingest_one(
         # Kept as-is: despite the name, this has always been the *ingest*
         # timestamp, not the user's save date — `GET /sources` reads it
         # straight into `MediaSourceItem.saved_at`. `content_saved_at` below
-        # (G99d) is the genuinely new, distinct, optional field.
-        "saved_at": datetime.now().isoformat() + "Z",
+        # (G99d) is the genuinely new, distinct, optional field. Aware UTC
+        # since G114 R2.
+        "saved_at": episode_ids.utc_now_iso(),
     }
     validated_added = saved_at.validate(item.added)
     if validated_added:

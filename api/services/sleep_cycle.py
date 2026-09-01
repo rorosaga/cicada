@@ -7,7 +7,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.config import Settings
-from api.services import bank_index, git_service, markdown_parser
+from api.services import bank_index, episode_ids, git_service, markdown_parser
 
 
 @dataclass
@@ -1121,10 +1121,17 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
             "session_id": str(fm.get("session_id") or "") or None,
             "source_id": str(fm.get("source_id") or "") or None,
         })
-    # Fall back on the id (which begins with the date) for episodes missing a
-    # timestamp so the sort is stable regardless of filesystem order.
-    results.sort(key=lambda r: (r.get("timestamp") or "", r["id"]))
+    # Order by INSTANT, not by string (G114 R2): a bank holds legacy
+    # naive-local stamps beside `Z` and `+00:00` UTC ones, and a lexical sort
+    # across those is off by the machine's offset. Fall back on the id (which
+    # begins with the date) for episodes missing a parseable timestamp so the
+    # sort is stable regardless of filesystem order.
+    results.sort(key=_episode_sort_key)
     return results
+
+
+def _episode_sort_key(r: dict) -> tuple[str, str]:
+    return (episode_ids.timestamp_sort_key(r.get("timestamp")), r["id"])
 
 
 # Legacy `source` -> G9 `origin` derivation (origin-and-harness-sync.md §1b).
@@ -1183,7 +1190,7 @@ def list_all_episodes(memory_path: Path) -> list[dict]:
             "processed": bool(fm.get("processed", False)),
             "filepath": filepath,
         })
-    results.sort(key=lambda r: (r.get("timestamp") or "", r["id"]))
+    results.sort(key=_episode_sort_key)  # by instant, same key as the cycle's queue (G114 R2)
     return results
 
 

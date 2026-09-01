@@ -638,3 +638,37 @@ def test_endpoint_poll_calendars_no_subscriptions(tmp_path, monkeypatch):
     resp = client.post("/sources/poll-calendars")
     assert resp.status_code == 200
     assert resp.json() == {"polled": 0, "new": 0, "per_calendar": []}
+
+
+# --- G114 R2: one timestamp shape ---------------------------------------------
+
+
+def test_calendar_episode_timestamp_is_aware_utc(tmp_path):
+    """Writes ONE event straight through ``_write_calendar_episode`` — no ICS
+    window filtering, so this is not date-baked the way the ingest tests
+    above are. The ``timestamp`` must be aware UTC with an explicit
+    ``+00:00``, never the old naive-local ``isoformat() + "Z"``."""
+    from datetime import timezone
+
+    from api.services import markdown_parser
+
+    memory = _memory(tmp_path)
+    event = calendar_registry.ICSEvent(
+        uid="evt-1",
+        summary="Placeholder event",
+        dtstart_iso="2026-07-14T10:00:00+00:00",
+        dtend_iso="2026-07-14T11:00:00+00:00",
+        all_day=False,
+        location=None,
+        description=None,
+        sequence=0,
+        recurring=False,
+    )
+    ep_id = calendar_registry._write_calendar_episode(
+        memory / "episodes", event, "https://a.example.com/cal.ics"
+    )
+    ts = markdown_parser.parse(memory / "episodes" / f"{ep_id}.md").frontmatter["timestamp"]
+    assert isinstance(ts, str) and ts.endswith("+00:00"), ts
+    parsed = datetime.fromisoformat(ts)
+    assert parsed.tzinfo is not None
+    assert abs((datetime.now(timezone.utc) - parsed).total_seconds()) < 60

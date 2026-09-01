@@ -72,8 +72,14 @@ def test_chatgpt_parser_carries_source_identity():
     eps = conv.parse_chatgpt_json(data)
     assert len(eps) == 1
     assert eps[0]["source_id"] == "conv-xyz"
-    # ISO string with trailing Z, same idiom as create_time.
-    assert eps[0]["source_updated_at"].endswith("Z")
+    # G114 R2: an epoch renders as aware UTC (`+00:00`) — the same helper as
+    # create_time, and the true instant regardless of the machine's zone
+    # (the old `fromtimestamp(...).isoformat() + "Z"` was local time
+    # mislabelled as UTC).
+    assert eps[0]["source_updated_at"] == "2023-11-14T22:21:40+00:00"
+    assert eps[0]["timestamp"] == "2023-11-14T22:13:20+00:00"
+    assert eps[0]["messages"][0]["timestamp"] == "2023-11-14T22:13:20+00:00"
+    assert eps[0]["original_date"] == "2023-11-14"
 
 
 def test_noid_format_has_no_source_id():
@@ -246,3 +252,70 @@ def test_import_ids_seed_from_max_suffix_not_count(tmp_path):
         "ep_2026-02-24_004.md",  # seeded from max(3) + 1, not count(1) + 1
         "ep_2026-02-24_005.md",  # the per-batch dict keeps incrementing
     ]
+
+
+# --- G114 R2: one timestamp shape ---------------------------------------------
+
+
+def test_gemini_timestamp_renders_aware_utc():
+    # The Takeout wall-clock is taken as-is (the tz abbreviation is dropped,
+    # as before) but rendered in the R2 shape, not with a bare "Z".
+    assert (
+        conv._parse_gemini_timestamp("Feb 24, 2026, 12:39:02 PM PST")
+        == "2026-02-24T12:39:02+00:00"
+    )
+    assert conv._parse_gemini_timestamp("garbage") is None
+
+
+def test_write_new_episode_without_timestamp_stamps_aware_utc(tmp_path):
+    from datetime import datetime, timezone
+
+    ep_dir = tmp_path / "episodes"
+    ep_dir.mkdir()
+    episode = {"title": "T", "source": "claude_memory", "messages": [], "timestamp": None}
+    path = conv._write_new_episode(episode, ep_dir, "system: x", "abc123", {})
+    ts = markdown_parser.parse(path).frontmatter["timestamp"]
+    assert isinstance(ts, str) and ts.endswith("+00:00"), ts
+    parsed = datetime.fromisoformat(ts)
+    assert parsed.tzinfo is not None
+    assert abs((datetime.now(timezone.utc) - parsed).total_seconds()) < 60
+
+
+def test_write_new_episode_normalises_aware_z_timestamp(tmp_path):
+    """A Claude export's own `...Z` stamp is already UTC; the file gets the
+    one R2 shape so a bank never grows a third spelling of the same instant."""
+    ep_dir = tmp_path / "episodes"
+    ep_dir.mkdir()
+    data = _claude_export("uuid-z", "2026-02-24T13:00:00.000000Z", [("human", "Q"), ("assistant", "A")])
+    (episode,) = conv.parse_anthropic_conversations(data)
+    path = conv._write_new_episode(episode, ep_dir, "user: Q", "abc124", {})
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["timestamp"] == "2026-02-24T12:39:00+00:00"
+    assert path.name == "ep_2026-02-24_001.md"
+
+
+def test_claude_memory_episode_uses_export_date_when_present(tmp_path):
+    ep_dir = tmp_path / "episodes"
+    data = [{
+        "conversations_memory": "Placeholder memory text.",
+        "updated_at": "2026-03-01T10:00:00Z",
+    }]
+    (episode,) = conv.parse_anthropic_memories(data)
+    assert episode["timestamp"] == "2026-03-01T10:00:00+00:00"
+    assert episode["original_date"] == "2026-03-01"
+    created, _, _ = conv._stage_episodes([episode], ep_dir)
+    assert created == 1
+    (path,) = ep_dir.glob("ep_*.md")
+    assert path.name == "ep_2026-03-01_001.md"
+    assert markdown_parser.parse(path).frontmatter["timestamp"] == "2026-03-01T10:00:00+00:00"
+
+
+def test_claude_memory_episode_without_export_date_is_never_none(tmp_path):
+    ep_dir = tmp_path / "episodes"
+    data = [{"conversations_memory": "Placeholder memory text."}]
+    (episode,) = conv.parse_anthropic_memories(data)
+    assert episode["timestamp"] is None  # parser stays honest: nothing known
+    conv._stage_episodes([episode], ep_dir)
+    (path,) = ep_dir.glob("ep_*.md")
+    ts = markdown_parser.parse(path).frontmatter["timestamp"]
+    assert isinstance(ts, str) and ts.endswith("+00:00"), ts
