@@ -1345,8 +1345,10 @@ actor APIClient {
     /// file exists). Used by `ConnectView` to read the backend's OWN
     /// configured `memoryRoot` instead of re-deriving one locally — the two
     /// can otherwise disagree depending on install layout (G88 follow-up).
+    /// Capped like the refresh path: it's retried with backoff while the
+    /// backend comes up, so one attempt must never park for a full minute.
     func fetchHealth() async throws -> HealthSnapshot {
-        return try await get("/healthz")
+        return try await get("/healthz", timeout: Self.refreshTimeout)
     }
 
     // MARK: - Sources (media / bookmark ingestion — ships in a later wave)
