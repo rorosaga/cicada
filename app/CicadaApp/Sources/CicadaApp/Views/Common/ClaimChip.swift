@@ -215,12 +215,13 @@ struct EpisodePill: View {
 
 /// Parse `[[Wikilinks]]` / `[[id|Alias]]` into an `AttributedString` where
 /// the link text is highlighted in the accent color AND carries a real
-/// `cicada://entity/<id>` link attribute — a `Text` showing this is tappable
+/// `cicada://entity/<ref>` link attribute — a `Text` showing this is tappable
 /// wherever a `.wikilinkNavigation` handler is ambient (see MarkdownBody.swift),
-/// exactly like any other wikilink in the app. `id` reuses
-/// `MarkdownBody.sanitizeID` rather than re-deriving its own convention, so a
-/// claim's wikilink and an entity body's wikilink for the same name can never
-/// resolve to two different ids.
+/// exactly like any other wikilink in the app. The URL is minted by
+/// `MarkdownBody.entityLink(for:)` (the ref verbatim, resolved to a real id
+/// at click time) rather than re-deriving its own convention, so a claim's
+/// wikilink and an entity body's wikilink for the same name can never resolve
+/// to two different ids.
 func renderWikilinks(_ text: String) -> AttributedString {
     var result = AttributedString()
     guard let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\[\\]|]+)(?:\\|([^\\[\\]]+))?\\]\\]") else {
@@ -244,8 +245,7 @@ func renderWikilinks(_ text: String) -> AttributedString {
         link.foregroundColor = CicadaTheme.accent
         link.font = CicadaTheme.bodyFont.weight(.medium)
         link.underlineStyle = .single
-        let id = MarkdownBody.sanitizeID(name)
-        link.link = URL(string: "cicada://entity/\(id)")
+        link.link = URL(string: MarkdownBody.entityLink(for: name))
         result.append(link)
         lastEnd = match.range.location + match.range.length
     }

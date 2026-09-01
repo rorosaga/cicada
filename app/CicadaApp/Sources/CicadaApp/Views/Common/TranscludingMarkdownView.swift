@@ -191,12 +191,11 @@ struct TransclusionCard: View {
 
             // Tap the title → click-through to the embedded entity, via the
             // same `cicada://` scheme every wikilink dispatches through.
-            // Percent-encoded defensively; `targetEntityID` is an existing
-            // entity id here (not run through `sanitizeID`, which would risk
-            // corrupting one that legitimately isn't dash-only).
+            // `targetEntityID` is an existing entity id, so the handler's
+            // exact-id match (`MarkdownBody.resolveEntityID` step (a)) picks
+            // it up verbatim.
             Button {
-                let encoded = targetEntityID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? targetEntityID
-                if let url = URL(string: "cicada://entity/\(encoded)") {
+                if let url = URL(string: MarkdownBody.entityLink(for: targetEntityID)) {
                     openURL(url)
                 }
             } label: {
