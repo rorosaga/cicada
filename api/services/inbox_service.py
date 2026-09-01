@@ -109,12 +109,42 @@ def _opt_str(value: object) -> str | None:
     return text or None
 
 
+def _subject_gone(memory_path: Path, entity_id: str) -> bool:
+    """G98: True when ``entity_id`` no longer names a live entity.
+
+    The decay engine can archive (or a merge/manual edit can drop) the very
+    entity an inbox item is still asking about — the item then becomes
+    structurally unanswerable and must not be served. A missing page counts
+    as gone too (a clarification's subject was minted with no existence check
+    — see ``clarification_manager``). An unparseable page is NOT treated as
+    gone (fail open — a read error must not silently hide a live question).
+    """
+    if not entity_id:
+        return False
+    filepath = resolve_entity_file(memory_path, entity_id)
+    if filepath is None:
+        return True
+    try:
+        fm = markdown_parser.parse(filepath).frontmatter
+    except Exception:
+        return False
+    return str(fm.get("status", "active") or "active") in ("archived", "dropped")
+
+
 def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[InboxItem]:
     """Load inbox items, sorted: pending first, then priority desc, date desc.
 
     Deferred items (``remind_after`` still in the future, §2.3-4) are hidden by
     default — the file stays on disk and the card returns on its own the day the
     date passes. ``include_deferred=True`` is for maintenance callers.
+
+    Two defensive filters (G98) apply regardless of ``include_deferred``, and
+    filter at read only — nothing is deleted on disk:
+    - an item that fails to parse is skipped with a logged warning naming the
+      file (previously a bare ``except: continue`` made it invisible forever,
+      e.g. ``inbox-3747.md``'s unquoted colon in ``uncertainty_type``);
+    - an item whose ``entity_id`` resolves to no file, or to an
+      ``archived``/``dropped`` one, is skipped (its subject is gone).
     """
     inbox_dir = _inbox_dir(memory_path)
     today = str(date.today())
@@ -122,11 +152,14 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
     for filepath in sorted(inbox_dir.glob("inbox-*.md")):
         try:
             item = _item_from_file(filepath, today=today)
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"skipping unparseable inbox item {filepath.name}: {exc}")
             continue
         if not include_deferred and item.remind_after and inbox_questions.is_deferred(
             {"remind_after": item.remind_after}, today
         ):
+            continue
+        if _subject_gone(memory_path, item.entity_id):
             continue
         items.append(item)
     # pending first, then priority desc, then created_date desc.

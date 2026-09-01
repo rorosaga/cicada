@@ -42,6 +42,18 @@ def _write_conflict(memory: Path, item_id: str, *, entity_id: str = "rodrigo",
     return path
 
 
+def _write_entity(memory: Path, entity_id: str, *, status: str = "active") -> Path:
+    entities = memory / "entities"
+    entities.mkdir(parents=True, exist_ok=True)
+    path = entities / f"{entity_id}.md"
+    markdown_parser.write(
+        path,
+        {"name": entity_id.title(), "type": "person", "status": status, "confidence": 0.7},
+        "A person.",
+    )
+    return path
+
+
 def _claim(cid: str, obj: str, *, valid_from: str, valid_to: str | None = None,
            source_trust: str = "agent_extracted", recorded_at: str | None = None) -> Claim:
     return Claim(
@@ -65,6 +77,7 @@ def test_load_inbox_hides_deferred_items_but_they_stay_on_disk(tmp_path):
     _write_conflict(memory, "inbox-001")
     _write_conflict(memory, "inbox-002", predicate="uses",
                     extra={"remind_after": "2099-01-01"})
+    _write_entity(memory, "rodrigo")  # G98: load_inbox now gates on a live subject
 
     visible = inbox_service.load_inbox(memory)
     assert [i.id for i in visible] == ["inbox-001"]
