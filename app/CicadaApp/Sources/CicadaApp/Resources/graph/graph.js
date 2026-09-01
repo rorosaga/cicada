@@ -215,12 +215,23 @@ let lastClickId = null;
 // construction unless we seed them ourselves from the pointer's own motion.
 // `dragVX`/`dragVY` are an exponentially-smoothed world-units-per-tick
 // velocity estimate, sampled in onMouseMove and consumed (then reset) in
-// onMouseUp.
+// onMouseUp. Timestamps are `performance.now()` (monotonic — immune to
+// system-clock adjustments mid-gesture), never `Date.now()`.
 let dragVX = 0;
 let dragVY = 0;
-let lastDragSample = null;      // { t, x, y } world coords + Date.now() at last sample
+let lastDragSample = null;      // { t, x, y } world coords + performance.now() at last sample
 const DRAG_VELOCITY_SMOOTHING = 0.35;  // weight given to each new sample (EMA)
 const SIM_TICK_MS = 1000 / 60;         // d3's timer runs on rAF, ~60fps
+// Devin review (PR #23): dragVX/dragVY used to retain the last movement delta
+// indefinitely — grab a node, move it, PAUSE while still holding (no more
+// mousemove events fire, so the EMA is simply never updated), then release,
+// and the stationary node launched off in the direction you were moving a
+// second ago. Worse than the pre-G84b stop-dead behavior because it's
+// surprising rather than merely inert. DRAG_STALE_MS is the "still moving"
+// vs "parked" cutoff, checked at RELEASE time against how long it's been
+// since the last recorded move sample (not against the next move's delta,
+// which is exactly why a stall-then-release used to slip through).
+const DRAG_STALE_MS = 100;             // ~6 ticks at 60fps; a real flick's last sample is always fresher than this
 
 let hubsOnlyMode = false;       // set true when the payload is the hubs-only tier
 
@@ -1362,6 +1373,21 @@ function pickNode(sx, sy) {
     return n || null;
 }
 
+// Pure, testable on its own (Tests/graph/graph-drag-velocity.test.js): given
+// the timestamp of the last recorded move sample, the current time, and the
+// EMA-smoothed velocity accumulated so far, decide what velocity a release
+// RIGHT NOW should actually seed. A hold that's gone stale (no move sample
+// within DRAG_STALE_MS of now — including "never moved," lastSampleTime ===
+// null) returns zero, no matter how large vx/vy still are: a stationary node
+// must release stationary. A genuinely fresh sample passes vx/vy through
+// unchanged.
+function seededDragVelocity(lastSampleTime, now, vx, vy) {
+    if (lastSampleTime === null || now - lastSampleTime > DRAG_STALE_MS) {
+        return { vx: 0, vy: 0 };
+    }
+    return { vx, vy };
+}
+
 function onMouseDown(event) {
     const [sx, sy] = eventScreenXY(event);
     pressStart = { x: sx, y: sy, moved: false };
@@ -1370,10 +1396,11 @@ function onMouseDown(event) {
         draggingNode = picked;
         picked.fx = picked.x;
         picked.fy = picked.y;
-        // G84b: reset the throw-velocity estimate for this new drag gesture.
+        // G84b: reset the throw-velocity estimate for this new drag gesture —
+        // a re-grab must never inherit a prior drag's momentum.
         dragVX = 0;
         dragVY = 0;
-        lastDragSample = { t: Date.now(), x: picked.x, y: picked.y };
+        lastDragSample = { t: performance.now(), x: picked.x, y: picked.y };
         if (simulation) simulation.alphaTarget(0.3).restart();
         canvas.classList.add("dragging");
         // Claim this gesture: d3-zoom's own mousedown listener (registered on
@@ -1414,8 +1441,11 @@ function onMouseMove(event) {
             // G84b: sample the pointer's world-space velocity so onMouseUp
             // can seed vx/vy on release and let the node coast instead of
             // stopping dead. EMA-smoothed so a single jittery sub-frame move
-            // doesn't dominate the throw.
-            const now = Date.now();
+            // doesn't dominate the throw. performance.now() — monotonic,
+            // unlike Date.now() — and it's this SAME timestamp that
+            // onMouseUp later compares against to detect a stale/parked hold
+            // (see seededDragVelocity, DRAG_STALE_MS).
+            const now = performance.now();
             if (lastDragSample) {
                 const dt = now - lastDragSample.t;
                 if (dt > 0) {
@@ -1457,8 +1487,21 @@ function onMouseUp(event) {
             // before this fix. A click (never crossed the drag threshold)
             // leaves dragVX/dragVY at their reset 0, so a plain click still
             // releases the node motionless, as before.
-            draggingNode.vx = dragVX;
-            draggingNode.vy = dragVY;
+            //
+            // Devin review (PR #23): route through seededDragVelocity instead
+            // of using dragVX/dragVY directly — they used to retain the last
+            // movement delta indefinitely, so grab, move, PAUSE while still
+            // holding, then release used to launch the (by-then stationary)
+            // node off in a now-stale direction. seededDragVelocity zeroes
+            // the seed whenever the last recorded move sample is older than
+            // DRAG_STALE_MS at the moment of release.
+            const seeded = seededDragVelocity(
+                lastDragSample ? lastDragSample.t : null,
+                performance.now(),
+                dragVX, dragVY
+            );
+            draggingNode.vx = seeded.vx;
+            draggingNode.vy = seeded.vy;
             draggingNode.fx = null;
             draggingNode.fy = null;
         }

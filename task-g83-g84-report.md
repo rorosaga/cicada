@@ -6,6 +6,8 @@ Worktree: `.worktrees/app-polish`, branch `feat/app-polish`, off dev at `2c00c55
 
 - `96d221b` — fix(app): shared plain-button style fixes multi-click hit area + adds pressed feedback (G83)
 - `049592c` — fix(app): graph cold-paint filter drift + drag deceleration (G84a, G84b)
+- `142a581` — fix(app): G83 review follow-up — restore press feedback the shared style was cancelling
+- (this pass) — fix(app): stale-hold drag no longer launches a stationary node (Devin PR #23 round 1)
 
 ## G83 — button hit area + pressed feedback
 
@@ -212,6 +214,68 @@ composes correctly, so it was left alone.
 **Gate re-run:** `swift build` clean, `swift test` 389/389 (unchanged — no new
 test surface for this pass; SwiftUI `ButtonStyle` composition isn't testable
 without a live view, same reasoning as G83's original pass).
+
+## Devin PR #23 round 1 — stale-hold drag launched a stationary node (🟡, real bug)
+
+**Repro (as reported):** grab a node, move it, pause for a second while still
+holding the mouse button, then release — the by-then-stationary node jumped
+off in the direction it was moving a second earlier. Worse than the original
+G84b "stops dead" behavior because it's surprising rather than merely inert.
+
+**Root cause:** `dragVX`/`dragVY` (the EMA-smoothed throw-velocity estimate)
+are only updated inside `onMouseMove`. During a stationary hold, no
+`mousemove` events fire at all, so the last computed velocity sits in memory
+untouched — `onMouseUp` then seeded it verbatim, regardless of how long ago
+it was actually true.
+
+**Fix — approach (a), zero-after-window** (not decay): extracted a pure
+function, `seededDragVelocity(lastSampleTime, now, vx, vy)`
+(`graph.js`, just above `onMouseDown`), which `onMouseUp` now calls instead of
+reading `dragVX`/`dragVY` directly. It compares `now` against the timestamp of
+the LAST RECORDED MOVE SAMPLE (not the next move's delta — checking at release
+time is what catches a hold that never produces another sample at all) and
+returns `{vx: 0, vy: 0}` whenever that gap exceeds `DRAG_STALE_MS` (100ms —
+roughly 6 ticks at 60fps; comfortably longer than the ~8-16ms gap between
+consecutive real `mousemove` events during continuous motion, so a genuine
+flick's last sample is always well inside the window) or when
+`lastSampleTime === null` (never moved this drag). Chose zero-after-window
+over decay-toward-zero because the desired behavior is a hard, testable
+guarantee ("hold-still-then-release does not move AT ALL"), not a softened
+launch — a decay curve would still impart some non-zero velocity for an
+arbitrarily long stale gap unless clamped to zero past some point anyway, at
+which point it's the same guarantee with extra curve-shape complexity that
+buys nothing here (the EMA sampling during actual motion already gives the
+"slow drag settles gently" half of the contract — that path is untouched).
+
+**Also fixed in the same pass** (both explicitly requested):
+- Timestamp source switched from `Date.now()` to `performance.now()` at all
+  three drag-velocity call sites (`onMouseDown`'s reset, `onMouseMove`'s
+  sampling, `onMouseUp`'s release check) — monotonic, immune to a system
+  clock adjustment mid-gesture. `handleNodeClick`'s unrelated
+  `Date.now()` (double-click timing) is untouched — out of scope, and
+  double-click timing doesn't need drag-velocity's monotonicity guarantee.
+- Re-grab already reset `dragVX`/`dragVY`/`lastDragSample` to a clean state in
+  `onMouseDown` from the original G84b pass — verified this still holds
+  (a second drag can never inherit the first one's momentum) and documented
+  it explicitly in the reset's comment.
+
+**Test added:** `Tests/graph/graph-drag-velocity.test.js` (same vm-context
+harness as the other three `Tests/graph/*.test.js` scripts) calls
+`seededDragVelocity` directly with synthetic timestamps — no DOM/pointer
+pipeline needed since it's a pure function. Covers: a fresh sample passes
+velocity through unchanged; a sample exactly at the `DRAG_STALE_MS` boundary
+is still fresh; a sample just past the boundary zeroes; the exact reported
+repro (1s stale hold with a large tracked velocity) zeroes; `lastSampleTime
+=== null` zeroes; a plain click (0 velocity) stays at 0 regardless of
+freshness. All pass, alongside the pre-existing three scripts (unaffected)
+and `node --check` (syntax OK).
+
+**Manual check for a human** (this IS extractable/testable, so no "can't be
+tested" caveat needed here — but a human should still confirm the FEEL in the
+live app): grab a node, drag it a short distance, hold perfectly still for
+over a second while still holding the mouse button, then release — the node
+must not move at all. Then, separately, do a genuine fast flick-and-release —
+the node must still visibly coast (this path is unchanged by this fix).
 
 ## Concerns / open items
 
