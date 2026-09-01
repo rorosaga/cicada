@@ -14,10 +14,15 @@ import SwiftUI
 // `[[id|Alias]]` are rewritten into ordinary markdown links pointed at a
 // synthetic `cicada://entity/<id>` URL *before* that parse, so a wikilink
 // gets exactly the same treatment as any other link instead of needing a
-// second attribute-surgery step afterward. `TranscludingMarkdownView` installs
-// the `\.openURL` handler that intercepts the `cicada:` scheme and routes it
-// to `graphVM.selectEntity(id:)`; everything else (http/https) falls through
-// to the system (opens in the browser).
+// second attribute-surgery step afterward. Any `Text` rendering that
+// resulting `AttributedString` becomes tappable automatically; what makes the
+// tap DO something is the `\.openURL` interceptor installed by
+// `View.wikilinkNavigation(onSelect:)` below — applied ONCE near the root of
+// whichever presentation hosts the render (`EntityDetailCard`, `AskPanel`),
+// not re-implemented per surface. Everything else (http/https, or any
+// non-`cicada` scheme) falls through to the system (opens in the browser).
+// `ClaimChip.renderWikilinks` builds the same `cicada://entity/<id>` links
+// for claim text, reusing `MarkdownBody.sanitizeID` so the two can't drift.
 //
 // The `` ```claims `` fence (machine-owned relation data written by
 // `api/services/claims.py`) is parsed as an ordinary code block — so it still
@@ -162,7 +167,11 @@ struct MarkdownBody: View {
     /// `[[id|Alias]]` → `[Alias](cicada://entity/id)`. Id sanitization
     /// mirrors the convention used elsewhere for ref → entity-id resolution:
     /// lowercase, runs of non-alphanumerics collapsed to a single `-`, trimmed.
-    private static func linkifyWikilinks(_ text: String) -> String {
+    ///
+    /// Internal (not `private`) so `MarkdownBody{Tests,LinkTests}` can assert
+    /// the rewrite directly, including the `[[id|Alias]]` and sanitization
+    /// cases, without round-tripping through `AttributedString(markdown:)`.
+    static func linkifyWikilinks(_ text: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\[\\]|]+)(?:\\|([^\\[\\]]+))?\\]\\]") else {
             return text
         }
@@ -184,7 +193,9 @@ struct MarkdownBody: View {
         return out
     }
 
-    private static func sanitizeID(_ raw: String) -> String {
+    /// Internal so `ClaimChip.renderWikilinks` reuses this exact convention
+    /// instead of re-deriving its own id from a claim's `[[wikilink]]` text.
+    static func sanitizeID(_ raw: String) -> String {
         let lowered = raw.lowercased()
         var result = ""
         var lastWasDash = false
@@ -352,5 +363,30 @@ private enum MarkdownBlockParser {
             blocks.append(.paragraph(text: paraLines.joined(separator: " ")))
         }
         return blocks
+    }
+}
+
+// MARK: - Wikilink navigation (shared `\.openURL` interceptor)
+
+extension View {
+    /// Installs the ONE `cicada://entity/<id>` interceptor every
+    /// wikilink-rendering surface relies on — `MarkdownBody`/
+    /// `TranscludingMarkdownView`'s prose, `TransclusionCard`'s embed title,
+    /// `ClaimChip`'s claim text, `AskPanel`'s answer prose. Apply it once,
+    /// near the root of whichever presentation owns "where a tap goes"
+    /// (`EntityDetailCard`, `AskPanel`) — every descendant `Text` showing a
+    /// `cicada://` link, and every `Button` that calls
+    /// `openURL(URL(string: "cicada://entity/…"))` directly (`TransclusionCard`),
+    /// inherits it. Never re-implement this parsing/dispatch locally; a
+    /// second copy is exactly how a wikilink ends up rendered-but-dead.
+    /// Any non-`cicada` scheme (http/https) falls through to the system.
+    func wikilinkNavigation(onSelect: @escaping (String) -> Void) -> some View {
+        environment(\.openURL, OpenURLAction { url in
+            guard url.scheme == "cicada" else { return .systemAction }
+            let id = url.lastPathComponent
+            guard !id.isEmpty else { return .handled }
+            onSelect(id)
+            return .handled
+        })
     }
 }

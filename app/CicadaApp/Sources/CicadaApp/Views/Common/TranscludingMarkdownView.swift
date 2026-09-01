@@ -7,8 +7,10 @@ import SwiftUI
 // the body into `.text(AttributedString)` / `.embed(ref:)` segments (one regex
 // pass for `!\[\[(.+?)\]\]`, the residual text rendered with the existing
 // wikilink machinery), then renders a VStack where each embed is an inline,
-// collapsible, depth-guarded TransclusionCard. Tapping an embed's title calls
-// the existing `graphVM.selectEntity(id:)` hook.
+// collapsible, depth-guarded TransclusionCard. Tapping an embed's title routes
+// through the ambient `\.openURL` (see `View.wikilinkNavigation` in
+// MarkdownBody.swift) exactly like any other `cicada://` wikilink — this view
+// installs no handler of its own, so it inherits whatever its host wired up.
 
 enum MarkdownSegment {
     // Raw markdown text (headings, lists, code fences, prose, `[[wikilinks]]`,
@@ -26,7 +28,6 @@ struct TranscludingMarkdownView: View {
     let body0: String
     var depth: Int = 0
     var visited: Set<String> = []
-    @Environment(GraphViewModel.self) private var graphVM
 
     init(body: String, depth: Int = 0, visited: Set<String> = []) {
         self.body0 = body
@@ -66,21 +67,10 @@ struct TranscludingMarkdownView: View {
                 }
             }
         }
-        // Wikilinks are rewritten (by `MarkdownBody`) into ordinary markdown
-        // links pointed at a synthetic `cicada://entity/<id>` URL. Intercept
-        // that scheme here and route it to the graph's entity navigation;
-        // everything else (http/https) falls through to the system handler
-        // (opens in the default browser). `selectEntity` already no-ops
-        // gracefully (logs + leaves selection untouched) if `<id>` doesn't
-        // resolve to a real entity, so a stale/typo'd wikilink can't crash.
-        .environment(\.openURL, OpenURLAction { url in
-            guard url.scheme == "cicada" else { return .systemAction }
-            let id = url.lastPathComponent
-            if !id.isEmpty {
-                graphVM.selectEntity(id: id)
-            }
-            return .handled
-        })
+        // No local `\.openURL` override here — see the file header. The host
+        // (`EntityDetailCard`, or whoever else renders this) installs the one
+        // interceptor via `.wikilinkNavigation(onSelect:)`, and it flows down
+        // to every `Text` this view (and `TransclusionCard` below) renders.
     }
 
     /// Tokenize `body0` into text/embed/image segments. A single regex pass
@@ -152,7 +142,12 @@ struct TransclusionCard: View {
     let ref: String
     var depth: Int
     var visited: Set<String>
-    @Environment(GraphViewModel.self) private var graphVM
+    // Routed through the ambient `\.openURL` (same `cicada://entity/<id>`
+    // vocabulary every wikilink uses) rather than a direct `GraphViewModel`
+    // call, so this card navigates correctly under WHICHEVER host installed
+    // `.wikilinkNavigation` — the graph tab's floating card and the
+    // Clusters/Topics detail page each own a different destination.
+    @Environment(\.openURL) private var openURL
 
     @State private var payload: TransclusionPayload?
     @State private var isLoading = true
@@ -194,9 +189,16 @@ struct TransclusionCard: View {
                 .font(.system(size: 10))
                 .foregroundStyle(CicadaTheme.accent)
 
-            // Tap the title → click-through to the embedded entity.
+            // Tap the title → click-through to the embedded entity, via the
+            // same `cicada://` scheme every wikilink dispatches through.
+            // Percent-encoded defensively; `targetEntityID` is an existing
+            // entity id here (not run through `sanitizeID`, which would risk
+            // corrupting one that legitimately isn't dash-only).
             Button {
-                graphVM.selectEntity(id: targetEntityID)
+                let encoded = targetEntityID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? targetEntityID
+                if let url = URL(string: "cicada://entity/\(encoded)") {
+                    openURL(url)
+                }
             } label: {
                 Text(payload?.title ?? ref)
                     .font(.system(size: 12, weight: .medium))
