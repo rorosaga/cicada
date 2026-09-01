@@ -187,6 +187,13 @@ struct MediaFeedItem: Codable, Identifiable {
     let relatedCount: Int
     let relevance: Double
     let personalRelevance: String?
+    /// G99d — the user's actual save/bookmark/like date, recovered from the
+    /// source export when the format allows. Distinct from `savedAt` above,
+    /// which — despite its name — has always meant "when Cicada ingested
+    /// this" (kept as-is for back-compat rather than renamed out from under
+    /// existing readers). `nil` means unknown, never a guess. Use
+    /// `recencyKey` for any "most recent first" sort.
+    let contentSavedAt: String?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -194,9 +201,14 @@ struct MediaFeedItem: Codable, Identifiable {
     // rendered blank row slots for every duplicate.
     var id: String { mediaEntityId + "|" + url }
 
+    /// Prefer the true save date; fall back to the ingest timestamp when no
+    /// source date was recoverable (G99d) — what "Recent" should sort by.
+    var recencyKey: String { contentSavedAt ?? savedAt }
+
     enum CodingKeys: String, CodingKey {
         case mediaEntityId, url, title, mediaType, site, channel, thumbnail
         case savedAt, tags, status, relatedCount, relevance, personalRelevance
+        case contentSavedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -214,6 +226,7 @@ struct MediaFeedItem: Codable, Identifiable {
         relatedCount = (try? c.decode(Int.self, forKey: .relatedCount)) ?? 0
         relevance = (try? c.decode(Double.self, forKey: .relevance)) ?? 0
         personalRelevance = try c.decodeIfPresent(String.self, forKey: .personalRelevance)
+        contentSavedAt = try c.decodeIfPresent(String.self, forKey: .contentSavedAt)
     }
 }
 

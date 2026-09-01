@@ -36,7 +36,9 @@ final class FeedViewModel {
         let base = store.sources.value ?? []
         switch sort {
         case .relevance: return base
-        case .recent: return base.sorted { $0.savedAt > $1.savedAt }
+        // G99d: prefer the recovered true save date over the ingest
+        // timestamp, falling back to it only when no source date parsed.
+        case .recent: return base.sorted { $0.recencyKey > $1.recencyKey }
         }
     }
 

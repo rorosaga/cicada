@@ -400,6 +400,7 @@ async def list_sources(
                 channel=channel,
                 thumbnail=entry.get("thumbnail"),
                 saved_at=entry.get("saved_at", ""),
+                content_saved_at=entry.get("content_saved_at"),
                 tags=tags,
                 status=status,
                 related_count=related_count,
@@ -408,10 +409,16 @@ async def list_sources(
             )
         )
 
+    # G99d — recency prefers the recovered true save date, falling back to
+    # the ingest timestamp only when no source date was recoverable. This
+    # deliberately reorders the Feed relative to the old ingest-only sort.
+    def _recency_key(i: MediaSourceItem) -> str:
+        return i.content_saved_at or i.saved_at
+
     if sort == "relevance":
-        items.sort(key=lambda i: (i.relevance, i.saved_at), reverse=True)
+        items.sort(key=lambda i: (i.relevance, _recency_key(i)), reverse=True)
     else:
-        items.sort(key=lambda i: i.saved_at, reverse=True)
+        items.sort(key=_recency_key, reverse=True)
     return SourceListResponse(items=items, total=len(items))
 
 

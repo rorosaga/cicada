@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 from loguru import logger
 
-from api.services import decay_policy, markdown_parser
+from api.services import decay_policy, markdown_parser, saved_at
 from api.services.id_utils import sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
@@ -52,6 +52,13 @@ class RawItem:
     title: str | None = None
     tags: list[str] = field(default_factory=list)
     channel: str | None = None
+    # G99d: the user's actual save/bookmark/like date, ALREADY NORMALIZED to
+    # an ISO ``YYYY-MM-DD`` string by the parser that sets it (see
+    # ``api/services/saved_at.py`` — each of the five source-specific formats
+    # is converted at parse time, never carried raw). ``None`` means unknown
+    # — a source that provides no date, or one that failed to parse — and
+    # must never be guessed at downstream. Distinct from the episode's
+    # ``timestamp``/entity's ``created`` (when Cicada ingested the item).
     added: str | None = None
     note: str | None = None
     # Human-readable source folder/category path, e.g. "Bookmarks Bar/AI/Papers"
@@ -313,7 +320,7 @@ def parse_netscape_bookmarks(html: str) -> list[RawItem]:
             url=href,
             title=(a.get_text(strip=True) or None),
             tags=tags,
-            added=a.get("add_date"),
+            added=saved_at.from_netscape_epoch(a.get("add_date")),
             folder=folder_name or None,
         ))
     return items
@@ -409,7 +416,7 @@ def parse_chrome_bookmarks_json(data: dict) -> list[RawItem]:
             items.append(RawItem(
                 url=node["url"],
                 title=node.get("name") or None,
-                added=node.get("date_added"),
+                added=saved_at.from_webkit_micros(node.get("date_added")),
                 folder="/".join(path) if path else None,
             ))
             return
@@ -459,7 +466,7 @@ def parse_youtube_takeout(content: bytes, filename: str) -> list[RawItem]:
             url=url,
             title=entry.get("title") or None,
             channel=channel,
-            added=entry.get("time"),
+            added=saved_at.from_iso8601(entry.get("time")),
         ))
     return items
 
@@ -619,7 +626,7 @@ def parse_tiktok_export(data, *, include_history: bool = False) -> list[RawItem]
             date = row.get("Date") or row.get("date")
             items.append(RawItem(
                 url=url.strip(),
-                added=date if isinstance(date, str) else None,
+                added=saved_at.from_tiktok(date),
                 folder=folder,
                 origin="tiktok-history" if is_history else "tiktok-saved",
             ))
@@ -750,7 +757,7 @@ def parse_linkedin_saved(content: bytes, filename: str) -> list[RawItem]:
             continue
         added = None
         if date_col:
-            added = (row.get(date_col) or "").strip() or None
+            added = saved_at.from_freeform(row.get(date_col))
         items.append(RawItem(
             url=url,
             added=added,
@@ -1336,6 +1343,7 @@ def _episode_body(
     note: str | None,
     folder: str | None = None,
     reason: str | None = None,
+    content_saved_at: str | None = None,
 ) -> str:
     lines = [
         f"# {meta.title}",
@@ -1350,6 +1358,11 @@ def _episode_body(
     if folder:
         lines.append(f"**Folder:** {folder}")
     lines.append(f"**Saved:** {saved_date}")
+    # G99d — the source export's own recovered save date, when it differs
+    # from the ingest date above. Never shown when equal/absent so the common
+    # case (saved and imported the same day) doesn't grow a redundant line.
+    if content_saved_at and content_saved_at != saved_date:
+        lines.append(f"**Originally saved:** {content_saved_at}")
     if meta.description:
         lines += ["", "## Description", meta.description]
     if reason:
@@ -1380,7 +1393,8 @@ def write_media_episode(
     saved_date = ep_date
 
     body = _episode_body(
-        meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason
+        meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason,
+        content_saved_at=item.added,
     )
     content_hash = hashlib.sha256(normalize_url(item.url).encode()).hexdigest()[:12]
 
@@ -1395,6 +1409,12 @@ def write_media_episode(
         "media_entity_id": media_entity_id,
         "folder": item.folder or None,
     }
+    if item.added:
+        # G99d — when the user actually saved/bookmarked this, recovered from
+        # the source export (normalized in api/services/saved_at.py). Absent
+        # (never a guess) when the source gave no date or it failed to parse.
+        # Distinct from `timestamp` above, which is when Cicada ingested it.
+        frontmatter["saved_at"] = item.added
     if item.origin:
         frontmatter["origin"] = item.origin
     if item.session_id:
@@ -1483,6 +1503,15 @@ def write_media_entity(
         "version": 1,
         "folder": item.folder or None,
     }
+    if item.added:
+        # G99d — the user's actual save/bookmark/like date (top-level, next
+        # to `created`/`last_referenced`), recovered from the source export.
+        # NOT the same thing as the nested `media.saved_at` below, which —
+        # despite its name — has always meant "when Cicada ingested this"
+        # (kept as-is for back-compat rather than rewritten under everyone's
+        # feet); `created` above is that same ingest moment. Absent when the
+        # source gave no date or it didn't parse — never a guess.
+        frontmatter["saved_at"] = item.added
     if item.origin:
         frontmatter["origin"] = item.origin
     frontmatter["media"] = {
@@ -1559,8 +1588,14 @@ async def ingest_one(
         "title": meta.title,
         "media_type": meta.media_type,
         "thumbnail": meta.thumbnail,
+        # Kept as-is: despite the name, this has always been the *ingest*
+        # timestamp, not the user's save date — `GET /sources` reads it
+        # straight into `MediaSourceItem.saved_at`. `content_saved_at` below
+        # (G99d) is the genuinely new, distinct, optional field.
         "saved_at": datetime.now().isoformat() + "Z",
     }
+    if item.added:
+        idx[h]["content_saved_at"] = item.added
     return IngestResult(
         status="created",
         media_entity_id=entity_id,

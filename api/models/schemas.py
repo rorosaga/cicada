@@ -1099,6 +1099,14 @@ class MediaSourceItem(CamelModel):
     # §3.4 relevance: confidence x recency-decay x personal weight, in [0,1].
     relevance: float = 0.0
     personal_relevance: Optional[str] = None
+    # G99d — the user's actual save/bookmark/like date, recovered from the
+    # source export (see api/services/saved_at.py). Distinct from `saved_at`
+    # above, which — despite its name — has always meant "when Cicada
+    # ingested the item" (kept as-is rather than rewritten out from under
+    # existing readers). `None` means unknown, never a guess. Recency sorts
+    # (GET /sources ?sort=recent, the app's Recent toggle) should prefer this
+    # and fall back to `saved_at`.
+    content_saved_at: Optional[str] = None
 
 
 class SourceListResponse(CamelModel):

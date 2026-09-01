@@ -579,6 +579,164 @@ def test_ingest_one_media_entity_carries_folder_frontmatter_and_tag(tmp_path, mo
     assert ep_fm["folder"] == "Bookmarks bar/AI/Papers"
 
 
+# --- G99d: RawItem.added -> episode/entity frontmatter -> url_index -------
+
+
+def test_write_media_episode_records_saved_at_when_recoverable(tmp_path):
+    item = RawItem(url="https://example.com/a", added="2023-06-15")
+    meta = MediaMeta(title="A", media_type="url")
+    episodes = tmp_path / "episodes"
+    ep_id = media_ingestor.write_media_episode(episodes, item, meta, "media-a")
+
+    parsed = markdown_parser.parse(episodes / f"{ep_id}.md")
+    assert parsed.frontmatter["saved_at"] == "2023-06-15"
+    # timestamp (ingest) is untouched and distinct from saved_at.
+    assert parsed.frontmatter["timestamp"] != "2023-06-15"
+    assert "**Originally saved:** 2023-06-15" in parsed.body
+
+
+def test_write_media_episode_without_added_is_byte_identical_to_before(tmp_path):
+    """Additive only: an item with no recoverable saved_at must behave exactly
+    as before this feature existed — no `saved_at` key, no extra body line."""
+    item = RawItem(url="https://example.com/a")
+    meta = MediaMeta(title="A", media_type="url")
+    episodes = tmp_path / "episodes"
+    ep_id = media_ingestor.write_media_episode(episodes, item, meta, "media-a")
+
+    parsed = markdown_parser.parse(episodes / f"{ep_id}.md")
+    assert "saved_at" not in parsed.frontmatter
+    assert "Originally saved" not in parsed.body
+
+
+def test_write_media_entity_records_top_level_saved_at_when_recoverable(tmp_path):
+    item = RawItem(url="https://example.com/a", added="2023-06-15")
+    meta = MediaMeta(title="A", media_type="url")
+    entities = tmp_path / "entities"
+    media_ingestor.write_media_entity(entities, "media-a", item, meta, "ep_1")
+
+    fm = markdown_parser.parse(entities / "media-a.md").frontmatter
+    assert fm["saved_at"] == "2023-06-15"
+    # The nested media.saved_at is a DIFFERENT, pre-existing field (despite the
+    # name, always the ingest moment) and must be left completely alone.
+    assert fm["media"]["saved_at"] != "2023-06-15"
+    assert fm["media"]["saved_at"].endswith("Z")
+
+
+def test_write_media_entity_without_added_is_byte_identical_to_before(tmp_path):
+    item = RawItem(url="https://example.com/a")
+    meta = MediaMeta(title="A", media_type="url")
+    entities = tmp_path / "entities"
+    media_ingestor.write_media_entity(entities, "media-a", item, meta, "ep_1")
+
+    fm = markdown_parser.parse(entities / "media-a.md").frontmatter
+    assert "saved_at" not in fm
+    # The legacy nested ingest-time field is unaffected either way.
+    assert "saved_at" in fm["media"]
+
+
+def test_ingest_one_records_content_saved_at_in_url_index(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    item = RawItem(url="https://example.com/a", added="2023-06-15")
+    idx: dict = {}
+    result = run(media_ingestor.ingest_one(item, memory, object(), idx))
+    assert result.status == "created"
+
+    entry = idx[media_ingestor.url_hash(item.url)]
+    assert entry["content_saved_at"] == "2023-06-15"
+    # Legacy ingest-time key is untouched and still distinct.
+    assert entry["saved_at"] != "2023-06-15"
+
+
+def test_ingest_one_without_added_omits_content_saved_at(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    item = RawItem(url="https://example.com/a")
+    idx: dict = {}
+    result = run(media_ingestor.ingest_one(item, memory, object(), idx))
+    assert result.status == "created"
+
+    entry = idx[media_ingestor.url_hash(item.url)]
+    assert "content_saved_at" not in entry
+
+
+def test_parse_chrome_bookmarks_json_populates_added_from_date_added():
+    tree = {
+        "roots": {
+            "bookmark_bar": {
+                "type": "folder",
+                "name": "Bookmarks bar",
+                "children": [
+                    {
+                        "type": "url",
+                        "name": "Attention",
+                        "url": "https://example.com/attention",
+                        # 2023-06-15T12:00:00Z as WebKit microseconds.
+                        "date_added": "13331304000000000",
+                    },
+                ],
+            },
+        },
+    }
+    items = media_ingestor.parse_chrome_bookmarks_json(tree)
+    assert items[0].added == "2023-06-15"
+
+
+def test_parse_netscape_bookmarks_populates_added_from_add_date():
+    html = """<!DOCTYPE NETSCAPE-Bookmark-file-1>
+    <DL><p>
+        <DT><A HREF="https://example.com/top" ADD_DATE="1686830400">Top</A>
+    </DL>"""
+    items = media_ingestor.parse_netscape_bookmarks(html)
+    assert items[0].added == "2023-06-15"
+
+
+def test_parse_youtube_takeout_populates_added_from_time():
+    payload = [{"titleUrl": "https://www.youtube.com/watch?v=abc123", "title": "A Video",
+                "time": "2023-06-15T12:00:00.000Z"}]
+    items = media_ingestor.parse_youtube_takeout(json.dumps(payload).encode(), "watch-history.json")
+    assert items[0].added == "2023-06-15"
+
+
+def test_get_sources_recent_sort_prefers_content_saved_at(tmp_path, monkeypatch):
+    """G99d: the Feed's default 'recent' sort must prefer the recovered true
+    save date over the ingest timestamp — otherwise the whole point of the
+    field (fixing a silent temporal-data-loss bug) is lost."""
+    client, memory = _make_client(tmp_path, monkeypatch)
+
+    idx = {
+        # Item A: no recoverable save date -> falls back to a RECENT ingest.
+        "hash-a": {
+            "media_entity_id": "media-a", "episode_id": "ep_a",
+            "url": "https://a.example", "title": "A", "media_type": "url",
+            "thumbnail": None, "saved_at": "2026-08-30T12:00:00.000000Z",
+        },
+        # Item B: ingested a moment AFTER A, but its recovered save date is
+        # from years earlier — it must sort AFTER A once fixed.
+        "hash-b": {
+            "media_entity_id": "media-b", "episode_id": "ep_b",
+            "url": "https://b.example", "title": "B", "media_type": "url",
+            "thumbnail": None, "saved_at": "2026-08-30T12:00:01.000000Z",
+            "content_saved_at": "2023-01-01",
+        },
+    }
+    media_ingestor.save_url_index(memory, idx)
+
+    resp = client.get("/sources", params={"sort": "recent"})
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert [i["mediaEntityId"] for i in items] == ["media-a", "media-b"]
+    by_id = {i["mediaEntityId"]: i for i in items}
+    assert by_id["media-a"]["contentSavedAt"] is None
+    assert by_id["media-b"]["contentSavedAt"] == "2023-01-01"
+
+
 # --- G9 origin threading + media filename byte-cap (live-test findings) ----
 
 
