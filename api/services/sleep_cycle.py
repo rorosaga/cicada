@@ -59,6 +59,14 @@ class SleepState:
     # to check; these two make the real answer visible.
     last_engine: str | None = None
     engine_detail: str | None = None
+    # Fix round 1, M3: internal-only (never exposed via SleepStatusResponse) —
+    # did this cycle reach Stage 5's first real disk write (entity/inbox
+    # pages)? Idle cycles, a pre-flight probe abort, and a Stage-1-total-
+    # failure abort never write anything, so the tail's connector poll must
+    # stay unconditional for them exactly as it always was — only a cycle
+    # that started writing and then never reached `_finalize`'s commit is a
+    # genuine risk the `_tree_is_clean` check needs to guard.
+    write_started: bool = False
 
 
 _state = SleepState()
@@ -99,17 +107,25 @@ async def _poll_connectors_safely(memory_path: Path) -> None:
     real failure (``sync_state.record_error``), and surfaces on the Capture
     page either way.
 
-    Runs at the TAIL of a full cycle — final-review H1: specifically AFTER
-    ``_finalize`` has already committed the cycle's own entity/inbox writes,
-    so a connector that ingests reaches ``media_ingestor.ingest_batch`` ->
-    ``_commit_media`` -> a ``git add -A`` commit that finds a CLEAN tree and
-    sweeps only the files it just wrote, instead of also absorbing the Sleep
-    cycle's still-uncommitted work into a commit with no session provenance.
-    Also runs on the idle early return (before any entity writes exist to
-    protect that run, so there is nothing to reorder there), so anything
-    pulled tonight is consolidated by tomorrow's cycle — the same "it joins
-    the graph after the next Sleep cycle" contract every other capture path
-    already states.
+    Called from ``_run_engine_independent_tail`` (``run``'s ``finally``, on
+    EVERY exit path) — final-review H1: specifically AFTER ``_finalize`` has
+    already committed the cycle's own entity/inbox writes, so a connector
+    that ingests reaches ``media_ingestor.ingest_batch`` -> ``_commit_media``
+    -> a ``git add -A`` commit that finds a CLEAN tree and sweeps only the
+    files it just wrote, instead of also absorbing the Sleep cycle's
+    still-uncommitted work into a commit with no session provenance.
+
+    Runs UNCONDITIONALLY on every path that never wrote anything to disk —
+    idle, a pre-flight probe abort, a total Stage-1 failure, or an exception
+    in Stages 1-4 — exactly as the old idle-only early return always did, so
+    anything pulled tonight is consolidated by tomorrow's cycle regardless
+    (the same "it joins the graph after the next Sleep cycle" contract every
+    other capture path already states). The caller only withholds this call
+    (via ``_tree_is_clean``) for the one genuine risk window: Stage 5 started
+    writing entity/inbox pages and the cycle never reached ``_finalize``'s
+    commit (fix round 1, M3 — this must NOT be the default gate, or a
+    completely unrelated dirty file in the bank, e.g. a direct Obsidian
+    edit, silently stops connectors from polling on every idle night).
     """
     try:
         from api.services.connectors import ADAPTERS
@@ -261,6 +277,43 @@ def _stage1_failure_message(engine: str) -> str:
     )
 
 
+async def _probe_engine_cheaply(settings: Settings) -> tuple[bool, str]:
+    """Fix round 1, M1: is claude-plan usable, resolved from config/registry
+    state FIRST — never a subprocess spawn "just to check availability".
+
+    Ruling 2 was violated by the original implementation, which always
+    called ``agent_engine.probe()`` (``claude auth status --json``) with a
+    20 s timeout on every agent-mode cycle with a non-empty queue. Fixed by
+    consulting ``connections.registry``'s already-cached ``claude-plan``
+    status first: ``Registry.cached_statuses()`` NEVER probes — it is a pure
+    in-memory read (plus one cheap prefs-file read) of whatever
+    ``GET /connections``/``GET /status`` last warmed, on a 30 s TTL. Since
+    the companion app polls both routes while open, the common case (the
+    user has the app running when Sleep triggers) now costs a Sleep cycle
+    nothing at all to pre-flight.
+
+    A spawn is still genuinely unavoidable when the cache is cold — nothing
+    has probed Connections/Status recently in this process (a fresh backend
+    boot, or a headless/API-only trigger with the app never opened) — the
+    registry has no way to answer without one. That case falls back to
+    ``agent_engine.probe()`` directly, timeout dropped from 20 s to 5 s since
+    it is now a rare fallback rather than the primary path, not the shared,
+    cache-populating ``Registry.status()`` (whose own spawn is fixed at a
+    15 s default with no way to shorten it from here).
+    """
+    from api.services import agent_engine
+    from api.services.connections import registry as connections_registry
+
+    reg = connections_registry.get_registry(settings)
+    for status in reg.cached_statuses():
+        if status.id != "claude-plan":
+            continue
+        if status.connected:
+            return True, status.how or "Claude Code signed in on this Mac."
+        return False, status.detail or "Claude Code is not connected."
+    return await asyncio.to_thread(agent_engine.probe, timeout=5.0)
+
+
 async def _tree_is_clean(memory_path: Path) -> bool:
     try:
         return not (await git_service.porcelain_status(memory_path)).strip()
@@ -277,18 +330,33 @@ async def _run_engine_independent_tail(
     the Stage-1 abort ``return``ed before the logo warm-up and the connector
     poll, and the question refresh only ever ran in the zero-episode idle
     branch — so capturing more episodes made Sleep do strictly LESS work.
+
+    Fix round 1, M3: the connector poll must stay UNCONDITIONAL for every
+    path that never wrote anything — idle, a pre-flight probe abort, a
+    total Stage-1 failure, or an exception raised in Stages 1-4 (all
+    in-memory, nothing on disk yet) — exactly like the old idle branch did.
+    ``_tree_is_clean`` is only consulted once ``_state.write_started`` is
+    true and the cycle never committed: THAT is the one genuine risk H1
+    exists for (Stage 5 wrote entity/inbox pages, then something failed
+    before ``_finalize``). Gating every non-committed path on a clean tree
+    — the bug this fixes — silently stopped the idle-cycle poll behind a
+    false "the cycle left uncommitted writes" log line on a real bank with
+    ANY unrelated dirty file (a direct Obsidian edit, a workflow this repo
+    explicitly supports).
     """
-    if outcome.committed or await _tree_is_clean(memory_path):
+    if outcome.committed or not _state.write_started or await _tree_is_clean(memory_path):
         # Final-review H1 is preserved: on the happy path this still runs
         # AFTER ``_finalize``'s commit, so the connectors' ``git add -A``
-        # finds a clean tree. On a failed cycle we only poll when the tree is
-        # already clean, so a partial Sleep write can never be swept into a
-        # media commit with no session provenance.
+        # finds a clean tree. On a cycle that started writing and never
+        # committed, we only poll when the tree is already clean anyway, so
+        # a partial Sleep write can never be swept into a media commit with
+        # no session provenance.
         await _poll_connectors_safely(memory_path)
     else:
         logger.warning(
-            "connector poll skipped: the cycle left uncommitted writes, and the "
-            "connectors' own `git add -A` would absorb them into a media commit"
+            "connector poll skipped: this cycle wrote entity/inbox changes but "
+            "never committed them, and the connectors' own `git add -A` would "
+            "absorb those uncommitted writes into a media commit"
         )
     await _warm_logos_safely(memory_path)
     if not outcome.questions_refreshed:
@@ -323,6 +391,7 @@ async def run(settings: Settings, cycle_id: str) -> None:
     _state.organic_resolutions = 0
     _state.last_engine = None
     _state.engine_detail = None
+    _state.write_started = False
 
     memory_path = settings.memory_path
 
@@ -346,14 +415,23 @@ async def run(settings: Settings, cycle_id: str) -> None:
         # Spec §1: this runs on EVERY exit path — idle, aborted before Stage
         # 1, aborted after Stage 1, raised, or fully completed — so capturing
         # more episodes can never make Sleep do less of the LLM-free work.
-        await _run_engine_independent_tail(memory_path, settings, outcome)
-        _state.status = "idle"
+        #
+        # Fix round 1, L2: `_state.status = "idle"` gets its OWN `finally`
+        # rather than sitting after the tail's awaits. The tail's three
+        # helpers each swallow their own exceptions, but if the tail itself
+        # ever raised (today only a `CancelledError` could reach here), the
+        # old ordering would strand `status` at "running" forever — both
+        # `POST /sleep/trigger` and the scheduler refuse to start a new cycle
+        # while `status == "running"`, so every later cycle would be silently
+        # refused with no way to recover short of restarting the process.
+        try:
+            await _run_engine_independent_tail(memory_path, settings, outcome)
+        finally:
+            _state.status = "idle"
 
 
 async def _run_stages(settings: Settings, cycle_id: str, memory_path: Path) -> _StageOutcome:
     """The LLM-dependent pipeline. Returns what it achieved; never runs the tail."""
-    from api.services import agent_engine
-
     _state.last_engine = _engine_label(settings)
     logger.info(
         f"Sleep cycle {cycle_id} started — engine: {_state.last_engine}, "
@@ -381,13 +459,13 @@ async def _run_stages(settings: Settings, cycle_id: str, memory_path: Path) -> _
 
     # G74(a) pre-flight: ask the engine whether it can work BEFORE spending a
     # spawn per episode discovering it cannot. Only on a cycle with real work,
-    # so an idle bank never shells out. Cheap by construction: this is
-    # `claude auth status --json`, a local session-state read with no model
-    # invocation and no plan-quota cost — never a real `claude -p` completion
-    # call spent just to test availability. Gated to claude-cli only, so
-    # ollama/litellm cycles never touch the CLI at all.
+    # so an idle bank never shells out, and ollama/litellm cycles never touch
+    # the CLI at all. Fix round 1, M1: resolved from the connections
+    # registry's cache first (`_probe_engine_cheaply`) — genuinely no
+    # subprocess in the common case — with a short-timeout spawn only as a
+    # cold-cache fallback.
     if _state.last_engine == "claude-cli":
-        ok, detail = await asyncio.to_thread(agent_engine.probe)
+        ok, detail = await _probe_engine_cheaply(settings)
         _state.engine_detail = detail
         if not ok:
             logger.error(f"Sleep cycle {cycle_id} aborted before Stage 1 — {detail}")
@@ -461,6 +539,13 @@ async def _run_stages(settings: Settings, cycle_id: str, memory_path: Path) -> _
     # Stage 5: Nudge Generation & Versioning
     _state.progress = "Stage 5/5: Writing changes..."
     logger.info("Stage 5: Writing entities, nudges, clarifications, and relationships")
+    # Fix round 1, M3: the FIRST real disk write in the pipeline — everything
+    # before this point (Stages 1-4) only computed `changes` in memory. Flip
+    # this before the write so a raised exception anywhere from here through
+    # `_finalize`'s commit correctly marks the tree as an at-risk one for the
+    # tail's connector-poll gate, even though the exception means `_run_stages`
+    # never reaches a `return` to report it via `_StageOutcome`.
+    _state.write_started = True
     from api.services.inbox_generator import generate
     await generate(changes, skills, memory_path, relationships=resolved_edges)
 

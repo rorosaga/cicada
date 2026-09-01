@@ -519,9 +519,21 @@ def probe(*, runner: Runner | None = None, binary: str = "claude", timeout: floa
     if not isinstance(info, dict) or not info.get("loggedIn"):
         return False, "Claude Code is signed out — run `claude auth login`, then trigger Sleep again."
     if info.get("authMethod") not in (None, "claude.ai"):
+        # Fix round 1, M2: "unset ANTHROPIC_API_KEY so Sleep runs on the
+        # subscription" was verified empirically wrong on two counts — with
+        # the key SET, `claude auth status --json` still reports
+        # `authMethod: "claude.ai"`, and every Cicada spawn already runs
+        # under `scrubbed_env()` (connections/base.py), which strips the key
+        # before the child ever sees it. So a stray env var can never trigger
+        # this branch, and the old remedy was a no-op for every Cicada call.
+        # This branch actually fires for `apiKeyHelper`/`setup-token`/Bedrock/
+        # Vertex auth persisted in the CLI's OWN config — the real fix is
+        # re-authing the CLI onto the plan, not touching an environment
+        # variable Cicada never lets through.
         return False, (
-            "Claude Code is signed in with an API key, not your plan — unset ANTHROPIC_API_KEY "
-            "so Sleep runs on the subscription."
+            "Claude Code is signed in, but not on your plan (auth method: "
+            f"{info.get('authMethod') or 'unknown'}) — run `claude auth login` "
+            "to switch it to your Claude subscription."
         )
     email = info.get("email")
     return True, f"Claude Code signed in as {email}." if email else "Claude Code signed in on this Mac."

@@ -333,11 +333,19 @@ def test_probe_reports_signed_out_with_the_fix():
     assert not ok and "claude auth login" in detail
 
 
-def test_probe_rejects_api_key_auth():
+def test_probe_rejects_non_plan_auth_with_the_login_fix():
+    """Fix round 1, M2: verified empirically that `authMethod` cannot reflect
+    a stray ANTHROPIC_API_KEY (every Cicada spawn runs under scrubbed_env(),
+    which strips it first) — so the old "unset ANTHROPIC_API_KEY" remedy was
+    a no-op. The real cause is a non-plan auth method persisted in the CLI's
+    own config (API key helper, setup token, Bedrock, Vertex); the real fix
+    is re-authing the CLI onto the plan."""
     def runner(argv, **kw):
-        return CliResult(0, json.dumps({"loggedIn": True, "authMethod": "apiKey"}), "")
+        return CliResult(0, json.dumps({"loggedIn": True, "authMethod": "apiKeyHelper"}), "")
     ok, detail = agent_engine.probe(runner=runner)
-    assert not ok and "ANTHROPIC_API_KEY" in detail
+    assert not ok
+    assert "claude auth login" in detail
+    assert "ANTHROPIC_API_KEY" not in detail
 
 
 def test_probe_reports_a_missing_binary():

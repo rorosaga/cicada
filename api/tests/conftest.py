@@ -80,6 +80,21 @@ def _no_real_agent_spawn(monkeypatch):
     monkeypatch.setattr(base, "run_cli_sync", _boom)
 
 
+@pytest.fixture(autouse=True)
+def _reset_connections_registry():
+    """G74(a) fix round 1 (M1): ``sleep_cycle._probe_engine_cheaply`` now
+    reads ``connections.registry``'s process-global, 30 s-TTL status cache
+    before ever considering a spawn. Reset the singleton around every test
+    so a status one test warms (e.g. probing claude-plan) can never leak
+    into another's assertions — mirrors ``_reset_agent_engine_state`` below
+    for the same class of process-global leak."""
+    from api.services.connections import registry as connections_registry
+
+    connections_registry.reset_registry()
+    yield
+    connections_registry.reset_registry()
+
+
 @pytest.fixture
 def agent_envelopes():
     """Envelopes recorded from `claude` 2.1.252 (spec §9) plus the three
