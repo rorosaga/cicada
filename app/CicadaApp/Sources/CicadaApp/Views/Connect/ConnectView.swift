@@ -35,25 +35,36 @@ struct AgentSetup: Identifiable {
 /// (Desktop, Cursor, Hermes) get literal paths baked in because GUI-launched
 /// apps don't expand shell variables.
 enum AgentSetupCatalog {
-    static func all(home: String) -> [AgentSetup] {
+    /// `memoryRoot`, when given, is the LIVE backend's own configured
+    /// `CICADA_MEMORY_PATH` (from `GET /healthz`) and always wins over the
+    /// `<home>/memory` guess — see `ConnectView.refreshLiveMemoryRoot()`.
+    /// `home` (the checkout root, from `BackendProcess.installRoot()`)
+    /// still drives the python/server executable paths regardless, since
+    /// there's no live equivalent to ask "where is my own source code" and
+    /// a wrong value there fails loudly (file not found) rather than
+    /// silently registering the wrong bank.
+    static func all(home: String, memoryRoot: String? = nil) -> [AgentSetup] {
         let python = "\(home)/api/.venv/bin/python"
         let server = "\(home)/mcp/server.py"
-        let memory = "\(home)/memory"
+        let memory = (memoryRoot?.isEmpty == false) ? memoryRoot! : "\(home)/memory"
 
+        // Every path below is escaped for the format of the snippet it
+        // lands in (`SnippetEscape`) — a home with a space or a quote must
+        // paste as the exact path, never as a broken command or config.
         let mcpJSON = """
         {
           "mcpServers": {
             "cicada": {
-              "command": "\(python)",
-              "args": ["\(server)"],
-              "env": { "CICADA_MEMORY_PATH": "\(memory)" }
+              "command": "\(SnippetEscape.json(python))",
+              "args": ["\(SnippetEscape.json(server))"],
+              "env": { "CICADA_MEMORY_PATH": "\(SnippetEscape.json(memory))" }
             }
           }
         }
         """
 
         // Cursor one-click install deeplink: base64 of the INNER server object.
-        let cursorInner = #"{"command":"\#(python)","args":["\#(server)"],"env":{"CICADA_MEMORY_PATH":"\#(memory)"}}"#
+        let cursorInner = #"{"command":"\#(SnippetEscape.json(python))","args":["\#(SnippetEscape.json(server))"],"env":{"CICADA_MEMORY_PATH":"\#(SnippetEscape.json(memory))"}}"#
         let cursorB64 = Data(cursorInner.utf8).base64EncodedString()
             .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
         let cursorDeeplink = URL(string: "cursor://anysphere.cursor-deeplink/mcp/install?name=cicada&config=\(cursorB64)")
@@ -68,12 +79,12 @@ enum AgentSetupCatalog {
                 steps: [
                     .init(
                         label: "Register the MCP server (user scope = all projects)",
-                        command: "claude mcp add cicada --scope user --env CICADA_MEMORY_PATH=\(memory) -- \(python) \(server)",
+                        command: "claude mcp add cicada --scope user --env CICADA_MEMORY_PATH=\(SnippetEscape.shell(memory)) -- \(SnippetEscape.shell(python)) \(SnippetEscape.shell(server))",
                         note: "Verify with `claude mcp list` or `/mcp` inside a session. New sessions pick it up automatically."
                     ),
                     .init(
                         label: "Optional: install the Cicada skill so Claude knows when to recall and save",
-                        command: "mkdir -p ~/.claude/skills/cicada && cp \(home)/SKILL.md ~/.claude/skills/cicada/SKILL.md"
+                        command: "mkdir -p ~/.claude/skills/cicada && cp \(SnippetEscape.shell("\(home)/SKILL.md")) ~/.claude/skills/cicada/SKILL.md"
                     ),
                 ]
             ),
@@ -101,7 +112,7 @@ enum AgentSetupCatalog {
                 steps: [
                     .init(
                         label: "Register with the CLI (changes hot-apply)",
-                        command: "openclaw mcp add cicada --command \"\(python)\" --arg \"\(server)\" --env CICADA_MEMORY_PATH=\"\(memory)\"",
+                        command: "openclaw mcp add cicada --command \"\(SnippetEscape.shellDoubleQuoted(python))\" --arg \"\(SnippetEscape.shellDoubleQuoted(server))\" --env CICADA_MEMORY_PATH=\"\(SnippetEscape.shellDoubleQuoted(memory))\"",
                         note: "Verify with `openclaw mcp doctor cicada --probe`. Don't add an explicit transport field in openclaw.json — stdio is inferred from `command`."
                     ),
                 ]
@@ -115,15 +126,15 @@ enum AgentSetupCatalog {
                 steps: [
                     .init(
                         label: "Register with the CLI",
-                        command: "codex mcp add cicada --env CICADA_MEMORY_PATH=\"\(memory)\" -- \"\(python)\" \"\(server)\""
+                        command: "codex mcp add cicada --env CICADA_MEMORY_PATH=\"\(SnippetEscape.shellDoubleQuoted(memory))\" -- \"\(SnippetEscape.shellDoubleQuoted(python))\" \"\(SnippetEscape.shellDoubleQuoted(server))\""
                     ),
                     .init(
                         label: "…or add to ~/.codex/config.toml",
                         command: """
                         [mcp_servers.cicada]
-                        command = "\(python)"
-                        args = ["\(server)"]
-                        env = { CICADA_MEMORY_PATH = "\(memory)" }
+                        command = "\(SnippetEscape.toml(python))"
+                        args = ["\(SnippetEscape.toml(server))"]
+                        env = { CICADA_MEMORY_PATH = "\(SnippetEscape.toml(memory))" }
                         """,
                         note: "Loads at session start. If the venv is slow to boot, raise startup_timeout_sec (default 10s)."
                     ),
@@ -155,10 +166,10 @@ enum AgentSetupCatalog {
                         command: """
                         mcp_servers:
                           cicada:
-                            command: "\(python)"
-                            args: ["\(server)"]
+                            command: "\(SnippetEscape.yaml(python))"
+                            args: ["\(SnippetEscape.yaml(server))"]
                             env:
-                              CICADA_MEMORY_PATH: "\(memory)"
+                              CICADA_MEMORY_PATH: "\(SnippetEscape.yaml(memory))"
                         """,
                         note: "Hermes sanitizes subprocess environments — the env var must live in this config; a shell export won't reach the server."
                     ),
@@ -173,7 +184,7 @@ enum AgentSetupCatalog {
                 steps: [
                     .init(
                         label: "Register with the CLI",
-                        command: "gemini mcp add -s user -e CICADA_MEMORY_PATH=\"\(memory)\" cicada \"\(python)\" \"\(server)\"",
+                        command: "gemini mcp add -s user -e CICADA_MEMORY_PATH=\"\(SnippetEscape.shellDoubleQuoted(memory))\" cicada \"\(SnippetEscape.shellDoubleQuoted(python))\" \"\(SnippetEscape.shellDoubleQuoted(server))\"",
                         note: "Restart the CLI, then check /mcp list. Default scope is per-project; -s user makes it global."
                     ),
                 ]
@@ -193,6 +204,20 @@ struct ConnectView: View {
 
     private let home = BackendProcess.installRoot().path
     @State private var agents: [AgentSetup] = []
+    /// The live backend's own configured memory root, once `/healthz`
+    /// answers (G88 follow-up). This is the single source of truth for
+    /// "which bank does the app actually use" — the app and any agent
+    /// registered from a copy-pasted command on this page must always
+    /// agree, and the only way to guarantee that regardless of install
+    /// layout is to ask the backend rather than re-derive the answer
+    /// independently (installRoot()'s checkout-relative guess is used only
+    /// until this arrives, or if the backend never answers). The probe
+    /// owns the retry/never-regress rules — see `LiveMemoryRootProbe`.
+    @State private var probe = LiveMemoryRootProbe()
+    /// `isConnected` is the app's one backend-reachability signal (the SSE
+    /// stream). Keyed into `.task(id:)` below so a backend that comes up
+    /// after this page did re-runs the probe — no second poller.
+    @Environment(Store.self) private var store
 
     var body: some View {
         VStack(spacing: 0) {
@@ -235,7 +260,41 @@ struct ConnectView: View {
         }
         .background(CicadaTheme.background)
         .onAppear {
-            if agents.isEmpty { agents = AgentSetupCatalog.all(home: home) }
+            if agents.isEmpty { agents = AgentSetupCatalog.all(home: home, memoryRoot: probe.liveRoot) }
+        }
+        // Restarts (cancelling the previous loop) whenever the SSE stream
+        // connects or drops, and runs once on appearance.
+        .task(id: store.isConnected) { await refreshLiveMemoryRoot() }
+    }
+
+    /// Ask the backend what memory root it's actually configured with
+    /// (`GET /healthz`, auth-exempt) and rebuild the setup commands against
+    /// that instead of the local `installRoot()` guess whenever it differs
+    /// (G88 follow-up). Renders instantly either way — this only refines an
+    /// already-visible page, never blocks it. A backend that isn't listening
+    /// yet — the usual case on first paint, since the app has only just
+    /// spawned it — is retried with backoff until it answers (Devin PR #28
+    /// round 2); the loop is also restarted by the reachability flip in
+    /// `.task(id:)` above, and the guess is never re-applied once a live
+    /// root has been seen (`LiveMemoryRootProbe`).
+    private func refreshLiveMemoryRoot() async {
+        // A flip to *disconnected* has nothing new to ask once a live root
+        // is known; the initial appearance and a flip to connected do.
+        if probe.liveRoot != nil && !store.isConnected { return }
+        probe.beginAttempts()
+        while !Task.isCancelled {
+            let outcome: LiveMemoryRootProbe.Outcome
+            do {
+                outcome = .answered(try await APIClient.shared.fetchHealth().memoryRoot)
+            } catch {
+                outcome = .unreachable
+            }
+            if Task.isCancelled { return }
+            if probe.observe(outcome) {
+                agents = AgentSetupCatalog.all(home: home, memoryRoot: probe.liveRoot)
+            }
+            guard let delay = probe.nextDelay else { return }
+            try? await Task.sleep(for: .seconds(delay))
         }
     }
 
@@ -268,7 +327,7 @@ struct ConnectView: View {
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            CommandBox(command: "cd \(home) && make install")
+            CommandBox(command: "cd \(SnippetEscape.shell(home)) && make install")
             Text("Cicada home: \(home) — commands below use this path; adjust if your checkout lives elsewhere.")
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)

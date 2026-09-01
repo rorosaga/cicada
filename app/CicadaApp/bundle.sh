@@ -37,7 +37,31 @@ cp "$BIN_DIR/CicadaApp" "$APP/Contents/MacOS/CicadaApp"
 # Bundle.module resolves the SwiftPM resource bundle relative to the executable,
 # so it must sit next to the binary inside Contents/MacOS.
 if [ -d "$BIN_DIR/CicadaApp_CicadaApp.bundle" ]; then
+  RESBUNDLE="$APP/Contents/MacOS/CicadaApp_CicadaApp.bundle"
   cp -R "$BIN_DIR/CicadaApp_CicadaApp.bundle" "$APP/Contents/MacOS/"
+  # SwiftPM emits this as a FLAT bundle (Resources/ at its root, no
+  # Contents/Info.plist). That's fine for Bundle.module's own lookup, but
+  # `codesign` walks the whole app tree for anything *shaped* like a bundle
+  # (any `.bundle` dir) and refuses to sign the app at all — deep or not —
+  # once it finds one with no Info.plist ("bundle format unrecognized,
+  # invalid, or unsuitable"). Re-nest it as a minimal real bundle
+  # (Contents/Info.plist + Contents/Resources) purely so codesign accepts
+  # it; Foundation's Bundle(path:) reads both the flat and Contents/ layouts
+  # so this doesn't change what Bundle.module resolves at runtime.
+  if [ -d "$RESBUNDLE/Resources" ] && [ ! -f "$RESBUNDLE/Contents/Info.plist" ]; then
+    mkdir -p "$RESBUNDLE/Contents"
+    mv "$RESBUNDLE/Resources" "$RESBUNDLE/Contents/Resources"
+    cat > "$RESBUNDLE/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.rorosaga.cicada.resources</string>
+  <key>CFBundlePackageType</key><string>BNDL</string>
+</dict>
+</plist>
+PLIST
+  fi
 fi
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -58,6 +82,18 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+# Stamp the checkout path that produced this bundle (G88). BackendProcess's
+# installRoot() prefers this over its .build/DerivedData path heuristic, so
+# an installed ~/Applications/Cicada.app resolves the memory dir + Connect
+# page's copy-pasteable MCP commands against the repo that built it instead
+# of guessing ~/cicada (which can exist and resolve plausibly-but-wrongly).
+# Computed fresh on every build, so moving the repo just means "rebuild" —
+# nothing here hardcodes today's path.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$REPO_ROOT" ]; then
+  plutil -replace CicadaRepoRoot -string "$REPO_ROOT" "$APP/Contents/Info.plist"
+fi
 
 echo "✓ built $APP"
 if [ "$RUN" = "1" ]; then

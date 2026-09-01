@@ -108,6 +108,28 @@ struct BanksResponse: Codable {
     }
 }
 
+/// Minimal decode of `GET /healthz`. Decode-tolerant: only `memoryRoot` is
+/// modeled (everything else `/healthz` returns is unused here), and it's
+/// optional so an older backend that hasn't shipped this field yet still
+/// decodes — callers must treat `nil`/empty as "unknown, fall back".
+///
+/// `memoryRoot` is the raw *configured* `CICADA_MEMORY_PATH` — the container
+/// of `banks.yaml` + `banks/<name>/`, not a resolved bank path. It's the
+/// single source of truth for "which bank does the app's own backend
+/// actually use", read by `ConnectView` instead of re-deriving a root from
+/// local heuristics that can disagree depending on install layout (G88
+/// follow-up).
+struct HealthSnapshot: Codable {
+    let memoryRoot: String?
+
+    enum CodingKeys: String, CodingKey { case memoryRoot }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        memoryRoot = try? c.decode(String.self, forKey: .memoryRoot)
+    }
+}
+
 /// Mirror of the backend's `sanitize_id` (`api/services/id_utils.py`): banks are
 /// keyed on disk by this slug, and `POST /banks/{name}/import` looks the bank up
 /// by the *exact* slug — it does NOT re-sanitize. So a name like "My Project" is
@@ -1315,6 +1337,18 @@ actor APIClient {
     /// holds `status.isRefreshing` for the duration and coalesces behind it.
     func fetchStatus() async throws -> StatusSnapshot {
         return try await get("/status", timeout: Self.refreshTimeout)
+    }
+
+    // MARK: - Health (liveness probe; also the memory-root source of truth)
+
+    /// Fetch `GET /healthz` (auth-exempt, so this works even before a token
+    /// file exists). Used by `ConnectView` to read the backend's OWN
+    /// configured `memoryRoot` instead of re-deriving one locally — the two
+    /// can otherwise disagree depending on install layout (G88 follow-up).
+    /// Capped like the refresh path: it's retried with backoff while the
+    /// backend comes up, so one attempt must never park for a full minute.
+    func fetchHealth() async throws -> HealthSnapshot {
+        return try await get("/healthz", timeout: Self.refreshTimeout)
     }
 
     // MARK: - Sources (media / bookmark ingestion — ships in a later wave)

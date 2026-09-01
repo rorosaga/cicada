@@ -91,30 +91,51 @@ final class BackendProcess {
         isRunning = false
     }
 
-    /// The Cicada checkout/install root: the repo directory in dev builds,
-    /// `~/cicada` for installed apps. Shared by the backend spawn paths and the
-    /// Connect page (which renders copy-pasteable MCP registration commands).
-    static func installRoot() -> URL {
-        let bundlePath = Bundle.main.bundlePath
-        if bundlePath.contains(".build") || bundlePath.contains("DerivedData") {
-            return findCicadaRoot()
+    /// The Cicada checkout/install root: the repo directory in dev builds, or
+    /// the checkout that produced an installed app. Shared by the backend
+    /// spawn paths and the Connect page (which renders copy-pasteable MCP
+    /// registration commands).
+    ///
+    /// Resolution order (G88):
+    ///   1. `CicadaRepoRoot` stamped into Info.plist by `bundle.sh` at build
+    ///      time (`git rev-parse --show-toplevel`), if present AND still on
+    ///      disk. Without the disk check, a repo that was moved after the
+    ///      last build would silently point at a directory that no longer
+    ///      exists instead of falling back.
+    ///   2. Dev builds (`.build` / `DerivedData` in the bundle path): walk up
+    ///      from the executable looking for `CLAUDE.md`.
+    ///   3. `~/cicada` — the pre-G88 heuristic, kept as a last resort for an
+    ///      app bundle built before this fix shipped (no stamp present).
+    ///
+    /// Parameters default to the real environment; tests inject fakes so the
+    /// whole ladder is exercisable without a real Bundle/FileManager.
+    static func installRoot(
+        bundlePath: String = Bundle.main.bundlePath,
+        stampedRepoRoot: String? = Bundle.main.object(forInfoDictionaryKey: "CicadaRepoRoot") as? String,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        pathExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> URL {
+        if let stamped = stampedRepoRoot, !stamped.isEmpty, pathExists(stamped) {
+            return URL(fileURLWithPath: stamped)
         }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("cicada")
+        if bundlePath.contains(".build") || bundlePath.contains("DerivedData") {
+            return findCicadaRoot(bundlePath: bundlePath, homeDirectory: homeDirectory, pathExists: pathExists)
+        }
+        return homeDirectory.appendingPathComponent("cicada")
     }
 
     private func resolveMemoryPath() -> URL {
         Self.installRoot().appendingPathComponent("memory")
     }
 
+    /// `api/` lives inside the same checkout as `installRoot()` resolves —
+    /// there is no separate "bundled into Resources" copy (`bundle.sh` never
+    /// copies `api/` into the `.app`), so this just derives from the same
+    /// ladder rather than re-deriving its own (previously stale) heuristic.
+    /// In practice this path only matters when nothing already holds :8000 —
+    /// the supported story is the always-on launchd backend from `install.sh`.
     private func resolveAPIPath() -> URL {
-        let bundlePath = Bundle.main.bundlePath
-        if bundlePath.contains(".build") || bundlePath.contains("DerivedData") {
-            return Self.findCicadaRoot().appendingPathComponent("api")
-        }
-        // Production: bundled in app resources
-        return Bundle.main.resourceURL?
-            .appendingPathComponent("api") ?? URL(fileURLWithPath: "/usr/local/cicada/api")
+        Self.installRoot().appendingPathComponent("api")
     }
 
     private func isPortInUse(port: UInt16) -> Bool {
@@ -140,16 +161,25 @@ final class BackendProcess {
         return bindResult < 0 && errno == EADDRINUSE
     }
 
-    private static func findCicadaRoot() -> URL {
-        // Walk up from bundle path to find cicada/ root
-        var url = URL(fileURLWithPath: Bundle.main.bundlePath)
+    private static func findCicadaRoot(
+        bundlePath: String = Bundle.main.bundlePath,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        pathExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> URL {
+        // Walk up from bundle path to find cicada/ root. Works for a `.build`
+        // bundle path (sits inside the checkout), but an Xcode DerivedData
+        // build lives under ~/Library/Developer/Xcode/DerivedData — a
+        // location with no ancestor relationship to the checkout at all — so
+        // that shape always exhausts the walk and lands on the fallback below.
+        var url = URL(fileURLWithPath: bundlePath)
         for _ in 0..<10 {
             url = url.deletingLastPathComponent()
-            if FileManager.default.fileExists(atPath: url.appendingPathComponent("CLAUDE.md").path) {
+            if pathExists(url.appendingPathComponent("CLAUDE.md").path) {
                 return url
             }
         }
-        // Fallback
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("cicada")
+        // Fallback — uses the injected home directory, not a hardcoded real
+        // one, so this whole ladder stays testable without touching disk.
+        return homeDirectory.appendingPathComponent("cicada")
     }
 }

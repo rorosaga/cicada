@@ -160,7 +160,9 @@ CICADA_LITELLM_DISAMBIGUATION_MODEL=gpt-5.4-nano
 
 ### 3. Run the backend
 
-For the most reliable local development workflow, start the API manually first:
+By default this is already running: `./install.sh` (step 1) registers it as a `launchd` agent (`com.cicada.backend`) that starts on login and restarts itself, so there is nothing to keep open in a terminal. Check it with `curl 127.0.0.1:8000/healthz` or `make doctor`.
+
+If you need to run it by hand instead (skipped install.sh, or debugging it directly), the manual two-terminal flow still works as a fallback:
 
 ```sh
 cd /path/to/cicada
@@ -168,18 +170,13 @@ source api/.venv/bin/activate
 uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
-This serves the companion app API on `127.0.0.1:8000`.
-
 ### 4. Run the macOS app
 
-In a second terminal:
-
 ```sh
-cd /path/to/cicada/app/CicadaApp
-swift run
+make dev
 ```
 
-That launches the SwiftUI app. In development, it is safer to keep the backend running manually as above. The app contains backend-launching logic, but the manual two-terminal flow is the most predictable setup for now.
+Rebuilds a debug build, installs it to `~/Applications/Cicada.app`, and relaunches it — this is the everyday dev-loop command. Never `swift run`: it produces a bundle-less executable whose window never becomes *key*, which silently breaks graph node clicks and text-field focus. For a one-off release install without the relaunch (e.g. after cloning), use `make install-app`.
 
 ## Running the project
 
