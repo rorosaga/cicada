@@ -1261,6 +1261,9 @@ def list_all_episodes(memory_path: Path) -> list[dict]:
             "title": fm.get("title"),
             "body": parsed.body or "",
             "processed": bool(fm.get("processed", False)),
+            # G114 R6: who marked it — "sleep" or an agent/harness name. None
+            # for every queued episode and every pre-G114 processed one.
+            "processed_by": (str(fm.get("processed_by")) if fm.get("processed_by") else None),
             "filepath": filepath,
         })
     results.sort(key=_episode_sort_key)  # by instant, same key as the cycle's queue (G114 R2)
@@ -1287,7 +1290,13 @@ def _load_existing_entities(memory_path: Path) -> list[dict]:
 
 
 def _mark_episodes_processed(episodes: list[dict]) -> None:
-    """Mark episodes as processed in their frontmatter."""
+    """Mark episodes as processed in their frontmatter.
+
+    Stamps ``processed_by: sleep`` beside the flag (G114 R6) so a
+    Sleep-consolidated episode is distinguishable from one an agent marked via
+    ``cicada_mark_processed`` (``processed_by: agent`` / the harness name) —
+    the two mean different things for what the graph actually received.
+    """
     for ep in episodes:
         filepath = ep["filepath"]
         try:
@@ -1296,6 +1305,7 @@ def _mark_episodes_processed(episodes: list[dict]) -> None:
             logger.warning(f"_mark_episodes_processed: skipping malformed episode {filepath}: {exc}")
             continue
         parsed.frontmatter["processed"] = True
+        parsed.frontmatter["processed_by"] = "sleep"
         markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
 
 

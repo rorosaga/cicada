@@ -415,3 +415,28 @@ def test_sleep_episodes_carries_the_origin_field(tmp_path, monkeypatch):
     body = TestClient(main.app).get("/sleep/episodes").json()
     assert len(body) == 1
     assert body[0]["origin"] == "claude-code"   # source "mcp" -> origin "claude-code"
+
+
+def test_sleep_episodes_surfaces_processed_by_as_an_optional_field(tmp_path, monkeypatch):
+    """G114 R6: `processed_by` rides on the queue row so the dashboard can tell
+    a Sleep-consolidated episode from an agent-marked one. Optional (null when
+    absent — every pre-G114 processed episode, and every queued one) so an
+    older app build keeps decoding the payload."""
+    from fastapi.testclient import TestClient
+
+    from api import main
+    from api.config import Settings
+
+    memory = _init_bank(tmp_path)
+    _write_episode(memory, "ep_queued", hours_ago=1.0)
+    _write_episode(memory, "ep_legacy", hours_ago=2.0, processed=True)
+    _write_episode(memory, "ep_by_sleep", hours_ago=3.0, processed=True)
+    path = memory / "episodes" / "ep_by_sleep.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, {**parsed.frontmatter, "processed_by": "sleep"}, parsed.body)
+    monkeypatch.setattr(Settings, "memory_path", property(lambda self: memory))
+
+    rows = {row["id"]: row for row in TestClient(main.app).get("/sleep/episodes").json()}
+    assert rows["ep_by_sleep"]["processedBy"] == "sleep"
+    assert rows["ep_legacy"]["processedBy"] is None
+    assert rows["ep_queued"]["processedBy"] is None

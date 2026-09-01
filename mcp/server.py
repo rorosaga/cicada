@@ -332,7 +332,7 @@ TOOLS = [
     },
     {
         "name": "cicada_mark_processed",
-        "description": "Mark episodes as processed (processed: true) after you have consolidated their facts via cicada_write_claim. Only mark an episode processed once you have actually extracted what's worth keeping from it — an unmarked episode is still picked up by the next Sleep cycle as a safety net.",
+        "description": "Mark episodes as processed (processed: true) after you have consolidated their facts via cicada_write_claim. The mark is attributed — the episode is stamped processed_by with your harness name (or 'agent'), distinct from the 'sleep' stamp a Sleep cycle writes. Only mark an episode processed once you have actually extracted what's worth keeping from it — an unmarked episode is still picked up by the next Sleep cycle as a safety net.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1182,14 +1182,23 @@ def handle_pending(limit) -> str:
 
 
 def handle_mark_processed(episode_ids) -> str:
-    """Flip processed:true on the given episode ids."""
+    """Flip processed:true on the given episode ids.
+
+    Stamps ``processed_by`` with this process's harness name (G48 session
+    identity — ``claude-code``, or whatever ``CICADA_SESSION_HARNESS`` said)
+    so the episode records WHICH agent surface consolidated it, not just that
+    one did (G114 R6). ``"unknown"`` is G48's placeholder, not an identity, so
+    it falls back to the generic ``"agent"`` rather than being recorded.
+    """
     from api.services import agentic_write
 
     if not isinstance(episode_ids, list) or not episode_ids:
         return "episode_ids is required (a non-empty array of episode ids)."
 
-    count = agentic_write.mark_episodes_processed(get_memory_path(), episode_ids)
-    return f"Marked {count} episode(s) as processed."
+    harness = (SESSION.harness or "").strip()
+    by = harness if harness and harness != "unknown" else "agent"
+    count = agentic_write.mark_episodes_processed(get_memory_path(), episode_ids, by=by)
+    return f"Marked {count} episode(s) as processed (processed_by: {by})."
 
 
 def handle_repo_context(entity_id: str | None, path: str | None) -> str:

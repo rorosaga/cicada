@@ -460,12 +460,20 @@ def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:
     return out
 
 
-def mark_episodes_processed(memory_path: Path, ids: list[str]) -> int:
+def mark_episodes_processed(memory_path: Path, ids: list[str], *, by: str = "agent") -> int:
     """Set ``processed: true`` on the named episodes. Returns the count matched.
 
     Matches by frontmatter ``id`` (falling back to the filename stem), so it
     tolerates whatever id shape :func:`list_unprocessed_episodes` handed back.
     Never raises: an unreadable/unwritable file is skipped, not fatal.
+
+    ``by`` is stamped as ``processed_by`` beside the flag (G114 R6): a bare
+    ``processed: true`` cannot say whether Sleep consolidated the episode or an
+    agent marked it after its own lightweight pass, and the two differ in what
+    the graph actually received. Sleep writes ``"sleep"`` through its own
+    marker; this entry point defaults to the generic ``"agent"`` and lets the
+    MCP seam pass the harness name when it knows it. Written only alongside
+    ``processed: true``, never removed.
     """
     memory_path = Path(memory_path)
     episodes_dir = memory_path / "episodes"
@@ -489,6 +497,7 @@ def mark_episodes_processed(memory_path: Path, ids: list[str]) -> int:
             continue
         try:
             fm["processed"] = True
+            fm["processed_by"] = (by or "").strip() or "agent"
             markdown_parser.write(filepath, fm, parsed.body)
             count += 1
         except Exception as exc:
