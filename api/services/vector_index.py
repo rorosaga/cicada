@@ -35,6 +35,11 @@ EmbedFn = Callable[..., np.ndarray]
 INDEX_DB_FILE = "vector_index.db"
 PENDING_STORE_FILE = "pending_entities.jsonl"
 
+# "log once" for a WAL-enable failure (Devin PR #24 finding 4) — _connect()
+# runs on every search call; a persistently-locked file must not spam a
+# warning on every single one.
+_warned_wal_failure = False
+
 # Episode bodies are split into overlapping passages before embedding so a
 # single multi-thousand-token conversation isn't embedded as one vector.
 EPISODE_CHUNK_CHARS = 4000
@@ -75,6 +80,33 @@ class PendingEntity:
             tags=data.get("tags", []) or [],
             history_entries=data.get("history_entries", []) or [],
         )
+
+
+def _try_enable_wal(conn: sqlite3.Connection) -> None:
+    """Best-effort ``journal_mode=WAL`` + ``synchronous=NORMAL`` (Wave-1 1.4).
+
+    Devin PR #24 round 1, finding 4: the PRAGMA itself can raise
+    ``sqlite3.OperationalError`` (e.g. a concurrent writer holding a lock the
+    mode switch can't acquire) — and this runs inside ``_connect()``, i.e.
+    BEFORE the caller's own graceful ``except sqlite3.OperationalError``
+    around the query, so an unguarded PRAGMA here would turn a lock into an
+    unhandled 500 instead of a degraded response. Never propagates: on
+    failure the connection just continues on whatever journal mode the file
+    already has, logged once per process so a persistently-locked file
+    doesn't spam a warning on every single search call.
+    """
+    global _warned_wal_failure
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.OperationalError as exc:
+        if not _warned_wal_failure:
+            _warned_wal_failure = True
+            logger.warning(
+                f"vector_index: could not enable WAL journal mode ({exc}); "
+                "continuing on the existing journal mode. The index must "
+                "never be the reason a request 500s."
+            )
 
 
 class SqliteVecIndexer:
@@ -162,8 +194,7 @@ class SqliteVecIndexer:
         # while a writer holds the file; NORMAL is WAL's recommended durability
         # tradeoff (safe against app crashes, not full OS/power loss) for a
         # derived, disposable, rebuild-from-markdown-anytime index.
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
+        _try_enable_wal(conn)
         conn.enable_load_extension(True)
         sqlite_vec.load(conn)
         conn.enable_load_extension(False)

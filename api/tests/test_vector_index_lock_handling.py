@@ -118,3 +118,108 @@ def test_search_claims_logs_a_warning_and_degrades_on_lock(tmp_path, monkeypatch
 
     assert indexer.search_claims("anything") == []
     assert any("search_claims" in r and "locked" in r for r in loguru_sink)
+
+
+# --------------------------------------------------------------------------- #
+# Devin PR #24 round 1, finding 4 — enabling WAL can itself throw, and it ran
+# in _connect() BEFORE the caller's own graceful `except
+# sqlite3.OperationalError`, so a lock at connect time raised instead of
+# degrading. _try_enable_wal must never propagate.
+# --------------------------------------------------------------------------- #
+
+
+class _PragmaFailsConn:
+    """Duck-typed stand-in for a locked connection: every `.execute()` (i.e.
+    both PRAGMA statements _try_enable_wal issues) raises."""
+
+    def __init__(self):
+        self.executed: list[str] = []
+
+    def execute(self, sql, *_a, **_k):
+        self.executed.append(sql)
+        raise sqlite3.OperationalError("database is locked")
+
+
+def _reset_wal_warned_flag(monkeypatch):
+    import api.services.vector_index as vi
+    monkeypatch.setattr(vi, "_warned_wal_failure", False)
+
+
+def test_try_enable_wal_never_raises_on_a_locked_connection(monkeypatch):
+    from api.services.vector_index import _try_enable_wal
+
+    _reset_wal_warned_flag(monkeypatch)
+    conn = _PragmaFailsConn()
+
+    _try_enable_wal(conn)  # must not raise
+
+    # Stops after the FIRST failing PRAGMA — synchronous=NORMAL is never
+    # attempted once journal_mode=WAL has already failed.
+    assert conn.executed == ["PRAGMA journal_mode=WAL"]
+
+
+def test_try_enable_wal_logs_the_failure_exactly_once_across_calls(monkeypatch, loguru_sink):
+    from api.services.vector_index import _try_enable_wal
+
+    _reset_wal_warned_flag(monkeypatch)
+
+    _try_enable_wal(_PragmaFailsConn())
+    _try_enable_wal(_PragmaFailsConn())
+    _try_enable_wal(_PragmaFailsConn())
+
+    warnings = [r for r in loguru_sink if "WAL" in r]
+    assert len(warnings) == 1, "a persistently-locked file must not warn on every connect"
+
+
+class _PragmaFlakyRealConn:
+    """Wraps a REAL sqlite3.Connection (so `sqlite_vec.load` and normal
+    queries still work — `sqlite_vec.load` just calls
+    `conn.load_extension(...)`, no isinstance checks) but raises
+    OperationalError for the journal_mode PRAGMA specifically, reproducing
+    the actual regression path through `_connect()`."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def execute(self, sql, *a, **k):
+        # Only the SET form (what `_try_enable_wal` issues) fails — a later
+        # bare `PRAGMA journal_mode` read (used by this test to verify the
+        # mode genuinely didn't change) must still work.
+        if isinstance(sql, str) and sql.upper() == "PRAGMA JOURNAL_MODE=WAL":
+            raise sqlite3.OperationalError("database is locked")
+        return self._real.execute(sql, *a, **k)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def test_connect_itself_never_raises_when_the_wal_pragma_is_locked(tmp_path, monkeypatch, loguru_sink):
+    """End-to-end reproduction of finding 4: `_connect()` must degrade to a
+    working connection on the pre-existing journal mode, not propagate — a
+    request must never 500 because the index couldn't switch to WAL."""
+    _reset_wal_warned_flag(monkeypatch)
+    indexer = _seeded_indexer(tmp_path)
+
+    real_sqlite3_connect = sqlite3.connect
+
+    def wrapping_connect(*a, **k):
+        return _PragmaFlakyRealConn(real_sqlite3_connect(*a, **k))
+
+    monkeypatch.setattr("api.services.vector_index.sqlite3.connect", wrapping_connect)
+
+    conn = indexer._connect()  # must not raise
+    try:
+        # The connection is still fully usable for real queries even though
+        # the WAL PRAGMA it attempted raised.
+        cur = conn.execute("SELECT 1")
+        assert cur.fetchone() == (1,)
+    finally:
+        conn.close()
+
+    assert any("WAL" in r and "locked" in r for r in loguru_sink)
+
+    # And the ACTUAL search path (the caller-facing regression) still WORKS
+    # end to end rather than raising up through the router — the connection
+    # is fully usable, just not on WAL.
+    results = indexer.search_entities("anything")
+    assert results and results[0]["metadata"]["entity_id"] == "x"
