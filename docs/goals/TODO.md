@@ -6,12 +6,12 @@
 
 ## Where things stand (2026-09-01)
 
-**Merged to `dev`:** PRs #21–#25. The big one is **#25 — the agent engine (G74a)**: Sleep can now
+**Merged to `dev`:** PRs #21–#26. The big one is **#25 — the agent engine (G74a)**: Sleep can now
 run on the user's Claude Max plan via `claude -p`, after ~2.5 months with no engine. Also #24, the
-**correctness gate**, which fixed decay (see rulings below), and #23's app fixes.
+**correctness gate**, which fixed decay (see rulings below), #23's app fixes, and #26's `saved_at`
+fix (re-import backfill + Pinterest date normalisation).
 
-**Open PRs:** **#26** `saved_at` (Devin round in flight — re-import backfill + Pinterest date
-normalisation) and **#27** sleep cancel/cap/debt screen (Devin round running). **`feat/devloop`**
+**Open PRs:** **#27** sleep cancel/cap/debt screen (Devin round running). **`feat/devloop`**
 (G88 `make install-app` / `make dev`) is being built, not yet a PR.
 
 **Live environment (verified):** backend runs under **launchd** (`com.cicada.backend`,
@@ -62,7 +62,7 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-1. Merge #26 and #27 once their Devin rounds clear.
+1. Merge #27 once its Devin round clears.
 2. Finish **G88** (`feat/devloop`) — the one-command dev loop.
 3. **G109 (urgent)** — graph physics: deceleration is tuned invisible and disconnected nodes
    explode into a ring; evaluate Obsidian/Pixi, cosmograph, sigma+graphology rather than re-tuning.
@@ -77,7 +77,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-01 (paused mid-session — PR #25 open and ready to merge)._
+_Last synced: 2026-09-01 (docs-only backlog hygiene pass — PRs #21–#26 merged, #27 open)._
 
 ---
 
@@ -104,16 +104,28 @@ G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animati
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume)
 
-**This session (PRs #21–#24, merged to dev)**
+**This session (PRs #21–#26, merged to dev)**
 - #21 diff context lines with line numbers, merge-commit handling
 - #22 the G71 slice + connector seam consolidation
 - #23 G83 button hit areas & press feedback (87 sites), G84(a)(b) graph cold paint + drag physics
 - #24 **the correctness gate** — decay charges once and never for the outage (first-cycle archive
   count **700 → 0** on the active bank), inbox subject gate, set-valued predicates, WAL, Telegram
-  webhook secret, bank-import honesty, benchmarks import fix
+  webhook secret (G57), bank-import honesty (G87 partial — the non-active-import warning; the
+  BankSwitcher UI gaps it also found are still open), benchmarks import fix
+- #25 **G74(a) agent engine** — Sleep runs on the user's Claude Max plan via `claude -p`, after
+  ~2.5 months with no engine; round-1 Devin fixes (throttle breaker, concurrency cap, connector
+  commit scoping) included
+- #26 `saved_at` fix (G99d) — `RawItem.added` plumbed end to end across 5 parsers; re-import
+  backfill + Pinterest date normalisation
 - Outside PRs: Cicada in **every** Claude session (user-scope MCP + both skills + launchd backend
   with durable keys), CLAUDE.md reframed, doctor cleanup, installer shebang fix,
   **G99a** the 35 MB index untracked before it could commit ~11 GB/yr
+- Backlog hygiene (2026-09-01, docs-only): closed rows for work that had shipped without ever
+  updating the backlog — **G21** dedup-sweep endpoint, **G19(e)(f)** provider-factory adoption +
+  stray `.bak` removal, **A4** skill preference capture, and the shipped halves of **G11**
+  (in-app preview), **G89** (feed following), **G93** (search/ask endpoints), **G87** (non-active
+  import warning) — plus merged 9 duplicate/superseded rows and parked 2; see
+  `memory-evolution.md` for the per-row evidence
 
 ---
 
@@ -121,12 +133,9 @@ trailers, Ghostty resume)
 
 | What | State | Next action |
 |---|---|---|
-| **G74(a) agent engine** | **PR #25 open, ready** — 14 commits, merged cleanly up from dev, 1,515 py / 400 swift green, first-cycle archive re-verified at **0** with a negative control | Merge, then run **one** cycle by hand. Do not enable a schedule. |
+| **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
 | **G88 dev loop** | Restarts clean (stopped mid-build, nothing committed) | `make install-app`, `make dev`, `installRoot()` fix, README run-section |
-| **Devin round on #25** | 3 🟡 concurrency findings — fixes in flight | Sleep/Ask share a throttle breaker, double the concurrency cap, and a connector commit can absorb a dirty tree |
-| **`saved_at` fix** | In flight (`feat/saved-at`) | `RawItem.added` written by 5 parsers, read by nothing |
 | Claude Desktop | **Registered 2026-09-01** — needs a Desktop restart | Then: it captures only what an agent chooses to save (see G105) |
-| Backlog hygiene | Triage done, not applied | Close 12 shipped rows, delete/merge 15 — 63 open becomes ~38 real |
 
 ---
 
@@ -156,8 +165,8 @@ trailers, Ghostty resume)
    `entities/<id>.md`; both layers must move together — M
 7. **G84(c)(d)** legend describes claim-context while nodes colour by type (byte-identical hexes),
    plus the observer relabel — S
-8. **G86** feed dedup — 789 rows render 603 pages; absorbs G65(a)(b) — M
-9. **G19** dead-code sweep — XS
+8. **G86** feed dedup — 789 rows render 603 pages; absorbs G65 — M
+9. **G19** dead-code sweep *((e)(f) done — provider factory adopted, stray `.bak` removed)* — XS
 
 ### Wave C · the north star's output half
 10. **G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
@@ -178,42 +187,36 @@ trailers, Ghostty resume)
     already stored, zero new fetches — S/M
 
 ### Wave D · new intake, in dependency order
-15. **G81** contacts — identity anchors *(prerequisite for 16)* — M
+15. **G81** contacts — identity anchors *(prerequisite for 16; absorbs G46)* — M
 16. **G95** meetings & human↔human conversations — M/L
 17. **G101** raw-conversation evidence layer — what to keep, what to discard — M
-18. **G91** share-to-Cicada *(needs G88's signed app)* — M
+18. **G91** share-to-Cicada *(needs G88's signed app; absorbs G37)* — M
 19. **G94** life-data streams — aggregates, never samples — L
 20. **G76** effortless install + always-on capture — L
-21. **G89** feeds first-class (Substack needs no connector) — S/M
+21. **G89** feeds first-class metadata *(feed-following already shipped via M4 — Substack needs no
+    connector, just the (i)-(vii) metadata-quality work)* — S/M
 
 ### Wave E · thesis & product
 22. **G78** gbrain evals — the thesis's weakest link is measurement, not architecture — M
 23. **G92** onboarding at scale — decide what Cicada *is* before optimising a funnel — decision
-24. **G72** skills manager · **G73** prompt library · **G70** design memory — M each
+24. **G72** skills manager · **G73** prompt library · **G70** design memory *(absorbs G14)* — M each
 25. **G54** onboarding interview · **G55** executable skills · **G13** tasks/ideas backlog
 
 ### Research / decisions (not builds)
-- **G79** north star — the scoring rule, not a task *(move to the file header)*
-- **G96** vector-as-entryway — validated; its storage question was answered by G99
 - **G99** relational tier — **DECLINED**; revisit only on a named trigger (warm p50 > 250 ms,
-  claims > 25k, or a merged G94 adapter retaining raw samples)
-- **G77** voice packets · **G80** deterministic rung · **G56** MHS · **G16** shared memories
+  claims > 25k, or a merged G94 adapter retaining raw samples). G99a (bank `.gitignore` for the
+  vector index) has shipped; absorbs G96 (vector-as-entryway — validated, its storage question
+  is what G99 answered).
+- **G77** voice packets · **G10** bulk re-extraction *(re-filed 2026-09-01 — its D2 architecture
+  gate is resolved; now purely a 💸 spend decision, read alongside G74/G80/G78)*
+
+### Parked — no near-term work
+- **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
 
 ### Small & cheap — grab when passing
-G57 Telegram secret *(shipped in #24 — close it)* · G4 + G5 problem-log/improvement sections
-*(merge, one edit)* · G7 centrality *(premise measured false — close)* · G2 taxonomy
-*(recommend closing: three later rows independently concluded "resist adding types")*
-
----
-
-## 🗂 To close / delete during hygiene
-
-**Close as shipped:** G83 · G84(a)(b) · G21 endpoint · G19(e)(f) · A4 · G11 preview half ·
-G89 feeds half · G99(a) · G93 search/ask half · G87 invariant half · G7 premise · G57
-
-**Delete or merge:** G79 → header · G38 → CLAUDE.md · G80 → G74 · G96 → G99 · G37 → G91 ·
-G46 → G81 · G69 → G71 · G65 → G86 · G5 → G4 · G14 → G70 · G56/G16 → parked · G10 → re-file ·
-G2 → close
+G7 centrality *(recommended for closing — "premise measured false" per a prior session, but this
+hygiene pass could not find the underlying measurement anywhere in tracked docs; left OPEN — see
+the report for what was checked)*
 
 ---
 
