@@ -415,9 +415,27 @@ final class GraphViewModel {
     /// transclusion click, a claim citation (routed here via
     /// `EntityDetailCard.navigate(to:)`). Remembers the entity being left so
     /// `goBackEntity()` can return to it, to arbitrary depth.
+    ///
+    /// History is committed only once a destination is ACCEPTED: a graph
+    /// stub on the spot (the responsive path), any other id only when its
+    /// full body actually arrives. A wikilink to an id the bank doesn't have
+    /// used to push history first and fail the fetch second — a Back control
+    /// pointing at the card the user never left (PR #29 round 2).
     func pushEntity(id: String) {
-        navHistory.push(leaving: selectedEntity)
-        applySelection(id: id)
+        if entities.contains(where: { $0.id == id }) {
+            navHistory.push(leaving: selectedEntity)
+            applySelection(id: id)
+            return
+        }
+        let origin = selectedEntity
+        Task {
+            guard let fullEntity = await store.entity(id) else { return }
+            // The user moved on (a node click, Back, a tab switch) while the
+            // fetch was in flight — a late arrival must not yank them away.
+            guard selectedEntity?.id == origin?.id else { return }
+            navHistory.push(leaving: origin)
+            selectedEntity = fullEntity
+        }
     }
 
     /// Return to the entity that was open before the last `pushEntity` call.
