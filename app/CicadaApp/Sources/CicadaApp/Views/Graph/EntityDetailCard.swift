@@ -160,7 +160,7 @@ struct EntityDetailCard: View {
                             .background(CicadaTheme.surfaceHover)
                             .clipShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cicadaPlain)
                 }
             }
 
@@ -249,7 +249,7 @@ struct EntityDetailCard: View {
                         .font(.system(size: 12))
                         .foregroundStyle(CicadaTheme.textSecondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .help("Copy markdown")
             }
 
@@ -349,7 +349,7 @@ struct EntityDetailCard: View {
                             .font(.system(size: 11))
                             .foregroundStyle(CicadaTheme.textSecondary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cicadaPlain)
                     .help("Copy path")
                 }
 
@@ -661,7 +661,7 @@ struct EntityDetailCard: View {
                         .font(.system(size: 11))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .help("Open")
             }
             Button {
@@ -677,7 +677,7 @@ struct EntityDetailCard: View {
                     .font(.system(size: 11))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .help("Remove source")
         }
         .padding(.vertical, 2)
@@ -1050,7 +1050,7 @@ struct EntityDetailCard: View {
                 } label: {
                     historyRowLabel(entry, expandable: true)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .help("Show what changed in this commit")
                 .accessibilityLabel("Commit \(entry.date) by \(entry.author)")
             }
@@ -1222,7 +1222,7 @@ struct EntityDetailCard: View {
                         .padding(CicadaTheme.spacingMD)
                         .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cicadaPlain)
                 }
             }
         }
@@ -1241,7 +1241,7 @@ struct EntityDetailCard: View {
                         .background(CicadaTheme.surfaceHover)
                         .clipShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .padding(CicadaTheme.spacingMD)
             }
             ScrollView {
@@ -1465,7 +1465,7 @@ private struct ViewModeButton: View {
             .background(isSelected ? CicadaTheme.surfaceHover : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 4))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help("\(title) view")
     }
 }
@@ -1489,7 +1489,7 @@ private struct TabButton: View {
                     .frame(height: 2)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
     }
 }
 

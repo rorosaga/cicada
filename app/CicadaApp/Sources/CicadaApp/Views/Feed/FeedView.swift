@@ -87,7 +87,7 @@ struct FeedView: View {
         .background {
             Button("") { openSheet(nil) }
                 .keyboardShortcut("n", modifiers: .command)
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .frame(width: 0, height: 0)
                 .opacity(0)
         }
@@ -108,7 +108,7 @@ struct FeedView: View {
                 .frame(width: 28, height: 28)
                 .background(Circle().fill(CicadaTheme.accent))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help("\(Copy.addASource) (⌘N)")
         .accessibilityLabel(Copy.addASource)
     }
@@ -137,7 +137,7 @@ struct FeedView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(CicadaTheme.textTertiary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cicadaPlain)
                 }
             }
             .padding(.horizontal, CicadaTheme.spacingMD)
@@ -280,7 +280,7 @@ private struct FeedRow: View {
                     .fill(isHovered ? CicadaTheme.surfaceHover : .clear)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
         .sheet(isPresented: $showPreview) {
@@ -355,7 +355,7 @@ private struct FeedItemPreviewSheet: View {
                         .background(CicadaTheme.surfaceHover)
                         .clipShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
             .padding(CicadaTheme.spacingLG)
 

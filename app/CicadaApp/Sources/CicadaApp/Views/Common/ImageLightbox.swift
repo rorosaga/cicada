@@ -48,7 +48,7 @@ struct ImageThumbnail: View {
                     .opacity(isHovered ? 1 : 0)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .help("Click to enlarge")
         .sheet(isPresented: $showLightbox) {
@@ -126,7 +126,7 @@ struct ImageLightbox: View {
                             .background(.black.opacity(0.5))
                             .clipShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cicadaPlain)
                     .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()

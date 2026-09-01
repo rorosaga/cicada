@@ -274,7 +274,7 @@ struct AddSourceSheet: View {
                 }
                 .foregroundStyle(CicadaTheme.textSecondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .accessibilityLabel("Back to all sources")
 
             Text(tile.title)
@@ -368,7 +368,7 @@ struct AddSourceSheet: View {
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .disabled(busy)
         .accessibilityLabel("\(tile.title). \(state.badge). \(state.detail ?? tile.blurb)")
     }

@@ -34,7 +34,7 @@ struct FeedSubscriptionRow: View {
                         .font(.system(size: 12))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .help("Unsubscribe")
             }
         }
@@ -92,7 +92,7 @@ struct CalendarSubscriptionRow: View {
                         .font(.system(size: 12))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .help("Unsubscribe")
             }
         }

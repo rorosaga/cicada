@@ -70,7 +70,7 @@ struct ConnectedChannelsStrip: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .accessibilityLabel(isCollapsed
                                 ? "Show connected sources, \(connected.count) connected"
                                 : "Hide connected sources, \(connected.count) connected")
@@ -99,7 +99,7 @@ struct ConnectedChannelsStrip: View {
                             .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textSecondary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cicadaPlain)
                     .accessibilityLabel(Copy.addASource)
                 case .loaded(let connected):
                     VStack(spacing: 2) {

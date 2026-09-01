@@ -189,7 +189,7 @@ struct MediaPreview: View {
                     .stroke(CicadaTheme.border, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help("Play video")
 
         if let channel = model.channel, !channel.isEmpty {
@@ -230,7 +230,7 @@ struct MediaPreview: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(CicadaTheme.mediaPink)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
     }
 
     private var instagramPlaceholder: some View {
@@ -295,7 +295,7 @@ struct MediaPreview: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(CicadaTheme.accent)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .help("Preview the saved page in-app")
 
             openExternallyButton
@@ -321,7 +321,7 @@ struct MediaPreview: View {
                 .font(.system(size: 12))
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help("Open in your browser")
     }
 

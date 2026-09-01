@@ -165,8 +165,16 @@ struct GraphView: NSViewRepresentable {
             guard !hasPushedInitialData, let webView else { return }
             hasPushedInitialData = true
             let json = viewModel.graphDataJSON
+            let filterJSON = viewModel.filterJSON
             webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
                 if let error { print("Initial graph push error: \(error)") }
+                // Re-assert the current filter on this cold paint too (G84a) —
+                // without this, the FIRST push (this one) ran on graph.js's own
+                // built-in defaults instead of Swift's GraphFilter defaults,
+                // which used to disagree (minDegree 1 vs 0) and silently hid
+                // every zero-degree node until the user touched any filter
+                // control. Mirrors the completion handler above (`:74-79`).
+                webView.evaluateJavaScript("applyFilters(\(filterJSON))", completionHandler: nil)
             }
         }
     }

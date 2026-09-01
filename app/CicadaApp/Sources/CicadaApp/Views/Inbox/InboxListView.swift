@@ -219,7 +219,7 @@ private struct KindChip: View {
                     .stroke(selected ? color.opacity(0.5) : Color.clear, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
         .animation(.easeInOut(duration: 0.15), value: selected)

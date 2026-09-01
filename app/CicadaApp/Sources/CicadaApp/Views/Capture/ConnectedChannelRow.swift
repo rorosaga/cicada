@@ -110,7 +110,7 @@ struct ConnectedChannelRow: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cicadaPlain)
             .accessibilityLabel(channel.detail.map { "\(channel.label). \($0)" } ?? channel.label)
 
             Image(systemName: "chevron.right")

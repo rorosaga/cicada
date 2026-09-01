@@ -108,7 +108,7 @@ struct SidebarView: View {
         } label: {
             SidebarRow(tab: tab, isSelected: isSelected, badgeCount: count, isBusy: isBusy)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
 
@@ -197,7 +197,7 @@ private struct ThemeToggleButton: View {
                     Circle().fill(isHovered ? CicadaTheme.surfaceHover : .clear)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help(colorScheme == .dark ? "Switch to light mode" : "Switch to dark mode")
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
@@ -228,7 +228,7 @@ private struct SettingsGearButton: View {
                     }
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help(needsAttention ? "Settings — a connection needs you (⌘,)" : "Settings (⌘,)")
         .accessibilityLabel(needsAttention ? "Settings, a connection needs attention" : "Settings")
         .onHover { isHovered = $0 }

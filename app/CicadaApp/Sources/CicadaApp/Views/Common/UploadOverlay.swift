@@ -138,7 +138,7 @@ struct UploadOverlay: View {
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .onSubmit { saveURL() }
                         Button("Save") { saveURL() }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cicadaPlain)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(urlText.isEmpty ? CicadaTheme.textTertiary : CicadaTheme.accent)
                             .disabled(urlText.isEmpty || isUploading)
@@ -164,7 +164,7 @@ struct UploadOverlay: View {
                     .background(CicadaTheme.accent.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .disabled(isUploading)
             }
             .frame(width: 440)

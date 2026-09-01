@@ -390,6 +390,84 @@ extension View {
     }
 }
 
+// MARK: - Plain Button Style (G83)
+
+/// Shared replacement for `.buttonStyle(.cicadaPlain)`. Two problems in one fix:
+///
+/// 1. **Hit area.** A bare `Button { ... } label: { HStack { Image; Text } }`
+///    styled `.plain` paints no background of its own, so SwiftUI falls back
+///    to its default content shape — the union of the label's rendered
+///    glyphs. Padding grows the layout box but NOT the tap target, which is
+///    why clicking the icon/text works and the surrounding padded pill
+///    doesn't. Wrapping `configuration.label` in `.contentShape(Rectangle())`
+///    makes the tappable region match the label's full layout frame
+///    (including padding) every time, at every adopting call site, from one
+///    definition.
+/// 2. **Snappy feedback.** Plain buttons gave no visual acknowledgement of a
+///    click. A subtle scale-down + opacity dip keyed on `configuration.isPressed`,
+///    with a short eased animation, makes every adopting button feel
+///    responsive without changing its resting appearance.
+struct CicadaPlainButtonStyle: ButtonStyle {
+    /// Scale applied to the label while the button is pressed.
+    static let pressedScale: CGFloat = 0.97
+    /// Opacity applied to the label while the button is pressed.
+    static let pressedOpacity: Double = 0.85
+    /// Duration of the press/release transition.
+    static let pressAnimationDuration: Double = 0.12
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .scaleEffect(configuration.isPressed ? Self.pressedScale : 1.0)
+            .opacity(configuration.isPressed ? Self.pressedOpacity : 1.0)
+            .animation(.easeOut(duration: Self.pressAnimationDuration), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == CicadaPlainButtonStyle {
+    /// Drop-in replacement for `.buttonStyle(.cicadaPlain)` that also fixes the
+    /// hit-area bug and adds pressed-state feedback. See `CicadaPlainButtonStyle`.
+    static var cicadaPlain: CicadaPlainButtonStyle { CicadaPlainButtonStyle() }
+}
+
+// MARK: - Glass Plain Button Style (G83 review finding 2)
+
+/// `CicadaPlainButtonStyle` for a button whose visible chrome is a
+/// `.glassCard(...)` pill. `.glassCard()` chained AFTER `.buttonStyle(.cicadaPlain)`
+/// wraps the button's ALREADY-styled output — the pill background sits outside
+/// `CicadaPlainButtonStyle`'s own `scaleEffect`/`opacity`, which only reaches
+/// `configuration.label`. The result: on press, the label dips but the glass
+/// pill drawn behind it stays static — partial, not-quite-there feedback on
+/// exactly the top-bar/toolbar buttons the user hits constantly.
+///
+/// This style folds the SAME glass-card decoration (`.modifier(GlassCard(...))`
+/// — the existing `GlassCard` recipe, not a duplicated copy) into `makeBody`
+/// itself, so the card is composed BEFORE the pressed-state transform, and the
+/// whole pill — background, border, shadow included — scales/dims together.
+/// Replaces the `.buttonStyle(.cicadaPlain)` + `.glassCard(cornerRadius:)` pair
+/// at every site where they decorate the SAME button (not a container that
+/// merely happens to wrap several buttons in one shared card — that pattern is
+/// unaffected and stays as plain `.glassCard()` on the container).
+struct CicadaGlassButtonStyle: ButtonStyle {
+    var cornerRadius: CGFloat = CicadaTheme.cornerRadius
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .modifier(GlassCard(cornerRadius: cornerRadius))
+            .scaleEffect(configuration.isPressed ? CicadaPlainButtonStyle.pressedScale : 1.0)
+            .opacity(configuration.isPressed ? CicadaPlainButtonStyle.pressedOpacity : 1.0)
+            .animation(.easeOut(duration: CicadaPlainButtonStyle.pressAnimationDuration), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == CicadaGlassButtonStyle {
+    static var cicadaGlass: CicadaGlassButtonStyle { CicadaGlassButtonStyle() }
+    static func cicadaGlass(cornerRadius: CGFloat) -> CicadaGlassButtonStyle {
+        CicadaGlassButtonStyle(cornerRadius: cornerRadius)
+    }
+}
+
 // MARK: - Color Hex Init
 
 extension Color {
