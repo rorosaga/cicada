@@ -1050,6 +1050,13 @@ actor APIClient {
         try await put("/connections/\(id)/prefs", body: ["tier": tier ?? NSNull()])
     }
 
+    /// G74(a) — already matches `SyncAPI.setUseForSleep`'s signature exactly,
+    /// so (like `subscribeFeed` etc. below) it satisfies the protocol from
+    /// this declaration directly; no separate conformance forwarder.
+    func setUseForSleep(_ id: String, on: Bool) async throws -> ConnectionStatus {
+        try await put("/connections/\(id)/prefs", body: ["useForSleep": on])
+    }
+
     // MARK: - Saved-content connectors (G71)
 
     func fetchConnectors() async throws -> [ConnectorStatus] {
@@ -1754,9 +1761,9 @@ extension APIClient: SyncAPI {
     // MARK: Writes (§5.4)
     //
     // `subscribeFeed`/`unsubscribeFeed`/`subscribeCalendar`/
-    // `unsubscribeCalendar`/`activateBank`/`triggerSleep` already match their
-    // `SyncAPI` requirements exactly, so they satisfy the protocol from their
-    // primary declarations above. The five below only exist to give the
+    // `unsubscribeCalendar`/`activateBank`/`triggerSleep`/`setUseForSleep`
+    // already match their `SyncAPI` requirements exactly, so they satisfy the
+    // protocol from their primary declarations above. The five below only exist to give the
     // protocol's connection/inbox names a home; each forwards verbatim.
 
     func resolveInbox(id: String, action: String, answer: String?,

@@ -158,6 +158,10 @@ final class ConnectionsViewModel {
         await mutate(SetConnectionTier(id: id, tier: tier))
     }
 
+    func setUseForSleep(_ id: String, on: Bool) async {
+        await mutate(SetUseForSleep(id: id, on: on))
+    }
+
     private func mutate(_ mutation: any Mutation) async {
         errorMessage = nil
         if await store.perform(mutation) {

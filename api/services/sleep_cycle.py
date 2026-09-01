@@ -216,20 +216,20 @@ class _StageOutcome:
     questions_refreshed: bool = False
 
 
-_ENGINE_LABELS = {"agent": "claude-cli", "local": "ollama", "byok": "litellm"}
-
-
 def _engine_label(settings: Settings) -> str:
     """Which engine a resolved mode means. (Task 7 routes "auto" here too.)
 
-    ``getattr`` rather than a direct attribute read: several hermetic Sleep
-    tests pass a ``SimpleNamespace`` stand-in for ``Settings`` that predates
-    ``llm_mode`` and never sets it — those must still resolve to the
-    "byok"/"litellm" default rather than raising ``AttributeError`` before
-    Stage 1 even starts.
+    Delegates to ``engine_select.engine_label`` — kept as a thin wrapper so
+    every other call site in this module doesn't need the import. That
+    function itself ``getattr``s rather than reading the attribute directly:
+    several hermetic Sleep tests pass a ``SimpleNamespace`` stand-in for
+    ``Settings`` that predates ``llm_mode`` and never sets it — those must
+    still resolve to the "byok"/"litellm" default rather than raising
+    ``AttributeError`` before Stage 1 even starts.
     """
-    mode = (getattr(settings, "llm_mode", None) or "byok").strip().lower()
-    return _ENGINE_LABELS.get(mode, "litellm")
+    from api.services import engine_select
+
+    return engine_select.engine_label(settings)
 
 
 def _stage1_failure_message(engine: str) -> str:
@@ -432,7 +432,16 @@ async def run(settings: Settings, cycle_id: str) -> None:
 
 async def _run_stages(settings: Settings, cycle_id: str, memory_path: Path) -> _StageOutcome:
     """The LLM-dependent pipeline. Returns what it achieved; never runs the tail."""
+    from api.services import engine_select
+
+    # Task 7: "auto" (and a default install with the Use-for-Sleep toggle on)
+    # probes the connections registry, which shells out to vendor CLIs — so
+    # it is resolved ONCE here and the concrete mode travels down as a copy
+    # for the rest of this pipeline. The caller's Settings is never mutated:
+    # get_settings() is lru_cached and shared with every request handler.
+    settings, engine_why = await engine_select.resolve_settings(settings)
     _state.last_engine = _engine_label(settings)
+    _state.engine_detail = engine_why
     logger.info(
         f"Sleep cycle {cycle_id} started — engine: {_state.last_engine}, "
         f"model: {settings.litellm_model}"

@@ -110,6 +110,46 @@ else
   note "run ./install.sh to bootstrap it (or use the dev BackendProcess path)"
 fi
 
+# 9. A Sleep engine resolves to something real.
+CONN_JSON=""
+if [ -r "$TOKEN_FILE" ]; then
+  CONN_JSON=$(curl -fsS -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
+                   "http://127.0.0.1:$PORT/connections" 2>/dev/null || true)
+fi
+if printf '%s' "$CONN_JSON" | grep -q '"connected":true'; then
+  pass "Sleep engine: at least one connection is live"
+else
+  fail "Sleep engine: no connection is live — Sleep has nothing to run on"
+  note "open Settings → Plans & keys, or run: claude auth login"
+fi
+
+# 10. `claude -p` still authenticates with OAuth, not an API key.
+#     The announced flip of `-p` to bare-by-default would silently break the
+#     agent rung: --bare forces ANTHROPIC_API_KEY and never reads OAuth.
+if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
+  PROBE=$(env -u ANTHROPIC_API_KEY "$CLAUDE_CLI" -p --output-format json --safe-mode \
+              --strict-mcp-config --tools "" --no-session-persistence \
+              --system-prompt 'Reply with the single word ok.' <<< 'ok' 2>/dev/null || true)
+  if printf '%s' "$PROBE" | grep -q '"is_error":false'; then
+    pass "claude -p works on OAuth with no API key (agent rung is viable)"
+  else
+    fail "claude -p did not succeed without ANTHROPIC_API_KEY"
+    note "check 'claude auth status --json' shows loggedIn + authMethod claude.ai"
+    note "if -p has flipped to bare-by-default, the agent rung needs the OAuth flag"
+  fi
+else
+  pass "claude CLI absent — skipping the agent-rung probe (not a failure)"
+fi
+
+# 11. No stray ANTHROPIC_API_KEY diverting a plan call to metered billing.
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  fail "ANTHROPIC_API_KEY is set in this environment"
+  note "claude would bill the API key instead of your plan; unset it (Cicada's own"
+  note "subprocesses scrub it, but a shell export still misleads anything you run by hand)"
+else
+  pass "No ANTHROPIC_API_KEY in the environment"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   printf '\033[32m%s\033[0m\n' "All checks passed."

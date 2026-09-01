@@ -85,6 +85,8 @@ protocol SyncAPI: Sendable {
                       optionKey: String?, remindDays: Int?,
                       mergeTarget: String?, mergeSurvivor: String?) async throws
     func setConnectionTier(_ id: String, tier: String?) async throws -> ConnectionStatus
+    /// G74(a) — make (or unmake) the Claude plan the Sleep engine.
+    func setUseForSleep(_ id: String, on: Bool) async throws -> ConnectionStatus
     func setConnectionKey(_ id: String, key: String) async throws -> ConnectionStatus
     func removeConnectionKey(_ id: String) async throws -> ConnectionStatus
     func logoutConnection(_ id: String) async throws -> ConnectionStatus

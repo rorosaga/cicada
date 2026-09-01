@@ -130,6 +130,10 @@ final class FakeSyncAPI: SyncAPI {
         try await record("setConnectionTier:\(id):\(tier ?? "nil")")
         return try connectionFixture(id: id)
     }
+    func setUseForSleep(_ id: String, on: Bool) async throws -> ConnectionStatus {
+        try await record("setUseForSleep:\(id):\(on)")
+        return try connectionFixture(id: id)
+    }
     func setConnectionKey(_ id: String, key: String) async throws -> ConnectionStatus {
         try await record("setConnectionKey:\(id)")
         return try connectionFixture(id: id)

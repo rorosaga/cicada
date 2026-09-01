@@ -35,7 +35,8 @@ struct ConnectionsView: View {
                                 onConnect: { Task { await connect(c) } },
                                 onDisconnect: { confirmDisconnect = c },
                                 onSaveKey: { Task { await viewModel.saveKey(c.id, key: keyDrafts[c.id, default: ""]); keyDrafts[c.id] = "" } },
-                                onTier: { tier in Task { await viewModel.setTier(c.id, tier: tier) } }
+                                onTier: { tier in Task { await viewModel.setTier(c.id, tier: tier) } },
+                                onUseForSleep: { on in Task { await viewModel.setUseForSleep(c.id, on: on) } }
                             )
                         }
                     }
@@ -99,6 +100,7 @@ private struct ConnectionCard: View {
     let onDisconnect: () -> Void
     let onSaveKey: () -> Void
     let onTier: (String?) -> Void
+    let onUseForSleep: (Bool) -> Void
 
     private var logo: String? {
         switch connection.id {
@@ -168,6 +170,19 @@ private struct ConnectionCard: View {
                     Text("20x").tag("20x")
                 }
                 .pickerStyle(.segmented).frame(maxWidth: 300)
+            }
+
+            if connection.showsSleepEngineToggle {
+                Divider().opacity(0.35)
+                Toggle(Copy.sleepEngineTitle,
+                       isOn: Binding(get: { connection.useForSleep },
+                                     set: { onUseForSleep($0) }))
+                    .toggleStyle(.switch)
+                    .font(CicadaTheme.captionFont)
+                Text(Copy.sleepEngineExplainer)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             actions

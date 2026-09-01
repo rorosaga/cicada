@@ -203,6 +203,31 @@ struct SetConnectionTier: Mutation {
     var refreshDomains: Set<SyncDomain> { [.connections] }
 }
 
+/// Make (or unmake) the Claude plan the Sleep engine. Optimistic: the toggle
+/// moves at once and rolls back with a toast if the write fails.
+struct SetUseForSleep: Mutation {
+    let id: String
+    let on: Bool
+    private let memo = MutationMemo<ConnectionStatus>()
+
+    func optimistic(_ store: Store) async {
+        memo.value = patchConnection(store, id: id) { row in
+            row.patching(useForSleep: on)
+        }
+    }
+
+    func request(_ api: any SyncAPI) async throws {
+        _ = try await api.setUseForSleep(id, on: on)
+    }
+
+    func rollback(_ store: Store) async {
+        restoreConnection(store, memo.value)
+    }
+
+    var failureMessage: String { "Couldn't change the Sleep engine — reverted" }
+    var refreshDomains: Set<SyncDomain> { [.connections] }
+}
+
 /// Save an API key for a key-based connection: it reads as connected at once.
 struct SetConnectionKey: Mutation {
     let id: String

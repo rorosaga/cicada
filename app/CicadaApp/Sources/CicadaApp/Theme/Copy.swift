@@ -48,6 +48,16 @@ enum Copy {
         }
     }
 
+    static let sleepEngineTitle = "Use for Sleep"
+
+    /// The three honest things about running Sleep on a subscription: what it
+    /// spends, who starts it, and what a throttle does. Not "free" — plan
+    /// quota is a real budget, just not a dollar one.
+    static let sleepEngineExplainer =
+        "Sleep runs through the `claude` CLI on your plan: it spends plan quota, not money. "
+        + "Only when you start a cycle yourself — never on the nightly schedule — and if the "
+        + "plan throttles it stops cleanly with the queue intact."
+
     // MARK: Observer
 
     /// The user's own observer label. Never the account holder's first name —

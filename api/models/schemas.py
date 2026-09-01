@@ -1289,6 +1289,9 @@ class ConnectionStatus(CamelModel):
     # these across the probed set (only one adapter is the engine at a time),
     # so an adapter can't know its own answer.
     powers: list[str] = []
+    # G74(a) — the user has picked this connection as the Sleep engine. Only
+    # meaningful on `claude-plan`; a machine-global preference, never a probe.
+    use_for_sleep: bool = False
     login: Optional[LoginHint] = None
 
 
