@@ -14,10 +14,15 @@ webhook through a public tunnel and cannot send our bearer header), and
 ``GET /sources/connectors/<id>/callback`` for every OAuth connector in the
 registry (G71, generalized Task 15 §3 — Pinterest and X today) — each OAuth
 redirect lands in the user's own browser, which likewise cannot send it, so
-each is gated instead by its own single-use, 10-minute ``state`` nonce. Today
-the Telegram route is gated only by Telegram being *configured*
-(``CICADA_TELEGRAM_BOT_TOKEN`` set, checked in ``api/routers/capture.py``),
-not by a per-request secret verifying the caller really is Telegram — see G57.
+each is gated instead by its own single-use, 10-minute ``state`` nonce. The
+Telegram route is gated by Telegram being *configured*
+(``CICADA_TELEGRAM_BOT_TOKEN`` set) plus, when ``CICADA_TELEGRAM_WEBHOOK_SECRET``
+is set in the same ``~/.cicada/secrets.env`` seam, a per-request constant-time
+check of Telegram's ``X-Telegram-Bot-Api-Secret-Token`` header (set via
+``setWebhook?secret_token=...``) — both checked in ``api/routers/capture.py``.
+The secret is opt-in: an install with none configured keeps the old
+token-only gate (logged once, not silently) so upgrading never locks out an
+already-working bot — see G57.
 """
 from __future__ import annotations
 

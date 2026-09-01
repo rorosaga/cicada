@@ -256,6 +256,78 @@ def test_settings_telegram_enabled_reflects_token(monkeypatch):
     assert Settings(telegram_bot_token="abc123").telegram_enabled is True
 
 
+# --- G57 / Wave-1 1.5: per-request webhook secret ---------------------------
+
+
+def _client_with_secret(tmp_path, monkeypatch, *, token: str = "fake-token-123",
+                         webhook_secret: str = ""):
+    import api.routers.capture as capture_module
+
+    client, memory = _client(tmp_path, monkeypatch, token=token)
+    if webhook_secret:
+        monkeypatch.setenv("CICADA_TELEGRAM_WEBHOOK_SECRET", webhook_secret)
+    else:
+        monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+    # module-level "log once" state must not leak between tests
+    monkeypatch.setattr(capture_module, "_warned_unauthenticated", False)
+
+    async def fake_ingest(memory_path, update, **kwargs):
+        return {"kind": "note", "result": {"status": "created", "episode_id": "ep_test_001"}}
+
+    monkeypatch.setattr("api.routers.capture.ingest_telegram_update", fake_ingest)
+    return client, memory
+
+
+def test_no_secret_configured_keeps_todays_behavior_and_accepts_any_caller(tmp_path, monkeypatch):
+    client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="")
+    resp = client.post("/capture/telegram", json=_text_update("hello"))
+    assert resp.status_code == 200, resp.text
+
+
+def test_no_secret_configured_logs_a_warning_exactly_once(tmp_path, monkeypatch):
+    from loguru import logger
+
+    records: list[str] = []
+    sink_id = logger.add(lambda msg: records.append(msg.record["message"]), level="WARNING")
+    try:
+        client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="")
+        client.post("/capture/telegram", json=_text_update("one"))
+        client.post("/capture/telegram", json=_text_update("two"))
+        client.post("/capture/telegram", json=_text_update("three"))
+    finally:
+        logger.remove(sink_id)
+
+    warnings = [r for r in records if "CICADA_TELEGRAM_WEBHOOK_SECRET" in r]
+    assert len(warnings) == 1, "must warn once, not once per request"
+
+
+def test_secret_configured_rejects_missing_header(tmp_path, monkeypatch):
+    client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="shh-its-a-secret")
+    resp = client.post("/capture/telegram", json=_text_update("hello"))
+    assert resp.status_code == 403
+    assert "invalid" in resp.json()["detail"]
+
+
+def test_secret_configured_rejects_wrong_header(tmp_path, monkeypatch):
+    client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="shh-its-a-secret")
+    resp = client.post(
+        "/capture/telegram",
+        json=_text_update("hello"),
+        headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-value"},
+    )
+    assert resp.status_code == 403
+
+
+def test_secret_configured_accepts_matching_header(tmp_path, monkeypatch):
+    client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="shh-its-a-secret")
+    resp = client.post(
+        "/capture/telegram",
+        json=_text_update("hello"),
+        headers={"X-Telegram-Bot-Api-Secret-Token": "shh-its-a-secret"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
 # --- reason extraction (G71 §1) ---------------------------------------------
 
 
