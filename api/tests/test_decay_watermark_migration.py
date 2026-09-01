@@ -12,6 +12,8 @@ import subprocess
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import yaml
+
 from api.services import conflict_resolver, decay_watermark_migration, markdown_parser
 from api.services.claims import Claim, parse_claims, write_claims
 
@@ -291,3 +293,167 @@ def test_an_unparseable_page_is_skipped_not_fatal(tmp_path):
 
     assert counts["entities"] == 1
     assert _fm(good)["decayed_through"] == date.today().isoformat()
+
+
+# --------------------------------------------------------------------------- #
+# Devin PR #24 round 1, finding 2 — crash-recoverable, not just idempotent.
+# --------------------------------------------------------------------------- #
+
+
+def test_a_failed_commit_leaves_no_marker_and_a_retry_recommits(tmp_path, monkeypatch):
+    repo = _init_memory(tmp_path)
+    page = _page(repo, "octo", last_referenced="2026-01-01")
+    _seed(repo)
+
+    real_commit = decay_watermark_migration._commit_backfill
+    calls = {"n": 0}
+
+    def flaky_commit(memory_path, counts, rel):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated commit failure")
+        return real_commit(memory_path, counts, rel)
+
+    monkeypatch.setattr(decay_watermark_migration, "_commit_backfill", flaky_commit)
+
+    first = decay_watermark_migration.backfill_decay_watermarks(repo)
+    assert first["entities"] == 1
+    assert not (repo / ".decay_watermarked").exists(), (
+        "must not mark complete after a failed commit"
+    )
+    # The rewrite DID land on disk even though the commit failed — this is
+    # exactly the state that used to trick a retry into thinking there was
+    # nothing left to do.
+    assert _fm(page)["decayed_through"] == date.today().isoformat()
+    assert "entities/octo.md" in _git(repo, "status", "--porcelain")
+    assert (repo / ".decay_watermarked.pending").exists(), (
+        "the pending journal must survive a failed commit so a retry knows what to recommit"
+    )
+
+    second = decay_watermark_migration.backfill_decay_watermarks(repo)
+    assert calls["n"] == 2
+    assert second["entities"] == 1, "the retry must still report the page as backfilled"
+    assert (repo / ".decay_watermarked").exists(), "a successful retry must complete the migration"
+    assert not (repo / ".decay_watermarked.pending").exists(), "the journal is cleared on success"
+    assert "entities/octo.md" not in _git(repo, "status", "--porcelain"), (
+        "the retry must actually commit the page, not just skip it as already-watermarked"
+    )
+    log = _git(repo, "log", "--format=%s", "-1")
+    assert "Backfill decay watermarks" in log
+    assert "entities/octo.md" in _git(repo, "show", "--name-only", "--format=", "HEAD")
+
+
+def test_a_second_failed_commit_keeps_retrying_from_the_journal(tmp_path, monkeypatch):
+    repo = _init_memory(tmp_path)
+    _page(repo, "octo", last_referenced="2026-01-01")
+    _seed(repo)
+
+    def always_fails(memory_path, counts, rel):
+        raise RuntimeError("still down")
+
+    monkeypatch.setattr(decay_watermark_migration, "_commit_backfill", always_fails)
+
+    decay_watermark_migration.backfill_decay_watermarks(repo)
+    decay_watermark_migration.backfill_decay_watermarks(repo)
+
+    assert not (repo / ".decay_watermarked").exists()
+    pending = (repo / ".decay_watermarked.pending").read_text(encoding="utf-8")
+    assert "entities/octo.md" in pending
+    # a second run must not re-stamp / double count — the field is already there
+    assert _fm(repo / "entities" / "octo.md")["decayed_through"] == date.today().isoformat()
+
+
+# --------------------------------------------------------------------------- #
+# Devin PR #24 round 1, finding 3 — claims backfill must be uniform with what
+# claim_reconciler._decay_claims actually decays: archived pages' OPEN claims
+# still decay (status is not a gate in the claim engine), and one malformed
+# ```claims entry must not take the rest of the page's claims hostage.
+# --------------------------------------------------------------------------- #
+
+
+def _write_claims_page(repo: Path, entity_id: str, claims_yaml: str, **fm) -> Path:
+    base = {
+        "name": entity_id.title(), "type": "concept", "status": "active",
+        "confidence": 0.7, "decay_class": "active", "last_referenced": "2026-01-01",
+    }
+    base.update(fm)
+    body = f"## Summary\n\nA thing.\n\n```claims\n{claims_yaml}\n```\n"
+    path = repo / "entities" / f"{entity_id}.md"
+    markdown_parser.write(path, base, body)
+    return path
+
+
+def test_an_archived_pages_open_claims_are_still_backfilled(tmp_path):
+    repo = _init_memory(tmp_path)
+    page = _write_claims_page(
+        repo, "gone",
+        "- id: clm_1\n  text: gone uses postgres\n  subject: gone\n  predicate: uses\n"
+        "  object: postgres\n  valid_from: '2026-01-01'\n  recorded_at: '2026-01-01'\n",
+        status="archived", confidence=0.1,
+    )
+    _seed(repo)
+
+    counts = decay_watermark_migration.backfill_decay_watermarks(repo)
+
+    assert counts["claims"] == 1, (
+        "claim_reconciler._decay_claims does not gate on entity status — an "
+        "archived page's open claims still decay every Sleep and must still "
+        "be backfilled"
+    )
+    fm = _fm(page)
+    # The ENTITY frontmatter watermark is still correctly skipped — the
+    # entity engine itself never reads it for an archived page.
+    assert "decayed_through" not in fm
+    assert fm["status"] == "archived"
+    assert fm["confidence"] == 0.1
+    claim = parse_claims(markdown_parser.parse(page).body)[0]
+    assert claim.decayed_through == date.today().isoformat()
+
+
+def test_a_malformed_claim_entry_does_not_block_its_siblings(tmp_path):
+    repo = _init_memory(tmp_path)
+    page = _write_claims_page(
+        repo, "octo",
+        "- id: clm_good\n  text: octo uses postgres\n  subject: octo\n  predicate: uses\n"
+        "  object: postgres\n  valid_from: '2026-01-01'\n  recorded_at: '2026-01-01'\n"
+        "- id: clm_bad\n  text: broken\n  subject: octo\n  predicate: uses\n"
+        "  object: mysql\n  confidence: not-a-number\n",
+    )
+    _seed(repo)
+
+    counts = decay_watermark_migration.backfill_decay_watermarks(repo)
+
+    assert counts["claims"] == 1, "the one well-formed claim must still be backfilled"
+    reparsed_raw = yaml.safe_load(
+        decay_watermark_migration._CLAIMS_BLOCK_RE.search(
+            markdown_parser.parse(page).body
+        ).group("payload")
+    )
+    ids = {(item.get("id") if isinstance(item, dict) else None) for item in reparsed_raw}
+    assert ids == {"clm_good", "clm_bad"}, "the malformed entry must be preserved, not dropped"
+    good = next(item for item in reparsed_raw if item.get("id") == "clm_good")
+    assert good["decayed_through"] == date.today().isoformat()
+    bad = next(item for item in reparsed_raw if item.get("id") == "clm_bad")
+    assert bad["confidence"] == "not-a-number", "the malformed entry's raw content is untouched"
+
+
+def test_a_whole_block_that_is_not_valid_yaml_skips_claims_but_not_the_page(tmp_path):
+    repo = _init_memory(tmp_path)
+    base = {
+        "name": "Octo", "type": "concept", "status": "active", "confidence": 0.7,
+        "decay_class": "active", "last_referenced": (date.today() - timedelta(days=1)).isoformat(),
+    }
+    body = "## Summary\n\nA thing.\n\n```claims\nkind: bad: yaml: here\n```\n"
+    page = repo / "entities" / "octo.md"
+    markdown_parser.write(page, base, body)
+    _seed(repo)
+
+    counts = decay_watermark_migration.backfill_decay_watermarks(repo)
+
+    # Nothing salvageable in the claims block, but the entity's OWN frontmatter
+    # watermark is independent and still gets backfilled.
+    assert counts["claims"] == 0
+    assert _fm(page)["decayed_through"] == date.today().isoformat()
+    assert "kind: bad: yaml: here" in markdown_parser.parse(page).body, (
+        "an unparseable block must be left byte-for-byte alone, never destroyed"
+    )
