@@ -971,10 +971,15 @@ async def _finalize(
     the engine REPORTED using (``agent_engine.models_used()``) rather than
     what ``settings`` merely CONFIGURED — the Claude CLI can route an
     internal side-call to a different model than the one requested (V1d),
-    and the ``Cicada-Author:`` trailers should say so. ``engine`` is also
-    stamped as a single ``Cicada-Engine:`` trailer on the main commit, so
-    ``GET /sleep/history`` can report which engine drove each cycle instead
-    of leaving the field unextended forever (Ruling 4).
+    and the ``Cicada-Author:`` trailers should say so. When ``authors`` comes
+    back empty, the settings-derived fallback (``litellm_model`` +
+    disambiguation model) applies ONLY when ``engine == "litellm"`` (L2,
+    Task 6 review fix round 1) — on any other rung ``settings.litellm_model``
+    never ran, so a cycle whose engine failed to record a model gets NO
+    author trailer at all rather than a confidently wrong one. ``engine`` is
+    also stamped as a single ``Cicada-Engine:`` trailer on the main commit,
+    so ``GET /sleep/history`` can report which engine drove each cycle
+    instead of leaving the field unextended forever (Ruling 4).
 
     G85 — the decay-authorship bug: entity changes whose ``trigger`` is
     ``"sleep/decay"`` are purely arithmetic (``conflict_resolver``'s decay
@@ -988,7 +993,26 @@ async def _finalize(
     the entity files those changes wrote and carrying no engine/session
     trailer (no engine ran). Everything else a decay change indirectly
     causes — e.g. a ``decay_nudge``'s own new inbox item — stays in the
-    main commit; only the entity-frontmatter line itself moves.
+    main commit; only the entity-frontmatter line itself moves. A change
+    that fails to split out for any reason (a stem-derived path with no file
+    on disk, or the split commit itself failing) degrades — folds back into
+    the main commit exactly as before this fix — rather than aborting the
+    cycle; see the inline comment at the split for the full contract.
+
+    L1 (Task 6 review, disclosed, not fixed): the split is PATH-granular,
+    not hunk-granular — ``commit_paths`` stages the whole entity file.
+    Stage 5.56's claim write-back (``claim_pipeline.py``) reaches subjects
+    independently of ``referenced_ids`` (via claim-level decay, or a claim
+    extracted this cycle for a subject entity_resolver didn't consider
+    "referenced"), so on the rare cycle where the SAME entity file picks up
+    both a `sleep/decay` entity-level change AND a genuinely LLM-authored
+    claim write, the whole file — claim content included — lands in the
+    `cicada` commit. This is the inverse of the bug this task fixes (an
+    arithmetic change wrongly credited to a model); accepted rather than
+    fixed because doing better needs hunk-level (not file-level) staging,
+    which git's plumbing here doesn't give for free. Narrow in practice: it
+    only fires when a subject is BOTH decay-eligible (unreferenced by
+    Stage 2) AND claim-touched (Stage 5.56) in the same cycle.
 
     ``episode_sessions`` (PR #20 review fix, ``_episode_session_map``): when
     given, each entity manifest line also carries a precise
@@ -1019,6 +1043,25 @@ async def _finalize(
     # --- G85: split purely-arithmetic decay changes into their own commit,
     # authored `cicada`, committed FIRST so the main commit's `git status`
     # (below) never sees their entity files as dirty.
+    #
+    # M2 (Task 6 review, fix round 1): this must NEVER be able to take the
+    # WHOLE cycle down. `commit_paths` -> `git add -- <path>` exits 128 on a
+    # path that doesn't resolve to a real file, and an unguarded `GitError`
+    # here would propagate out of `_finalize` before the main commit even
+    # runs — nothing commits this cycle, and the NEXT cycle's `git add -A`
+    # would then sweep up (and re-attribute to whatever model runs next
+    # time) this cycle's ENTIRE batch: the exact G85 smear, but worse, and
+    # spread across two cycles. `resolve_and_prune` only ever proposes a
+    # decay change for an entity it just loaded from disk (conflict_resolver.py:139),
+    # so a missing file should never happen — this is a defensive rail
+    # against a stem-derived path being wrong for some other reason, not an
+    # expected path. Two layers: (1) only stage a decay change whose entity
+    # file exists; (2) wrap the commit itself in try/except. Either way,
+    # whatever couldn't be split out this cycle DEGRADES — it folds back into
+    # `other_changes` and rides in the main commit exactly as every decay
+    # change did before this fix (same `trigger: sleep/decay` manifest line,
+    # just authored like the rest of that commit rather than `cicada`) —
+    # never silently dropped, never fatal.
     decay_changes: list[dict] = []
     other_changes: list = []
     for change in changes:
@@ -1028,19 +1071,36 @@ async def _finalize(
             other_changes.append(change)
 
     if decay_changes:
-        decay_lines: list[str] = []
-        decay_paths: list[str] = []
+        stageable: list[dict] = []
+        unfolded: list[dict] = []
         for change in decay_changes:
-            entity_id = change.get("id", "unknown")
-            action = change.get("action", "updated")
-            path = f"entities/{entity_id}.md"
-            decay_paths.append(path)
-            decay_lines.append(f"{path}: {action} (source: n/a, trigger: sleep/decay)")
-        decay_message = git_service.build_commit_message(
-            f"Sleep cycle {date_str} (decay)", decay_lines, authors=["cicada"]
-        )
-        async with _lock:
-            await git_service.commit_paths(memory_path, decay_message, decay_paths)
+            path = f"entities/{change.get('id', 'unknown')}.md"
+            (stageable if (memory_path / path).exists() else unfolded).append(change)
+
+        committed = False
+        if stageable:
+            decay_paths = [f"entities/{c.get('id', 'unknown')}.md" for c in stageable]
+            decay_lines = [
+                f"{p}: {c.get('action', 'updated')} (source: n/a, trigger: sleep/decay)"
+                for c, p in zip(stageable, decay_paths)
+            ]
+            decay_message = git_service.build_commit_message(
+                f"Sleep cycle {date_str} (decay)", decay_lines, authors=["cicada"]
+            )
+            try:
+                async with _lock:
+                    await git_service.commit_paths(memory_path, decay_message, decay_paths)
+                committed = True
+            except Exception as exc:
+                logger.warning(
+                    f"G85 decay-only commit failed — folding its {len(stageable)} "
+                    f"change(s) into the main commit instead of losing the whole "
+                    f"cycle: {type(exc).__name__}: {exc}"
+                )
+
+        if not committed:
+            unfolded = stageable + unfolded
+        other_changes = unfolded + other_changes
 
     # --- Entity lines from structured change data (decay changes excluded —
     # already committed above) ---
@@ -1097,9 +1157,18 @@ async def _finalize(
     # Author trailers: the models that actually wrote this consolidation.
     # `authors` (G74(a)) is what the engine REPORTED using; without it we
     # fall back to what settings CONFIGURED (main + Stage-2 judge when
-    # distinct).
+    # distinct) — but ONLY on the litellm/byok rung (L2, Task 6 review fix
+    # round 1). `settings.litellm_model` is meaningless on any other rung:
+    # the agent rung has its own model pair (`agent_model`/
+    # `agent_disambiguation_model`) and never touches `litellm_model` at
+    # all, so falling back to it when `authors` came back empty (e.g. every
+    # call this cycle failed before recording a model) would invent a BYOK
+    # model that never ran — for a `claude-cli` cycle, under
+    # `connection="claude-plan"`, which is precisely the mis-attribution
+    # this task exists to end. Omit the author entirely instead — an honest
+    # "unknown" beats a confident lie.
     resolved_authors: list[str] = [a for a in (authors or []) if a]
-    if not resolved_authors and settings is not None:
+    if not resolved_authors and settings is not None and engine == "litellm":
         if settings.litellm_model:
             resolved_authors.append(settings.litellm_model)
         disambig = (settings.litellm_disambiguation_model or "").strip()

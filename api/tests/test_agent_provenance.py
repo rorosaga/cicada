@@ -283,3 +283,193 @@ def test_end_to_end_fake_runner_cycle_names_the_model_and_splits_decay(
     stages = {r["stage"] for r in rows}
     assert "extraction" in stages
     assert "structural" in stages  # the sleep_run event
+
+
+# --------------------------------------------------------------------------- #
+# Fix round 1 — task-6-review.md
+#
+# M2: the decay-only commit must NEVER be able to take the whole cycle down.
+# M1: /sleep/history must not pull every commit's full body just to read one
+#     trailer line.
+# L2: the settings-derived author fallback must not invent a BYOK model on
+#     a non-litellm rung.
+# L3: `_MODELS_USED` is process-global — documented at its definition
+#     (agent_engine.py), no test needed (same-alias pollution, not a wrong
+#     one).
+# --------------------------------------------------------------------------- #
+
+
+def test_a_missing_decay_entity_file_still_lets_the_main_commit_land(tmp_path, monkeypatch):
+    """M2: a decay change whose entity file does not exist on disk (a
+    stem-derived path gone wrong) must never raise out of `_finalize` — it
+    folds into the main commit instead of taking the whole cycle down."""
+    monkeypatch.setenv("CICADA_TELEMETRY", "off")
+    repo = _init_repo(tmp_path)
+    (repo / "entities" / "cicada.md").write_text("---\nid: cicada\n---\n\n# Cicada\n")
+    # Deliberately never write entities/ghost.md.
+
+    changes = [
+        {"id": "cicada", "action": "created", "source_episode": "ep_1",
+         "source_episodes": ["ep_1"], "trigger": "sleep/extraction"},
+        {"id": "ghost", "action": "archive", "new_confidence": 0.1,
+         "new_status": "archived", "source_episode": "", "trigger": "sleep/decay"},
+    ]
+
+    # Must not raise.
+    asyncio.run(sleep_cycle._finalize(
+        repo, "cycle-missing", changes, Settings(litellm_model="gpt-5.4-mini",
+                                                 litellm_disambiguation_model=""),
+    ))
+
+    log = _git(repo, "log", "--format=%H", "--reverse")
+    hashes = [h for h in log.splitlines() if h.strip()]
+    # No file to split out -> everything folds into ONE commit, not two.
+    assert len(hashes) == 1, "no decay commit should exist when its only path is missing"
+
+    message = _git(repo, "log", "-1", "--format=%B", hashes[0])
+    assert "entities/cicada.md: created" in message
+    # The decay line for the missing file still shows up in the manifest —
+    # it is not silently dropped, just no longer split into its own commit.
+    assert "entities/ghost.md: archive (source: n/a, trigger: sleep/decay)" in message
+    assert git_service._parse_authors(message) == ["gpt-5.4-mini"]
+
+
+def test_a_failing_decay_commit_still_lets_the_main_commit_land(tmp_path, monkeypatch, committed):
+    """M2: if `commit_paths` itself raises (corrupt git state, a concurrent
+    lock, anything) for a decay change whose file DOES exist, `_finalize`
+    must still land the main commit rather than propagating the error and
+    committing nothing this cycle."""
+    async def boom(_memory_path, _message, _paths):
+        raise RuntimeError("simulated git failure")
+
+    monkeypatch.setattr(git_service, "commit_paths", boom)
+
+    changes = [
+        {"id": "a", "action": "created", "source_episode": "ep_1",
+         "source_episodes": ["ep_1"], "trigger": "sleep/extraction"},
+        {"id": "stale", "action": "archive", "new_confidence": 0.1,
+         "new_status": "archived", "source_episode": "", "trigger": "sleep/decay"},
+    ]
+    # `committed` fakes porcelain_status/commit_changes and never checks
+    # file existence, so this exercises the try/except path specifically
+    # (as opposed to the pre-stage existence filter above).
+    (tmp_path / "entities").mkdir()
+    (tmp_path / "entities" / "stale.md").write_text("---\nid: stale\n---\n")
+
+    # Must not raise, and the main commit must still happen.
+    asyncio.run(sleep_cycle._finalize(tmp_path, "cycle-boom", changes, None))
+
+    assert "message" in committed, "the main commit must still land"
+    message = committed["message"]
+    assert "entities/a.md: created" in message
+    assert "entities/stale.md: archive (source: n/a, trigger: sleep/decay)" in message
+    # Telemetry still recorded — the cycle is reported, not swallowed.
+    assert committed["events"][0].kind == "sleep_run"
+
+
+def test_the_author_fallback_never_invents_a_byok_model_on_the_agent_rung(tmp_path, committed):
+    """L2: on the agent rung, when the engine recorded NO model (every call
+    this cycle failed before reporting one), the settings-derived fallback
+    must not step in with `settings.litellm_model` — that model never ran."""
+    asyncio.run(sleep_cycle._finalize(
+        tmp_path, "sleep_1", [],
+        Settings(llm_mode="agent", litellm_model="gpt-5.4-mini"),
+        engine="claude-cli", connection="claude-plan", billing="subscription",
+        authors=None,  # nothing recorded this cycle
+    ))
+    assert git_service._parse_authors(committed["message"]) == []
+    ev = committed["events"][0]
+    assert ev.model is None
+    assert ev.connection == "claude-plan"  # the explicit override still wins
+
+
+def test_the_author_fallback_still_applies_on_the_default_litellm_engine(tmp_path, committed):
+    """Regression guard for the L2 fix: the byok/default rung must keep
+    falling back to `settings.litellm_model` exactly as before — only the
+    non-litellm rungs are excluded."""
+    asyncio.run(sleep_cycle._finalize(
+        tmp_path, "sleep_1", [], Settings(litellm_model="gpt-5.4-mini",
+                                          litellm_disambiguation_model=""),
+    ))
+    assert git_service._parse_authors(committed["message"]) == ["gpt-5.4-mini"]
+
+
+# --------------------------------------------------------------------------- #
+# M1 — /sleep/history reads the engine trailer via git's own
+# %(trailers:...) directive, not a full-body %b pull.
+# --------------------------------------------------------------------------- #
+
+
+def test_get_sleep_history_reports_the_engine_trailer(tmp_path):
+    repo = _init_repo(tmp_path)
+    (repo / "entities" / "a.md").write_text("---\nid: a\n---\n")
+    _git(repo, "add", "-A")
+    message = git_service.build_commit_message(
+        "Sleep cycle 2026-09-01",
+        ["entities/a.md: created (source: ep_1, trigger: sleep/extraction)"],
+        authors=["claude-sonnet-5"], engine="claude-cli",
+    )
+    _git(repo, "commit", "-q", "-m", message)
+
+    entries = asyncio.run(git_service.get_sleep_history(repo))
+    assert len(entries) == 1
+    assert entries[0].engine == "claude-cli"
+
+
+def test_get_sleep_history_reports_none_for_a_legacy_commit_with_no_engine_trailer(tmp_path):
+    """Back-compat (review-verified, must not regress): an old commit
+    written before the `Cicada-Engine:` trailer existed still parses fine —
+    `engine` is `None`, never a guess, and the row is not dropped."""
+    repo = _init_repo(tmp_path)
+    (repo / "entities" / "a.md").write_text("---\nid: a\n---\n")
+    _git(repo, "add", "-A")
+    message = git_service.build_commit_message(
+        "Sleep cycle 2026-01-01",
+        ["entities/a.md: created (source: ep_1, trigger: sleep/extraction)"],
+        authors=["gpt-5.4-mini"],  # no engine= passed at all
+    )
+    _git(repo, "commit", "-q", "-m", message)
+
+    entries = asyncio.run(git_service.get_sleep_history(repo))
+    assert len(entries) == 1
+    assert entries[0].engine is None
+    assert "entities/a.md" in entries[0].files_changed
+
+
+def test_get_sleep_history_reports_no_engine_for_the_cicada_decay_commit(tmp_path):
+    repo = _init_repo(tmp_path)
+    (repo / "entities" / "stale.md").write_text("---\nid: stale\n---\n")
+    _git(repo, "add", "-A")
+    message = git_service.build_commit_message(
+        "Sleep cycle 2026-09-01 (decay)",
+        ["entities/stale.md: archive (source: n/a, trigger: sleep/decay)"],
+        authors=["cicada"],
+    )
+    _git(repo, "commit", "-q", "-m", message)
+
+    entries = asyncio.run(git_service.get_sleep_history(repo))
+    assert len(entries) == 1
+    assert entries[0].engine is None
+
+
+def test_get_sleep_history_payload_does_not_scale_with_commit_body_size(tmp_path):
+    """M1: the old `%b` pull made the payload grow with the SIZE of every
+    commit message. A giant manifest (hundreds of entity lines, as a real
+    Sleep cycle produces) must not appear anywhere in what `get_sleep_history`
+    reads back out — only the one trailer value should surface."""
+    repo = _init_repo(tmp_path)
+    (repo / "entities" / "a.md").write_text("---\nid: a\n---\n")
+    _git(repo, "add", "-A")
+    huge_lines = [f"entities/entity-{i}.md: updated (trigger: sleep/extraction)" for i in range(500)]
+    message = git_service.build_commit_message(
+        "Sleep cycle 2026-09-01", huge_lines, authors=["gpt-5.4-mini"], engine="litellm",
+    )
+    _git(repo, "commit", "-q", "-m", message)
+
+    entries = asyncio.run(git_service.get_sleep_history(repo))
+    assert len(entries) == 1
+    assert entries[0].engine == "litellm"
+    # The huge manifest never had to travel through Python at all for this
+    # call — `message` (the commit's `.message`) is just the SUBJECT line.
+    assert entries[0].message == "Sleep cycle 2026-09-01"
+    assert "entity-499" not in entries[0].message

@@ -365,7 +365,16 @@ entity lines into their OWN commit — subject `Sleep cycle <date> (decay)`, `Ci
 touching only the entity files those changes wrote — committed *before* the cycle's main commit so
 the main commit's `git status` scan never sees them. Everything a decay change indirectly causes
 (e.g. a `decay_nudge`'s own new inbox item) still rides in the main commit; only the
-entity-frontmatter line itself moves.
+entity-frontmatter line itself moves. A decay change that can't be split out for any reason (its
+entity file is missing on disk, or the split commit itself fails) degrades — folds back into the
+main commit exactly as it would have before this fix — rather than aborting the whole cycle.
+**Known asymmetry (disclosed, not fixed):** the split is path-granular, not hunk-granular —
+`commit_paths` stages the whole entity file — so if Stage 5.56's claim write-back also touches that
+same file this cycle (a subject can be claim-touched independently of `referenced_ids`), the whole
+file, claim content included, lands in the `cicada` commit. This is the inverse of the bug being
+fixed; narrow in practice (needs a subject to be both decay-eligible and claim-touched in the same
+cycle) and accepted rather than fixed, since doing better needs hunk-level rather than file-level
+staging.
 
 **Commit-engine trailer (`Cicada-Engine:`).** A Sleep cycle's main commit also carries exactly one
 `Cicada-Engine: claude-cli|ollama|litellm` line — which engine drove that cycle's extraction/
@@ -373,8 +382,11 @@ resolution/conflict/skills pipeline, mirroring `/sleep/status`'s `lastEngine` fi
 so `GET /sleep/history` can report it too. Singular (a commit has one engine, unlike the
 author/session lists) and omitted entirely — never a guessed value — when no LLM engine ran at all,
 which is always true of the `cicada`-authored decay-only commit above. Built by
-`git_service.build_commit_message(..., engine=...)` and parsed by `git_service._parse_engine`;
-inert to entity-line parsing by the same contract as the other two trailers.
+`git_service.build_commit_message(..., engine=...)`. Read back by `get_sleep_history` via git's own
+`%(trailers:key=Cicada-Engine,valueonly,separator=)` pretty-format directive rather than a Python-side
+parse of the full body (`%b`) — pulling the whole body just to extract one line grew the endpoint's
+payload with the size of every commit message ever written (measured on the live bank: 787 B -> 378 KB
+for 8 commits). Inert to entity-line parsing by the same contract as the other two trailers.
 
 **Commit-session trailers (`Cicada-Session:`).** Alongside *which model* wrote a belief,
 a Sleep commit records *which conversations* it consolidated: one `Cicada-Session: <id>`

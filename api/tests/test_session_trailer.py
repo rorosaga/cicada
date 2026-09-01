@@ -187,6 +187,13 @@ def test_finalize_stamps_each_entitys_own_manifest_line_with_its_sessions(monkey
     monkeypatch.setattr(git_service, "commit_changes", fake_commit)
     monkeypatch.setattr(git_service, "commit_paths", fake_commit_paths)
 
+    # M2 (Task 6 review fix round 1): `_finalize` now only splits a decay
+    # change out when its entity file actually exists on disk — write it so
+    # this test still exercises the split, not the "file missing -> folds
+    # into the main commit" fallback path (covered separately).
+    (tmp_path / "entities").mkdir()
+    (tmp_path / "entities" / "stale-thing.md").write_text("---\nid: stale-thing\n---\n")
+
     changes = [
         {"id": "postgres", "action": "created", "source_episode": "ep_1",
          "source_episodes": ["ep_1"], "trigger": "sleep/extraction"},

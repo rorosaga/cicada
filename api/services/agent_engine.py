@@ -87,6 +87,17 @@ _NOT_FOUND_MARKERS = ("model not found", "unknown model", "no such model")
 
 _STATE_LOCK = threading.Lock()
 _BREAKER: dict[str, str | None] = {"reason": None}
+# L3 (Task 6 review, fix round 1): process-global, not cycle-scoped. The
+# previous-cycle leak is handled — `reset_models_used()` runs at the top of
+# every Sleep cycle (`sleep_cycle.run`) — but a concurrent `/ask` or MCP call
+# that also routes through the agent rung WHILE a cycle is running (e.g.
+# `ask_service` on `llm_mode="agent"`) records its model into this same set,
+# and that call's model then rides along in the cycle's `Cicada-Author:`
+# trailers even though it never touched the Sleep pipeline. In practice this
+# is a same-alias false alarm, not a wrong one — every model reachable this
+# way is the same Claude account's own model roster — so it is disclosed
+# here rather than fixed with a cycle-scoped ledger (e.g. a contextvar keyed
+# by cycle id), which would be the real fix if this ever needs to be exact.
 _MODELS_USED: set[str] = set()
 
 
