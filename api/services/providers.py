@@ -19,6 +19,7 @@ Everything here is hermetically testable: ``resolve_llm_fn`` takes an injectable
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import os
 import threading
@@ -29,7 +30,7 @@ import numpy as np
 from loguru import logger
 
 from api.config import Settings
-from api.services import pricing, telemetry
+from api.services import engine_errors, pricing, telemetry
 
 # ``embed_fn(texts, *, is_query=False) -> np.ndarray`` (float32, 2-D). The same
 # contract the sqlite-vec index has always expected.
@@ -132,6 +133,28 @@ def _openrouter_headers(settings: Settings) -> dict[str, str] | None:
     return headers or None
 
 
+#: Wall-clock default for an agent call when the caller passes no ``timeout``.
+#: Matches ``entity_extractor.EXTRACTION_TIMEOUT_S`` — the only guard Stage 1 has.
+AGENT_DEFAULT_TIMEOUT_S = 300.0
+
+# One process-wide cap on concurrent `claude -p` subprocesses. Stage 1 fans out
+# at MAX_CONCURRENCY (10) and Stage 2 is sequential, so without this the rung
+# would put 10 CLI processes on the machine at once and walk straight into the
+# plan's own rate limit. A threading (not asyncio) semaphore because the agent
+# core is synchronous and is shared by both the sync and async call paths.
+_AGENT_SEM_LOCK = threading.Lock()
+_AGENT_SEM: tuple[int, threading.BoundedSemaphore] | None = None
+
+
+def _agent_semaphore(limit: int) -> threading.BoundedSemaphore:
+    global _AGENT_SEM
+    limit = max(1, int(limit or 1))
+    with _AGENT_SEM_LOCK:
+        if _AGENT_SEM is None or _AGENT_SEM[0] != limit:
+            _AGENT_SEM = (limit, threading.BoundedSemaphore(limit))
+        return _AGENT_SEM[1]
+
+
 def resolve_llm_fn(
     settings: Settings,
     *,
@@ -140,6 +163,8 @@ def resolve_llm_fn(
     stage: str | None = None,
     sink: Callable[[telemetry.UsageEvent], None] | None = None,
     bank: str | None = None,
+    is_async: bool | None = None,
+    runner: Callable[..., Any] | None = None,
 ) -> LlmFn:
     """Resolve a model spec -> a callable bound to that model.
 
@@ -159,6 +184,17 @@ def resolve_llm_fn(
             defaults to ``telemetry.record`` (the on-disk ledger).
         bank: label recorded on the event; defaults to
             ``telemetry.bank_name(settings)``.
+        is_async: force the returned callable to be awaitable (``True``) or
+            blocking (``False``). Defaults to
+            ``inspect.iscoroutinefunction(completion)``: verified sound
+            (``litellm.acompletion`` is a coroutine function,
+            ``litellm.completion`` is not), but in ``llm_mode="agent"`` the
+            injected ``completion`` is never called, so the override exists
+            for callers that pass neither.
+        runner: injected subprocess runner for ``llm_mode="agent"``
+            (``runner(argv, *, stdin, timeout, cwd) -> CliResult``). Tests
+            always pass one; production leaves it ``None`` and gets
+            ``connections.base.run_cli_sync``.
 
     Returns:
         ``fn(messages, *, response_format=None, **kw)`` forwarding to
@@ -169,6 +205,9 @@ def resolve_llm_fn(
         (litellm's Ollama routing prefix) and ``api_base`` is set to
         ``settings.ollama_base_url`` — no API key required. This leaves the
         byok/openrouter path byte-identical when ``llm_mode != "local"``.
+        When ``settings.llm_mode == "agent"``, the call is routed through
+        ``agent_engine.complete`` (a ``claude -p`` subprocess on the user's own
+        subscription) instead — see the module docstring for the seam contract.
 
         Every call is timed and reported as one ``UsageEvent`` to ``sink``
         (default: the telemetry ledger) tagged with ``stage`` — the single
@@ -183,30 +222,123 @@ def resolve_llm_fn(
         sink = telemetry.record
     bank_label = bank or telemetry.bank_name(settings)
 
-    is_local = settings.llm_mode == "local" or resolved_model.startswith("ollama/")
+    if is_async is None:
+        is_async = inspect.iscoroutinefunction(completion)
+
+    # "auto" is resolved ONCE per Sleep cycle by ``engine_select`` (it has to
+    # probe the connections registry, which is async and shells out). An
+    # unresolved "auto" reaching this synchronous seam degrades to byok rather
+    # than blocking a request thread on a subprocess probe.
+    mode = (settings.llm_mode or "byok").strip().lower()
+    is_agent = mode == "agent"
+    is_local = (not is_agent) and (mode == "local" or resolved_model.startswith("ollama/"))
     if is_local and not resolved_model.startswith("ollama/"):
         resolved_model = f"ollama/{settings.ollama_model}"
 
     is_openrouter = resolved_model.startswith("openrouter/")
     headers = _openrouter_headers(settings) if is_openrouter else None
-    connection, billing = telemetry.connection_for_model(resolved_model)
 
-    def _emit(resp, started: float, ok: bool) -> None:
+    if is_agent:
+        from api.services import agent_engine
+
+        # A plan call is not money and does not belong to the disconnected
+        # BYOK API-key card. `connection` must EQUAL the adapter id —
+        # consumption_stats.per_connection joins strictly on it.
+        engine_label, connection, billing = "claude-cli", "claude-plan", "subscription"
+        # `litellm_model` ids mean nothing to `claude --model`; the rung has
+        # its own model pair (settings.agent_model / agent_disambiguation_model).
+        argv_model = agent_engine.model_for_stage(settings, stage)
+    else:
+        engine_label = "litellm"
+        connection, billing = telemetry.connection_for_model(resolved_model)
+        argv_model = resolved_model
+
+    def _emit(resp, started: float, ok: bool, *, model_used: str | None = None,
+              equiv_override: float | None = None) -> None:
         try:
             usage = telemetry.usage_from_response(resp) if ok else telemetry.usage_from_response(None)
-            cost = None if billing == "free" else usage["cost_usd"]
-            equiv = pricing.estimate_cost(resolved_model, usage["input_tokens"], usage["output_tokens"],
-                                          usage["cache_read_tokens"], usage["cache_write_tokens"])
+            event_model = model_used or (argv_model if is_agent else resolved_model)
+            if is_agent:
+                # `costBasis: "list"` says the envelope's figure is metering,
+                # not money charged — so it is an equivalent, never a spend.
+                cost = None
+                equiv = equiv_override
+                if equiv is None:
+                    equiv = pricing.estimate_cost(
+                        event_model, usage["input_tokens"], usage["output_tokens"],
+                        usage["cache_read_tokens"], usage["cache_write_tokens"])
+            else:
+                cost = None if billing == "free" else usage["cost_usd"]
+                equiv = pricing.estimate_cost(
+                    resolved_model, usage["input_tokens"], usage["output_tokens"],
+                    usage["cache_read_tokens"], usage["cache_write_tokens"])
+                if equiv is None:
+                    equiv = cost
             sink(telemetry.UsageEvent(
-                kind="llm_call", stage=stage or "unknown", connection=connection, engine="litellm",
-                model=resolved_model, bank=bank_label, billing=billing,
+                kind="llm_call", stage=stage or "unknown", connection=connection,
+                engine=engine_label, model=event_model, bank=bank_label, billing=billing,
                 input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
-                cache_read_tokens=usage["cache_read_tokens"], cache_write_tokens=usage["cache_write_tokens"],
-                cost_usd=cost, equiv_cost_usd=equiv if equiv is not None else cost,
+                cache_read_tokens=usage["cache_read_tokens"],
+                cache_write_tokens=usage["cache_write_tokens"],
+                cost_usd=cost, equiv_cost_usd=equiv,
                 duration_ms=int((time.perf_counter() - started) * 1000), ok=ok,
             ))
         except Exception as exc:  # a sink must never break an LLM call
             logger.warning(f"telemetry sink failed: {exc}")
+
+    def _emit_throttle(exc: Exception) -> None:
+        """The first ``kind="throttle"`` event this codebase has ever written.
+
+        ``telemetry.KINDS`` has listed it and ``consumption_stats:249`` has
+        counted ``throttle_events`` since G51; nothing produced one.
+        """
+        try:
+            sink(telemetry.UsageEvent(
+                kind="throttle", stage=stage or "unknown", connection=connection,
+                engine=engine_label, model=argv_model, bank=bank_label, billing=billing,
+                invocations=0, throttled=True, ok=False, refs={"detail": str(exc)[:300]},
+            ))
+        except Exception as sink_exc:
+            logger.warning(f"telemetry sink failed: {sink_exc}")
+
+    def _agent_invoke(messages, response_format, timeout: float):
+        started = time.perf_counter()
+        with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
+            try:
+                envelope = agent_engine.complete(
+                    messages=messages, model=argv_model, stage=stage,
+                    want_json=response_format is not None, timeout=timeout, runner=runner,
+                )
+            except engine_errors.EngineThrottled as exc:
+                # Trip BEFORE emitting so a concurrent caller cannot also trip.
+                newly_tripped = agent_engine.trip_breaker(str(exc))
+                _emit(None, started, ok=False)
+                if newly_tripped:
+                    _emit_throttle(exc)
+                raise
+            except engine_errors.EngineError:
+                _emit(None, started, ok=False)
+                raise
+        resp = agent_engine.response_shim(envelope, argv_model)
+        used = resp["model"]
+        agent_engine.record_model_used(used)
+        _emit(resp, started, ok=True, model_used=used,
+              equiv_override=agent_engine.equiv_cost_from_envelope(envelope))
+        return resp
+
+    def _agent_call(*, messages, response_format=None, **kw):
+        # Accept-and-drop every unknown kwarg (`extra_body`, `temperature`,
+        # `max_tokens`, `api_base`, ...) — none of them have an argv form.
+        # `timeout` is the exception: it is the only wall-clock guard Stage 1
+        # has (entity_extractor.py:138).
+        raw_timeout = kw.get("timeout")
+        timeout = float(raw_timeout) if raw_timeout else AGENT_DEFAULT_TIMEOUT_S
+        if is_async:
+            return asyncio.to_thread(_agent_invoke, messages, response_format, timeout)
+        return _agent_invoke(messages, response_format, timeout)
+
+    if is_agent:
+        return _agent_call
 
     def _call(*, messages, response_format=None, **kw):
         call_kw: dict[str, Any] = {"model": resolved_model, "messages": messages, **kw}
