@@ -1,50 +1,43 @@
 # Cicada — TODO & handoff
 
 > **If you are an agent picking this project up cold, read this section first.** It is the
-> compacted context of the 2026-08-31/09-01 session: what is true right now, what is in flight,
+> compacted context of the 2026-08-31/09-01 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (2026-09-01)
+## Where things stand (2026-09-01, evening)
 
-**Merged to `dev`:** PRs #21–#26. The big one is **#25 — the agent engine (G74a)**: Sleep can now
-run on the user's Claude Max plan via `claude -p`, after ~2.5 months with no engine. Also #24, the
-**correctness gate**, which fixed decay (see rulings below), #23's app fixes, and #26's `saved_at`
-fix (re-import backfill + Pinterest date normalisation).
+**Merged to `dev`:** PRs #21–#29. **No open PRs.** The big one is **#25 — the agent engine (G74a)**:
+Sleep can now run on the user's Claude Max plan via `claude -p`, after ~2.5 months with no engine.
+Also #24, the **correctness gate**, which fixed decay (see rulings below), #23's app fixes, #26's
+`saved_at` fix, and #27's sleep cancel/cap/debt screen.
 
-**Also merged:** **#27** sleep cancel/cap/debt screen — Devin round 1 (1 🔴 + 5 🟡) fixed and
-round 2 came back **clean**. Its 🔴 is worth knowing: Stage 2 used to make clarifier/index writes
-*inline* inside the per-name judging loop, so cancelling mid-Stage-2 left partial writes — including a
-**deleted** inbox item. Writes are now queued as callables and flushed only if the loop completes.
+**#27's 🔴 is worth knowing:** Stage 2 used to make clarifier/index writes *inline* inside the
+per-name judging loop, so cancelling mid-Stage-2 left partial writes — including a **deleted** inbox
+item. Writes are now queued as callables and flushed only if the loop completes.
 
-**Open PRs — both mid-flight, resume here:**
+**#28 — G88 dev loop (merged 2026-09-01).** `make install-app` / `make dev` / `make login-item`, and
+the **bank split-brain closed as a class rather than as a path**: after a default install outside
+`~/cicada`, `installRoot` pointed agent setup commands at the *checkout's* memory while the app used
+another bank — silent, because memory gets written and the app just shows nothing. The root cause
+was **two independent computations that had to coincidentally agree** (a Swift heuristic vs.
+`install.sh`/`Settings` defaults). Now there is one source of truth: `GET /healthz` reports
+`memoryRoot`, and whenever a backend answers it **overrides the local guess everywhere**
+`CICADA_MEMORY_PATH` is emitted (`LiveMemoryRootProbe`: backoff 0.5→8 s, re-armed on reconnect,
+never regresses to the guess once a root is known). `installRoot()` survives only as a fallback
+until a backend has ever answered. Every snippet path is escaped per format (`SnippetEscape`:
+shell/json/toml/yaml). `install_app.sh` stages → verifies → swaps with the old bundle recoverable,
+and an interrupted swap is recovered on the next run (EXIT/INT/TERM trap). All of it proved by
+injected failures, not argued.
 
-- **#29 wikilinks** (`feat/wikilink-nav`, worktree `.worktrees/wikilinks`) — renders/clicks/back-stack,
-  424/424 green, **verified independently**. Devin left **3 🟡, no 🔴**, all unaddressed:
-  (i) `MarkdownBody.swift` — punctuated wikilinks sanitize to ids that target nonexistent entities;
-  (ii) `GraphViewModel.swift:420` — a broken link still pushes onto the back stack, creating false
-  history; (iii) `TopicsView.swift:725` — a late topic load undoes navigation. **Decide whether to fix
-  or merge with them filed** — (ii) is the one a user would actually feel.
-- **#28 dev loop** (`feat/devloop`, worktree `.worktrees/devloop`) — **fix round COMPLETE** (`688fb5f`,
-  pushed); `swift test` 414/414, `pytest` 1525 passed (8 pre-existing calendar failures). **Awaiting a
-  Devin round 2**, warranted because round 1 carried a 🔴. Both findings fixed:
-  - **🔴 bank split-brain, closed as a class rather than as a path.** The bug: after a default install
-    outside `~/cicada`, `installRoot` pointed agent setup commands at the *checkout's* memory while the
-    app used another bank — silent, because memory gets written and the app just shows nothing. The root
-    cause was **two independent computations that had to coincidentally agree** (a Swift heuristic vs.
-    `install.sh`/`Settings` defaults). Now there is one source of truth: `GET /healthz` reports
-    `memoryRoot` (raw `Settings.memory_root`/`CICADA_MEMORY_PATH`, distinct from the resolved-active-bank
-    `memoryPath` it already returned), and when the backend answers, that **overrides the local guess
-    everywhere** `CICADA_MEMORY_PATH` is emitted — every agent's steps, the shared `mcpJSON`, the Cursor
-    deeplink — not just the line Devin flagged. `installRoot()` survives only as a fallback until a
-    backend has ever answered, and still supplies `home` (python/mcp-server paths), where a wrong value
-    fails loudly instead of diverging silently. **Verified live**, not argued: a temp backend was pointed
-    at the main checkout's memory and the running app's Connect page showed the backend's real root
-    instead of the worktree-derived guess it would have shown before.
-  - **🟡 destructive update** (`install_app.sh`) — now stages, verifies, then swaps, with the old bundle
-    recoverable. **Proved by injecting two failures:** a `codesign` that always fails aborted *before
-    quitting the running app* (checksum/signature/PID untouched), and an `mv` that failed only the
-    staging→installed move restored the previous app byte-identically. A normal `make dev` afterwards ran
-    clean with no leftover `.staging`/`.previous`.
+**#29 — wikilinks (merged 2026-09-01).** Renders, click-through, back stack. Round 2 fixed the three
+real defects: a `cicada://entity/<ref>` link now carries the wikilink text **verbatim** and is
+resolved at click time against the graph snapshot (`MarkdownBody.resolveEntityID`: exact id →
+case-insensitive name → `sanitizeID` fallback), so `algorithms-&-data-structures.md` no longer 404s;
+`GraphViewModel.pushEntity` commits Back history only once a destination is **accepted** (stub on
+the spot, otherwise when the body arrives); `TopicDetailNavigation` is a generation-token value type
+so a late fetch can't undo Back. Known, disclosed: the client `sanitizeID` fallback still differs
+from the backend's `id_utils.sanitize_id`; `.wikilinkNavigation` traps if hosted outside a
+`WindowGroup` (reads `@Environment(Store.self)`).
 
 **Live environment (verified):** backend runs under **launchd** (`com.cicada.backend`,
 RunAtLoad+KeepAlive, `python -m uvicorn`), keys in `~/.cicada/secrets.env` (0600). Cicada's MCP
@@ -96,24 +89,36 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-**Session paused 2026-09-01 on usage limits, mid-flight. Nothing is broken; two PRs are unfinished.**
+**Nothing is broken and nothing is mid-flight.** The 2026-09-01 evening session merged #28/#29,
+reframed CLAUDE.md around the *experience port* north star (Silver & Sutton's *Era of Experience*,
+WikiSkill), filed **G112/G113/G114** research-grounded, and started **G109** as a research run
+(inventory → five engine candidates → three-lens judge → decision memo) rather than a blind re-tune.
 
-1. **Merge #28 once its Devin round 2 clears** — the fix round is done, pushed and live-verified
-   (details above); nothing to re-dispatch. A round 2 is owed only because round 1 had a 🔴.
-2. **Rule on #29's three 🟡** (above), then merge. No 🔴; it is mergeable as-is if the calls are filed.
-3. **G109 (urgent)** — graph physics: deceleration is tuned invisible and disconnected nodes explode
-   into a ring; evaluate Obsidian/Pixi, cosmograph, sigma+graphology rather than re-tuning blindly.
-4. **G110 is filed as RESEARCH, deliberately not started.** Its own cheapest-first ruling: build
-   **G53**/**G75** (state dictionary + handshake — a curated cursor with no transcript read) and see
-   whether the fork want survives, rather than building fork machinery first.
-5. **G7 is open again, on purpose.** The hygiene pass could not find the measurement TODO.md claimed
-   ("premise measured false") anywhere in tracked history — it was likely eyeballed on the live
-   (gitignored) bank and never written down. Either re-measure it or delete the claim; do not
-   re-close it on the strength of the old assertion.
-6. Then the waves below.
+1. **G109 (urgent)** — read the decision memo if one exists (the session writes it to its
+   scratchpad, then folds the ruling into the G109 row); otherwise the row itself names the five
+   candidates and the two symptoms. Phase 1 must fix both *invisible deceleration* and the *orphan
+   ring* in a day, or the port decision is made for us.
+2. **G114 (all $0, APPLY)** — capture-writer hygiene: one id rule, one timestamp shape, and the
+   scheduled feed/calendar poll that **G111** needs. Do (4) the poll first: G111 is worthless
+   without it.
+3. **G113 slices 1–4 ($0, APPLY)** — the grounded-reward ledger. Every human verdict on memory
+   (inbox resolve, decay keep/archive, merge accept/reject, manual edit) becomes a telemetry event;
+   ids and enums only. Slice 5 (closing the loop) stays 💸 DECIDE.
+4. **G112 step 1** is a bug fix, not a feature — do it when passing.
+5. **G53 + G75**, then **G105**, then **G97** — the same order the waves give.
+6. **G110 is RESEARCH, deliberately not started.** Its own cheapest-first ruling: build G53/G75 and
+   see whether the fork want survives. Second data point to read first: Cursor's "Import from Claude
+   Code".
+7. **G7 is open again, on purpose.** The hygiene pass could not find the measurement TODO.md claimed
+   ("premise measured false") anywhere in tracked history. Re-measure it or delete the claim.
+8. **G90 README screenshots** wait for Rodrigo to be at the machine (demo bank or frame-by-frame
+   review — the live bank holds real people). Same for any `macos-harness` verification that
+   needs a permission prompt accepted.
 
-**Worktrees left in place** (all with committed, pushed work): `.worktrees/wikilinks`,
-`.worktrees/devloop`, `.worktrees/sleepctl`, `.worktrees/hygiene`. `git worktree list` to see them.
+**Worktrees:** all merged. `.worktrees/devloop` and `.worktrees/wikilinks` are safe to remove
+(`devloop-report.md` there is untracked scratch — never commit `*-report.md`); `sleepctl`,
+`hygiene`, `saves-and-imports` are stale from earlier sessions. `git worktree list` to see them;
+never `--force`-remove one without looking at `git status --porcelain -uall` in it first.
 
 ---
 
@@ -124,7 +129,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-01 (hygiene pass + G110 filed; PRs #21–#27 merged, #28/#29 open and mid-flight)._
+_Last synced: 2026-09-01 evening (PRs #21–#29 merged, no open PRs; G88 shipped; G112–G114 filed; G109 in research)._
 
 ---
 
@@ -151,7 +156,7 @@ G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animati
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume)
 
-**This session (PRs #21–#26, merged to dev)**
+**2026-08-31 → 09-01 (PRs #21–#29, merged to dev)**
 - #21 diff context lines with line numbers, merge-commit handling
 - #22 the G71 slice + connector seam consolidation
 - #23 G83 button hit areas & press feedback (87 sites), G84(a)(b) graph cold paint + drag physics
@@ -164,9 +169,17 @@ trailers, Ghostty resume)
   commit scoping) included
 - #26 `saved_at` fix (G99d) — `RawItem.added` plumbed end to end across 5 parsers; re-import
   backfill + Pinterest date normalisation
+- #27 sleep cancel route + episode cap + debt screen — Stage-2 writes queued and flushed only on a
+  completed loop, so a cancel can no longer leave a half-deleted inbox item
+- #28 **G88 dev loop** — `make install-app`/`make dev`/`make login-item`, non-destructive
+  stage→verify→swap install with interrupted-swap recovery, and the app/agent bank split-brain
+  closed at the source (`/healthz` `memoryRoot` overrides the local guess everywhere it is emitted)
+- #29 wikilinks — render, click-through, back stack; refs resolved at click time against the graph
+  snapshot, history committed only on an accepted destination, generation-token topic navigation
 - Outside PRs: Cicada in **every** Claude session (user-scope MCP + both skills + launchd backend
-  with durable keys), CLAUDE.md reframed, doctor cleanup, installer shebang fix,
-  **G99a** the 35 MB index untracked before it could commit ~11 GB/yr
+  with durable keys), CLAUDE.md reframed twice (the project, then the *experience port* north
+  star), doctor cleanup, installer shebang fix, **G99a** the 35 MB index untracked before it could
+  commit ~11 GB/yr
 - Backlog hygiene (2026-09-01, docs-only): closed rows for work that had shipped without ever
   updating the backlog — **G21** dedup-sweep endpoint, **G19(e)(f)** provider-factory adoption +
   stray `.bak` removal, **A4** skill preference capture, and the shipped halves of **G11**
@@ -181,7 +194,7 @@ trailers, Ghostty resume)
 | What | State | Next action |
 |---|---|---|
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
-| **G88 dev loop** | Restarts clean (stopped mid-build, nothing committed) | `make install-app`, `make dev`, `installRoot()` fix, README run-section |
+| **G109 graph physics** | **Research run in flight** (2026-09-01 evening): inventory of `graph.js` physics → five candidates (fix d3-force in place, Obsidian/Pixi, cosmograph, sigma+graphology/ForceAtlas2, ngraph/d3-force-3d) → engineer/user/skeptic judges → decision memo with a one-day phase 1 | Read the memo, rule, implement phase 1 in a worktree, fold the ruling into the G109 row |
 | Claude Desktop | **Registered 2026-09-01** — needs a Desktop restart | Then: it captures only what an agent chooses to save (see G105) |
 
 ---
@@ -189,17 +202,24 @@ trailers, Ghostty resume)
 ## 🎯 Next — in priority order
 
 ### Wave A · finish what the engine needs
-1. **Engine follow-up: episode cap + cancel route** — today the only way to stop a running cycle is
-   killing the backend, and a kill mid-write leaves a dirty bank the next cycle mis-attributes.
-   *Blocks any unattended cycle.* — S
-2. **G88** run Cicada like an installed app *(in progress)* — S
-2b. **G109 🔴** graph physics — deceleration invisible (velocityDecay 0.45 + alphaMin 0.05 swallow
+1. **G109 🔴** graph physics — deceleration invisible (velocityDecay 0.45 + alphaMin 0.05 swallow
    the seeded throw) and zero-degree nodes fly to a ring now that the cold-paint fix renders them;
-   evaluate an established engine instead of re-tuning — S/M to decide, M to port
-3. **G90** README + screenshots. Blocked on #1 so Sleep is shown working; **demo bank or
-   frame-by-frame review** — the live bank holds real people. — S
+   *research run in flight* (see In progress) — S/M to decide, M to port
+2. **G114** capture-writer hygiene — one id rule, one timestamp shape, `processed_by` stamp, and
+   the **scheduled feed/calendar poll** at the Sleep tail that G111 depends on. All $0,
+   deterministic, verified defects with file:line — S
+3. **G111** newsletters (TLDR / TLDR AI) → "what landed today that matters to me". The TLDR path
+   is verified (RSS exists; a feed row per newsletter); gated on G114(4) so it refreshes without a
+   button press — S/M
+4. **G90** README + screenshots — Sleep and the dev loop are both real now; **demo bank or
+   frame-by-frame review** — the live bank holds real people — S
 
 ### Wave B · make what exists trustworthy
+4a. **G113 slices 1–4** — the grounded-reward ledger: every human verdict on memory (inbox resolve,
+   decay keep/archive, merge accept/reject, `Cicada-Author: user` corrections) recorded as a
+   telemetry event — ids and enums only, never text — with per-predicate agreement rates and a
+   confidence-calibration curve as a fourth Activity card. Slice 5 (feeding rates back into
+   prompts) stays 💸 DECIDE under G78 — S/M
 4. **G98 remainder** — the predicate/entity-resolution half (~15 of 27 conflicts are artifacts) — M
 4b. **G104** a resumed conversation is consolidated twice — reconsolidation is the likely answer
    (the claim layer's `superseded_by` already models "replaced by a better-informed belief") — M
@@ -214,6 +234,10 @@ trailers, Ghostty resume)
    plus the observer relabel — S
 8. **G86** feed dedup — 789 rows render 603 pages; absorbs G65 — M
 9. **G19** dead-code sweep *((e)(f) done — provider factory adopted, stray `.bak` removed)* — XS
+9a. **G112 step 1 ($0)** — ground the skill page: Stage-4 output through `entity_resolver`, merge
+   `source_episodes` + bump `last_referenced` on update, evidence entities into `related`, v2
+   layout so `source_rewrite`/hubs work, contradictions raise a normal conflict item. A bug fix
+   in feature's clothing; steps 2–4 (compile → bundle → export) are Wave C — S
 
 ### Wave C · the north star's output half
 10. **G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
@@ -230,6 +254,9 @@ trailers, Ghostty resume)
     search next; deep-linked snippets gated on G100 — M
 13. **G93** cross-stream retrieval — the only row that advances the *unbuilt* half of the north
     star; everything above is intake or repair — L
+13a. **G112 steps 2–4** — portable skills: a deterministic `skill_compiler` turns a grounded
+    `skill` entity into a SKILL.md bundle with `## Evidence` (episode ids, agreement rates from
+    G113), exported so someone else can load it on their own plan. WikiSkill's third layer — M
 14. **G102** site recon → entities, not summaries. Cheap first slice: extract over the OG text
     already stored, zero new fetches — S/M
 
@@ -268,7 +295,7 @@ the report for what was checked)*
 ---
 
 ## 🩹 Known-broken, not yet queued
-- No episode cap / no cancel route on a running cycle *(Wave A #1)*
+- Graph physics: throw deceleration invisible, orphan nodes ring *(G109 — Wave A #1, in research)*
 - Bank `.git` is 69 MB against 16 MB of markdown — future growth stopped, **history not rewritten**
   (destructive; user's call)
 - 8 date-dependent `test_calendar_registry.py` failures — pre-existing baseline on dev
