@@ -91,6 +91,11 @@ trailers, Ghostty resume)
 11. **G100** span citation — which *sentence* convinced the contributor, rendered in a
     DiffView-style source viewer with prev/next across conversations — M
 12. **G103** observer model in the UI — whose belief, who was in the room — S
+12a. **G107** tamagotchi status mascot — state machine is done, the ART is the work (the current
+    sprite is a 16px monochrome menu-bar template scaled to 72pt); time estimates deferred until
+    the engine model is settled — M
+12c. **G108** landing page + navigation — decide *before* building: status vs graph as the front
+    door, and linear vs browser-style history (G106 makes history the better bet) — decision
 12b. **G106** two-way conversations ↔ entities browser — the inverse index works today; content
     search next; deep-linked snippets gated on G100 — M
 13. **G93** cross-stream retrieval — the only row that advances the *unbuilt* half of the north
