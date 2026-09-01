@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.models.schemas import DecayClass
-from api.services import decay_policy, entity_body, markdown_parser
+from api.services import decay_policy, entity_body, json_parse, markdown_parser
 from api.services.providers import resolve_llm_fn
 
 # Confidence floor a decaying/archived entity is restored to when it is
@@ -726,4 +726,4 @@ async def _detect_contradiction(
         response_format={"type": "json_object"},
     )
     raw = response.choices[0].message.content
-    return json.loads(raw)
+    return json_parse.parse_json_object(raw)
