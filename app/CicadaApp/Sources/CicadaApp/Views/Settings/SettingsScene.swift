@@ -15,6 +15,10 @@ struct SettingsScene: View {
             ConnectionsView()
                 .tabItem { Label(Copy.plansAndKeys, systemImage: "creditcard") }
                 .accessibilityLabel(Copy.plansAndKeys)
+
+            SettingsSleepView()
+                .tabItem { Label(Copy.schedule, systemImage: "moon.zzz") }
+                .accessibilityLabel(Copy.schedule)
         }
         .frame(width: 820, height: 620)
         .background(CicadaTheme.background)

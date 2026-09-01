@@ -44,7 +44,7 @@ def _seed_episodes(tmp_path, ids):
 
 def _patch_boundaries(monkeypatch, *, extract_fn):
     """Stub every LLM/git/index boundary; ``extract_fn`` drives Stage 1."""
-    async def fake_resolve(extracted_arg, existing, settings):
+    async def fake_resolve(extracted_arg, existing, settings, **_kw):
         # Echo one trivial create per extracted episode so later stages have shape.
         changes = []
         for r in extracted_arg:
@@ -126,7 +126,7 @@ def test_failed_extractions_stay_queued(tmp_path, monkeypatch):
     memory = _seed_episodes(tmp_path, ids)
 
     # Stage 1 succeeds for #1 and #3; #2 "failed" (credit error) -> omitted.
-    async def partial_extract(episodes, settings):
+    async def partial_extract(episodes, settings, **_kw):
         return _extracted_for([ids[0], ids[2]])
 
     _patch_boundaries(monkeypatch, extract_fn=partial_extract)
@@ -151,7 +151,7 @@ def test_rerun_consolidates_only_the_requeued(tmp_path, monkeypatch):
     ids = ["ep_2026-06-17_001", "ep_2026-06-17_002", "ep_2026-06-17_003"]
     memory = _seed_episodes(tmp_path, ids)
 
-    async def partial_extract(episodes, settings):
+    async def partial_extract(episodes, settings, **_kw):
         return _extracted_for([ids[0], ids[2]])
 
     _patch_boundaries(monkeypatch, extract_fn=partial_extract)
@@ -161,7 +161,7 @@ def test_rerun_consolidates_only_the_requeued(tmp_path, monkeypatch):
     # and now it succeeds for the remainder.
     seen_ids: list[str] = []
 
-    async def retry_extract(episodes, settings):
+    async def retry_extract(episodes, settings, **_kw):
         seen_ids.extend(e["id"] for e in episodes)
         return _extracted_for([e["id"] for e in episodes])
 
@@ -178,7 +178,7 @@ def test_all_failed_leaves_queue_intact_and_errors(tmp_path, monkeypatch):
     memory = _seed_episodes(tmp_path, ids)
 
     # Wrong model / no credits at all -> Stage 1 yields nothing.
-    async def empty_extract(episodes, settings):
+    async def empty_extract(episodes, settings, **_kw):
         return []
 
     _patch_boundaries(monkeypatch, extract_fn=empty_extract)

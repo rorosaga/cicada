@@ -138,6 +138,23 @@ class Settings(BaseSettings):
     decay_nudge_threshold: float = 0.4
     archive_threshold: float = 0.2
 
+    # Sleep-control episode cap — one cycle spawns roughly one LLM call chain
+    # per episode across Stages 1-4 (the agent rung's own measurement is
+    # ~200-350 subprocess calls for a 20-episode cycle, ~90% serialized on
+    # Stage 2's per-name judge loop), so an unbounded queue on a first run
+    # (or after days offline) can run for hours with no way to stop it short
+    # of killing the backend. 25 keeps one cycle's worst-case wall-clock in
+    # the same known, bounded order of magnitude as that 20-episode
+    # measurement rather than scaling with however large the backlog is (a
+    # first-run backlog of ~1,200 episodes then drains over ~48 cycles
+    # instead of one multi-hour run); a typical day's capture volume is well
+    # under this, so the cap is invisible in normal operation. Episodes
+    # beyond the cap stay `processed: false` and are picked up by the next
+    # cycle — the queue is already resumable by design, so a capped cycle
+    # costs nothing but time. `POST /sleep/cancel` covers wanting to stop a
+    # single (possibly still-capped) cycle early.
+    sleep_max_episodes_per_cycle: int = 25   # CICADA_SLEEP_MAX_EPISODES_PER_CYCLE
+
     # G60 — open-question re-scoring. An open conflict every one of whose
     # options has been silent for this many days is escalated (question
     # rewritten, a "Neither anymore" option inserted, priority dropped).
