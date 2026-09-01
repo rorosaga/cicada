@@ -452,6 +452,12 @@ def _days_since(ref: str | None, today: str) -> int:
     return max(0, (a - b).days)
 
 
+def _max_date(left: str | None, right: str | None) -> str | None:
+    """The later of two ISO date/date-time strings; either may be missing."""
+    candidates = [str(c)[:10] for c in (left, right) if c]
+    return max(candidates) if candidates else None
+
+
 def _decay_claims(
     reconciled: dict[str, list[Claim]],
     referenced_subjects: set[str],
@@ -475,35 +481,42 @@ def _decay_claims(
                 continue  # closed claims don't decay; they're history
             base = _DECAY_BASE.get(c.epistemic, 0.02)
             factor = _DECAY_FACTOR.get(c.source_trust, 1.0)
-            ref = c.recorded_at or c.valid_from
-            days = _days_since(ref, today)
+            # G85 §2 / Wave-1 1.1: `recorded_at`/`valid_from` never move, so
+            # anchoring decay to them alone re-charges the SAME elapsed span
+            # on every Sleep run. `decayed_through` is the watermark this pass
+            # itself stamps below; anchor to whichever is more recent so an
+            # interval is charged exactly once.
+            anchor = _max_date(c.decayed_through, c.recorded_at or c.valid_from)
+            days = _days_since(anchor, today)
             amount = base * factor * multiplier * (days / 7.0)
-            if amount <= 0:
-                continue
-            new_conf = max(0.0, c.confidence - amount)
-            if new_conf == c.confidence:
-                continue
-            c.confidence = new_conf
-            # Decay never closes a claim and never touches a human claim's
-            # validity — it only lowers the retrieval weight + may nudge.
-            if new_conf < archive_threshold:
-                nudges.append({
-                    "id": subject,
-                    "action": "decay_nudge",
-                    "entity": {"name": _entity_name(c)},
-                    "new_confidence": new_conf,
-                    "claim_id": c.id,
-                    "trigger": "sleep/decay",
-                })
-            elif new_conf < nudge_threshold:
-                nudges.append({
-                    "id": subject,
-                    "action": "decay_nudge",
-                    "entity": {"name": _entity_name(c)},
-                    "new_confidence": new_conf,
-                    "claim_id": c.id,
-                    "trigger": "sleep/decay",
-                })
+            if amount > 0:
+                new_conf = max(0.0, c.confidence - amount)
+                if new_conf != c.confidence:
+                    c.confidence = new_conf
+                    # Decay never closes a claim and never touches a human
+                    # claim's validity — it only lowers the retrieval weight
+                    # + may nudge.
+                    if new_conf < archive_threshold:
+                        nudges.append({
+                            "id": subject,
+                            "action": "decay_nudge",
+                            "entity": {"name": _entity_name(c)},
+                            "new_confidence": new_conf,
+                            "claim_id": c.id,
+                            "trigger": "sleep/decay",
+                        })
+                    elif new_conf < nudge_threshold:
+                        nudges.append({
+                            "id": subject,
+                            "action": "decay_nudge",
+                            "entity": {"name": _entity_name(c)},
+                            "new_confidence": new_conf,
+                            "claim_id": c.id,
+                            "trigger": "sleep/decay",
+                        })
+            # Stamp the watermark regardless of whether `amount` moved
+            # anything this pass — the next pass must measure from today.
+            c.decayed_through = today
 
 
 # --------------------------------------------------------------------------- #

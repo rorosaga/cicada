@@ -8,7 +8,7 @@ synthesis/contradiction LLM path is never entered (it iterates only over
 from __future__ import annotations
 
 import asyncio
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from api.models.schemas import DecayClass
@@ -285,3 +285,118 @@ def test_a_subject_with_no_page_decays_at_the_neutral_active_rate(tmp_path):
         now_date="2026-04-01",
     )
     assert reconciled["ghost"][0].confidence == _decayed_confidence(tmp_path, "active")
+
+
+# --------------------------------------------------------------------------- #
+# G85 §2 / Wave-1 1.1 — decay must be charged ONCE per elapsed interval, not
+# re-charged from the same anchor on every Sleep run. Entity engine first,
+# claim engine second — both prove: (a) rerunning at the SAME reference time
+# subtracts exactly zero the second time, and (b) a single run after N
+# simulated days charges exactly N days' worth, not more.
+# --------------------------------------------------------------------------- #
+
+
+def test_entity_decay_rerun_at_the_same_instant_subtracts_zero(tmp_path):
+    path = _page(
+        tmp_path, "octo",
+        status="active", confidence=0.85, decay_class="active",
+        last_referenced="2026-06-01",  # 17 days before `now` below
+    )
+    now = datetime(2026, 6, 18, 15, 0, 0)
+
+    existing = [{"id": "octo", "frontmatter": markdown_parser.parse(path).frontmatter, "body": "Body."}]
+    changes = run(conflict_resolver.resolve_and_prune([], existing, _FakeSettings(), now=now))
+    conflict_resolver.apply_changes(changes, tmp_path)
+    fm_after_first = markdown_parser.parse(path).frontmatter
+    conf_after_first = fm_after_first["confidence"]
+    assert conf_after_first < 0.85, "some decay should have been charged for the elapsed gap"
+
+    # Rerun at the EXACT same instant (the historical bug: zero elapsed time
+    # between two Sleep cycles on 2026-06-18 still subtracted 0.378571... twice).
+    existing_2 = [{"id": "octo", "frontmatter": fm_after_first, "body": "Body."}]
+    changes_2 = run(conflict_resolver.resolve_and_prune([], existing_2, _FakeSettings(), now=now))
+    conflict_resolver.apply_changes(changes_2, tmp_path)
+    fm_after_second = markdown_parser.parse(path).frontmatter
+    assert fm_after_second["confidence"] == conf_after_first, (
+        "re-running decay with zero elapsed time must subtract zero the second time"
+    )
+
+
+def test_entity_decay_after_n_simulated_days_charges_exactly_n_days_once(tmp_path):
+    path = _page(
+        tmp_path, "steady-decay",
+        status="active", confidence=0.85, decay_class="active",  # 0.05/wk
+        last_referenced="2026-06-01",
+    )
+    day0 = datetime(2026, 6, 1)
+
+    # Day 0: no time elapsed since last_referenced -> zero decay, but the
+    # watermark still gets stamped to day0.
+    existing = [{"id": "steady-decay", "frontmatter": markdown_parser.parse(path).frontmatter, "body": "Body."}]
+    changes = run(conflict_resolver.resolve_and_prune([], existing, _FakeSettings(), now=day0))
+    conflict_resolver.apply_changes(changes, tmp_path)
+    fm_day0 = markdown_parser.parse(path).frontmatter
+    assert fm_day0["confidence"] == 0.85
+    assert fm_day0["decayed_through"] == "2026-06-01"
+
+    # Day 14 (2 weeks later): should charge exactly 14 days = 2 weeks * 0.05 = 0.10,
+    # NOT re-charge from `last_referenced` on top of an already-decayed value.
+    day14 = datetime(2026, 6, 15)
+    existing_2 = [{"id": "steady-decay", "frontmatter": fm_day0, "body": "Body."}]
+    changes_2 = run(conflict_resolver.resolve_and_prune([], existing_2, _FakeSettings(), now=day14))
+    conflict_resolver.apply_changes(changes_2, tmp_path)
+    fm_day14 = markdown_parser.parse(path).frontmatter
+    assert fm_day14["confidence"] == round(0.85 - 0.10, 10)
+
+
+def test_claim_decay_rerun_at_the_same_instant_subtracts_zero(tmp_path):
+    predicates.install_predicate_map(tmp_path)
+    claim = _open_claim("subj2", "clm_10")
+    claim.recorded_at = "2026-01-01"
+    claim.valid_from = "2026-01-01"
+
+    reconciled, _n, _a = reconcile_stage3(
+        [], {"subj2": [claim]}, _ClaimSettings(tmp_path),
+        cardinality_fn=lambda _p: True, now_date="2026-04-01",
+        decay_class_fn=lambda _sid: DecayClass("active"),
+    )
+    conf_after_first = reconciled["subj2"][0].confidence
+    assert conf_after_first < 0.9
+
+    # Rerun at the SAME now_date over the output of the first run — the
+    # historical bug re-anchored to `recorded_at` and subtracted the same
+    # ~90-day span again.
+    reconciled_2, _n2, _a2 = reconcile_stage3(
+        [], {"subj2": reconciled["subj2"]}, _ClaimSettings(tmp_path),
+        cardinality_fn=lambda _p: True, now_date="2026-04-01",
+        decay_class_fn=lambda _sid: DecayClass("active"),
+    )
+    assert reconciled_2["subj2"][0].confidence == conf_after_first, (
+        "re-running claim decay with zero elapsed time must subtract zero the second time"
+    )
+
+
+def test_claim_decay_after_n_simulated_days_charges_exactly_n_days_once(tmp_path):
+    predicates.install_predicate_map(tmp_path)
+    claim = _open_claim("subj3", "clm_11")
+    claim.recorded_at = "2026-01-01"
+    claim.valid_from = "2026-01-01"
+
+    # Day 0: zero elapsed since recorded_at -> zero decay, watermark stamped.
+    reconciled, _n, _a = reconcile_stage3(
+        [], {"subj3": [claim]}, _ClaimSettings(tmp_path),
+        cardinality_fn=lambda _p: True, now_date="2026-01-01",
+        decay_class_fn=lambda _sid: DecayClass("active"),
+    )
+    day0_claim = reconciled["subj3"][0]
+    assert day0_claim.confidence == 0.9
+    assert day0_claim.decayed_through == "2026-01-01"
+
+    # 7 days later: explicit epistemic (0.02 base) * agent_extracted (1.0) *
+    # active multiplier (1.0) * (7/7) = 0.02 charged exactly once.
+    reconciled_2, _n2, _a2 = reconcile_stage3(
+        [], {"subj3": [day0_claim]}, _ClaimSettings(tmp_path),
+        cardinality_fn=lambda _p: True, now_date="2026-01-08",
+        decay_class_fn=lambda _sid: DecayClass("active"),
+    )
+    assert abs(reconciled_2["subj3"][0].confidence - (0.9 - 0.02)) < 1e-9
