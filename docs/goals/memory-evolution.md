@@ -9,6 +9,10 @@ Status legend: 🔲 todo · 🔬 researching · ❓ awaiting decision · 🛠️
 
 **💸 spend flag:** items marked 💸 require **LLM API spend** (an OpenRouter/OpenAI key or a paid Sleep-cycle/dedup/rewrite run). Everything else builds and runs **key-free** (local embeddings for recall; the agentic `cicada-librarian` skill uses the user's *own* agent subscription, not a Cicada key).
 
+> **Execution view: [`TODO.md`](TODO.md)** — what is done, moving, and next, in priority
+> order. This file is the *reference*: the reasoning, evidence and file:line behind every
+> row. Add detail here; track state there.
+
 Related: [`../inspiration/`](../inspiration/) (Honcho + gbrain analyses), [`../V2-ROADMAP.md`](../V2-ROADMAP.md).
 
 ---
