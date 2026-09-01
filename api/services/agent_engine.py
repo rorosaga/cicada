@@ -479,7 +479,15 @@ def complete(
     """
     tripped = breaker_reason()
     if tripped:
-        raise engine_errors.EngineThrottled(tripped)
+        # Fix round 1, L1: tagged ``.spawned = False`` so the seam can tell
+        # this fail-fast (no subprocess ever touched) apart from a call that
+        # genuinely spawned and discovered the throttle in its own response —
+        # the former is not a real call attempt and must not become a
+        # phantom `llm_call` telemetry row; the single `throttle` event
+        # already recorded the incident once.
+        exc = engine_errors.EngineThrottled(tripped)
+        exc.spawned = False
+        raise exc
 
     system_prompt, body = marshal_prompt(messages)
     schema = SCHEMA_BY_STAGE.get(stage or "") if want_json else None

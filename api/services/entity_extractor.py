@@ -368,31 +368,10 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
         finally:
             progress.update(1)
 
-    # G74(a): in agent mode, run the FIRST episode alone before fanning the
-    # rest out concurrently. Stage 1 fans out at MAX_CONCURRENCY (10), further
-    # capped by ``agent_max_concurrency`` (default 3) at the seam — without
-    # this probe, a throttle on the very first call is discovered
-    # independently by up to ``agent_max_concurrency`` concurrent episodes,
-    # each a real `claude -p` spawn, before any of them can trip the circuit
-    # breaker (the breaker is only set AFTER a call fails, so calls already
-    # in flight when it trips can't be recalled). Running one alone first
-    # means every later episode's very first breaker check
-    # (``agent_engine.complete``) already sees the trip and fails fast with
-    # NO spawn — turning "up to agent_max_concurrency spawns" into exactly
-    # one. No behavior change for byok/local: those never populate the
-    # breaker, so this is gated to agent mode only, preserving the existing
-    # concurrent-fan-out timing byte-for-byte for every other mode.
-    remaining = list(enumerate(episodes))
-    is_agent = (getattr(settings, "llm_mode", "") or "").strip().lower() == "agent"
-
     # Fire all tasks with semaphore-controlled concurrency
     try:
-        if is_agent and remaining:
-            first_i, first_episode = remaining.pop(0)
-            await process_one(first_i, first_episode)
-        tasks = [process_one(i, ep) for i, ep in remaining]
-        if tasks:
-            await asyncio.gather(*tasks)
+        tasks = [process_one(i, ep) for i, ep in enumerate(episodes)]
+        await asyncio.gather(*tasks)
     finally:
         progress.close()
 

@@ -367,7 +367,17 @@ def resolve_llm_fn(
         except engine_errors.EngineThrottled as exc:
             # Trip BEFORE emitting so a concurrent caller cannot also trip.
             newly_tripped = agent_engine.trip_breaker(str(exc))
-            _emit(None, started, ok=False)
+            # Fix round 1, L1: a fail-fast call (the breaker was ALREADY
+            # tripped before this call — `agent_engine.complete` tags it
+            # `.spawned = False`) never touched the runner, so it is not a
+            # real call attempt and must not become a phantom `llm_call`
+            # row — 11 of them per throttled 12-episode cycle would read as
+            # 11 real failures on the consumption dashboard. A call that
+            # genuinely spawned and discovered the throttle in its own
+            # response (``spawned`` unset, defaults True) still gets
+            # recorded, same as any other failed call.
+            if getattr(exc, "spawned", True):
+                _emit(None, started, ok=False)
             if newly_tripped:
                 _emit_throttle(exc)
             raise

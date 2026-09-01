@@ -20,7 +20,24 @@ from api.services import agent_engine, engine_errors, entity_extractor, entity_r
 
 
 def _agent_settings():
-    return Settings(llm_mode="agent", agent_model="sonnet", agent_disambiguation_model="haiku")
+    # Fix round 1, M1: `agent_max_concurrency=1` makes the throttle-breaker
+    # test below deterministic without changing production behavior. Stage
+    # 1's own fan-out (MAX_CONCURRENCY=10) combined with the seam's default
+    # `agent_max_concurrency` (3) let up to 3 concurrently-dispatched
+    # `claude -p` calls each independently discover a throttle before any of
+    # them could trip the circuit breaker (the breaker is only set AFTER a
+    # call fails — calls already in flight can't be recalled). A
+    # first-episode "probe" was tried in the extractor to force this to
+    # exactly 1 and reverted: it only guaranteed the count when the engine
+    # was ALREADY throttled before the cycle started (the realistic case —
+    # quota hit mid-cycle — still produced 2-3 spawns), while charging every
+    # agent-mode cycle one fully-serialized episode ahead of the fan-out.
+    # `agent_max_concurrency=1` gets the same 1-spawn determinism here, in
+    # the test only, with zero production cost.
+    return Settings(
+        llm_mode="agent", agent_model="sonnet", agent_disambiguation_model="haiku",
+        agent_max_concurrency=1,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -43,13 +60,27 @@ def _propagate_loguru_to_caplog():
 
 
 def _extract_with(monkeypatch, runner):
-    """Point entity_extractor's seam at an injected agent runner."""
+    """Point every call site's seam at an injected agent runner.
+
+    entity_extractor and entity_resolver import ``resolve_llm_fn`` INSIDE
+    their functions (``from api.services.providers import resolve_llm_fn`` at
+    call time), so patching ``providers.resolve_llm_fn`` reaches them.
+    conflict_resolver and skill_extractor import it once at MODULE level, so
+    their own already-bound name has to be patched directly too — patching
+    only ``providers.resolve_llm_fn`` leaves their calls pointed at the
+    ORIGINAL function, which reaches the real (test-guarded) runner instead
+    of this one (fix round 1, M2 test coverage)."""
     real = providers.resolve_llm_fn
 
     def patched(settings, **kw):
         kw.setdefault("runner", runner)
         kw.setdefault("sink", lambda e: None)
         return real(settings, **kw)
+
+    from api.services import conflict_resolver, skill_extractor
+
+    monkeypatch.setattr(conflict_resolver, "resolve_llm_fn", patched)
+    monkeypatch.setattr(skill_extractor, "resolve_llm_fn", patched)
 
     monkeypatch.setattr(providers, "resolve_llm_fn", patched)
 
@@ -174,3 +205,117 @@ def test_judge_still_swallows_a_malformed_reply_as_unsure(monkeypatch):
     out = asyncio.run(entity_resolver._llm_judge_same_entity(
         "A", "person", "d", "A.", "person", "b", Settings()))
     assert out == "unsure"
+
+
+# --------------------------------------------------------------------------- #
+# Fix round 1, M2 — Stages 3 and 4 committed the exact bug just fixed in the
+# resolver: swallowing an ENGINE failure into "nothing to do" instead of
+# propagating it. Reachable path: a partial throttle (some episodes extract,
+# the breaker trips) with no Stage-2 judge candidate needed — Stage 3 would
+# silently skip synthesis AND contradiction detection for every entity,
+# Stage 4 would return zero skills, Stage 5 would still commit, episodes
+# would get marked processed, and the cycle would report "Completed".
+# --------------------------------------------------------------------------- #
+
+_EXISTING_ENTITY = [{
+    "id": "test-entity",
+    "frontmatter": {"name": "Test Entity", "type": "concept"},
+    "body": "Old body about Test Entity.",
+}]
+_UPDATE_CHANGE = [{
+    "id": "test-entity",
+    "action": "update",
+    "entity": {
+        "name": "Test Entity", "type": "concept",
+        "description": "A brand new description from this episode.",
+        "history_entries": [],
+    },
+    "source_episode": "ep_2026-09-01_000",
+}]
+
+
+def test_stage3_synthesis_raises_on_engine_failure_instead_of_skipping_it(
+        monkeypatch, agent_runner, agent_envelopes):
+    from api.services import conflict_resolver
+
+    runner = agent_runner(agent_envelopes["rate_limited"])
+    _extract_with(monkeypatch, runner)
+    with pytest.raises(engine_errors.EngineThrottled):
+        asyncio.run(conflict_resolver.resolve_and_prune(
+            _UPDATE_CHANGE, _EXISTING_ENTITY, _agent_settings()))
+
+
+def test_stage4_skill_detection_raises_on_engine_failure_instead_of_returning_empty(
+        monkeypatch, agent_runner, agent_envelopes):
+    from api.services import skill_extractor
+
+    runner = agent_runner(agent_envelopes["rate_limited"])
+    _extract_with(monkeypatch, runner)
+    with pytest.raises(engine_errors.EngineThrottled):
+        asyncio.run(skill_extractor.detect_patterns(_UPDATE_CHANGE, [], _agent_settings()))
+
+
+def _seed_partial_throttle_bank(tmp_path):
+    """One existing entity ('Test Entity') and one queued, unprocessed episode
+    — enough for Stage 2 to resolve a direct (non-LLM) name match, so the
+    throttle is discovered for the first time in Stage 3."""
+    from api.services import markdown_parser, predicates
+
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "inbox").mkdir(parents=True)
+    predicates.install_predicate_map(memory)
+    markdown_parser.write(
+        memory / "entities" / "test-entity.md",
+        {"id": "test-entity", "type": "concept", "name": "Test Entity",
+         "status": "active", "confidence": 0.7, "created": "2026-01-01",
+         "last_referenced": "2026-01-01", "decay_class": "active", "version": 1},
+        "Old body about Test Entity.",
+    )
+    markdown_parser.write(
+        memory / "episodes" / "ep_2026-09-01_000.md",
+        {"id": "ep_2026-09-01_000", "processed": False, "source": "mcp",
+         "timestamp": "2026-09-01T10:00:00"},
+        "Episode body mentioning Test Entity.",
+    )
+    return memory
+
+
+def test_a_partial_throttle_mid_cycle_stops_cleanly_with_the_queue_intact(
+        tmp_path, monkeypatch, agent_runner, agent_envelopes):
+    """The whole point of M2: Stage 1 succeeds (some episodes extract), Stage 2
+    needs no judge call (direct name match), and the throttle is only
+    discovered in Stage 3 — the cycle must still stop cleanly rather than
+    silently completing with zero synthesis and zero skills."""
+    from api.services import sleep_cycle
+
+    memory = _seed_partial_throttle_bank(tmp_path)
+    monkeypatch.setattr(Settings, "memory_path", property(lambda self: memory))
+
+    async def _canned_extract(episodes, settings):
+        return [{
+            "episode_id": "ep_2026-09-01_000",
+            "episode_timestamp": "2026-09-01T10:00:00",
+            "origin": "mcp",
+            "entities": [{
+                "name": "Test Entity", "type": "concept",
+                "description": "A brand new description from this episode.",
+                "confidence": 0.8, "source_episode": "ep_2026-09-01_000",
+                "source_episode_timestamp": "2026-09-01T10:00:00", "origin": "mcp",
+            }],
+            "relationships": [],
+        }]
+
+    monkeypatch.setattr("api.services.entity_extractor.extract", _canned_extract)
+
+    runner = agent_runner(agent_envelopes["rate_limited"])
+    _extract_with(monkeypatch, runner)
+
+    asyncio.run(sleep_cycle.run(_agent_settings(), "sleep_test"))
+
+    state = sleep_cycle.get_sleep_state()
+    assert state.error                                        # not "Completed"
+    assert "throttl" in state.error.lower()
+    assert len(sleep_cycle._get_unprocessed_episodes(memory)) == 1   # still queued
+    assert list((memory / "inbox").glob("*.md")) == []         # no clarification minted

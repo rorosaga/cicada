@@ -204,6 +204,41 @@ def test_only_one_throttle_event_per_cycle_even_across_many_calls(agent_runner, 
     assert sum(1 for e in events if e.kind == "throttle") == 1
     # Only the tripping call spawned; the other four failed fast.
     assert len(runner.calls) == 1
+    # Fix round 1, L1: the four fail-fast calls never touched the runner, so
+    # they must not become phantom `llm_call` rows either — only the one
+    # genuine (spawned) attempt and the one throttle event are recorded.
+    assert sum(1 for e in events if e.kind == "llm_call") == 1
+    assert len(events) == 2
+
+
+def test_a_throttle_event_is_exactly_one_under_concurrent_callers(agent_runner, agent_envelopes):
+    """Fix round 1, L2: the existing throttle-count assertion above is
+    sequential. Under real concurrency (agent_max_concurrency > 1), several
+    callers can spawn before any of them trips the breaker — `trip_breaker`
+    is `_STATE_LOCK`-guarded and only the winner emits `_emit_throttle`, so
+    the throttle-event count must stay exactly one even when more than one
+    call genuinely spawns and independently discovers the throttle."""
+    import litellm
+
+    events: list[UsageEvent] = []
+    runner = agent_runner(agent_envelopes["rate_limited"])
+    fn = providers.resolve_llm_fn(_agent_settings(agent_max_concurrency=5),
+                                  completion=litellm.acompletion,
+                                  sink=events.append, runner=runner)
+
+    async def _fan_out():
+        results = await asyncio.gather(
+            *(fn(messages=[{"role": "user", "content": "x"}]) for _ in range(8)),
+            return_exceptions=True,
+        )
+        assert all(isinstance(r, engine_errors.EngineThrottled) for r in results)
+
+    asyncio.run(_fan_out())
+
+    assert sum(1 for e in events if e.kind == "throttle") == 1
+    # More than one call may have genuinely spawned and raced to discover the
+    # throttle (bounded by agent_max_concurrency), but never all 8.
+    assert 1 <= len(runner.calls) < 8
 
 
 def test_the_dashboard_aggregations_survive_a_null_cost_event():
