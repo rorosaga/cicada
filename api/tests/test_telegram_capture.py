@@ -10,7 +10,9 @@ token gate.
 from __future__ import annotations
 
 import asyncio
+import functools
 
+import httpx
 from fastapi.testclient import TestClient
 
 from api.services import telegram_capture
@@ -260,7 +262,8 @@ def test_settings_telegram_enabled_reflects_token(monkeypatch):
 
 
 def _client_with_secret(tmp_path, monkeypatch, *, token: str = "fake-token-123",
-                         webhook_secret: str = ""):
+                         webhook_secret: str = "",
+                         auto_provision: tuple[bool, str] = (False, "test: auto-provisioning disabled")):
     import api.routers.capture as capture_module
 
     client, memory = _client(tmp_path, monkeypatch, token=token)
@@ -268,13 +271,23 @@ def _client_with_secret(tmp_path, monkeypatch, *, token: str = "fake-token-123",
         monkeypatch.setenv("CICADA_TELEGRAM_WEBHOOK_SECRET", webhook_secret)
     else:
         monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
-    # module-level "log once" state must not leak between tests
-    monkeypatch.setattr(capture_module, "_warned_unauthenticated", False)
+    # module-level "attempt once" state must not leak between tests
+    monkeypatch.setattr(capture_module, "_attempted_webhook_secret_setup", False)
 
     async def fake_ingest(memory_path, update, **kwargs):
         return {"kind": "note", "result": {"status": "created", "episode_id": "ep_test_001"}}
 
     monkeypatch.setattr("api.routers.capture.ingest_telegram_update", fake_ingest)
+
+    # Auto-provisioning (G57 round 2) makes real outbound calls to Telegram's
+    # API by default — never allowed in a hermetic test. Every test injects
+    # a fixed, fake outcome instead; `test_auto_provisioning_*` below
+    # exercises `ensure_webhook_secret` itself in isolation with a fake
+    # httpx transport.
+    async def fake_ensure(bot_token):
+        return auto_provision
+
+    monkeypatch.setattr("api.routers.capture.ensure_webhook_secret", fake_ensure)
     return client, memory
 
 
@@ -611,3 +624,146 @@ def test_webhook_omits_the_method_when_there_is_nothing_to_ack(tmp_path, monkeyp
     body = client.post("/capture/telegram", json={}).json()
     assert "method" not in body
     config.get_settings.cache_clear()
+
+
+# --- G57 round 2 / Wave-1 1.5 (Devin PR #24 finding 5): the secure webhook
+# secret path is automatic by default, not opt-in ---------------------------
+
+
+def test_when_auto_provisioning_succeeds_the_triggering_request_still_succeeds(tmp_path, monkeypatch):
+    """The message that TRIGGERS provisioning necessarily predates Telegram
+    learning about the new secret (it was already in flight) — it must not
+    be rejected; enforcement begins on the NEXT request."""
+    from loguru import logger
+
+    records: list[str] = []
+    sink_id = logger.add(lambda msg: records.append(msg.record["message"]), level="INFO")
+    try:
+        client, _ = _client_with_secret(
+            tmp_path, monkeypatch, webhook_secret="",
+            auto_provision=(True, "provisioned"),
+        )
+        resp = client.post("/capture/telegram", json=_text_update("hello"))
+    finally:
+        logger.remove(sink_id)
+
+    assert resp.status_code == 200, resp.text
+    assert any("Auto-provisioned" in r and "CICADA_TELEGRAM_WEBHOOK_SECRET" in r for r in records)
+
+
+def test_auto_provisioning_is_only_attempted_once(tmp_path, monkeypatch):
+    calls = {"n": 0}
+
+    async def counting_ensure(bot_token):
+        calls["n"] += 1
+        return False, "still failing"
+
+    client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="")
+    monkeypatch.setattr("api.routers.capture.ensure_webhook_secret", counting_ensure)
+
+    client.post("/capture/telegram", json=_text_update("one"))
+    client.post("/capture/telegram", json=_text_update("two"))
+    client.post("/capture/telegram", json=_text_update("three"))
+
+    assert calls["n"] == 1, "must attempt auto-provisioning once per process, not once per request"
+
+
+# --- ensure_webhook_secret in isolation (fake httpx transport, no network) --
+
+
+def _mock_telegram_transport(get_webhook_info: dict, set_webhook: dict | None = None) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/getWebhookInfo"):
+            return httpx.Response(200, json=get_webhook_info)
+        if request.url.path.endswith("/setWebhook"):
+            return httpx.Response(200, json=set_webhook or {"ok": True, "result": True})
+        return httpx.Response(404, json={"ok": False, "description": "unexpected path"})
+
+    return httpx.MockTransport(handler)
+
+
+def _patch_httpx(monkeypatch, transport: httpx.MockTransport) -> None:
+    monkeypatch.setattr("httpx.AsyncClient", functools.partial(httpx.AsyncClient, transport=transport))
+
+
+def test_ensure_webhook_secret_is_a_noop_when_already_configured(monkeypatch):
+    monkeypatch.setenv("CICADA_TELEGRAM_WEBHOOK_SECRET", "already-there")
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is False
+    assert detail == "already configured"
+
+
+def test_ensure_webhook_secret_provisions_and_persists_when_a_webhook_is_registered(monkeypatch):
+    monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+    _patch_httpx(
+        monkeypatch,
+        _mock_telegram_transport(
+            {"ok": True, "result": {"url": "https://tunnel.example/capture/telegram"}}
+        ),
+    )
+    stored: dict[str, str] = {}
+    monkeypatch.setattr(
+        "api.services.connections.secrets.set_secret",
+        lambda name, value: stored.__setitem__(name, value),
+    )
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is True
+    assert detail == "provisioned"
+    assert stored.get("CICADA_TELEGRAM_WEBHOOK_SECRET"), "the secret must be persisted on success"
+
+
+def test_ensure_webhook_secret_skips_when_no_webhook_registered_yet(monkeypatch):
+    monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+    _patch_httpx(monkeypatch, _mock_telegram_transport({"ok": True, "result": {"url": ""}}))
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is False
+    assert "no webhook" in detail
+
+
+def test_ensure_webhook_secret_reports_a_getwebhookinfo_api_error(monkeypatch):
+    monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+    _patch_httpx(
+        monkeypatch,
+        _mock_telegram_transport({"ok": False, "description": "Unauthorized"}),
+    )
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is False
+    assert "getWebhookInfo failed" in detail
+
+
+def test_ensure_webhook_secret_reports_a_setwebhook_api_error(monkeypatch):
+    monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+    _patch_httpx(
+        monkeypatch,
+        _mock_telegram_transport(
+            {"ok": True, "result": {"url": "https://tunnel.example/capture/telegram"}},
+            set_webhook={"ok": False, "description": "bad secret_token"},
+        ),
+    )
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is False
+    assert "setWebhook failed" in detail
+
+
+def test_ensure_webhook_secret_never_raises_on_a_network_error(monkeypatch):
+    monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no network", request=request)
+
+    _patch_httpx(monkeypatch, httpx.MockTransport(handler))
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is False
+    assert "ConnectError" in detail

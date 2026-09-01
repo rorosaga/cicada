@@ -20,9 +20,15 @@ Telegram route is gated by Telegram being *configured*
 is set in the same ``~/.cicada/secrets.env`` seam, a per-request constant-time
 check of Telegram's ``X-Telegram-Bot-Api-Secret-Token`` header (set via
 ``setWebhook?secret_token=...``) — both checked in ``api/routers/capture.py``.
-The secret is opt-in: an install with none configured keeps the old
-token-only gate (logged once, not silently) so upgrading never locks out an
-already-working bot — see G57.
+**The secret is provisioned automatically, not opt-in** (Devin PR #24 round 1,
+finding 5): the first request that arrives with none configured triggers
+``telegram_capture.ensure_webhook_secret``, which generates one, asks
+Telegram what URL is currently registered (``getWebhookInfo``), and
+re-registers it with the new ``secret_token`` (``setWebhook``) — only on
+success is it persisted. Only if that auto-provisioning fails (no webhook
+registered yet, no network, a Telegram API error) does the endpoint fall back
+to the old token-only gate, logged loudly once so the gap is visible rather
+than silently kept as the happy path — see G57.
 """
 from __future__ import annotations
 
