@@ -405,6 +405,15 @@ struct ZoomControls: View {
             ZoomButton(icon: "plus", action: { graphVM.zoomAction = .zoomIn })
             Divider().frame(height: 20).background(CicadaTheme.border)
             ZoomButton(icon: "arrow.down.left.and.arrow.up.right", action: { graphVM.zoomAction = .fit })
+            Divider().frame(height: 20).background(CicadaTheme.border)
+            // Pan-mode toggle — the click-based twin of holding Shift (owner
+            // request 2026-09-03): while on, hovering never highlights and a
+            // press anywhere pans. Both routes drive the same JS mode; the
+            // button stays lit until pressed again.
+            ZoomButton(icon: "arrow.up.and.down.and.arrow.left.and.right",
+                       isActive: graphVM.panModeOn,
+                       action: { graphVM.panModeOn.toggle() })
+                .help(graphVM.panModeOn ? "Pan mode on — click to return to normal (or just hold Shift)" : "Pan mode — drag anywhere to move the graph (or hold Shift)")
         }
         .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
     }
@@ -441,6 +450,7 @@ struct AskButton: View {
 
 private struct ZoomButton: View {
     let icon: String
+    var isActive = false
     let action: () -> Void
     @State private var isHovered = false
 
@@ -448,9 +458,9 @@ private struct ZoomButton: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                .foregroundStyle(isActive ? CicadaTheme.accent : (isHovered ? CicadaTheme.textPrimary : CicadaTheme.textSecondary))
                 .frame(width: 36, height: 32)
-                .background(isHovered ? CicadaTheme.surfaceHover : .clear)
+                .background(isActive ? CicadaTheme.accent.opacity(0.18) : (isHovered ? CicadaTheme.surfaceHover : .clear))
         }
         .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }

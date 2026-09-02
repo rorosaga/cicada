@@ -332,6 +332,9 @@ trailers, Ghostty resume)
     citable source, the prompt/turn that triggered every agent write, and a raw-source viewer with the
     cited passage highlighted (NotebookLM, but bi-temporal and attributed). Owner-marked central to
     the vision (2026-09-02). Slice 1 = span capture in Stage-1 + resolver; absorbs G100 — L
+9d. **G121 world facts vs personal facts** — `source_trust: model_knowledge` + volatile decay for anything not
+    grounded in an episode, two-tier entity card ("why it's in your memory" / "context as of <date>, verify"), the
+    rule in the G75 handshake; a dry-run backfill count on the live bank first — M
 9c. **G93 cross-stream ask** and **G105 deterministic capture** — moved up (owner, 2026-09-02): G105
     is what makes every write have a cause; G93 is where citations become answers — M each
 10. **G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
@@ -358,6 +361,9 @@ trailers, Ghostty resume)
 17. **G101** raw-conversation evidence layer — what to keep, what to discard — M
 18. **G91** share-to-Cicada *(needs G88's signed app; absorbs G37)* — M
 19. **G94** life-data streams — aggregates, never samples — L
+19a. **G120** attention frequency — source attribution at ingest (channel/account/author), a rebuildable
+    recurrence index, promotion to a `follows` claim that decays honestly, a "you keep coming back to"
+    strip; feeds G111's ranking and G93's retrieval weight — M
 20. **G76** effortless install + always-on capture — L
 21. **G89** feeds first-class metadata *(feed-following already shipped via M4 — Substack needs no
     connector, just the (i)-(vii) metadata-quality work)* — S/M
