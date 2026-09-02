@@ -35,7 +35,7 @@ from pathlib import Path
 from loguru import logger
 from thefuzz import fuzz
 
-from api.services import decay_policy, entity_body, markdown_parser
+from api.services import decay_policy, entity_body, markdown_parser, telemetry
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.id_utils import resolve_entity_file, sanitize_id
@@ -376,6 +376,9 @@ def write_claim(
             {entity_id: existing_claims},
             settings,
         )
+        # G113 — an agent's claim superseding or being rejected against the
+        # page is feedback on that agent, same as in the Sleep pipeline.
+        telemetry.record_audit(audit, subject_hint=entity_id, bank=memory_path.name, stage="reconcile")
         reconciled_claims = reconciled.get(entity_id, existing_claims)
 
         action = _determine_action(claim_id, reconciled_claims, nudges, audit)

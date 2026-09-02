@@ -15,7 +15,7 @@ from fastapi import HTTPException
 
 from api.config import Settings
 from api.models.schemas import InboxItem, InboxOption, InboxResolveRequest
-from api.services import decay_policy, inbox_questions, markdown_parser
+from api.services import decay_policy, inbox_questions, markdown_parser, telemetry
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 logger = logging.getLogger(__name__)
@@ -294,6 +294,193 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
     return action or "answer"
 
 
+# ---------- Feedback ledger (G113 slice 2) ----------
+
+_NEUTRAL_LABELS = ("defer", "skip", "remind_later")
+
+
+def _verdict(
+    kind: str,
+    label: str,
+    option_key: str | None,
+    item_claim_id: str | None,
+    options: list[dict],
+) -> str:
+    """R3: did the user agree with what the extractor proposed?
+
+    Returns ``agreed`` / ``overruled`` / ``neutral``. The table is fixed HERE, at
+    emit time, and the result is written into the ledger as a string — a later
+    reader must never re-derive it, because the per-kind rules will drift as
+    kinds gain actions and a re-derivation would silently re-grade history.
+
+    A conflict ``pick`` is graded against the item's ``claim_id`` (the NEW claim
+    Sleep proposed): picking it is agreement, picking anything else is an
+    overrule. An entity-path conflict (``conflict_resolver.build_entity_question``)
+    proposes no claim at all — ``claim_id`` is absent and every option carries
+    ``claim_id: None`` — so a pick there grades ``neutral``: there is no
+    extractor belief to agree or disagree with, and calling it an overrule would
+    skew the feedback ratio against a model that never took a side.
+    """
+    if label in _NEUTRAL_LABELS:
+        return "neutral"
+    if kind == "decay":
+        return {"archive": "agreed", "keep_active": "overruled"}.get(label, "neutral")
+    if kind == "conflict":
+        if label == "both":
+            return "neutral"
+        if label.startswith("pick:"):
+            if item_claim_id is None:
+                return "neutral"
+            picked = next((o for o in options if str(o.get("key")) == str(option_key)), None)
+            return (
+                "agreed"
+                if picked is not None and _opt_str(picked.get("claim_id")) == item_claim_id
+                else "overruled"
+            )
+        return "overruled"  # neither / free-text answer / dismiss
+    if kind == "divergence":
+        return {"1": "agreed", "0": "overruled"}.get(str(option_key), "neutral")
+    if kind == "normalization":
+        return {"0": "agreed", "1": "overruled"}.get(str(option_key), "neutral")
+    if kind == "clarification":
+        return {"answer": "agreed", "merge": "agreed", "dismiss": "overruled"}.get(label, "neutral")
+    if kind == "merge_suggestion":
+        return {"merge": "agreed", "reject": "overruled"}.get(label, "neutral")
+    return "neutral"
+
+
+def _item_age_days(fm: dict, today: date) -> int | None:
+    raw = fm.get("created_date")
+    if raw in (None, ""):
+        return None
+    try:
+        created = raw if isinstance(raw, date) else date.fromisoformat(str(raw)[:10])
+    except (TypeError, ValueError):
+        return None
+    return max(0, (today - created).days)
+
+
+def _as_float(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _feedback_refs(fm: dict, kind: str, label: str, request: InboxResolveRequest, memory_path: Path) -> dict:
+    """Which claim won, which lost, and how sure the extractor was — BEFORE the
+    resolver touches anything.
+
+    Must run before the kind branch: ``_resolve_conflict`` bumps the winner's
+    confidence to 0.9 and unlinks the item file, so reading afterwards would
+    record the post-resolution confidence as the extractor's and lose the item.
+    A claims block that will not parse (or an entity page that is gone) simply
+    yields no claim info — this is bookkeeping, never a reason to block a
+    resolve. Only ids and numbers leave this function.
+    """
+    out: dict = {"winner": None, "losers": [], "extractor_confidence": None, "extractor_model": None}
+    item_claim = _opt_str(fm.get("claim_id"))
+    existing_claim = _opt_str(fm.get("existing_claim_id"))
+    options = inbox_questions.normalize_options(fm.get("options") or [])
+    option_ids = [str(o["claim_id"]) for o in options if o.get("claim_id")]
+    key = (request.option_key or "").strip()
+    lookup_id: str | None = item_claim
+
+    if kind == "decay":
+        out["extractor_confidence"] = _as_float(fm.get("priority"))
+        return out
+    if kind in ("clarification", "merge_suggestion"):
+        out["extractor_confidence"] = _as_float(fm.get("suggested_confidence"))
+        return out
+    if kind == "conflict":
+        if label.startswith("pick:"):
+            picked = next((o for o in options if str(o.get("key")) == key), None)
+            winner = _opt_str(picked.get("claim_id")) if picked else None
+            out["winner"] = winner
+            out["losers"] = [cid for cid in option_ids if cid != winner]
+            lookup_id = winner or item_claim
+        elif label in ("neither", "answer"):
+            out["losers"] = list(option_ids)
+        # both / dismiss / skip / defer: nothing closed, nothing reinforced.
+    elif kind == "divergence":
+        if key == "0":
+            out["winner"], out["losers"] = existing_claim, [c for c in (item_claim,) if c]
+        elif key == "1":
+            out["winner"], out["losers"] = item_claim, [c for c in (existing_claim,) if c]
+    elif kind == "normalization":
+        out["winner"] = item_claim
+
+    if lookup_id:
+        try:
+            from api.services.claims import parse_claims
+
+            entity_path = resolve_entity_file(memory_path, str(fm.get("entity_id", "") or ""))
+            if entity_path is not None:
+                parsed = markdown_parser.parse(entity_path)
+                claim = next((c for c in parse_claims(parsed.body) if c.id == lookup_id), None)
+                if claim is not None:
+                    out["extractor_confidence"] = _as_float(claim.confidence)
+                    out["extractor_model"] = _opt_str(claim.authored_by)
+        except Exception:  # noqa: BLE001 — no claim info is an acceptable answer
+            logger.debug("feedback refs: claim lookup failed", exc_info=True)
+    return out
+
+
+def _emit_resolution(
+    fm: dict,
+    item_id: str,
+    kind: str,
+    request: InboxResolveRequest,
+    label: str,
+    settings,
+    *,
+    winner: str | None = None,
+    losers=(),
+    extractor_confidence: float | None = None,
+    extractor_model: str | None = None,
+) -> None:
+    """Append one ``resolution`` ledger row. Ids/enums/numbers only. Never raises.
+
+    G113: the user's answer is a grounded reward from the environment (Era of
+    Experience §3) — the one signal that says whether the extractor's belief
+    was right. The entity page keeps the *edit*; this row keeps the *verdict*,
+    in the machine-global ledger where `GET /consumption/feedback` can rate a
+    model on it without ever opening a bank. No claim text, no label, no
+    answer string: the ledger lives outside the bank and must stay safe to
+    read anywhere.
+    """
+    try:
+        options = inbox_questions.normalize_options(fm.get("options") or [])
+        verdict = _verdict(kind, label, request.option_key, _opt_str(fm.get("claim_id")), options)
+        telemetry.record(
+            telemetry.UsageEvent(
+                kind="resolution",
+                stage="feedback",
+                bank=telemetry.bank_name(settings),
+                invocations=0,
+                billing="free",
+                refs={
+                    "item_id": item_id,
+                    "kind": kind,
+                    "predicate": _opt_str(fm.get("predicate")),
+                    "entity_id": _opt_str(fm.get("entity_id")),
+                    "action": label,
+                    "option_key": _opt_str(request.option_key),
+                    "verdict": verdict,
+                    "winner_claim_id": winner,
+                    "loser_claim_ids": list(losers),
+                    "extractor_confidence": extractor_confidence,
+                    "extractor_model": extractor_model,
+                    "item_age_days": _item_age_days(fm, date.today()),
+                },
+            )
+        )
+    except Exception:  # noqa: BLE001 — a ledger failure never blocks a user's answer
+        logger.debug("resolution ledger write failed", exc_info=True)
+
+
 async def resolve(
     item_id: str, request: InboxResolveRequest, settings: Settings
 ) -> dict:
@@ -310,6 +497,13 @@ async def resolve(
     if request.action == "defer":
         return await _defer(path, parsed, request, settings, item_id)
 
+    # G113 — name the action and read the extractor's side of it BEFORE the
+    # branch: the resolvers rewrite claim confidences and unlink the item file.
+    label = _action_label(
+        kind, request, inbox_questions.normalize_options(parsed.frontmatter.get("options") or [])
+    )
+    feedback = _feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path)
+
     extra_lines: list[str] = []
     if kind == "decay":
         entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
@@ -324,6 +518,10 @@ async def resolve(
     else:
         raise HTTPException(400, f"Unknown kind {kind}")
 
+    # A skip is a neutral row, not a missing one — "asked, not answered" is
+    # itself informative about the question.
+    _emit_resolution(parsed.frontmatter, item_id, kind, request, label, settings, **feedback)
+
     if skipped:
         return {"status": "skipped", "id": item_id}
 
@@ -334,9 +532,6 @@ async def resolve(
     # states the resulting status so history classifies it as `statusChange`.
     # ``parsed`` was read before the branch unlinked the item file; never
     # re-read it here.
-    label = _action_label(
-        kind, request, inbox_questions.normalize_options(parsed.frontmatter.get("options") or [])
-    )
     change = "updated"
     if kind == "decay" and label == "archive":
         change = "status archived"
@@ -352,14 +547,19 @@ async def resolve(
     return {"status": "resolved", "id": item_id}
 
 
-async def _defer(path, parsed, request, settings, item_id: str) -> dict:
+async def _defer(path, parsed, request, settings, item_id: str, *, label: str = "defer") -> dict:
     """Push an item's ``remind_after`` into the future; the file stays.
 
     The rewritten item is committed here (scoped to the one inbox file) so the
     deferral never lingers as an uncommitted change waiting for the next Sleep
-    cycle to sweep it in under an inferred trigger.
+    cycle to sweep it in under an inferred trigger. ``label`` is what the
+    ledger row calls the action — ``defer`` here, ``remind_later`` when a decay
+    item's snooze routes through this path (R6).
     """
     from api.services import git_service
+
+    kind = str(parsed.frontmatter.get("kind", "decay"))
+    feedback = _feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path)
 
     days = request.remind_days
     if days is None:
@@ -379,6 +579,7 @@ async def _defer(path, parsed, request, settings, item_id: str) -> dict:
         await git_service.commit_paths(settings.memory_path, message, [rel])
     except Exception as exc:  # pragma: no cover - non-git workspace
         logger.warning(f"Inbox defer commit skipped: {exc}")
+    _emit_resolution(parsed.frontmatter, item_id, kind, request, label, settings, **feedback)
     return {"status": "deferred", "id": item_id, "remindAfter": remind_after}
 
 
