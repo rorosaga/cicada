@@ -25,7 +25,7 @@ from loguru import logger
 
 from api.models.schemas import ConnectionKind, ConnectionStatus, LoginHint, LoginSession
 from api.services import pricing
-from api.services.connections.base import Runner, run_cli, scrubbed_env
+from api.services.connections.base import Runner, run_cli, scrubbed_env, resolve_binary
 
 _AUTH_CLAIM = "https://api.openai.com/auth"
 _URL_RE = re.compile(r"https?://\S+")
@@ -95,7 +95,7 @@ class CodexPlanAdapter:
         )
 
     def available(self) -> bool:
-        return shutil.which("codex") is not None
+        return resolve_binary("codex") is not None
 
     def _base(self, **kw) -> ConnectionStatus:
         kw.setdefault("engine_role", None)
