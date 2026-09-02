@@ -55,6 +55,30 @@ enum BookwormState: Equatable {
         case .hungry: "hungry"
         }
     }
+
+    /// The inbox count the badge draws (1…99) — `0` for every other state.
+    var badgeCount: Int {
+        if case .curious(let n) = self { return max(1, min(99, n)) }
+        return 0
+    }
+
+    /// The 1…5 stage the sleeping frames light up — `0` for every other state.
+    var stageNumber: Int {
+        if case .sleeping(let s) = self { return max(0, min(5, s)) }
+        return 0
+    }
+
+    /// Identity of the FRAME SET, as opposed to `caseName` (identity of the
+    /// animation loop): `.curious` bakes its count and `.sleeping` its stage
+    /// into the frames (R2), so they are part of the key the renderer caches
+    /// by (R5). `curious|47`, `sleeping|3`, `awake`.
+    var spriteKey: String {
+        switch self {
+        case .curious: "\(caseName)|\(badgeCount)"
+        case .sleeping: "\(caseName)|\(stageNumber)"
+        default: caseName
+        }
+    }
 }
 
 // MARK: - Status snapshot

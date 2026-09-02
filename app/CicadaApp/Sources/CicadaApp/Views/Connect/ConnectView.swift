@@ -300,8 +300,7 @@ struct ConnectView: View {
 
     private var introCard: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            BookwormView(state: .happy)
-                .frame(width: 44, height: 44)
+            BookwormView(state: .happy, pointSize: 48)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Text("Your agents share one memory")
                     .font(CicadaTheme.headingFont)

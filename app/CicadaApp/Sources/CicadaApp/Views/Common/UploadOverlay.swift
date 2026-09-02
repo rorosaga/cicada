@@ -92,13 +92,11 @@ struct UploadOverlay: View {
                 // The same bookworm mascot as the menu bar: it chews
                 // (`.digesting`) while ingesting, beams (`.happy`) on success,
                 // and idles (`.awake`) otherwise. Reuses deriveBookwormState
-                // semantics by passing the state directly.
-                BookwormView(
-                    state: mascotState,
-                    pointSize: 72,
-                    tint: isDragOver ? CicadaTheme.accent : CicadaTheme.textSecondary
-                )
-                .frame(height: 72)
+                // semantics by passing the state directly. The worm is colour
+                // art now (G107, ruling R4), so there is no drag-over tint on
+                // it; the drop zone's border below already turns accent on
+                // `isDragOver`, which carries the affordance.
+                BookwormView(state: mascotState, pointSize: 72)
 
                 Text(titleText)
                     .font(.system(size: 18, weight: .semibold))
