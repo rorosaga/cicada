@@ -6,17 +6,18 @@
 
 ## Where things stand (2026-09-02)
 
-**Open branch: `feat/safari-import`** (`.worktrees/safari-import`, five commits on `dev` @ `bad8461`,
-PR not yet opened). Safari iCloud tabs + bookmark folder selection + the family → member import
-catalog; G30/G47/G71 rows carry the shipped clauses, G118 (Arc/Firefox/Brave) is filed. The one
+**Open branch: `feat/safari-import`** (`.worktrees/safari-import`, PR not yet opened). Safari iCloud
+tabs + bookmark folder selection + the family → member import catalog; G30/G47/G71 rows carry the
+shipped clauses, G119 (Arc/Firefox/Brave) is filed. The one
 step no agent runs: after merge, with Rodrigo at the machine, `make install-app`, grant **Full Disk
 Access** to Cicada.app once, then Feed → `+` → Browsers → Safari — *iCloud tabs* (preview lists the
 phone and the Mac, import, `safari-tabs` lights in the Connected strip), then *Bookmarks & Reading
 List* with one folder ticked (a non-zero `skipped` there is the idempotency proof). Until each browser
 row syncs on its own, `chrome-bookmarks` / `safari-bookmarks` both read the legacy `bookmarks` count.
 
-**Merged to `dev`:** PRs #21–#29. **No open PRs.** The big one is **#25 — the agent engine (G74a)**:
-Sleep can now run on the user's Claude Max plan via `claude -p`, after ~2.5 months with no engine.
+**Merged to `dev`:** PRs #21–#34. **No open PRs**; `feat/safari-import` is awaiting one (item 0).
+The big one is **#25 — the agent engine (G74a)**: Sleep can now run on the user's Claude Max plan
+via `claude -p`, after ~2.5 months with no engine.
 Also #24, the **correctness gate**, which fixed decay (see rulings below), #23's app fixes, #26's
 `saved_at` fix, and #27's sleep cancel/cap/debt screen.
 
@@ -172,7 +173,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-02 (PRs #21–#34 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes; `feat/safari-import` awaiting PR; G118 filed; inbox redesign folded as G115/G116)._
+_Last synced: 2026-09-02 (PRs #21–#34 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes; `feat/safari-import` awaiting PR; G119 filed; inbox redesign folded as G115/G116)._
 
 ---
 
@@ -242,7 +243,7 @@ trailers, Ghostty resume)
   bookmark folder selection with tree preview (Reading List as its own folder), per-browser channels,
   the app reads `~/Library` and posts bytes (the launchd backend never could), Full-Disk-Access fix
   shown in place, and the `+` sheet re-layered into a logo-first family → member catalog with keyboard
-  navigation. Follow-up: G118 (Arc/Firefox/Brave).
+  navigation. Follow-up: G119 (Arc/Firefox/Brave).
 - **G109 phase 1** graph physics (PR #32) — alpha-scaled hub gravity, no reheat on release,
   `velocityDecay` 0.2 / `alphaMin` 0.001, per-isolate phyllotaxis slots, speed clamp; headless
   physics bench + test under `Tests/graph/`; numbers in the G109 row
