@@ -96,7 +96,7 @@ struct UploadOverlay: View {
                 // art now (G107, ruling R4), so there is no drag-over tint on
                 // it; the drop zone's border below already turns accent on
                 // `isDragOver`, which carries the affordance.
-                BookwormView(state: mascotState, pointSize: 72)
+                BookwormView(state: mascotState, pointSize: 96)
 
                 Text(titleText)
                     .font(.system(size: 18, weight: .semibold))

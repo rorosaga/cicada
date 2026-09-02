@@ -1,68 +1,60 @@
 import SwiftUI
 
-/// Reusable animated bookworm mascot for in-app surfaces (ingestion overlay,
-/// empty states, the Connect intro card). Mirrors ``MenuBarManager``'s frame
-/// loop but as a pure SwiftUI view decoupled from `NSStatusItem`, so any
-/// screen can show the same worm.
+/// The in-app bookworm (G107): the same 24×24 colour frames the menu bar
+/// shows, at page size, always moving. Frame selection is a pure function of
+/// the clock (`frameIndex(at:…)`) driven by a `TimelineView`, so there is no
+/// `Timer` to leak, no `@State` to reset on a state change, and two worms on
+/// one screen tick in step. Reduce Motion holds frame 0 (ruling R7).
 ///
-/// It cycles ``BookwormSprites.frames(for:)`` at the state's interval and
-/// renders each frame through ``BookwormRenderer.image(grid:pointSize:)`` —
-/// the COLOUR 24×24 palette sprites of G107, so there is no template mode and
-/// no `tint:` (ruling R4: the palette is the mood; tinting would flatten it
-/// to a silhouette). Sizes are multiples of 24 so cells are integer points
-/// (R3). Task 4 of the G107 plan moves this loop onto a `TimelineView` with a
-/// caption and Reduce Motion; until then the timer is torn down on
-/// `onDisappear` so the view never leaks a running `Timer`.
+/// Colour art is never tinted and never template-rendered (ruling R4): the
+/// palette IS the mood, and a template image would flatten it to a
+/// silhouette. Every frame comes from `BookwormRenderer.cachedImage` (R5) —
+/// a tick is a dictionary hit, never a rasterization.
+///
+/// `caption` is the optional bracket line under the worm — the Sleep page's
+/// `[ 47 episodes behind ]` text survives there as a caption rather than as
+/// the mascot (the 2026-09-02 ask that superseded G107's interim ruling).
 struct BookwormView: View {
     let state: BookwormState
+    /// Multiples of 24 keep cells integer (R3): 48 (inline), 96 (empty states), 120 (Sleep).
     var pointSize: CGFloat = 96
+    var caption: String? = nil
+    var captionFont: Font = .system(size: 13, weight: .semibold, design: .monospaced)
+    var captionColor: Color = CicadaTheme.textTertiary
+    var alignment: HorizontalAlignment = .center
 
-    @State private var frameIndex = 0
-    @State private var timer: Timer?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var frames: [PixelGrid] {
-        BookwormSprites.frames(for: state).frames
-    }
+    /// A fixed origin so the schedule's phase never depends on when a
+    /// particular view appeared — and so the date a `TimelineView` tick
+    /// hands `frameIndex(at:)` names the same frame the schedule fired for.
+    static let timelineOrigin = Date(timeIntervalSinceReferenceDate: 0)
 
-    private var interval: TimeInterval {
-        BookwormSprites.frames(for: state).interval
-    }
-
-    private var currentGrid: PixelGrid {
-        let f = frames
-        guard !f.isEmpty else { return BookwormSprites.awakeBase }
-        return f[min(frameIndex, f.count - 1)]
+    /// Which frame to show at `date`. Pure; tested. Negative or degenerate
+    /// inputs clamp to frame 0 rather than trapping — a `count` of 0 or an
+    /// `interval` of 0 would otherwise divide by zero, and a date before the
+    /// reference epoch yields a negative tick that must still wrap into range.
+    nonisolated static func frameIndex(at date: Date, interval: TimeInterval, count: Int, reduceMotion: Bool) -> Int {
+        guard count > 0, interval > 0, !reduceMotion else { return 0 }
+        let ticks = Int((date.timeIntervalSinceReferenceDate / interval).rounded(.down))
+        return ((ticks % count) + count) % count
     }
 
     var body: some View {
-        // Colour art (G107): no template mode, no tint — the palette is the mood.
-        Image(nsImage: BookwormRenderer.image(grid: currentGrid, pointSize: pointSize))
-            .interpolation(.none)
-            .frame(width: pointSize, height: pointSize)
-            .onAppear { startTimer() }
-            .onDisappear { stopTimer() }
-            // Restart the loop when the FRAME SET changes — `spriteKey`, not
-            // `caseName`, because the curious count and the sleep stage are
-            // baked into the frames (R2).
-            .onChange(of: state.spriteKey) { _, _ in
-                frameIndex = 0
-                startTimer()
+        let (frames, interval) = BookwormSprites.frames(for: state)
+        VStack(alignment: alignment, spacing: CicadaTheme.spacingSM) {
+            TimelineView(.periodic(from: Self.timelineOrigin, by: interval)) { context in
+                let idx = Self.frameIndex(at: context.date, interval: interval, count: frames.count, reduceMotion: reduceMotion)
+                Image(nsImage: BookwormRenderer.cachedImage(state: state, frameIndex: idx, pointSize: pointSize))
+                    .interpolation(.none)
+                    .frame(width: pointSize, height: pointSize)
+                    .accessibilityLabel("\(state.title) — \(state.detail)")
             }
-    }
-
-    private func startTimer() {
-        stopTimer()
-        let count = frames.count
-        guard count > 1 else { return }  // static state: no timer needed
-        let t = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
-            frameIndex = (frameIndex + 1) % count
+            if let caption {
+                Text(caption)
+                    .font(captionFont)
+                    .foregroundStyle(captionColor)
+            }
         }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
-    }
-
-    private func stopTimer() {
-        timer?.invalidate()
-        timer = nil
     }
 }

@@ -98,15 +98,16 @@ func deriveSleepPageMood(
     return .curious(count: debt.unprocessedCount)
 }
 
-// MARK: - Interim text presentation (G107 tracks real mascot art)
+// MARK: - Bracket caption (G107: rendered under the page mascot)
 
-/// The mascot sprite (`BookwormView`) is a ~16×16 template-rendered menu-bar
-/// glyph — blown up to page size it reads as a low-res smear, and template
-/// mode is tinted uniformly, so it physically cannot show mood. Real art is
-/// tracked separately (backlog G107); the interim is deliberately plain: one
-/// monospaced, bracketed line of TEXT, no ASCII art, no emoji, no drawn
-/// character. Reuses the SAME `BookwormState` `deriveSleepPageMood` produces
-/// — only the rendering differs from the mascot everywhere else in the app.
+/// The bracketed, monospaced status line is the caption `BookwormView` shows
+/// beneath the 24×24 colour sprite on the Sleep page (ruling R9). From
+/// 2026-09-01 until the art shipped on 2026-09-02 it was the WHOLE mascot —
+/// the old ~16×16 template glyph could not show mood at page scale, so the
+/// interim ruling was one line of plain text; the 2026-09-02 ask superseded
+/// that, and the text survived as the caption rather than the character.
+/// It still reuses the SAME `BookwormState` `deriveSleepPageMood` produces,
+/// so the worm and its caption can never disagree about the mood.
 func sleepDebtBracketText(_ state: BookwormState, debt: SleepDebtView?) -> String {
     switch state {
     case .awake:
