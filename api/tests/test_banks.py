@@ -332,7 +332,9 @@ def test_import_claude_backdates_episodes(tmp_path, monkeypatch):
     assert "ep_2025-11-03_001" in stems
 
     parsed = markdown_parser.parse(ep_dir / "ep_2026-02-24_001.md")
-    assert parsed.frontmatter["timestamp"] == "2026-02-24T12:39:02.701295Z"
+    # G114 R2: the export's `...Z` instant is kept to the microsecond but
+    # written in the one `+00:00` shape every writer emits.
+    assert parsed.frontmatter["timestamp"] == "2026-02-24T12:39:02.701295+00:00"
     assert parsed.frontmatter["origin"] == "claude-export"
     assert parsed.frontmatter["processed"] is False
 

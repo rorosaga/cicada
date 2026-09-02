@@ -925,6 +925,8 @@ async def commit_resolution(
     entity_id: str,
     trigger: str,
     extra_lines: list[str] | None = None,
+    *,
+    change: str = "updated",
 ) -> None:
     """Commit after an inbox (nudge/clarification/conflict) resolution.
 
@@ -932,10 +934,20 @@ async def commit_resolution(
     surfaces in ``get_sleep_history`` (the Sleep dashboard) — the old
     single-line subject was never matched by the history filter. ``extra_lines``
     appends further per-file manifest lines (G60: one per closed claim's page).
+
+    ``change`` is the manifest verb for the entity's own line (default
+    ``updated``). G113 R2: a decay archive/keep passes ``status archived`` /
+    ``status active`` so ``_infer_change_type``'s existing ``"status"`` branch
+    classifies the commit as ``statusChange`` — an enum the app already decodes
+    — instead of inventing a new change type.
     """
     date_str = date.today().isoformat()
-    # trigger is "inbox/<kind>/resolved" — tag the kind into the subject so the
-    # dashboard can distinguish a conflict adjudication from a decay archive.
+    # trigger is "inbox/<kind>/resolved[:<label>]" — tag the kind into the
+    # subject so the dashboard can distinguish a conflict adjudication from a
+    # decay archive. G113 R1: the ``:<label>`` suffix names the action the user
+    # took; nothing parses it (this split reads only the kind segment), so it is
+    # inert to every existing reader and `git log` alone can answer "did the
+    # user agree?".
     kind = ""
     parts = trigger.split("/")
     if len(parts) >= 2 and parts[0] == "inbox":
@@ -944,7 +956,7 @@ async def commit_resolution(
         f"Inbox resolution ({kind}) {date_str}" if kind
         else f"Inbox resolution {date_str}"
     )
-    body_lines = [f"entities/{entity_id}.md: updated (trigger: {trigger})"]
+    body_lines = [f"entities/{entity_id}.md: {change} (trigger: {trigger})"]
     # The manifest is a SET of file lines: a caller that closes N claims on one
     # page must not repeat that page's line N times.
     for line in extra_lines or []:

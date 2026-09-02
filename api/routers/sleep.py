@@ -152,6 +152,7 @@ async def sleep_episodes(settings: Settings = Depends(get_settings)):
                 title=ep.get("title"),
                 preview=preview,
                 processed=ep.get("processed", False),
+                processed_by=ep.get("processed_by"),
             )
         )
     return items

@@ -186,6 +186,27 @@ def test_sync_notes_index_persists_across_calls(tmp_path):
     assert idx["note-1"]["modified"] == "2026-07-01"
 
 
+# --- G114 R2: one timestamp shape ---------------------------------------------
+
+
+def test_note_episode_timestamp_is_aware_utc(tmp_path):
+    """The episode ``timestamp`` is aware UTC with an explicit ``+00:00`` —
+    never the old naive-local ``datetime.now().isoformat() + "Z"``, which
+    labelled the machine's wall clock as UTC and was off by its offset."""
+    from datetime import datetime, timezone
+
+    from api.services import markdown_parser
+
+    memory = _memory(tmp_path)
+    run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1)))
+    (path,) = (memory / "episodes").glob("ep_*.md")
+    ts = markdown_parser.parse(path).frontmatter["timestamp"]
+    assert isinstance(ts, str) and ts.endswith("+00:00"), ts
+    parsed = datetime.fromisoformat(ts)
+    assert parsed.tzinfo is not None
+    assert abs((datetime.now(timezone.utc) - parsed).total_seconds()) < 60
+
+
 # --- plaintext truncation ----------------------------------------------------
 
 

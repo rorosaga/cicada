@@ -35,7 +35,7 @@ from pathlib import Path
 from loguru import logger
 from thefuzz import fuzz
 
-from api.services import decay_policy, entity_body, markdown_parser
+from api.services import decay_policy, entity_body, markdown_parser, telemetry
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.id_utils import resolve_entity_file, sanitize_id
@@ -376,6 +376,9 @@ def write_claim(
             {entity_id: existing_claims},
             settings,
         )
+        # G113 — an agent's claim superseding or being rejected against the
+        # page is feedback on that agent, same as in the Sleep pipeline.
+        telemetry.record_audit(audit, subject_hint=entity_id, bank=memory_path.name, stage="reconcile")
         reconciled_claims = reconciled.get(entity_id, existing_claims)
 
         action = _determine_action(claim_id, reconciled_claims, nudges, audit)
@@ -460,12 +463,20 @@ def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:
     return out
 
 
-def mark_episodes_processed(memory_path: Path, ids: list[str]) -> int:
+def mark_episodes_processed(memory_path: Path, ids: list[str], *, by: str = "agent") -> int:
     """Set ``processed: true`` on the named episodes. Returns the count matched.
 
     Matches by frontmatter ``id`` (falling back to the filename stem), so it
     tolerates whatever id shape :func:`list_unprocessed_episodes` handed back.
     Never raises: an unreadable/unwritable file is skipped, not fatal.
+
+    ``by`` is stamped as ``processed_by`` beside the flag (G114 R6): a bare
+    ``processed: true`` cannot say whether Sleep consolidated the episode or an
+    agent marked it after its own lightweight pass, and the two differ in what
+    the graph actually received. Sleep writes ``"sleep"`` through its own
+    marker; this entry point defaults to the generic ``"agent"`` and lets the
+    MCP seam pass the harness name when it knows it. Written only alongside
+    ``processed: true``, never removed.
     """
     memory_path = Path(memory_path)
     episodes_dir = memory_path / "episodes"
@@ -489,6 +500,7 @@ def mark_episodes_processed(memory_path: Path, ids: list[str]) -> int:
             continue
         try:
             fm["processed"] = True
+            fm["processed_by"] = (by or "").strip() or "agent"
             markdown_parser.write(filepath, fm, parsed.body)
             count += 1
         except Exception as exc:

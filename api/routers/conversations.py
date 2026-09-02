@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import ConversationSummary, ConversationUploadResponse, ResumeDescriptor
-from api.services import markdown_parser, session_stats, sync_service
+from api.services import episode_ids, markdown_parser, session_stats, sync_service
 
 router = APIRouter()
 
@@ -311,15 +311,23 @@ def parse_anthropic_memories(data: list) -> list[dict]:
     episodes: list[dict] = []
 
     for entry in data:
+        # G114 R2: the entry's own date when the export carries one (an
+        # `updated_at`/`created_at` ISO string or epoch), so the episode is
+        # backdated like every other import. `None` when it doesn't —
+        # `_write_new_episode` then stamps `utc_now_iso()` at write time,
+        # so a file never carries `timestamp: None`.
+        entry_ts = _export_entry_timestamp(entry)
+        entry_date = _extract_date(entry_ts)
+
         # Conversations memory — global context Claude has built
         conv_memory = entry.get("conversations_memory", "")
         if conv_memory.strip():
             episodes.append({
                 "title": "Claude Memory — Conversation Context",
                 "source": "claude_memory",
-                "messages": [{"role": "system", "text": conv_memory, "timestamp": None}],
-                "timestamp": None,
-                "original_date": None,
+                "messages": [{"role": "system", "text": conv_memory, "timestamp": entry_ts}],
+                "timestamp": entry_ts,
+                "original_date": entry_date,
             })
 
         # Project memories — per-project context
@@ -330,12 +338,34 @@ def parse_anthropic_memories(data: list) -> list[dict]:
                     episodes.append({
                         "title": f"Claude Memory — Project {project_id[:8]}",
                         "source": "claude_memory",
-                        "messages": [{"role": "system", "text": memory_text, "timestamp": None}],
-                        "timestamp": None,
-                        "original_date": None,
+                        "messages": [{"role": "system", "text": memory_text, "timestamp": entry_ts}],
+                        "timestamp": entry_ts,
+                        "original_date": entry_date,
                     })
 
     return episodes
+
+
+def _export_entry_timestamp(entry: dict) -> str | None:
+    """Best-known date of an export entry as aware-UTC ISO, or ``None``.
+
+    Checks the update stamp first (a memory's content is as of its last
+    edit), then creation, in both the Anthropic (``*_at`` ISO string) and
+    ChatGPT (``*_time`` epoch) spellings. Anything unparseable is ``None`` —
+    never a guess — so the writer falls back to "now" honestly.
+    """
+    if not isinstance(entry, dict):
+        return None
+    for key in ("updated_at", "update_time", "created_at", "create_time"):
+        value = entry.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return episode_ids.to_utc_iso(value)
+        if isinstance(value, str) and value.strip():
+            try:
+                return episode_ids.to_utc_iso(datetime.fromisoformat(value.strip()))
+            except ValueError:
+                continue
+    return None
 
 
 def parse_anthropic_projects(data: list) -> list[dict]:
@@ -403,7 +433,10 @@ def parse_chatgpt_json(data: list) -> list[dict]:
             create_time = msg.get("create_time")
             timestamp = None
             if isinstance(create_time, (int, float)) and create_time > 0:
-                timestamp = datetime.fromtimestamp(create_time).isoformat() + "Z"
+                # G114 R2: epoch -> aware UTC. The old naive `fromtimestamp`
+                # + a bare "Z" suffix rendered LOCAL time and labelled it
+                # UTC, shifting every imported message by the machine's offset.
+                timestamp = episode_ids.to_utc_iso(create_time)
 
             messages.append({"role": role, "text": text.strip(), "timestamp": timestamp})
 
@@ -415,18 +448,18 @@ def parse_chatgpt_json(data: list) -> list[dict]:
         # Conversation-level timestamp
         conv_time = conversation.get("create_time")
         if isinstance(conv_time, (int, float)) and conv_time > 0:
-            conv_timestamp = datetime.fromtimestamp(conv_time).isoformat() + "Z"
+            conv_timestamp = episode_ids.to_utc_iso(conv_time)
         else:
             conv_timestamp = messages[0].get("timestamp")
 
         # G20 delta re-import: stable per-thread identity. ChatGPT exports key on
         # conversation_id (or a bare id); update_time is a unix epoch float, so
-        # render it ISO+"Z" with the same idiom used for create_time above.
+        # render it with the same aware-UTC helper used for create_time above.
         source_id = conversation.get("conversation_id") or conversation.get("id")
         update_time = conversation.get("update_time")
         source_updated_at = None
         if isinstance(update_time, (int, float)) and update_time > 0:
-            source_updated_at = datetime.fromtimestamp(update_time).isoformat() + "Z"
+            source_updated_at = episode_ids.to_utc_iso(update_time)
 
         episodes.append({
             "title": title,
@@ -484,13 +517,15 @@ _GEMINI_MONTHS = {
 
 
 def _parse_gemini_timestamp(raw: str) -> str | None:
-    """Parse a Takeout MyActivity timestamp into an ISO ``YYYY-MM-DDTHH:MM:SSZ``.
+    """Parse a Takeout MyActivity timestamp into aware-UTC ISO (G114 R2).
 
     Google renders these as ``"Feb 24, 2026, 12:39:02 PM PST"`` (note the
     narrow no-break space and trailing tz abbreviation). We only need date +
-    wall-clock for backdating, so the tz abbreviation is dropped. Returns
+    wall-clock for backdating, so the tz abbreviation is dropped and the
+    wall-clock is taken as UTC — the same reading the old ``+ "Z"`` suffix
+    gave it, now in the one ``+00:00`` shape every writer emits. Returns
     ``None`` if the string can't be parsed (the episode then falls back to
-    ``datetime.now()`` in staging).
+    ``episode_ids.utc_now_iso()`` in staging).
     """
     if not raw:
         return None
@@ -518,7 +553,7 @@ def _parse_gemini_timestamp(raw: str) -> str | None:
         dt = datetime(int(year), month, int(day), hour, int(mm), int(ss))
     except ValueError:
         return None
-    return dt.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+    return episode_ids.to_utc_iso(dt)
 
 
 def parse_gemini_myactivity(html: str) -> list[dict]:
@@ -723,10 +758,15 @@ def _stage_episodes(
     # Single pre-scan of the episodes dir:
     #  - source_index: source_id -> {path, content_hash, source_updated_at}
     #  - existing_hashes: all known content hashes (no-id fallback dedup)
-    #  - date_counts: per-date episode counts for sequential id numbering
+    #  - date_counts: per-date HIGHEST existing suffix, so each write is an O(1)
+    #    dict bump instead of a per-file re-glob. Seeded from the max (G114 R1),
+    #    never from a file count: a count collides — and `markdown_parser.write`
+    #    silently overwrites — the moment a same-day episode was deleted or the
+    #    sequence has a gap (a lone `_003` on disk made the old count mint
+    #    `_002`, then `_003` on the very next write, clobbering the original).
     source_index: dict[str, dict] = {}
     existing_hashes: set[str] = set()
-    date_counts: dict[str, int] = {}
+    date_counts: dict[str, int] = episode_ids.max_suffix_by_date(episodes_dir)
     for filepath in episodes_dir.glob("*.md"):
         parsed = markdown_parser.parse(filepath)
         fm = parsed.frontmatter
@@ -740,10 +780,6 @@ def _stage_episodes(
                 "content_hash": h,
                 "source_updated_at": fm.get("source_updated_at"),
             }
-    for filepath in episodes_dir.glob("ep_*.md"):
-        # ep_2026-04-08_001.md -> date = 2026-04-08
-        date_part = filepath.stem[3:13]
-        date_counts[date_part] = date_counts.get(date_part, 0) + 1
 
     created = 0
     updated = 0
@@ -808,6 +844,21 @@ def _stage_episodes(
     return created, updated, skipped
 
 
+def _normalise_import_timestamp(ts) -> str | None:
+    """``None`` stays ``None``; an aware ISO string becomes the R2 ``+00:00``
+    shape; anything else (naive, unparseable) is returned as ``str(ts)``."""
+    if ts is None:
+        return None
+    text = str(ts)
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return text
+    if dt.tzinfo is None:
+        return text
+    return episode_ids.to_utc_iso(dt)
+
+
 def _write_new_episode(
     episode: dict,
     episodes_dir: Path,
@@ -815,21 +866,31 @@ def _write_new_episode(
     content_hash: str,
     date_counts: dict[str, int],
 ) -> Path:
-    """Write a fresh episode file with a chronological id. Returns its path."""
+    """Write a fresh episode file with a chronological id. Returns its path.
+
+    ``date_counts`` holds the highest suffix already minted per date (seeded by
+    ``_stage_episodes`` from ``episode_ids.max_suffix_by_date``); bumping it is
+    the same max+1 rule as ``episode_ids.next_episode_id`` (G114 R1), kept as a
+    dict so a thousand-episode export doesn't re-glob the directory per write.
+    """
     # Use the episode's original date for the ID, preserving chronological order
     ep_date = episode.get("original_date") or datetime.now().strftime("%Y-%m-%d")
     date_counts[ep_date] = date_counts.get(ep_date, 0) + 1
     next_num = date_counts[ep_date]
     episode_id = f"ep_{ep_date}_{next_num:03d}"
 
-    # Use the precise timestamp from the conversation
-    ts = episode.get("timestamp")
+    # Use the precise timestamp from the conversation, rendered in the one
+    # R2 shape (aware UTC, `+00:00`) when it carries a zone — a Claude export's
+    # own `...Z` stamp is the same instant, and a bank should not grow a third
+    # spelling of it. A naive string (no zone) is kept verbatim rather than
+    # guessed at; nothing known at all -> now, never `None`.
+    ts = _normalise_import_timestamp(episode.get("timestamp"))
     if ts is None:
-        ts = datetime.now().isoformat() + "Z"
+        ts = episode_ids.utc_now_iso()
 
     frontmatter = {
         "id": episode_id,
-        "timestamp": str(ts),
+        "timestamp": ts,
         "source": episode.get("source", "unknown"),
         "title": episode.get("title", "Untitled"),
         "processed": False,

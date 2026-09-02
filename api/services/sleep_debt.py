@@ -105,10 +105,14 @@ def rested_pct_from_components(
 
 
 def _parse_episode_timestamp(raw: str) -> datetime | None:
-    """Episode timestamps on disk are NOT one shape: MCP capture writes naive
-    local time (``datetime.now().isoformat()``, no explicit tz), but imports
-    and other sources write ``Z``-suffixed UTC. Both must compare correctly
-    against ``datetime.now()`` (naive local) in ``_count_and_oldest``.
+    """Episode timestamps on disk are NOT one shape. Every writer now emits
+    aware UTC with an explicit ``+00:00`` (``episode_ids.utc_now_iso``, G114
+    R2), but existing files are deliberately never migrated, so a bank also
+    holds legacy naive-local stamps (the old ``datetime.now().isoformat()``,
+    no zone) and ``Z``-suffixed UTC ones from older imports. All three must
+    compare correctly against ``datetime.now()`` (naive local) in
+    ``_count_and_oldest``: a naive stamp is read as LOCAL time — what the
+    writer that produced it meant — and an aware one is converted down.
 
     Review fix (M1): this used to do ``raw.replace("Z", "")`` before
     ``fromisoformat`` — which defeated Python 3.11+'s native ``Z`` handling

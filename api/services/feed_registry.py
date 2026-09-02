@@ -60,13 +60,23 @@ def _read_feeds_file(memory_path: Path) -> list[dict]:
     return feeds if isinstance(feeds, list) else []
 
 
-def _write_feeds_file(memory_path: Path, feeds: list[dict]) -> None:
+def _write_feeds_file(memory_path: Path, feeds: list[dict]) -> bool:
+    """Write the registry; return whether the file's content actually changed.
+
+    ``poll_feeds`` uses the answer to decide whether a 0-new poll still has
+    state worth committing (a ``last_polled`` bump is real state — it is what
+    the Feed page shows as "last checked") without minting a no-op commit
+    for a same-day re-poll that rewrote byte-identical YAML.
+    """
     path = _feeds_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.dump({"feeds": feeds}, default_flow_style=False, sort_keys=False),
-        encoding="utf-8",
-    )
+    text = yaml.dump({"feeds": feeds}, default_flow_style=False, sort_keys=False)
+    try:
+        before = path.read_text(encoding="utf-8") if path.exists() else None
+    except OSError:
+        before = None
+    path.write_text(text, encoding="utf-8")
+    return text != before
 
 
 # --- Subscription CRUD --------------------------------------------------
@@ -221,9 +231,15 @@ async def poll_feeds(
             {"url": url, "status": "ok", "new": created, "duplicates": duplicates}
         )
 
-    _write_feeds_file(memory_path, feeds)
+    registry_changed = _write_feeds_file(memory_path, feeds)
 
-    if total_new:
+    # Commit whenever the poll left real state behind — new items OR just the
+    # ``last_polled`` bump. Committing only on ``total_new`` left ``feeds.yaml``
+    # dirty after every quiet night, and the NEXT Sleep cycle's ``_finalize``
+    # (``git add -A``) then swept the registry into a model-authored commit
+    # (G114 final review). The H1 clean-tree guard in the Sleep tail is what
+    # makes this ``git add -A`` safe: it only ever runs on a committed tree.
+    if total_new or registry_changed:
         try:
             await _commit_poll(memory_path, total_new, polled)
         except Exception as e:

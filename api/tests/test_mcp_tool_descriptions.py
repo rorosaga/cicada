@@ -16,3 +16,10 @@ def test_ask_description_prefers_tool_for_factual_questions():
     tools = {t["name"]: t for t in mcp.TOOLS}
     desc = tools["cicada_ask"]["description"].lower()
     assert "prefer this tool for direct factual questions" in desc
+
+
+def test_mark_processed_description_mentions_the_processed_by_stamp():
+    # G114 R6: the model should know its mark is attributed, not anonymous.
+    tools = {t["name"]: t for t in mcp.TOOLS}
+    desc = tools["cicada_mark_processed"]["description"]
+    assert "processed_by" in desc
