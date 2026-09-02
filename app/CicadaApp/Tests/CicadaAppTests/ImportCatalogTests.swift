@@ -190,4 +190,17 @@ final class ImportCatalogTests: XCTestCase {
             XCTAssertNil(tile.logoName, tile.rawValue)
         }
     }
+
+    // MARK: - Glyphs (R7, Task 4)
+
+    /// A PNG and a drawn glyph are two ways of carrying the same brand mark;
+    /// a tile declaring both would leave `MemberMark` to pick one silently.
+    /// Exactly the two browsers draw theirs, and nothing else does.
+    func testAGlyphAndAPngAreNeverBothDeclared() {
+        for tile in AddSourceTile.allCases {
+            XCTAssertFalse(tile.logoName != nil && tile.brandGlyph != nil,
+                           "\(tile.rawValue) declares both a PNG and a drawn glyph")
+        }
+        XCTAssertEqual(AddSourceTile.allCases.filter { $0.brandGlyph != nil }, [.safari, .chrome])
+    }
 }
