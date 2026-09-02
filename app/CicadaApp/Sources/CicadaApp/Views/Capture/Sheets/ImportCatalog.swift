@@ -28,6 +28,13 @@ enum ImportRoute: String {
 
 /// What one catalog tile renders, derived purely from the tile plus the current
 /// channel snapshot — no view state, so it is unit-testable on its own.
+///
+/// Since the family layer landed in front of the tiles (Task 4, 2026-09-02
+/// brief) this is read at two levels: the members grid renders it per tile
+/// exactly as before, and the family tile above it counts `connected` over
+/// its `ImportFamily.members` for its "n of m connected" footer. The state
+/// itself is unchanged — a family has no channel of its own to resolve
+/// against (R6), so it derives everything from its members.
 struct ImportTileState: Equatable {
     let badge: String
     let connected: Bool

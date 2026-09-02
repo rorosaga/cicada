@@ -68,18 +68,28 @@ SAFARI_PLIST_TREE = {
     "Children": [
         {
             "WebBookmarkType": "WebBookmarkTypeList",
-            "Title": "Reading List",
+            "Title": "BookmarksBar",
             "Children": [
+                {"WebBookmarkType": "WebBookmarkTypeLeaf", "URLString": "https://example.org/bar",
+                 "URIDictionary": {"title": "On the bar"}},
                 {
-                    "WebBookmarkType": "WebBookmarkTypeLeaf",
-                    "URLString": "https://example.org/a",
-                    "URIDictionary": {"title": "Page A"},
+                    "WebBookmarkType": "WebBookmarkTypeList",
+                    "Title": "Big Folder",
+                    "Children": [
+                        {"WebBookmarkType": "WebBookmarkTypeLeaf", "URLString": "https://example.org/a",
+                         "URIDictionary": {"title": "Page A"}},
+                        {"WebBookmarkType": "WebBookmarkTypeLeaf", "URLString": "https://example.org/b",
+                         "URIDictionary": {"title": "Page B"}},
+                    ],
                 },
-                {
-                    "WebBookmarkType": "WebBookmarkTypeLeaf",
-                    "URLString": "https://example.org/b",
-                    "URIDictionary": {"title": "Page B"},
-                },
+            ],
+        },
+        {
+            "WebBookmarkType": "WebBookmarkTypeList",
+            "Title": "com.apple.ReadingList",
+            "Children": [
+                {"WebBookmarkType": "WebBookmarkTypeLeaf", "URLString": "https://example.org/rl",
+                 "URIDictionary": {"title": "Read later"}},
             ],
         },
     ],
@@ -147,7 +157,7 @@ def test_sync_bookmarks_reports_new_and_skipped_via_injected_ingest_fn(tmp_path)
         "new": 1,
         "skipped": 1,
         "sources": [
-            {"origin": "chrome-bookmark", "found": 2, "new": 1, "skipped": 1},
+            {"origin": "chrome-bookmark", "channel": "chrome-bookmarks", "found": 2, "new": 1, "skipped": 1},
         ],
     }
     # The injected fn was actually invoked with the parsed items, tagged with
@@ -181,14 +191,14 @@ def test_sync_bookmarks_safari_fixture_flows_through(tmp_path):
         )
     )
 
-    assert result["new"] == 2
+    assert result["new"] == 4
     assert result["skipped"] == 0
     assert result["sources"] == [
-        {"origin": "safari-bookmark", "found": 2, "new": 2, "skipped": 0},
+        {"origin": "safari-bookmark", "channel": "safari-bookmarks", "found": 4, "new": 4, "skipped": 0},
     ]
     # Folder path threaded through parse_safari_bookmarks survives into the
-    # items handed to ingest_fn.
-    assert all(i.folder == "Reading List" for i in captured)
+    # items handed to ingest_fn — raw plist keys, never display names (R5).
+    assert {i.folder for i in captured} == {"BookmarksBar", "BookmarksBar/Big Folder", "com.apple.ReadingList"}
 
 
 def test_sync_bookmarks_both_sources_aggregate(tmp_path):
@@ -207,7 +217,7 @@ def test_sync_bookmarks_both_sources_aggregate(tmp_path):
         )
     )
 
-    assert result["new"] == 4  # 2 chrome + 2 safari
+    assert result["new"] == 6  # 2 chrome + 4 safari
     assert result["skipped"] == 0
     origins = {s["origin"] for s in result["sources"]}
     assert origins == {"chrome-bookmark", "safari-bookmark"}
@@ -310,7 +320,7 @@ def test_sync_bookmarks_endpoint_inline_safari_data(tmp_path, monkeypatch):
     resp = client.post("/sources/sync-bookmarks", json={"safariDataB64": safari_b64})
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["new"] == 2
+    assert body["new"] == 4
     assert body["sources"][0]["origin"] == "safari-bookmark"
 
 
@@ -338,3 +348,109 @@ def test_sync_bookmarks_endpoint_invalid_base64_rejected(tmp_path, monkeypatch):
 
     resp = client.post("/sources/sync-bookmarks", json={"chromeDataB64": "!!! not base64 !!!"})
     assert resp.status_code == 422
+
+
+# --- folder selection + tree preview (2026-09-02 brief, R5) ------------------
+
+
+def _safari_items():
+    from api.services import media_ingestor
+    return media_ingestor.parse_safari_bookmarks(plistlib.dumps(SAFARI_PLIST_TREE))
+
+
+def test_folder_tree_counts_leaves_per_folder_with_display_names():
+    tree = bookmark_sync.folder_tree(_safari_items())
+    assert tree["name"] == "All bookmarks" and tree["path"] == "" and tree["count"] == 4
+    by_path = {c["path"]: c for c in tree["children"]}
+    assert set(by_path) == {"BookmarksBar", "com.apple.ReadingList"}
+    bar = by_path["BookmarksBar"]
+    assert bar["name"] == "Favorites" and bar["count"] == 3
+    assert bar["children"] == [
+        {"name": "Big Folder", "path": "BookmarksBar/Big Folder", "count": 2, "children": []},
+    ]
+    rl = by_path["com.apple.ReadingList"]
+    assert rl["name"] == "Reading List" and rl["count"] == 1 and rl["children"] == []
+
+
+def test_folder_tree_puts_rootless_leaves_on_the_root_only():
+    items = [RawItem(url="https://example.com/x"), RawItem(url="https://example.com/y", folder="Reading")]
+    tree = bookmark_sync.folder_tree(items)
+    assert tree["count"] == 2
+    assert [c["path"] for c in tree["children"]] == ["Reading"]
+
+
+def test_filter_by_folders_matches_prefixes_at_segment_boundaries():
+    items = _safari_items()
+    urls = lambda sel: {i.url for i in sel}
+    assert urls(bookmark_sync.filter_by_folders(items, ["BookmarksBar/Big Folder"])) == {
+        "https://example.org/a", "https://example.org/b"}
+    assert urls(bookmark_sync.filter_by_folders(items, ["BookmarksBar"])) == {
+        "https://example.org/bar", "https://example.org/a", "https://example.org/b"}
+    assert urls(bookmark_sync.filter_by_folders(items, ["BookmarksBar/Big"])) == set()  # no partial segment
+    assert urls(bookmark_sync.filter_by_folders(items, ["bookmarksbar"])) == set()      # case-sensitive
+    assert bookmark_sync.filter_by_folders(items, None) == items
+    assert bookmark_sync.filter_by_folders(items, []) == items
+    assert bookmark_sync.filter_by_folders(items, [""]) == items
+
+
+def test_sync_bookmarks_with_folders_ingests_only_that_folder(tmp_path):
+    captured: list = []
+
+    async def fake_ingest_fn(items, memory_path, from_bookmark_file=False, **kwargs):
+        captured.extend(items)
+        return len(items), 0
+
+    result = run(bookmark_sync.sync_bookmarks(
+        tmp_path / "memory", safari_data=plistlib.dumps(SAFARI_PLIST_TREE),
+        folders=["BookmarksBar/Big Folder"], ingest_fn=fake_ingest_fn))
+    assert result["sources"] == [
+        {"origin": "safari-bookmark", "channel": "safari-bookmarks", "found": 2, "new": 2, "skipped": 0},
+    ]
+    assert {i.url for i in captured} == {"https://example.org/a", "https://example.org/b"}
+
+
+def test_sync_bookmarks_without_folders_is_unchanged(tmp_path, monkeypatch):
+    def unreachable_filter(*a, **k):
+        raise AssertionError("filter_by_folders must not run when no folders are given")
+
+    # `sync_bookmarks` looks the helper up as a module global, so patching the
+    # module attribute is what proves the no-folders path never calls it.
+    monkeypatch.setattr(bookmark_sync, "filter_by_folders", unreachable_filter)
+
+    async def fake_ingest_fn(items, memory_path, from_bookmark_file=False, **kwargs):
+        return len(items), 0
+
+    result = run(bookmark_sync.sync_bookmarks(
+        tmp_path / "memory", chrome_data=json.dumps(CHROME_BOOKMARKS_JSON).encode(), ingest_fn=fake_ingest_fn))
+    assert result["sources"][0]["found"] == 2 and result["sources"][0]["channel"] == "chrome-bookmarks"
+
+
+def test_preview_bookmarks_returns_a_tree_per_source_and_stages_nothing(tmp_path):
+    preview = bookmark_sync.preview_bookmarks(
+        chrome_data=json.dumps(CHROME_BOOKMARKS_JSON).encode(),
+        safari_data=plistlib.dumps(SAFARI_PLIST_TREE))
+    assert [s["origin"] for s in preview["sources"]] == ["chrome-bookmark", "safari-bookmark"]
+    assert preview["sources"][0]["total"] == 2
+    assert preview["sources"][0]["tree"]["children"][0]["path"] == "Bookmarks bar"
+    assert preview["sources"][1]["total"] == 4
+    assert not (tmp_path / "memory").exists()
+
+
+def test_sync_bookmarks_endpoint_preview_and_folders(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    client, memory = _make_client(tmp_path, monkeypatch)
+    safari_b64 = base64.b64encode(plistlib.dumps(SAFARI_PLIST_TREE)).decode()
+
+    preview = client.post("/sources/sync-bookmarks?preview=true", json={"safariDataB64": safari_b64})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["sources"][0]["tree"]["count"] == 4
+    assert not list((memory / "entities").iterdir()), "preview must stage nothing"
+
+    resp = client.post("/sources/sync-bookmarks",
+                       json={"safariDataB64": safari_b64, "folders": ["com.apple.ReadingList"]})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["new"] == 1
+    from api.services import sync_state
+    state = sync_state.read_sync_state(memory)
+    assert state["safari-bookmarks"]["count"] == 1
+    assert "chrome-bookmarks" not in state and "bookmarks" not in state

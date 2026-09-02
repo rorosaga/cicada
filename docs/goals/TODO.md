@@ -6,9 +6,16 @@
 
 ## Where things stand (2026-09-02)
 
-**Merged to `dev`:** PRs #21–#34. **Open:** `feat/mascot` (G107, PR #TBD — fill in once opened).
-The big one is **#25 — the agent engine (G74a)**:
-Sleep can now run on the user's Claude Max plan via `claude -p`, after ~2.5 months with no engine.
+**Merged 2026-09-02 as PR #35: `feat/safari-import`** — Safari iCloud
+tabs + bookmark folder selection + the family → member import catalog; G30/G47/G71 rows carry the
+shipped clauses, G119 (Arc/Firefox/Brave) is filed. The imports were run
+against the live bank the same day (iPhone tabs: 188 new / 9 skipped; the big Favorites folder:
+0 new / 496 skipped — the idempotency proof). Until each browser
+row syncs on its own, `chrome-bookmarks` / `safari-bookmarks` both read the legacy `bookmarks` count.
+
+**Merged to `dev`:** PRs #21–#35. **Open:** `feat/mascot` (G107, PR #TBD — fill in once opened).
+The big one is **#25 — the agent engine (G74a)**: Sleep can now run on the user's Claude Max plan
+via `claude -p`, after ~2.5 months with no engine.
 Also #24, the **correctness gate**, which fixed decay (see rulings below), #23's app fixes, #26's
 `saved_at` fix, and #27's sleep cancel/cap/debt screen.
 
@@ -124,12 +131,18 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 **Nothing is broken; one branch is awaiting a PR: `feat/mascot` (G107 pixel mascot, PR #TBD).**
 Its last unchecked box is the visual pass on the installed app — menu bar in light and dark, the
 Sleep page at 120 pt, Reduce Motion holding frame 0 — which needs `make install-app` and Rodrigo at
-the machine; the suites are green. Before it: **G114** shipped on `feat/capture-hygiene` (PR #30,
-merged), the 2026-09-01 evening session merged #28/#29, reframed CLAUDE.md around the *experience
+the machine; the suites are green. Before it: `feat/safari-import` merged as PR #35 (2026-09-02), **G114** shipped as PR #30, the 2026-09-01 evening session merged #28/#29, reframed CLAUDE.md around the *experience
 port* north star (Silver & Sutton's *Era of Experience*, WikiSkill), filed **G112/G113/G114**
 research-grounded, and started **G109** as a research run (inventory → five engine candidates →
 three-lens judge → decision memo) rather than a blind re-tune.
 
+0. **Merge `feat/safari-import`** after an independent re-run of both suites (`pytest api/tests`
+   → only the baseline calendar/provenance failures; `swift build && swift test` → 0 failures), then
+   run the live import once with the owner present (Full Disk Access to Cicada.app is a one-time
+   grant — the launchd backend never gets it, only the app bundle does).
+0b. **Owner priorities (2026-09-02):** after the three in-flight tracks (mascot, Safari import, link
+   summaries) land, the order is **G118 slice 1 → G105 → G93 → G53+G75 → G81→G95**, with G113 s3–7,
+   G115 p1 and G117 interleaved as app polish. Provenance is the vision, not a feature.
 1. **G109 phase 1 is in PR #32 (merged)** — merged after an independent re-run of
    `node app/CicadaApp/Tests/graph/graph-physics.test.js`, the four sibling JS tests and
    `swift test`, then have Rodrigo eyeball the live bank at fit-zoom (isolates should read as discs
@@ -154,10 +167,10 @@ three-lens judge → decision memo) rather than a blind re-tune.
    review — the live bank holds real people). Same for any `macos-harness` verification that
    needs a permission prompt accepted.
 
-**Worktrees:** `.worktrees/g114` holds `feat/capture-hygiene` until its PR merges.
-`.worktrees/devloop` and `.worktrees/wikilinks` are safe to remove (`devloop-report.md` there is
-untracked scratch — never commit `*-report.md`); `sleepctl`, `hygiene`, `saves-and-imports` are
-stale from earlier sessions. `git worktree list` to see them; never `--force`-remove one without
+**Worktrees:** `.worktrees/safari-import` holds `feat/safari-import` until its PR merges;
+`.worktrees/g113` (`feat/feedback-ledger`), `.worktrees/link-summaries` and `.worktrees/mascot` are
+other in-flight branches — check each's `git status --porcelain -uall` before touching it. Never
+commit a `*-report.md` left as untracked scratch in any of them. `git worktree list` to see them; never `--force`-remove one without
 looking at `git status --porcelain -uall` in it first.
 
 ---
@@ -169,7 +182,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-02 (PRs #21–#34 merged; G107 pixel mascot on feat/mascot, PR #TBD; inbox redesign folded as G115/G116)._
+_Last synced: 2026-09-02 (PRs #21–#35 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #TBD; G118 (provenance) and G119 (Arc/Firefox/Brave) filed)._
 
 ---
 
@@ -235,6 +248,11 @@ trailers, Ghostty resume)
   `memory-evolution.md` for the per-row evidence
 
 **2026-09-02**
+- **Safari import track** (`feat/safari-import`, PR #TBD) — Safari iCloud tabs (device picker),
+  bookmark folder selection with tree preview (Reading List as its own folder), per-browser channels,
+  the app reads `~/Library` and posts bytes (the launchd backend never could), Full-Disk-Access fix
+  shown in place, and the `+` sheet re-layered into a logo-first family → member catalog with keyboard
+  navigation. Follow-up: G119 (Arc/Firefox/Brave).
 - **G109 phase 1** graph physics (PR #32) — alpha-scaled hub gravity, no reheat on release,
   `velocityDecay` 0.2 / `alphaMin` 0.001, per-isolate phyllotaxis slots, speed clamp; headless
   physics bench + test under `Tests/graph/`; numbers in the G109 row
@@ -299,6 +317,12 @@ trailers, Ghostty resume)
    in feature's clothing; steps 2–4 (compile → bundle → export) are Wave C — S
 
 ### Wave C · the north star's output half
+9b. **G118 full provenance** — spans (not copies) on every claim, the contributor's rationale as a
+    citable source, the prompt/turn that triggered every agent write, and a raw-source viewer with the
+    cited passage highlighted (NotebookLM, but bi-temporal and attributed). Owner-marked central to
+    the vision (2026-09-02). Slice 1 = span capture in Stage-1 + resolver; absorbs G100 — L
+9c. **G93 cross-stream ask** and **G105 deterministic capture** — moved up (owner, 2026-09-02): G105
+    is what makes every write have a cause; G93 is where citations become answers — M each
 10. **G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
     (G76, G77, G54 all assume it); zero LLM — M
 11. **G100** span citation — which *sentence* convinced the contributor, rendered in a

@@ -1222,10 +1222,17 @@ class BookmarkSyncRequest(CamelModel):
     # hermetic test payload and (when omitted entirely) a local-file sync.
     chrome_data_b64: Optional[str] = None
     safari_data_b64: Optional[str] = None
+    # R5 — exact folder-path prefixes at segment boundaries; "" = everything;
+    # omitted = everything (unchanged behaviour).
+    folders: Optional[list[str]] = None
 
 
 class BookmarkSyncSourceSummary(CamelModel):
     origin: str
+    # R4 — the `sync_state.json` key this source's sync stamped
+    # (`chrome-bookmarks` / `safari-bookmarks`), so the app can refresh
+    # exactly the channel row that changed.
+    channel: str = ""
     found: int = 0
     new: int = 0
     skipped: int = 0
@@ -1235,6 +1242,68 @@ class BookmarkSyncResponse(CamelModel):
     new: int
     skipped: int
     sources: list[BookmarkSyncSourceSummary] = []
+
+
+class BookmarkFolderNode(CamelModel):
+    """One folder in a bookmark tree: `count` includes every leaf beneath it."""
+
+    name: str
+    path: str
+    count: int = 0
+    children: list["BookmarkFolderNode"] = []
+
+
+class BookmarkTreeSource(CamelModel):
+    origin: str
+    total: int = 0
+    tree: BookmarkFolderNode
+
+
+class BookmarkTreePreview(CamelModel):
+    """`POST /sources/sync-bookmarks?preview=true` — folder trees, stages nothing."""
+
+    sources: list[BookmarkTreeSource] = []
+
+
+class SafariTabsSyncRequest(CamelModel):
+    """Bytes of Safari's CloudTabs.db, read by the app (R1) — plus the WAL
+    sidecar when one exists (R2) and an optional exact-name device filter."""
+
+    safari_tabs_db_b64: str
+    safari_tabs_wal_b64: Optional[str] = None
+    devices: Optional[list[str]] = None
+
+
+class SafariTabsDevice(CamelModel):
+    """One device in a CloudTabs.db, with its importable-tab count."""
+
+    name: str
+    count: int = 0
+
+
+class SafariTabsSelectedDevice(SafariTabsDevice):
+    """A device on a sync RESULT — the same row plus whether the request's
+    device filter included it. A separate model rather than an
+    ``Optional[bool]`` on the preview row: a preview has no selection yet,
+    and serializing ``selected: null`` there would make the app's decoder
+    carry a field that means nothing until the user has chosen."""
+
+    selected: bool
+
+
+class SafariTabsPreview(CamelModel):
+    """`POST /sources/sync-safari-tabs?preview=true` — per-device counts, stages nothing."""
+
+    total: int = 0
+    devices: list[SafariTabsDevice] = []
+    warnings: list[str] = []
+
+
+class SafariTabsSyncResponse(CamelModel):
+    new: int
+    skipped: int
+    seen: int = 0
+    devices: list[SafariTabsSelectedDevice] = []
 
 
 # --- Maintenance (G21 dedup sweep) ------------------------------------------

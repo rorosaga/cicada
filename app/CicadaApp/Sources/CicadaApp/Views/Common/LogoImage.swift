@@ -152,18 +152,37 @@ struct LogoImage: View {
     /// corrupt one `LogoImage`'s own decode falls back on) never renders
     /// blank.
     static func platformTile(name: String, size: CGFloat = 40, systemFallback: String = "app") -> some View {
-        PlatformTile(name: name, size: size, systemFallback: systemFallback)
+        PlatformTile<EmptyView>(name: name, size: size, systemFallback: systemFallback, glyph: nil)
+    }
+
+    /// Same tile with a DRAWN mark between the PNG and the SF Symbol (R7,
+    /// Task 4): a bundled PNG still wins — so the owner can switch a
+    /// browser to an official mark by dropping a file in and flipping its
+    /// `logoName` — then the glyph, then `systemFallback`. `glyph` receives
+    /// the mark size the PNG would have been drawn at, so a glyph and a PNG
+    /// sit identically inside the card.
+    static func platformTile<Glyph: View>(
+        name: String, size: CGFloat = 40, systemFallback: String = "app",
+        @ViewBuilder glyph: (CGFloat) -> Glyph
+    ) -> some View {
+        PlatformTile(name: name, size: size, systemFallback: systemFallback,
+                     glyph: glyph(PlatformTile<Glyph>.markSize(for: size)))
     }
 }
 
-private struct PlatformTile: View {
+private struct PlatformTile<Glyph: View>: View {
     let name: String
     let size: CGFloat
     let systemFallback: String
+    /// A drawn mark used only when no bundled PNG exists under `name`;
+    /// `nil` falls through to `systemFallback`.
+    let glyph: Glyph?
 
     /// 8pt at the reference 40pt size, scaling proportionally either way.
     private var cornerRadius: CGFloat { size * 0.2 }
-    private var markSize: CGFloat { size * 0.6 }
+    private var markSize: CGFloat { Self.markSize(for: size) }
+
+    static func markSize(for size: CGFloat) -> CGFloat { size * 0.6 }
 
     var body: some View {
         ZStack {
@@ -174,6 +193,8 @@ private struct PlatformTile: View {
             if LogoImage.exists(name: name) {
                 LogoImage(name: name, size: markSize)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius * 0.5))
+            } else if let glyph {
+                glyph
             } else {
                 Image(systemName: systemFallback)
                     .font(.system(size: size * 0.42, weight: .medium))
