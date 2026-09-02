@@ -13,7 +13,7 @@ against the live bank the same day (iPhone tabs: 188 new / 9 skipped; the big Fa
 0 new / 496 skipped — the idempotency proof). Until each browser
 row syncs on its own, `chrome-bookmarks` / `safari-bookmarks` both read the legacy `bookmarks` count.
 
-**Merged to `dev`:** PRs #21–#35. **Open:** `feat/mascot` (G107, PR #36 — fill in once opened).
+**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`). **No open PRs.** `feat/link-summaries` (G102 backfill) is paused mid-task with part 1 committed.
 The big one is **#25 — the agent engine (G74a)**: Sleep can now run on the user's Claude Max plan
 via `claude -p`, after ~2.5 months with no engine.
 Also #24, the **correctness gate**, which fixed decay (see rulings below), #23's app fixes, #26's
@@ -182,7 +182,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-02 (PRs #21–#35 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed)._
+_Last synced: 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed)._
 
 ---
 
@@ -387,3 +387,5 @@ the report for what was checked)*
 - Bank `.git` is 69 MB against 16 MB of markdown — future growth stopped, **history not rewritten**
   (destructive; user's call)
 - 8 date-dependent `test_calendar_registry.py` failures — pre-existing baseline on dev
+- `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` fails when run
+  with its own file, passes alone — order-dependent, pre-existing (seen 2026-09-02 on plain dev)
