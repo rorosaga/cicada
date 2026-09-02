@@ -51,6 +51,13 @@ struct GraphView: NSViewRepresentable {
             webView.evaluateJavaScript("setPanToggle(\(viewModel.panModeOn))", completionHandler: nil)
         }
 
+        // Quiet the hover highlight while the entity detail card is open.
+        let cardOpen = viewModel.selectedEntity != nil
+        if viewModel.isGraphReady, context.coordinator.lastHoverSuppressed != cardOpen {
+            context.coordinator.lastHoverSuppressed = cardOpen
+            webView.evaluateJavaScript("setHoverSuppressed(\(cardOpen))", completionHandler: nil)
+        }
+
         // Handle zoom actions from Swift UI
         if let action = viewModel.zoomAction {
             let jsCall: String
@@ -118,6 +125,7 @@ struct GraphView: NSViewRepresentable {
 
     class Coordinator: NSObject, WKScriptMessageHandler {
         var lastPanMode = false
+        var lastHoverSuppressed = false
         let viewModel: GraphViewModel
         var webView: WKWebView?
         var isGraphReady = false

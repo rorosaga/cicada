@@ -214,6 +214,16 @@ let hoveredNode = null;
 // the node: the drag branch in onMouseMove/onMouseUp runs untouched.
 let panModifierHeld = false;
 let panToggled = false;         // toolbar toggle (Swift → setPanToggle); sticky twin of Shift
+// Hover is suppressed while the entity detail card is open (owner, 2026-09-03:
+// "as I move my cursor it still highlights the nodes while an entity page is
+// open"). Swift mirrors `selectedEntity != nil` here; clicks still work so a
+// second node can be selected, only the hover pick is quiet.
+let hoverSuppressed = false;
+function setHoverSuppressed(on) {
+    hoverSuppressed = !!on;
+    if (hoverSuppressed && hoveredNode) { hoveredNode = null; scheduleRedraw(); }
+    if (hoverSuppressed && canvas && !panModifierHeld) canvas.style.cursor = "";
+}
 function setPanToggle(on) {
     panToggled = !!on;
     setPanMode(panToggled);
@@ -1656,6 +1666,10 @@ function onMouseMove(event) {
 
     // Hover pick. Only swap hoveredNode if it actually changed so we don't
     // spam redraws on every pixel of mouse movement.
+    if (hoverSuppressed) {
+        if (hoveredNode) { hoveredNode = null; scheduleRedraw(); }
+        return;
+    }
     const picked = pickNode(sx, sy);
     if (picked !== hoveredNode) {
         hoveredNode = picked;
