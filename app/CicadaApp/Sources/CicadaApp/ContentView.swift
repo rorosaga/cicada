@@ -217,7 +217,10 @@ struct GraphContainerView: View {
             VStack {
                 HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                        BankSwitcher(banksVM: banksVM)
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            BankSwitcher(banksVM: banksVM)
+                            GraphSearchField()
+                        }
                         ObserverFilterBar()
                     }
                     .padding(CicadaTheme.spacingLG)
@@ -484,5 +487,105 @@ private struct ZoomButton: View {
         .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
+    }
+}
+
+// MARK: - Graph node search (G123)
+
+/// A small typeahead over the graph snapshot: ⌘F focuses it, ↑/↓ move, ⏎
+/// zooms to the node's neighbourhood and opens its card, Esc clears. Matching
+/// is local (`GraphViewModel.searchMatches`) — no request per keystroke.
+struct GraphSearchField: View {
+    @Environment(GraphViewModel.self) private var graphVM
+    @State private var query = ""
+    @State private var highlighted = 0
+    @FocusState private var focused: Bool
+
+    private var matches: [GraphNode] { graphVM.searchMatches(query) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                TextField("Find a node", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .focused($focused)
+                    .frame(width: 160)
+                    .onSubmit { pick(highlighted) }
+                    .onKeyPress(.downArrow) { move(1); return .handled }
+                    .onKeyPress(.upArrow) { move(-1); return .handled }
+                    .onKeyPress(.escape) { clear(); return .handled }
+                    .onChange(of: query) { _, _ in highlighted = 0 }
+                if !query.isEmpty {
+                    Button { clear() } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            }
+            .padding(.horizontal, CicadaTheme.spacingSM)
+            .padding(.vertical, 6)
+            .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            // ⌘F from anywhere on the page focuses the field.
+            .background(
+                Button("") { focused = true }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+            )
+
+            if focused, !query.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    if matches.isEmpty {
+                        Text("No node matches")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .padding(.horizontal, CicadaTheme.spacingSM)
+                            .padding(.vertical, 6)
+                    }
+                    ForEach(Array(matches.enumerated()), id: \.element.id) { index, node in
+                        HStack(spacing: CicadaTheme.spacingXS) {
+                            Circle().fill(CicadaTheme.entityColor(for: node.type)).frame(width: 7, height: 7)
+                            Text(node.name).font(.system(size: 12)).lineLimit(1)
+                            Spacer(minLength: 0)
+                            Text(node.type.rawValue)
+                                .font(.system(size: 10))
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                        }
+                        .padding(.horizontal, CicadaTheme.spacingSM)
+                        .padding(.vertical, 5)
+                        .background(index == highlighted ? CicadaTheme.surfaceHover : .clear)
+                        .contentShape(Rectangle())
+                        .onTapGesture { pick(index) }
+                    }
+                }
+                .frame(width: 220)
+                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .padding(.top, 4)
+            }
+        }
+    }
+
+    private func move(_ delta: Int) {
+        let count = matches.count
+        guard count > 0 else { return }
+        highlighted = (highlighted + delta + count) % count
+    }
+
+    private func pick(_ index: Int) {
+        let list = matches
+        guard list.indices.contains(index) else { return }
+        graphVM.revealEntity(id: list[index].id)
+        clear()
+    }
+
+    private func clear() {
+        query = ""
+        highlighted = 0
+        focused = false
     }
 }

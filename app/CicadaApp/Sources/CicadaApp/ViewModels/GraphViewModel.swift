@@ -57,6 +57,9 @@ final class GraphViewModel {
     /// Sticky pan mode from the toolbar toggle; `GraphView.updateNSView` mirrors
     /// it into graph.js (`setPanToggle`). Holding Shift is the momentary twin.
     var panModeOn = false
+    /// G123: a node id the web view should land on (zoom to its neighbourhood)
+    /// on the next update; consumed by `GraphView.updateNSView`.
+    var pendingReveal: String?
     var showFilterPopover = false
     var pendingFilterUpdate = false
     /// Flips true whenever a fresh graph snapshot lands (initial load, a
@@ -412,6 +415,44 @@ final class GraphViewModel {
     func selectEntity(id: String) {
         navHistory.reset()
         applySelection(id: id)
+    }
+
+    /// G123: the search field's ⏎ — zoom the graph to the node's neighbourhood
+    /// and open its card. Same seam an Ask citation or an Activity chip could
+    /// use to land on a node instead of only opening the card.
+    func revealEntity(id: String) {
+        pendingReveal = id
+        selectEntity(id: id)
+    }
+
+    /// Typeahead over the graph snapshot already in memory — no request per
+    /// keystroke. Prefix and word-start matches on the name, ranked by where
+    /// the match starts, then by degree (busier nodes first), then name.
+    func searchMatches(_ query: String, limit: Int = 8) -> [GraphNode] {
+        let ids = Self.rankNames(nodes.map { ($0.id, $0.name, $0.degree) }, query: query, limit: limit)
+        let byId = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+        return ids.compactMap { byId[$0] }
+    }
+
+    nonisolated static func rankNames(_ items: [(id: String, name: String, degree: Int)], query: String, limit: Int = 8) -> [String] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return [] }
+        var scored: [(id: String, rank: Int, degree: Int, name: String)] = []
+        for item in items {
+            let name = item.name.lowercased()
+            let rank: Int
+            if name.hasPrefix(q) { rank = 0 }
+            else if name.split(separator: " ").contains(where: { $0.hasPrefix(q) }) { rank = 1 }
+            else if name.contains(q) { rank = 2 }
+            else { continue }
+            scored.append((item.id, rank, item.degree, name))
+        }
+        scored.sort { a, b in
+            if a.rank != b.rank { return a.rank < b.rank }
+            if a.degree != b.degree { return a.degree > b.degree }
+            return a.name < b.name
+        }
+        return Array(scored.prefix(limit)).map(\.id)
     }
 
     /// Navigate DEEPER from within an already-open card — a wikilink tap, a

@@ -1131,6 +1131,33 @@ function highlightSearch(idsStr) {
     scheduleRedraw();
 }
 
+// G123: land the viewport on a node and its neighbourhood — the search
+// field's ⏎, and the seam Ask citations / Activity chips reveal through.
+// Moves only the zoom transform; the simulation is never reheated (G109 rule).
+// Returns false when the node is not in the visible set (hidden by a filter),
+// so the caller can say so instead of silently doing nothing.
+function revealNode(id) {
+    const n = visibleNodes.find(x => x.id === id);
+    if (!n || n.x == null) return false;
+    const nb = neighborsById.get(id) || new Set();
+    const group = [n];
+    for (const m of visibleNodes) {
+        if (nb.has(m.id)) group.push(m);
+        if (group.length >= 40) break;
+    }
+    const fit = transformForNodes(group, 80);
+    // Readable scale, centred on the node itself so the eye lands on it.
+    const k = Math.min(MAX_ZOOM, Math.max(1.0, fit ? fit.k : 1.6));
+    const t = d3.zoomIdentity.translate(width / 2, height / 2).scale(k).translate(-n.x, -n.y);
+    if (currentZoom) {
+        d3.select(canvas).transition().duration(450).call(currentZoom.transform, t);
+    } else {
+        transform = t;   // headless (no zoom behaviour attached): apply directly
+    }
+    scheduleRedraw();
+    return true;
+}
+
 function focusOnNode(id) {
     const n = visibleNodes.find(x => x.id === id) || nodes.find(x => x.id === id);
     if (!n || n.x == null) return;

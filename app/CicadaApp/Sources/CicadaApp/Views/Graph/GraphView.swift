@@ -58,6 +58,14 @@ struct GraphView: NSViewRepresentable {
             webView.evaluateJavaScript("setHoverSuppressed(\(cardOpen))", completionHandler: nil)
         }
 
+        // G123: land on a searched node. JSON-encode the id so a quote in a
+        // slug can never break out of the call.
+        if viewModel.isGraphReady, let id = viewModel.pendingReveal,
+           let data = try? JSONEncoder().encode(id), let quoted = String(data: data, encoding: .utf8) {
+            webView.evaluateJavaScript("revealNode(\(quoted))", completionHandler: nil)
+            DispatchQueue.main.async { self.viewModel.pendingReveal = nil }
+        }
+
         // Handle zoom actions from Swift UI
         if let action = viewModel.zoomAction {
             let jsCall: String
