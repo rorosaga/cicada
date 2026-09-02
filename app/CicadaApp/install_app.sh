@@ -86,6 +86,15 @@ step "Staging to ${STAGING}…"
 ditto "$SRC" "$STAGING"
 ok "Staged ($CONFIG build)"
 
+# Strip extended attributes first. Files under Sources/CicadaApp/Resources pick up
+# `com.apple.provenance` (and, after a Finder round-trip, FinderInfo/resource forks)
+# on this machine; `ditto` preserves them into the nested resource bundle and
+# codesign then refuses with "resource fork, Finder information, or similar
+# detritus not allowed" (seen for real on 2026-09-02, G109's graph.js edit).
+# The attributes carry nothing the app needs, so clearing them on the staged
+# copy — never on the source tree — is the whole fix.
+xattr -cr "$STAGING" 2>/dev/null || true
+
 step "Ad-hoc code-signing the staged build…"
 if ! codesign --force --deep --sign - "$STAGING"; then
   err "Code-signing failed on the staged build."
