@@ -170,7 +170,8 @@ struct ConnectedChannelRow: View {
         switch id {
         case "rss": "dot.radiowaves.up.forward"
         case "calendar": "calendar"
-        case "bookmarks": "globe"
+        case "chrome-bookmarks": "globe"
+        case "safari-bookmarks", "safari-tabs": "safari"
         case "notes": "note.text"
         case "telegram": "paperplane.fill"
         case "chat-export:claude", "chat-export:chatgpt": "bubble.left.and.bubble.right"
@@ -186,7 +187,9 @@ struct ConnectedChannelRow: View {
         switch id {
         case "rss": Color(hex: 0xEE802F)
         case "calendar": Color(hex: 0xFF3B30)
-        case "bookmarks": Color(hex: 0x4285F4)
+        // R4 — one row per browser, tinted like its `OriginIconography` origin.
+        case "chrome-bookmarks": Color(hex: 0x4285F4)
+        case "safari-bookmarks", "safari-tabs": Color(hex: 0x00A2E8)
         case "notes": Color(hex: 0xFFCC00)
         case "telegram": Color(hex: 0x26A5E4)
         case "chat-export:claude", "chat-export:chatgpt": CicadaTheme.accent

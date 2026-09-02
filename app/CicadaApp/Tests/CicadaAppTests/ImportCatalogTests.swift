@@ -23,7 +23,8 @@ final class ImportCatalogTests: XCTestCase {
     }
 
     func testLocalAndSubscriptionRoutesKeepTheirOwnVerbs() {
-        XCTAssertEqual(AddSourceTile.browserBookmarks.route, .sync)
+        XCTAssertEqual(AddSourceTile.safari.route, .sync)
+        XCTAssertEqual(AddSourceTile.chrome.route, .sync)
         XCTAssertEqual(AddSourceTile.appleNotes.route, .sync)
         XCTAssertEqual(AddSourceTile.rssFeed.route, .subscribe)
         XCTAssertEqual(AddSourceTile.calendar.route, .subscribe)
@@ -121,7 +122,7 @@ final class ImportCatalogTests: XCTestCase {
     func testEveryPlatformInTheSpecHasATile() {
         let ids = Set(AddSourceTile.allCases.map(\.rawValue))
         for expected in ["instagram", "youtube", "pinterest", "reddit", "tiktok",
-                         "linkedin", "x", "browserBookmarks", "appleNotes", "rssFeed",
+                         "linkedin", "x", "safari", "chrome", "appleNotes", "rssFeed",
                          "calendar", "telegram", "pasteLink", "bookmarksFile"] {
             XCTAssertTrue(ids.contains(expected), "missing tile: \(expected)")
         }
@@ -129,6 +130,20 @@ final class ImportCatalogTests: XCTestCase {
 
     func testTheRetiredCombinedTileIsGone() {
         XCTAssertNil(AddSourceTile(rawValue: "savedContent"))
+        // R6 — the combined two-browser bookmarks tile split into one tile
+        // per browser; the catalog has no room for a shared row.
+        XCTAssertNil(AddSourceTile(rawValue: "browserBookmarks"))
+    }
+
+    /// R4/R6 — each browser tile owns exactly its own channel rows, and the
+    /// two Safari rows both "Manage…" from the Safari tile.
+    func testBrowserTilesOwnTheirSplitChannels() {
+        XCTAssertEqual(AddSourceTile.safari.channelIds, ["safari-bookmarks", "safari-tabs"])
+        XCTAssertEqual(AddSourceTile.chrome.channelIds, ["chrome-bookmarks"])
+        XCTAssertEqual(AddSourceTile.forChannel("safari-tabs"), .safari)
+        XCTAssertEqual(AddSourceTile.forChannel("safari-bookmarks"), .safari)
+        XCTAssertEqual(AddSourceTile.forChannel("chrome-bookmarks"), .chrome)
+        XCTAssertNil(AddSourceTile.forChannel("bookmarks"), "the legacy combined id is a backend read-time fallback, never a tile")
     }
 
     // MARK: - Logos (Task 13)
@@ -163,13 +178,15 @@ final class ImportCatalogTests: XCTestCase {
         }
     }
 
-    /// Chrome/Safari (combined under one tile), Apple Notes, RSS, and Calendar
-    /// have no single sensible brand mark and deliberately kept their SF
-    /// Symbol (Task 13 controller amendment) — same for the non-platform rows
-    /// (chat export's two vendors, a local file pick, pasting a link).
+    /// Apple Notes, RSS, and Calendar have no single sensible brand mark and
+    /// deliberately kept their SF Symbol (Task 13 controller amendment) —
+    /// same for the non-platform rows (chat export's two vendors, a local
+    /// file pick, pasting a link). Safari and Chrome declare no PNG either:
+    /// their marks are drawn (R7 — `brandGlyph`, Task 4), so `logoName`
+    /// stays nil until the owner drops an official PNG in.
     func testNonBrandedTilesDeclareNoLogo() {
         for tile in [AddSourceTile.chatExport, .bookmarksFile, .pasteLink, .rssFeed,
-                     .calendar, .browserBookmarks, .appleNotes] {
+                     .calendar, .safari, .chrome, .appleNotes] {
             XCTAssertNil(tile.logoName, tile.rawValue)
         }
     }

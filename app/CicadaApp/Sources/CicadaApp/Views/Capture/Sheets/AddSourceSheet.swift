@@ -12,7 +12,11 @@ import UniformTypeIdentifiers
 /// current rows with remove buttons.
 enum AddSourceTile: String, CaseIterable, Identifiable {
     case chatExport, bookmarksFile, pasteLink, rssFeed, calendar
-    case browserBookmarks, appleNotes, telegram
+    // R6 — one tile per browser (was a combined `browserBookmarks`): the
+    // catalog gives every browser its own mark, and a channel must map to
+    // exactly one tile, so a shared "Chrome & Safari" row could no longer
+    // own the split `chrome-bookmarks` / `safari-bookmarks` channels (R4).
+    case safari, chrome, appleNotes, telegram
     // G71 §4.1 — one tile per platform, replacing the combined `savedContent`
     // tile: the routes differ (two are Connect, four are Import file) and a
     // single "Instagram & YouTube" tile could not carry a route badge.
@@ -27,7 +31,7 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     var route: ImportRoute {
         switch self {
         case .pinterest, .reddit, .x: return .connect
-        case .browserBookmarks, .appleNotes: return .sync
+        case .safari, .chrome, .appleNotes: return .sync
         case .rssFeed, .calendar: return .subscribe
         case .pasteLink: return .paste
         case .telegram: return .connect
@@ -43,7 +47,8 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .pasteLink: "Paste a link"
         case .rssFeed: "RSS feed"
         case .calendar: "Calendar"
-        case .browserBookmarks: "Chrome & Safari bookmarks"
+        case .safari: "Safari"
+        case .chrome: "Chrome"
         case .appleNotes: "Apple Notes"
         case .telegram: "Telegram bot"
         case .instagram: "Instagram"
@@ -63,7 +68,8 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .pasteLink: "One URL, saved and enriched right now."
         case .rssFeed: "A blog or Substack Cicada checks for new posts."
         case .calendar: "A webcal/ICS URL — events become episodes."
-        case .browserBookmarks: "Read straight off this Mac. No login, no OAuth."
+        case .safari: "Bookmarks by folder, Reading List, and every tab open on your iPhone."
+        case .chrome: "Bookmarks by folder, read straight off this Mac."
         case .appleNotes: "One-way import from your local Notes library."
         case .telegram: "Forward links and voice notes to your own bot."
         case .instagram: "Your saved posts, from a data export."
@@ -83,7 +89,8 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .pasteLink: "link"
         case .rssFeed: "dot.radiowaves.up.forward"
         case .calendar: "calendar"
-        case .browserBookmarks: "globe"
+        case .safari: "safari"
+        case .chrome: "globe"
         case .appleNotes: "note.text"
         case .telegram: "paperplane.fill"
         case .instagram: "camera.fill"
@@ -100,11 +107,16 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     ///
     /// Chat export owns **both** export channels — its walkthrough picker is
     /// where the user chooses Claude or ChatGPT, so one tile covers two rows.
+    /// Safari likewise owns both of its rows (`safari-bookmarks`,
+    /// `safari-tabs`): its panel is where the user picks bookmarks or
+    /// iCloud tabs, so "Manage…" on either row lands on the same tile (R4).
     /// `pasteLink` owns none: it is an alternative route into `files`, which
     /// `bookmarksFile` already claims. The four Import-file platform tiles
     /// (Instagram, YouTube, TikTok, LinkedIn) also own none — none of them
     /// has a persisted backend channel yet — and a channel must map back to
-    /// exactly one tile for "Manage…" to be unambiguous.
+    /// exactly one tile for "Manage…" to be unambiguous. The legacy combined
+    /// `bookmarks` id is a backend read-time fallback only and is claimed
+    /// by no tile.
     var channelIds: [String] {
         switch self {
         case .chatExport: ["chat-export:claude", "chat-export:chatgpt"]
@@ -112,7 +124,8 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .pasteLink: []
         case .rssFeed: ["rss"]
         case .calendar: ["calendar"]
-        case .browserBookmarks: ["bookmarks"]
+        case .safari: ["safari-bookmarks", "safari-tabs"]
+        case .chrome: ["chrome-bookmarks"]
         case .appleNotes: ["notes"]
         case .telegram: ["telegram"]
         case .pinterest: ["pinterest"]
@@ -127,9 +140,12 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     /// The bundled brand-mark PNG for this tile (Task 13), when the
     /// maintainers fetched one — `nil` for a tile whose row isn't a single
     /// platform's logo: multi-vendor exports, local file/paste actions, or a
-    /// platform GROUP with no single brand mark (Chrome+Safari together,
-    /// Apple Notes, RSS, Calendar all kept their SF Symbol — no sensible
-    /// single logo exists for any of them).
+    /// row with no single brand mark (Apple Notes, RSS, Calendar all kept
+    /// their SF Symbol — no sensible single logo exists for any of them).
+    /// Safari and Chrome are `nil` too: their marks are DRAWN (R7 —
+    /// `brandGlyph`, Task 4), not downloaded; the owner can drop
+    /// `Resources/logos/safari.png` / `chrome.png` in and flip these two to
+    /// prefer the PNG.
     var logoName: String? {
         switch self {
         case .instagram: "instagram"
@@ -141,7 +157,7 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .x: "x"
         case .telegram: "telegram"
         case .chatExport, .bookmarksFile, .pasteLink, .rssFeed, .calendar,
-             .browserBookmarks, .appleNotes:
+             .safari, .chrome, .appleNotes:
             nil
         }
     }
@@ -422,14 +438,13 @@ struct AddSourceSheet: View {
             case .calendar:
                 textFlow(placeholder: "webcal://… or https://…/calendar.ics", text: $calendarText, action: "Subscribe") { await subscribeCalendar() }
                 calendarList
-            case .browserBookmarks:
-                Text("Cicada reads the Chrome and Safari bookmark files on this Mac directly. Only URLs it hasn't seen become new episodes.")
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                Button("Sync now") { Task { await syncBookmarks() } }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(busy)
-                    .accessibilityLabel("Sync Chrome and Safari bookmarks now")
+            // R1 — the panels read the browser files themselves and POST the
+            // bytes; the sheet's old "Sync now" sent nothing and left the
+            // launchd backend (no Full Disk Access) to silently sync nothing.
+            case .safari:
+                SafariImportPanel()
+            case .chrome:
+                BookmarkFolderPanel(browser: .chrome)
             case .appleNotes:
                 Text("One-way import from Notes.app. The first sync asks macOS for automation access — allow it once.")
                     .font(CicadaTheme.bodyFont)
@@ -569,14 +584,6 @@ struct AddSourceSheet: View {
         calendarText = ok ? "" : calendarText
         busy = false
         if ok { await finish("Subscribed — events arrive on the next poll") } else { result = nil; error = store.toast }
-    }
-
-    private func syncBookmarks() async {
-        busy = true
-        do {
-            let r = try await APIClient.shared.syncBookmarks()
-            await finish("\(r.new) new · \(r.skipped) already saved")
-        } catch { fail(error) }
     }
 
     private func syncNotes() async {

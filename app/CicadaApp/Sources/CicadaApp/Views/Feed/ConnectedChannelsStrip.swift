@@ -132,7 +132,7 @@ struct ConnectedChannelsStrip: View {
         feedback[channel.id] = nil
         switch action {
         case "poll": Task { await run(channel) { try await Self.poll(channel) } }
-        case "sync": Task { await run(channel) { try await Self.sync(channel) } }
+        case "sync": Task { await run(channel) { try await Self.sync(channel, store: store) } }
         default: onManage(AddSourceTile.forChannel(channel.id))
         }
     }
@@ -160,12 +160,17 @@ struct ConnectedChannelsStrip: View {
         return r.skippedNoNetwork > 0 ? Self.fetchDisabledHint : "\(r.new) new item(s)"
     }
 
-    private static func sync(_ channel: SourceChannel) async throws -> String {
+    /// Notes syncs server-side (osascript runs where the backend does); the
+    /// three browser rows read their files HERE and post bytes (R1) — the
+    /// old body-less `syncBookmarks()` left the launchd backend, which has
+    /// no Full Disk Access, to silently sync nothing. A read failure
+    /// surfaces as the row's feedback with the Full Disk Access fix (R9).
+    @MainActor
+    private static func sync(_ channel: SourceChannel, store: Store) async throws -> String {
         if channel.id == "notes" {
             let r = try await APIClient.shared.syncNotes()
             return "\(r.new) new · \(r.skipped) unchanged"
         }
-        let r = try await APIClient.shared.syncBookmarks()
-        return "\(r.new) new · \(r.skipped) already saved"
+        return try await BrowserImportActions.syncChannel(channel.id, store: store)
     }
 }

@@ -11,7 +11,7 @@ final class SourceChannelTests: XCTestCase {
        "actions":["poll","manage"]},
       {"id":"calendar","label":"Calendars","connected":false,"count":0,
        "lastSync":null,"detail":null,"actions":["poll","manage"]},
-      {"id":"bookmarks","label":"Chrome & Safari bookmarks","connected":true,"count":412,
+      {"id":"chrome-bookmarks","label":"Chrome bookmarks","connected":true,"count":412,
        "lastSync":"2026-08-29T10:00:00Z","detail":"412 bookmarks · synced 2026-08-29",
        "actions":["sync"]},
       {"id":"telegram","label":"Telegram bot","connected":true,
@@ -48,7 +48,7 @@ final class SourceChannelTests: XCTestCase {
     /// with a null lastSync sorting last and ties broken by label.
     func testSortedConnectedDropsDisconnectedAndOrdersByLastSyncDesc() throws {
         let sorted = SourceChannel.sortedConnected(try decoded())
-        XCTAssertEqual(sorted.map(\.id), ["rss", "bookmarks", "telegram"])
+        XCTAssertEqual(sorted.map(\.id), ["rss", "chrome-bookmarks", "telegram"])
     }
 
     func testChannelsRoundTripThroughTheSnapshotCache() async throws {
@@ -68,10 +68,13 @@ final class SourceChannelTests: XCTestCase {
 /// appears, "Manage…" opens nothing).
 final class AddSourceCatalogTests: XCTestCase {
 
-    /// Mirrors api/services/channel_registry.py::CHANNEL_IDS.
+    /// Mirrors api/services/channel_registry.py::CHANNEL_IDS — the eight
+    /// non-connector ids plus the three `ADAPTERS` (R4 split the combined
+    /// `bookmarks` row into one per browser, and added `safari-tabs`).
     private static let backendChannelIds: Set<String> = [
-        "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
-        "rss", "calendar", "pinterest", "reddit", "telegram", "files",
+        "chat-export:claude", "chat-export:chatgpt",
+        "chrome-bookmarks", "safari-bookmarks", "safari-tabs", "notes",
+        "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
     ]
 
     func testEveryBackendChannelHasATile() {

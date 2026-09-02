@@ -299,9 +299,13 @@ struct SourceSaveResult: Codable {
 }
 
 /// One source's tally from `POST /sources/sync-bookmarks` (`origin` is
-/// "chrome" or "safari").
+/// `chrome-bookmark` or `safari-bookmark`). `channel` (R4) is the
+/// `sync_state.json` key that sync stamped — `chrome-bookmarks` /
+/// `safari-bookmarks` — optional so a backend from before the split still
+/// decodes.
 struct BookmarkSyncSourceSummary: Codable {
     let origin: String
+    let channel: String?
     let found: Int
     let new: Int
     let skipped: Int
@@ -1409,20 +1413,34 @@ actor APIClient {
         return try await post("/sources/save", body: body)
     }
 
-    /// Keyless bookmark sync (`POST /sources/sync-bookmarks`). Called with no
-    /// arguments, it reads the real local Chrome/Safari bookmark files
-    /// (`bookmark_sync.sync_from_local_files`) — the Capture page's
-    /// "Sync bookmarks now" action. Passing base64 data instead syncs against
-    /// that inline payload (a future file-picker flow / what the backend tests
-    /// use). The dedup diff is the same `url_index.json` hash check every
-    /// other source path uses, so already-saved bookmarks come back as
-    /// `skipped`, not re-ingested.
+    /// Keyless bookmark sync (`POST /sources/sync-bookmarks`). The app always
+    /// passes the bytes it read itself (R1 — `BrowserFileReader`): the
+    /// launchd backend has no Full Disk Access, so the body-less form, which
+    /// makes the backend try the local files (`bookmark_sync
+    /// .sync_from_local_files`), silently synced nothing and is now only a
+    /// `curl`/test convenience. `folders` (R5) narrows the sync to those
+    /// folder-path prefixes; nil sends no key and is byte-identical to the
+    /// pre-existing everything sync. The dedup diff is the same
+    /// `url_index.json` hash check every other source path uses, so
+    /// already-saved bookmarks come back as `skipped`, not re-ingested.
     @discardableResult
-    func syncBookmarks(chromeData: Data? = nil, safariData: Data? = nil) async throws -> BookmarkSyncResult {
+    func syncBookmarks(chromeData: Data? = nil, safariData: Data? = nil,
+                       folders: [String]? = nil) async throws -> BookmarkSyncResult {
         var body: [String: Any] = [:]
         if let chromeData { body["chromeDataB64"] = chromeData.base64EncodedString() }
         if let safariData { body["safariDataB64"] = safariData.base64EncodedString() }
+        if let folders { body["folders"] = folders }
         return try await post("/sources/sync-bookmarks", body: body.isEmpty ? nil : body)
+    }
+
+    /// `POST /sources/sync-safari-tabs` — CloudTabs.db bytes the app read,
+    /// plus the WAL sidecar when one exists (R2) and an exact-name device
+    /// filter (nil = every device).
+    func syncSafariTabs(db: Data, wal: Data?, devices: [String]?) async throws -> SafariTabsSyncResult {
+        var body: [String: Any] = ["safariTabsDbB64": db.base64EncodedString()]
+        if let wal { body["safariTabsWalB64"] = wal.base64EncodedString() }
+        if let devices { body["devices"] = devices }
+        return try await post("/sources/sync-safari-tabs", body: body)
     }
 
     /// One-way Apple Notes sync (`POST /sources/sync-notes`). Mirrors
@@ -1553,6 +1571,24 @@ actor APIClient {
     func previewSource(fileURL: URL, includeHistory: Bool = false) async throws -> UploadPreview {
         let query = includeHistory ? "?preview=true&include_history=true" : "?preview=true"
         return try await uploadMultipart(path: "/sources/upload" + query, fileURL: fileURL)
+    }
+
+    /// `POST /sources/sync-safari-tabs?preview=true` — per-device tab counts
+    /// from bytes the app read (R1). Stages nothing; the import re-posts the
+    /// same bytes, so nothing is cached server-side between the two.
+    func previewSafariTabs(db: Data, wal: Data?) async throws -> SafariTabsPreview {
+        var body: [String: Any] = ["safariTabsDbB64": db.base64EncodedString()]
+        if let wal { body["safariTabsWalB64"] = wal.base64EncodedString() }
+        return try await post("/sources/sync-safari-tabs?preview=true", body: body)
+    }
+
+    /// `POST /sources/sync-bookmarks?preview=true` — folder trees with leaf
+    /// counts (R5). Stages nothing.
+    func previewBookmarks(chromeData: Data?, safariData: Data?) async throws -> BookmarkTreePreview {
+        var body: [String: Any] = [:]
+        if let chromeData { body["chromeDataB64"] = chromeData.base64EncodedString() }
+        if let safariData { body["safariDataB64"] = safariData.base64EncodedString() }
+        return try await post("/sources/sync-bookmarks?preview=true", body: body)
     }
 
     /// Convenience: upload several source files, aggregating the counts.
