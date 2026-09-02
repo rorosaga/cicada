@@ -26,17 +26,17 @@ final class FeedChannelStripTests: XCTestCase {
             channel("telegram", connected: true, lastSync: nil),
             channel("rss", connected: true, lastSync: "2026-08-30T10:00:00Z"),
             channel("notes", connected: false, lastSync: "2026-08-31T10:00:00Z"),
-            channel("bookmarks", connected: true, lastSync: "2026-08-31T10:00:00Z"),
+            channel("chrome-bookmarks", connected: true, lastSync: "2026-08-31T10:00:00Z"),
         ]
         XCTAssertEqual(SourceChannel.sortedConnected(channels).map(\.id),
-                       ["bookmarks", "rss", "telegram"])
+                       ["chrome-bookmarks", "rss", "telegram"])
     }
 
     /// "Manage…" on a row must resolve to the tile that owns that channel, or
     /// the sheet opens on the grid.
     func testManageResolvesEveryConnectedChannelToATile() {
-        for id in ["rss", "calendar", "bookmarks", "notes", "telegram",
-                   "chat-export:claude", "chat-export:chatgpt", "files"] {
+        for id in ["rss", "calendar", "chrome-bookmarks", "safari-bookmarks", "safari-tabs",
+                   "notes", "telegram", "chat-export:claude", "chat-export:chatgpt", "files"] {
             XCTAssertNotNil(AddSourceTile.forChannel(id), id)
         }
     }

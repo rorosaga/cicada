@@ -1,9 +1,9 @@
-"""Normalize the "when did the user actually save this" formats the five
+"""Normalize the "when did the user actually save this" formats the
 ``media_ingestor`` parsers hand back (Netscape ``add_date``, Chrome
-``date_added``, Google Takeout ``time``, TikTok's export ``Date``, and
-LinkedIn's free-form saved-date column) into one consistent shape: an ISO
-``YYYY-MM-DD`` date string, or ``None`` when the source value can't be
-trusted.
+``date_added``, Google Takeout ``time``, TikTok's export ``Date``,
+LinkedIn's free-form saved-date column, and — via ``safari_tabs`` — Safari's
+Core Data timestamps) into one consistent shape: an ISO ``YYYY-MM-DD`` date
+string, or ``None`` when the source value can't be trusted.
 
 G99d: ``RawItem.added`` was populated by all five parsers and read by
 nothing, so every ingested item recorded only its *ingest* timestamp — this
@@ -77,6 +77,28 @@ def _epoch_seconds_to_iso_date(seconds: float) -> str | None:
     except (OverflowError, OSError, ValueError):
         return None
     return _sane_iso_date(dt)
+
+
+# Core Data / CFAbsoluteTime epoch: seconds since 2001-01-01T00:00:00Z. Safari's
+# SQLite stores (CloudTabs.db, History.db) stamp REAL columns in this epoch,
+# not the Unix one.
+COCOA_EPOCH_OFFSET = 978_307_200.0
+
+
+def from_cocoa_seconds(raw: object) -> str | None:
+    """Core Data seconds -> ``YYYY-MM-DD``; ``None`` for anything unusable.
+
+    Same contract as the sibling converters (G99d): the parser normalises at
+    parse time and never carries a raw value downstream. ``<= 0`` is treated
+    as "unset" — Safari writes 0 for a column it never populated.
+    """
+    try:
+        seconds = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if seconds <= 0:
+        return None
+    return _epoch_seconds_to_iso_date(seconds + COCOA_EPOCH_OFFSET)
 
 
 def from_netscape_epoch(raw: object) -> str | None:

@@ -387,4 +387,37 @@ final class MutationTests: XCTestCase {
         XCTAssertEqual(store.status.value?.episodes.unprocessed, 7,
                        "everything else the snapshot learned meanwhile is kept")
     }
+
+    // MARK: - Browser syncs (R8)
+
+    /// A local-file sync has nothing to paint optimistically, but it still
+    /// rides `Store.perform` so it gets the same failure toast and channel
+    /// reconcile as every other write — and the server's honest `{new,
+    /// skipped}` is kept on the mutation for the panel to show.
+    func testSyncSafariTabsRecordsTheWriteKeepsTheResultAndRefreshesChannels() async {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        api.replies[.channels] = .notModified
+        api.replies[.sources] = .notModified
+        let mutation = SyncSafariTabs(db: Data("db".utf8), wal: nil, devices: ["Bob's iPhone"])
+        let ok = await store.perform(mutation)
+        XCTAssertTrue(ok)
+        XCTAssertEqual(api.writes, ["syncSafariTabs:1"])
+        XCTAssertEqual(mutation.result?.new, 1)
+        XCTAssertTrue(api.calls.contains(.channels))
+    }
+
+    func testSyncBrowserBookmarksFailureToasts() async {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        api.failWrites = true
+        api.replies[.channels] = .notModified
+        api.replies[.sources] = .notModified
+        let mutation = SyncBrowserBookmarks(chromeData: nil, safariData: Data("p".utf8), folders: ["x"])
+        let ok = await store.perform(mutation)
+        XCTAssertFalse(ok)
+        XCTAssertEqual(api.writes, ["syncBookmarks:1"])
+        XCTAssertNil(mutation.result, "a failed sync leaves no result to show")
+        XCTAssertEqual(store.toast, "Couldn't finish syncing those bookmarks — the Feed shows what landed")
+    }
 }

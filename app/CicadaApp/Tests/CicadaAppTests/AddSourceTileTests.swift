@@ -47,11 +47,13 @@ final class AddSourceTileTests: XCTestCase {
     }
 
     /// Esc backs out of a focused tile first and only closes the sheet from
-    /// the grid — one keypress should never discard a half-typed feed URL AND
-    /// the sheet.
+    /// the top-level grid — one keypress should never discard a half-typed
+    /// feed URL AND the sheet. With the family layer in front (Task 4) that
+    /// is one step per level: flow → members → families → close.
     func testEscapeBacksOutBeforeItCloses() {
-        XCTAssertEqual(AddSourceSheet.escapeAction(expanded: .rssFeed), .back)
-        XCTAssertEqual(AddSourceSheet.escapeAction(expanded: nil), .close)
+        XCTAssertEqual(AddSourceSheet.escapeAction(level: .flow(.rssFeed)), .back)
+        XCTAssertEqual(AddSourceSheet.escapeAction(level: .members(.feedsAndCalendars)), .back)
+        XCTAssertEqual(AddSourceSheet.escapeAction(level: .families), .close)
     }
 
     /// Tile titles are short enough for a three-column grid without

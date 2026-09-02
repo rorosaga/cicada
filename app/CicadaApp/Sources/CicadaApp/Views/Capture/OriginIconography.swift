@@ -27,6 +27,9 @@ enum OriginIconography {
         case "claude-code": "Claude Code"
         case "chrome-bookmark": "Chrome"
         case "safari-bookmark": "Safari"
+        // R3 — iCloud tabs are their own origin so a tab and a bookmark from
+        // the same browser stay distinguishable in the origins strip.
+        case "safari-tab": "Safari tab"
         case "telegram": "Telegram"
         case "claude-export": "Claude export"
         case "chatgpt-export": "ChatGPT export"
@@ -55,7 +58,7 @@ enum OriginIconography {
         switch origin {
         case "mcp", "claude-code": "bubble.left.and.bubble.right"
         case "chrome-bookmark": "globe"
-        case "safari-bookmark": "safari"
+        case "safari-bookmark", "safari-tab": "safari"
         case "telegram": "paperplane.fill"
         case "claude-export", "chatgpt-export": "square.and.arrow.down"
         case "rss": "dot.radiowaves.up.forward"
@@ -80,7 +83,7 @@ enum OriginIconography {
         switch origin {
         case "mcp", "claude-code": CicadaTheme.accent
         case "chrome-bookmark": Color(hex: 0x4285F4)
-        case "safari-bookmark": Color(hex: 0x00A2E8)
+        case "safari-bookmark", "safari-tab": Color(hex: 0x00A2E8)
         case "telegram": Color(hex: 0x26A5E4)
         case "rss": Color(hex: 0xEE802F)
         case "calendar": Color(hex: 0xFF3B30)
