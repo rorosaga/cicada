@@ -13,7 +13,9 @@ against the live bank the same day (iPhone tabs: 188 new / 9 skipped; the big Fa
 0 new / 496 skipped — the idempotency proof). Until each browser
 row syncs on its own, `chrome-bookmarks` / `safari-bookmarks` both read the legacy `bookmarks` count.
 
-**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`). **No open PRs.** `feat/link-summaries` (G102 backfill) is paused mid-task with part 1 committed.
+**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`). **No open PRs.** `feat/link-summaries` (G102 backfill) is complete on its branch and awaiting a PR (see the G102 paragraph below).
+
+**G102 cheap slice (PR against `dev` from `feat/link-summaries`):** saved links get descriptions + `about` edges nightly (20/night, oldest first) and on demand. **One-time warm-up the owner can run now:** `curl -s -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" "http://127.0.0.1:8000/maintenance/enrich-links?limit=50"` — repeat until `remaining` is 0 (each run: ≤ 50 fetches + summaries on the resolved engine, ~7 extraction calls); the response's `engine` says whether the plan or the API key paid.
 The big one is **#25 — the agent engine (G74a)**: Sleep can now run on the user's Claude Max plan
 via `claude -p`, after ~2.5 months with no engine.
 Also #24, the **correctness gate**, which fixed decay (see rulings below), #23's app fixes, #26's
@@ -128,7 +130,8 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-**Nothing is broken; one branch is awaiting a PR: `feat/mascot` (G107 pixel mascot, PR #36).**
+**Nothing is broken; one branch is awaiting a PR: `feat/link-summaries` (G102 cheap slice, item 0c below).**
+`feat/mascot` merged as PR #36.
 Its last unchecked box is the visual pass on the installed app — menu bar in light and dark, the
 Sleep page at 120 pt, Reduce Motion holding frame 0 — which needs `make install-app` and Rodrigo at
 the machine; the suites are green. Before it: `feat/safari-import` merged as PR #35 (2026-09-02), **G114** shipped as PR #30, the 2026-09-01 evening session merged #28/#29, reframed CLAUDE.md around the *experience
@@ -143,6 +146,9 @@ three-lens judge → decision memo) rather than a blind re-tune.
 0b. **Owner priorities (2026-09-02):** after the three in-flight tracks (mascot, Safari import, link
    summaries) land, the order is **G118 slice 1 → G105 → G93 → G53+G75 → G81→G95**, with G113 s3–7,
    G115 p1 and G117 interleaved as app polish. Provenance is the vision, not a feature.
+0c. **G102 cheap slice is on `feat/link-summaries`** — open the PR against `dev` after an independent
+   re-run of the five new test files + the full suite; then have the owner run the warm-up curl above
+   and eyeball the Feed (descriptions on rows, `about` pills on a link's entity card).
 1. **G109 phase 1 is in PR #32 (merged)** — merged after an independent re-run of
    `node app/CicadaApp/Tests/graph/graph-physics.test.js`, the four sibling JS tests and
    `swift test`, then have Rodrigo eyeball the live bank at fit-zoom (isolates should read as discs
@@ -182,7 +188,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed)._
+_Last synced: 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice complete on `feat/link-summaries`, PR pending)._
 
 ---
 
@@ -256,6 +262,10 @@ trailers, Ghostty resume)
 - **G109 phase 1** graph physics (PR #32) — alpha-scaled hub gravity, no reheat on release,
   `velocityDecay` 0.2 / `alphaMin` 0.001, per-isolate phyllotaxis slots, speed clamp; headless
   physics bench + test under `Tests/graph/`; numbers in the G109 row
+- **G102 cheap slice** — link backfill on the Sleep tail + `POST /maintenance/enrich-links`; recon
+  over stored OG text → `about` claims/edges through the existing Stage-1 prompt and Stage-2
+  judgment; `GET /sources` `description`/`about`. Plan:
+  `docs/superpowers/plans/2026-09-02-link-summaries-backfill.md`
 
 ---
 
@@ -265,6 +275,7 @@ trailers, Ghostty resume)
 |---|---|---|
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
 | **G109 graph physics** | **Phase 1 in PR #32** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
+| **G102 cheap slice** | On `feat/link-summaries` (2026-09-02): backfill + recon + endpoint + Feed fields, six feature commits (+ one review-fix commit and the plan), five new test files | Open the PR against `dev` after an independent re-run; owner runs the warm-up curl; merge |
 | Claude Desktop | **Registered 2026-09-01** — needs a Desktop restart | Then: it captures only what an agent chooses to save (see G105) |
 
 ---
@@ -337,8 +348,9 @@ trailers, Ghostty resume)
 13a. **G112 steps 2–4** — portable skills: a deterministic `skill_compiler` turns a grounded
     `skill` entity into a SKILL.md bundle with `## Evidence` (episode ids, agreement rates from
     G113), exported so someone else can load it on their own plan. WikiSkill's third layer — M
-14. **G102** site recon → entities, not summaries. Cheap first slice: extract over the OG text
-    already stored, zero new fetches — S/M
+14. **G102** site recon — cheap slice shipped 2026-09-02 (see Shipped). Next slice: relate a link to a
+    pending candidate when it promotes; fetch-side improvements stay out of scope until a measured
+    need — S
 
 ### Wave D · new intake, in dependency order
 15. **G81** contacts — identity anchors *(prerequisite for 16; absorbs G46)* — M

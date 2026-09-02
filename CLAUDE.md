@@ -376,6 +376,48 @@ webhook is not an authenticated manual-assertion channel. `agentic_write.write_c
 gained an optional `origin=` for exactly this; omitting it is unchanged (falls back
 to `manual_edit` for `observer="rodrigo"`, else `mcp`).
 
+### Link enrichment & site recon (Stage 5.57 + the nightly backfill, G102)
+Two passes describe and relate saved links, both in `api/services/link_enrichment.py`
+(+ `link_recon.py`). **In-cycle Stage 5.57** (`enrich_media_links`, after Stage 5 on a night
+with episodes) handles the cycle's fresh media: §2a promotes a substantive stored
+`## Description` (≥ `link_enrich_min_desc_len`, a sentence end) into a `describes` claim with
+zero LLM; §2b fetches + summarizes a thin one, capped at `link_enrich_max_per_cycle`; plus
+`recommends` claims and transclusion for a person sharing the episode. **The backfill**
+(`link_enrichment.backfill`) exists because that pass only ever ran after Stage 5, took the 20
+most-recent pages, and never retried an `enrichment_attempted` page — a bulk-imported bank
+measured 603 media pages, 370 with a description, 210 substantive, zero `describes` claims. It
+runs on the engine-independent Sleep tail (idle nights too, in the connector poll's
+clean-tree-guarded branch, `link_enrich_backfill_per_cycle`/night, oldest-imported first) and
+on demand via `POST /maintenance/enrich-links?limit=N` (409 while Sleep runs). *Done* is a
+`describes` claim on the page; a failed/blocked fetch is `fetch_status` + `fetch_attempted_at`
+and retried after `link_enrich_fetch_retry_days` (30); consent interstitials and login walls
+(`classify_page`, G86 + the ToS rail) are retired as `enrichment_status: junk` without a byte
+fetched; a fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth, and a block is
+never retried with different headers. A §2b summary lands in the body's `## Description`
+(`description_source: summary`) so the Feed preview and entity card render it, AND in the claim
+(`authored_by: <model>`); a §2a reuse claim is `authored_by: cicada`. **Recon (the G102 cheap
+slice)** runs in the same driver: the EXISTING Stage-1 prompt over `title + ## Description`,
+`link_recon_batch_size` (8) links per call, each entity attributed to the links whose card text
+contains its name/alias (ungrounded names are dropped), routed through the EXISTING Stage-2
+judgment alone (`entity_resolver.match_existing` — direct/fuzzy then the LLM judge; never
+`resolve()`, which would create pages and open clarifications from bookmark blurbs). A `same`
+verdict against an on-disk entity writes an `about` claim on the **media page** (`object_kind:
+node`, `origin: sleep/link_recon`) + the id in its `related:`; Stage 5.7 projects it into
+`graph_edges.yaml`; the target page is never touched (a blurb mentioning a tool is not the
+user referencing it — bumping it would defeat decay). An unmatched mention becomes a pending
+candidate (promotion rung 1), never a page. Each run is one `commit_paths` commit —
+`Link enrichment <date>`, `Cicada-Author: cicada` when no model ran, else the models used
+(the judge model is added only when `judge_calls` > 0, which is counted by watching the
+Stage-2 judge cache grow — change that cache contract and the trailer silently drops).
+Engine failures abort the LLM tiers and leave pages unmarked (R9); on the scheduled tail the
+engine resolves byok before the registry is touched (ruling 4), and
+`CICADA_ALLOW_CONNECTOR_FETCH` gates only the tail's default fetch. Media pages are evergreen,
+and `about` is multi-valued, so nothing here decays or conflicts. `GET /sources` rows carry
+`description` (280-char excerpt) and `about` (the ids). Progress marker (report only):
+`$CICADA_HOME/link_enrich/<bank>.json`. The endpoint guards only against a running Sleep
+cycle, not against a second call to itself — two overlapping user clicks race on the same
+pages (disclosed, not fixed).
+
 ### Connector seam (G71)
 Pinterest, Reddit, and X (Twitter) each get a peer adapter module under
 `api/services/connectors/` — not one bespoke integration per platform, but a
@@ -656,7 +698,7 @@ GET  /sources/connectors/{id}/callback    → generalized OAuth redirect target,
                                             oauth adapter (Pinterest, X today); auth-exempt only for
                                             an id whose LOGIN_MODE is oauth
 POST /sources/connectors/{id}/sync        → run one poll now
-GET  /sources                             → list ingested sources
+GET  /sources                             → list ingested sources (+ description excerpt, about ids — G102)
 GET  /sources/channels                    → capture channels + whether each is actually connected (G62)
 GET/POST/DELETE /sources/feeds            → RSS feed subscription management
 POST /sources/poll-feeds                  → on-demand RSS poll
@@ -664,6 +706,8 @@ GET/POST /banks, POST /banks/{name}/activate|duplicate|rename|import → memory-
 GET  /local-ref                           → resolve local device/path references
 POST /capture/telegram                    → token-gated Telegram capture webhook
 POST /maintenance/dedup-sweep             → full-graph dedup sweep (G21)
+POST /maintenance/enrich-links?limit=N     → describe + relate N saved links now (G102); 409 while Sleep runs;
+                                            {selected, reused, summarized, fetched, failed, skipped, related, remaining, …}
 GET  /connections, GET /connections/{id}   → provider connections (plan, price, connected) — probed via vendor CLIs
 POST /connections/{id}/login|logout        → start the vendor CLI's own login flow / sign out
 GET  /connections/{id}/login/{sid}         → device-code login progress (ChatGPT/Codex)
