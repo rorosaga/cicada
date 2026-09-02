@@ -771,21 +771,30 @@ function rebuildNeighborsIndex() {
 
 // Per-tick force pulling each member node toward its hub's current position.
 // This gives the graph real centers of gravity instead of a uniform blob.
+// G109: `alpha` is what d3 passes every force each tick (1.0 cold -> alphaMin).
+// This force used to ignore it — a permanent `strength`-per-tick spring that,
+// against the never-alpha-scaled forceCollide, kept ~1,500 nodes bouncing for
+// ever (KE/node plateau ~20 at tick 400 on the bench, 4e-4 once scaled). That
+// bounce is what velocityDecay 0.45 / alphaMin 0.05 were papering over. The
+// nominal 0.05 is unchanged, so a cold layout at alpha 1.0 is identical to
+// before for its first ticks. The id map is built once per simulation in
+// initialize() (d3 calls it when the force is bound and when nodes change),
+// not on every tick — the force now also runs on every drag frame.
 function hubGravityForce(strength) {
-    let force;
-    function tick() {
+    let byId = new Map();
+    function force(alpha) {
         if (!memberToHub.size) return;
-        const byId = new Map(visibleNodes.map(n => [n.id, n]));
+        const k = strength * alpha;
         for (const n of visibleNodes) {
             const hid = memberToHub.get(n.id);
             if (!hid) continue;
             const hub = byId.get(hid);
             if (!hub) continue;
-            n.vx += (hub.x - n.x) * strength;
-            n.vy += (hub.y - n.y) * strength;
+            n.vx += (hub.x - n.x) * k;
+            n.vy += (hub.y - n.y) * k;
         }
     }
-    force = tick;
+    force.initialize = (simNodes) => { byId = new Map(simNodes.map(n => [n.id, n])); };
     return force;
 }
 
@@ -796,18 +805,18 @@ function startSimulation({ reheat = 1.0 } = {}) {
         // Alpha/velocity tuning for dense graphs. Defaults are fine for a
         // hundred nodes; at 1500 they keep the sim bouncing indefinitely.
         .alphaDecay(0.05)
-        // G84b: was 0.55 (d3's default is 0.4), which damped a thrown node's
-        // seeded velocity to near-zero in ~4 ticks (~65ms) — motion stopped
-        // before it was visible. Relaxed partway toward the default rather
-        // than all the way to it: 0.4 is exactly the value the comment above
-        // says caused indefinite bouncing at ~1500 nodes, so going there
-        // risks reintroducing that. 0.45 buys a noticeably longer, visible
-        // coast on a throw while keeping most of the extra damping margin
-        // above the value that was unstable at scale. If the full graph
-        // still oscillates/bounces persistently after this change, raise it
-        // back toward 0.55 rather than lowering it further.
+        // G84b relaxed this 0.55 -> 0.45 for a visible throw; G109 found the
+        // "indefinite bouncing at ~1500 nodes" that kept it high was the
+        // unscaled hubGravity force below, not d3. Task 3 of the G109 plan
+        // lowers it to 0.2 once that force is alpha-scaled.
         .velocityDecay(0.45)
-        .alphaMin(0.05)
+        // G109: d3's default. 0.05 stopped the timer ~27 ticks after any
+        // reheat, freezing a thrown node mid-coast; the release path no longer
+        // bumps alpha (see onMouseUp), so the runway has to come from here.
+        // Cost: a cold run is 135 ticks instead of 59, a 0.3 reheat 112
+        // instead of 35 (log arithmetic); phase 2's owned loop replaces this
+        // alpha cut-off with a physical settle criterion.
+        .alphaMin(0.001)
         .force("link", d3.forceLink(visibleLinks)
             .id(d => d.id)
             .distance(90)
@@ -1401,7 +1410,10 @@ function onMouseDown(event) {
         dragVX = 0;
         dragVY = 0;
         lastDragSample = { t: performance.now(), x: picked.x, y: picked.y };
-        if (simulation) simulation.alphaTarget(0.3).restart();
+        // G109: 0.1, not 0.3 — the hold used to heat the whole graph so every
+        // node jittered under the cursor (bench: KE/node 2e3-8e3 during a
+        // hold, 4e-3-5.5 at 0.1). Enough alpha for the neighbours to follow.
+        if (simulation) simulation.alphaTarget(0.1).restart();
         canvas.classList.add("dragging");
         // Claim this gesture: d3-zoom's own mousedown listener (registered on
         // the same canvas) calls stopImmediatePropagation to start a pan, which
@@ -1510,11 +1522,16 @@ function onMouseUp(event) {
         dragVY = 0;
         lastDragSample = null;
         if (simulation) {
-            // Leave enough alpha for the seeded velocity to actually animate
-            // a visible coast instead of alphaTarget(0) alone, which only
-            // stops pulling the sim back UP — it doesn't guarantee alpha is
-            // above alphaMin (0.05) for the few ticks a throw needs to read.
-            simulation.alphaTarget(0).alpha(Math.max(simulation.alpha(), 0.2)).restart();
+            // G109: NO alpha bump on release. d3 integrates `x += vx *= (1 -
+            // velocityDecay)` regardless of alpha, so the seeded velocity
+            // coasts on its own; alpha only needs to be above alphaMin (now
+            // 0.001, and the hold's alphaTarget(0.1) already raised it) so the
+            // timer keeps ticking. The old `alpha(max(alpha, 0.2))` reheated
+            // every node: measured ~1,000 wu mean displacement of the OTHER
+            // nodes over the next second, and the link springs at alpha 0.2
+            // cancelled a 26 wu/tick throw in a single tick — the "no
+            // deceleration" the user saw. Now 1-30 wu and a real coast.
+            simulation.alphaTarget(0).restart();
         }
         canvas.classList.remove("dragging");
 
