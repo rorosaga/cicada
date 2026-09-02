@@ -95,7 +95,7 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 ## Pick up here
 
 **Nothing is broken; one branch is awaiting a PR.** **G114** shipped on `feat/capture-hygiene`
-(2026-09-01/02, six commits, PR pending against `dev`). The 2026-09-01 evening session merged
+(2026-09-01/02, seven commits, PR #30 against `dev`). The 2026-09-01 evening session merged
 #28/#29, reframed CLAUDE.md around the *experience port* north star (Silver & Sutton's *Era of
 Experience*, WikiSkill), filed **G112/G113/G114** research-grounded, and started **G109** as a
 research run (inventory → five engine candidates → three-lens judge → decision memo) rather than
@@ -134,7 +134,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-02 (PRs #21–#29 merged; G114 shipped on `feat/capture-hygiene`, PR pending; G88 shipped; G112/G113 filed; G109 in research)._
+_Last synced: 2026-09-02 (PRs #21–#29 merged; G114 shipped on `feat/capture-hygiene`, PR #30; G88 shipped; G112/G113 filed; G109 in research)._
 
 ---
 
@@ -185,7 +185,7 @@ trailers, Ghostty resume)
   with durable keys), CLAUDE.md reframed twice (the project, then the *experience port* north
   star), doctor cleanup, installer shebang fix, **G99a** the 35 MB index untracked before it could
   commit ~11 GB/yr
-- **G114 capture-writer hygiene** (`feat/capture-hygiene`, PR pending) — one id rule
+- **G114 capture-writer hygiene** (`feat/capture-hygiene`, PR #30) — one id rule
   (`episode_ids.next_episode_id`, max-suffix+1 per date, importer collision closed), one timestamp
   shape (aware UTC from `episode_ids.utc_now_iso`; Sleep sorts by instant across legacy shapes),
   Telegram stamped with the message date and `/remind` an honest `capture_kind: reminder` note,
