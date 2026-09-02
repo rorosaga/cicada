@@ -4,7 +4,7 @@
 > compacted context of the 2026-08-31/09-01 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (2026-09-01, evening)
+## Where things stand (2026-09-02)
 
 **Merged to `dev`:** PRs #21–#29. **No open PRs.** The big one is **#25 — the agent engine (G74a)**:
 Sleep can now run on the user's Claude Max plan via `claude -p`, after ~2.5 months with no engine.
@@ -52,6 +52,13 @@ the final review measured: a delta with no change still moves a dense core 80 wu
 bench `deltaNoop*`; the lever and why it is not pulled in phase 1 are in the G109 row), phase 3
 (isolates out of the sim), and the Swift track (`ContentView` rebuilds the `WKWebView` per tab
 switch — that is the "explosion on return").
+
+**G107 pixel mascot (2026-09-02, `feat/mascot`, PR #TBD).** The bracket-text interim is superseded: a
+nine-colour 24×24 sprite set, every state always moving, `error` state added, the menu bar shows one
+animated worm with the count in the sprite (no more text badge), and `BookwormView` on a `TimelineView`
+at whole-cell sizes on five surfaces. `swift test` green (four new test files, 31 new cases); the visual
+pass — menu bar light/dark, Sleep page, Reduce Motion — is the install step, not yet done at the time of
+this commit.
 
 **Live environment (verified):** backend runs under **launchd** (`com.cicada.backend`,
 RunAtLoad+KeepAlive, `python -m uvicorn`), keys in `~/.cicada/secrets.env` (0600). Cicada's MCP
@@ -118,7 +125,7 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 #28/#29, reframed CLAUDE.md around the *experience port* north star (Silver & Sutton's *Era of
 Experience*, WikiSkill), filed **G112/G113/G114** research-grounded, and started **G109** as a
 research run (inventory → five engine candidates → three-lens judge → decision memo) rather than
-a blind re-tune.
+a blind re-tune. (G107 shipped 2026-09-02 — see Where things stand)
 
 1. **G109 phase 1 is in PR #32 (merged)** — merged after an independent re-run of
    `node app/CicadaApp/Tests/graph/graph-physics.test.js`, the four sibling JS tests and
@@ -159,7 +166,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-02 (PRs #21–#31 merged — #30 G114, #31 G113 slices 1–2; G109 phase 1 in PR #32; inbox redesign folded as G115/G116)._
+_Last synced: 2026-09-02 (PRs #21–#34 merged; G107 pixel mascot on feat/mascot, PR #TBD; inbox redesign folded as G115/G116)._
 
 ---
 
@@ -181,7 +188,7 @@ G66 decay classes · A5 gap analysis
 **App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·
 G62 capture redesign · G63 connections clarity · G64 import walkthroughs · G67 commit-diff views ·
-G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars
+G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars · G107 pixel mascot + single menu-bar Tamagotchi
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume)
@@ -294,9 +301,6 @@ trailers, Ghostty resume)
 11. **G100** span citation — which *sentence* convinced the contributor, rendered in a
     DiffView-style source viewer with prev/next across conversations — M
 12. **G103** observer model in the UI — whose belief, who was in the room — S
-12a. **G107** tamagotchi status mascot — state machine is done, the ART is the work (the current
-    sprite is a 16px monochrome menu-bar template scaled to 72pt); time estimates deferred until
-    the engine model is settled — M
 12c. **G108** landing page + navigation — decide *before* building: status vs graph as the front
     door, and linear vs browser-style history (G106 makes history the better bet) — decision
 12b. **G106** two-way conversations ↔ entities browser — the inverse index works today; content
