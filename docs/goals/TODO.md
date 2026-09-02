@@ -305,6 +305,8 @@ trailers, Ghostty resume)
 4d″. **G115 Phase 2 — suggested outcome** *(owner 2026-09-03)*: a confidence-gated one-sentence "Cicada thinks…"
     under the recommended option, accept with ⏎, never auto-applied; suggestion id + confidence in the G113
     ledger so agreement becomes a rate and a training set — S/M, after G118 slice 1 (needs the cause spans)
+    + research-resolvable conflicts: the same judge may grep a linked repo / read a declared source and must
+    cite what it checked; multi-valued predicates (`uses`) never open a conflict at all (G98)
 4d′. **G115 Phase 1** — inbox redesign, first slice: one question object for every kind, `cause` on the
    card (three tiers, `[ no source recorded ]` served), `(Recommended)` = the option `_verdict` scores
    `agreed` (never on merge), decay through `QuestionView`, number keys / `Esc` no-trace skip, ETag
