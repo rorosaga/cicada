@@ -256,6 +256,44 @@ async def _git_remove(memory_path: Path, target: Path) -> None:
 # ---------- Resolution dispatch ----------
 
 
+# Option keys that carry their own meaning rather than pointing at one option:
+# "both" keeps every competing claim open, "neither" closes them all.
+_SPECIAL_KEYS = {"both", "neither"}
+
+
+def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) -> str:
+    """Name the action a resolution took, for the commit trigger and the ledger.
+
+    G113: an inbox resolution is the user's verdict on the extractor's belief —
+    the grounded reward the Era-of-Experience framing says the system should
+    learn from. Recording only that the item was resolved threw that verdict
+    away; the label (``archive``, ``pick:1``, ``neither``, ``reject`` …) is what
+    lets a later reader tell agreement from overrule. Pure. ``options`` is the
+    item's normalized option list (``{"key": ...}`` dicts) so a picked key can be
+    checked against the special ``both``/``neither`` keys.
+    """
+    action = (request.action or "").strip().lower()
+    key = (request.option_key or "").strip()
+    if kind == "decay":
+        return action or "answer"
+    if kind in ("conflict", "divergence", "normalization"):
+        if action == "dismiss":
+            return "dismiss"
+        if action == "skip":
+            return "skip"
+        if key:
+            return key if key in _SPECIAL_KEYS else f"pick:{key}"
+        if request.answer:
+            return "answer"
+        return action or "answer"
+    # clarification / merge_suggestion
+    if action in ("answer", "resolve"):
+        return "answer"
+    if action in ("dismiss", "merge", "reject", "skip"):
+        return action
+    return action or "answer"
+
+
 async def resolve(
     item_id: str, request: InboxResolveRequest, settings: Settings
 ) -> dict:
@@ -292,8 +330,24 @@ async def resolve(
     # Avoid the local import becoming a hard module-load dependency cycle.
     from api.services import git_service
 
+    # G113 R1/R2 — the trigger names the action taken, and a decay verdict
+    # states the resulting status so history classifies it as `statusChange`.
+    # ``parsed`` was read before the branch unlinked the item file; never
+    # re-read it here.
+    label = _action_label(
+        kind, request, inbox_questions.normalize_options(parsed.frontmatter.get("options") or [])
+    )
+    change = "updated"
+    if kind == "decay" and label == "archive":
+        change = "status archived"
+    elif kind == "decay" and label == "keep_active":
+        change = "status active"
     await git_service.commit_resolution(
-        settings.memory_path, entity_id, f"inbox/{kind}/resolved", extra_lines
+        settings.memory_path,
+        entity_id,
+        f"inbox/{kind}/resolved:{label}",
+        extra_lines,
+        change=change,
     )
     return {"status": "resolved", "id": item_id}
 
