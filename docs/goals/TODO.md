@@ -47,8 +47,11 @@ real d3 driving the real `startSimulation`): KE/node at tick 400 20 → 4e-6, a 
 ticks / 100 wu, a release moves the rest of the graph 1,200 → 9 wu, isolate max radius 2.0× → 1.3×
 core p90. Two rules now in CLAUDE.md: alpha-scale every custom force; never bump alpha on release.
 **Not done:** the live-bank visual check (needs Rodrigo at the machine — the bank holds real people),
-phase 2 (own the loop + `__cicadaPerf`), phase 3 (isolates out of the sim), and the Swift track
-(`ContentView` rebuilds the `WKWebView` per tab switch — that is the "explosion on return").
+phase 2 (own the loop + `__cicadaPerf`, then the tuning pass — including the **no-op-delta shuffle**
+the final review measured: a delta with no change still moves a dense core 80 wu mean / 573 max,
+bench `deltaNoop*`; the lever and why it is not pulled in phase 1 are in the G109 row), phase 3
+(isolates out of the sim), and the Swift track (`ContentView` rebuilds the `WKWebView` per tab
+switch — that is the "explosion on return").
 
 **Live environment (verified):** backend runs under **launchd** (`com.cicada.backend`,
 RunAtLoad+KeepAlive, `python -m uvicorn`), keys in `~/.cicada/secrets.env` (0600). Cicada's MCP
@@ -223,7 +226,8 @@ trailers, Ghostty resume)
 1. **G109 phases 2–3 + Swift track** — phase 1 shipped (see In progress). Next: the Swift track
    (`ContentView.swift:137-139` rebuilds the `WKWebView` per tab switch — the "explosion on
    return"; keep one alive, reset `isGraphReady` on teardown) — S; phase 2 (own the rAF loop with a
-   physical settle criterion, `__cicadaPerf.report()`, live-bank tuning pass) — S/M; phase 3
+   physical settle criterion, `__cicadaPerf.report()`, live-bank tuning pass incl. the delta
+   reheat / collide lever for the no-op-delta shuffle) — S/M; phase 3
    (isolates out of the simulation, tick 6.7 → 4.5 ms measured) — S
 2. **G114** capture-writer hygiene — one id rule, one timestamp shape, `processed_by` stamp, and
    the **scheduled feed/calendar poll** at the Sleep tail that G111 depends on. All $0,

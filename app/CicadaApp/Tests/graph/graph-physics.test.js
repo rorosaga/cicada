@@ -16,7 +16,7 @@
 // permanent bounce that motivated velocityDecay 0.45 / alphaMin 0.05 in the first
 // place (backlog G109), and ke400 is where it shows first.
 
-const { SIZES, loadGraph, synthetic, runScenario } = require("./graph-physics-harness.js");
+const { SIZES, loadGraph, synthetic, runScenario, runDeltaNoop } = require("./graph-physics-harness.js");
 
 let failures = 0;
 const check = (label, cond, actual) => {
@@ -108,6 +108,17 @@ for (const [size, before] of Object.entries(CORE_MEDIAN_BEFORE_CONTAINMENT)) {
     call("updateGraphDelta", { added: [], updated: [], removed: [], links: [...g.links, { source: "i2", target: "c0" }] });
     get("simulation").stop();
     check("an isolate that gained a visible link left the slot map", !get("isolateSlots").has("i2"));
+}
+
+// The delta path (every SSE version tick after a Sleep): a delta with NO change on
+// a settled layout must not re-lay the graph out. Measured core mean displacement
+// 8.8 / 31 / 80 wu (max 49 / 173 / 573) — before phase 1: 1,289 / 1,480 / 1,723
+// mean. The bound is a regression net for "the reheat re-lays out the graph", not
+// a lock on the residual: the delta reheat value (0.3) and a collide lever are the
+// phase-2 tuning, measured in-app (G109 row).
+for (const size of Object.keys(SIZES)) {
+    const d = runDeltaNoop(size);
+    check(`${size}: a no-op delta moves the settled core < 200 wu mean`, d.deltaNoopCoreMean < 200, `${d.deltaNoopCoreMean} (max ${d.deltaNoopCoreMax})`);
 }
 
 {

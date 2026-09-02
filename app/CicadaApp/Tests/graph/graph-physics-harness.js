@@ -250,4 +250,40 @@ function runScenario(sizeName) {
     return out;
 }
 
-module.exports = { GRAPH_JS, SIZES, loadGraph, synthetic, runScenario, kePerNode, maxSpeed, radii };
+// The app's most frequent reheat: an SSE version tick after a Sleep pushes a
+// delta with no structural change (or one renamed node) onto a settled layout,
+// and updateGraphDelta reheats at 0.3. Measures how far the settled nodes move
+// by the time d3's timer would stop again — per class, because the residual is
+// the packed connected core (facets first), not the isolate discs. "Settled"
+// is 400 cold ticks, the same state radii() reads. Returns null metrics if the
+// delta entry point is missing (a future graph.js that renames it).
+function runDeltaNoop(sizeName) {
+    const size = SIZES[sizeName];
+    const { get, call } = loadGraph();
+    call("updateGraph", synthetic(size));
+    let sim = get("simulation");
+    sim.stop();
+    for (let t = 0; t < 400; t++) sim.tick();
+    const nb = get("neighborsById");
+    const before = new Map(get("visibleNodes").map(n => [n.id, [n.x, n.y, n.isHub ? "hub" : nb.has(n.id) ? "core" : "iso"]]));
+    call("updateGraphDelta", { added: [], updated: [], removed: [] });
+    sim = get("simulation");
+    sim.stop();
+    let stopTick = null;
+    for (let t = 1; t <= 600 && stopTick === null; t++) { sim.tick(); if (sim.alpha() < sim.alphaMin()) stopTick = t; }
+    const disp = { core: [], iso: [], hub: [] };
+    for (const n of get("visibleNodes")) {
+        const b = before.get(n.id);
+        if (b) disp[b[2]].push(Math.hypot(n.x - b[0], n.y - b[1]));
+    }
+    const mean = a => a.length ? a.reduce((p, c) => p + c, 0) / a.length : NaN;
+    const mx = a => a.length ? Math.max(...a) : NaN;
+    return {
+        size: sizeName,
+        deltaNoopStopTick: stopTick ?? ">600",
+        deltaNoopCoreMean: round(mean(disp.core), 1), deltaNoopCoreMax: round(mx(disp.core)),
+        deltaNoopIsoMean: round(mean(disp.iso), 1), deltaNoopIsoMax: round(mx(disp.iso)),
+    };
+}
+
+module.exports = { GRAPH_JS, SIZES, loadGraph, synthetic, runScenario, runDeltaNoop, kePerNode, maxSpeed, radii };

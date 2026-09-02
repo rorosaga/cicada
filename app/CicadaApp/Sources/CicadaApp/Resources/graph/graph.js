@@ -611,6 +611,14 @@ function updateGraphDelta(dataStr) {
     rebuildVisible();
     rebuildNeighborsIndex();
     // Always a low reheat: a delta by definition sits on a settled layout.
+    // G109 (disclosed, phase 2): even a NO-OP delta still moves a packed core —
+    // bench `deltaNoop*`: 31 / 80 wu mean, 173 / 573 max on the medium / dense
+    // synthetic (was ~1,000 / 1,200 mean before phase 1). The value here is a
+    // real lever on medium density (0.1 -> 19 / 60) but not on dense (0.1 ->
+    // 73 / 340): the residual there is the never-alpha-scaled forceCollide
+    // re-resolving a core the alpha-scaled forces re-compress on every reheat.
+    // Retune with phase 2's settle criterion + a collide lever, measured in-app;
+    // the number stays until then (plan rulings R8/R10).
     startSimulation({ reheat: 0.3 });
 
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }

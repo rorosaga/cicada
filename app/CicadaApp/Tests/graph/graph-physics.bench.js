@@ -19,10 +19,14 @@
 //                    >= 0.5 wu, distance gained, ticks until |v| < 0.1
 //   throw*           the same through the real drag handlers (six 28-wu moves, then release)
 //   otherDisp60      mean displacement of every OTHER node over the 60 ticks after that release
+//   deltaNoop*       a delta with NO change pushed onto the settled layout (the app's most
+//                    frequent reheat, every SSE version tick after a Sleep): ticks until d3's
+//                    timer stops again, and how far the connected core / the isolates moved by
+//                    then (mean, max). The core residual is the phase-2 delta-reheat lever.
 //
 // Numbers only; the synthetic has no names. Deterministic except msPerTick.
 
-const { GRAPH_JS, SIZES, runScenario } = require("./graph-physics-harness.js");
+const { GRAPH_JS, SIZES, runScenario, runDeltaNoop } = require("./graph-physics-harness.js");
 
 const COLUMNS = [
     "size", "n", "links", "msPerTick", "ke400", "maxSpeed400", "ticksToAlphaMin", "keAtStop",
@@ -30,10 +34,11 @@ const COLUMNS = [
     "freeAlphaAtRelease", "freeCoastTicks", "freeCoastDist", "freeTicksToStop",
     "holdAlphaTarget", "holdKE", "seededSpeed", "alphaAtRelease",
     "throwCoastTicks", "throwCoastDist", "throwTicksToStop", "throwTimerStopTick", "otherDisp60",
+    "deltaNoopStopTick", "deltaNoopCoreMean", "deltaNoopCoreMax", "deltaNoopIsoMean", "deltaNoopIsoMax",
 ];
 
 console.log("graph.js:", GRAPH_JS);
-const rows = Object.keys(SIZES).map(runScenario);
+const rows = Object.keys(SIZES).map(size => Object.assign(runScenario(size), runDeltaNoop(size)));
 for (const r of rows) console.log(JSON.stringify(r));
 console.log("");
 const w = Math.max(...COLUMNS.map(c => c.length));
