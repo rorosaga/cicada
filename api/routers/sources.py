@@ -13,6 +13,10 @@ from api.models.schemas import (
     MediaSourceItem,
     NotesSyncRequest,
     NotesSyncResponse,
+    SafariTabsDevice,
+    SafariTabsPreview,
+    SafariTabsSyncRequest,
+    SafariTabsSyncResponse,
     SourceChannel,
     SourceChannelsResponse,
     SourceListResponse,
@@ -30,6 +34,7 @@ from api.services import (
     feed_registry,
     media_ingestor,
     notes_sync,
+    safari_tabs,
     saved_at as saved_at_service,
     sync_service,
     sync_state,
@@ -349,6 +354,58 @@ async def sync_bookmarks(
     sync_state.record_sync(memory_path, "bookmarks", count=found)
 
     return BookmarkSyncResponse(**result)
+
+
+@router.post("/sources/sync-safari-tabs", response_model=None)
+async def sync_safari_tabs(
+    request: SafariTabsSyncRequest,
+    preview: bool = Query(False),
+    settings: Settings = Depends(get_settings),
+) -> SafariTabsSyncResponse | SafariTabsPreview:
+    """Import Safari's iCloud tabs from CloudTabs.db bytes the app read (R1).
+
+    ``?preview=true`` parses and returns per-device counts WITHOUT ingesting
+    anything — same staging-free contract as ``/sources/upload?preview=true``
+    — so the app can show "iPhone · 202 tabs" before the user picks devices.
+    Nothing is cached server-side; the import re-posts the same bytes.
+
+    Unlike ``/sources/sync-bookmarks`` the body is REQUIRED: there is no
+    local-file fallback for tabs (R1 — the backend never opens ``~/Library``
+    for them), so a missing-FDA failure surfaces once, in the app.
+    """
+    import base64
+
+    try:
+        db = base64.b64decode(request.safari_tabs_db_b64, validate=True)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid safariTabsDbB64")
+    wal = None
+    if request.safari_tabs_wal_b64:
+        try:
+            wal = base64.b64decode(request.safari_tabs_wal_b64, validate=True)
+        except Exception:
+            raise HTTPException(status_code=422, detail="Invalid safariTabsWalB64")
+
+    if preview:
+        # Off the event loop, same reason as the upload preview: the parse
+        # is a temp-file write + SQLite scan and must not stall the SSE stream.
+        try:
+            snap = await run_in_threadpool(safari_tabs.load_tabs, db, wal)
+        except safari_tabs.SafariTabsError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return SafariTabsPreview(
+            total=snap.total,
+            devices=[SafariTabsDevice(**d) for d in snap.devices],
+            warnings=snap.warnings,
+        )
+
+    try:
+        result = await safari_tabs.sync_tabs(
+            settings.memory_path, db, wal=wal, devices=request.devices
+        )
+    except safari_tabs.SafariTabsError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return SafariTabsSyncResponse(**result)
 
 
 @router.get("/sources", response_model=SourceListResponse)

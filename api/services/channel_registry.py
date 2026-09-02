@@ -4,7 +4,7 @@ One list the Capture page can render from, derived from **persisted state
 only** — never from the transient result of a button press:
 
 * ``rss`` / ``calendar``  -> the subscription registries are non-empty
-* ``bookmarks`` / ``notes`` -> a ``sync_state.json`` entry exists
+* ``bookmarks`` / ``safari-tabs`` / ``notes`` -> a ``sync_state.json`` entry exists
 * ``telegram``            -> ``CICADA_TELEGRAM_BOT_TOKEN`` is configured
 * ``chat-export:*`` / ``files`` -> origin counts / the saved-URL index
 
@@ -34,6 +34,7 @@ _NON_CONNECTOR_HEAD = (
     "chat-export:claude",
     "chat-export:chatgpt",
     "bookmarks",
+    "safari-tabs",
     "notes",
     "rss",
     "calendar",
@@ -204,6 +205,10 @@ def build_channels(
             "chat-export:chatgpt", "ChatGPT chat export", "chatgpt-export", by_origin, "conversation"),
         "bookmarks": _sync_channel(
             "bookmarks", "Chrome & Safari bookmarks", state, "bookmark"),
+        # 2026-09-02 brief: the iPhone's open tabs are their own channel — a
+        # different file, a different question ("what is open right now")
+        # and its own sync_state entry, written by `safari_tabs.sync_tabs`.
+        "safari-tabs": _sync_channel("safari-tabs", "Safari iCloud tabs", state, "tab"),
         "notes": _sync_channel("notes", "Apple Notes", state, "note"),
         "rss": _subscription_channel(
             "rss", "RSS feeds", feed_registry.list_feeds(memory_path), "feed"),

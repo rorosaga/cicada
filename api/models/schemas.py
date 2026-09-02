@@ -1237,6 +1237,47 @@ class BookmarkSyncResponse(CamelModel):
     sources: list[BookmarkSyncSourceSummary] = []
 
 
+class SafariTabsSyncRequest(CamelModel):
+    """Bytes of Safari's CloudTabs.db, read by the app (R1) — plus the WAL
+    sidecar when one exists (R2) and an optional exact-name device filter."""
+
+    safari_tabs_db_b64: str
+    safari_tabs_wal_b64: Optional[str] = None
+    devices: Optional[list[str]] = None
+
+
+class SafariTabsDevice(CamelModel):
+    """One device in a CloudTabs.db, with its importable-tab count."""
+
+    name: str
+    count: int = 0
+
+
+class SafariTabsSelectedDevice(SafariTabsDevice):
+    """A device on a sync RESULT — the same row plus whether the request's
+    device filter included it. A separate model rather than an
+    ``Optional[bool]`` on the preview row: a preview has no selection yet,
+    and serializing ``selected: null`` there would make the app's decoder
+    carry a field that means nothing until the user has chosen."""
+
+    selected: bool
+
+
+class SafariTabsPreview(CamelModel):
+    """`POST /sources/sync-safari-tabs?preview=true` — per-device counts, stages nothing."""
+
+    total: int = 0
+    devices: list[SafariTabsDevice] = []
+    warnings: list[str] = []
+
+
+class SafariTabsSyncResponse(CamelModel):
+    new: int
+    skipped: int
+    seen: int = 0
+    devices: list[SafariTabsSelectedDevice] = []
+
+
 # --- Maintenance (G21 dedup sweep) ------------------------------------------
 
 

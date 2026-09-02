@@ -227,7 +227,7 @@ def test_channel_ids_now_include_all_three_connectors(client):
     c, _ = client
     ids = [ch["id"] for ch in c.get("/sources/channels").json()["channels"]]
     assert ids == [
-        "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
+        "chat-export:claude", "chat-export:chatgpt", "bookmarks", "safari-tabs", "notes",
         "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
     ]
 
@@ -278,7 +278,7 @@ def test_get_sources_channels_returns_every_known_channel(client):
     assert resp.status_code == 200, resp.text
     ids = [ch["id"] for ch in resp.json()["channels"]]
     assert ids == [
-        "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
+        "chat-export:claude", "chat-export:chatgpt", "bookmarks", "safari-tabs", "notes",
         "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
     ]
     assert all(ch["connected"] is False for ch in resp.json()["channels"])
