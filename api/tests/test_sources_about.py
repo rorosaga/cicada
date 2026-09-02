@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from api import config, main
 from api.services import markdown_parser
+from api.services.claims import Claim, write_claims
 
 
 def _client(tmp_path, monkeypatch):
@@ -23,6 +24,8 @@ def _client(tmp_path, monkeypatch):
                "media_entity_id": "media-rich", "saved_at": "2026-01-01T00:00:00+00:00"},
         "h2": {"url": "https://example.com/bare", "title": "Bare", "media_type": "bookmark",
                "media_entity_id": "media-bare", "saved_at": "2026-01-02T00:00:00+00:00"},
+        "h3": {"url": "https://example.com/claimed", "title": "Claimed", "media_type": "bookmark",
+               "media_entity_id": "media-claimed", "saved_at": "2026-01-03T00:00:00+00:00"},
     }))
     long_desc = "Word " * 100
     base = {"type": "media", "status": "active", "confidence": 0.7, "created": "2026-01-01",
@@ -35,6 +38,18 @@ def _client(tmp_path, monkeypatch):
                           {**base, "name": "Bare", "related": [],
                            "media": {"url": "https://example.com/bare", "media_type": "bookmark"}},
                           "## Summary\nSaved.")
+    # The shape every backfilled / `/save <url> <reason>` / recon-touched page
+    # has: `## Description` is the last H2 and the ```claims fence follows it.
+    blurb = "A short blurb about example topics."
+    claimed_body = write_claims(f"## Summary\nSaved.\n\n## Description\n{blurb}", [
+        Claim(id="clm_describes_1", text=blurb, subject="media-claimed", predicate="describes",
+              object=blurb, object_kind="literal", observer="agent", authored_by="cicada",
+              origin="sleep/link_enrichment"),
+    ])
+    markdown_parser.write(memory / "entities" / "media-claimed.md",
+                          {**base, "name": "Claimed", "related": [],
+                           "media": {"url": "https://example.com/claimed", "media_type": "bookmark"}},
+                          claimed_body)
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     config.get_settings.cache_clear()
     return TestClient(main.app), memory
@@ -48,6 +63,18 @@ def test_sources_rows_carry_description_excerpt_and_about(tmp_path, monkeypatch)
     assert rich["description"].endswith("…") and len(rich["description"]) <= 281
     assert not rich["description"].endswith(" …")   # cut at a word boundary
     assert bare["description"] is None and bare["about"] == []
+    config.get_settings.cache_clear()
+
+
+def test_description_excerpt_never_carries_the_claims_block(tmp_path, monkeypatch):
+    """Final review H1: `parse_sections` ends a section at the next H2 or EOF
+    and knows nothing about the ```claims fence, so a bare read leaked the
+    serialized claim YAML into the Feed row (and the preview sheet)."""
+    client, _ = _client(tmp_path, monkeypatch)
+    rows = {r["mediaEntityId"]: r for r in client.get("/sources").json()["items"]}
+    desc = rows["media-claimed"]["description"]
+    assert desc == "A short blurb about example topics."
+    assert "clm_" not in desc and "observer" not in desc and "```" not in desc
     config.get_settings.cache_clear()
 
 

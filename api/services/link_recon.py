@@ -262,14 +262,23 @@ async def run_recon(memory_path: Path, settings, report, *, limit=None, extract_
     for start in range(0, len(cards), batch):
         chunk = cards[start:start + batch]
         try:
-            report.llm_calls += 1
             entities = await extract_fn(render_batch(chunk), settings)
+            # Counted only once the engine ANSWERED (final review M3, the
+            # fetch tier's Task 1 review M2 rule): ``_commit_backfill`` keys
+            # the ``Cicada-Author:`` / ``Cicada-Engine:`` trailers on this
+            # counter, and an R9 abort on the first batch must not stamp a
+            # model on a commit whose only writes are the zero-LLM reuse
+            # claims (themselves ``authored_by: cicada``) and junk marks.
+            report.llm_calls += 1
         except Exception as e:
             if isinstance(e, engine_errors.EngineError) or _looks_like_engine_failure(e):
                 report.engine_aborted = type(e).__name__
                 logger.warning(f"link recon engine failure — leaving pages unmarked: {type(e).__name__}: {e}")
                 report.remaining_recon += len(cards) - start
                 return
+            # A malformed response still cost a model call — honest in that
+            # direction too.
+            report.llm_calls += 1
             logger.warning(f"link recon extraction failed for a batch: {type(e).__name__}: {e}")
             entities = []
         report.extracted += len(entities)
@@ -295,11 +304,23 @@ async def run_recon(memory_path: Path, settings, report, *, limit=None, extract_
                     # records one — the promotion model's rung 1 — so a
                     # later conversation mention promotes it with this link
                     # as backfilled context. Never a page.
+                    #
+                    # Never over an existing entry (final review M2):
+                    # ``index_pending_entity`` REPLACES the same-named
+                    # entry, and a candidate Stage 2 recorded from a real
+                    # conversation carries that conversation's episode,
+                    # ``history_entries`` and confidence — provenance
+                    # ``resolve()`` merges into the page on promotion. A
+                    # blurb's thinner version must not erase it. The
+                    # untouched entry counts as neither written nor failed.
                     try:
                         from api.services.vector_index import PendingEntity
 
+                        name = str(ent.get("name") or "")
+                        if name and indexer.pending_by_name(name) is not None:
+                            continue
                         indexer.index_pending_entity(PendingEntity(
-                            name=str(ent.get("name") or ""), type=str(ent.get("type") or "concept"),
+                            name=name, type=str(ent.get("type") or "concept"),
                             description=str(ent.get("summary") or ent.get("description") or card.title),
                             source_episode=card.episode, confidence=float(ent.get("confidence", 0.3) or 0.3),
                             tags=list(ent.get("tags") or []), history_entries=[],

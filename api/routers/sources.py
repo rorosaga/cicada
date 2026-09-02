@@ -447,10 +447,19 @@ def _description_excerpt(body: str, limit: int = 280) -> str | None:
     endpoint already parses: no extra I/O, and the existing ``entities`` ETag
     component (max FILE mtime) already invalidates on the in-place edit that
     writes a description. ``None`` when the section is absent — never a guess
-    from the title."""
-    from api.services.entity_body import parse_sections
+    from the title.
 
-    text = " ".join((parse_sections(body or "").get("Description", "") or "").split())
+    Read through ``link_enrichment._extract_description_section`` rather than a
+    bare ``parse_sections``: the ```claims fence is not an H2, so on every page
+    whose ``## Description`` is the last section before it — every backfilled
+    page (``_describe`` appends the block at the end), every G71
+    ``/save <url> <reason>`` page, every recon-touched page — the raw section
+    runs to EOF and the Feed row would carry the serialized claim YAML, which
+    the preview sheet renders verbatim (final review H1; the same trap Task 1
+    review H1 closed inside the backfill)."""
+    from api.services.link_enrichment import _extract_description_section
+
+    text = " ".join(_extract_description_section(body or "").split())
     if not text:
         return None
     if len(text) <= limit:

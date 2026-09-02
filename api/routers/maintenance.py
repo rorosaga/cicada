@@ -5,6 +5,8 @@ tested but had zero production call sites; this router is that call site —
 plus ``enrich-links``, the on-demand twin of the Sleep-tail link backfill
 (G102).
 """
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.config import Settings, get_settings
@@ -18,6 +20,16 @@ from api.models.schemas import (
 from api.services.dedup_sweep import dedup_sweep
 
 router = APIRouter()
+
+# One backfill per process (final review M4 / Task 3 review M1): two
+# overlapping ``enrich-links`` calls would each read-modify-write the same
+# media pages' frontmatter and claims, and each ``commit_paths`` would stage
+# the other's half-written pages under its own author/engine trailers. The
+# second caller gets a 409 rather than queueing — the first run's ``remaining``
+# already tells them whether another click is worth it. Process-local on
+# purpose: the backend is one uvicorn process, and the Sleep-cycle overlap is
+# guarded separately by ``get_sleep_state`` (R11).
+_enrich_lock = asyncio.Lock()
 
 
 @router.post("/maintenance/dedup-sweep", response_model=MaintenanceDedupSweepResponse)
@@ -68,7 +80,9 @@ async def run_enrich_links(
     nightly poll, exactly the connector contract (G71 final review H2) — and
     the engine is resolved as a user-triggered cycle would resolve it, so a
     connected Claude plan is used when the owner asked for it. ``409`` while
-    a Sleep cycle is running: the tail writes the same media pages (R11).
+    a Sleep cycle is running: the tail writes the same media pages (R11) —
+    and ``409`` while another ``enrich-links`` call is still running, for the
+    same reason (``_enrich_lock``).
     The kill switch (``link_enrich_enabled``) returns an empty report before
     the engine is even resolved — "off" must never probe a plan.
     Warm a bulk-imported bank with ``?limit=50`` a few times; each run
@@ -76,6 +90,8 @@ async def run_enrich_links(
     """
     from api.services import engine_select, link_enrichment, sleep_cycle
 
+    if _enrich_lock.locked():
+        raise HTTPException(409, "a link backfill is already running — retry when it finishes")
     if sleep_cycle.get_sleep_state().status == "running":
         raise HTTPException(
             409,
@@ -83,15 +99,16 @@ async def run_enrich_links(
         )
     if not settings.link_enrich_enabled:
         return MaintenanceEnrichLinksResponse()
-    resolved, why = await engine_select.resolve_settings(settings, user_triggered=True)
-    engine = engine_select.engine_label(resolved)
-    report = await link_enrichment.backfill(
-        resolved.memory_path,
-        resolved,
-        limit=limit if limit is not None else resolved.link_enrich_backfill_per_cycle,
-        recon_limit=recon_limit,
-        summarize_fn=link_enrichment._summarize_excerpt,
-        fetch_fn=link_enrichment.default_fetch,
-        engine=engine,
-    )
+    async with _enrich_lock:
+        resolved, why = await engine_select.resolve_settings(settings, user_triggered=True)
+        engine = engine_select.engine_label(resolved)
+        report = await link_enrichment.backfill(
+            resolved.memory_path,
+            resolved,
+            limit=limit if limit is not None else resolved.link_enrich_backfill_per_cycle,
+            recon_limit=recon_limit,
+            summarize_fn=link_enrichment._summarize_excerpt,
+            fetch_fn=link_enrichment.default_fetch,
+            engine=engine,
+        )
     return MaintenanceEnrichLinksResponse(**report.as_dict(), engine=engine, engine_detail=why)

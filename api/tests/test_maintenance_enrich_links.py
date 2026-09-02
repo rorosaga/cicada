@@ -4,12 +4,15 @@ contract (query params, engine resolution, 409 guard, response shape) is what
 is under test — the driver has its own suite."""
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from api import config, main
+from api.routers import maintenance
 from api.services import link_enrichment, sleep_cycle
 
 
@@ -90,3 +93,40 @@ def test_kill_switch_short_circuits_before_engine_resolution(tmp_path, monkeypat
     resp = client.post("/maintenance/enrich-links?limit=5")
     assert resp.status_code == 200 and resp.json()["selected"] == 0 and calls == []
     config.get_settings.cache_clear()
+
+
+def test_409_while_another_enrich_links_call_is_still_running(tmp_path, monkeypatch):
+    """Final review M4 (Task 3 review M1): two overlapping calls would
+    read-modify-write the same media pages and stage each other's half-written
+    files under their own trailers, so the second caller is refused while the
+    first holds ``_enrich_lock``. Driven as the coroutine the route wraps, on
+    one event loop, so the overlap is deterministic rather than a race between
+    two TestClient portals."""
+    _client(tmp_path, monkeypatch)
+    started, release = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    async def parked_backfill(memory_path, settings, **kwargs):
+        calls.append(kwargs)
+        started.set()
+        await release.wait()
+        return link_enrichment.BackfillReport(selected=1)
+
+    monkeypatch.setattr(link_enrichment, "backfill", parked_backfill)
+    settings = config.get_settings()
+
+    async def scenario():
+        first = asyncio.create_task(maintenance.run_enrich_links(limit=5, recon_limit=None, settings=settings))
+        await started.wait()
+        assert maintenance._enrich_lock.locked()
+        with pytest.raises(HTTPException) as refused:
+            await maintenance.run_enrich_links(limit=5, recon_limit=None, settings=settings)
+        assert refused.value.status_code == 409 and "already running" in refused.value.detail
+        release.set()
+        return await first
+
+    resp = asyncio.run(scenario())
+    assert resp.selected == 1 and len(calls) == 1      # the parked run finished; the refused one never ran
+    assert not maintenance._enrich_lock.locked()         # released for the next click
+    config.get_settings.cache_clear()
+

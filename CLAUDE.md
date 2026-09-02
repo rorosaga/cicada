@@ -414,9 +414,16 @@ engine resolves byok before the registry is touched (ruling 4), and
 `CICADA_ALLOW_CONNECTOR_FETCH` gates only the tail's default fetch. Media pages are evergreen,
 and `about` is multi-valued, so nothing here decays or conflicts. `GET /sources` rows carry
 `description` (280-char excerpt) and `about` (the ids). Progress marker (report only):
-`$CICADA_HOME/link_enrich/<bank>.json`. The endpoint guards only against a running Sleep
-cycle, not against a second call to itself — two overlapping user clicks race on the same
-pages (disclosed, not fixed).
+`$CICADA_HOME/link_enrich/<bank>.json`. The endpoint returns `409` both while a Sleep cycle is
+running (R11) and while another `enrich-links` call is still running (a process-local
+`asyncio.Lock` — two overlapping clicks would stage each other's half-written pages under their
+own trailers). `GET /sources`'s excerpt and the backfill's own description read both go through
+`_extract_description_section`, which strips the ```claims fence first — `parse_sections`
+ends a section at EOF, and `## Description` is the last H2 on every backfilled page. Recon
+never overwrites an existing pending candidate (`pending_by_name` is consulted first): a
+conversation-originated entry carries provenance Stage 2 merges on promotion, and the blurb's
+thinner version must not erase it. `llm_calls` counts answered calls only — an engine abort on
+the first recon batch leaves the run's reuse-tier writes `cicada`-authored, engine-less.
 
 ### Connector seam (G71)
 Pinterest, Reddit, and X (Twitter) each get a peer adapter module under

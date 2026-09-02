@@ -5,6 +5,7 @@ edges via Stage 5.7. Hermetic: extract/match/indexer all injected."""
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -76,12 +77,19 @@ GRAPHS = ("An introduction to knowledge graphs for personal memory systems, comp
 
 
 class _Spy:
-    def __init__(self):
-        self.pending = []
+    """The pending store's surface as recon uses it: ``pending_by_name`` is
+    consulted before every write (final review M2) and ``index_pending_entity``
+    REPLACES a same-named entry, exactly as ``SqliteVecIndexer`` does."""
+
+    def __init__(self, existing=None):
+        self.pending = list(existing or [])
         self.rebuilt = 0
 
+    def pending_by_name(self, name):
+        return next((e for e in self.pending if e.name.lower() == name.lower()), None)
+
     def index_pending_entity(self, entity):
-        self.pending.append(entity)
+        self.pending = [e for e in self.pending if e.name.lower() != entity.name.lower()] + [entity]
 
     def rebuild_pending_index(self):
         self.rebuilt += 1
@@ -200,6 +208,86 @@ def test_recon_skips_thin_descriptions_and_survives_an_engine_failure(tmp_path):
     assert report.engine_aborted == "EngineThrottled" and report.related == 0
     assert "recon_attempted" not in _fm(memory, "media-rich")   # unmarked: still a candidate
     assert report.remaining_recon == 1
+    assert report.llm_calls == 0                # the engine never answered (final review M3)
+
+
+def _git_log(memory: Path) -> str:
+    return subprocess.run(["git", "-C", str(memory), "log", "-1", "--format=%B"],
+                          check=True, capture_output=True, text=True).stdout
+
+
+def test_recon_engine_abort_commits_the_reuse_writes_as_cicada_with_no_engine_trailer(tmp_path):
+    """Final review M3: the reuse tier's ``describes`` claim is a real,
+    zero-LLM write (``authored_by: cicada``) and IS committed; recon's engine
+    died before answering, so the commit must be ``cicada``'s with no
+    ``Cicada-Engine:`` — the fetch tier's Task 1 review M2 rule, and the G85
+    decay-only precedent. Before the fix ``llm_calls`` was bumped before the
+    call and the commit was stamped ``gpt-5.4-mini`` / ``litellm``."""
+    from api.services import engine_errors
+
+    memory = _bank(tmp_path)
+    for args in (("init", "-q"), ("config", "user.email", "t@example.com"), ("config", "user.name", "t")):
+        subprocess.run(["git", "-C", str(memory), *args], check=True)
+    _media(memory, "media-rich", "Rich", "https://r.example", saved_at="2026-01-02", description=ROBOTICS)
+    subprocess.run(["git", "-C", str(memory), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(memory), "commit", "-q", "-m", "seed"], check=True)
+
+    async def extract(text, settings):
+        raise engine_errors.EngineUnavailable("signed out")
+
+    report = run(link_enrichment.backfill(memory, _settings(memory), limit=20, extract_fn=extract,
+                                          match_fn=_match_direct, indexer_factory=lambda p: None, engine="litellm"))
+    assert report.reused == 1 and report.engine_aborted == "EngineUnavailable" and report.llm_calls == 0
+    assert report.commit
+    claims = parse_claims(markdown_parser.parse(memory / "entities" / "media-rich.md").body)
+    assert [c.authored_by for c in claims if c.predicate == "describes"] == ["cicada"]
+    log = _git_log(memory)
+    assert "entities/media-rich.md: enriched" in log
+    assert "Cicada-Author: cicada" in log
+    assert "Cicada-Author: gpt-5.4-mini" not in log
+    assert "Cicada-Engine:" not in log
+
+
+def test_page_level_extraction_failure_still_counts_the_model_call(tmp_path):
+    memory = _bank(tmp_path)
+    _media(memory, "media-rich", "Rich", "https://r.example", saved_at="2026-01-02", description=ROBOTICS)
+
+    async def extract(text, settings):
+        raise ValueError("malformed JSON")
+
+    report = run(link_enrichment.backfill(memory, _settings(memory), limit=20, extract_fn=extract,
+                                          match_fn=_match_direct, indexer_factory=lambda p: None, commit=False))
+    assert report.engine_aborted is None and report.llm_calls == 1
+    assert _fm(memory, "media-rich")["recon_status"] == "no_matches"
+
+
+def test_recon_never_replaces_a_conversation_originated_pending_candidate(tmp_path):
+    """Final review M2: Stage 2 recorded ``Neo4j`` from a real conversation
+    (its episode, its history, its confidence) and ``index_pending_entity``
+    replaces by name — recon must leave that richer entry alone, or the
+    promotion path that merges its history would inherit the blurb's empty one."""
+    from api.services.vector_index import PendingEntity
+
+    memory = _bank(tmp_path)
+    _media(memory, "media-b", "Graph Intro", "https://b.example", saved_at="2026-01-02", description=GRAPHS)
+    earlier = PendingEntity(name="Neo4j", type="tool", description="Graph database the user evaluated",
+                            source_episode="ep_2025-12-01_003", confidence=0.55, tags=["databases"],
+                            history_entries=[{"date": "2025-12-01", "note": "compared against markdown"}])
+    spy = _Spy(existing=[earlier])
+    extract = _extract_fixed([
+        {"name": "neo4j", "type": "tool", "confidence": 0.3, "aliases": [], "summary": "A graph database"},
+        {"name": "Markdown", "type": "tool", "confidence": 0.4, "aliases": []},
+    ])
+    report = run(link_enrichment.backfill(
+        memory, _settings(memory), limit=20, extract_fn=extract, match_fn=_match_direct,
+        indexer_factory=lambda memory_path: spy, engine="litellm", commit=False))
+    assert report.related == 0
+    by_name = {p.name: p for p in spy.pending}
+    assert set(by_name) == {"Neo4j", "Markdown"}
+    assert by_name["Neo4j"] is earlier                     # untouched, not rewritten
+    assert by_name["Neo4j"].history_entries == earlier.history_entries
+    assert by_name["Markdown"].source_episode == "ep_2026-01-02_001"
+    assert spy.rebuilt == 1                                 # the one genuinely new candidate
 
 
 def test_match_existing_uses_direct_then_llm_and_never_creates(tmp_path, monkeypatch):
