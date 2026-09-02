@@ -207,11 +207,15 @@ async def stats(memory_path: Path, *, range_: str, today: date) -> dict:
     runs = [e for e in events if e.kind == "sleep_run" and e.duration_ms is not None]
     longest = max(runs, key=lambda e: e.duration_ms, default=None)
     by_model = _group(calls, "model", "model")
+    # R7 (G113): feedback rows carry no connection and no spend, so grouping
+    # them here would invent an "unknown" connection. ``by_stage``/``by_bank``
+    # keep them — a `feedback` stage row is informative there.
+    spend = [e for e in events if e.kind not in telemetry.FEEDBACK_KINDS]
     all_events = telemetry.read_events()
     return {
         "by_model": by_model,
         "by_stage": _group(events, "stage", "stage"),
-        "by_connection": _group(events, "connection", "connection"),
+        "by_connection": _group(spend, "connection", "connection"),
         "by_bank": _group(events, "bank", "bank"),
         "hour_histogram": hours,
         "peak_day": {"date": peak["date"], "tokens": peak["tokens"]} if peak else None,

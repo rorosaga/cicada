@@ -18,7 +18,17 @@ from loguru import logger
 
 from api.services.auth import cicada_home
 
-KINDS = ("llm_call", "sleep_run", "agentic_write", "ask", "import", "throttle")
+KINDS = (
+    "llm_call", "sleep_run", "agentic_write", "ask", "import", "throttle",
+    "resolution", "audit", "dedup_verdict",
+)
+# G113: grounded-feedback rows — a user's verdict on an inbox item, a reconcile
+# supersede/reject, a dedup judgement. Ids/enums/numbers only, never claim text
+# or an answer string (the ledger is machine-global and outside the bank).
+# Excluded from connection/cost rollups (``consumption_stats.stats``) because
+# they carry no spend: a ``resolution`` has ``connection=None`` and would
+# otherwise surface as an "unknown" connection.
+FEEDBACK_KINDS = ("resolution", "audit", "dedup_verdict")
 
 
 def now_iso() -> str:
@@ -128,6 +138,38 @@ def record(event: UsageEvent) -> None:
             os.close(fd)
     except Exception as exc:  # never let telemetry break the caller
         logger.warning(f"telemetry write failed: {type(exc).__name__}: {exc}")
+
+
+def record_audit(
+    entries, *, subject_hint: str | None, bank: str | None, stage: str = "reconcile"
+) -> None:
+    """One ``audit`` event per ``reconcile_stage3`` audit entry. Never raises.
+
+    G113: a trust-gated supersede or reject is the reconciler passing judgement
+    on an extractor's claim — the same kind of signal as a user's inbox answer,
+    just automated — and until now it lived only in a return value nothing
+    persisted. ``refs`` carries claim ids and the subject slug only. An entry
+    whose ``action`` is neither ``supersede`` nor ``rejected`` is skipped, not
+    guessed at.
+    """
+    for entry in entries or ():
+        try:
+            action = entry.get("action")
+            if action == "supersede":
+                refs = {
+                    "action": "supersede", "subject": subject_hint,
+                    "closed": entry.get("closed"), "by": entry.get("by"),
+                }
+            elif action == "rejected":
+                refs = {
+                    "action": "rejected", "subject": subject_hint,
+                    "kept": entry.get("kept"), "dropped": entry.get("dropped"),
+                }
+            else:
+                continue
+            record(UsageEvent(kind="audit", stage=stage, bank=bank, invocations=0, billing="free", refs=refs))
+        except Exception:  # noqa: BLE001 — a ledger failure never blocks a write
+            continue
 
 
 def read_events(start: date | None = None, end: date | None = None) -> list[UsageEvent]:
