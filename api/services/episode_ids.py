@@ -130,14 +130,20 @@ def timestamp_sort_key(raw: str | None) -> str:
     ``sleep_debt._parse_episode_timestamp`` gives it, because that is what
     the writers that produced it meant — and converted to UTC. Anything
     unparseable (``None``, garbage, a non-string) sorts first as ``""`` rather
-    than raising: one bad file must not hide the whole queue.
+    than raising: one bad file must not hide the whole queue. That promise
+    covers the CONVERSION too, not just the parse — a naive stamp at either
+    end of the calendar (``0001-01-01T00:00:00``, ``9999-12-31T23:59:59``)
+    parses fine but ``astimezone()`` then walks it out of range and raises
+    ``ValueError``/``OverflowError`` (and the platform ``localtime`` behind it
+    can raise ``OSError``), which aborted the Sleep cycle and 500'd
+    ``GET /sleep/episodes`` for one absurd file.
     """
     if not raw or not isinstance(raw, str):
         return ""
     try:
         dt = datetime.fromisoformat(raw)
-    except ValueError:
+        if dt.tzinfo is None:
+            dt = dt.astimezone()  # naive → local-aware, matching sleep_debt's reading
+        return dt.astimezone(timezone.utc).isoformat()
+    except (ValueError, OverflowError, OSError):
         return ""
-    if dt.tzinfo is None:
-        dt = dt.astimezone()  # naive → local-aware, matching sleep_debt's reading
-    return dt.astimezone(timezone.utc).isoformat()

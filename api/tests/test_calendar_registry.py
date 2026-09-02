@@ -25,6 +25,7 @@ deliberately left closed. ``now`` is always pinned explicitly for
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from datetime import datetime
 
 from api.services import calendar_registry
@@ -38,6 +39,26 @@ def _memory(tmp_path):
     memory = tmp_path / "memory"
     for sub in ("episodes", "entities", "sources"):
         (memory / sub).mkdir(parents=True, exist_ok=True)
+    return memory
+
+
+def _git(repo, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=str(repo), check=True, capture_output=True, text=True
+    ).stdout
+
+
+def _git_memory(tmp_path):
+    """A bank that is a real git repo with a clean initial commit, so the
+    poll's own ``git add -A`` commit and the tree it leaves behind are
+    observable."""
+    memory = _memory(tmp_path)
+    _git(memory, "init", "-q")
+    _git(memory, "config", "user.email", "test@cicada.local")
+    _git(memory, "config", "user.name", "Cicada Test")
+    (memory / ".keep").write_text("", encoding="utf-8")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-q", "-m", "init")
     return memory
 
 
@@ -142,6 +163,12 @@ DTEND:20260715T100000Z
 SUMMARY:Weekly standup
 RRULE:FREQ=WEEKLY;COUNT=10
 END:VEVENT
+END:VCALENDAR
+"""
+
+ICS_EMPTY = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Cicada Test//EN
 END:VCALENDAR
 """
 
@@ -496,6 +523,32 @@ def test_poll_calendars_no_subscriptions_is_noop(tmp_path):
     memory = _memory(tmp_path)
     result = run(calendar_registry.poll_calendars(memory, fetch_fn=lambda url: ICS_TWO_EVENTS))
     assert result == {"polled": 0, "new": 0, "per_calendar": []}
+
+
+def test_poll_calendars_zero_new_still_commits_the_last_polled_bump(tmp_path):
+    """Twin of the feed test: a quiet night's ``last_polled`` bump is real state
+    and must be committed rather than left for the next Sleep commit to sweep
+    (G114 final review)."""
+    memory = _git_memory(tmp_path)
+    calendar_registry.subscribe_calendar(memory, "https://a.example.com/cal.ics")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-q", "-m", "subscribe")
+    head_before = _git(memory, "rev-parse", "HEAD").strip()
+
+    result = run(calendar_registry.poll_calendars(memory, fetch_fn=lambda url: ICS_EMPTY))
+
+    assert result["polled"] == 1
+    assert result["new"] == 0
+    assert calendar_registry.list_calendars(memory)[0]["last_polled"] is not None
+    assert _git(memory, "status", "--porcelain").strip() == "", "poll left the bank dirty"
+    assert _git(memory, "rev-parse", "HEAD").strip() != head_before
+    assert "Calendar poll" in _git(memory, "log", "-1", "--format=%s")
+
+    # A same-day re-poll rewrites identical YAML: no second, empty commit.
+    head_after_first = _git(memory, "rev-parse", "HEAD").strip()
+    run(calendar_registry.poll_calendars(memory, fetch_fn=lambda url: ICS_EMPTY))
+    assert _git(memory, "rev-parse", "HEAD").strip() == head_after_first
+    assert _git(memory, "status", "--porcelain").strip() == ""
 
 
 def test_poll_calendars_skips_when_no_fetch_and_gate_closed(tmp_path, monkeypatch):

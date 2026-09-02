@@ -83,13 +83,21 @@ def _read_calendars_file(memory_path: Path) -> list[dict]:
     return calendars if isinstance(calendars, list) else []
 
 
-def _write_calendars_file(memory_path: Path, calendars: list[dict]) -> None:
+def _write_calendars_file(memory_path: Path, calendars: list[dict]) -> bool:
+    """Write the registry; return whether the file's content actually changed.
+
+    Mirrors ``feed_registry._write_feeds_file`` — ``poll_calendars`` commits a
+    0-new poll only when the ``last_polled`` bump really altered the file.
+    """
     path = _calendars_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.dump({"calendars": calendars}, default_flow_style=False, sort_keys=False),
-        encoding="utf-8",
-    )
+    text = yaml.dump({"calendars": calendars}, default_flow_style=False, sort_keys=False)
+    try:
+        before = path.read_text(encoding="utf-8") if path.exists() else None
+    except OSError:
+        before = None
+    path.write_text(text, encoding="utf-8")
+    return text != before
 
 
 def normalize_calendar_url(url: str) -> str:
@@ -538,9 +546,12 @@ async def poll_calendars(
             {"url": url, "status": "ok", "new": created, "duplicates": duplicates}
         )
 
-    _write_calendars_file(memory_path, calendars)
+    registry_changed = _write_calendars_file(memory_path, calendars)
 
-    if total_new:
+    # Commit on new events OR a real ``last_polled`` bump — never leave
+    # ``calendars.yaml`` dirty for the next Sleep commit to sweep under a
+    # model's name (G114 final review; see ``feed_registry.poll_feeds``).
+    if total_new or registry_changed:
         try:
             await _commit_poll(memory_path, total_new, polled)
         except Exception as e:

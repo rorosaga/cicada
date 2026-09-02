@@ -43,7 +43,12 @@ from the backend's `id_utils.sanitize_id`; `.wikilinkNavigation` traps if hosted
 RunAtLoad+KeepAlive, `python -m uvicorn`), keys in `~/.cicada/secrets.env` (0600). Cicada's MCP
 server is registered at **user scope** so every Claude Code session sees it, both skills are in
 `~/.claude/skills/`, and **Claude Desktop is registered** (needs a Desktop restart). Active bank:
-`claude-chats`, 1,731 entities.
+`claude-chats`, 1,731 entities. **One-time step after G114:** `install.sh` only writes the launchd
+plist when no backend answers `/healthz`, so this pre-G114 plist lacks the feed-poll opt-in — add
+`<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to its `EnvironmentVariables` dict, then
+`launchctl bootout gui/$(id -u)/com.cicada.backend && launchctl bootstrap gui/$(id -u)
+~/Library/LaunchAgents/com.cicada.backend.plist`; until then the nightly feed/calendar poll logs
+`skipped: CICADA_ALLOW_FEED_FETCH is not "1"` every cycle.
 
 **How to run the app:** `make run-app` (NOT `swift run` — that produces a bundle-less executable
 whose window never becomes *key*, which silently breaks graph clicks and text-field focus).
@@ -184,8 +189,9 @@ trailers, Ghostty resume)
   (`episode_ids.next_episode_id`, max-suffix+1 per date, importer collision closed), one timestamp
   shape (aware UTC from `episode_ids.utc_now_iso`; Sleep sorts by instant across legacy shapes),
   Telegram stamped with the message date and `/remind` an honest `capture_kind: reminder` note,
-  feeds + calendars polled at the Sleep tail under `CICADA_ALLOW_FEED_FETCH=1` (installer sets
-  it), and a `processed_by: sleep|agent` stamp on `GET /sleep/episodes`
+  feeds + calendars polled at the Sleep tail under `CICADA_ALLOW_FEED_FETCH=1` (a fresh
+  install's plist sets it; an existing plist needs the key by hand — see Live environment), and
+  a `processed_by: sleep|agent` stamp on `GET /sleep/episodes`
 - Backlog hygiene (2026-09-01, docs-only): closed rows for work that had shipped without ever
   updating the backlog — **G21** dedup-sweep endpoint, **G19(e)(f)** provider-factory adoption +
   stray `.bak` removal, **A4** skill preference capture, and the shipped halves of **G11**

@@ -177,3 +177,12 @@ def test_timestamp_sort_key_unparseable_is_empty():
     assert episode_ids.timestamp_sort_key("") == ""
     assert episode_ids.timestamp_sort_key("yesterday-ish") == ""
     assert episode_ids.timestamp_sort_key(12345) == ""  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("raw", ["0001-01-01T00:00:00", "9999-12-31T23:59:59"])
+def test_timestamp_sort_key_extreme_naive_year_is_empty_not_raised(raw):
+    """A naive stamp at the calendar's edge parses, but the local->UTC
+    conversion walks it out of range and raised ValueError — which aborted the
+    whole Sleep queue for one absurd file (G114 final review). It must degrade
+    to "" exactly like garbage does."""
+    assert episode_ids.timestamp_sort_key(raw) == ""
