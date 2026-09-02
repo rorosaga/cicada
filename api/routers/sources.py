@@ -10,6 +10,7 @@ from api.config import Settings, get_settings
 from api.models.schemas import (
     BookmarkSyncRequest,
     BookmarkSyncResponse,
+    BookmarkTreePreview,
     MediaSourceItem,
     NotesSyncRequest,
     NotesSyncResponse,
@@ -305,18 +306,29 @@ async def ingest_rss(
     )
 
 
-@router.post("/sources/sync-bookmarks", response_model=BookmarkSyncResponse)
+@router.post("/sources/sync-bookmarks", response_model=None)
 async def sync_bookmarks(
     request: BookmarkSyncRequest | None = None,
+    preview: bool = Query(False),
     settings: Settings = Depends(get_settings),
-):
-    """Keyless bookmark sync: diff local Chrome/Safari bookmarks and ingest only new URLs.
+) -> BookmarkSyncResponse | BookmarkTreePreview:
+    """Keyless bookmark sync: diff Chrome/Safari bookmarks and ingest only new URLs.
 
     Body is optional. Pass base64 ``chromeDataB64``/``safariDataB64`` (inline
-    data — what tests and a future companion-app file picker use) to sync
-    against that data hermetically. Omit the body (or send neither field) to
-    read the real local bookmark files instead — best-effort, offline-safe;
-    see ``bookmark_sync.sync_from_local_files``.
+    data — what the companion app sends after reading the files itself, R1,
+    and what tests use) to sync against that data hermetically. Omit the body
+    (or send neither field) to read the real local bookmark files instead —
+    best-effort, offline-safe; see ``bookmark_sync.sync_from_local_files``.
+    That fallback exists for ``curl``/tests and is never the app's path: the
+    launchd backend has no Full Disk Access.
+
+    ``?preview=true`` (R5) parses the supplied bytes and returns each source's
+    folder tree with leaf counts WITHOUT ingesting anything — the same
+    staging-free contract as ``/sources/upload?preview=true`` — so the app can
+    show the folders before the user picks one. Inline data is required for a
+    preview; there is nothing to preview from the local-file fallback.
+    ``folders`` on the body narrows the sync to those folder paths (segment-
+    boundary prefixes; ``""`` or omitted = everything, unchanged behaviour).
 
     The "diff" is the existing ``url_index.json`` hash dedup in
     ``media_ingestor.ingest_batch`` — already-saved bookmarks are silently
@@ -340,18 +352,37 @@ async def sync_bookmarks(
             except Exception:
                 raise HTTPException(status_code=422, detail="Invalid safariDataB64")
 
+    if preview:
+        if chrome_data is None and safari_data is None:
+            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64 and/or safariDataB64")
+        # Off the event loop, same reason as the upload preview: a plist the
+        # size of a real Safari library is a CPU-bound parse and must not
+        # stall the SSE stream.
+        result = await run_in_threadpool(
+            bookmark_sync.preview_bookmarks, chrome_data=chrome_data, safari_data=safari_data
+        )
+        return BookmarkTreePreview(**result)
+
     if chrome_data is not None or safari_data is not None:
         result = await bookmark_sync.sync_bookmarks(
-            memory_path, chrome_data=chrome_data, safari_data=safari_data
+            memory_path,
+            chrome_data=chrome_data,
+            safari_data=safari_data,
+            folders=request.folders if request is not None else None,
         )
     else:
         result = await bookmark_sync.sync_from_local_files(memory_path)
 
     # G62: the only durable trace that bookmark sync ever ran. `found` is the
     # number of bookmarks seen this pass (new + already-known), which is what
-    # the Capture row means by "412 bookmarks".
-    found = sum(int(s.get("found") or 0) for s in result.get("sources", []))
-    sync_state.record_sync(memory_path, "bookmarks", count=found)
+    # the channel row means by "412 bookmarks".
+    # R4: one sync_state entry per browser actually synced — the catalog has
+    # one tile per browser, and a channel must map to exactly one tile. The
+    # legacy combined "bookmarks" key is read as a fallback, never written.
+    for s in result.get("sources", []):
+        channel = s.get("channel") or bookmark_sync.CHANNEL_BY_ORIGIN.get(s.get("origin", ""))
+        if channel:
+            sync_state.record_sync(memory_path, channel, count=int(s.get("found") or 0))
 
     return BookmarkSyncResponse(**result)
 

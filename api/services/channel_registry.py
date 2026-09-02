@@ -4,7 +4,9 @@ One list the Capture page can render from, derived from **persisted state
 only** — never from the transient result of a button press:
 
 * ``rss`` / ``calendar``  -> the subscription registries are non-empty
-* ``bookmarks`` / ``safari-tabs`` / ``notes`` -> a ``sync_state.json`` entry exists
+* ``chrome-bookmarks`` / ``safari-bookmarks`` / ``safari-tabs`` / ``notes``
+  -> a ``sync_state.json`` entry exists (the two browser rows also read the
+  legacy combined ``bookmarks`` entry, R4)
 * ``telegram``            -> ``CICADA_TELEGRAM_BOT_TOKEN`` is configured
 * ``chat-export:*`` / ``files`` -> origin counts / the saved-URL index
 
@@ -33,7 +35,8 @@ from api.services.connectors import ADAPTERS
 _NON_CONNECTOR_HEAD = (
     "chat-export:claude",
     "chat-export:chatgpt",
-    "bookmarks",
+    "chrome-bookmarks",
+    "safari-bookmarks",
     "safari-tabs",
     "notes",
     "rss",
@@ -80,8 +83,16 @@ def _subscription_channel(
     }
 
 
-def _sync_channel(channel_id: str, label: str, state: dict, noun: str) -> dict:
-    entry = state.get(channel_id) or {}
+def _sync_channel(
+    channel_id: str, label: str, state: dict, noun: str, *, legacy_key: str | None = None
+) -> dict:
+    """A local-file sync row. ``legacy_key`` (R4): the browser rows read the
+    pre-split combined ``bookmarks`` entry when they have none of their own,
+    so an existing bank stays "connected" until each browser syncs on its
+    own — a read-time fallback, never a write to ``sync_state.json``.
+    Disclosed asymmetry: until then both browser rows show the same legacy
+    count, since the old entry never said which browser it came from."""
+    entry = state.get(channel_id) or (state.get(legacy_key) if legacy_key else None) or {}
     last = entry.get("last_sync") or None
     count = int(entry.get("count") or 0)
     connected = bool(last)
@@ -203,8 +214,13 @@ def build_channels(
             "chat-export:claude", "Claude chat export", "claude-export", by_origin, "conversation"),
         "chat-export:chatgpt": _origin_channel(
             "chat-export:chatgpt", "ChatGPT chat export", "chatgpt-export", by_origin, "conversation"),
-        "bookmarks": _sync_channel(
-            "bookmarks", "Chrome & Safari bookmarks", state, "bookmark"),
+        # R4: one row per browser — the catalog has one tile per browser and a
+        # channel must map to exactly one tile, so the old shared
+        # "Chrome & Safari bookmarks" row could no longer be honest.
+        "chrome-bookmarks": _sync_channel(
+            "chrome-bookmarks", "Chrome bookmarks", state, "bookmark", legacy_key="bookmarks"),
+        "safari-bookmarks": _sync_channel(
+            "safari-bookmarks", "Safari bookmarks", state, "bookmark", legacy_key="bookmarks"),
         # 2026-09-02 brief: the iPhone's open tabs are their own channel — a
         # different file, a different question ("what is open right now")
         # and its own sync_state entry, written by `safari_tabs.sync_tabs`.

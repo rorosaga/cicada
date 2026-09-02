@@ -1222,10 +1222,17 @@ class BookmarkSyncRequest(CamelModel):
     # hermetic test payload and (when omitted entirely) a local-file sync.
     chrome_data_b64: Optional[str] = None
     safari_data_b64: Optional[str] = None
+    # R5 — exact folder-path prefixes at segment boundaries; "" = everything;
+    # omitted = everything (unchanged behaviour).
+    folders: Optional[list[str]] = None
 
 
 class BookmarkSyncSourceSummary(CamelModel):
     origin: str
+    # R4 — the `sync_state.json` key this source's sync stamped
+    # (`chrome-bookmarks` / `safari-bookmarks`), so the app can refresh
+    # exactly the channel row that changed.
+    channel: str = ""
     found: int = 0
     new: int = 0
     skipped: int = 0
@@ -1235,6 +1242,27 @@ class BookmarkSyncResponse(CamelModel):
     new: int
     skipped: int
     sources: list[BookmarkSyncSourceSummary] = []
+
+
+class BookmarkFolderNode(CamelModel):
+    """One folder in a bookmark tree: `count` includes every leaf beneath it."""
+
+    name: str
+    path: str
+    count: int = 0
+    children: list["BookmarkFolderNode"] = []
+
+
+class BookmarkTreeSource(CamelModel):
+    origin: str
+    total: int = 0
+    tree: BookmarkFolderNode
+
+
+class BookmarkTreePreview(CamelModel):
+    """`POST /sources/sync-bookmarks?preview=true` — folder trees, stages nothing."""
+
+    sources: list[BookmarkTreeSource] = []
 
 
 class SafariTabsSyncRequest(CamelModel):
