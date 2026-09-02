@@ -348,6 +348,22 @@ function nodeMatchesContexts(n) {
 // Apply the initial centering transform exactly once, the first time the
 // canvas has real dimensions. Manual zoom/pan afterwards is never overridden.
 let hasCentered = false;
+// First-load fit (owner, 2026-09-03: "the zoomed-out look should be the
+// default"): centerOnce() only places the origin; the graph's real extent is
+// unknown until the cold layout has spread, so the first updateGraph arms a
+// one-shot fit that fires after INITIAL_FIT_TICKS ticks. Later data pushes
+// (deltas, bank switches with a warm prevPositions) never re-fit — the
+// person's own zoom is the state to keep (the WKWebView now survives tab
+// switches, see ContentView.detailContent).
+const INITIAL_FIT_TICKS = 90;
+let initialFitTicksLeft = -1;   // -1 = not armed
+function armInitialFit() { initialFitTicksLeft = INITIAL_FIT_TICKS; }
+function tickInitialFit() {
+    if (initialFitTicksLeft < 0) return;
+    if (--initialFitTicksLeft > 0) return;
+    initialFitTicksLeft = -1;
+    fitGraph();
+}
 function centerOnce() {
     if (hasCentered || width <= 0 || height <= 0 || !currentZoom) return;
     hasCentered = true;
@@ -527,6 +543,7 @@ function updateGraph(dataStr) {
     rebuildVisible();
     rebuildNeighborsIndex();
     startSimulation({ reheat: hadPrev ? 0.3 : 1.0 });
+    if (!hadPrev) armInitialFit();
 
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
     scheduleRedraw();
@@ -987,7 +1004,7 @@ function startSimulation({ reheat = 1.0 } = {}) {
         .force("yType", d3.forceY(d => yAnchor(d)).strength(d => anchorStrength(d, "y")))
         .force("hubGravity", hubGravityForce(0.05))
         .force("clampSpeed", clampSpeedForce())
-        .on("tick", scheduleRedraw)
+        .on("tick", () => { tickInitialFit(); scheduleRedraw(); })
         .on("end", () => { simulation.stop(); });
 
     simulation.alpha(reheat).restart();
