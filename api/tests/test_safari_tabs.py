@@ -136,6 +136,75 @@ def test_load_tabs_rejects_non_sqlite_and_missing_tables(tmp_path):
         safari_tabs.load_tabs(other.read_bytes())
 
 
+def test_load_tabs_maps_schema_drift_to_safari_tabs_error(tmp_path):
+    """Final review, finding 1: a CloudTabs.db whose tables exist but carry
+    different column names (here `link` for `url`) must surface as
+    SafariTabsError so the router's 422 mapping covers it — not as a bare
+    sqlite3.OperationalError the router turns into a 500."""
+    path = tmp_path / "drift.db"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE cloud_tab_devices (device_uuid TEXT PRIMARY KEY, device_name TEXT)")
+    conn.execute("CREATE TABLE cloud_tabs (tab_uuid TEXT PRIMARY KEY, device_uuid TEXT, title TEXT, link TEXT)")
+    conn.execute("INSERT INTO cloud_tab_devices VALUES ('d', 'Bob''s iPhone')")
+    conn.execute("INSERT INTO cloud_tabs VALUES ('t', 'd', 'Example', 'https://example.com/')")
+    conn.commit(); conn.close()
+    with pytest.raises(safari_tabs.SafariTabsError, match="schema"):
+        safari_tabs.load_tabs(path.read_bytes())
+
+
+def _shared_url_db_bytes(tmp_path: Path) -> bytes:
+    """One page open on BOTH devices, plus one page each device has alone.
+    The MacBook row is inserted first so SQLite scans it first — the shape in
+    which the pre-fix dedup credited the shared tab to the MacBook only."""
+    path = tmp_path / "shared.db"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE cloud_tab_devices (device_uuid TEXT PRIMARY KEY, device_name TEXT)")
+    conn.execute("CREATE TABLE cloud_tabs (tab_uuid TEXT PRIMARY KEY, device_uuid TEXT, title TEXT, url TEXT)")
+    conn.executemany("INSERT INTO cloud_tab_devices VALUES (?, ?)", DEVICES)
+    conn.executemany("INSERT INTO cloud_tabs VALUES (?, ?, ?, ?)", [
+        ("m1", "dev-mac", "Shared", "https://example.com/shared"),
+        ("m2", "dev-mac", "Mac only", "https://example.com/mac-only"),
+        ("p1", "dev-phone", "Shared", "https://example.com/shared"),
+        ("p2", "dev-phone", "Phone only", "https://example.com/phone-only"),
+    ])
+    conn.commit(); conn.close()
+    return path.read_bytes()
+
+
+def test_a_tab_open_on_two_devices_counts_on_both_and_imports_under_either(tmp_path):
+    """Final review, finding 2: dedup by URL used to run BEFORE the device
+    filter, so selecting the second-scanned device silently dropped the shared
+    tab and its preview count under-reported."""
+    snap = safari_tabs.load_tabs(_shared_url_db_bytes(tmp_path))
+    assert snap.devices == [{"name": "Bob's MacBook", "count": 2}, {"name": "Bob's iPhone", "count": 2}]
+    assert snap.total == 3  # distinct URLs — what an unfiltered sync imports
+    assert snap.skipped == 0  # a cross-device duplicate is not a skip
+    phone = safari_tabs.select(snap, ["Bob's iPhone"])
+    assert {i.url for i in phone} == {"https://example.com/shared", "https://example.com/phone-only"}
+    assert all(i.folder == "Bob's iPhone" for i in phone)
+    assert {i.url for i in safari_tabs.select(snap, ["Bob's MacBook"])} == {
+        "https://example.com/shared", "https://example.com/mac-only"}
+    # Unfiltered: one item per URL, so ingest never sees the shared tab twice.
+    everything = safari_tabs.select(snap, None)
+    assert len(everything) == 3
+    assert len({i.url for i in everything}) == 3
+
+
+def test_sync_tabs_imports_a_shared_tab_for_the_selected_device(tmp_path):
+    seen: list[RawItem] = []
+
+    async def fake_ingest(items, memory_path, from_bookmark_file=False, **kwargs):
+        seen.extend(items)
+        return len(items), 0
+
+    memory = tmp_path / "memory"; memory.mkdir()
+    result = run(safari_tabs.sync_tabs(
+        memory, _shared_url_db_bytes(tmp_path), devices=["Bob's iPhone"], ingest_fn=fake_ingest))
+    assert result["new"] == 2 and result["seen"] == 2
+    assert {i.url for i in seen} == {"https://example.com/shared", "https://example.com/phone-only"}
+    assert {d["name"]: d["count"] for d in result["devices"]} == {"Bob's MacBook": 2, "Bob's iPhone": 2}
+
+
 def test_select_filters_by_exact_device_name(tmp_path):
     snap = safari_tabs.load_tabs(_db_bytes(tmp_path))
     assert {i.url for i in safari_tabs.select(snap, ["Bob's iPhone"])} == {
@@ -255,3 +324,20 @@ def test_endpoint_rejects_bad_base64_and_non_db(tmp_path, monkeypatch):
     assert client.post("/sources/sync-safari-tabs", json={"safariTabsDbB64": "%%%"}).status_code == 422
     b64 = base64.b64encode(b"not a db").decode()
     assert client.post("/sources/sync-safari-tabs", json={"safariTabsDbB64": b64}).status_code == 422
+
+
+def test_endpoint_maps_schema_drift_to_422_on_both_paths(tmp_path, monkeypatch):
+    """Final review, finding 1: the reproduction was HTTP 500 on both the sync
+    and the preview for a db whose cloud_tabs has `link` instead of `url`."""
+    client, _ = _client(tmp_path, monkeypatch)
+    path = tmp_path / "drift.db"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE cloud_tab_devices (device_uuid TEXT PRIMARY KEY, device_name TEXT)")
+    conn.execute("CREATE TABLE cloud_tabs (tab_uuid TEXT PRIMARY KEY, device_uuid TEXT, title TEXT, link TEXT)")
+    conn.commit(); conn.close()
+    b64 = base64.b64encode(path.read_bytes()).decode()
+    preview = client.post("/sources/sync-safari-tabs?preview=true", json={"safariTabsDbB64": b64})
+    assert preview.status_code == 422, preview.text
+    assert "schema" in preview.json()["detail"]
+    sync = client.post("/sources/sync-safari-tabs", json={"safariTabsDbB64": b64})
+    assert sync.status_code == 422, sync.text

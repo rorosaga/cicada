@@ -510,6 +510,11 @@ struct TriggerSleep: Mutation {
 /// pattern — a value-type mutation stashing what its request learned).
 /// `refreshDomains` covers everything a sync moves: the channel row's count
 /// and last-sync, the Feed's sources list, and the status bar's queue count.
+///
+/// The failure copy never claims "nothing was imported": the backend ingests
+/// in `MAX_BATCH` slices and re-raises on a later slice, so earlier slices
+/// have already landed (`ingest_batch` can be partial for bookmarks too).
+/// Pointing at the Feed is the honest statement (final review, finding 3).
 struct SyncSafariTabs: Mutation {
     let db: Data
     let wal: Data?
@@ -522,7 +527,7 @@ struct SyncSafariTabs: Mutation {
     func optimistic(_ store: Store) async {}
     func request(_ api: any SyncAPI) async throws { memo.value = try await api.syncSafariTabs(db: db, wal: wal, devices: devices) }
     func rollback(_ store: Store) async {}
-    var failureMessage: String { "Couldn't import those tabs — nothing was imported" }
+    var failureMessage: String { "Couldn't finish importing those tabs — the Feed shows what landed" }
     var refreshDomains: Set<SyncDomain> { [.channels, .sources, .status] }
 }
 
@@ -538,6 +543,6 @@ struct SyncBrowserBookmarks: Mutation {
     func optimistic(_ store: Store) async {}
     func request(_ api: any SyncAPI) async throws { memo.value = try await api.syncBookmarks(chromeData: chromeData, safariData: safariData, folders: folders) }
     func rollback(_ store: Store) async {}
-    var failureMessage: String { "Couldn't sync those bookmarks — nothing was imported" }
+    var failureMessage: String { "Couldn't finish syncing those bookmarks — the Feed shows what landed" }
     var refreshDomains: Set<SyncDomain> { [.channels, .sources, .status] }
 }

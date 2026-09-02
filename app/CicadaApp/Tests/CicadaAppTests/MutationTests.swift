@@ -418,6 +418,6 @@ final class MutationTests: XCTestCase {
         XCTAssertFalse(ok)
         XCTAssertEqual(api.writes, ["syncBookmarks:1"])
         XCTAssertNil(mutation.result, "a failed sync leaves no result to show")
-        XCTAssertEqual(store.toast, "Couldn't sync those bookmarks — nothing was imported")
+        XCTAssertEqual(store.toast, "Couldn't finish syncing those bookmarks — the Feed shows what landed")
     }
 }

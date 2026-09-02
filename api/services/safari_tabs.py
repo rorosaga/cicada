@@ -23,12 +23,21 @@ group "everything open on the phone"), and ``added`` from a Core Data
 timestamp column when the schema has one. Non-http(s), loopback, ``.local``
 and RFC-1918 URLs are dropped: a tab pointing at a dev server is not a save.
 
+Dedup happens in two places on purpose (final review, finding 2). ``load_tabs``
+keeps one item per ``(device, url)`` so the per-device counts the picker shows
+are honest — a page open on the phone AND the laptop is on both, and selecting
+either device must import it. ``select`` then collapses to one item per URL
+after the device filter, so ``sync_tabs`` never hands ``ingest_batch`` the
+same URL twice in one run. Collapsing before the filter (the original shape)
+credited a shared tab to whichever device SQLite happened to scan first and
+silently dropped it from the other's selection.
+
 Ingest rides ``media_ingestor.ingest_batch`` in ``MAX_BATCH`` slices exactly
 like ``connectors/base._run_sync_locked`` (final-review H3 there: a single
-``items[:MAX_BATCH]`` call silently drops the tail). Dedup is the existing
-``url_index.json`` hash check inside ``ingest_batch`` — a tab that is already
-a bookmark entity is reported ``skipped``, never re-created (R3). No LLM, no
-network call of its own: ``ingest_batch``'s pre-existing best-effort
+``items[:MAX_BATCH]`` call silently drops the tail). Cross-run dedup is the
+existing ``url_index.json`` hash check inside ``ingest_batch`` — a tab that is
+already a bookmark entity is reported ``skipped``, never re-created (R3). No
+LLM, no network call of its own: ``ingest_batch``'s pre-existing best-effort
 enrichment is left exactly as it is.
 """
 
@@ -66,16 +75,24 @@ class SafariTabsError(ValueError):
 
 @dataclass
 class TabsSnapshot:
-    """What one CloudTabs.db contains, already filtered to importable tabs."""
+    """What one CloudTabs.db contains, already filtered to importable tabs.
+
+    ``items`` holds one entry per ``(device, url)`` — see the module docstring
+    for why the device split is kept until :func:`select` — so ``devices``
+    counts a page open on two devices on both. ``total`` is the number
+    :func:`select` would import with no device filter, i.e. distinct URLs:
+    that is what the preview promises and what the sync then reports as
+    ``seen``, so the two figures cannot disagree.
+    """
 
     items: list[RawItem]
     devices: list[dict]  # [{"name": str, "count": int}], count desc then name
-    skipped: int  # in-batch duplicates + unimportable URLs
+    skipped: int  # same-device duplicates + unimportable URLs
     warnings: list[str] = field(default_factory=list)
 
     @property
     def total(self) -> int:
-        return len(self.items)
+        return len(_dedup_by_hash(self.items))
 
 
 def _is_importable(url: str) -> bool:
@@ -126,12 +143,21 @@ def load_tabs(db: bytes, wal: bytes | None = None) -> TabsSnapshot:
                 raise SafariTabsError(f"Not a SQLite database: {e}") from e
             if not {"cloud_tabs", "cloud_tab_devices"} <= tables:
                 raise SafariTabsError("Not a Safari CloudTabs.db (missing cloud_tabs / cloud_tab_devices)")
-            ts_col = _timestamp_column(conn)
-            ts_select = f", t.{ts_col}" if ts_col else ", NULL"
-            rows = conn.execute(
-                "SELECT d.device_name, t.title, t.url" + ts_select +
-                " FROM cloud_tabs t LEFT JOIN cloud_tab_devices d ON d.device_uuid = t.device_uuid"
-            ).fetchall()
+            # The schema is Apple's and has drifted across macOS versions.
+            # A table that exists but lacks `url`/`title`/`device_uuid`/
+            # `device_name` used to escape as a bare OperationalError — the
+            # router only maps SafariTabsError, so both the sync and the
+            # preview answered 500 instead of "that isn't a CloudTabs.db we
+            # can read" (final review, finding 1; Task 1 review-r1 MEDIUM).
+            try:
+                ts_col = _timestamp_column(conn)
+                ts_select = f", t.{ts_col}" if ts_col else ", NULL"
+                rows = conn.execute(
+                    "SELECT d.device_name, t.title, t.url" + ts_select +
+                    " FROM cloud_tabs t LEFT JOIN cloud_tab_devices d ON d.device_uuid = t.device_uuid"
+                ).fetchall()
+            except sqlite3.Error as e:
+                raise SafariTabsError(f"Unrecognised CloudTabs.db schema: {e}") from e
         finally:
             conn.close()
     finally:
@@ -143,7 +169,10 @@ def load_tabs(db: bytes, wal: bytes | None = None) -> TabsSnapshot:
     # Only `device_name`, `title`, `url` and the probed timestamp column are
     # named: the fewer Apple columns the SQL mentions, the fewer schema
     # versions can break the parse.
-    seen: set[str] = set()
+    # Dedup key is (device, url), NOT url alone: a page open on two devices
+    # must stay on both so the picker's counts are honest and either device's
+    # selection imports it. `select` collapses to one per URL afterwards.
+    seen: set[tuple[str, str]] = set()
     items: list[RawItem] = []
     counts: dict[str, int] = {}
     skipped = 0
@@ -152,11 +181,11 @@ def load_tabs(db: bytes, wal: bytes | None = None) -> TabsSnapshot:
         if not isinstance(url, str) or not _is_importable(url):
             skipped += 1
             continue
-        h = media_ingestor.url_hash(url)
-        if h in seen:
+        key = (device, media_ingestor.url_hash(url))
+        if key in seen:
             skipped += 1
             continue
-        seen.add(h)
+        seen.add(key)
         items.append(RawItem(
             url=url,
             title=(title or "").strip() or None,
@@ -171,12 +200,28 @@ def load_tabs(db: bytes, wal: bytes | None = None) -> TabsSnapshot:
     return TabsSnapshot(items=items, devices=devices, skipped=skipped)
 
 
+def _dedup_by_hash(items: list[RawItem]) -> list[RawItem]:
+    """One item per URL, first occurrence wins (so its device name is the folder)."""
+    seen: set[str] = set()
+    out: list[RawItem] = []
+    for item in items:
+        h = media_ingestor.url_hash(item.url)
+        if h in seen:
+            continue
+        seen.add(h)
+        out.append(item)
+    return out
+
+
 def select(snapshot: TabsSnapshot, devices: list[str] | None) -> list[RawItem]:
-    """The tabs to import: every tab, or only those on the named devices (exact name match)."""
+    """The tabs to import: every tab, or only those on the named devices (exact
+    name match) — collapsed to one item per URL AFTER the device filter, so a
+    page open on two devices is imported once whichever device is picked and
+    ``sync_tabs`` never double-ingests it."""
     if not devices:
-        return list(snapshot.items)
+        return _dedup_by_hash(snapshot.items)
     wanted = set(devices)
-    return [i for i in snapshot.items if i.folder in wanted]
+    return _dedup_by_hash([i for i in snapshot.items if i.folder in wanted])
 
 
 async def sync_tabs(
