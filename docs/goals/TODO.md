@@ -321,6 +321,9 @@ trailers, Ghostty resume)
     citable source, the prompt/turn that triggered every agent write, and a raw-source viewer with the
     cited passage highlighted (NotebookLM, but bi-temporal and attributed). Owner-marked central to
     the vision (2026-09-02). Slice 1 = span capture in Stage-1 + resolver; absorbs G100 — L
+9d. **G121 world facts vs personal facts** — `source_trust: model_knowledge` + volatile decay for anything not
+    grounded in an episode, two-tier entity card ("why it's in your memory" / "context as of <date>, verify"), the
+    rule in the G75 handshake; a dry-run backfill count on the live bank first — M
 9c. **G93 cross-stream ask** and **G105 deterministic capture** — moved up (owner, 2026-09-02): G105
     is what makes every write have a cause; G93 is where citations become answers — M each
 10. **G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
