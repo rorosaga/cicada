@@ -351,6 +351,9 @@ trailers, Ghostty resume)
 11. **G100** span citation — which *sentence* convinced the contributor, rendered in a
     DiffView-style source viewer with prev/next across conversations — M
 12. **G103** observer model in the UI — whose belief, who was in the room — S
+12d. **G124** Activity → Conversations-first *Sources* page: per-harness cards with counts (clickable →
+    per-source page), conversation rows with Resume, contributors calendar per model, Usage + read/write
+    stats under Advanced, no segmented control, no horizontal strip — M/L (decide the sidebar order in G108)
 12c. **G108** landing page + navigation — decide *before* building: status vs graph as the front
     door, and linear vs browser-style history (G106 makes history the better bet) — decision
 12b. **G106** two-way conversations ↔ entities browser — the inverse index works today; content
@@ -411,6 +414,9 @@ the report for what was checked)*
 ---
 
 ## 🩹 Known-broken, not yet queued
+- Sidebar footer: the sun/moon button next to the gear writes `cicada.colorScheme` but the owner reports
+  nothing happens on press (2026-09-03) — verify whether the scheme is applied at the root (`preferredColorScheme`)
+  and whether the graph page (hard-coded dark d3 palette, see GraphView.swift comment) masks it — XS
 - Graph re-lays out on every return to the Graph tab: `ContentView` rebuilds the `WKWebView` per
   tab switch *(G109 Swift track — Wave A #1; the physics half shipped in phase 1)*
 - Bank `.git` is 69 MB against 16 MB of markdown — future growth stopped, **history not rewritten**
