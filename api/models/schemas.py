@@ -1210,6 +1210,14 @@ class MediaSourceItem(CamelModel):
     # (GET /sources ?sort=recent, the app's Recent toggle) should prefer this
     # and fall back to `saved_at`.
     content_saved_at: Optional[str] = None
+    # G102 cheap slice (R12): the link's own description — OpenGraph at ingest
+    # or the Sleep-tail backfill's summary — cut at ~280 chars on a word
+    # boundary, and the ids of the entities the page is `about` (the media
+    # page's `related:` list, written only by `link_recon`). Both additive and
+    # defaulted so an older client is unaffected; `None`/`[]` mean the link
+    # has not been described/related yet, never a guess.
+    description: Optional[str] = None
+    about: list[str] = []
 
 
 class SourceListResponse(CamelModel):

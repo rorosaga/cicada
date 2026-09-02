@@ -216,6 +216,12 @@ struct MediaFeedItem: Codable, Identifiable {
     /// existing readers). `nil` means unknown, never a guess. Use
     /// `recencyDate` for any "most recent first" sort.
     let contentSavedAt: String?
+    /// G102: the link's own description excerpt (OpenGraph at ingest, or the
+    /// nightly backfill's summary) and the ids of the entities the page is
+    /// `about`. Both optional: an older backend omits them and the row still
+    /// decodes; `nil` means "not described / related yet", never a guess.
+    let description: String?
+    let about: [String]?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -259,6 +265,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case mediaEntityId, url, title, mediaType, site, channel, thumbnail
         case savedAt, tags, status, relatedCount, relevance, personalRelevance
         case contentSavedAt
+        case description, about
     }
 
     init(from decoder: Decoder) throws {
@@ -277,6 +284,8 @@ struct MediaFeedItem: Codable, Identifiable {
         relevance = (try? c.decode(Double.self, forKey: .relevance)) ?? 0
         personalRelevance = try c.decodeIfPresent(String.self, forKey: .personalRelevance)
         contentSavedAt = try c.decodeIfPresent(String.self, forKey: .contentSavedAt)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        about = try c.decodeIfPresent([String].self, forKey: .about)
     }
 }
 

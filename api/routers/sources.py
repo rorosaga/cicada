@@ -439,6 +439,26 @@ async def sync_safari_tabs(
     return SafariTabsSyncResponse(**result)
 
 
+def _description_excerpt(body: str, limit: int = 280) -> str | None:
+    """First ~``limit`` chars of the page's ``## Description``, cut on a word
+    boundary with an ellipsis — the Feed row's own copy of what the backfill
+    or ingest-time OpenGraph stored (G102 R12), so the preview sheet renders
+    instantly instead of fetching the entity first. Read from the page the
+    endpoint already parses: no extra I/O, and the existing ``entities`` ETag
+    component (max FILE mtime) already invalidates on the in-place edit that
+    writes a description. ``None`` when the section is absent — never a guess
+    from the title."""
+    from api.services.entity_body import parse_sections
+
+    text = " ".join((parse_sections(body or "").get("Description", "") or "").split())
+    if not text:
+        return None
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:")
+    return f"{cut}…"
+
+
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
     request: Request,
@@ -468,12 +488,21 @@ async def list_sources(
         personal_relevance = None
         site = None
         channel = None
+        description: str | None = None
+        about: list[str] = []
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
                 from api.services import markdown_parser
 
-                fm = markdown_parser.parse(entity_path).frontmatter or {}
+                parsed = markdown_parser.parse(entity_path)
+                fm = parsed.frontmatter or {}
+                # G102 R12 — read the excerpt + `about` ids straight after the
+                # parse, before any later field: this block is one `try` whose
+                # `except: pass` would otherwise drop them if relevance or
+                # `media` raised on an odd page.
+                description = _description_excerpt(parsed.body)
+                about = [str(r) for r in (fm.get("related") or []) if str(r).strip()]
                 related_count = len(fm.get("related") or [])
                 status = fm.get("status", "active")
                 tags = fm.get("tags") or []
@@ -507,6 +536,8 @@ async def list_sources(
                 related_count=related_count,
                 relevance=round(relevance, 4),
                 personal_relevance=personal_relevance,
+                description=description,
+                about=about,
             )
         )
 

@@ -331,10 +331,12 @@ private struct FeedRow: View {
 // MARK: - Feed item preview (G11)
 //
 // In-app preview overlay for a tapped Feed row. Renders `MediaPreview` from the
-// row's `MediaFeedItem`, and best-effort enriches the website card's description
-// by fetching the backing media entity on open (the Feed payload has no
-// description). Degrades quietly: if the fetch fails, the preview still renders
-// without a description.
+// row's `MediaFeedItem`. The website card's description is seeded from the
+// row itself — `GET /sources` carries each link's `## Description` excerpt
+// (G102 R12) — so the preview is instant; fetching the backing media entity on
+// open is only the fallback for a row an older backend served without one.
+// Degrades quietly: if that fetch fails, the preview still renders without a
+// description.
 private struct FeedItemPreviewSheet: View {
     let item: MediaFeedItem
     @Environment(\.dismiss) private var dismiss
@@ -370,8 +372,13 @@ private struct FeedItemPreviewSheet: View {
         .frame(width: 480, height: 520)
         .background(CicadaTheme.background)
         .task {
-            // Enrich the description (only useful for website/bookmark cards).
+            // Seed from the row (G102: /sources now carries the excerpt), and
+            // only fall back to fetching the entity when the row has none.
             guard enrichedDescription == nil else { return }
+            if let seeded = item.description, !seeded.isEmpty {
+                enrichedDescription = seeded
+                return
+            }
             if let entity = try? await APIClient.shared.fetchEntity(id: item.mediaEntityId) {
                 enrichedDescription = Self.firstSection(
                     ["## Description", "## Summary"],
