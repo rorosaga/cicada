@@ -346,6 +346,9 @@ trailers, Ghostty resume)
 17. **G101** raw-conversation evidence layer — what to keep, what to discard — M
 18. **G91** share-to-Cicada *(needs G88's signed app; absorbs G37)* — M
 19. **G94** life-data streams — aggregates, never samples — L
+19a. **G120** attention frequency — source attribution at ingest (channel/account/author), a rebuildable
+    recurrence index, promotion to a `follows` claim that decays honestly, a "you keep coming back to"
+    strip; feeds G111's ranking and G93's retrieval weight — M
 20. **G76** effortless install + always-on capture — L
 21. **G89** feeds first-class metadata *(feed-following already shipped via M4 — Substack needs no
     connector, just the (i)-(vii) metadata-quality work)* — S/M
