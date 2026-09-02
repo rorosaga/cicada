@@ -43,7 +43,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Awaitable, Callable
 from urllib.parse import urlparse
@@ -55,6 +55,7 @@ from loguru import logger
 # so pulling them in at module level creates no cycle.
 from api.services import engine_errors, git_service, markdown_parser
 from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
+from api.services.episode_ids import utc_now_iso
 
 # summarize_fn(title, url, settings) -> description string | None
 SummarizeFn = Callable[[str, str, object], Awaitable[str | None]]
@@ -68,10 +69,22 @@ def _is_substantive(text: str, min_len: int) -> bool:
 
 
 def _extract_description_section(body: str) -> str:
-    """Return the ``## Description`` section text of a media page body (or '')."""
+    """Return the ``## Description`` section text of a media page body (or '').
+
+    The ```claims fence is stripped first (the ``entity_body.py`` pattern):
+    ``parse_sections`` ends a section at the next H2 or EOF and knows nothing
+    about the fence, so on a page whose ``## Description`` is the last H2 —
+    every G71 ``/save <url> <reason>`` page, and any media page that received
+    an MCP claim — the raw section swallowed the whole serialized claims YAML.
+    Two corruptions followed (Task 1 review H1): a ``describes`` claim whose
+    text embedded another claim's YAML, and a thin description padded past
+    ``link_enrich_min_desc_len`` by that YAML so the page took the zero-LLM
+    reuse tier instead of the fetch tier and was marked done with garbage.
+    """
+    from api.services.claims import strip_claims_block
     from api.services.entity_body import parse_sections
 
-    return (parse_sections(body).get("Description", "") or "").strip()
+    return (parse_sections(strip_claims_block(body)).get("Description", "") or "").strip()
 
 
 def _claim_id(prefix: str, *parts: str) -> str:
@@ -470,7 +483,17 @@ _LOGIN_HOSTS = frozenset({
     "accounts.google.com", "login.microsoftonline.com", "login.live.com",
     "auth.openai.com", "appleid.apple.com", "login.salesforce.com",
 })
-_LOGIN_PATH_RE = re.compile(
+# A login-page PATH the user saved. Deliberately narrow: ``auth``/``oauth2``/
+# ``sso`` were dropped (Task 1 review M1) because developer bookmarks are dense
+# with ``/guides/auth``-style documentation paths, and a ``login_wall`` verdict
+# is permanent — ``backfill`` stamps ``enrichment_status: junk`` and
+# ``scan_backfill`` never revisits it. R2 wants a login WALL detector, not
+# "a page about authentication".
+_LOGIN_PATH_RE = re.compile(r"/(login|log-in|signin|sign-in|sign_in)(/|$|\?)", re.IGNORECASE)
+# The wider set is honoured only for a REDIRECT TARGET in ``default_fetch``:
+# being bounced from the saved URL onto ``/oauth2/…`` or ``/sso`` is a
+# wall, whereas saving such a URL on purpose is not.
+_LOGIN_REDIRECT_PATH_RE = re.compile(
     r"/(login|log-in|signin|sign-in|sign_in|auth|oauth2?|sso)(/|$|\?)", re.IGNORECASE
 )
 
@@ -500,6 +523,27 @@ def classify_page(title: str, url: str) -> str | None:
     if _LOGIN_TITLE_RE.match(text) or _LOGIN_PATH_RE.search(parsed.path or ""):
         return "login_wall"
     return None
+
+
+def _redirected_to_wall(requested: str, final: str) -> bool:
+    """True when following ``requested`` LANDED on a consent/login page.
+
+    ``final`` gets the full ``classify_page`` treatment, plus the wider
+    ``_LOGIN_REDIRECT_PATH_RE`` — but that one only when the server actually
+    moved us (``final`` differs from ``requested``): httpx reports the final
+    URL even when no redirect happened, so without that check a saved
+    ``/guides/auth`` docs page would be ``blocked`` by the very regex M1
+    removed from ``classify_page``.
+    """
+    if classify_page("", final) is not None:
+        return True
+    if final.rstrip("/") == (requested or "").rstrip("/"):
+        return False
+    try:
+        path = urlparse(final).path or ""
+    except ValueError:
+        return False
+    return bool(_LOGIN_REDIRECT_PATH_RE.search(path))
 
 
 def _html_title(html: str) -> str:
@@ -539,7 +583,7 @@ async def default_fetch(url: str, settings) -> FetchResult:
                     return FetchResult("blocked")
                 if resp.status_code >= 400:
                     return FetchResult(f"failed:http_{resp.status_code}")
-                if classify_page("", str(resp.url)) is not None:
+                if _redirected_to_wall(url, str(resp.url)):
                     return FetchResult("blocked")
                 ctype = (resp.headers.get("content-type") or "").lower()
                 if "html" not in ctype and "text" not in ctype:
@@ -760,7 +804,9 @@ def write_progress_marker(memory_path: Path, report: BackfillReport) -> None:
     try:
         path = progress_marker_path(memory_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"last_run": datetime.now().isoformat(timespec="seconds"), **report.as_dict()}
+        # Aware UTC (G114's convention for every stamp Cicada writes) — an
+        # agent reading a naive local time cannot tell what zone it is in.
+        payload = {"last_run": utc_now_iso(), **report.as_dict()}
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     except Exception as e:  # pragma: no cover - a marker must never fail a run
         logger.debug(f"link_enrich progress marker not written: {type(e).__name__}: {e}")
@@ -842,9 +888,20 @@ async def backfill(
         report.skipped += 1
         report.touched(f"entities/{fp.stem}.md", f"entities/{fp.stem}.md: skipped (source: n/a, trigger: sleep/link_enrichment)")
 
-    def _describe(cand: _Candidate, text: str, authored_by: str) -> None:
+    def _describe(cand: _Candidate, text: str, authored_by: str) -> bool:
+        """Land the ``describes`` claim; True when it was actually written.
+
+        ``_append_claim`` refuses a page whose ```claims block went malformed
+        between the scan and the write (the corruption guard owns it), or one
+        that already carries the id. Neither is an enrichment: the page keeps
+        its candidate status and the manifest never says ``enriched`` for it
+        (Task 1 review L2) — a manifest line is a provenance record, not a
+        hope.
+        """
         claim = _build_describes_claim(cand.media_id, text, cand.episode, today_s, authored_by)
-        _append_claim(cand.path, claim)
+        if not _append_claim(cand.path, claim):
+            logger.warning(f"link backfill: describes claim refused for {cand.media_id}; left as candidate")
+            return False
         # Set the in-cycle marker too so ``_candidates`` stops re-selecting
         # this page (R1: the backfill never READS it, but it keeps it honest).
         _stamp(cand.path, enrichment_attempted=True)
@@ -852,14 +909,17 @@ async def backfill(
             f"entities/{cand.media_id}.md",
             f"entities/{cand.media_id}.md: enriched (source: {cand.episode or 'n/a'}, trigger: sleep/link_enrichment)",
         )
+        return True
 
     # §2a reuse — zero LLM. R3: no model touched it, so the claim is authored
     # ``cicada`` (the in-cycle pass stamps ``litellm_model`` on a zero-LLM
     # reuse; the backfill does not repeat that inaccuracy).
     for cand in scan.reuse[:cap]:
-        _describe(cand, cand.description, "cicada")
         report.selected += 1
-        report.reused += 1
+        if _describe(cand, cand.description, "cicada"):
+            report.reused += 1
+        else:
+            report.failed += 1
 
     # §2b fetch + summarize — bounded by what is left of the cap.
     model = str(getattr(settings, "litellm_model", "") or "unknown")
@@ -886,8 +946,14 @@ async def backfill(
             continue
         report.fetched += 1
         try:
-            report.llm_calls += 1
             summary = await summarize_fn(cand.title, result.text, cand.url, settings)
+            # Counted only once a model actually answered (Task 1 review
+            # M2): ``_commit_backfill`` keys the author and ``Cicada-Engine:``
+            # trailers on this counter, and an engine that never ran (R9
+            # abort below) authored nothing — the run's real writes (fetch
+            # stamps, junk marks) are then ``cicada``'s, engine-less, exactly
+            # like the G85 decay-only commit.
+            report.llm_calls += 1
         except Exception as e:
             if _is_engine_failure(e):
                 # R9: leave the page a candidate (its fetch_status is ``ok``,
@@ -898,6 +964,9 @@ async def backfill(
                 logger.warning(f"link summarize engine failure — leaving pages unmarked: {type(e).__name__}: {e}")
                 report.selected -= 1
                 break
+            # A page-level failure (malformed response, parse error) still
+            # cost a model call — keep the attribution honest in that direction too.
+            report.llm_calls += 1
             logger.warning(f"link summarize failed for {cand.media_id}: {type(e).__name__}: {e}")
             summary = None
         summary = (summary or "").strip()
@@ -908,8 +977,10 @@ async def backfill(
         parsed = markdown_parser.parse(cand.path)
         parsed.frontmatter["description_source"] = "summary"
         markdown_parser.write(cand.path, parsed.frontmatter, _upsert_description(parsed.body, summary))
-        _describe(cand, summary, model)
-        report.summarized += 1
+        if _describe(cand, summary, model):
+            report.summarized += 1
+        else:
+            report.failed += 1
 
     # G102 recon (Task 2 wires the real thing).
     if not report.engine_aborted:

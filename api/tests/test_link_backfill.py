@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from api.services import link_enrichment, markdown_parser
-from api.services.claims import parse_claims
+from api.services.claims import Claim, parse_claims, write_claims
 
 LONG = (
     "A curated list of robotics conferences and workshops for graduate "
@@ -128,6 +128,27 @@ def test_classify_page_interstitials_and_login_walls():
     assert link_enrichment.classify_page("Dashboard", "https://app.example.com/login?next=/") == "login_wall"
     assert link_enrichment.classify_page("Robotics Conf List", "https://robotics.example/conf") is None
     assert link_enrichment.classify_page("", "") is None
+    # Review M1: a page ABOUT auth is not a login wall. A junk verdict is
+    # permanent, and developer bookmarks are dense with these paths.
+    assert link_enrichment.classify_page("Auth | Example Docs", "https://docs.example.com/guides/auth") is None
+    assert link_enrichment.classify_page("OAuth 2.0 explained", "https://blog.example.com/oauth2/") is None
+    assert link_enrichment.classify_page("SSO overview", "https://example.com/sso") is None
+
+
+def test_redirect_target_uses_the_wider_login_path_set_only_when_moved():
+    wall = link_enrichment._redirected_to_wall
+    # Bounced onto an auth path: a wall.
+    assert wall("https://example.com/report", "https://example.com/oauth2/authorize?next=/report")
+    assert wall("https://example.com/report", "https://example.com/sso")
+    assert wall("https://example.com/report", "https://accounts.google.com/signin/v2")
+    assert wall("https://example.com/report", "https://consent.example.com/m")
+    # The saved URL itself, unmoved (httpx reports a final URL either way): not a wall.
+    assert not wall("https://docs.example.com/guides/auth", "https://docs.example.com/guides/auth")
+    assert not wall("https://blog.example.com/oauth2", "https://blog.example.com/oauth2/")
+    # Moved, but onto an ordinary page.
+    assert not wall("http://example.com/a", "https://example.com/a/")
+    # A saved /login URL is a wall regardless of redirects (classify_page's own rule).
+    assert wall("https://app.example.com/login", "https://app.example.com/login")
 
 
 # --- scan + ordering -------------------------------------------------------
@@ -160,6 +181,55 @@ def test_scan_respects_fetch_backoff_and_retries_after_30_days(tmp_path):
     scan = link_enrichment.scan_backfill(memory, _settings(memory), today=today)
     assert [c.media_id for c in scan.fetch] == ["media-old-fail", "media-legacy"]
     assert scan.backoff == 1
+
+
+def _saved_because(memory: Path, stem: str, reason: str) -> None:
+    """Append a G71 ``saved-because`` claim the way a Telegram ``/save <url>
+    <reason>`` does: the ```claims fence lands AFTER the last H2, which is
+    the page shape that made review H1 load-bearing."""
+    fp = memory / "entities" / f"{stem}.md"
+    parsed = markdown_parser.parse(fp)
+    claim = Claim(
+        id="clm_saved_because_1", text=f"Saved because {reason}", subject=stem,
+        predicate="saved-because", object=reason, object_kind="literal",
+        observer="rodrigo", source_trust="user_stated", origin="telegram",
+    )
+    markdown_parser.write(fp, parsed.frontmatter, write_claims(parsed.body, [claim]))
+
+
+def test_description_section_never_includes_the_claims_block(tmp_path):
+    """Review H1: ``parse_sections`` ends a section at the next H2 or EOF, so a
+    trailing ```claims fence used to be read as part of ``## Description``."""
+    memory = _bank(tmp_path)
+    _media(memory, "media-rich", "Rich", "https://example.com/rich", saved_at="2026-02-01", description=LONG)
+    _saved_because(memory, "media-rich", "it lists submission deadlines")
+    body = markdown_parser.parse(memory / "entities" / "media-rich.md").body
+    assert "```claims" in body and body.index("## Description") < body.index("```claims")
+    assert link_enrichment._extract_description_section(body) == LONG
+
+
+def test_reuse_tier_claim_text_is_the_description_only_beside_a_saved_because_claim(tmp_path):
+    memory = _bank(tmp_path)
+    _media(memory, "media-rich", "Rich", "https://example.com/rich", saved_at="2026-02-01", description=LONG)
+    _saved_because(memory, "media-rich", "it lists submission deadlines")
+    report = _backfill(memory, _settings(memory), limit=20, summarize_fn=None, fetch_fn=None, commit=False)
+    assert report.reused == 1
+    claims = _claims(memory, "media-rich")
+    assert sorted(c.predicate for c in claims) == ["describes", "saved-because"]
+    describes = [c for c in claims if c.predicate == "describes"][0]
+    assert describes.text == LONG and describes.object == LONG
+    assert "clm_saved_because" not in describes.text and "observer" not in describes.text
+
+
+def test_thin_description_beside_a_claims_block_goes_to_the_fetch_tier(tmp_path):
+    """The YAML must not pad a 40-char description past ``link_enrich_min_desc_len``."""
+    memory = _bank(tmp_path)
+    _media(memory, "media-thin", "Thin", "https://example.com/thin", saved_at="2026-02-01",
+           description="A short forty character description.")
+    _saved_because(memory, "media-thin", "it lists submission deadlines")
+    scan = link_enrichment.scan_backfill(memory, _settings(memory), today=date(2026, 9, 2))
+    assert [c.media_id for c in scan.fetch] == ["media-thin"]
+    assert scan.reuse == []
 
 
 # --- the driver ------------------------------------------------------------
@@ -249,6 +319,58 @@ def test_engine_failure_aborts_llm_tier_without_marking_pages(tmp_path):
     assert not [c for c in _claims(memory, "media-a") if c.predicate == "describes"]
     assert _fm(memory, "media-b").get("fetch_attempted_at") is None   # never reached
     assert report.remaining == 2
+    assert report.llm_calls == 0                # the engine never answered (review M2)
+
+
+def test_engine_abort_commits_the_real_writes_as_cicada_with_no_engine_trailer(tmp_path):
+    """Review M2 / R7: the fetch stamp on media-a is a real write and IS
+    committed, but no model produced anything, so the commit is ``cicada``'s
+    and carries no ``Cicada-Engine:`` — the G85 decay-only precedent."""
+    from api.services import engine_errors
+
+    memory = _bank(tmp_path, git=True)
+    _media(memory, "media-a", "A", "https://example.com/a", saved_at="2026-01-01")
+    _seed_commit(memory)
+
+    async def summ(title, excerpt, url, settings):
+        raise engine_errors.EngineUnavailable("signed out")
+
+    report = _backfill(memory, _settings(memory), limit=20, summarize_fn=summ, fetch_fn=_fetch_ok, engine="litellm")
+    assert report.engine_aborted == "EngineUnavailable" and report.llm_calls == 0
+    assert report.commit
+    assert _fm(memory, "media-a")["fetch_status"] == "ok"
+    log = _git_log(memory)
+    assert "entities/media-a.md: fetch ok (" in log and "enriched" not in log
+    assert "Cicada-Author: cicada" in log
+    assert "Cicada-Author: gpt-5.4-mini" not in log
+    assert "Cicada-Engine:" not in log
+
+
+def test_page_level_summarize_failure_still_counts_the_model_call(tmp_path):
+    memory = _bank(tmp_path)
+    _media(memory, "media-a", "A", "https://example.com/a", saved_at="2026-01-01")
+
+    async def summ(title, excerpt, url, settings):
+        raise ValueError("malformed response")
+
+    report = _backfill(memory, _settings(memory), limit=20, summarize_fn=summ, fetch_fn=_fetch_ok, commit=False)
+    assert report.llm_calls == 1 and report.failed == 1 and report.summarized == 0
+    assert _fm(memory, "media-a")["fetch_status"] == "failed:no_summary"
+
+
+def test_refused_claim_is_not_reported_as_enriched(tmp_path, monkeypatch):
+    """Review L2: ``_append_claim`` returning False (block went malformed
+    between scan and write, or the id already exists) must leave the page a
+    candidate — no ``enrichment_attempted`` stamp, no ``enriched`` line."""
+    memory = _bank(tmp_path)
+    _media(memory, "media-rich", "Rich", "https://example.com/rich", saved_at="2026-02-01", description=LONG)
+    monkeypatch.setattr(link_enrichment, "_append_claim", lambda fp, claim: False)
+    report = _backfill(memory, _settings(memory), limit=20, summarize_fn=None, fetch_fn=None, commit=False)
+    assert (report.selected, report.reused, report.failed) == (1, 0, 1)
+    assert not _claims(memory, "media-rich")
+    assert _fm(memory, "media-rich").get("enrichment_attempted") is None
+    assert not any("enriched" in line for line in report.manifest)
+    assert report.written_paths == []
 
 
 def test_summarize_excerpt_reraises_engine_failures_but_swallows_page_failures(monkeypatch):
@@ -318,6 +440,8 @@ def test_progress_marker_is_written_outside_the_bank(tmp_path, monkeypatch):
     marker = tmp_path / "home" / "link_enrich" / "memory.json"
     data = json.loads(marker.read_text())
     assert data["reused"] == 1 and data["remaining"] == 0 and data["last_run"]
+    # Review L1 / G114: aware UTC, never a naive local time.
+    assert data["last_run"].endswith("+00:00")
     assert not list(memory.rglob("*.json"))   # nothing derived inside the bank
 
 
