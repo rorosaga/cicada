@@ -798,18 +798,122 @@ function hubGravityForce(strength) {
     return force;
 }
 
+// ---------- G109 isolate containment ----------
+//
+// A zero-degree node has nothing pulling it in: forceCenter is a uniform
+// translation of the centroid (it cannot pull an individual node), and the
+// 0.04 type anchor loses to forceManyBody(-150) from ~1,000 bodies until the
+// node clears distanceMax(700) and parks — the ring the user photographed. Each
+// isolate gets its own slot on a Vogel-phyllotaxis disc centred on its type's
+// anchor (the same arrangement d3 uses to initialise nodes), pulled by the
+// existing xType/yType forces at ISOLATE_ANCHOR_STRENGTH, and exerts a weaker
+// charge so a disc of them does not blast itself apart. Measured on the bench
+// (1500-node synthetic): isolate max radius 2.0x -> 1.3x core p90, no isolate
+// beyond the farthest connected node, core median unchanged. Phase 3 (not
+// built) excludes isolates from the simulation entirely, which makes the disc
+// a guarantee instead of a tuning outcome.
+//
+// Levers, for the phase-2 live-bank tuning pass: ISOLATE_ANCHOR_STRENGTH (0.2
+// -> ratio 1.4, 0.3 -> 1.3, 0.5 -> 1.2 but +30% post-release motion and the
+// disc inside the type cluster); ISOLATE_SLOT_SPACING (20 is collision-free for
+// two high-confidence isolates: 2 x (4 + 8 + 6) = 36 wu); ISOLATE_ANCHOR_SCALE
+// (measured NOT to move the outcome at 1.0-1.8: the resting radius is set by
+// the core's outward push, which per-node charge cannot reduce — d3's
+// strength() sets what a body EXERTS, not what it receives).
+const ISOLATE_ANCHOR_SCALE = 1.0;     // multiplies the type anchor; 1.0 = centred on it
+const ISOLATE_RING_R = 480;           // fallback for a type with no anchor: same radius as the type anchors (450-540), never a halo beyond them
+const ISOLATE_SLOT_SPACING = 20;      // c in r = c * sqrt(i)
+const ISOLATE_ANCHOR_STRENGTH = 0.3;  // forceX/forceY strength for an isolate (d3 range [0, 1])
+const ISOLATE_CHARGE = -30;           // what an isolate EXERTS (vs -150 for a connected node)
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const VMAX_WU_PER_TICK = 60;          // speed clamp; a 1000 px/s flick at k=0.6 seeds ~28
+
+let isolateSlots = new Map();                 // id -> { x, y, type, index }
+const isolateSlotIndexByType = new Map();     // type -> Set<index> in use
+
+// Visible degree 0, not a hub (hubs anchor to the ring), not a hub member or a
+// facet with its parent on the graph (both are pulled by hubGravity). Reads
+// neighborsById — built from visibleLinks — so a node whose only edges the
+// contexts filter dropped counts as isolated, unlike _localDegree. An orphan
+// facet (parent not on the graph) IS an isolate: today it falls to a 0.04 pull
+// toward typeClusterPositions[<facet type>], i.e. (0, 0), and drifts.
+function isIsolate(d) {
+    return !nodeIsHub(d) && !memberToHub.has(d.id) && !neighborsById.has(d.id);
+}
+
+function isolateAnchor(type) {
+    const t = typeClusterPositions[type];
+    if (t && type !== "hub") return [t[0] * ISOLATE_ANCHOR_SCALE, t[1] * ISOLATE_ANCHOR_SCALE];
+    const a = (hashHue(String(type)) / 360) * 2 * Math.PI;
+    return [Math.cos(a) * ISOLATE_RING_R, Math.sin(a) * ISOLATE_RING_R];
+}
+
+function isolateSlotPosition(type, index) {
+    const [cx, cy] = isolateAnchor(type);
+    const r = ISOLATE_SLOT_SPACING * Math.sqrt(index + 0.5);
+    const a = index * GOLDEN_ANGLE;
+    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), type, index };
+}
+
+// Stable per-type free-list: an isolate keeps its slot across updateGraph /
+// updateGraphDelta / applyFilters for as long as it stays an isolate of the
+// same type; a newcomer takes the lowest free index of its type; a node that
+// gains a visible link, changes type, or leaves releases its index. Sorting
+// isolates by id instead would re-shuffle every slot after any insert that
+// sorts earlier, defeating the delta path's position preservation. Runs at
+// the top of startSimulation, which every caller reaches only after
+// rebuildNeighborsIndex(), and before d3 evaluates the forceX/forceY accessors
+// (once, at initialize).
+function assignIsolateSlots() {
+    const current = new Map();
+    for (const n of visibleNodes) if (isIsolate(n)) current.set(n.id, n.type);
+    for (const [id, slot] of isolateSlots) {
+        if (current.get(id) !== slot.type) {
+            isolateSlots.delete(id);
+            isolateSlotIndexByType.get(slot.type)?.delete(slot.index);
+        }
+    }
+    const ids = [...current.keys()].filter(id => !isolateSlots.has(id)).sort();
+    for (const id of ids) {
+        const type = current.get(id);
+        if (!isolateSlotIndexByType.has(type)) isolateSlotIndexByType.set(type, new Set());
+        const used = isolateSlotIndexByType.get(type);
+        let index = 0;
+        while (used.has(index)) index += 1;
+        used.add(index);
+        isolateSlots.set(id, isolateSlotPosition(type, index));
+    }
+}
+
+// Guard, not a force: with velocityDecay at 0.2 a reheat can launch a node;
+// this rescales any velocity above VMAX down to it. Registered LAST so it sees
+// the summed velocity (d3 applies forces in insertion order, then damping).
+// Deliberately not alpha-scaled — it can only remove energy, so it cannot
+// re-create the plateau that rule "alpha-scale every custom force" guards.
+function clampSpeedForce() {
+    return function force() {
+        for (const n of visibleNodes) {
+            const s = Math.hypot(n.vx, n.vy);
+            if (s > VMAX_WU_PER_TICK) { const k = VMAX_WU_PER_TICK / s; n.vx *= k; n.vy *= k; }
+        }
+    };
+}
+
 function startSimulation({ reheat = 1.0 } = {}) {
     if (simulation) simulation.stop();
+    assignIsolateSlots();
 
     simulation = d3.forceSimulation(visibleNodes)
         // Alpha/velocity tuning for dense graphs. Defaults are fine for a
         // hundred nodes; at 1500 they keep the sim bouncing indefinitely.
         .alphaDecay(0.05)
-        // G84b relaxed this 0.55 -> 0.45 for a visible throw; G109 found the
-        // "indefinite bouncing at ~1500 nodes" that kept it high was the
-        // unscaled hubGravity force below, not d3. Task 3 of the G109 plan
-        // lowers it to 0.2 once that force is alpha-scaled.
-        .velocityDecay(0.45)
+        // G109: 0.2 (d3 default 0.4; was 0.55, then 0.45 under G84b). Each
+        // tick keeps 80% of velocity, so a 28 wu/tick flick coasts ~13 ticks /
+        // ~100 wu with collide on (bench) instead of 6 / 34. The "indefinite
+        // bouncing at ~1500 nodes" that kept this high was the unscaled
+        // hubGravity force, not d3: with it alpha-scaled, KE/node at tick 400
+        // is 4e-6 at 0.2 on the bench. graph-physics.test.js guards that.
+        .velocityDecay(0.2)
         // G109: d3's default. 0.05 stopped the timer ~27 ticks after any
         // reheat, freezing a thrown node mid-coast; the release path no longer
         // bumps alpha (see onMouseUp), so the runway has to come from here.
@@ -828,7 +932,7 @@ function startSimulation({ reheat = 1.0 } = {}) {
             // Stronger, longer-reach repulsion so clusters breathe instead of
             // clumping — nodes push apart farther before the type/hub anchors
             // and center pull them back into recognizable clusters.
-            .strength(-150)
+            .strength(d => isIsolate(d) ? ISOLATE_CHARGE : -150)
             .distanceMax(700)
             .theta(0.9))
         .force("center", d3.forceCenter(0, 0).strength(0.04))
@@ -840,6 +944,7 @@ function startSimulation({ reheat = 1.0 } = {}) {
         .force("xType", d3.forceX(d => xAnchor(d)).strength(d => anchorStrength(d, "x")))
         .force("yType", d3.forceY(d => yAnchor(d)).strength(d => anchorStrength(d, "y")))
         .force("hubGravity", hubGravityForce(0.05))
+        .force("clampSpeed", clampSpeedForce())
         .on("tick", scheduleRedraw)
         .on("end", () => { simulation.stop(); });
 
@@ -847,16 +952,21 @@ function startSimulation({ reheat = 1.0 } = {}) {
 }
 
 function xAnchor(d) {
+    const slot = isolateSlots.get(d.id);
+    if (slot) return slot.x;
     if (nodeIsHub(d) && hubAnchors.has(d.id)) return hubAnchors.get(d.id)[0];
     return typeClusterPositions[d.type]?.[0] ?? 0;
 }
 
 function yAnchor(d) {
+    const slot = isolateSlots.get(d.id);
+    if (slot) return slot.y;
     if (nodeIsHub(d) && hubAnchors.has(d.id)) return hubAnchors.get(d.id)[1];
     return typeClusterPositions[d.type]?.[1] ?? 0;
 }
 
 function anchorStrength(d) {
+    if (isolateSlots.has(d.id)) return ISOLATE_ANCHOR_STRENGTH;  // G109: isolates sit in their disc
     if (nodeIsHub(d) && hubAnchors.has(d.id)) return 0.08;  // hubs anchor strongly
     if (memberToHub.has(d.id)) return 0;                    // hubGravity handles members
     return 0.04;                                            // soft type clustering
