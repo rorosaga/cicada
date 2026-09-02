@@ -120,6 +120,9 @@ Experience*, WikiSkill), filed **G112/G113/G114** research-grounded, and started
 research run (inventory → five engine candidates → three-lens judge → decision memo) rather than
 a blind re-tune.
 
+0. **Owner priorities (2026-09-02):** after the three in-flight tracks (mascot, Safari import, link
+   summaries) land, the order is **G118 slice 1 → G105 → G93 → G53+G75 → G81→G95**, with G113 s3–7,
+   G115 p1 and G117 interleaved as app polish. Provenance is the vision, not a feature.
 1. **G109 phase 1 is in PR #32 (merged)** — merged after an independent re-run of
    `node app/CicadaApp/Tests/graph/graph-physics.test.js`, the four sibling JS tests and
    `swift test`, then have Rodrigo eyeball the live bank at fit-zoom (isolates should read as discs
@@ -289,6 +292,12 @@ trailers, Ghostty resume)
    in feature's clothing; steps 2–4 (compile → bundle → export) are Wave C — S
 
 ### Wave C · the north star's output half
+9b. **G118 full provenance** — spans (not copies) on every claim, the contributor's rationale as a
+    citable source, the prompt/turn that triggered every agent write, and a raw-source viewer with the
+    cited passage highlighted (NotebookLM, but bi-temporal and attributed). Owner-marked central to
+    the vision (2026-09-02). Slice 1 = span capture in Stage-1 + resolver; absorbs G100 — L
+9c. **G93 cross-stream ask** and **G105 deterministic capture** — moved up (owner, 2026-09-02): G105
+    is what makes every write have a cause; G93 is where citations become answers — M each
 10. **G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
     (G76, G77, G54 all assume it); zero LLM — M
 11. **G100** span citation — which *sentence* convinced the contributor, rendered in a
