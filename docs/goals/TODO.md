@@ -302,6 +302,9 @@ trailers, Ghostty resume)
    confidence-calibration curve as a fourth Activity card. Slice 5 (feeding rates back into
    prompts) stays 💸 DECIDE under G78 — slices 1–2 merged (PR #31); 3–7 open — S/M
 4d. **G115 Phase 1** *(owner 2026-09-03: start with the dead chevron and the unbounded URL list on cards)*
+4d″. **G115 Phase 2 — suggested outcome** *(owner 2026-09-03)*: a confidence-gated one-sentence "Cicada thinks…"
+    under the recommended option, accept with ⏎, never auto-applied; suggestion id + confidence in the G113
+    ledger so agreement becomes a rate and a training set — S/M, after G118 slice 1 (needs the cause spans)
 4d′. **G115 Phase 1** — inbox redesign, first slice: one question object for every kind, `cause` on the
    card (three tiers, `[ no source recorded ]` served), `(Recommended)` = the option `_verdict` scores
    `agreed` (never on merge), decay through `QuestionView`, number keys / `Esc` no-trace skip, ETag
