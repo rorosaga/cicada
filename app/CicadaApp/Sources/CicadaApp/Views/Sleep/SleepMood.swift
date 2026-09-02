@@ -62,7 +62,7 @@ func resolveProgressPct(sse: SleepEventPayload?, status: SleepStatusResponse?) -
 /// different derivation, same vocabulary of states).
 ///
 /// Precedence (highest wins), mirroring `deriveBookwormState`'s own stated
-/// order: sleeping > digesting > hungry > curious > happy > awake.
+/// order: sleeping > error > digesting > hungry > curious > happy > awake.
 ///
 /// - `justFinishedAt`: set by the caller the moment its own poll observes a
 ///   running -> idle transition (mirrors `MenuBarManager`'s own tracking);
@@ -76,6 +76,9 @@ func deriveSleepPageMood(
     guard let status else { return .awake }
     if status.status == "running" {
         return .sleeping(stage: max(1, min(5, status.stage)))
+    }
+    if let err = status.error, !err.isEmpty {
+        return .error   // R6: the failure is the news, not the six-second chew
     }
     if let f = justFinishedAt, now.timeIntervalSince(f) < 6 {
         return .digesting
@@ -95,15 +98,16 @@ func deriveSleepPageMood(
     return .curious(count: debt.unprocessedCount)
 }
 
-// MARK: - Interim text presentation (G107 tracks real mascot art)
+// MARK: - Bracket caption (G107: rendered under the page mascot)
 
-/// The mascot sprite (`BookwormView`) is a ~16×16 template-rendered menu-bar
-/// glyph — blown up to page size it reads as a low-res smear, and template
-/// mode is tinted uniformly, so it physically cannot show mood. Real art is
-/// tracked separately (backlog G107); the interim is deliberately plain: one
-/// monospaced, bracketed line of TEXT, no ASCII art, no emoji, no drawn
-/// character. Reuses the SAME `BookwormState` `deriveSleepPageMood` produces
-/// — only the rendering differs from the mascot everywhere else in the app.
+/// The bracketed, monospaced status line is the caption `BookwormView` shows
+/// beneath the 24×24 colour sprite on the Sleep page (ruling R9). From
+/// 2026-09-01 until the art shipped on 2026-09-02 it was the WHOLE mascot —
+/// the old ~16×16 template glyph could not show mood at page scale, so the
+/// interim ruling was one line of plain text; the 2026-09-02 ask superseded
+/// that, and the text survived as the caption rather than the character.
+/// It still reuses the SAME `BookwormState` `deriveSleepPageMood` produces,
+/// so the worm and its caption can never disagree about the mood.
 func sleepDebtBracketText(_ state: BookwormState, debt: SleepDebtView?) -> String {
     switch state {
     case .awake:
@@ -120,13 +124,16 @@ func sleepDebtBracketText(_ state: BookwormState, debt: SleepDebtView?) -> Strin
         let count = debt?.unprocessedCount ?? 0
         guard count > 0 else { return "[ overdue — hasn't consolidated in a while ]" }
         return "[ \(count) episode\(count == 1 ? "" : "s") behind — overdue ]"
+    case .error:
+        return "[ last cycle failed ]"
     }
 }
 
 /// Semantic color per mood, drawn entirely from `CicadaTheme` — no new
-/// palette. Deliberately calm: `hungry` (the worst state) tops out at
+/// palette. Deliberately calm: `hungry` (the worst backlog state) tops out at
 /// `.warning`, never `.danger` — a backlog is information, not an alarm
-/// (UX principle 4: "non-intrusive nudging").
+/// (UX principle 4: "non-intrusive nudging"). `error` is the one state
+/// allowed `.danger` — a failed cycle is an alarm, a backlog is not (G107, R9).
 func sleepDebtBracketColor(_ state: BookwormState) -> Color {
     switch state {
     case .awake: CicadaTheme.textTertiary
@@ -134,5 +141,6 @@ func sleepDebtBracketColor(_ state: BookwormState) -> Color {
     case .happy: CicadaTheme.success
     case .curious: CicadaTheme.textSecondary
     case .hungry: CicadaTheme.warning
+    case .error: CicadaTheme.danger
     }
 }

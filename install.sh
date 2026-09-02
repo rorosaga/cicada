@@ -309,6 +309,7 @@ else
   <key>EnvironmentVariables</key>
   <dict>
     <key>CICADA_MEMORY_PATH</key><string>$MEMORY_PATH</string>
+    <key>PATH</key><string>$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>
     <key>PYTHONPATH</key><string>$REPO</string>
   </dict>

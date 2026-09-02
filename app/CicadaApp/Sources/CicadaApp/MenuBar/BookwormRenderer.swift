@@ -1,59 +1,39 @@
 import AppKit
 
-/// Rasterizes a 16x16 `#`-grid (plus optional overlays) into a template
-/// `NSImage` for the menu bar. Template mode means the menu bar tints the lit
-/// pixels for dark + light appearance — the fill color here is irrelevant.
+/// Rasterizes a `PixelGrid` into a COLOUR `NSImage` with nearest-neighbour
+/// cells. Colour, not template (G107): a template image is tinted uniformly
+/// by the system and so cannot show mood; the 1-px `o` outline is what makes
+/// the silhouette survive both the light and the dark menu bar without
+/// tinting. Page consumers request sizes that are multiples of 24 so cells
+/// are integer points (ruling R3); the menu bar runs 18 pt.
 enum BookwormRenderer {
-    /// Authored grid dimension (cells per side).
-    static let gridSize = 16
+    static let gridSize = BookwormSprites.size
 
-    /// Render one frame into a template `NSImage` of `pointSize` x `pointSize`.
-    /// `overlays` (badge digits, stage dots, zZz) are OR-ed onto the base grid
-    /// before rasterizing.
-    static func image(
-        grid: [String],
-        overlays: [[String]] = [],
-        pointSize: CGFloat = 16
-    ) -> NSImage {
-        // Merge overlays onto a mutable copy of the base grid.
-        var rows: [[Character]] = grid.map { line in
-            var chars = Array(line)
-            // Pad/truncate every row to exactly gridSize so ragged authoring
-            // (trailing spaces stripped by an editor) never crashes indexing.
-            if chars.count < gridSize {
-                chars.append(contentsOf: Array(repeating: " ", count: gridSize - chars.count))
-            } else if chars.count > gridSize {
-                chars = Array(chars.prefix(gridSize))
-            }
-            return chars
-        }
-        // Guard the row count too.
-        if rows.count < gridSize {
-            rows.append(contentsOf: Array(
-                repeating: Array(repeating: Character(" "), count: gridSize),
-                count: gridSize - rows.count
-            ))
-        } else if rows.count > gridSize {
-            rows = Array(rows.prefix(gridSize))
-        }
+    private static let colors: [Character: NSColor] = BookwormPalette.colors.mapValues { hex in
+        NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+                green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255,
+                alpha: 1)
+    }
 
-        for overlay in overlays {
-            for (r, line) in overlay.enumerated() where r < gridSize {
-                for (c, cell) in line.enumerated() where c < gridSize {
-                    if cell == "#" { rows[r][c] = "#" }
-                }
-            }
+    /// Render one grid at `pointSize` × `pointSize`. The grid is drawn as
+    /// given: `BookwormSprites.frames(for:)` already bakes every overlay
+    /// (badge, stage dots — ruling R2), so there is no merge seam here.
+    static func image(grid: PixelGrid, pointSize: CGFloat) -> NSImage {
+        let rows: [[Character]] = (0..<gridSize).map { r in
+            r < grid.count ? Array(grid[r].padding(toLength: gridSize, withPad: ".", startingAt: 0)) : Array(repeating: ".", count: gridSize)
         }
-
-        let size = NSSize(width: pointSize, height: pointSize)
         let cell = pointSize / CGFloat(gridSize)
-
-        let image = NSImage(size: size, flipped: false) { _ in
-            NSColor.black.setFill()
-            // Grid row 0 is the top; AppKit's origin is bottom-left, so flip the
-            // row index when computing y.
+        let image = NSImage(size: NSSize(width: pointSize, height: pointSize), flipped: false) { _ in
+            guard let ctx = NSGraphicsContext.current else { return false }
+            // Hard edges: a pixel is a pixel at every scale.
+            ctx.shouldAntialias = false
+            ctx.imageInterpolation = .none
             for (r, line) in rows.enumerated() {
-                for (c, ch) in line.enumerated() where ch == "#" {
+                for (c, ch) in line.enumerated() {
+                    guard let color = colors[ch] else { continue }   // "." and unknowns stay clear
+                    color.setFill()
+                    // Grid row 0 is the top; AppKit's origin is bottom-left.
                     let x = CGFloat(c) * cell
                     let y = CGFloat(gridSize - 1 - r) * cell
                     NSBezierPath(rect: NSRect(x: x, y: y, width: cell, height: cell)).fill()
@@ -61,7 +41,49 @@ enum BookwormRenderer {
             }
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = false
         return image
+    }
+
+    // MARK: - Cache (ruling R5: one cache, keyed state|frame|count|stage|size)
+
+    /// Stable key: `caseName`, then the count (clamped to the badge's 99) or
+    /// the stage when the state carries one, then frame and size. Two
+    /// `.curious` states that differ only in count MUST get different keys
+    /// because the count is drawn into the frame.
+    static func cacheKey(state: BookwormState, frameIndex: Int, pointSize: CGFloat) -> String {
+        "\(state.spriteKey)|\(frameIndex)|\(Int(pointSize))"
+    }
+
+    /// Lock-guarded rather than actor-isolated so BOTH consumers can call it
+    /// from where they already are: `MenuBarManager` (main actor) and
+    /// `BookwormView`'s `TimelineView` content closure, whose isolation the
+    /// SDK does not spell out. An `NSLock` around a dictionary is the whole
+    /// cost; `NSImage` is immutable once built.
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var cache: [String: NSImage] = [:]
+
+    /// The rendered frame for `state`, drawn at most once per key. A timer
+    /// tick is a dictionary hit, never a rasterization — that is what keeps
+    /// the always-moving menu bar at negligible CPU.
+    static func cachedImage(state: BookwormState, frameIndex: Int, pointSize: CGFloat) -> NSImage {
+        let (frames, _) = BookwormSprites.frames(for: state)
+        let idx = frames.isEmpty ? 0 : ((frameIndex % frames.count) + frames.count) % frames.count
+        let key = cacheKey(state: state, frameIndex: idx, pointSize: pointSize)
+        lock.lock()
+        let hit = cache[key]
+        lock.unlock()
+        if let hit { return hit }
+        let grid = frames.isEmpty ? BookwormSprites.awakeBase : frames[idx]
+        let img = image(grid: grid, pointSize: pointSize)
+        lock.lock()
+        // 7 states × ≤ 4 frames × ≤ 99 counts × a few sizes is still small,
+        // but bound it so a long-running app can never grow it unboundedly.
+        if cache.count > 512 { cache.removeAll() }
+        // A racing second render of the same key just wins by being last; both
+        // images are pixel-identical, so nothing observable depends on which.
+        cache[key] = img
+        lock.unlock()
+        return img
     }
 }

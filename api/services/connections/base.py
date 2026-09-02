@@ -31,6 +31,57 @@ class CliResult:
 Runner = Callable[[list[str]], Awaitable[CliResult]]
 
 
+#: Where a vendor CLI lives when the process env has no useful PATH. The
+#: backend runs under launchd, whose PATH is the bare
+#: ``/usr/bin:/bin:/usr/sbin:/sbin`` — so ``shutil.which("claude")`` fails for
+#: a CLI installed the normal way (npm global, Homebrew, the native installer
+#: into ``~/.local/bin``) even though the same user's terminal finds it. Seen
+#: for real on 2026-09-02: ``claude auth status`` said logged in, the Claude
+#: plan connection said "install Claude Code", and every Sleep silently fell
+#: back to a paid key. The order is the order a person would install them.
+_CLI_FALLBACK_DIRS: tuple[str, ...] = (
+    "~/.local/bin",
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "~/.npm-global/bin",
+    "~/.claude/local",
+    "~/.codex/bin",
+)
+
+
+def resolve_binary(name: str) -> str | None:
+    """Absolute path of a vendor CLI, or ``None`` if it is nowhere we look.
+
+    A ``name`` that already contains a path separator is returned as-is when
+    it exists. ``CICADA_<NAME>_CLI`` (e.g. ``CICADA_CLAUDE_CLI``) overrides
+    everything, for a non-standard install. Then ``PATH``, then
+    :data:`_CLI_FALLBACK_DIRS`. Never raises.
+    """
+    if not name:
+        return None
+    override = os.environ.get(f"CICADA_{name.upper().replace('-', '_')}_CLI")
+    if override and os.path.isfile(os.path.expanduser(override)):
+        return os.path.expanduser(override)
+    if os.sep in name:
+        return name if os.path.exists(name) else None
+    found = shutil.which(name)
+    if found:
+        return found
+    for d in _CLI_FALLBACK_DIRS:
+        candidate = os.path.join(os.path.expanduser(d), name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _resolve_argv(argv: list[str]) -> list[str] | None:
+    """``argv`` with ``argv[0]`` replaced by its resolved path, or ``None``."""
+    path = resolve_binary(argv[0])
+    if path is None:
+        return None
+    return [path, *argv[1:]]
+
+
 def scrubbed_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV_KEYS}
 
@@ -53,8 +104,10 @@ async def run_cli(
     """
     if not argv:
         return CliResult(127, "", "empty argv")
-    if shutil.which(argv[0]) is None and not os.path.exists(argv[0]):
+    resolved = _resolve_argv(argv)
+    if resolved is None:
         return CliResult(127, "", f"{argv[0]}: not found")
+    argv = resolved
     try:
         proc = await asyncio.create_subprocess_exec(
             *argv,
@@ -95,8 +148,10 @@ def run_cli_sync(
     """
     if not argv:
         return CliResult(127, "", "empty argv")
-    if shutil.which(argv[0]) is None and not os.path.exists(argv[0]):
+    resolved = _resolve_argv(argv)
+    if resolved is None:
         return CliResult(127, "", f"{argv[0]}: not found")
+    argv = resolved
     kwargs: dict = {
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,

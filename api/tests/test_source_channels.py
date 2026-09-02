@@ -86,15 +86,30 @@ def test_calendar_channel_disconnected_with_empty_registry(tmp_path):
 
 
 def test_bookmarks_and_notes_channels_read_sync_state(tmp_path):
+    # The legacy-fallback contract (R4): a bank whose only bookmark sync
+    # predates the per-browser split still shows BOTH browser rows connected.
     sync_state.record_sync(tmp_path, "bookmarks", count=412, at="2026-08-29T10:00:00Z")
     chans = _channels(tmp_path)
-    bookmarks = chans["bookmarks"]
-    assert bookmarks["connected"] is True
-    assert bookmarks["count"] == 412
-    assert bookmarks["last_sync"] == "2026-08-29T10:00:00Z"
-    assert bookmarks["detail"].startswith("412 bookmarks")
-    assert bookmarks["actions"] == ["sync"]
+    for cid in ("chrome-bookmarks", "safari-bookmarks"):
+        row = chans[cid]
+        assert row["connected"] is True
+        assert row["count"] == 412
+        assert row["last_sync"] == "2026-08-29T10:00:00Z"
+        assert row["detail"].startswith("412 bookmarks")
+        assert row["actions"] == ["sync"]
     assert chans["notes"]["connected"] is False
+
+
+def test_browser_rows_fall_back_to_the_legacy_bookmarks_entry_until_they_sync(tmp_path):
+    sync_state.record_sync(tmp_path, "bookmarks", count=412, at="2026-08-29T10:00:00Z")
+    ch = _channels(tmp_path)
+    assert ch["chrome-bookmarks"]["connected"] and ch["chrome-bookmarks"]["count"] == 412
+    assert ch["safari-bookmarks"]["connected"] and ch["safari-bookmarks"]["count"] == 412
+    sync_state.record_sync(tmp_path, "safari-bookmarks", count=7, at="2026-09-02T10:00:00Z")
+    bank_index.invalidate()
+    ch = _channels(tmp_path)
+    assert ch["safari-bookmarks"]["count"] == 7, "its own entry wins once it exists"
+    assert ch["chrome-bookmarks"]["count"] == 412, "the other row keeps the legacy value"
 
 
 def test_telegram_channel_follows_the_env_flag_and_counts_episodes(tmp_path):
@@ -227,8 +242,8 @@ def test_channel_ids_now_include_all_three_connectors(client):
     c, _ = client
     ids = [ch["id"] for ch in c.get("/sources/channels").json()["channels"]]
     assert ids == [
-        "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
-        "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
+        "chat-export:claude", "chat-export:chatgpt", "chrome-bookmarks", "safari-bookmarks",
+        "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
     ]
 
 
@@ -278,8 +293,8 @@ def test_get_sources_channels_returns_every_known_channel(client):
     assert resp.status_code == 200, resp.text
     ids = [ch["id"] for ch in resp.json()["channels"]]
     assert ids == [
-        "chat-export:claude", "chat-export:chatgpt", "bookmarks", "notes",
-        "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
+        "chat-export:claude", "chat-export:chatgpt", "chrome-bookmarks", "safari-bookmarks",
+        "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
     ]
     assert all(ch["connected"] is False for ch in resp.json()["channels"])
 

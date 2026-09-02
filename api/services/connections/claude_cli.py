@@ -15,7 +15,7 @@ import uuid
 
 from api.models.schemas import ConnectionKind, ConnectionStatus, LoginHint, LoginSession
 from api.services import pricing
-from api.services.connections.base import Runner, run_cli
+from api.services.connections.base import Runner, resolve_binary, run_cli
 
 LOGIN_COMMAND = "claude auth login"
 _INSTALL_HINT = "Install Claude Code (npm i -g @anthropic-ai/claude-code) and run `claude` once to sign in."
@@ -35,7 +35,7 @@ class ClaudePlanAdapter:
         self._tier = tier
 
     def available(self) -> bool:
-        return shutil.which("claude") is not None
+        return resolve_binary("claude") is not None
 
     def _base(self, **kw) -> ConnectionStatus:
         kw.setdefault("engine_role", None)

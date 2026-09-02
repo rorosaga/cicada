@@ -202,9 +202,10 @@ struct FeedView: View {
         VStack(spacing: CicadaTheme.spacingMD) {
             Spacer()
             if useBookworm {
-                // The animated mascot greets the empty ingestion area, mirroring
-                // the Inbox "all caught up" worm and the upload overlay.
-                BookwormView(state: .awake, pointSize: 72)
+                // The animated mascot greets the empty ingestion area — the same
+                // colour sprites as the menu bar, the Inbox "all caught up" worm
+                // and the upload overlay (G107; 96 = four whole cells, R3).
+                BookwormView(state: .awake, pointSize: 96)
             } else {
                 Image(systemName: symbol)
                     .font(.system(size: 40))

@@ -16,7 +16,13 @@ drops anything already present — that IS the diff. This module only adds:
    (the G9 capture-provenance field ``media_ingestor`` writes verbatim into
    the resulting episode + media entity frontmatter) — so synced items are
    distinguishable from a manual save or a one-off file upload;
-3. a thin summary shape (``{new, skipped, sources}``) for the endpoint/cron.
+3. a thin summary shape (``{new, skipped, sources}``) for the endpoint/cron;
+4. (2026-09-02 brief, R5) folder selection — ``filter_by_folders`` narrows
+   a parsed source to chosen folder-path prefixes, and ``folder_tree`` /
+   ``preview_bookmarks`` give the app the tree with leaf counts to choose
+   from, without staging anything;
+5. (R4) ``CHANNEL_BY_ORIGIN`` — one ``sync_state.json`` key per browser, so
+   the catalog's per-browser tiles each have exactly one channel.
 
 Nothing here reads a real file path unless ``sync_from_local_files`` is
 called explicitly, and that function is best-effort/offline-safe: a missing
@@ -101,11 +107,122 @@ def _tag_origin(items: list[RawItem], origin: str) -> list[RawItem]:
     return items
 
 
+# Which `sync_state.json` channel each browser's sync stamps (R4). The old
+# combined "bookmarks" key is read back as a legacy fallback by
+# `channel_registry._sync_channel` and never written again: the catalog has
+# one tile per browser, and a channel must map to exactly one tile.
+CHANNEL_BY_ORIGIN = {"chrome-bookmark": "chrome-bookmarks", "safari-bookmark": "safari-bookmarks"}
+
+# Safari's plist names its top-level folders by internal key; the preview
+# shows the names the user sees in Safari while the PATH keeps the raw key
+# (R5: the parser's `folder` output is unchanged, so an existing entity's
+# `folder:` and a new one's still agree byte for byte).
+SAFARI_FOLDER_LABELS = {
+    "BookmarksBar": "Favorites",
+    "BookmarksMenu": "Bookmarks Menu",
+    "com.apple.ReadingList": "Reading List",
+}
+
+ROOT_NAME = "All bookmarks"
+
+
+def display_name(segment: str) -> str:
+    """The label a folder-path segment gets in the preview tree (R5). Only
+    Safari's three internal top-level keys are mapped; every other segment —
+    and every Chrome folder, whose names are already display names — is
+    returned verbatim."""
+    return SAFARI_FOLDER_LABELS.get(segment, segment)
+
+
+def folder_tree(items: list[RawItem]) -> dict[str, Any]:
+    """Nested ``{name, path, count, children}`` over the items' ``folder`` paths.
+
+    ``count`` is every leaf at or below that folder, so a parent's count is
+    the number the user gets by ticking it. Root-level leaves (``folder is
+    None``) count on the root only. Children sort by display name. ``path``
+    is the raw ``/``-joined key the parser emitted — it is what the app sends
+    back as ``folders`` and what ``filter_by_folders`` compares against, so
+    it must never be the display name.
+    """
+    root: dict[str, Any] = {"name": ROOT_NAME, "path": "", "count": 0, "children": {}}
+    for item in items:
+        if not item.url:
+            continue
+        root["count"] += 1
+        node = root
+        segments = [s for s in (item.folder or "").split("/") if s]
+        for depth, seg in enumerate(segments):
+            path = "/".join(segments[: depth + 1])
+            child = node["children"].get(seg)
+            if child is None:
+                child = node["children"][seg] = {
+                    "name": display_name(seg), "path": path, "count": 0, "children": {},
+                }
+            child["count"] += 1
+            node = child
+
+    def freeze(n: dict[str, Any]) -> dict[str, Any]:
+        kids = sorted(n["children"].values(), key=lambda c: c["name"].lower())
+        return {"name": n["name"], "path": n["path"], "count": n["count"], "children": [freeze(k) for k in kids]}
+
+    return freeze(root)
+
+
+def filter_by_folders(items: list[RawItem], folders: list[str] | None) -> list[RawItem]:
+    """Keep items whose ``folder`` equals a selected path or sits beneath one (R5).
+
+    Segment-boundary prefix match (``"A/B"`` selects ``"A/B"`` and ``"A/B/C"``
+    but never ``"A/Bc"``), case-sensitive; ``""`` selects everything (it is
+    the tree root's path). ``None``/``[]`` means "no filter" — the
+    pre-existing everything-or-nothing behaviour, unchanged.
+    """
+    if not folders:
+        return items
+    wanted = list(folders)
+    if "" in wanted:
+        return items
+    out: list[RawItem] = []
+    for item in items:
+        f = item.folder or ""
+        if any(f == w or f.startswith(w + "/") for w in wanted):
+            out.append(item)
+    return out
+
+
+def _batches(chrome_data: bytes | None, safari_data: bytes | None) -> list[tuple[str, list[RawItem]]]:
+    """Parse + origin-tag whichever sources were supplied, in the fixed
+    Chrome-then-Safari order both ``sync_bookmarks`` and ``preview_bookmarks``
+    report — one parse path so a preview can never disagree with the sync."""
+    batches: list[tuple[str, list[RawItem]]] = []
+    if chrome_data is not None:
+        batches.append(("chrome-bookmark", _tag_origin(read_chrome_bookmarks(chrome_data), "chrome-bookmark")))
+    if safari_data is not None:
+        batches.append((
+            "safari-bookmark",
+            _tag_origin(media_ingestor.parse_safari_bookmarks(safari_data), "safari-bookmark"),
+        ))
+    return batches
+
+
+def preview_bookmarks(*, chrome_data: bytes | None = None, safari_data: bytes | None = None) -> dict[str, Any]:
+    """Folder trees per supplied source — parse only, nothing staged (mirrors
+    ``media_ingestor.preview_upload``'s contract for ``?preview=true``), so
+    the app can show "Favorites · 500" before the user picks a folder.
+
+    Returns ``{"sources": [{"origin", "total", "tree"}, ...]}``.
+    """
+    return {"sources": [
+        {"origin": origin, "total": sum(1 for i in items if i.url), "tree": folder_tree(items)}
+        for origin, items in _batches(chrome_data, safari_data)
+    ]}
+
+
 async def sync_bookmarks(
     memory_path: Path,
     *,
     chrome_data: bytes | None = None,
     safari_data: bytes | None = None,
+    folders: list[str] | None = None,
     ingest_fn: IngestFn | None = None,
 ) -> dict[str, Any]:
     """Parse whichever bookmark data is provided and ingest only the new URLs.
@@ -117,34 +234,34 @@ async def sync_bookmarks(
     already present. Nothing is parsed or ingested for a source whose data
     was not supplied (``chrome_data=None`` / ``safari_data=None`` skips it).
 
+    ``folders`` (R5) narrows each source to the selected folder paths before
+    ingest; omitted, the behaviour is byte-identical to before the option
+    existed. ``found`` then counts the items that survived the filter — the
+    number the channel row reports as "N bookmarks".
+
     Returns ``{"new": <total newly-ingested>, "skipped": <total already
-    present>, "sources": [{"origin", "found", "new", "skipped"}, ...]}``.
+    present>, "sources": [{"origin", "channel", "found", "new", "skipped"},
+    ...]}`` — ``channel`` is the ``sync_state`` key the router stamps (R4).
     """
     fn: IngestFn = ingest_fn or media_ingestor.ingest_batch
     memory_path = Path(memory_path)
-
-    batches: list[tuple[str, list[RawItem]]] = []
-    if chrome_data is not None:
-        batches.append(("chrome-bookmark", _tag_origin(read_chrome_bookmarks(chrome_data), "chrome-bookmark")))
-    if safari_data is not None:
-        batches.append((
-            "safari-bookmark",
-            _tag_origin(media_ingestor.parse_safari_bookmarks(safari_data), "safari-bookmark"),
-        ))
 
     sources: list[dict[str, Any]] = []
     total_new = 0
     total_skipped = 0
 
-    for origin, items in batches:
+    for origin, items in _batches(chrome_data, safari_data):
+        items = filter_by_folders(items, folders) if folders else items
+        channel = CHANNEL_BY_ORIGIN[origin]
         if not items:
-            sources.append({"origin": origin, "found": 0, "new": 0, "skipped": 0})
+            sources.append({"origin": origin, "channel": channel, "found": 0, "new": 0, "skipped": 0})
             continue
         created, duplicates = await fn(items, memory_path, from_bookmark_file=True)
         total_new += created
         total_skipped += duplicates
         sources.append({
             "origin": origin,
+            "channel": channel,
             "found": len(items),
             "new": created,
             "skipped": duplicates,

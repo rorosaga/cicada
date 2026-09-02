@@ -198,7 +198,7 @@ struct WalkthroughPanel: View {
     }
 
     static func videoURL(for vendor: WalkthroughVendor) -> URL? {
-        Bundle.module.url(forResource: vendor.videoName, withExtension: "mp4",
+        Bundle.cicadaResources.url(forResource: vendor.videoName, withExtension: "mp4",
                           subdirectory: "Resources/walkthroughs")
     }
 }

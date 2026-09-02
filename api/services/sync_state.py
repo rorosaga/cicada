@@ -8,8 +8,14 @@ stamp one small JSON file on success and ``channel_registry`` reads it back.
 
 Shape::
 
-    {"bookmarks": {"last_sync": "2026-08-29T10:00:00Z", "count": 412},
-     "notes":     {"last_sync": "2026-08-30T09:00:00Z", "count": 18}}
+    {"chrome-bookmarks": {"last_sync": "2026-08-29T10:00:00Z", "count": 412},
+     "safari-bookmarks": {"last_sync": "2026-09-02T10:00:00Z", "count": 7},
+     "safari-tabs":      {"last_sync": "2026-09-02T10:00:00Z", "count": 202},
+     "notes":            {"last_sync": "2026-08-30T09:00:00Z", "count": 18}}
+
+A bank synced before the per-browser split (R4) carries a single combined
+``"bookmarks"`` entry instead of the two browser keys; ``channel_registry``
+reads it as a fallback for both browser rows and nothing writes it again.
 
 Corrupt or missing file degrades to ``{}`` — a channel simply reads as not
 connected rather than breaking the page.

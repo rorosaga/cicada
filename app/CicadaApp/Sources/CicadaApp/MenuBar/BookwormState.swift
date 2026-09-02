@@ -17,6 +17,12 @@ enum BookwormState: Equatable {
     case curious(count: Int)
     /// No episode ingested in 48h (or never).
     case hungry
+    /// The last Sleep cycle failed (`/status.sleep.error` is set). Red pupils
+    /// and a glitch frame. Outranks everything but a running cycle (R6): the
+    /// Store stamps `justFinishedAt` on ANY running→idle edge, so without
+    /// this order a failed cycle would chew for six seconds first. Clears when
+    /// the backend clears the error, i.e. when the next cycle starts.
+    case error
 
     var title: String {
         switch self {
@@ -26,6 +32,7 @@ enum BookwormState: Equatable {
         case .happy: "Happy"
         case .curious: "Curious"
         case .hungry: "Hungry"
+        case .error: "Error"
         }
     }
 
@@ -37,6 +44,7 @@ enum BookwormState: Equatable {
         case .digesting: "chewing on new memories…"
         case .curious(let n): "\(n) item\(n == 1 ? "" : "s") waiting"
         case .hungry: "no episodes in 48h"
+        case .error: "last sleep cycle failed"
         case .happy: "inbox clear"
         }
     }
@@ -53,6 +61,31 @@ enum BookwormState: Equatable {
         case .happy: "happy"
         case .curious: "curious"
         case .hungry: "hungry"
+        case .error: "error"
+        }
+    }
+
+    /// The inbox count the badge draws (1…99) — `0` for every other state.
+    var badgeCount: Int {
+        if case .curious(let n) = self { return max(1, min(99, n)) }
+        return 0
+    }
+
+    /// The 1…5 stage the sleeping frames light up — `0` for every other state.
+    var stageNumber: Int {
+        if case .sleeping(let s) = self { return max(0, min(5, s)) }
+        return 0
+    }
+
+    /// Identity of the FRAME SET, as opposed to `caseName` (identity of the
+    /// animation loop): `.curious` bakes its count and `.sleeping` its stage
+    /// into the frames (R2), so they are part of the key the renderer caches
+    /// by (R5). `curious|47`, `sleeping|3`, `awake`.
+    var spriteKey: String {
+        switch self {
+        case .curious: "\(caseName)|\(badgeCount)"
+        case .sleeping: "\(caseName)|\(stageNumber)"
+        default: caseName
         }
     }
 }
@@ -106,7 +139,7 @@ extension StatusSnapshot {
 
 /// Maps a status snapshot to a ``BookwormState``. Pure so the precedence logic
 /// is unit-testable. Precedence (highest wins):
-/// sleeping > digesting > hungry > curious > happy > awake.
+/// sleeping > error > digesting > hungry > curious > happy > awake.
 func deriveBookwormState(
     _ s: StatusSnapshot,
     justFinishedAt: Date?,
@@ -114,6 +147,9 @@ func deriveBookwormState(
 ) -> BookwormState {
     if s.sleep.status == "running" {
         return .sleeping(stage: max(1, min(5, s.sleep.stage)))
+    }
+    if let err = s.sleep.error, !err.isEmpty {
+        return .error
     }
     if let f = justFinishedAt, now.timeIntervalSince(f) < 6 {
         return .digesting

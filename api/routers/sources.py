@@ -10,9 +10,14 @@ from api.config import Settings, get_settings
 from api.models.schemas import (
     BookmarkSyncRequest,
     BookmarkSyncResponse,
+    BookmarkTreePreview,
     MediaSourceItem,
     NotesSyncRequest,
     NotesSyncResponse,
+    SafariTabsDevice,
+    SafariTabsPreview,
+    SafariTabsSyncRequest,
+    SafariTabsSyncResponse,
     SourceChannel,
     SourceChannelsResponse,
     SourceListResponse,
@@ -30,6 +35,7 @@ from api.services import (
     feed_registry,
     media_ingestor,
     notes_sync,
+    safari_tabs,
     saved_at as saved_at_service,
     sync_service,
     sync_state,
@@ -300,18 +306,29 @@ async def ingest_rss(
     )
 
 
-@router.post("/sources/sync-bookmarks", response_model=BookmarkSyncResponse)
+@router.post("/sources/sync-bookmarks", response_model=None)
 async def sync_bookmarks(
     request: BookmarkSyncRequest | None = None,
+    preview: bool = Query(False),
     settings: Settings = Depends(get_settings),
-):
-    """Keyless bookmark sync: diff local Chrome/Safari bookmarks and ingest only new URLs.
+) -> BookmarkSyncResponse | BookmarkTreePreview:
+    """Keyless bookmark sync: diff Chrome/Safari bookmarks and ingest only new URLs.
 
     Body is optional. Pass base64 ``chromeDataB64``/``safariDataB64`` (inline
-    data — what tests and a future companion-app file picker use) to sync
-    against that data hermetically. Omit the body (or send neither field) to
-    read the real local bookmark files instead — best-effort, offline-safe;
-    see ``bookmark_sync.sync_from_local_files``.
+    data — what the companion app sends after reading the files itself, R1,
+    and what tests use) to sync against that data hermetically. Omit the body
+    (or send neither field) to read the real local bookmark files instead —
+    best-effort, offline-safe; see ``bookmark_sync.sync_from_local_files``.
+    That fallback exists for ``curl``/tests and is never the app's path: the
+    launchd backend has no Full Disk Access.
+
+    ``?preview=true`` (R5) parses the supplied bytes and returns each source's
+    folder tree with leaf counts WITHOUT ingesting anything — the same
+    staging-free contract as ``/sources/upload?preview=true`` — so the app can
+    show the folders before the user picks one. Inline data is required for a
+    preview; there is nothing to preview from the local-file fallback.
+    ``folders`` on the body narrows the sync to those folder paths (segment-
+    boundary prefixes; ``""`` or omitted = everything, unchanged behaviour).
 
     The "diff" is the existing ``url_index.json`` hash dedup in
     ``media_ingestor.ingest_batch`` — already-saved bookmarks are silently
@@ -335,20 +352,91 @@ async def sync_bookmarks(
             except Exception:
                 raise HTTPException(status_code=422, detail="Invalid safariDataB64")
 
+    if preview:
+        if chrome_data is None and safari_data is None:
+            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64 and/or safariDataB64")
+        # Off the event loop, same reason as the upload preview: a plist the
+        # size of a real Safari library is a CPU-bound parse and must not
+        # stall the SSE stream.
+        result = await run_in_threadpool(
+            bookmark_sync.preview_bookmarks, chrome_data=chrome_data, safari_data=safari_data
+        )
+        return BookmarkTreePreview(**result)
+
     if chrome_data is not None or safari_data is not None:
         result = await bookmark_sync.sync_bookmarks(
-            memory_path, chrome_data=chrome_data, safari_data=safari_data
+            memory_path,
+            chrome_data=chrome_data,
+            safari_data=safari_data,
+            folders=request.folders if request is not None else None,
         )
     else:
         result = await bookmark_sync.sync_from_local_files(memory_path)
 
     # G62: the only durable trace that bookmark sync ever ran. `found` is the
     # number of bookmarks seen this pass (new + already-known), which is what
-    # the Capture row means by "412 bookmarks".
-    found = sum(int(s.get("found") or 0) for s in result.get("sources", []))
-    sync_state.record_sync(memory_path, "bookmarks", count=found)
+    # the channel row means by "412 bookmarks".
+    # R4: one sync_state entry per browser actually synced — the catalog has
+    # one tile per browser, and a channel must map to exactly one tile. The
+    # legacy combined "bookmarks" key is read as a fallback, never written.
+    for s in result.get("sources", []):
+        channel = s.get("channel") or bookmark_sync.CHANNEL_BY_ORIGIN.get(s.get("origin", ""))
+        if channel:
+            sync_state.record_sync(memory_path, channel, count=int(s.get("found") or 0))
 
     return BookmarkSyncResponse(**result)
+
+
+@router.post("/sources/sync-safari-tabs", response_model=None)
+async def sync_safari_tabs(
+    request: SafariTabsSyncRequest,
+    preview: bool = Query(False),
+    settings: Settings = Depends(get_settings),
+) -> SafariTabsSyncResponse | SafariTabsPreview:
+    """Import Safari's iCloud tabs from CloudTabs.db bytes the app read (R1).
+
+    ``?preview=true`` parses and returns per-device counts WITHOUT ingesting
+    anything — same staging-free contract as ``/sources/upload?preview=true``
+    — so the app can show "iPhone · 202 tabs" before the user picks devices.
+    Nothing is cached server-side; the import re-posts the same bytes.
+
+    Unlike ``/sources/sync-bookmarks`` the body is REQUIRED: there is no
+    local-file fallback for tabs (R1 — the backend never opens ``~/Library``
+    for them), so a missing-FDA failure surfaces once, in the app.
+    """
+    import base64
+
+    try:
+        db = base64.b64decode(request.safari_tabs_db_b64, validate=True)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid safariTabsDbB64")
+    wal = None
+    if request.safari_tabs_wal_b64:
+        try:
+            wal = base64.b64decode(request.safari_tabs_wal_b64, validate=True)
+        except Exception:
+            raise HTTPException(status_code=422, detail="Invalid safariTabsWalB64")
+
+    if preview:
+        # Off the event loop, same reason as the upload preview: the parse
+        # is a temp-file write + SQLite scan and must not stall the SSE stream.
+        try:
+            snap = await run_in_threadpool(safari_tabs.load_tabs, db, wal)
+        except safari_tabs.SafariTabsError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return SafariTabsPreview(
+            total=snap.total,
+            devices=[SafariTabsDevice(**d) for d in snap.devices],
+            warnings=snap.warnings,
+        )
+
+    try:
+        result = await safari_tabs.sync_tabs(
+            settings.memory_path, db, wal=wal, devices=request.devices
+        )
+    except safari_tabs.SafariTabsError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return SafariTabsSyncResponse(**result)
 
 
 @router.get("/sources", response_model=SourceListResponse)
