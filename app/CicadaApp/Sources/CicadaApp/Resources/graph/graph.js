@@ -204,6 +204,29 @@ let transform = d3.zoomIdentity;
 let currentZoom;
 
 let hoveredNode = null;
+// Shift = pan mode (owner request, 2026-09-02): while Shift is held the pointer
+// never picks a node — no hover highlight, no drag — and a press anywhere,
+// node or empty space, falls through to d3-zoom's pan. Mouse events carry the
+// modifier state, so the mode tracks the key even when the web view never saw
+// a keydown (the page is often not first responder while the pointer merely
+// hovers); keyup/blur restore the hover pick at the last pointer position
+// without waiting for the next move. Releasing Shift mid-drag does not drop
+// the node: the drag branch in onMouseMove/onMouseUp runs untouched.
+let panModifierHeld = false;
+let lastPointer = null;         // { sx, sy } of the last mousemove, for the keyup re-pick
+function setPanMode(on) {
+    if (on === panModifierHeld) return;
+    panModifierHeld = on;
+    if (!canvas) return;
+    if (on) {
+        if (hoveredNode) { hoveredNode = null; scheduleRedraw(); }
+        canvas.style.cursor = "grab";
+        return;
+    }
+    const picked = lastPointer ? pickNode(lastPointer.sx, lastPointer.sy) : null;
+    if (picked !== hoveredNode) { hoveredNode = picked; scheduleRedraw(); }
+    canvas.style.cursor = picked ? "pointer" : "";
+}
 let draggingNode = null;
 let pressStart = null;          // { x, y } screen coords of mousedown for click-vs-drag
 let lastClickTime = 0;          // for double-click detection
@@ -368,11 +391,17 @@ function init() {
     // ESC clears focus mode. Swift's detail-card ESC handling is independent;
     // when no focus is active this is a no-op so the two don't collide.
     document.addEventListener("keydown", (e) => {
+        if (e.key === "Shift") setPanMode(true);
         if (e.key === "Escape" && focusNodeId) {
             e.preventDefault();
             clearFocus();
         }
     });
+    document.addEventListener("keyup", (e) => {
+        if (e.key === "Shift") setPanMode(false);
+    });
+    // A Cmd-Tab or app switch while Shift is down never delivers the keyup.
+    window.addEventListener("blur", () => setPanMode(false));
 
     wireMouseEvents();
 
@@ -1518,6 +1547,12 @@ function seededDragVelocity(lastSampleTime, now, vx, vy) {
 function onMouseDown(event) {
     const [sx, sy] = eventScreenXY(event);
     pressStart = { x: sx, y: sy, moved: false };
+    if (event.shiftKey) {
+        // Pan mode: never claim the gesture, so d3-zoom's own mousedown (bubble
+        // phase, after this capture listener) starts a pan even over a node.
+        setPanMode(true);
+        return;
+    }
     const picked = pickNode(sx, sy);
     if (picked) {
         draggingNode = picked;
@@ -1545,6 +1580,11 @@ function onMouseDown(event) {
 
 function onMouseMove(event) {
     const [sx, sy] = eventScreenXY(event);
+    lastPointer = { sx, sy };
+    if (!draggingNode) {
+        if (event.shiftKey) { setPanMode(true); return; }
+        if (panModifierHeld) setPanMode(false);
+    }
 
     // Apply the click-vs-drag threshold uniformly regardless of whether
     // we're currently holding a node. macOS fires mousemove events on
