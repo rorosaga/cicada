@@ -711,6 +711,14 @@ response shapes) kept only so the SwiftUI app and any external caller keep worki
 2. **Agent-initiated**: Agent detects current topic relates to a pending clarification, asks in conversation flow
 3. **Manual**: User answers in the companion app's inbox
 
+**Redesign direction (G115).** Every inbox item becomes one question object for every kind — the
+card shows the *cause* (the conversation and sentence that raised it), marks Sleep's own proposal
+as `(Recommended)` (the option the ledger's `_verdict` would score `agreed`; never on a merge),
+lets the person write a scoped "don't ask again" rule once in `<memory>/_inbox_rules.yaml`, and
+reaches an agent only through a server-side ask gate keyed on entity identity rather than body
+text. Zero LLM on any of it, ledger ids-only, user commits stay session-less pending G116; the
+full ruling, phases and rails are in the G115 row of `docs/goals/memory-evolution.md`.
+
 ### 4. Manual Sleep Trigger
 Button to run the Sleep cycle on demand.
 

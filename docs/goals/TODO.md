@@ -50,6 +50,11 @@ plist when no backend answers `/healthz`, so this pre-G114 plist lacks the feed-
 ~/Library/LaunchAgents/com.cicada.backend.plist`; until then the nightly feed/calendar poll logs
 `skipped: CICADA_ALLOW_FEED_FETCH is not "1"` every cycle.
 
+**2026-09-02:** **PR #30 (G114 capture-writer hygiene) and PR #31 (G113 slices 1–2, the feedback ledger:
+`_verdict`, the `resolution` event, R1 trigger labels) merged to `dev` at `09a4b66`.** G109 phase 1 is in
+flight on `feat/graph-physics`. The inbox redesign study (four designs, three judges, critic pass) is
+folded in as **G115** (the design, APPLY) and **G116** (its two contract rulings, DECIDE).
+
 **How to run the app:** `make run-app` (NOT `swift run` — that produces a bundle-less executable
 whose window never becomes *key*, which silently breaks graph clicks and text-field focus).
 
@@ -105,17 +110,21 @@ a blind re-tune.
    scratchpad, then folds the ruling into the G109 row); otherwise the row itself names the five
    candidates and the two symptoms. Phase 1 must fix both *invisible deceleration* and the *orphan
    ring* in a day, or the port decision is made for us.
-2. **G113 slices 1–4 ($0, APPLY)** — the grounded-reward ledger. Every human verdict on memory
-   (inbox resolve, decay keep/archive, merge accept/reject, manual edit) becomes a telemetry event;
-   ids and enums only. Slice 5 (closing the loop) stays 💸 DECIDE.
-3. **G112 step 1** is a bug fix, not a feature — do it when passing.
-4. **G53 + G75**, then **G105**, then **G97** — the same order the waves give.
-5. **G110 is RESEARCH, deliberately not started.** Its own cheapest-first ruling: build G53/G75 and
+2. **G113 slices 3–7 ($0, APPLY)** — slices 1–2 (`_verdict`, the `resolution` event, R1 labels) merged
+   as PR #31; the rest of the ledger (audit/dedup verdicts, the Activity card, `remind_later → _defer(7)`)
+   is still open. Slice 5 (closing the loop) stays 💸 DECIDE.
+3. **G115 Phase 1 ($0, 1–2 days, engine-free)** — the inbox redesign's first slice: cause on the card,
+   `(Recommended)` from the shipped `_verdict`, decay through `QuestionView`, number keys, ETag BOTH
+   halves, `render_question` v2. Delivers G97. Parallel to G113 in its own worktree — disjoint
+   functions of `inbox_service.py`. The two rulings it needs for Phase 3 are G116.
+4. **G112 step 1** is a bug fix, not a feature — do it when passing.
+5. **G53 + G75**, then **G105**, then **G115 Phase 2** — the same order the waves give.
+6. **G110 is RESEARCH, deliberately not started.** Its own cheapest-first ruling: build G53/G75 and
    see whether the fork want survives. Second data point to read first: Cursor's "Import from Claude
    Code".
-6. **G7 is open again, on purpose.** The hygiene pass could not find the measurement TODO.md claimed
+7. **G7 is open again, on purpose.** The hygiene pass could not find the measurement TODO.md claimed
    ("premise measured false") anywhere in tracked history. Re-measure it or delete the claim.
-7. **G90 README screenshots** wait for Rodrigo to be at the machine (demo bank or frame-by-frame
+8. **G90 README screenshots** wait for Rodrigo to be at the machine (demo bank or frame-by-frame
    review — the live bank holds real people). Same for any `macos-harness` verification that
    needs a permission prompt accepted.
 
@@ -134,7 +143,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-02 (PRs #21–#29 merged; G114 shipped on `feat/capture-hygiene`, PR #30; G88 shipped; G112/G113 filed; G109 in research)._
+_Last synced: 2026-09-02 (PRs #21–#31 merged — #30 G114, #31 G113 slices 1–2; G109 phase 1 on `feat/graph-physics`; inbox redesign folded as G115/G116)._
 
 ---
 
@@ -228,7 +237,14 @@ trailers, Ghostty resume)
    decay keep/archive, merge accept/reject, `Cicada-Author: user` corrections) recorded as a
    telemetry event — ids and enums only, never text — with per-predicate agreement rates and a
    confidence-calibration curve as a fourth Activity card. Slice 5 (feeding rates back into
-   prompts) stays 💸 DECIDE under G78 — S/M
+   prompts) stays 💸 DECIDE under G78 — slices 1–2 merged (PR #31); 3–7 open — S/M
+4d. **G115 Phase 1** — inbox redesign, first slice: one question object for every kind, `cause` on the
+   card (three tiers, `[ no source recorded ]` served), `(Recommended)` = the option `_verdict` scores
+   `agreed` (never on merge), decay through `QuestionView`, number keys / `Esc` no-trace skip, ETag
+   widened server-side AND `.inbox` added to `VersionVector`'s `entities`/`episodes` in the same
+   commit, `render_question` v2 with a `Cause:` line. $0, engine-free, 1–2 days, in parallel with
+   G113 slices 3–7 (disjoint functions). Phase 2 (ask gate, `never` rules, observer capsule) after
+   G113 3–4 and G106(i); Phase 3 (grouping, Sleep-counted silence-close, rule executor) after G116 — S/M
 4. **G98 remainder** — the predicate/entity-resolution half (~15 of 27 conflicts are artifacts) — M
 4b. **G104** a resumed conversation is consolidated twice — reconsolidation is the likely answer
    (the claim layer's `superseded_by` already models "replaced by a better-informed belief") — M
@@ -236,7 +252,7 @@ trailers, Ghostty resume)
    call a tool (measured: 4 episodes from one long session, 0 MCP calls in 12 days). Includes
    source logos in the Sleep queue — S/M
 5. **G97** inbox items show the conversation that caused them (43/49 reach an episode in ~100 ms,
-   no LLM). Ship the ETag widening in the same commit or the app caches stale context forever. — S/M
+   no LLM) — **delivered by G115 Phase 1 (4d above)**; the ETag widening is both halves there. — S/M
 6. **G82** hub pages are unaddressable — your "Couldn't load history"; 15 sites hardcode
    `entities/<id>.md`; both layers must move together — M
 7. **G84(c)(d)** legend describes claim-context while nodes colour by type (byte-identical hexes),
@@ -290,6 +306,10 @@ trailers, Ghostty resume)
   claims > 25k, or a merged G94 adapter retaining raw samples). G99a (bank `.gitignore` for the
   vector index) has shipped; absorbs G96 (vector-as-entryway — validated, its storage question
   is what G99 answered).
+- **G116** the inbox redesign's two contract rulings, needed before G115 Phase 3: (a) who authors a
+  rule-executed Stage-5 write (recommended `cicada`, rule string in the manifest line — not yet
+  ruled); (b) whether an in-conversation resolve carries `Cicada-Session:` on its `user` commit
+  (recommended no — the session ref lives in the `resolution` ledger event; not yet ruled). $0.
 - **G77** voice packets · **G10** bulk re-extraction *(re-filed 2026-09-01 — its D2 architecture
   gate is resolved; now purely a 💸 spend decision, read alongside G74/G80/G78)*
 
