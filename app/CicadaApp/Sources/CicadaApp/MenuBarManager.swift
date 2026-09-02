@@ -5,20 +5,36 @@ import AppKit
 /// dropdown. Driven by ``StatusSnapshot``s pushed in from the App's poll loop
 /// (every 30s + immediately after quick actions) and by the live 1s sleep hook
 /// (``applySleep(_:)``). All UI work happens on the main actor.
+/// The status item is a single colour sprite (G107) — no text title; the
+/// inbox count is drawn into the frame.
 @MainActor
 @Observable
 final class MenuBarManager: NSObject {
     private(set) var state: BookwormState = .awake
 
+    /// 24 cells at 0.75 pt (ruling R3): the standard status-item image height,
+    /// and what the previous template glyph used. A 24 pt image would fill the
+    /// whole menu bar and clip on a 22 pt status button.
+    nonisolated static let spritePointSize: CGFloat = 18
+
+    /// Every state has ≥ 2 frames (BookwormSpriteTests), so the frame timer
+    /// runs for every state — except under Reduce Motion, which holds frame 0
+    /// (ruling R7). Pure so the rule is testable without an `NSStatusItem`.
+    nonisolated static func animates(_ state: BookwormState, reduceMotion: Bool) -> Bool {
+        !reduceMotion && BookwormSprites.frames(for: state).frames.count > 1
+    }
+
+    private var reduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
     private var statusItem: NSStatusItem?
     private var frameTimer: Timer?
+    private var reduceMotionObserver: NSObjectProtocol?
     private var digestExpiryTask: Task<Void, Never>?
     private var frameIndex = 0
     private var currentSnapshot: StatusSnapshot?
     private var justFinishedAt: Date?
-
-    // Cache of rendered template images keyed by (case, frame, badge, stage).
-    private var imageCache: [String: NSImage] = [:]
 
     // Quick-action closures injected by the App.
     private var onOpenApp: (() -> Void)?
@@ -37,9 +53,22 @@ final class MenuBarManager: NSObject {
         self.onSaveClipboardURL = onSaveClipboardURL
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem?.button?.imagePosition = .imageLeading
+        statusItem?.button?.imagePosition = .imageOnly
         transition(to: .awake)
         rebuildMenu()
+
+        // Re-evaluate the timer when the user toggles Reduce Motion (R7).
+        // NOT `NotificationCenter.default`: AppKit posts this one to the
+        // workspace's own centre (SDK `NSAccessibility.h`: "Notification posted
+        // to the NSWorkspace notification center"), so an observer on the
+        // default centre never fires. The token is kept (the block-based API
+        // is not `@discardableResult`) for the manager's app-long lifetime.
+        reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { guard let self else { return }; self.transition(to: self.state) }
+        }
     }
 
     // MARK: - State input
@@ -123,10 +152,10 @@ final class MenuBarManager: NSObject {
         frameIndex = 0
         renderCurrentFrame()
 
-        let (frames, interval) = BookwormSprites.frames(for: newState)
-        // A single-frame animation never needs a timer (keeps CPU at zero for
-        // static states); multi-frame ones tick at the state's interval.
-        guard frames.count > 1 else { return }
+        let (_, interval) = BookwormSprites.frames(for: newState)
+        // All states are multi-frame now (G107: "always moving"); the only
+        // reason not to tick is Reduce Motion.
+        guard Self.animates(newState, reduceMotion: reduceMotion) else { return }
         let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -147,47 +176,14 @@ final class MenuBarManager: NSObject {
         let (frames, _) = BookwormSprites.frames(for: state)
         guard !frames.isEmpty else { return }
         let idx = frameIndex % frames.count
-        let base = frames[idx]
-
-        // Compute overlays from the live snapshot.
-        var overlays: [[String]] = []
-        var badge = 0
-        var stage = 0
-        switch state {
-        case .sleeping(let st):
-            stage = st
-            overlays.append(BookwormSprites.stageDots(st))
-            // Note: the zZz glyphs are already baked into `base` by
-            // `BookwormSprites.frames(for: .sleeping)`, so no separate zZz
-            // overlay is appended here.
-        case .curious(let count):
-            badge = min(99, count)
-            // The numeric badge is drawn as menu-bar text alongside the icon
-            // (see rebuildButtonTitle); the corner overlay keeps a compact
-            // visual cue on the sprite itself.
-            overlays.append(BookwormSprites.badgeOverlay(badge))
-        default:
-            break
-        }
-
-        let key = "\(state.caseName)|\(idx)|\(badge)|\(stage)"
-        let image: NSImage
-        if let cached = imageCache[key] {
-            image = cached
-        } else {
-            image = BookwormRenderer.image(grid: base, overlays: overlays, pointSize: 18)
-            imageCache[key] = image
-        }
-        button.image = image
-        button.imagePosition = .imageLeading
-
-        // Numeric badge text alongside the icon for `curious` (per spec §1.3).
-        if case .curious(let count) = state {
-            let shown = min(99, count)
-            button.title = " \(shown)"
-        } else {
-            button.title = ""
-        }
+        // ONE image, count and stage already in the pixels (R2); a tick is a
+        // cache hit (R5). No `title`: the number used to be drawn twice —
+        // once as pixels, once as text — and the owner asked for one worm.
+        button.image = BookwormRenderer.cachedImage(state: state, frameIndex: idx, pointSize: Self.spritePointSize)
+        button.imagePosition = .imageOnly
+        // Set once so a build that previously wrote " 47" cannot leave stale
+        // text — `NSStatusBarButton` keeps its last title across image swaps.
+        button.title = ""
     }
 
     // MARK: - Dropdown
@@ -342,24 +338,15 @@ final class MenuBarManager: NSObject {
 #if DEBUG
 extension MenuBarManager {
     /// Tiny harness so a frame can be eyeballed without launching the menu bar.
-    /// Returns rendered template images for each state at frame 0 (used in
+    /// Returns rendered colour images for each state at frame 0 (used in
     /// previews / manual inspection; costs nothing in release builds).
+    /// Overlays are already baked into the frame (R2), so nothing is merged.
     static func debugRenderAllStates() -> [(String, NSImage)] {
         let states: [BookwormState] = [
-            .awake, .sleeping(stage: 3), .digesting, .happy, .curious(count: 7), .hungry,
+            .awake, .sleeping(stage: 3), .digesting, .happy, .curious(count: 7), .hungry, .error,
         ]
         return states.map { st in
-            let (frames, _) = BookwormSprites.frames(for: st)
-            var overlays: [[String]] = []
-            if case .sleeping(let s) = st {
-                // The zZz glyphs are baked into `frames[0]` already; only the
-                // stage-progress dots need to be overlaid here.
-                overlays = [BookwormSprites.stageDots(s)]
-            }
-            if case .curious(let c) = st {
-                overlays = [BookwormSprites.badgeOverlay(c)]
-            }
-            return (st.caseName, BookwormRenderer.image(grid: frames[0], overlays: overlays, pointSize: 18))
+            (st.caseName, BookwormRenderer.image(grid: BookwormSprites.frames(for: st).frames[0], pointSize: spritePointSize))
         }
     }
 }

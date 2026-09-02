@@ -113,10 +113,7 @@ struct InboxListView: View {
     private var emptyState: some View {
         VStack(spacing: CicadaTheme.spacingLG) {
             Spacer()
-            Image(nsImage: BookwormRenderer.image(grid: BookwormSprites.happy, pointSize: 88))
-                .renderingMode(.template)
-                .interpolation(.none)
-                .foregroundStyle(CicadaTheme.accent.opacity(0.85))
+            BookwormView(state: .happy, pointSize: 96)
 
             Text("All caught up")
                 .font(CicadaTheme.headingFont)

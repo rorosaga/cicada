@@ -160,6 +160,14 @@ final class FakeSyncAPI: SyncAPI {
     func unsubscribeCalendar(url: String) async throws {
         try await record("unsubscribeCalendar:\(url)")
     }
+    func syncSafariTabs(db: Data, wal: Data?, devices: [String]?) async throws -> SafariTabsSyncResult {
+        try await record("syncSafariTabs:\(devices?.count ?? 0)")
+        return SafariTabsSyncResult(new: 1, skipped: 0, seen: 1, devices: [])
+    }
+    func syncBookmarks(chromeData: Data?, safariData: Data?, folders: [String]?) async throws -> BookmarkSyncResult {
+        try await record("syncBookmarks:\(folders?.count ?? 0)")
+        return BookmarkSyncResult(new: 1, skipped: 0, sources: [])
+    }
     func activateBank(name: String) async throws {
         try await record("activateBank:\(name)")
     }

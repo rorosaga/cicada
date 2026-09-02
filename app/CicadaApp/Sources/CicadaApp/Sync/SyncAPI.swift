@@ -94,6 +94,12 @@ protocol SyncAPI: Sendable {
     func unsubscribeFeed(url: String) async throws
     func subscribeCalendar(url: String, tags: [String]) async throws -> CalendarSubscription
     func unsubscribeCalendar(url: String) async throws
+    /// R8 — browser syncs ride `Store.perform` too, so the panel gets the
+    /// same failure toast + channel reconcile as every other write. Unlike
+    /// the rest, the mutations DO keep the returned body: `{new, skipped}`
+    /// is the honest result the panel shows.
+    func syncSafariTabs(db: Data, wal: Data?, devices: [String]?) async throws -> SafariTabsSyncResult
+    func syncBookmarks(chromeData: Data?, safariData: Data?, folders: [String]?) async throws -> BookmarkSyncResult
     func activateBank(name: String) async throws
     func triggerSleep() async throws -> SleepTriggerResponse
 

@@ -2,17 +2,24 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The Capture page's "+" picker (G62). A grid of tiles; picking one expands it
-/// into that channel's flow inline. **All** explanatory copy about capture
-/// lives here — the page behind it shows only what is already connected, so
-/// this sheet is the single place a user learns what Cicada can read.
+/// The Capture page's "+" picker (G62). Three levels (2026-09-02 brief):
+/// a logo-first grid of `ImportFamily` tiles, each opening into its member
+/// tiles, each opening into that channel's flow inline. **All** explanatory
+/// copy about capture lives here — the page behind it shows only what is
+/// already connected, so this sheet is the single place a user learns what
+/// Cicada can read.
 ///
 /// "Manage…" from a connected row opens this sheet already expanded on that
 /// channel's tile (`initialTile:`), where feeds and calendars show their
-/// current rows with remove buttons.
+/// current rows with remove buttons. The tile — not the family — stays the
+/// identity every channel maps to (R6).
 enum AddSourceTile: String, CaseIterable, Identifiable {
     case chatExport, bookmarksFile, pasteLink, rssFeed, calendar
-    case browserBookmarks, appleNotes, telegram
+    // R6 — one tile per browser (was a combined `browserBookmarks`): the
+    // catalog gives every browser its own mark, and a channel must map to
+    // exactly one tile, so a shared "Chrome & Safari" row could no longer
+    // own the split `chrome-bookmarks` / `safari-bookmarks` channels (R4).
+    case safari, chrome, appleNotes, telegram
     // G71 §4.1 — one tile per platform, replacing the combined `savedContent`
     // tile: the routes differ (two are Connect, four are Import file) and a
     // single "Instagram & YouTube" tile could not carry a route badge.
@@ -27,7 +34,7 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     var route: ImportRoute {
         switch self {
         case .pinterest, .reddit, .x: return .connect
-        case .browserBookmarks, .appleNotes: return .sync
+        case .safari, .chrome, .appleNotes: return .sync
         case .rssFeed, .calendar: return .subscribe
         case .pasteLink: return .paste
         case .telegram: return .connect
@@ -43,7 +50,8 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .pasteLink: "Paste a link"
         case .rssFeed: "RSS feed"
         case .calendar: "Calendar"
-        case .browserBookmarks: "Chrome & Safari bookmarks"
+        case .safari: "Safari"
+        case .chrome: "Chrome"
         case .appleNotes: "Apple Notes"
         case .telegram: "Telegram bot"
         case .instagram: "Instagram"
@@ -63,7 +71,8 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .pasteLink: "One URL, saved and enriched right now."
         case .rssFeed: "A blog or Substack Cicada checks for new posts."
         case .calendar: "A webcal/ICS URL — events become episodes."
-        case .browserBookmarks: "Read straight off this Mac. No login, no OAuth."
+        case .safari: "Bookmarks by folder, Reading List, and every tab open on your iPhone."
+        case .chrome: "Bookmarks by folder, read straight off this Mac."
         case .appleNotes: "One-way import from your local Notes library."
         case .telegram: "Forward links and voice notes to your own bot."
         case .instagram: "Your saved posts, from a data export."
@@ -83,7 +92,8 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .pasteLink: "link"
         case .rssFeed: "dot.radiowaves.up.forward"
         case .calendar: "calendar"
-        case .browserBookmarks: "globe"
+        case .safari: "safari"
+        case .chrome: "globe"
         case .appleNotes: "note.text"
         case .telegram: "paperplane.fill"
         case .instagram: "camera.fill"
@@ -100,11 +110,16 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     ///
     /// Chat export owns **both** export channels — its walkthrough picker is
     /// where the user chooses Claude or ChatGPT, so one tile covers two rows.
+    /// Safari likewise owns both of its rows (`safari-bookmarks`,
+    /// `safari-tabs`): its panel is where the user picks bookmarks or
+    /// iCloud tabs, so "Manage…" on either row lands on the same tile (R4).
     /// `pasteLink` owns none: it is an alternative route into `files`, which
     /// `bookmarksFile` already claims. The four Import-file platform tiles
     /// (Instagram, YouTube, TikTok, LinkedIn) also own none — none of them
     /// has a persisted backend channel yet — and a channel must map back to
-    /// exactly one tile for "Manage…" to be unambiguous.
+    /// exactly one tile for "Manage…" to be unambiguous. The legacy combined
+    /// `bookmarks` id is a backend read-time fallback only and is claimed
+    /// by no tile.
     var channelIds: [String] {
         switch self {
         case .chatExport: ["chat-export:claude", "chat-export:chatgpt"]
@@ -112,7 +127,8 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .pasteLink: []
         case .rssFeed: ["rss"]
         case .calendar: ["calendar"]
-        case .browserBookmarks: ["bookmarks"]
+        case .safari: ["safari-bookmarks", "safari-tabs"]
+        case .chrome: ["chrome-bookmarks"]
         case .appleNotes: ["notes"]
         case .telegram: ["telegram"]
         case .pinterest: ["pinterest"]
@@ -127,9 +143,12 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     /// The bundled brand-mark PNG for this tile (Task 13), when the
     /// maintainers fetched one — `nil` for a tile whose row isn't a single
     /// platform's logo: multi-vendor exports, local file/paste actions, or a
-    /// platform GROUP with no single brand mark (Chrome+Safari together,
-    /// Apple Notes, RSS, Calendar all kept their SF Symbol — no sensible
-    /// single logo exists for any of them).
+    /// row with no single brand mark (Apple Notes, RSS, Calendar all kept
+    /// their SF Symbol — no sensible single logo exists for any of them).
+    /// Safari and Chrome are `nil` too: their marks are DRAWN (R7 —
+    /// `brandGlyph`, Task 4), not downloaded; the owner can drop
+    /// `Resources/logos/safari.png` / `chrome.png` in and flip these two to
+    /// prefer the PNG.
     var logoName: String? {
         switch self {
         case .instagram: "instagram"
@@ -141,7 +160,7 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .x: "x"
         case .telegram: "telegram"
         case .chatExport, .bookmarksFile, .pasteLink, .rssFeed, .calendar,
-             .browserBookmarks, .appleNotes:
+             .safari, .chrome, .appleNotes:
             nil
         }
     }
@@ -182,7 +201,19 @@ struct AddSourceSheet: View {
 
     @Environment(Store.self) private var store
 
-    @State private var expanded: AddSourceTile?
+    /// Which of the three levels is showing (2026-09-02 brief, R6):
+    /// `families → members → flow`. The old `expanded: AddSourceTile?` is
+    /// now the computed projection below so every flow keeps compiling
+    /// unchanged — a flow is still keyed on the leaf tile, never a family.
+    @State private var level: CatalogLevel = .families
+    /// Keyboard focus within the current grid (R10). Re-minted on every
+    /// level change with that grid's count, and restored to the tile the
+    /// user came from on the way back so Esc lands where they left.
+    @State private var focus = CatalogFocus(index: 0, columns: 3, count: ImportFamily.allCases.count)
+    /// Whether the grid itself holds keyboard focus. The focus ring on a
+    /// tile is drawn only while this is true, so the ring is never a lie —
+    /// if the arrows would not move anything, nothing is highlighted.
+    @FocusState private var gridFocused: Bool
     @State private var vendor: WalkthroughVendor = .claude
     @State private var linkText = ""
     @State private var feedText = ""
@@ -196,12 +227,12 @@ struct AddSourceSheet: View {
     @State private var includeHistory = false
     /// The in-flight preview/import network Task, if any. Cancelled — not
     /// just abandoned — whenever a newer one supersedes it (G71 fix round 1,
-    /// H1): a bare, unstored `Task {}` keeps running after `collapse()`, and
+    /// H1): a bare, unstored `Task {}` keeps running after `back()`, and
     /// its late response would otherwise overwrite whichever flow the user
     /// has since opened.
     @State private var importTask: Task<Void, Never>?
     /// Bumped every time `preview()`/`confirmImport()` starts a new request
-    /// and every time `collapse()` tears one down. A response is only ever
+    /// and every time `back()` tears one down. A response is only ever
     /// applied to `stage` if its captured generation still matches this one
     /// — belt-and-suspenders alongside `importTask` cancellation for the
     /// case where cancellation doesn't land before the response does.
@@ -210,19 +241,32 @@ struct AddSourceSheet: View {
     private var feeds: [FeedSubscription] { store.feeds.value ?? [] }
     private var calendars: [CalendarSubscription] { store.calendars.value ?? [] }
 
-    /// Fixed three columns. `.adaptive(minimum: 190)` gave four cramped
-    /// columns at 640 pt and forced `lineLimit(1)` on the titles.
+    /// The leaf tile whose flow is open, if any — the shape every flow and
+    /// action below was written against before the family layer existed.
+    private var expanded: AddSourceTile? {
+        if case .flow(let tile) = level { return tile }
+        return nil
+    }
+
+    /// Fixed three columns at both grid levels. `.adaptive(minimum: 190)`
+    /// gave four cramped columns at 640 pt and forced `lineLimit(1)` on the
+    /// titles; `CatalogFocus` is minted with the same width so arrow-down
+    /// lands on the tile visually below.
+    private static let columnCount = 3
     private static let columns = Array(
         repeating: GridItem(.flexible(), spacing: CicadaTheme.spacingMD),
-        count: 3
+        count: columnCount
     )
 
-    /// What Esc does. Backing out of a focused tile before closing the sheet
-    /// means one keypress can't discard both a half-typed URL and the sheet.
+    /// What Esc does. Backing out one level before closing the sheet means
+    /// one keypress can't discard both a half-typed URL and the sheet — and
+    /// with three levels that is one step each: `flow → members →
+    /// families → close`.
     enum EscapeAction: Equatable { case back, close }
 
-    static func escapeAction(expanded: AddSourceTile?) -> EscapeAction {
-        expanded == nil ? .close : .back
+    static func escapeAction(level: CatalogLevel) -> EscapeAction {
+        if case .families = level { return .close }
+        return .back
     }
 
     var body: some View {
@@ -231,65 +275,106 @@ struct AddSourceSheet: View {
             Divider().background(CicadaTheme.border)
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                    // Focused mode: one tile at a time, with its own back
-                    // control. The grid + an expanded flow together pushed the
-                    // action buttons below the fold on a 620 pt sheet.
-                    if let expanded {
-                        backControl(from: expanded)
-                        flow(for: expanded)
-                    } else {
+                    // One level at a time, each with its own back control.
+                    // The grid + an expanded flow together pushed the action
+                    // buttons below the fold on a 620 pt sheet.
+                    switch level {
+                    case .families:
                         LazyVGrid(columns: Self.columns, spacing: CicadaTheme.spacingMD) {
-                            ForEach(AddSourceTile.allCases) { tile in
-                                tileButton(tile)
+                            ForEach(Array(ImportFamily.allCases.enumerated()), id: \.element.id) { i, family in
+                                familyTile(family, focused: gridFocused && focus.index == i)
                             }
                         }
+                    case .members(let family):
+                        backControl(parent: "All sources", title: family.title)
+                        LazyVGrid(columns: Self.columns, spacing: CicadaTheme.spacingMD) {
+                            ForEach(Array(family.members.enumerated()), id: \.element.id) { i, tile in
+                                memberTile(tile, focused: gridFocused && focus.index == i)
+                            }
+                        }
+                    case .flow(let tile):
+                        backControl(parent: ImportFamily.forTile(tile).title, title: tile.title)
+                        flow(for: tile)
                     }
                     statusLine
                 }
                 .padding(CicadaTheme.spacingXL)
             }
+            // R10 — the grid takes keyboard focus so arrows and Enter drive
+            // it; the system ring is suppressed because each tile draws its
+            // own accent ring for the focused index. Every handler yields
+            // `.ignored` inside a flow so a text field there keeps its own
+            // arrows and Enter (`textFlow`'s `.onSubmit`).
+            .focusable()
+            .focusEffectDisabled()
+            .focused($gridFocused)
+            .onKeyPress(.upArrow) { moveFocus(.up) }
+            .onKeyPress(.downArrow) { moveFocus(.down) }
+            .onKeyPress(.leftArrow) { moveFocus(.left) }
+            .onKeyPress(.rightArrow) { moveFocus(.right) }
+            .onKeyPress(.return) { activateFocused() }
         }
         .frame(width: 640, height: 620)
         .background(CicadaTheme.background)
         .onAppear {
             if expanded == nil, let initialTile {
                 open(initialTile)
+            } else {
+                gridFocused = true
             }
         }
         .onKeyPress(.escape) {
-            switch Self.escapeAction(expanded: expanded) {
-            case .back: collapse()
+            switch Self.escapeAction(level: level) {
+            case .back: back()
             case .close: onClose()
             }
             return .handled
         }
     }
 
-    private func backControl(from tile: AddSourceTile) -> some View {
+    /// Breadcrumb for the two inner levels: the back button is labelled with
+    /// the level it returns to (`‹ All sources` at members, `‹ Browsers` at
+    /// a flow) so where Esc lands is visible before it is pressed, and the
+    /// heading is the current level's own title.
+    private func backControl(parent: String, title: String) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            Button(action: collapse) {
+            Button(action: back) {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
-                    Text("All sources").font(.system(size: 12, weight: .medium))
+                    Text(parent).font(.system(size: 12, weight: .medium))
                 }
                 .foregroundStyle(CicadaTheme.textSecondary)
             }
             .buttonStyle(.cicadaPlain)
-            .accessibilityLabel("Back to all sources")
+            .accessibilityLabel("Back to \(parent)")
 
-            Text(tile.title)
+            Text(title)
                 .font(CicadaTheme.headingFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
             Spacer()
         }
     }
 
+    // MARK: - Levels
+
+    /// Families → members. Focus restarts at the first member; the grid
+    /// keeps keyboard focus so a second Enter opens that member.
+    private func openFamily(_ family: ImportFamily) {
+        error = nil
+        result = nil
+        level = .members(family)
+        focus = CatalogFocus(index: 0, columns: Self.columnCount, count: family.members.count)
+        gridFocused = true
+    }
+
     /// Opening a tile resets the transient status AND pins the vendor picker
-    /// to a vendor this tile actually offers.
+    /// to a vendor this tile actually offers. Also the landing for
+    /// `initialTile` ("Manage…" from a connected row): it goes straight to
+    /// the flow, and `back()` from there lands on the tile's family.
     private func open(_ tile: AddSourceTile) {
         error = nil
         result = nil
-        expanded = tile
+        level = .flow(tile)
         if let first = tile.vendors.first { vendor = first }
         // L5 (final review): `includeHistory` was never reset, so a TikTok
         // import's "Also import browsing history" toggle silently persisted
@@ -298,17 +383,58 @@ struct AddSourceSheet: View {
         includeHistory = false
     }
 
-    private func collapse() {
+    /// One level back, restoring focus to the tile the user came from so
+    /// Esc-then-Enter reopens it. Leaving a flow tears the flow down exactly
+    /// as the old `collapse()` did; leaving the members level only clears
+    /// the transient status.
+    private func back() {
         error = nil
         result = nil
-        expanded = nil
-        stage = .idle
-        // H1: cancel the in-flight request AND bump the generation, so a
-        // response already past its cancellation checkpoint still can't land
-        // on the next flow's `stage`.
-        importTask?.cancel()
-        importTask = nil
-        importGeneration += 1
+        switch level {
+        case .families:
+            return
+        case .members(let family):
+            level = .families
+            focus = CatalogFocus(index: ImportFamily.allCases.firstIndex(of: family) ?? 0,
+                                 columns: Self.columnCount, count: ImportFamily.allCases.count)
+        case .flow(let tile):
+            let family = ImportFamily.forTile(tile)
+            level = .members(family)
+            focus = CatalogFocus(index: family.members.firstIndex(of: tile) ?? 0,
+                                 columns: Self.columnCount, count: family.members.count)
+            stage = .idle
+            // H1: cancel the in-flight request AND bump the generation, so a
+            // response already past its cancellation checkpoint still can't
+            // land on the next flow's `stage`.
+            importTask?.cancel()
+            importTask = nil
+            importGeneration += 1
+        }
+        gridFocused = true
+    }
+
+    private func moveFocus(_ direction: CatalogFocus.Direction) -> KeyPress.Result {
+        if case .flow = level { return .ignored }
+        focus = focus.moved(direction)
+        return .handled
+    }
+
+    /// Enter on the focused tile. Bounds-checked against the CURRENT grid
+    /// rather than trusting `focus.count`, so a stale focus can never index
+    /// past a shorter members list.
+    private func activateFocused() -> KeyPress.Result {
+        switch level {
+        case .flow:
+            return .ignored
+        case .families:
+            let families = ImportFamily.allCases
+            guard families.indices.contains(focus.index) else { return .ignored }
+            openFamily(families[focus.index])
+        case .members(let family):
+            guard family.members.indices.contains(focus.index) else { return .ignored }
+            open(family.members[focus.index])
+        }
+        return .handled
     }
 
     private var header: some View {
@@ -329,34 +455,14 @@ struct AddSourceSheet: View {
         .padding(CicadaTheme.spacingXL)
     }
 
-    /// G71 §4.1 — every tile carries a route badge (Connect / Import file /
-    /// Sync / Subscribe / Save) and, once the channel is live, the channel's
-    /// own detail line in place of the static blurb.
-    private func tileButton(_ tile: AddSourceTile) -> some View {
-        let state = AddSourceTile.tileState(tile, channels: store.channels.value ?? [])
-        return Button {
-            open(tile)
-        } label: {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                if let logoName = tile.logoName {
-                    LogoImage.platformTile(name: logoName, size: 32, systemFallback: tile.icon)
-                } else {
-                    Image(systemName: tile.icon)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                }
-                Text(tile.title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(state.detail ?? tile.blurb)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(state.badge)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(state.connected ? CicadaTheme.success : CicadaTheme.textTertiary)
-            }
+    // MARK: - Tiles
+
+    /// The card chrome both grid levels share: elevated fill, hairline
+    /// border, and a 2 pt accent ring while this tile is the keyboard
+    /// focus (R10). Only the ring varies, so a family and a member read as
+    /// the same kind of thing at two depths.
+    private func tileCard<Content: View>(focused: Bool, @ViewBuilder content: () -> Content) -> some View {
+        content()
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(CicadaTheme.spacingMD)
             .background(
@@ -365,12 +471,80 @@ struct AddSourceSheet: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                    .stroke(CicadaTheme.border, lineWidth: 1)
+                    .stroke(focused ? CicadaTheme.accent : CicadaTheme.border, lineWidth: focused ? 2 : 1)
             )
+    }
+
+    /// A top-level family tile (2026-09-02 brief): its members' marks in a
+    /// cluster, the family title and blurb, and an honest footer counting
+    /// how many of its members are live — derived from the same
+    /// `tileState` each member renders, so the family can never claim a
+    /// connection its members don't show.
+    private func familyTile(_ family: ImportFamily, focused: Bool) -> some View {
+        let channels = store.channels.value ?? []
+        let connected = family.members.filter { AddSourceTile.tileState($0, channels: channels).connected }.count
+        let total = family.members.count
+        let footer = connected > 0 ? "\(connected) of \(total) connected" : "\(total) source\(total == 1 ? "" : "s")"
+        return Button {
+            openFamily(family)
+        } label: {
+            tileCard(focused: focused) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                    FamilyMarkCluster(family: family)
+                    Text(family.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(family.blurb)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(footer)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(connected > 0 ? CicadaTheme.success : CicadaTheme.textTertiary)
+                }
+            }
         }
         .buttonStyle(.cicadaPlain)
         .disabled(busy)
-        .accessibilityLabel("\(tile.title). \(state.badge). \(state.detail ?? tile.blurb)")
+        .accessibilityLabel("\(family.title). \(family.blurb) \(footer).")
+    }
+
+    /// G71 §4.1 — every member tile carries a route badge (Connect / Import
+    /// file / Sync / Subscribe / Save) and, once the channel is live, the
+    /// channel's own detail line in place of the static blurb. Between them
+    /// sits every way in (`routeLines`) so "folders" and "tabs" are visible
+    /// before the tile opens.
+    private func memberTile(_ tile: AddSourceTile, focused: Bool) -> some View {
+        let state = AddSourceTile.tileState(tile, channels: store.channels.value ?? [])
+        let routes = tile.routeLines.joined(separator: " · ")
+        return Button {
+            open(tile)
+        } label: {
+            tileCard(focused: focused) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                    MemberMark(tile: tile, size: 32)
+                    Text(tile.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(state.detail ?? tile.blurb)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(routes)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(state.badge)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(state.connected ? CicadaTheme.success : CicadaTheme.textTertiary)
+                }
+            }
+        }
+        .buttonStyle(.cicadaPlain)
+        .disabled(busy)
+        .accessibilityLabel("\(tile.title). \(state.badge). \(state.detail ?? tile.blurb) \(routes).")
     }
 
     // MARK: - Per-tile flows
@@ -422,14 +596,13 @@ struct AddSourceSheet: View {
             case .calendar:
                 textFlow(placeholder: "webcal://… or https://…/calendar.ics", text: $calendarText, action: "Subscribe") { await subscribeCalendar() }
                 calendarList
-            case .browserBookmarks:
-                Text("Cicada reads the Chrome and Safari bookmark files on this Mac directly. Only URLs it hasn't seen become new episodes.")
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                Button("Sync now") { Task { await syncBookmarks() } }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(busy)
-                    .accessibilityLabel("Sync Chrome and Safari bookmarks now")
+            // R1 — the panels read the browser files themselves and POST the
+            // bytes; the sheet's old "Sync now" sent nothing and left the
+            // launchd backend (no Full Disk Access) to silently sync nothing.
+            case .safari:
+                SafariImportPanel()
+            case .chrome:
+                BookmarkFolderPanel(browser: .chrome)
             case .appleNotes:
                 Text("One-way import from Notes.app. The first sync asks macOS for automation access — allow it once.")
                     .font(CicadaTheme.bodyFont)
@@ -571,14 +744,6 @@ struct AddSourceSheet: View {
         if ok { await finish("Subscribed — events arrive on the next poll") } else { result = nil; error = store.toast }
     }
 
-    private func syncBookmarks() async {
-        busy = true
-        do {
-            let r = try await APIClient.shared.syncBookmarks()
-            await finish("\(r.new) new · \(r.skipped) already saved")
-        } catch { fail(error) }
-    }
-
     private func syncNotes() async {
         busy = true
         do {
@@ -624,7 +789,7 @@ struct AddSourceSheet: View {
     /// Cancels any prior in-flight preview/import and mints a new generation
     /// token before launching under it (G71 fix round 1, H1) — a response
     /// captured under an older generation is dropped rather than applied to
-    /// `stage`, whether it lands after `collapse()` or after a newer drop on
+    /// `stage`, whether it lands after `back()` or after a newer drop on
     /// the SAME flow superseded it.
     private func startImportTask(_ work: @escaping (Int) async -> Void) {
         importTask?.cancel()
