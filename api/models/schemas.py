@@ -1210,6 +1210,14 @@ class MediaSourceItem(CamelModel):
     # (GET /sources ?sort=recent, the app's Recent toggle) should prefer this
     # and fall back to `saved_at`.
     content_saved_at: Optional[str] = None
+    # G102 cheap slice (R12): the link's own description — OpenGraph at ingest
+    # or the Sleep-tail backfill's summary — cut at ~280 chars on a word
+    # boundary, and the ids of the entities the page is `about` (the media
+    # page's `related:` list, written only by `link_recon`). Both additive and
+    # defaulted so an older client is unaffected; `None`/`[]` mean the link
+    # has not been described/related yet, never a guess.
+    description: Optional[str] = None
+    about: list[str] = []
 
 
 class SourceListResponse(CamelModel):
@@ -1336,6 +1344,31 @@ class MaintenanceDedupSweepResponse(CamelModel):
     proposed: list[MaintenanceMergePair] = []
     # Pairs the judge was uncertain about — same shape as the Nudge Inbox.
     nudged: list[MaintenanceNudgePair] = []
+
+
+class MaintenanceEnrichLinksResponse(CamelModel):
+    """What one `POST /maintenance/enrich-links` run did (G102 cheap slice).
+    Mirrors `link_enrichment.BackfillReport.as_dict()`; `remaining` is the
+    live count of media pages still owed a description, `remainingRecon` the
+    pages still owed relations, `deferred` the failed fetches inside their
+    30-day backoff. `engine`/`engineDetail` say which engine the run resolved
+    (a $0 run reports the configured engine but makes no call)."""
+    selected: int = 0
+    reused: int = 0
+    summarized: int = 0
+    fetched: int = 0
+    failed: int = 0
+    skipped: int = 0
+    extracted: int = 0
+    related: int = 0
+    remaining: int = 0
+    remaining_recon: int = 0
+    deferred: int = 0
+    llm_calls: int = 0
+    engine_aborted: Optional[str] = None
+    commit: Optional[str] = None
+    engine: Optional[str] = None
+    engine_detail: Optional[str] = None
 
 
 class NotesSyncRequest(CamelModel):

@@ -169,6 +169,24 @@ class Settings(BaseSettings):
     link_enrich_max_per_cycle: int = 20       # hard cap on LLM summarize calls/cycle
     link_enrich_min_desc_len: int = 120       # chars; shorter OG desc => trigger summarize
     link_enrich_excerpt_chars: int = 2000     # chars of visible body text fed to the LLM
+    # G102 cheap slice + backfill (2026-09-02). `link_enrich_max_per_cycle`
+    # above caps the IN-CYCLE Stage 5.57 pass; this caps the Sleep-tail
+    # BACKFILL over the whole bank's pre-existing media pages, which runs on
+    # idle nights too (`sleep_cycle._backfill_links_safely`) and drains the
+    # bank oldest-first until nothing is left. 20/night keeps a 600-link
+    # bank draining in about a month with at most 20 fetches + 20 summaries
+    # + ~5 extraction calls per night.
+    link_enrich_backfill_per_cycle: int = 20   # CICADA_LINK_ENRICH_BACKFILL_PER_CYCLE
+    # A failed/blocked page fetch is recorded on the page (`fetch_status`,
+    # `fetch_attempted_at`) and not retried before this many days — so a
+    # dead link costs one fetch a month, not one a night, and a block is
+    # never hammered (G102 ToS rail).
+    link_enrich_fetch_retry_days: int = 30     # CICADA_LINK_ENRICH_FETCH_RETRY_DAYS
+    # G102 recon: links per Stage-1 extraction call (8 x ~400 tokens of
+    # title+description under the ~1.1k-token prompt stays a small call),
+    # and links related per run.
+    link_recon_batch_size: int = 8             # CICADA_LINK_RECON_BATCH_SIZE
+    link_recon_max_per_cycle: int = 40         # CICADA_LINK_RECON_MAX_PER_CYCLE
 
     # Hub tier (small-LLM traversal)
     hub_tag_min_members: int = 5     # min entities sharing a tag to spawn a topic hub

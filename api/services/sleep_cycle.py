@@ -385,6 +385,82 @@ async def _poll_feeds_and_calendars_safely(memory_path: Path) -> None:
             logger.warning(f"{label} poll failed: {type(e).__name__}: {e}")
 
 
+async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """G102 cheap slice: describe + relate ``link_enrich_backfill_per_cycle``
+    saved links a night, oldest-imported first, until the bank is drained.
+
+    Lives on the engine-independent tail — idle nights included — because
+    the in-cycle Stage 5.57 pass (``enrich_media_links``, above in
+    ``_run_stages``) only runs after Stage 5 on a night with episodes and
+    takes the 20 MOST RECENT pages, which is why a bulk-imported bank had
+    hundreds of media pages and zero ``describes`` claims (2026-09-02).
+    Same contract as its neighbours: bounded, never fatal; and it MUST sit in
+    the clean-tree-guarded branch — its own commit is scoped
+    (``commit_paths``), but its writes on a half-written cycle would still be
+    swept by the next ``_finalize``'s ``git add -A`` under that cycle's model.
+
+    Engine (R10 + TODO.md ruling 4): the scan runs first; when it finds only
+    zero-LLM work (§2a reuse, junk) nothing is resolved and the run is
+    authored ``cicada`` (fix round 1, M1: an idle cycle must not touch the
+    connections registry for nothing). Only with a fetch or recon candidate
+    is ``engine_select.resolve_settings`` consulted — a scheduled cycle gets
+    byok before the registry is touched; a user-triggered one may probe
+    cache-first. ``CICADA_ALLOW_CONNECTOR_FETCH`` gates ONLY this unattended
+    step's default fetch (opt-out, the connector contract — G71 final review
+    H2); reuse and recon are never gated; the maintenance endpoint is never
+    gated at all.
+    """
+    try:
+        from api.services import engine_select, link_enrichment
+        from api.services.connectors.base import network_allowed
+        from api.services.link_recon import scan_recon
+
+        if not bool(getattr(settings, "link_enrich_enabled", True)):
+            return
+        per_cycle = int(getattr(settings, "link_enrich_backfill_per_cycle", 20) or 0)
+        if per_cycle <= 0:
+            return
+        scan = link_enrichment.scan_backfill(memory_path, settings)
+        recon_cards = scan_recon(memory_path, settings)
+        if not (scan.junk or scan.reuse or scan.fetch or recon_cards):
+            # Nothing owed: no write, no commit, and — deliberately — no
+            # progress marker. `conftest.py` isolates the fetch/telemetry
+            # gates but NOT `CICADA_HOME`, and several existing tail tests
+            # run this step with a stand-in Settings that predates
+            # `link_enrich_enabled`; on their empty tmp banks this return is
+            # what keeps a `$CICADA_HOME/link_enrich/<bank>.json` from being
+            # written into the developer's real ~/.cicada.
+            return
+        needs_llm = bool(scan.fetch) or bool(recon_cards)
+        resolved, engine = settings, None
+        if needs_llm:
+            resolved, why = await engine_select.resolve_settings(settings, user_triggered=user_triggered)
+            engine = engine_select.engine_label(resolved)
+            logger.info(f"Link backfill engine: {engine} ({why})")
+        # `network_allowed()` with no argument reads CICADA_ALLOW_CONNECTOR_FETCH
+        # exactly as the connector poll does — this is the same unattended
+        # transport the gate exists for.
+        fetch_ok = needs_llm and network_allowed()
+        if needs_llm and not fetch_ok:
+            logger.info(
+                "Link backfill: page fetch skipped — CICADA_ALLOW_CONNECTOR_FETCH is off "
+                "(reuse + recon still run)"
+            )
+        report = await link_enrichment.backfill(
+            memory_path, resolved, limit=per_cycle,
+            summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
+            fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
+            engine=engine,
+        )
+        if report.selected or report.related or report.skipped:
+            logger.info(
+                f"Link backfill: {report.reused} reused, {report.summarized} summarized, "
+                f"{report.related} related, {report.failed} failed, {report.remaining} remaining"
+            )
+    except Exception as e:
+        logger.warning(f"Link backfill failed: {type(e).__name__}: {e}")
+
+
 async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> None:
     """G60 §2.3 on an IDLE cycle: keep open questions honest during quiet weeks.
 
@@ -546,7 +622,7 @@ async def _tree_is_clean(memory_path: Path) -> bool:
 
 
 async def _run_engine_independent_tail(
-    memory_path: Path, settings: Settings, outcome: _StageOutcome
+    memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
 ) -> None:
     """The work that never needed an LLM — on EVERY exit path.
 
@@ -576,6 +652,15 @@ async def _run_engine_independent_tail(
     ingests on a half-written cycle would sweep the Sleep cycle's own
     uncommitted entity pages into a ``Feed poll`` / ``Calendar poll`` commit
     with no session provenance.
+
+    G102: the link backfill (``_backfill_links_safely``) shares this branch
+    for the same reason as the feed poll. Its own commit is scoped
+    (``git_service.commit_paths``, never ``git add -A``), so it is not the
+    sweeper — but it writes media pages, and on a half-written cycle those
+    writes would sit on the dirty tree the NEXT ``_finalize`` sweeps under
+    that cycle's model. ``user_triggered`` is threaded through only for the
+    backfill's lazy engine resolution (R10): a scheduled cycle must resolve
+    byok without ever probing the plan — TODO.md ruling 4.
     """
     if outcome.committed or not _state.write_started or await _tree_is_clean(memory_path):
         # Final-review H1 is preserved: on the happy path this still runs
@@ -586,11 +671,12 @@ async def _run_engine_independent_tail(
         # swept into a media/feed/calendar commit with no session provenance.
         await _poll_connectors_safely(memory_path)
         await _poll_feeds_and_calendars_safely(memory_path)
+        await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
     else:
         logger.warning(
-            "connector and feed/calendar polls skipped: this cycle wrote "
-            "entity/inbox changes but never committed them, and the polls' own "
-            "`git add -A` would absorb those uncommitted writes into a "
+            "connector, feed/calendar and link-backfill steps skipped: this cycle "
+            "wrote entity/inbox changes but never committed them, and the polls' "
+            "own `git add -A` would absorb those uncommitted writes into a "
             "media/feed/calendar commit"
         )
     await _warm_logos_safely(memory_path)
@@ -708,7 +794,9 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
         # while `status == "running"`, so every later cycle would be silently
         # refused with no way to recover short of restarting the process.
         try:
-            await _run_engine_independent_tail(memory_path, settings, outcome)
+            await _run_engine_independent_tail(
+                memory_path, settings, outcome, user_triggered=user_triggered
+            )
         finally:
             _state.status = "idle"
 
