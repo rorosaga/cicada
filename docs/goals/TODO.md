@@ -39,6 +39,17 @@ so a late fetch can't undo Back. Known, disclosed: the client `sanitizeID` fallb
 from the backend's `id_utils.sanitize_id`; `.wikilinkNavigation` traps if hosted outside a
 `WindowGroup` (reads `@Environment(Store.self)`).
 
+**G109 phase 1 — graph physics (2026-09-02, PR #TBD against `dev`).** The research run ruled: keep
+d3-force, fix `graph.js` — the "no deceleration" and "orphan ring" were three local bugs, not the
+engine (an un-alpha-scaled custom force, a release-path reheat, nothing opposing charge on degree-0
+nodes). Three `graph.js` commits plus a committed headless bench (`Tests/graph/graph-physics.bench.js`,
+real d3 driving the real `startSimulation`): KE/node at tick 400 20 → 4e-6, a flick coasts 0 → 13
+ticks / 100 wu, a release moves the rest of the graph 1,200 → 9 wu, isolate max radius 2.0× → 1.3×
+core p90. Two rules now in CLAUDE.md: alpha-scale every custom force; never bump alpha on release.
+**Not done:** the live-bank visual check (needs Rodrigo at the machine — the bank holds real people),
+phase 2 (own the loop + `__cicadaPerf`), phase 3 (isolates out of the sim), and the Swift track
+(`ContentView` rebuilds the `WKWebView` per tab switch — that is the "explosion on return").
+
 **Live environment (verified):** backend runs under **launchd** (`com.cicada.backend`,
 RunAtLoad+KeepAlive, `python -m uvicorn`), keys in `~/.cicada/secrets.env` (0600). Cicada's MCP
 server is registered at **user scope** so every Claude Code session sees it, both skills are in
@@ -94,10 +105,12 @@ reframed CLAUDE.md around the *experience port* north star (Silver & Sutton's *E
 WikiSkill), filed **G112/G113/G114** research-grounded, and started **G109** as a research run
 (inventory → five engine candidates → three-lens judge → decision memo) rather than a blind re-tune.
 
-1. **G109 (urgent)** — read the decision memo if one exists (the session writes it to its
-   scratchpad, then folds the ruling into the G109 row); otherwise the row itself names the five
-   candidates and the two symptoms. Phase 1 must fix both *invisible deceleration* and the *orphan
-   ring* in a day, or the port decision is made for us.
+1. **G109 phase 1 is in PR #TBD** — merge it after an independent re-run of
+   `node app/CicadaApp/Tests/graph/graph-physics.test.js`, the four sibling JS tests and
+   `swift test`, then have Rodrigo eyeball the live bank at fit-zoom (isolates should read as discs
+   on their type clusters, not a halo). Then the **Swift track** (one long-lived `WKWebView`, reset
+   `isGraphReady` on teardown — ~0.5 day) before phase 2; without it the user still sees a re-layout
+   every time they return to the Graph tab. Phases 2–3 are in the G109 row.
 2. **G114 (all $0, APPLY)** — capture-writer hygiene: one id rule, one timestamp shape, and the
    scheduled feed/calendar poll that **G111** needs. Do (4) the poll first: G111 is worthless
    without it.
@@ -129,7 +142,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-01 evening (PRs #21–#29 merged, no open PRs; G88 shipped; G112–G114 filed; G109 in research)._
+_Last synced: 2026-09-02 (G109 phase 1 in PR #TBD; PRs #21–#29 merged; G88 shipped; G112–G114 filed)._
 
 ---
 
@@ -187,6 +200,11 @@ trailers, Ghostty resume)
   import warning) — plus merged 9 duplicate/superseded rows and parked 2; see
   `memory-evolution.md` for the per-row evidence
 
+**2026-09-02**
+- **G109 phase 1** graph physics (PR #TBD) — alpha-scaled hub gravity, no reheat on release,
+  `velocityDecay` 0.2 / `alphaMin` 0.001, per-isolate phyllotaxis slots, speed clamp; headless
+  physics bench + test under `Tests/graph/`; numbers in the G109 row
+
 ---
 
 ## 🔄 In progress
@@ -194,7 +212,7 @@ trailers, Ghostty resume)
 | What | State | Next action |
 |---|---|---|
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
-| **G109 graph physics** | **Research run in flight** (2026-09-01 evening): inventory of `graph.js` physics → five candidates (fix d3-force in place, Obsidian/Pixi, cosmograph, sigma+graphology/ForceAtlas2, ngraph/d3-force-3d) → engineer/user/skeptic judges → decision memo with a one-day phase 1 | Read the memo, rule, implement phase 1 in a worktree, fold the ruling into the G109 row |
+| **G109 graph physics** | **Phase 1 in PR #TBD** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
 | Claude Desktop | **Registered 2026-09-01** — needs a Desktop restart | Then: it captures only what an agent chooses to save (see G105) |
 
 ---
@@ -202,9 +220,11 @@ trailers, Ghostty resume)
 ## 🎯 Next — in priority order
 
 ### Wave A · finish what the engine needs
-1. **G109 🔴** graph physics — deceleration invisible (velocityDecay 0.45 + alphaMin 0.05 swallow
-   the seeded throw) and zero-degree nodes fly to a ring now that the cold-paint fix renders them;
-   *research run in flight* (see In progress) — S/M to decide, M to port
+1. **G109 phases 2–3 + Swift track** — phase 1 shipped (see In progress). Next: the Swift track
+   (`ContentView.swift:137-139` rebuilds the `WKWebView` per tab switch — the "explosion on
+   return"; keep one alive, reset `isGraphReady` on teardown) — S; phase 2 (own the rAF loop with a
+   physical settle criterion, `__cicadaPerf.report()`, live-bank tuning pass) — S/M; phase 3
+   (isolates out of the simulation, tick 6.7 → 4.5 ms measured) — S
 2. **G114** capture-writer hygiene — one id rule, one timestamp shape, `processed_by` stamp, and
    the **scheduled feed/calendar poll** at the Sleep tail that G111 depends on. All $0,
    deterministic, verified defects with file:line — S
@@ -295,7 +315,8 @@ the report for what was checked)*
 ---
 
 ## 🩹 Known-broken, not yet queued
-- Graph physics: throw deceleration invisible, orphan nodes ring *(G109 — Wave A #1, in research)*
+- Graph re-lays out on every return to the Graph tab: `ContentView` rebuilds the `WKWebView` per
+  tab switch *(G109 Swift track — Wave A #1; the physics half shipped in phase 1)*
 - Bank `.git` is 69 MB against 16 MB of markdown — future growth stopped, **history not rewritten**
   (destructive; user's call)
 - 8 date-dependent `test_calendar_registry.py` failures — pre-existing baseline on dev
