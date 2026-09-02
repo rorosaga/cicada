@@ -14,7 +14,7 @@ final class BookwormSpriteTests: XCTestCase {
     /// `.error` here.
     static var states: [BookwormState] {
         [.awake, .sleeping(stage: 1), .sleeping(stage: 5), .digesting, .happy,
-         .curious(count: 1), .curious(count: 47), .curious(count: 250), .hungry]
+         .curious(count: 1), .curious(count: 47), .curious(count: 250), .hungry, .error]
     }
 
     private var allowed: Set<Character> {

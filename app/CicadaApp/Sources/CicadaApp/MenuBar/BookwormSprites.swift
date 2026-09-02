@@ -284,6 +284,9 @@ enum BookwormSprites {
     private static let curiousBase: PixelGrid = compose(eyes(), mouthNeutral)
     private static let curiousTilt: PixelGrid = shiftRows(curiousBase, 2..<13, dx: 1)
     private static let hungryBase: PixelGrid = compose(eyes(lid: .half), mouthFrown)
+    private static let errorBase: PixelGrid = compose(eyes(pupil: "e"), mouthNeutral)
+    /// Static: glasses nudged right, body nudged left — a one-cell tear.
+    private static let errorGlitch: PixelGrid = shiftRows(shiftRows(errorBase, 5..<10, dx: 1), 13..<23, dx: -1)
 
     // MARK: - Animation lookup
 
@@ -334,6 +337,10 @@ enum BookwormSprites {
                 merge(shift(hungryBase, dy: 1), glyph(drop, top: 5, left: 21)),
                 merge(shift(hungryBase, dy: 1), glyph(drop, top: 8, left: 21)),
             ], 0.7)
+        case .error:
+            // Red pupils, flat mouth; the second frame is a one-cell tear
+            // between glasses and body — a glitch, not a bob.
+            return ([errorBase, errorGlitch], 0.5)
         }
     }
 }

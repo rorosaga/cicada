@@ -62,7 +62,7 @@ func resolveProgressPct(sse: SleepEventPayload?, status: SleepStatusResponse?) -
 /// different derivation, same vocabulary of states).
 ///
 /// Precedence (highest wins), mirroring `deriveBookwormState`'s own stated
-/// order: sleeping > digesting > hungry > curious > happy > awake.
+/// order: sleeping > error > digesting > hungry > curious > happy > awake.
 ///
 /// - `justFinishedAt`: set by the caller the moment its own poll observes a
 ///   running -> idle transition (mirrors `MenuBarManager`'s own tracking);
@@ -76,6 +76,9 @@ func deriveSleepPageMood(
     guard let status else { return .awake }
     if status.status == "running" {
         return .sleeping(stage: max(1, min(5, status.stage)))
+    }
+    if let err = status.error, !err.isEmpty {
+        return .error   // R6: the failure is the news, not the six-second chew
     }
     if let f = justFinishedAt, now.timeIntervalSince(f) < 6 {
         return .digesting
@@ -120,13 +123,16 @@ func sleepDebtBracketText(_ state: BookwormState, debt: SleepDebtView?) -> Strin
         let count = debt?.unprocessedCount ?? 0
         guard count > 0 else { return "[ overdue — hasn't consolidated in a while ]" }
         return "[ \(count) episode\(count == 1 ? "" : "s") behind — overdue ]"
+    case .error:
+        return "[ last cycle failed ]"
     }
 }
 
 /// Semantic color per mood, drawn entirely from `CicadaTheme` — no new
-/// palette. Deliberately calm: `hungry` (the worst state) tops out at
+/// palette. Deliberately calm: `hungry` (the worst backlog state) tops out at
 /// `.warning`, never `.danger` — a backlog is information, not an alarm
-/// (UX principle 4: "non-intrusive nudging").
+/// (UX principle 4: "non-intrusive nudging"). `error` is the one state
+/// allowed `.danger` — a failed cycle is an alarm, a backlog is not (G107, R9).
 func sleepDebtBracketColor(_ state: BookwormState) -> Color {
     switch state {
     case .awake: CicadaTheme.textTertiary
@@ -134,5 +140,6 @@ func sleepDebtBracketColor(_ state: BookwormState) -> Color {
     case .happy: CicadaTheme.success
     case .curious: CicadaTheme.textSecondary
     case .hungry: CicadaTheme.warning
+    case .error: CicadaTheme.danger
     }
 }
