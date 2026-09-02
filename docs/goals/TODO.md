@@ -13,7 +13,7 @@ against the live bank the same day (iPhone tabs: 188 new / 9 skipped; the big Fa
 0 new / 496 skipped — the idempotency proof). Until each browser
 row syncs on its own, `chrome-bookmarks` / `safari-bookmarks` both read the legacy `bookmarks` count.
 
-**Merged to `dev`:** PRs #21–#35. **Open:** `feat/mascot` (G107, PR #TBD — fill in once opened).
+**Merged to `dev`:** PRs #21–#35. **Open:** `feat/mascot` (G107, PR #36 — fill in once opened).
 The big one is **#25 — the agent engine (G74a)**: Sleep can now run on the user's Claude Max plan
 via `claude -p`, after ~2.5 months with no engine.
 Also #24, the **correctness gate**, which fixed decay (see rulings below), #23's app fixes, #26's
@@ -61,7 +61,7 @@ bench `deltaNoop*`; the lever and why it is not pulled in phase 1 are in the G10
 (isolates out of the sim), and the Swift track (`ContentView` rebuilds the `WKWebView` per tab
 switch — that is the "explosion on return").
 
-**G107 pixel mascot (2026-09-02, `feat/mascot`, PR #TBD).** The bracket-text interim is superseded: a
+**G107 pixel mascot (2026-09-02, `feat/mascot`, PR #36).** The bracket-text interim is superseded: a
 nine-colour 24×24 sprite set, every state always moving, `error` state added, the menu bar shows one
 animated worm with the count in the sprite (no more text badge), and `BookwormView` on a `TimelineView`
 at whole-cell sizes on five surfaces. `swift test` green (four new test files, 31 new cases); the visual
@@ -128,7 +128,7 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-**Nothing is broken; one branch is awaiting a PR: `feat/mascot` (G107 pixel mascot, PR #TBD).**
+**Nothing is broken; one branch is awaiting a PR: `feat/mascot` (G107 pixel mascot, PR #36).**
 Its last unchecked box is the visual pass on the installed app — menu bar in light and dark, the
 Sleep page at 120 pt, Reduce Motion holding frame 0 — which needs `make install-app` and Rodrigo at
 the machine; the suites are green. Before it: `feat/safari-import` merged as PR #35 (2026-09-02), **G114** shipped as PR #30, the 2026-09-01 evening session merged #28/#29, reframed CLAUDE.md around the *experience
@@ -182,7 +182,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-02 (PRs #21–#35 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #TBD; G118 (provenance) and G119 (Arc/Firefox/Brave) filed)._
+_Last synced: 2026-09-02 (PRs #21–#35 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed)._
 
 ---
 
@@ -248,7 +248,7 @@ trailers, Ghostty resume)
   `memory-evolution.md` for the per-row evidence
 
 **2026-09-02**
-- **Safari import track** (`feat/safari-import`, PR #TBD) — Safari iCloud tabs (device picker),
+- **Safari import track** (`feat/safari-import`, PR #36) — Safari iCloud tabs (device picker),
   bookmark folder selection with tree preview (Reading List as its own folder), per-browser channels,
   the app reads `~/Library` and posts bytes (the launchd backend never could), Full-Disk-Access fix
   shown in place, and the `+` sheet re-layered into a logo-first family → member catalog with keyboard
