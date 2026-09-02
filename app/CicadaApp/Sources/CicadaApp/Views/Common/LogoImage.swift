@@ -116,7 +116,7 @@ struct LogoImage: View {
     /// resource lookup, not a file read) so callers can pick a fallback layout
     /// without waiting on the async PNG decode.
     static func exists(name: String) -> Bool {
-        Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "Resources/logos") != nil
+        Bundle.cicadaResources.url(forResource: name, withExtension: "png", subdirectory: "Resources/logos") != nil
     }
 
     // MARK: - Bundled cache
@@ -127,7 +127,7 @@ struct LogoImage: View {
     private static func bundledImage(for name: String) async -> NSImage? {
         if let cached = await MainActor.run(body: { cache[name] }) { return cached }
         let loaded = await Task.detached(priority: .utility) {
-            guard let url = Bundle.module.url(
+            guard let url = Bundle.cicadaResources.url(
                 forResource: name, withExtension: "png", subdirectory: "Resources/logos"
             ) else { return nil as NSImage? }
             return NSImage(contentsOf: url)

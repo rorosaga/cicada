@@ -34,7 +34,7 @@ struct GraphView: NSViewRepresentable {
         // `cicada` in WKUserContentController, see Coordinator below) and
         // have graph.js swap its color constants, or accept the graph
         // staying dark for now as scoped.
-        if let resourceURL = Bundle.module.url(forResource: "graph/index", withExtension: "html") {
+        if let resourceURL = Bundle.cicadaResources.url(forResource: "graph/index", withExtension: "html") {
             webView.loadFileURL(resourceURL, allowingReadAccessTo: resourceURL.deletingLastPathComponent())
         }
 
