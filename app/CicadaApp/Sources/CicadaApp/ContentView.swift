@@ -132,11 +132,30 @@ struct ContentView: View {
         }
     }
 
+    /// The graph view is never torn down by a tab switch (owner, 2026-09-03:
+    /// "if I zoom in and change tab and go back, it should still be zoomed in
+    /// to where I was"). A `switch` here rebuilt `GraphView`'s `WKWebView` on
+    /// every return — a cold re-layout, the zoom reset, and the G109 "explosion
+    /// on return". The graph stays mounted underneath, hidden and inert while
+    /// another tab is showing; the other tabs are built on top as before.
     @ViewBuilder
     private var detailContent: some View {
+        ZStack {
+            GraphContainerView(selectedTab: $selectedTab, showAskPanel: $showAskPanel)
+                .opacity(selectedTab == .graph ? 1 : 0)
+                .allowsHitTesting(selectedTab == .graph)
+                .accessibilityHidden(selectedTab != .graph)
+            if selectedTab != .graph {
+                otherTabContent
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var otherTabContent: some View {
         switch selectedTab {
         case .graph:
-            GraphContainerView(selectedTab: $selectedTab, showAskPanel: $showAskPanel)
+            EmptyView()
         case .clusters:
             TopicsView(selectedTab: $selectedTab)
         case .feed:
