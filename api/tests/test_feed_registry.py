@@ -20,6 +20,7 @@ is always injected or the network gate is deliberately left closed.
 from __future__ import annotations
 
 import asyncio
+import subprocess
 
 import pytest
 
@@ -87,6 +88,15 @@ RSS_FEED_B = """<?xml version="1.0" encoding="UTF-8"?>
 </rss>
 """
 
+RSS_FEED_EMPTY = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Feed Quiet</title>
+    <link>https://a.example.com</link>
+  </channel>
+</rss>
+"""
+
 NOT_XML = "this is not xml at all <<<"
 
 
@@ -109,6 +119,26 @@ def _memory(tmp_path):
     memory = tmp_path / "memory"
     for sub in ("episodes", "entities", "sources"):
         (memory / sub).mkdir(parents=True, exist_ok=True)
+    return memory
+
+
+def _git(repo, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=str(repo), check=True, capture_output=True, text=True
+    ).stdout
+
+
+def _git_memory(tmp_path):
+    """A bank that is a real git repo with a clean initial commit, so the
+    poll's own ``git add -A`` commit and the tree it leaves behind are
+    observable."""
+    memory = _memory(tmp_path)
+    _git(memory, "init", "-q")
+    _git(memory, "config", "user.email", "test@cicada.local")
+    _git(memory, "config", "user.name", "Cicada Test")
+    (memory / ".keep").write_text("", encoding="utf-8")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-q", "-m", "init")
     return memory
 
 
@@ -261,6 +291,53 @@ def test_poll_feeds_no_subscriptions_is_noop(tmp_path, monkeypatch):
     memory = _memory(tmp_path)
     result = run(feed_registry.poll_feeds(memory, fetch_fn=lambda url: RSS_FEED_A))
     assert result == {"polled": 0, "new": 0, "per_feed": []}
+
+
+# --- poll_feeds: a 0-new poll never leaves the bank dirty (G114 final review) --
+
+
+def test_poll_feeds_zero_new_still_commits_the_last_polled_bump(tmp_path, monkeypatch):
+    """A quiet night rewrites ``feeds.yaml`` (``last_polled``) but used to commit
+    only on new items, leaving the registry dirty for the next Sleep cycle's
+    ``git add -A`` to sweep under a model's name. The bump is real state: it
+    must land in its own ``Feed poll`` commit and leave a clean tree."""
+    _offline_enrich(monkeypatch)
+    memory = _git_memory(tmp_path)
+    feed_registry.subscribe_feed(memory, "https://a.example.com/rss")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-q", "-m", "subscribe")
+    head_before = _git(memory, "rev-parse", "HEAD").strip()
+
+    result = run(feed_registry.poll_feeds(memory, fetch_fn=lambda url: RSS_FEED_EMPTY))
+
+    assert result == {
+        "polled": 1,
+        "new": 0,
+        "per_feed": [
+            {"url": "https://a.example.com/rss", "status": "ok", "new": 0, "duplicates": 0}
+        ],
+    }
+    assert feed_registry.list_feeds(memory)[0]["last_polled"] is not None
+    assert _git(memory, "status", "--porcelain").strip() == "", "poll left the bank dirty"
+    assert _git(memory, "rev-parse", "HEAD").strip() != head_before
+    assert "Feed poll" in _git(memory, "log", "-1", "--format=%s")
+
+
+def test_poll_feeds_same_day_repoll_with_nothing_new_makes_no_second_commit(
+    tmp_path, monkeypatch,
+):
+    """The button after the nightly poll rewrites byte-identical YAML — that
+    is not state, so no empty commit is minted and the tree stays clean."""
+    _offline_enrich(monkeypatch)
+    memory = _git_memory(tmp_path)
+    feed_registry.subscribe_feed(memory, "https://a.example.com/rss")
+    run(feed_registry.poll_feeds(memory, fetch_fn=lambda url: RSS_FEED_EMPTY))
+    head_after_first = _git(memory, "rev-parse", "HEAD").strip()
+
+    run(feed_registry.poll_feeds(memory, fetch_fn=lambda url: RSS_FEED_EMPTY))
+
+    assert _git(memory, "rev-parse", "HEAD").strip() == head_after_first
+    assert _git(memory, "status", "--porcelain").strip() == ""
 
 
 # --- poll_feeds: network gate -----------------------------------------------

@@ -22,7 +22,7 @@ ICS feed by convention).
 
 Each ``VEVENT`` whose start date falls within the ingestion window (past
 ``WINDOW_PAST_DAYS`` to next ``WINDOW_FUTURE_DAYS`` days) becomes ONE episode
-via the shared episode-id scheme (``media_ingestor._next_episode_id``),
+via the shared episode-id scheme (``episode_ids.next_episode_id``),
 ``origin: "calendar"``. Dedup keys on UID + DTSTART (+ SEQUENCE when present)
 so an edited event (SEQUENCE bumped) re-ingests as an updated episode while an
 unchanged event is never duplicated across polls.
@@ -48,8 +48,7 @@ from urllib.parse import urlparse
 import yaml
 from loguru import logger
 
-from api.services import markdown_parser
-from api.services.media_ingestor import _next_episode_id
+from api.services import episode_ids, markdown_parser
 
 CALENDARS_FILENAME = "calendars.yaml"
 CALENDAR_INDEX_FILENAME = "calendar_index.json"
@@ -84,13 +83,21 @@ def _read_calendars_file(memory_path: Path) -> list[dict]:
     return calendars if isinstance(calendars, list) else []
 
 
-def _write_calendars_file(memory_path: Path, calendars: list[dict]) -> None:
+def _write_calendars_file(memory_path: Path, calendars: list[dict]) -> bool:
+    """Write the registry; return whether the file's content actually changed.
+
+    Mirrors ``feed_registry._write_feeds_file`` — ``poll_calendars`` commits a
+    0-new poll only when the ``last_polled`` bump really altered the file.
+    """
     path = _calendars_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.dump({"calendars": calendars}, default_flow_style=False, sort_keys=False),
-        encoding="utf-8",
-    )
+    text = yaml.dump({"calendars": calendars}, default_flow_style=False, sort_keys=False)
+    try:
+        before = path.read_text(encoding="utf-8") if path.exists() else None
+    except OSError:
+        before = None
+    path.write_text(text, encoding="utf-8")
+    return text != before
 
 
 def normalize_calendar_url(url: str) -> str:
@@ -340,10 +347,11 @@ def _episode_body(event: ICSEvent, calendar_url: str) -> str:
 
 def _write_calendar_episode(episodes_dir: Path, event: ICSEvent, calendar_url: str) -> str:
     episodes_dir.mkdir(parents=True, exist_ok=True)
-    now = datetime.now()
-    ep_date = now.strftime("%Y-%m-%d")
-    episode_id = _next_episode_id(episodes_dir, ep_date)
-    timestamp = now.isoformat() + "Z"
+    ep_date = datetime.now().strftime("%Y-%m-%d")
+    episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
+    # Aware UTC (G114 R2) — the old naive `now` + a bare "Z" suffix stamped
+    # LOCAL time and labelled it UTC, off by the machine's offset.
+    timestamp = episode_ids.utc_now_iso()
 
     body = _episode_body(event, calendar_url)
     content_hash = hashlib.sha256(_event_key(event).encode()).hexdigest()[:12]
@@ -404,7 +412,7 @@ def ingest_ics(
             "dtstart": event.dtstart_iso,
             "sequence": event.sequence,
             "calendar_url": calendar_url,
-            "ingested_at": datetime.now().isoformat() + "Z",
+            "ingested_at": episode_ids.utc_now_iso(),
         }
         created += 1
 
@@ -538,9 +546,12 @@ async def poll_calendars(
             {"url": url, "status": "ok", "new": created, "duplicates": duplicates}
         )
 
-    _write_calendars_file(memory_path, calendars)
+    registry_changed = _write_calendars_file(memory_path, calendars)
 
-    if total_new:
+    # Commit on new events OR a real ``last_polled`` bump — never leave
+    # ``calendars.yaml`` dirty for the next Sleep commit to sweep under a
+    # model's name (G114 final review; see ``feed_registry.poll_feeds``).
+    if total_new or registry_changed:
         try:
             await _commit_poll(memory_path, total_new, polled)
         except Exception as e:

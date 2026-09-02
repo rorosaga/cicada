@@ -94,7 +94,7 @@ def test_ingest_url_message_calls_save_url_fn(tmp_path):
     memory = tmp_path / "memory"
     calls = []
 
-    def fake_save_url(memory_path, url, *, note=None, reason=None):
+    def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
         calls.append((memory_path, url, note))
         return {"status": "created", "media_entity_id": "media-example", "episode_id": "ep_x"}
 
@@ -114,7 +114,7 @@ def test_ingest_url_message_calls_save_url_fn(tmp_path):
 def test_ingest_url_message_save_url_fn_may_be_async(tmp_path):
     memory = tmp_path / "memory"
 
-    async def fake_save_url(memory_path, url, *, note=None, reason=None):
+    async def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
         return {"status": "created", "media_entity_id": "media-async", "episode_id": "ep_a"}
 
     update = _text_update("https://async.example.com")
@@ -127,7 +127,7 @@ def test_ingest_text_only_message_stages_episode(tmp_path):
     memory = tmp_path / "memory"
     calls = []
 
-    def fake_save_episode(memory_path, text, *, title=None):
+    def fake_save_episode(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
         calls.append((memory_path, text, title))
         return {"status": "created", "episode_id": "ep_2026-07-02_001"}
 
@@ -150,11 +150,11 @@ def test_ingest_prefers_url_path_when_both_text_and_url_present(tmp_path):
     url_calls = []
     episode_calls = []
 
-    def fake_save_url(memory_path, url, *, note=None, reason=None):
+    def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
         url_calls.append(url)
         return {"status": "created"}
 
-    def fake_save_episode(memory_path, text, *, title=None):
+    def fake_save_episode(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
         episode_calls.append(text)
         return {"status": "created"}
 
@@ -178,7 +178,7 @@ def test_ingest_non_message_update_is_skipped(tmp_path):
 def test_ingest_never_raises_when_save_fn_errors(tmp_path):
     memory = tmp_path / "memory"
 
-    def boom(memory_path, text, *, title=None):
+    def boom(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
         raise RuntimeError("disk full")
 
     update = _text_update("a note that will fail to save")
@@ -381,7 +381,7 @@ def test_parse_returns_the_chat_id():
 def test_ingest_passes_the_reason_to_the_url_writer(tmp_path):
     seen = {}
 
-    def fake_save_url(memory_path, url, *, note=None, reason=None):
+    def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
         seen["reason"] = reason
         return {"status": "created", "media_entity_id": "media-x", "episode_id": "ep_x"}
 
@@ -393,10 +393,10 @@ def test_ingest_passes_the_reason_to_the_url_writer(tmp_path):
 
 
 def test_ingest_acks_a_plain_save_and_a_duplicate(tmp_path):
-    def created(memory_path, url, *, note=None, reason=None):
+    def created(memory_path, url, *, note=None, reason=None, captured_at=None):
         return {"status": "created", "media_entity_id": "m", "episode_id": "e"}
 
-    def duplicate(memory_path, url, *, note=None, reason=None):
+    def duplicate(memory_path, url, *, note=None, reason=None, captured_at=None):
         return {"status": "duplicate", "media_entity_id": "m", "episode_id": "e"}
 
     plain = _text_update("https://example.com/bare")
@@ -409,7 +409,7 @@ def test_ingest_acks_a_duplicate_with_a_new_reason_as_a_note_update(tmp_path):
     ``_default_save_url``'s duplicate branch) — the ACK must say so, not
     imply the reason was silently dropped the way a bare "Already saved."
     would."""
-    def duplicate(memory_path, url, *, note=None, reason=None):
+    def duplicate(memory_path, url, *, note=None, reason=None, captured_at=None):
         return {"status": "duplicate", "media_entity_id": "m", "episode_id": "e"}
 
     with_reason = _text_update("https://example.com/bare — actually worth rereading")
@@ -418,7 +418,7 @@ def test_ingest_acks_a_duplicate_with_a_new_reason_as_a_note_update(tmp_path):
 
 
 def test_ingest_acks_a_text_only_note(tmp_path):
-    def fake_save_episode(memory_path, text, *, title=None):
+    def fake_save_episode(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
         return {"status": "created", "episode_id": "ep_1"}
 
     result = run(ingest_telegram_update(
@@ -767,3 +767,162 @@ def test_ensure_webhook_secret_never_raises_on_a_network_error(monkeypatch):
 
     assert provisioned is False
     assert "ConnectError" in detail
+
+
+# --- G114 R3: the message's own date is the episode timestamp ---------------
+
+# 1756684800 s since the epoch is exactly 2025-09-01T00:00:00Z — a round
+# instant, so the expected id date and timestamp are readable at a glance.
+_EPOCH = 1_756_684_800
+_EPOCH_ISO = "2025-09-01T00:00:00+00:00"
+
+
+def _read_episode_frontmatter(memory, episode_id: str) -> dict:
+    from api.services import markdown_parser
+
+    return markdown_parser.parse(memory / "episodes" / f"{episode_id}.md").frontmatter
+
+
+def test_parse_date_is_aware_utc_iso():
+    parsed = parse_telegram_update(_text_update("hello", date=_EPOCH))
+    assert parsed["date"] == _EPOCH_ISO
+
+
+def test_ingest_stamps_the_episode_with_the_message_date_not_receipt_time(tmp_path):
+    """A webhook retry or a late delivery must not restamp yesterday's
+    message as today (R3): the episode ``timestamp`` is the message's own
+    ``date`` in ``+00:00`` form, and the id carries that UTC date."""
+    memory = tmp_path / "memory"
+    result = run(ingest_telegram_update(memory, _text_update("dated note", date=_EPOCH)))
+
+    assert result["kind"] == "note"
+    episode_id = result["result"]["episode_id"]
+    assert episode_id.startswith("ep_2025-09-01_")
+    fm = _read_episode_frontmatter(memory, episode_id)
+    assert fm["timestamp"] == _EPOCH_ISO
+
+
+def test_default_save_episode_falls_back_to_now_without_a_message_date(tmp_path):
+    from datetime import datetime, timezone
+
+    memory = tmp_path / "memory"
+    for captured_at in (None, "not a timestamp"):
+        result = telegram_capture._default_save_episode(
+            memory, f"undated note {captured_at}", captured_at=captured_at,
+        )
+        fm = _read_episode_frontmatter(memory, result["episode_id"])
+        assert fm["timestamp"].endswith("+00:00")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert fm["timestamp"].startswith(today)
+        assert result["episode_id"].startswith(f"ep_{today}_")
+
+
+def test_ingest_passes_captured_at_to_the_url_writer(tmp_path):
+    seen = {}
+
+    def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
+        seen["captured_at"] = captured_at
+        return {"status": "created", "media_entity_id": "media-x", "episode_id": "ep_x"}
+
+    update = _text_update("/save https://example.com/recipe great for meal prep", date=_EPOCH)
+    run(ingest_telegram_update(tmp_path, update, save_url_fn=fake_save_url))
+    assert seen["captured_at"] == _EPOCH_ISO
+
+
+def test_default_save_url_records_the_message_date_as_the_saved_date(tmp_path, monkeypatch):
+    """For a URL save the message date becomes ``RawItem.added`` (R3), so the
+    media episode's ``saved_at`` is the day it was sent, not the day it was
+    ingested."""
+    from api.services import media_ingestor
+    from api.services.media_ingestor import MediaMeta
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    async def offline(url, client, from_bookmark_file=False):
+        return MediaMeta(title="A Recipe", description="", site="example.com",
+                         media_type="url")
+
+    async def no_commit(memory_path, count, paths=None):
+        return None
+
+    monkeypatch.setattr(media_ingestor, "enrich", offline)
+    monkeypatch.setattr(media_ingestor, "_commit_media", no_commit)
+
+    result = asyncio.run(telegram_capture._default_save_url(
+        memory, "https://example.com/recipe", captured_at=_EPOCH_ISO,
+    ))
+    assert result["status"] == "created"
+    fm = _read_episode_frontmatter(memory, result["episode_id"])
+    assert fm["saved_at"] == "2025-09-01"
+
+
+# --- G114 R4: /remind is honest, not scheduled -------------------------------
+
+
+def test_remind_saves_an_honest_note_episode(tmp_path):
+    """``/remind`` used to match ``_COMMAND_RE`` and fall into the note path
+    silently, ACKing "Noted." as if something had been scheduled. It is still
+    saved as a note — tagged ``capture_kind: reminder`` so a later feature can
+    find it — but the ACK says plainly that nothing is scheduled."""
+    memory = tmp_path / "memory"
+    result = run(ingest_telegram_update(memory, _text_update("/remind call the dentist")))
+
+    assert result["kind"] == "note"
+    assert "reminders aren't scheduled yet" in result["ack"]
+    episode_id = result["result"]["episode_id"]
+    fm = _read_episode_frontmatter(memory, episode_id)
+    assert fm["capture_kind"] == "reminder"
+    body = (memory / "episodes" / f"{episode_id}.md").read_text(encoding="utf-8")
+    assert "call the dentist" in body
+
+
+def test_remind_passes_capture_kind_to_an_injected_episode_writer(tmp_path):
+    seen = {}
+
+    def fake_save_episode(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
+        seen["text"] = text
+        seen["capture_kind"] = capture_kind
+        return {"status": "created", "episode_id": "ep_1"}
+
+    result = run(ingest_telegram_update(
+        tmp_path, _text_update("/remind@cicada_bot call the dentist"),
+        save_episode_fn=fake_save_episode,
+    ))
+    assert seen["capture_kind"] == "reminder"
+    assert "call the dentist" in seen["text"]
+    assert result["ack"] == "Saved as a note — reminders aren't scheduled yet."
+
+
+def test_remind_with_a_url_is_still_a_reminder_not_a_media_save(tmp_path):
+    """The URL path normally wins when both text and a URL are present, but a
+    ``/remind`` that also carries a link is asking to be reminded, not to
+    bookmark — routing it to media with a "Saved." ACK would be exactly the
+    silent misroute R4 removes."""
+    url_calls = []
+    seen = {}
+
+    def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
+        url_calls.append(url)
+        return {"status": "created"}
+
+    def fake_save_episode(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
+        seen["capture_kind"] = capture_kind
+        return {"status": "created", "episode_id": "ep_1"}
+
+    result = run(ingest_telegram_update(
+        tmp_path, _text_update("/remind read https://example.com/paper on friday"),
+        save_url_fn=fake_save_url, save_episode_fn=fake_save_episode,
+    ))
+    assert result["kind"] == "note"
+    assert url_calls == []
+    assert seen["capture_kind"] == "reminder"
+
+
+def test_a_plain_note_carries_no_capture_kind(tmp_path):
+    memory = tmp_path / "memory"
+    result = run(ingest_telegram_update(memory, _text_update("/note buy milk")))
+    fm = _read_episode_frontmatter(memory, result["result"]["episode_id"])
+    assert "capture_kind" not in fm
+    assert result["ack"] == "Noted."

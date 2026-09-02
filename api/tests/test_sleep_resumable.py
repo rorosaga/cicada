@@ -110,6 +110,11 @@ def _is_processed(memory, ep_id):
     return bool(parsed.frontmatter.get("processed", False))
 
 
+def _processed_by(memory, ep_id):
+    parsed = markdown_parser.parse(memory / "episodes" / f"{ep_id}.md")
+    return parsed.frontmatter.get("processed_by")
+
+
 def _extracted_for(ids):
     """Build minimal Stage-1 extracted results for the given episode ids."""
     return [{
@@ -136,6 +141,12 @@ def test_failed_extractions_stay_queued(tmp_path, monkeypatch):
     assert _is_processed(memory, ids[0]) is True
     assert _is_processed(memory, ids[2]) is True
     assert _is_processed(memory, ids[1]) is False
+
+    # G114 R6: a Sleep mark is stamped `processed_by: sleep`, so it can be told
+    # apart from an agent's `cicada_mark_processed`; the requeued one has no stamp.
+    assert _processed_by(memory, ids[0]) == "sleep"
+    assert _processed_by(memory, ids[2]) == "sleep"
+    assert _processed_by(memory, ids[1]) is None
 
     state = sleep_cycle.get_sleep_state()
     assert state.episodes_processed == 2

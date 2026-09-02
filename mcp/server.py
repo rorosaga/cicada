@@ -25,6 +25,8 @@ if str(_REPO_ROOT) not in sys.path:
 # so tests can monkeypatch `server.agentic_write.write_claim` — the name
 # binding lives here, but handle_write_claim's body still calls through it.
 from api.services import agentic_write  # noqa: E402
+# Pure filesystem + datetime, no bank/config state — safe to hoist alongside.
+from api.services import episode_ids  # noqa: E402
 
 # MCP protocol uses JSON-RPC 2.0 over stdin/stdout
 
@@ -330,7 +332,7 @@ TOOLS = [
     },
     {
         "name": "cicada_mark_processed",
-        "description": "Mark episodes as processed (processed: true) after you have consolidated their facts via cicada_write_claim. Only mark an episode processed once you have actually extracted what's worth keeping from it — an unmarked episode is still picked up by the next Sleep cycle as a safety net.",
+        "description": "Mark episodes as processed (processed: true) after you have consolidated their facts via cicada_write_claim. The mark is attributed — the episode is stamped processed_by with your harness name (or 'agent'), distinct from the 'sleep' stamp a Sleep cycle writes. Only mark an episode processed once you have actually extracted what's worth keeping from it — an unmarked episode is still picked up by the next Sleep cycle as a safety net.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1180,14 +1182,23 @@ def handle_pending(limit) -> str:
 
 
 def handle_mark_processed(episode_ids) -> str:
-    """Flip processed:true on the given episode ids."""
+    """Flip processed:true on the given episode ids.
+
+    Stamps ``processed_by`` with this process's harness name (G48 session
+    identity — ``claude-code``, or whatever ``CICADA_SESSION_HARNESS`` said)
+    so the episode records WHICH agent surface consolidated it, not just that
+    one did (G114 R6). ``"unknown"`` is G48's placeholder, not an identity, so
+    it falls back to the generic ``"agent"`` rather than being recorded.
+    """
     from api.services import agentic_write
 
     if not isinstance(episode_ids, list) or not episode_ids:
         return "episode_ids is required (a non-empty array of episode ids)."
 
-    count = agentic_write.mark_episodes_processed(get_memory_path(), episode_ids)
-    return f"Marked {count} episode(s) as processed."
+    harness = (SESSION.harness or "").strip()
+    by = harness if harness and harness != "unknown" else "agent"
+    count = agentic_write.mark_episodes_processed(get_memory_path(), episode_ids, by=by)
+    return f"Marked {count} episode(s) as processed (processed_by: {by})."
 
 
 def handle_repo_context(entity_id: str | None, path: str | None) -> str:
@@ -1689,12 +1700,8 @@ def handle_save_episode(content: str, title: str | None) -> str:
     today = datetime.now().strftime("%Y-%m-%d")
     # ID = max existing suffix + 1 (NOT count+1): count-based numbering collides
     # and overwrites if any same-day episode was deleted/consolidated away.
-    max_num = 0
-    for filepath in episodes_dir.glob(f"ep_{today}_*.md"):
-        suffix = filepath.stem.rsplit("_", 1)[-1]
-        if suffix.isdigit():
-            max_num = max(max_num, int(suffix))
-    episode_id = f"ep_{today}_{max_num + 1:03d}"
+    # One rule for every writer lives in episode_ids (G114 R1).
+    episode_id = episode_ids.next_episode_id(episodes_dir, today)
 
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
 

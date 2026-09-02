@@ -1032,6 +1032,11 @@ class EpisodeQueueItem(CamelModel):
     title: Optional[str] = None
     preview: str
     processed: bool
+    # G114 R6: who flipped `processed` — "sleep" for a Sleep-cycle
+    # consolidation, "agent" (or the harness name) for an agent's
+    # `cicada_mark_processed`. Optional so an older app build keeps decoding,
+    # and null for every episode processed before the stamp existed.
+    processed_by: Optional[str] = None
 
 
 class ScheduleConfig(CamelModel):
