@@ -402,6 +402,8 @@ trailers, Ghostty resume)
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
 
 ### Small & cheap — grab when passing
+- **G123** graph node search — ⌘F typeahead over the Store snapshot, ⏎ zooms to the node's neighbourhood
+  and opens its card; `revealNode(id)` becomes the one seam Ask citations and Activity chips use too — S
 G7 centrality *(recommended for closing — "premise measured false" per a prior session, but this
 hygiene pass could not find the underlying measurement anywhere in tracked docs; left OPEN — see
 the report for what was checked)*
