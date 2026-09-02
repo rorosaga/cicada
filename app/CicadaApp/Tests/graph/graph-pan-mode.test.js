@@ -69,3 +69,17 @@ sandbox.setPanToggle(false);
 assert.strictEqual(get("panModifierHeld"), false, "toggle off restores normal mode");
 assert.ok(get("hoveredNode") && get("hoveredNode").id === node.id, "toggle off re-picks the hover");
 console.log("All graph pan-toggle checks passed.");
+
+// Entity card open: hover is suppressed, clicks still select.
+sandbox.setHoverSuppressed(true);
+sandbox.onMouseMove({ clientX: sx, clientY: sy });
+assert.strictEqual(get("hoveredNode"), null, "no hover highlight while the entity card is open");
+stopped = false;
+sandbox.onMouseDown({ clientX: sx, clientY: sy, stopImmediatePropagation: () => { stopped = true; } });
+assert.ok(get("draggingNode"), "a press still grabs/selects a node while the card is open");
+assert.strictEqual(stopped, true);
+sandbox.onMouseUp({});
+sandbox.setHoverSuppressed(false);
+sandbox.onMouseMove({ clientX: sx, clientY: sy });
+assert.ok(get("hoveredNode") && get("hoveredNode").id === node.id, "hover returns once the card closes");
+console.log("All graph hover-suppression checks passed.");
