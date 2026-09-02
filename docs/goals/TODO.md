@@ -89,36 +89,36 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-**Nothing is broken and nothing is mid-flight.** The 2026-09-01 evening session merged #28/#29,
-reframed CLAUDE.md around the *experience port* north star (Silver & Sutton's *Era of Experience*,
-WikiSkill), filed **G112/G113/G114** research-grounded, and started **G109** as a research run
-(inventory → five engine candidates → three-lens judge → decision memo) rather than a blind re-tune.
+**Nothing is broken; one branch is awaiting a PR.** **G114** shipped on `feat/capture-hygiene`
+(2026-09-01/02, six commits, PR pending against `dev`). The 2026-09-01 evening session merged
+#28/#29, reframed CLAUDE.md around the *experience port* north star (Silver & Sutton's *Era of
+Experience*, WikiSkill), filed **G112/G113/G114** research-grounded, and started **G109** as a
+research run (inventory → five engine candidates → three-lens judge → decision memo) rather than
+a blind re-tune.
 
 1. **G109 (urgent)** — read the decision memo if one exists (the session writes it to its
    scratchpad, then folds the ruling into the G109 row); otherwise the row itself names the five
    candidates and the two symptoms. Phase 1 must fix both *invisible deceleration* and the *orphan
    ring* in a day, or the port decision is made for us.
-2. **G114 (all $0, APPLY)** — capture-writer hygiene: one id rule, one timestamp shape, and the
-   scheduled feed/calendar poll that **G111** needs. Do (4) the poll first: G111 is worthless
-   without it.
-3. **G113 slices 1–4 ($0, APPLY)** — the grounded-reward ledger. Every human verdict on memory
+2. **G113 slices 1–4 ($0, APPLY)** — the grounded-reward ledger. Every human verdict on memory
    (inbox resolve, decay keep/archive, merge accept/reject, manual edit) becomes a telemetry event;
    ids and enums only. Slice 5 (closing the loop) stays 💸 DECIDE.
-4. **G112 step 1** is a bug fix, not a feature — do it when passing.
-5. **G53 + G75**, then **G105**, then **G97** — the same order the waves give.
-6. **G110 is RESEARCH, deliberately not started.** Its own cheapest-first ruling: build G53/G75 and
+3. **G112 step 1** is a bug fix, not a feature — do it when passing.
+4. **G53 + G75**, then **G105**, then **G97** — the same order the waves give.
+5. **G110 is RESEARCH, deliberately not started.** Its own cheapest-first ruling: build G53/G75 and
    see whether the fork want survives. Second data point to read first: Cursor's "Import from Claude
    Code".
-7. **G7 is open again, on purpose.** The hygiene pass could not find the measurement TODO.md claimed
+6. **G7 is open again, on purpose.** The hygiene pass could not find the measurement TODO.md claimed
    ("premise measured false") anywhere in tracked history. Re-measure it or delete the claim.
-8. **G90 README screenshots** wait for Rodrigo to be at the machine (demo bank or frame-by-frame
+7. **G90 README screenshots** wait for Rodrigo to be at the machine (demo bank or frame-by-frame
    review — the live bank holds real people). Same for any `macos-harness` verification that
    needs a permission prompt accepted.
 
-**Worktrees:** all merged. `.worktrees/devloop` and `.worktrees/wikilinks` are safe to remove
-(`devloop-report.md` there is untracked scratch — never commit `*-report.md`); `sleepctl`,
-`hygiene`, `saves-and-imports` are stale from earlier sessions. `git worktree list` to see them;
-never `--force`-remove one without looking at `git status --porcelain -uall` in it first.
+**Worktrees:** `.worktrees/g114` holds `feat/capture-hygiene` until its PR merges.
+`.worktrees/devloop` and `.worktrees/wikilinks` are safe to remove (`devloop-report.md` there is
+untracked scratch — never commit `*-report.md`); `sleepctl`, `hygiene`, `saves-and-imports` are
+stale from earlier sessions. `git worktree list` to see them; never `--force`-remove one without
+looking at `git status --porcelain -uall` in it first.
 
 ---
 
@@ -129,7 +129,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-01 evening (PRs #21–#29 merged, no open PRs; G88 shipped; G112–G114 filed; G109 in research)._
+_Last synced: 2026-09-02 (PRs #21–#29 merged; G114 shipped on `feat/capture-hygiene`, PR pending; G88 shipped; G112/G113 filed; G109 in research)._
 
 ---
 
@@ -180,6 +180,12 @@ trailers, Ghostty resume)
   with durable keys), CLAUDE.md reframed twice (the project, then the *experience port* north
   star), doctor cleanup, installer shebang fix, **G99a** the 35 MB index untracked before it could
   commit ~11 GB/yr
+- **G114 capture-writer hygiene** (`feat/capture-hygiene`, PR pending) — one id rule
+  (`episode_ids.next_episode_id`, max-suffix+1 per date, importer collision closed), one timestamp
+  shape (aware UTC from `episode_ids.utc_now_iso`; Sleep sorts by instant across legacy shapes),
+  Telegram stamped with the message date and `/remind` an honest `capture_kind: reminder` note,
+  feeds + calendars polled at the Sleep tail under `CICADA_ALLOW_FEED_FETCH=1` (installer sets
+  it), and a `processed_by: sleep|agent` stamp on `GET /sleep/episodes`
 - Backlog hygiene (2026-09-01, docs-only): closed rows for work that had shipped without ever
   updating the backlog — **G21** dedup-sweep endpoint, **G19(e)(f)** provider-factory adoption +
   stray `.bak` removal, **A4** skill preference capture, and the shipped halves of **G11**
@@ -205,13 +211,10 @@ trailers, Ghostty resume)
 1. **G109 🔴** graph physics — deceleration invisible (velocityDecay 0.45 + alphaMin 0.05 swallow
    the seeded throw) and zero-degree nodes fly to a ring now that the cold-paint fix renders them;
    *research run in flight* (see In progress) — S/M to decide, M to port
-2. **G114** capture-writer hygiene — one id rule, one timestamp shape, `processed_by` stamp, and
-   the **scheduled feed/calendar poll** at the Sleep tail that G111 depends on. All $0,
-   deterministic, verified defects with file:line — S
-3. **G111** newsletters (TLDR / TLDR AI) → "what landed today that matters to me". The TLDR path
-   is verified (RSS exists; a feed row per newsletter); gated on G114(4) so it refreshes without a
-   button press — S/M
-4. **G90** README + screenshots — Sleep and the dev loop are both real now; **demo bank or
+2. **G111** newsletters (TLDR / TLDR AI) → "what landed today that matters to me". The TLDR path
+   is verified (RSS exists; a feed row per newsletter); the Sleep-tail feed poll it needed shipped
+   with G114, so it refreshes without a button press — S/M
+3. **G90** README + screenshots — Sleep and the dev loop are both real now; **demo bank or
    frame-by-frame review** — the live bank holds real people — S
 
 ### Wave B · make what exists trustworthy
