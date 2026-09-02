@@ -45,9 +45,21 @@ enum BrowserFile: CaseIterable {
 /// user: "grant Full Disk Access" and "there is nothing here yet". Anything
 /// that is not provably an absence is treated as a permission problem —
 /// that is the case with a fix, so it is the safer default to show.
-enum BrowserFileError: Error, Equatable {
+///
+/// `LocalizedError` is load-bearing, not decoration: the Feed strip's
+/// "Sync now" (`ConnectedChannelsStrip.run`) does not pattern-match this
+/// type — it hands whatever was thrown to `AddSourceSheet.friendlyError`,
+/// which falls back to `error.localizedDescription`. Without the
+/// conformance that fallback is Foundation's generic "The operation couldn't
+/// be completed. (CicadaApp.BrowserFileError error 1.)", so the one place
+/// R9 promised the fix would surface once showed gibberish instead (Task 3
+/// review round 1, H1). The panels keep using `userMessage` directly; both
+/// paths now read the same sentence.
+enum BrowserFileError: Error, Equatable, LocalizedError {
     case missing(BrowserFile, [String])
     case notReadable(BrowserFile, String)
+
+    var errorDescription: String? { userMessage }
 
     /// Deep link straight to the Full Disk Access pane, so the fix is one
     /// click rather than a sentence to follow.
@@ -106,14 +118,21 @@ enum BrowserFileReader {
         }.value
     }
 
-    /// For the WAL sidecar (R2): nil when genuinely absent. A permission
-    /// failure is NOT distinguishable here — `fileExists` answers false for a
-    /// path it cannot stat — so call this only AFTER the main file read
-    /// succeeded: same directory, same grant, so an absence really is one.
-    static func readIfPresent(_ file: BrowserFile, candidates: [URL]? = nil) async -> Data? {
-        let urls = candidates ?? file.candidatePaths
-        let existing = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-        guard !existing.isEmpty else { return nil }
-        return try? await read(file, candidates: existing)
+    /// For the WAL sidecar (R2): nil when genuinely absent, the bytes when
+    /// present. Built on `read` rather than a `fileExists` pre-filter so the
+    /// stat happens inside the detached task like every other touch of
+    /// `~/Library` (Task 3 review round 1, L2 — the filter ran on the
+    /// caller's actor, the panels' `@MainActor` task), and so a permission
+    /// failure is no longer swallowed into nil: `fileExists` answers false for
+    /// a path it cannot stat, which made "no WAL" and "can't read the WAL"
+    /// indistinguishable. Now only `.missing` maps to nil; `.notReadable`
+    /// propagates with the Full Disk Access fix, so an import can never
+    /// silently proceed on a stale main db beside a WAL it was denied.
+    static func readIfPresent(_ file: BrowserFile, candidates: [URL]? = nil) async throws -> Data? {
+        do {
+            return try await read(file, candidates: candidates)
+        } catch BrowserFileError.missing {
+            return nil
+        }
     }
 }

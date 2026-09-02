@@ -17,7 +17,7 @@ enum BrowserImportActions {
         switch id {
         case "safari-tabs":
             let db = try await BrowserFileReader.read(.safariTabsDb)
-            let wal = await BrowserFileReader.readIfPresent(.safariTabsWal)
+            let wal = try await BrowserFileReader.readIfPresent(.safariTabsWal)
             let m = SyncSafariTabs(db: db, wal: wal, devices: nil)
             guard await store.perform(m), let r = m.result else { throw ImportActionError.failed(store.toast ?? "Sync failed") }
             return BrowserImportSummary.tabs(r)
@@ -130,7 +130,10 @@ struct SafariTabsPanel: View {
                         .disabled(stage == .importing || device.count == 0)
                         .accessibilityLabel(SafariTabsDevice.line(device))
                     }
-                    ForEach(preview.warnings, id: \.self) { warning in
+                    // Keyed by position, not text: two identical warning strings
+                    // would share an id under `\.self` and SwiftUI would render one
+                    // (Task 3 review round 1, L3).
+                    ForEach(Array(preview.warnings.enumerated()), id: \.offset) { _, warning in
                         Text(warning).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -169,7 +172,7 @@ struct SafariTabsPanel: View {
         task = Task { @MainActor in
             do {
                 let db = try await BrowserFileReader.read(.safariTabsDb)
-                let wal = await BrowserFileReader.readIfPresent(.safariTabsWal)
+                let wal = try await BrowserFileReader.readIfPresent(.safariTabsWal)
                 guard !Task.isCancelled else { return }
                 stage = .previewing
                 let p = try await APIClient.shared.previewSafariTabs(db: db, wal: wal)
