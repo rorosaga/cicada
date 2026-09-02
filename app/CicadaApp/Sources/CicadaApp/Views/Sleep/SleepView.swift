@@ -219,14 +219,16 @@ struct SleepView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: Mood (G106 amendment)
+    // MARK: Mood (G106 amendment; G107 art)
 
-    /// The interim mascot screen: one bracketed, monospaced status line
-    /// (see `SleepMood.swift` — `BookwormView`'s ~16×16 template sprite
-    /// can't show mood at page scale; real art is backlog G107), plus the
-    /// Rested % reading and the components it's built from underneath —
-    /// "explainable, not a black box" (spec). Both the mood and the debt
-    /// numbers prefer the continuously-updating SSE `sleep` event
+    /// The mascot card: the 24×24 colour bookworm (G107) at 120 pt — five
+    /// whole cells per point-row, so the pixels stay crisp (ruling R3) — in
+    /// the mood `deriveSleepPageMood` derives, with the bracketed,
+    /// monospaced status line kept underneath as its caption (ruling R9:
+    /// same text, same colour, now under the worm rather than standing in
+    /// for it), plus the Rested % reading and the components it's built
+    /// from — "explainable, not a black box" (spec). Both the mood and the
+    /// debt numbers prefer the continuously-updating SSE `sleep` event
     /// (`store.sleepEvent`) and fall back to the last REST `/sleep/status`
     /// fetch, via `resolveSleepDebt`/`resolveProgressPct`.
     private var moodCard: some View {
@@ -234,9 +236,14 @@ struct SleepView: View {
         let progress = resolveProgressPct(sse: store.sleepEvent, status: sleepVM.status)
         let mood = deriveSleepPageMood(status: sleepVM.status, debt: debt, justFinishedAt: justFinishedAt)
         return VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text(sleepDebtBracketText(mood, debt: debt))
-                .font(.system(size: 24, weight: .semibold, design: .monospaced))
-                .foregroundStyle(sleepDebtBracketColor(mood))
+            BookwormView(
+                state: mood,
+                pointSize: 120,
+                caption: sleepDebtBracketText(mood, debt: debt),
+                captionFont: .system(size: 24, weight: .semibold, design: .monospaced),
+                captionColor: sleepDebtBracketColor(mood),
+                alignment: .leading
+            )
 
             moodDetailLine(mood: mood, debt: debt, progress: progress)
         }

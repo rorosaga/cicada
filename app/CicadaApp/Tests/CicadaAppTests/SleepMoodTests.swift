@@ -14,13 +14,15 @@ final class SleepMoodTests: XCTestCase {
         status: String = "idle", stage: Int = 0,
         unprocessedCount: Int = 0, restedPct: Int? = 100,
         volumePct: Int = 0, agePct: Int = 0, hasRunBefore: Bool = true,
-        hoursSinceLastCycle: Double? = 0, progressPct: Int? = nil
+        hoursSinceLastCycle: Double? = 0, progressPct: Int? = nil,
+        error: String? = nil
     ) throws -> SleepStatusResponse {
         let restedJSON = restedPct.map(String.init) ?? "null"
         let hoursJSON = hoursSinceLastCycle.map { String($0) } ?? "null"
         let progressJSON = progressPct.map(String.init) ?? "null"
+        let errorJSON = error.map { "\"\($0)\"" } ?? "null"
         let json = """
-        {"status":"\(status)","cycleId":null,"startedAt":null,"progress":null,"error":null,
+        {"status":"\(status)","cycleId":null,"startedAt":null,"progress":null,"error":\(errorJSON),
          "indexWarning":null,"stage":\(stage),"totalStages":5,"episodesTotal":0,
          "entitiesCreated":0,"entitiesUpdated":0,"relationshipsCreated":0,"skillsDetected":0,
          "progressPct":\(progressJSON),
@@ -218,6 +220,22 @@ final class SleepMoodTests: XCTestCase {
     func test_bracketText_hungry_withNilDebt() {
         XCTAssertEqual(sleepDebtBracketText(.hungry, debt: nil),
                        "[ overdue — hasn't consolidated in a while ]")
+    }
+
+    func test_bracketText_error() {
+        XCTAssertEqual(sleepDebtBracketText(.error, debt: nil), "[ last cycle failed ]")
+    }
+
+    func test_bracketColor_errorIsDanger() {
+        XCTAssertEqual(sleepDebtBracketColor(.error), CicadaTheme.danger)
+    }
+
+    func test_mood_errorWhenLastCycleFailedAndIdle() throws {
+        let failed = try status(status: "idle", unprocessedCount: 4, restedPct: 60, error: "RuntimeError: boom")
+        XCTAssertEqual(deriveSleepPageMood(status: failed, debt: debtView(restedPct: 60, unprocessedCount: 4), justFinishedAt: nil), .error)
+        XCTAssertEqual(deriveSleepPageMood(status: failed, debt: nil, justFinishedAt: Date()), .error, "error beats digesting")
+        let running = try status(status: "running", stage: 2, error: "stale error from the previous cycle")
+        XCTAssertEqual(deriveSleepPageMood(status: running, debt: nil, justFinishedAt: nil), .sleeping(stage: 2), "a running cycle outranks a stale error")
     }
 
     // MARK: sleepDebtBracketColor
