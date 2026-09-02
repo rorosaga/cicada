@@ -61,4 +61,16 @@ final class BookwormStateTests: XCTestCase {
         XCTAssertTrue(frames[1].joined().contains("e"), "the glitch frame keeps the red eyes")
         XCTAssertEqual(interval, 0.5, accuracy: 0.001)
     }
+
+    /// Task 3: the menu bar ticks for EVERY state (all are multi-frame — the
+    /// brief's "always moving") and holds frame 0 only under Reduce Motion
+    /// (ruling R7). The rule is a pure static so it is testable without an
+    /// `NSStatusItem`. 18 pt is ruling R3.
+    func testMenuBarAnimatesEveryStateUnlessReduceMotion() {
+        for state in BookwormSpriteTests.states {
+            XCTAssertTrue(MenuBarManager.animates(state, reduceMotion: false), state.caseName)
+            XCTAssertFalse(MenuBarManager.animates(state, reduceMotion: true), state.caseName)
+        }
+        XCTAssertEqual(MenuBarManager.spritePointSize, 18)
+    }
 }

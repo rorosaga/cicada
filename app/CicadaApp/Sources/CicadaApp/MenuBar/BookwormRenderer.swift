@@ -16,14 +16,12 @@ enum BookwormRenderer {
                 alpha: 1)
     }
 
-    /// Render one grid at `pointSize` × `pointSize`. `overlays` are OR-merged
-    /// first; the parameter exists only for `MenuBarManager`'s pre-Task-3
-    /// call sites — `BookwormSprites.frames(for:)` already bakes every overlay
-    /// (R2), so new callers pass none.
-    static func image(grid: PixelGrid, overlays: [PixelGrid] = [], pointSize: CGFloat) -> NSImage {
-        let merged = overlays.reduce(grid) { BookwormSprites.merge($0, $1) }
+    /// Render one grid at `pointSize` × `pointSize`. The grid is drawn as
+    /// given: `BookwormSprites.frames(for:)` already bakes every overlay
+    /// (badge, stage dots — ruling R2), so there is no merge seam here.
+    static func image(grid: PixelGrid, pointSize: CGFloat) -> NSImage {
         let rows: [[Character]] = (0..<gridSize).map { r in
-            r < merged.count ? Array(merged[r].padding(toLength: gridSize, withPad: ".", startingAt: 0)) : Array(repeating: ".", count: gridSize)
+            r < grid.count ? Array(grid[r].padding(toLength: gridSize, withPad: ".", startingAt: 0)) : Array(repeating: ".", count: gridSize)
         }
         let cell = pointSize / CGFloat(gridSize)
         let image = NSImage(size: NSSize(width: pointSize, height: pointSize), flipped: false) { _ in

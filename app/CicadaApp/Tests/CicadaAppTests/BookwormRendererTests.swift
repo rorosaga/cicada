@@ -70,4 +70,15 @@ final class BookwormRendererTests: XCTestCase {
         XCTAssertTrue(BookwormRenderer.cachedImage(state: .awake, frameIndex: 0, pointSize: 48)
                       === BookwormRenderer.cachedImage(state: .awake, frameIndex: count, pointSize: 48))
     }
+
+    /// Task 3: the menu bar draws ONE image with the count in the pixels
+    /// (ruling R2), served from the renderer's cache (R5) — so a count change
+    /// must be a different image, at the 18 pt status-item size (R3), colour.
+    func testMenuBarSizedFramesAreCachedPerCountAndStage() {
+        let a = BookwormRenderer.cachedImage(state: .curious(count: 3), frameIndex: 0, pointSize: MenuBarManager.spritePointSize)
+        let b = BookwormRenderer.cachedImage(state: .curious(count: 4), frameIndex: 0, pointSize: MenuBarManager.spritePointSize)
+        XCTAssertFalse(a === b, "a count change must re-render — the count is in the pixels")
+        XCTAssertEqual(a.size, NSSize(width: 18, height: 18))
+        XCTAssertFalse(a.isTemplate)
+    }
 }
