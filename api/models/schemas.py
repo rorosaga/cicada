@@ -1338,6 +1338,31 @@ class MaintenanceDedupSweepResponse(CamelModel):
     nudged: list[MaintenanceNudgePair] = []
 
 
+class MaintenanceEnrichLinksResponse(CamelModel):
+    """What one `POST /maintenance/enrich-links` run did (G102 cheap slice).
+    Mirrors `link_enrichment.BackfillReport.as_dict()`; `remaining` is the
+    live count of media pages still owed a description, `remainingRecon` the
+    pages still owed relations, `deferred` the failed fetches inside their
+    30-day backoff. `engine`/`engineDetail` say which engine the run resolved
+    (a $0 run reports the configured engine but makes no call)."""
+    selected: int = 0
+    reused: int = 0
+    summarized: int = 0
+    fetched: int = 0
+    failed: int = 0
+    skipped: int = 0
+    extracted: int = 0
+    related: int = 0
+    remaining: int = 0
+    remaining_recon: int = 0
+    deferred: int = 0
+    llm_calls: int = 0
+    engine_aborted: Optional[str] = None
+    commit: Optional[str] = None
+    engine: Optional[str] = None
+    engine_detail: Optional[str] = None
+
+
 class NotesSyncRequest(CamelModel):
     # The raw delimited osascript dump (what tests and a future companion-app
     # path use), mirroring BookmarkSyncRequest's inline-data shape. Omitted
