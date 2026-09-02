@@ -34,7 +34,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN_DIR/CicadaApp" "$APP/Contents/MacOS/CicadaApp"
-# Bundle.module resolves the SwiftPM resource bundle relative to the executable,
+# Bundle.cicadaResources (Utilities/ResourceBundle.swift) resolves the SwiftPM resource bundle relative to the executable —
+# SwiftPM's own Bundle.module would probe the build dir under ~/Documents first and trip a TCC prompt —
 # so it must sit next to the binary inside Contents/MacOS.
 if [ -d "$BIN_DIR/CicadaApp_CicadaApp.bundle" ]; then
   RESBUNDLE="$APP/Contents/MacOS/CicadaApp_CicadaApp.bundle"
