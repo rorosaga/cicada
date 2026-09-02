@@ -321,6 +321,9 @@ trailers, Ghostty resume)
 
 ### Wave E · thesis & product
 22. **G78** gbrain evals — the thesis's weakest link is measurement, not architecture — M
+22a. **G117** first-run onboarding in the app — **release blocker**: a three-step first-run sheet
+    (engine → capture channel → first Sleep), honest empty states per tab, and a one-click synthetic
+    demo bank so the graph is never blank. Ships with G76 and G90 for a downloadable 1.0 — M
 23. **G92** onboarding at scale — decide what Cicada *is* before optimising a funnel — decision
 24. **G72** skills manager · **G73** prompt library · **G70** design memory *(absorbs G14)* — M each
 25. **G54** onboarding interview · **G55** executable skills · **G13** tasks/ideas backlog
