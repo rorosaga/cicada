@@ -1002,5 +1002,13 @@ async def backfill(
 
 
 async def _run_recon(memory_path: Path, settings, report: BackfillReport, **kwargs) -> None:
-    """Task 2 replaces this with ``link_recon.run_recon``."""
-    return None
+    """G102 recon (``link_recon.run_recon``): batched extraction over the
+    stored title+description → Stage-2 match → ``about`` claims → edges.
+    Imported lazily — ``link_recon`` imports helpers back from this module —
+    and wrapped because the driver's contract is that it never raises."""
+    from api.services.link_recon import run_recon
+
+    try:
+        await run_recon(memory_path, settings, report, **kwargs)
+    except Exception as e:  # the driver's contract: never raise
+        logger.warning(f"link recon failed: {type(e).__name__}: {e}")

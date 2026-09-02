@@ -380,6 +380,48 @@ async def resolve(
     }
 
 
+def existing_by_name(existing: list[dict]) -> dict[str, dict]:
+    """The ``name.lower() -> entity`` index ``resolve`` builds at its top (the
+    four lines at the head of that function), exposed so a caller that only
+    needs the Stage-2 *judgment* (G102 recon) indexes the graph the same way."""
+    out: dict[str, dict] = {}
+    for e in existing:
+        name = e["frontmatter"].get("name", e["id"].replace("-", " ").title())
+        out[str(name).lower()] = e
+    return out
+
+
+async def match_existing(
+    entity: dict, existing_by_name: dict[str, dict], settings: Settings, *, cache: dict | None = None
+) -> str | None:
+    """Is ``entity`` an EXISTING page? The Stage-2 judgment alone (G102 R5).
+
+    Exactly the two matchers ``resolve`` runs per name — the strict/fuzzy
+    ``_find_direct_candidate_match`` then the type-gated, token-gated
+    ``_find_llm_candidate_match`` with the same judge and cache — and nothing
+    else: no promotion, no page creation, no clarification. ``resolve`` itself
+    would (a) create a page for anything clearing the promotion threshold,
+    (b) queue a "Who is X?" clarification for every low-confidence name — an
+    inbox flood from bookmark blurbs — and (c) promote pending entries; the
+    promotion rule (CLAUDE.md) says a single link mention must never create
+    an entity. Returns the existing id only on a ``same`` verdict against an
+    on-disk entity; ``unsure`` is ``None`` (a bookmark blurb must never open
+    a "Who is X?" inbox item), and a first mention is left to the caller to
+    record as a pending candidate — the promotion model's rung 1 — so a
+    later conversation mention still promotes it. An engine failure inside
+    the judge propagates (G74(a)); the caller decides what that means.
+    """
+    cache = cache if cache is not None else {}
+    match = _find_direct_candidate_match(new_entity=entity, existing_by_name=existing_by_name, created_by_id={})
+    if match is None:
+        match = await _find_llm_candidate_match(
+            new_entity=entity, existing_by_name=existing_by_name, created_by_id={}, cache=cache, settings=settings,
+        )
+    if match is not None and match["decision"] == "same" and match["candidate"].get("source") == "existing":
+        return match["candidate"]["id"]
+    return None
+
+
 def _specificity_key(entity: dict) -> tuple[int, int, float]:
     name = (entity.get("name") or "").strip()
     tokens = _name_tokens(name)
