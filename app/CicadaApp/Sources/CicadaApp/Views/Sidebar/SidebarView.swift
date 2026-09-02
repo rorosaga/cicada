@@ -1,14 +1,34 @@
 import SwiftUI
 
+/// The six primary views. Raw values are this tab's **stable identity** —
+/// the persisted selection (`cicada.selectedTab`) and the ⌘-slot order in
+/// `allCases` — so a surviving tab's raw value must never move, even when its
+/// label changes.
+///
+/// G68 retired five tabs: Capture merged into Feed, Contributors + Usage
+/// merged into Activity, and Connections + Connect became Settings tabs
+/// (⌘,). Their raw values still sit in some user's defaults, so decode
+/// through `restored(from:)` — never `AppTab(rawValue:)!`.
 enum AppTab: String, CaseIterable {
     case graph = "Graph"
     case clusters = "Clusters"
     case feed = "Feed"
     case sleep = "Sleep"
     case inbox = "Inbox"
-    case contributors = "Contributors"
-    case connect = "Connect"
-    case sources = "Capture"
+    case activity = "Activity"
+
+    /// Decodes a persisted selection, mapping every retired tab to whichever
+    /// page inherited its content. Anything unrecognised falls back to Graph.
+    static func restored(from raw: String?) -> AppTab {
+        guard let raw, !raw.isEmpty else { return .graph }
+        if let tab = AppTab(rawValue: raw) { return tab }
+        switch raw {
+        case "Capture": return .feed
+        case "Contributors", "Usage": return .activity
+        case "Connections", "Connect": return .graph   // now Settings tabs (⌘,)
+        default: return .graph
+        }
+    }
 
     var icon: String {
         switch self {
@@ -17,67 +37,33 @@ enum AppTab: String, CaseIterable {
         case .feed: "photo.stack"
         case .sleep: "moon.fill"
         case .inbox: "tray.full"
-        case .contributors: "person.2.badge.gearshape"
-        case .connect: "cable.connector"
-        case .sources: "tray.and.arrow.down"
+        case .activity: "chart.bar.xaxis"
         }
     }
-}
 
-/// Linear/Notion-style sidebar sections. Quiet uppercase labels group the flat
-/// tab list by mental model without adding any new theme tokens.
-private enum SidebarSection: String, CaseIterable {
-    case workspace = "Workspace"
-    case capture = "Capture"
-    case maintenance = "Maintenance"
-    case provenance = "Provenance"
-    case setup = "Setup"
-
-    var tabs: [AppTab] {
-        switch self {
-        case .workspace: [.graph, .clusters, .feed]
-        case .capture: [.sources]
-        case .maintenance: [.sleep, .inbox]
-        case .provenance: [.contributors]
-        case .setup: [.connect]
-        }
-    }
+    /// The label the user sees. Identical to `rawValue` since G68 — the two
+    /// renamed pages (Plans & keys, Agents) are Settings tabs now, not rows.
+    var title: String { rawValue }
 }
 
 struct SidebarView: View {
     @Binding var selectedTab: AppTab
     var inboxCount: Int
+    /// Drives the small spinner on the Sleep row while a cycle runs.
+    var isSleeping: Bool
+    /// Raises the gear's attention dot when a subscription login has expired.
+    var needsAttention: Bool
+    var onOpenSettings: () -> Void
 
-    // Theme toggle. Persists directly to the same key CicadaApp/ContentView
-    // read, so flipping it here propagates everywhere without any extra
-    // plumbing.
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     private var colorScheme: AppColorScheme { AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            ForEach(SidebarSection.allCases, id: \.self) { section in
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    Text(section.rawValue.uppercased())
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .tracking(1.2)
-                        .padding(.horizontal, CicadaTheme.spacingLG)
-                        .padding(.leading, CicadaTheme.spacingSM)
-
-                    ForEach(section.tabs, id: \.self) { tab in
-                        SidebarRow(
-                            tab: tab,
-                            isSelected: selectedTab == tab,
-                            badgeCount: badgeCount(for: tab)
-                        )
-                        .onTapGesture {
-                            withAnimation(.spring(duration: 0.25)) {
-                                selectedTab = tab
-                            }
-                        }
-                    }
-                }
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            // No section labels. Six rows do not need to be grouped into five
+            // buckets — the labels were longer than the lists they introduced.
+            ForEach(AppTab.allCases, id: \.self) { tab in
+                sidebarButton(for: tab)
             }
 
             Spacer()
@@ -88,6 +74,8 @@ struct SidebarView: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
 
                 Spacer()
+
+                SettingsGearButton(needsAttention: needsAttention, action: onOpenSettings)
 
                 ThemeToggleButton(colorScheme: colorScheme) {
                     colorSchemeRaw = (colorScheme == .dark ? AppColorScheme.light : AppColorScheme.dark).rawValue
@@ -102,10 +90,44 @@ struct SidebarView: View {
     }
 
     private func badgeCount(for tab: AppTab) -> Int {
-        switch tab {
-        case .graph, .clusters, .feed, .sleep, .contributors, .connect, .sources: 0
-        case .inbox: inboxCount
+        tab == .inbox ? inboxCount : 0
+    }
+
+    /// Wraps `SidebarRow` in a real `Button` so VoiceOver and UI automation
+    /// (which drive the accessibility tree, not gesture recognizers) can
+    /// activate a tab, and attaches ⌘1–⌘6 in visual order.
+    @ViewBuilder
+    private func sidebarButton(for tab: AppTab) -> some View {
+        let count = badgeCount(for: tab)
+        let isSelected = selectedTab == tab
+        let isBusy = tab == .sleep && isSleeping
+        let label = accessibilityLabel(for: tab, count: count, isBusy: isBusy)
+
+        let button = Button {
+            withAnimation(.spring(duration: 0.25)) { selectedTab = tab }
+        } label: {
+            SidebarRow(tab: tab, isSelected: isSelected, badgeCount: count, isBusy: isBusy)
         }
+        .buttonStyle(.cicadaPlain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+
+        if let index = AppTab.allCases.firstIndex(of: tab), index < 9 {
+            button.keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+        } else {
+            button
+        }
+    }
+
+    /// Plain (non-`@ViewBuilder`) helper: the accessibility label is built by
+    /// mutating a `String`, and a result-builder context can't host that
+    /// control flow (an `if` with no `else` in a `@ViewBuilder` body must
+    /// itself produce a `View`).
+    private func accessibilityLabel(for tab: AppTab, count: Int, isBusy: Bool) -> String {
+        var label = tab.title
+        if count > 0 { label += ", \(count) pending" }
+        if isBusy { label += ", consolidating" }
+        return label
     }
 }
 
@@ -113,16 +135,21 @@ private struct SidebarRow: View {
     let tab: AppTab
     let isSelected: Bool
     let badgeCount: Int
+    let isBusy: Bool
     @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            Image(systemName: tab.icon)
-                .font(.system(size: 16))
-                .foregroundStyle(isSelected ? CicadaTheme.accent : CicadaTheme.textSecondary)
-                .frame(width: 24)
+            if isBusy {
+                ProgressView().controlSize(.small).frame(width: 24)
+            } else {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 16))
+                    .foregroundStyle(isSelected ? CicadaTheme.accent : CicadaTheme.textSecondary)
+                    .frame(width: 24)
+            }
 
-            Text(tab.rawValue)
+            Text(tab.title)
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(isSelected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
 
@@ -170,8 +197,40 @@ private struct ThemeToggleButton: View {
                     Circle().fill(isHovered ? CicadaTheme.surfaceHover : .clear)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .help(colorScheme == .dark ? "Switch to light mode" : "Switch to dark mode")
+        .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
+    }
+}
+
+/// Footer gear → the native Settings window (⌘,). The dot means a
+/// subscription is installed but signed out, which is the one connection
+/// problem that silently degrades every other page.
+private struct SettingsGearButton: View {
+    let needsAttention: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "gearshape")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(isHovered ? CicadaTheme.surfaceHover : .clear))
+                .overlay(alignment: .topTrailing) {
+                    if needsAttention {
+                        Circle()
+                            .fill(CicadaTheme.warning)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 1, y: -1)
+                    }
+                }
+        }
+        .buttonStyle(.cicadaPlain)
+        .help(needsAttention ? "Settings — a connection needs you (⌘,)" : "Settings (⌘,)")
+        .accessibilityLabel(needsAttention ? "Settings, a connection needs attention" : "Settings")
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
     }

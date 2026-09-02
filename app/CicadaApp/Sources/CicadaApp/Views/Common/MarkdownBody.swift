@@ -12,12 +12,26 @@ import SwiftUI
 // Inline spans (bold/italic/inline-code/real `[text](url)` links) are handled
 // by `AttributedString(markdown:)` in one pass. `[[Wikilinks]]` /
 // `[[id|Alias]]` are rewritten into ordinary markdown links pointed at a
-// synthetic `cicada://entity/<id>` URL *before* that parse, so a wikilink
+// synthetic `cicada://entity/<ref>` URL *before* that parse, so a wikilink
 // gets exactly the same treatment as any other link instead of needing a
-// second attribute-surgery step afterward. `TranscludingMarkdownView` installs
-// the `\.openURL` handler that intercepts the `cicada:` scheme and routes it
-// to `graphVM.selectEntity(id:)`; everything else (http/https) falls through
-// to the system (opens in the browser).
+// second attribute-surgery step afterward. Any `Text` rendering that
+// resulting `AttributedString` becomes tappable automatically; what makes the
+// tap DO something is the `\.openURL` interceptor installed by
+// `View.wikilinkNavigation(onSelect:)` below — applied ONCE near the root of
+// whichever presentation hosts the render (`EntityDetailCard`, `AskPanel`),
+// not re-implemented per surface. Everything else (http/https, or any
+// non-`cicada` scheme) falls through to the system (opens in the browser).
+// `ClaimChip.renderWikilinks` builds the same `cicada://entity/<ref>` links
+// for claim text, reusing `MarkdownBody.entityLink(for:)` so the two can't
+// drift.
+//
+// `<ref>` is the wikilink's target text VERBATIM (percent-encoded), never a
+// pre-sanitized id: many real entity filenames don't round-trip through name
+// sanitization (`api/services/id_utils.py` — `algorithms-&-data-structures.md`
+// keeps its `&`), so minting `sanitizeID(name)` here produced links to stems
+// that `GET /entities/{id}` 404s on. The ref is resolved to a real id at
+// CLICK time, in the one `wikilinkNavigation` handler, against the graph
+// snapshot the app already holds (`resolveEntityID`) — no backend round-trip.
 //
 // The `` ```claims `` fence (machine-owned relation data written by
 // `api/services/claims.py`) is parsed as an ordinary code block — so it still
@@ -158,11 +172,14 @@ struct MarkdownBody: View {
         return attr
     }
 
-    /// `[[Entity Name]]` → `[Entity Name](cicada://entity/entity-name)`;
-    /// `[[id|Alias]]` → `[Alias](cicada://entity/id)`. Id sanitization
-    /// mirrors the convention used elsewhere for ref → entity-id resolution:
-    /// lowercase, runs of non-alphanumerics collapsed to a single `-`, trimmed.
-    private static func linkifyWikilinks(_ text: String) -> String {
+    /// `[[Entity Name]]` → `[Entity Name](cicada://entity/Entity%20Name)`;
+    /// `[[id|Alias]]` → `[Alias](cicada://entity/id)`. The target half is
+    /// carried verbatim (see `entityLink(for:)`) — NOT sanitized here.
+    ///
+    /// Internal (not `private`) so `MarkdownWikilinkTests` can assert the
+    /// rewrite directly, including the `[[id|Alias]]` and encoding cases,
+    /// without round-tripping through `AttributedString(markdown:)`.
+    static func linkifyWikilinks(_ text: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\[\\]|]+)(?:\\|([^\\[\\]]+))?\\]\\]") else {
             return text
         }
@@ -176,15 +193,58 @@ struct MarkdownBody: View {
                 ? ns.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespaces)
                 : nil
             let display = alias ?? name
-            let id = sanitizeID(name)
-            out += "[\(display)](cicada://entity/\(id))"
+            out += "[\(display)](\(entityLink(for: name)))"
             lastEnd = match.range.location + match.range.length
         }
         out += ns.substring(from: lastEnd)
         return out
     }
 
-    private static func sanitizeID(_ raw: String) -> String {
+    // MARK: - `cicada://entity/<ref>` mint / parse / resolve
+
+    /// Only unreserved characters survive un-encoded: a `/` in a name must
+    /// not become a path separator, `(`/`)` must not close the surrounding
+    /// markdown link, and `&`/`'` must reach the resolver intact.
+    private static let wikilinkRefAllowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+
+    /// The ONE place a `cicada://entity/…` URL is minted — `linkifyWikilinks`
+    /// (body prose), `ClaimChip.renderWikilinks` (claim text), and
+    /// `TransclusionCard` (embed title) all call this. `ref` is the wikilink's
+    /// target text verbatim: a display name, or an explicit `[[id|Alias]]` id.
+    static func entityLink(for ref: String) -> String {
+        let encoded = ref.addingPercentEncoding(withAllowedCharacters: wikilinkRefAllowed) ?? ref
+        return "cicada://entity/\(encoded)"
+    }
+
+    /// Inverse of `entityLink(for:)`: the verbatim ref a `cicada://entity/…`
+    /// URL carries (percent-decoded), or `nil` for any other URL.
+    static func wikilinkRef(from url: URL) -> String? {
+        guard url.scheme == "cicada" else { return nil }
+        let ref = url.lastPathComponent
+        // `lastPathComponent` of `cicada://entity/` (empty ref) is "/".
+        guard !ref.isEmpty, ref != "/" else { return nil }
+        return ref
+    }
+
+    /// Click-time resolution of a wikilink ref to a real entity id, against
+    /// the graph snapshot the app already holds — never a backend round-trip
+    /// per click. In order: (a) the ref IS a node id (`[[id|Alias]]`, a
+    /// transclusion title), (b) case-insensitive match on a node's display
+    /// name (the common `[[Entity Name]]` case, including names whose real
+    /// filename keeps punctuation `sanitizeID` would drop), (c) the
+    /// sanitized form — the pre-existing convention, kept as the fallback
+    /// for a ref the graph doesn't (yet) know.
+    static func resolveEntityID(_ ref: String, in nodes: [GraphNode]) -> String {
+        if nodes.contains(where: { $0.id == ref }) { return ref }
+        let lowered = ref.lowercased()
+        if let byName = nodes.first(where: { $0.name.lowercased() == lowered }) { return byName.id }
+        return sanitizeID(ref)
+    }
+
+    /// The pre-existing name → id convention, now only the resolver's last
+    /// resort (step (c) above): lowercase, runs of non-alphanumerics collapsed
+    /// to a single `-`, trimmed. Internal so tests can pin it down.
+    static func sanitizeID(_ raw: String) -> String {
         let lowered = raw.lowercased()
         var result = ""
         var lastWasDash = false
@@ -352,5 +412,43 @@ private enum MarkdownBlockParser {
             blocks.append(.paragraph(text: paraLines.joined(separator: " ")))
         }
         return blocks
+    }
+}
+
+// MARK: - Wikilink navigation (shared `\.openURL` interceptor)
+
+extension View {
+    /// Installs the ONE `cicada://entity/<ref>` interceptor every
+    /// wikilink-rendering surface relies on — `MarkdownBody`/
+    /// `TranscludingMarkdownView`'s prose, `TransclusionCard`'s embed title,
+    /// `ClaimChip`'s claim text, `AskPanel`'s answer prose. Apply it once,
+    /// near the root of whichever presentation owns "where a tap goes"
+    /// (`EntityDetailCard`, `AskPanel`) — every descendant `Text` showing a
+    /// `cicada://` link, and every `Button` that calls
+    /// `openURL(URL(string: "cicada://entity/…"))` directly (`TransclusionCard`),
+    /// inherits it. Never re-implement this parsing/dispatch locally; a
+    /// second copy is exactly how a wikilink ends up rendered-but-dead.
+    /// Any non-`cicada` scheme (http/https) falls through to the system.
+    ///
+    /// `onSelect` receives a RESOLVED entity id (`MarkdownBody.resolveEntityID`
+    /// against the Store's graph nodes), never the raw ref the URL carried.
+    func wikilinkNavigation(onSelect: @escaping (String) -> Void) -> some View {
+        modifier(WikilinkNavigationModifier(onSelect: onSelect))
+    }
+}
+
+/// A `ViewModifier` rather than a bare `environment(\.openURL, …)` call so
+/// the handler can read the graph snapshot it resolves against.
+private struct WikilinkNavigationModifier: ViewModifier {
+    let onSelect: (String) -> Void
+    @Environment(Store.self) private var store
+
+    func body(content: Content) -> some View {
+        content.environment(\.openURL, OpenURLAction { url in
+            guard url.scheme == "cicada" else { return .systemAction }
+            guard let ref = MarkdownBody.wikilinkRef(from: url) else { return .handled }
+            onSelect(MarkdownBody.resolveEntityID(ref, in: store.graph.value?.nodes ?? []))
+            return .handled
+        })
     }
 }

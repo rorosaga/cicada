@@ -49,7 +49,9 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     # end up mid-section. (The loser body is also stripped so a loser claims
     # fence doesn't leak in as prose; unioning the loser's claims into the winner
     # is a deliberate follow-up, not attempted here.)
-    winner_claims = parse_claims(wpar.body)
+    # strict: a corrupt winner block must abort the merge (a lenient parse
+    # would read as "no claims" and the rewrite below would destroy the block).
+    winner_claims = parse_claims(wpar.body, strict=True)
     human = bool(wfm.get("human_edited"))
     loser_sections = entity_body.parse_sections(strip_claims_block(lpar.body))
     loser_fields = entity_body.sections_to_fields(loser_sections)

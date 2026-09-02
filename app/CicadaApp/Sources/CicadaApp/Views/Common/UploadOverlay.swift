@@ -46,6 +46,13 @@ struct UploadOverlay: View {
     @State private var targetBank: String?
     @State private var newBankName = ""
 
+    // G87 / Wave-1 1.6: set to the bank slug when the LAST project import
+    // landed in a non-active bank (per the backend's authoritative `active`
+    // field on the import response, not a client-side re-derivation) — drives
+    // the "Switch" action offered alongside the toast. nil hides it.
+    @State private var inactiveImportBank: String?
+    @State private var isSwitchingBank = false
+
     var body: some View {
         ZStack {
             // Dimmed background — tap to dismiss
@@ -73,6 +80,7 @@ struct UploadOverlay: View {
                 .onChange(of: mode) { _, newMode in
                     uploadResult = nil
                     errorMessage = nil
+                    inactiveImportBank = nil
                     if newMode == .project {
                         Task {
                             await banksVM.load()
@@ -99,12 +107,33 @@ struct UploadOverlay: View {
                 if let result = uploadResult {
                     Text(result)
                         .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(Color(hex: 0x22C55E))
+                        .foregroundStyle(CicadaTheme.success)
                         .multilineTextAlignment(.center)
+                    // G87 / Wave-1 1.6: episodes staged into a bank that isn't
+                    // active are invisible to Sleep — say so plainly and offer
+                    // a one-click remedy instead of a plain success toast.
+                    if let inactiveBank = inactiveImportBank {
+                        Button {
+                            switchToImportedBank(inactiveBank)
+                        } label: {
+                            HStack(spacing: CicadaTheme.spacingXS) {
+                                if isSwitchingBank {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                }
+                                Text("Switch to \"\(inactiveBank)\"")
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                        }
+                        .buttonStyle(.cicadaPlain)
+                        .foregroundStyle(CicadaTheme.accent)
+                        .disabled(isSwitchingBank)
+                    }
                 } else if let err = errorMessage {
                     Text(err)
                         .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(Color(hex: 0xEF4444))
+                        .foregroundStyle(CicadaTheme.danger)
                         .multilineTextAlignment(.center)
                 } else if mode == .conversations {
                     Text("Drag and drop the folder here\nor click to select")
@@ -138,7 +167,7 @@ struct UploadOverlay: View {
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .onSubmit { saveURL() }
                         Button("Save") { saveURL() }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cicadaPlain)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(urlText.isEmpty ? CicadaTheme.textTertiary : CicadaTheme.accent)
                             .disabled(urlText.isEmpty || isUploading)
@@ -164,7 +193,7 @@ struct UploadOverlay: View {
                     .background(CicadaTheme.accent.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .disabled(isUploading)
             }
             .frame(width: 440)
@@ -256,6 +285,7 @@ struct UploadOverlay: View {
         isUploading = true
         errorMessage = nil
         uploadResult = nil
+        inactiveImportBank = nil
         Task {
             do {
                 try await APIClient.shared.saveSource(url: url)
@@ -361,6 +391,7 @@ struct UploadOverlay: View {
         isUploading = true
         errorMessage = nil
         uploadResult = nil
+        inactiveImportBank = nil
 
         let uploadMode = mode
         Task {
@@ -453,6 +484,7 @@ struct UploadOverlay: View {
         isUploading = true
         errorMessage = nil
         uploadResult = nil
+        inactiveImportBank = nil
 
         Task {
             // The slug the import must target. For an existing bank this is the
@@ -479,6 +511,11 @@ struct UploadOverlay: View {
             var minDate: String?
             var maxDate: String?
             var firstError: String?
+            // G87 / Wave-1 1.6: the backend's authoritative answer for whether
+            // `bankName` is the one Sleep consolidates, replacing the earlier
+            // client-side `banksVM.activeName == bankName` re-derivation
+            // (which could read stale roster state at this point in the flow).
+            var bankIsActive = true
 
             for url in filesToUpload {
                 do {
@@ -486,6 +523,7 @@ struct UploadOverlay: View {
                     totalStaged += resp.episodesStaged
                     totalUpdated += resp.episodesUpdated
                     totalSkipped += resp.duplicatesSkipped
+                    bankIsActive = resp.active
                     if let from = resp.dateRange?.from {
                         if minDate == nil || from < minDate! { minDate = from }
                     }
@@ -500,8 +538,7 @@ struct UploadOverlay: View {
             // Reload banks so counts/roster reflect the import.
             await banksVM.load()
             // If we imported into the active bank, refresh the graph in place.
-            let isActive = banksVM.activeName == bankName
-            if isActive {
+            if bankIsActive {
                 await graphVM.loadGraph()
             }
 
@@ -510,14 +547,39 @@ struct UploadOverlay: View {
                 if let err = firstError, totalStaged == 0 {
                     errorMessage = err
                 } else {
-                    var msg = "Imported into \"\(bankName)\"\n"
+                    var msg = bankIsActive
+                        ? "Imported into \"\(bankName)\"\n"
+                        : "Imported into \"\(bankName)\" — not your active project, so it won't be consolidated.\n"
                     msg += Self.importSummary(created: totalStaged, updated: totalUpdated, skipped: totalSkipped)
                     if let from = minDate, let to = maxDate {
                         msg += "\n\(from) → \(to)"
                     }
                     uploadResult = msg
+                    inactiveImportBank = bankIsActive ? nil : bankName
                     targetBank = bankName
                     newBankName = ""
+                }
+            }
+        }
+    }
+
+    /// "Switch" action offered when a project import landed in a non-active
+    /// bank (G87 / Wave-1 1.6) — one click instead of hunting for the bank
+    /// switcher elsewhere in the app.
+    private func switchToImportedBank(_ bankName: String) {
+        isSwitchingBank = true
+        Task {
+            let ok = await banksVM.activate(bankName)
+            if ok {
+                await graphVM.loadGraph()
+            }
+            await MainActor.run {
+                isSwitchingBank = false
+                if ok {
+                    inactiveImportBank = nil
+                    uploadResult = "Imported into \"\(bankName)\" — now your active project."
+                } else {
+                    errorMessage = banksVM.errorMessage ?? "Couldn't switch to \"\(bankName)\""
                 }
             }
         }

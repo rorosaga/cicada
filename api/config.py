@@ -98,16 +98,30 @@ class Settings(BaseSettings):
     # the matching *_API_KEY env var. "local" routes to an on-device Ollama
     # server instead — no API key required, fully offline — by binding the
     # model to ``ollama/<ollama_model>`` and pointing litellm's api_base at
-    # ``ollama_base_url``. "agent" is reserved for a future MCP-agent-driven
-    # mode; not yet implemented here. Setting llm_mode != "local" leaves
-    # resolve_llm_fn's byok/openrouter behavior byte-identical to before this
-    # field existed.
-    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|byok|local)
+    # ``ollama_base_url``. ``"agent"`` runs every call through the user's own
+    # ``claude`` CLI on their subscription (G74(a)); ``"auto"`` resolves to
+    # the agent rung when the Claude plan probes connected, else the local
+    # rung when Ollama is running, else ``"byok"``. Resolution happens once
+    # per Sleep cycle in ``engine_select``; ``resolve_llm_fn`` treats an
+    # unresolved ``"auto"`` as ``"byok"`` and never shells out synchronously.
+    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|auto|byok|local)
     # Model name passed to Ollama when llm_mode="local" (litellm bind:
     # "ollama/<ollama_model>"). Does NOT include the "ollama/" prefix itself.
     ollama_model: str = "llama3.1"             # CICADA_OLLAMA_MODEL
     # Base URL of the local Ollama server, forwarded to litellm as api_base.
     ollama_base_url: str = "http://localhost:11434"  # CICADA_OLLAMA_BASE_URL
+
+    # G74(a) — the agent rung (llm_mode="agent"): Sleep runs through the
+    # user's own `claude` CLI on their plan. `litellm_model` ids
+    # ("gpt-5.4-mini", "openrouter/z-ai/glm-5.2") are meaningless to
+    # `claude --model`, so the rung has its own two-model pair mirroring the
+    # main/disambiguation split: an alias or a full Claude model id.
+    agent_model: str = "sonnet"                     # CICADA_AGENT_MODEL
+    agent_disambiguation_model: str = "haiku"       # CICADA_AGENT_DISAMBIGUATION_MODEL
+    # Concurrent `claude -p` subprocesses. Stage 1 fans out at MAX_CONCURRENCY
+    # (10) and each fan-out slot would otherwise be one more process; 3 keeps
+    # the machine usable and the plan's own rate limit further away.
+    agent_max_concurrency: int = 3                  # CICADA_AGENT_MAX_CONCURRENCY
 
     # Server
     host: str = "127.0.0.1"
@@ -123,6 +137,31 @@ class Settings(BaseSettings):
     sleep_promotion_threshold: int = 2
     decay_nudge_threshold: float = 0.4
     archive_threshold: float = 0.2
+
+    # Sleep-control episode cap — one cycle spawns roughly one LLM call chain
+    # per episode across Stages 1-4 (the agent rung's own measurement is
+    # ~200-350 subprocess calls for a 20-episode cycle, ~90% serialized on
+    # Stage 2's per-name judge loop), so an unbounded queue on a first run
+    # (or after days offline) can run for hours with no way to stop it short
+    # of killing the backend. 25 keeps one cycle's worst-case wall-clock in
+    # the same known, bounded order of magnitude as that 20-episode
+    # measurement rather than scaling with however large the backlog is (a
+    # first-run backlog of ~1,200 episodes then drains over ~48 cycles
+    # instead of one multi-hour run); a typical day's capture volume is well
+    # under this, so the cap is invisible in normal operation. Episodes
+    # beyond the cap stay `processed: false` and are picked up by the next
+    # cycle — the queue is already resumable by design, so a capped cycle
+    # costs nothing but time. `POST /sleep/cancel` covers wanting to stop a
+    # single (possibly still-capped) cycle early.
+    sleep_max_episodes_per_cycle: int = 25   # CICADA_SLEEP_MAX_EPISODES_PER_CYCLE
+
+    # G60 — open-question re-scoring. An open conflict every one of whose
+    # options has been silent for this many days is escalated (question
+    # rewritten, a "Neither anymore" option inserted, priority dropped).
+    inbox_stale_after_days: int = 90     # CICADA_INBOX_STALE_AFTER_DAYS
+    # How far out a "Not sure — remind me later" pushes `remind_after` when the
+    # request does not name a number of days.
+    inbox_defer_days: int = 30           # CICADA_INBOX_DEFER_DAYS
 
     # Stage 5.57 link-enrichment (M5f) — bounded, offline-safe media-link
     # description enrichment into CPCG `describes`/`recommends` claims.

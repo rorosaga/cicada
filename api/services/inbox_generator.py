@@ -5,9 +5,147 @@ from pathlib import Path
 
 import yaml
 
-from api.services import markdown_parser
+from api.services import decay_policy, inbox_questions, markdown_parser
 from api.services.conflict_resolver import apply_changes
 from api.services.id_utils import sanitize_id
+
+# Options with no claim behind them (the synthetic "both"/"neither" rows) always
+# sort last, so a merged-in competing value lands among the real answers.
+_SYNTHETIC_KEYS = {"both", "neither"}
+
+
+def dedup_key(kind: str, fm: dict) -> tuple[str, str]:
+    """The open-item identity for a kind (§2.2).
+
+    - ``conflict``          -> ``(entity_id, predicate)``; entity-path conflicts
+      carry no predicate and key on the literal ``"description"``.
+    - ``clarification``     -> ``(entity_id, uncertainty_type)``
+    - ``merge_suggestion``  -> the **sorted** pair of entity ids, so the same
+      duplicate pair keys identically regardless of which side was seen first.
+    - anything else         -> ``(entity_id, "")``
+    """
+    entity_id = str(fm.get("entity_id", "") or "")
+    if kind == "conflict":
+        return (entity_id, str(fm.get("predicate", "") or "description"))
+    if kind == "clarification":
+        return (entity_id, str(fm.get("uncertainty_type", "") or ""))
+    if kind == "merge_suggestion":
+        other = str(fm.get("merge_target_hint", "") or "")
+        pair = sorted([entity_id, other])
+        return (pair[0], pair[1])
+    return (entity_id, "")
+
+
+def find_open(
+    memory_path: Path, kind: str, entity_id: str, predicate: str | None = None
+) -> Path | None:
+    """Return the open (``status: pending``) item of ``kind`` on the same key.
+
+    ``predicate`` carries the second key component for every kind: the
+    predicate for conflicts, the uncertainty type for clarifications, the OTHER
+    entity id for merge suggestions. Returns the OLDEST match (lowest inbox
+    number) so a collision always merges into the original question.
+    """
+    inbox_dir = memory_path / "inbox"
+    if not inbox_dir.exists():
+        return None
+    target = dedup_key(
+        kind,
+        {
+            "entity_id": entity_id,
+            "predicate": predicate,
+            "uncertainty_type": predicate,
+            "merge_target_hint": predicate,
+        },
+    )
+    for filepath in sorted(inbox_dir.glob("inbox-*.md")):
+        try:
+            fm = markdown_parser.parse(filepath).frontmatter
+        except Exception:
+            continue
+        if str(fm.get("kind", "")) != kind:
+            continue
+        if str(fm.get("status", "pending") or "pending") != "pending":
+            continue
+        if dedup_key(kind, fm) == target:
+            return filepath
+    return None
+
+
+def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
+    """Merge competing values into an already-open question (§2.2).
+
+    A value already present (matched case-insensitively on ``label``) has its
+    ``last_referenced`` bumped and its ``claim_id`` refreshed; a value not
+    present is appended with a fresh unique key, ahead of the synthetic
+    ``both``/``neither`` rows. ``question`` and ``created_date`` are preserved;
+    ``updated_date`` is set to ``today``. Returns whether anything changed.
+    """
+    parsed = markdown_parser.parse(path)
+    fm = parsed.frontmatter
+    existing = inbox_questions.normalize_options(fm.get("options"))
+    by_label = {str(o.get("label", "")).strip().lower(): o for o in existing}
+    used_keys = {str(o.get("key", "")) for o in existing}
+    changed = False
+
+    for incoming in inbox_questions.normalize_options(new_options):
+        label = str(incoming.get("label", "")).strip()
+        if not label:
+            continue
+        current = by_label.get(label.lower())
+        if current is not None:
+            bumped = incoming.get("last_referenced") or incoming.get("observed_at")
+            if bumped and str(bumped) > str(current.get("last_referenced") or ""):
+                current["last_referenced"] = str(bumped)
+                changed = True
+            # Always adopt the incoming claim id, never only when missing:
+            # Stage-1 claim ids are date-keyed, so the same value re-mentioned
+            # on a later day arrives as a DIFFERENT open claim. Keeping the old
+            # (often already-closed) id would leave the option ageing forever
+            # while being mentioned daily, and would make a later resolution
+            # close a dead claim while the live one stayed open.
+            if incoming.get("claim_id") and incoming["claim_id"] != current.get(
+                "claim_id"
+            ):
+                current["claim_id"] = incoming["claim_id"]
+                changed = True
+            continue
+        option = dict(incoming)
+        key = str(option.get("key", "")) or "x"
+        while key in used_keys:
+            key += "x"
+        option["key"] = key
+        used_keys.add(key)
+        existing.append(option)
+        by_label[label.lower()] = option
+        changed = True
+
+    if not changed:
+        return False
+
+    real = [o for o in existing if str(o.get("key")) not in _SYNTHETIC_KEYS]
+    synthetic = [o for o in existing if str(o.get("key")) in _SYNTHETIC_KEYS]
+    fm["options"] = real + synthetic
+    fm["updated_date"] = today
+    markdown_parser.write(path, fm, parsed.body)
+    return True
+
+
+def _refresh_hint(path: Path, hint: str | None) -> None:
+    """Refresh the ``hint`` on an already-open item after a merge (G61).
+
+    A merge-on-collision keeps the original item, so a source added after it
+    was first written would otherwise never surface. ``None`` leaves the
+    existing hint untouched — a merge with no computable hint should not
+    erase one set by an earlier cycle.
+    """
+    if hint is None:
+        return
+    parsed = markdown_parser.parse(path)
+    if parsed.frontmatter.get("hint") == hint:
+        return
+    parsed.frontmatter["hint"] = hint
+    markdown_parser.write(path, parsed.frontmatter, parsed.body)
 
 
 async def generate(
@@ -71,9 +209,23 @@ async def generate(
 
         elif action == "conflict_nudge":
             entity_id = change["id"]
+            entity_name = change.get("entity", {}).get("name", entity_id.replace("-", " ").title())
+            hint = None
+            try:
+                from api.services import fact_sources
+
+                # Entity-path conflicts carry no predicate (key on the literal
+                # "description"), so ANY url-kind source is a match here.
+                hint = fact_sources.hint_for(memory_path, entity_id, "description")
+            except Exception:
+                hint = None
+            open_path = find_open(memory_path, "conflict", entity_id, "description")
+            if open_path is not None:
+                merge_options_into(open_path, change.get("options") or [], str(date.today()))
+                _refresh_hint(open_path, hint)
+                continue
             item_id = f"inbox-{next_num:03d}"
             next_num += 1
-            entity_name = change.get("entity", {}).get("name", entity_id.replace("-", " ").title())
             frontmatter = {
                 "kind": "conflict",
                 "required_input": "choice",
@@ -81,9 +233,14 @@ async def generate(
                 "priority": 0.8,
                 "entity_id": entity_id,
                 "entity_name": entity_name,
-                "title": f"Conflicting information about {entity_name}",
+                "title": change.get("question") or f"Conflicting information about {entity_name}",
                 "created_date": str(date.today()),
                 "options": change.get("options", []),
+                "predicate": "description",
+                "question": change.get("question"),
+                "allow_other": True,
+                "allow_defer": True,
+                "hint": hint,
             }
             body = change.get("conflict_context", f"New information conflicts with existing data for {entity_name}.")
             markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
@@ -102,7 +259,9 @@ async def generate(
                 "confidence": skill.get("confidence", 0.5),
                 "created": str(date.today()),
                 "last_referenced": str(date.today()),
-                "decay_rate": 0.02,
+                **decay_policy.frontmatter_fields(
+                    decay_policy.default_class_for("skill")
+                ),
                 "source_episodes": [],
                 "tags": [],
                 "related": [],
@@ -111,7 +270,7 @@ async def generate(
             markdown_parser.write(skill_path, frontmatter, skill.get("description", ""))
 
 
-def write_claim_nudges(nudges: list[dict], memory_path: Path) -> int:
+def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
     """Fold M5f Stage-3 claim-reconciler nudges into the inbox (additive).
 
     The claim reconciler (``claim_reconciler.reconcile_stage3``) emits nudges in
@@ -123,16 +282,20 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> int:
     inbox item, **reusing the same ``inbox-NNN`` allocator** so it never collides
     with the legacy entity-path nudges written earlier in the same Stage 5.
 
-    Returns the number of inbox items written. A subject without an entity page
-    still gets a nudge (the page may be promoted next cycle).
+    Returns ``{"written": n, "merged": m}`` — ``written`` counts inbox items
+    newly created, ``merged`` counts conflict nudges folded into an
+    already-open item on the same ``(entity, predicate)`` key instead of
+    spawning a duplicate. A subject without an entity page still gets a
+    nudge (the page may be promoted next cycle).
     """
     if not nudges:
-        return 0
+        return {"written": 0, "merged": 0}
     inbox_dir = memory_path / "inbox"
     entities_dir = memory_path / "entities"
     inbox_dir.mkdir(parents=True, exist_ok=True)
     next_num = _next_inbox_num(inbox_dir)
     written = 0
+    merged = 0
 
     for nudge in nudges:
         action = nudge.get("action", "")
@@ -150,9 +313,23 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> int:
             except Exception:
                 pass
 
+        hint = None
         if action == "conflict_nudge":
+            predicate = str(nudge.get("predicate", "") or "description")
+            try:
+                from api.services import fact_sources
+
+                hint = fact_sources.hint_for(memory_path, entity_id, predicate)
+            except Exception:
+                hint = None
+            open_path = find_open(memory_path, "conflict", entity_id, predicate)
+            if open_path is not None:
+                merge_options_into(open_path, nudge.get("options") or [], str(date.today()))
+                _refresh_hint(open_path, hint)
+                merged += 1
+                continue
             kind, priority, required = "conflict", 0.8, "choice"
-            title = f"Conflicting beliefs about {entity_name}"
+            title = nudge.get("question") or f"Conflicting beliefs about {entity_name}"
         elif action == "divergence_nudge":
             kind, priority, required = "divergence", 0.5, "choice"
             title = f"I'm reading something different about {entity_name}"
@@ -179,10 +356,17 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> int:
             "title": title,
             "created_date": str(date.today()),
             "options": nudge.get("options"),
+            # G60 question object (present on conflicts; absent elsewhere).
+            "predicate": nudge.get("predicate"),
+            "question": nudge.get("question"),
+            "allow_other": bool(nudge.get("allow_other", False)),
+            "allow_defer": bool(nudge.get("allow_defer", False)),
             # claim provenance so the companion app can resolve a specific belief.
             "claim_id": nudge.get("claim_id"),
             "existing_claim_id": nudge.get("existing_claim_id"),
             "trigger": nudge.get("trigger", "sleep/conflict_resolution"),
+            # G61 — which declared source refreshes this fact, "conflict"-only.
+            "hint": hint,
         }
         body = nudge.get("conflict_context") or (
             f"{entity_name} hasn't been mentioned recently; confidence dropped to "
@@ -193,7 +377,7 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> int:
         markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
         written += 1
 
-    return written
+    return {"written": written, "merged": merged}
 
 
 def _write_graph_edges(memory_path: Path, new_edges: list[dict]) -> None:

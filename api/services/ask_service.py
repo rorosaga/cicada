@@ -24,13 +24,12 @@ tests inject both.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Callable
 
 from loguru import logger
 
-from api.services import markdown_parser
+from api.services import json_parse, markdown_parser
 
 RetrieveFn = Callable[[str, int], list[dict]]
 LlmFn = Callable[[str], str]
@@ -249,16 +248,17 @@ def _gap_response(query: str) -> dict:
 
 
 def _default_llm_fn() -> LlmFn:
-    """Production LLM call: litellm JSON-mode per Settings (mirrors extractor)."""
+    """Production LLM call: litellm JSON-mode per Settings, via the provider seam."""
     import litellm
 
     from api.config import get_settings
+    from api.services.providers import resolve_llm_fn
 
     settings = get_settings()
+    llm_fn = resolve_llm_fn(settings, model=settings.litellm_model, completion=litellm.completion, stage="ask")
 
     def _call(prompt: str) -> str:
-        response = litellm.completion(
-            model=settings.litellm_model,
+        response = llm_fn(
             messages=[
                 {"role": "system", "content": ASK_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
@@ -439,7 +439,7 @@ def answer_query(
     parsed: dict | None = None
     try:
         raw = llm(prompt)
-        parsed = json.loads(_strip_fences(raw))
+        parsed = json_parse.parse_json_object(raw)
         if not isinstance(parsed, dict):
             parsed = None
     except Exception as exc:  # noqa: BLE001 — malformed reply must degrade, not 500
@@ -542,13 +542,3 @@ def _citations_for(entities: list[dict], cite_ids: list[str]) -> list[dict]:
             citation["claim_provenance"] = prov
         citations.append(citation)
     return citations
-
-
-def _strip_fences(raw: str) -> str:
-    text = (raw or "").strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[len("json"):]
-        text = text.strip()
-    return text

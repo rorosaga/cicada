@@ -22,6 +22,7 @@ from types import SimpleNamespace
 import litellm
 import pytest
 
+from api.config import Settings
 from api.services import entity_extractor as ex
 
 
@@ -86,7 +87,7 @@ def test_extract_chunk_passes_reasoning_off_and_timeout(monkeypatch):
         return _resp('{"entities": [], "relationships": []}')
 
     monkeypatch.setattr(ex.litellm, "acompletion", fake_acompletion)
-    s = SimpleNamespace(litellm_model="openrouter/z-ai/glm-5.2")
+    s = Settings(litellm_model="openrouter/z-ai/glm-5.2")
     asyncio.run(ex._extract_chunk("ep1", "hello", 0, 1, s))
 
     assert captured.get("extra_body") == {"reasoning": {"enabled": False}}
@@ -110,7 +111,7 @@ def test_extract_chunk_retries_on_timeout_then_succeeds(monkeypatch):
 
     monkeypatch.setattr(ex.litellm, "acompletion", fake_acompletion)
     monkeypatch.setattr(ex.asyncio, "sleep", _noop_sleep)
-    s = SimpleNamespace(litellm_model="m")
+    s = Settings(litellm_model="m")
     out = asyncio.run(ex._extract_chunk("ep1", "hello", 0, 1, s))
     assert out["entities"][0]["name"] == "Z"
     assert calls["n"] == 2
@@ -125,7 +126,7 @@ def test_extract_chunk_retries_on_bad_json_then_succeeds(monkeypatch):
 
     monkeypatch.setattr(ex.litellm, "acompletion", fake_acompletion)
     monkeypatch.setattr(ex.asyncio, "sleep", _noop_sleep)
-    s = SimpleNamespace(litellm_model="m")
+    s = Settings(litellm_model="m")
     out = asyncio.run(ex._extract_chunk("ep1", "hello", 0, 1, s))
     assert out == {"entities": [], "relationships": []}
     assert calls["n"] == 2
@@ -143,7 +144,7 @@ def test_extract_omits_failed_episode_and_keeps_good(monkeypatch):
 
     monkeypatch.setattr(ex.litellm, "acompletion", fake_acompletion)
     monkeypatch.setattr(ex.asyncio, "sleep", _noop_sleep)
-    s = SimpleNamespace(litellm_model="m")
+    s = Settings(litellm_model="m")
     eps = [
         {"id": "ep_good", "content": "good content here", "timestamp": "t", "origin": "x"},
         {"id": "ep_bad", "content": "BADEP content here", "timestamp": "t", "origin": "x"},

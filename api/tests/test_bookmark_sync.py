@@ -110,6 +110,14 @@ def test_read_chrome_bookmarks_extracts_urls_skips_folders():
     assert "Reading" not in urls
 
 
+def test_read_chrome_bookmarks_carries_folder_path():
+    data = json.dumps(CHROME_BOOKMARKS_JSON).encode("utf-8")
+    items = bookmark_sync.read_chrome_bookmarks(data)
+    by_url = {i.url: i for i in items}
+    assert by_url["https://example.com/one"].folder == "Bookmarks bar/Reading"
+    assert by_url["https://example.com/two"].folder == "Bookmarks bar"
+
+
 def test_read_chrome_bookmarks_malformed_bytes_returns_empty():
     assert bookmark_sync.read_chrome_bookmarks(b"not json at all") == []
     assert bookmark_sync.read_chrome_bookmarks(b"") == []
@@ -161,8 +169,10 @@ def test_sync_bookmarks_no_data_provided_ingests_nothing(tmp_path):
 
 def test_sync_bookmarks_safari_fixture_flows_through(tmp_path):
     data = plistlib.dumps(SAFARI_PLIST_TREE)
+    captured: list = []
 
     async def fake_ingest_fn(items, memory_path, from_bookmark_file=False, **kwargs):
+        captured.extend(items)
         return len(items), 0
 
     result = run(
@@ -176,6 +186,9 @@ def test_sync_bookmarks_safari_fixture_flows_through(tmp_path):
     assert result["sources"] == [
         {"origin": "safari-bookmark", "found": 2, "new": 2, "skipped": 0},
     ]
+    # Folder path threaded through parse_safari_bookmarks survives into the
+    # items handed to ingest_fn.
+    assert all(i.folder == "Reading List" for i in captured)
 
 
 def test_sync_bookmarks_both_sources_aggregate(tmp_path):

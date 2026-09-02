@@ -9,13 +9,17 @@ ABLATIONS ?= default promotion_1 promotion_3 decay_aggressive decay_loose
 
 INSTALL_FLAGS ?=
 
-.PHONY: help install doctor app run-app backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
+.PHONY: help install doctor app run-app install-app dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
 
 help:
 	@printf '%s\n' \
 	  'Targets:' \
 	  '  make install               # plug-and-play install (install.sh)' \
 	  '  make doctor                # health checks (scripts/doctor.sh)' \
+	  '  make install-app           # release-build, install ~/Applications/Cicada.app' \
+	  '  make dev                   # rebuild (debug) + reinstall + relaunch the app — the devloop command' \
+	  '  make login-item            # add Cicada to macOS Login Items (opt-in)' \
+	  '  make no-login-item         # remove Cicada from macOS Login Items' \
 	  '  make backfill-structural MEMORY=/path/to/memory  # structural entity backfill' \
 	  '  make rebuild-episodes      # rebuild episode LEANN index in live memory' \
 	  '  make table1                # run Table 1 using QUESTIONS=$(QUESTIONS)' \
@@ -49,6 +53,32 @@ app:
 
 run-app:
 	cd app/CicadaApp && ./bundle.sh --run
+
+# Install a release build as a real ~/Applications/Cicada.app — ad-hoc
+# code-signed, deterministic replace-while-running (quits any live instance
+# first; aborts rather than half-copying). Run this occasionally; `make dev`
+# below is the everyday loop.
+install-app:
+	cd app/CicadaApp && ./install_app.sh --release
+
+# The everyday devloop command (G88): rebuild debug (fast), reinstall over
+# ~/Applications/Cicada.app, relaunch. This replaces `swift build &&
+# .build/debug/CicadaApp` — that path produces a bundle-less executable whose
+# window never becomes key (see bundle.sh's header), so it's strictly worse
+# than this even before counting the two-terminal backend juggling it also
+# implies. The backend itself does not need restarting here — it runs
+# separately under launchd (`com.cicada.backend`) and `make dev` never
+# touches it.
+dev:
+	cd app/CicadaApp && ./install_app.sh --debug --relaunch
+
+# Opt-in: add/remove Cicada from macOS's own Login Items list (System
+# Events) — see login_item.sh for why this isn't a hand-rolled LaunchAgent.
+login-item:
+	cd app/CicadaApp && ./login_item.sh add
+
+no-login-item:
+	cd app/CicadaApp && ./login_item.sh remove
 
 # Structural (free, no-LLM) entity-page backfill. MEMORY must be passed
 # explicitly on the command line; we refuse the bare default to avoid silently

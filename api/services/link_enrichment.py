@@ -41,7 +41,7 @@ from typing import Awaitable, Callable
 from loguru import logger
 
 from api.services import markdown_parser
-from api.services.claims import Claim, parse_claims, write_claims
+from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 
 # summarize_fn(title, url, settings) -> description string | None
 SummarizeFn = Callable[[str, str, object], Awaitable[str | None]]
@@ -114,7 +114,11 @@ def _build_recommends_claim(
 def _append_claim(filepath: Path, new_claim: Claim) -> bool:
     """Append ``new_claim`` to a page's ```claims block (dedupe by id). True if added."""
     parsed = markdown_parser.parse(filepath)
-    claims = parse_claims(parsed.body)
+    try:
+        claims = parse_claims(parsed.body, strict=True)
+    except MalformedClaimsBlockError as exc:
+        logger.error(f"corrupt ```claims block on {filepath.name}, skipping enrichment: {exc}")
+        return False
     if any(c.id == new_claim.id for c in claims):
         return False
     claims.append(new_claim)
@@ -171,6 +175,15 @@ def _candidates(memory_path: Path, max_per_cycle: int) -> list[Path]:
         if mtype in ("youtube", "video") or "youtube.com" in url or "youtu.be" in url:
             continue
         if "instagram.com" in url:
+            continue
+        # G71 §3 fix round: LinkedIn is ToS-walled (§8.2 bans fetching the
+        # post body) same as Instagram is login-walled. Excluding it here
+        # closes the backdoor that ingest-time's ``enrich()`` short-circuit
+        # would otherwise leave open — without this, a LinkedIn media page
+        # (no description at save time by design) would be the *first* thing
+        # this Sleep-time subagent's live fetch path (``summarize_fn``) picks
+        # up and scrapes.
+        if "linkedin.com" in url:
             continue
         out.append((str(fm.get("last_referenced", "") or ""), fp))
     out.sort(key=lambda t: t[0], reverse=True)
@@ -235,8 +248,15 @@ async def default_summarize(title: str, url: str, settings) -> str | None:
         logger.warning(f"link fetch failed for {url}: {type(e).__name__}: {e}")
         return None
 
+    return await _summarize_excerpt(title, excerpt, url, settings)
+
+
+async def _summarize_excerpt(title: str, excerpt: str, url: str, settings) -> str | None:
+    """One bounded mini-model call over an already-fetched excerpt."""
     try:
         import litellm
+
+        from api.services.providers import resolve_llm_fn
 
         prompt = (
             "You are summarizing a web page for a personal memory system.\n"
@@ -245,8 +265,13 @@ async def default_summarize(title: str, url: str, settings) -> str | None:
             'topic. Be concise. Do not start with "This site" or "This page".\n\n'
             f"Title: {title}\nExcerpt:\n{excerpt}\n\nDescription (1-2 sentences):"
         )
-        response = await litellm.acompletion(
+        llm_fn = resolve_llm_fn(
+            settings,
             model=getattr(settings, "litellm_model", "") or "gpt-5.4-mini",
+            completion=litellm.acompletion,
+            stage="enrichment",
+        )
+        response = await llm_fn(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=100,
             temperature=0,

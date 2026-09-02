@@ -33,10 +33,11 @@ from datetime import date
 from pathlib import Path
 
 from loguru import logger
+from thefuzz import fuzz
 
-from api.services import entity_body, markdown_parser
+from api.services import decay_policy, entity_body, markdown_parser, telemetry
 from api.services.claim_reconciler import reconcile_stage3
-from api.services.claims import Claim, parse_claims, write_claims
+from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 _EP_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
@@ -98,6 +99,40 @@ class _ReconcileSettings:
     decay_nudge_threshold: float = 0.4
 
 
+def _find_subject_candidates(memory_path: Path, subject: str, limit: int = 5) -> list[dict]:
+    """Near-match existing entities for a subject that resolved to no exact page.
+
+    Reconsolidation-pilot finding (2026-07-13): 4 of 5 stubs created through
+    this write path were duplicates of existing, better-formed entities
+    ("Raul" vs raul-perez-pelaez.md, "Tumi" vs tumi-robotics.md) because only
+    exact-slug resolution runs here — Stage-2 fuzzy resolution is deliberately
+    not in this path. This helper is the lightweight pre-check: stems only (no
+    file parsing, cheap at personal scale), token-subset containment plus
+    thefuzz token_set_ratio, same >85 bar entity_resolver uses.
+    """
+    entities_dir = Path(memory_path) / "entities"
+    if not entities_dir.exists():
+        return []
+    subject_tokens = {t for t in sanitize_id(subject).split("-") if t}
+    if not subject_tokens:
+        return []
+    subject_text = " ".join(sorted(subject_tokens))
+    scored: list[dict] = []
+    for filepath in entities_dir.glob("*.md"):
+        stem = filepath.stem
+        stem_tokens = {t for t in stem.split("-") if t}
+        if not stem_tokens:
+            continue
+        if stem_tokens == subject_tokens:
+            continue  # exact resolution already ran; only NEAR matches here
+        contained = subject_tokens <= stem_tokens or stem_tokens <= subject_tokens
+        score = fuzz.token_set_ratio(subject_text, " ".join(sorted(stem_tokens)))
+        if contained or score > 85:
+            scored.append({"entity_id": stem, "score": 100 if contained else score})
+    scored.sort(key=lambda c: (-c["score"], c["entity_id"]))
+    return scored[:limit]
+
+
 def _ensure_subject_page(
     memory_path: Path, subject: str, predicate: str, source_episode: str | None
 ) -> tuple[Path, str]:
@@ -131,14 +166,15 @@ def _ensure_subject_page(
 
     today = str(date.today())
     display_name = subject.strip() or entity_id.replace("-", " ").title()
+    entity_type = _infer_entity_type(predicate)
     frontmatter = {
         "name": display_name,
-        "type": _infer_entity_type(predicate),
+        "type": entity_type,
         "status": "active",
         "confidence": 0.5,
         "created": today,
         "last_referenced": today,
-        "decay_rate": 0.05,
+        **decay_policy.frontmatter_fields(decay_policy.default_class_for(entity_type)),
         "source_episodes": [source_episode] if source_episode else [],
         "tags": [],
         "related": [],
@@ -205,14 +241,39 @@ def write_claim(
     source_episode: str | None = None,
     object_kind: str = "node",
     text: str | None = None,
+    force_new_entity: bool = False,
+    sources: list[str] | None = None,
+    session_id: str | None = None,
+    origin: str | None = None,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
+
+    ``session_id`` (PR #20 review fix): the MCP session doing this write,
+    stamped onto the claim itself so a direct write against an EXISTING
+    entity — which never touches that entity's frontmatter
+    ``source_episodes`` — still leaves a durable session-to-entity
+    association for ``session_stats._group`` to read back. Distinct from
+    ``source_episode``, which becomes ``Claim.source_episodes`` and (for a
+    brand-new subject page only) the entity's own frontmatter list.
+
+    ``origin`` (G71) overrides the derived G9 provenance tag. Omitted, behavior
+    is byte-identical to before it existed: ``manual_edit`` for
+    ``observer="rodrigo"`` (the manual-assertion channel, and the only one that
+    earns ``claim_reconciler.is_human`` overwrite protection), else ``mcp``.
+    A connector/webhook write passes its own tag (``"telegram"``) so the claim
+    reads as user-stated without claiming manual-assertion immunity.
 
     Returns ``{subject, entity_id, claim_id, action, observer}`` on success,
     or ``{subject, entity_id: None, claim_id: None, action: "error", observer,
     error}`` on any failure/bad input — the caller (MCP tool handler) can
     render either shape without a try/except of its own.
+
+    When the subject resolves to no existing page but NEAR-matches existing
+    entities, returns ``action: "ambiguous_subject"`` with ``candidates`` and
+    writes nothing — ask, don't guess. Re-issue with the chosen candidate's
+    entity_id as the subject, or ``force_new_entity=True`` to create a
+    genuinely new page despite the near-matches.
     """
     subject_raw = (subject or "").strip()
     predicate_raw = (predicate or "").strip()
@@ -231,6 +292,25 @@ def write_claim(
 
     try:
         memory_path = Path(memory_path)
+
+        if not force_new_entity and resolve_entity_file(memory_path, subject_raw) is None:
+            candidates = _find_subject_candidates(memory_path, subject_raw)
+            if candidates:
+                names = ", ".join(c["entity_id"] for c in candidates)
+                return {
+                    "subject": subject_raw,
+                    "entity_id": None,
+                    "claim_id": None,
+                    "action": "ambiguous_subject",
+                    "observer": observer,
+                    "candidates": candidates,
+                    "error": (
+                        f"subject '{subject_raw}' matches no page exactly but is close to: "
+                        f"{names}. Re-issue with the intended entity_id as subject, or "
+                        "force_new_entity=true to create a new page (nothing was written)."
+                    ),
+                }
+
         page, entity_id = _ensure_subject_page(
             memory_path, subject_raw, predicate_raw, source_episode
         )
@@ -246,8 +326,11 @@ def write_claim(
         # Origin-gated human protection (claim_reconciler.is_human): only a
         # manual/clarification origin makes a user_stated claim overwrite-
         # protected. An explicit observer=rodrigo write through this tool IS
-        # that manual-assertion channel.
-        origin = "manual_edit" if observer == "rodrigo" else "mcp"
+        # that manual-assertion channel — unless the caller names a different
+        # origin (a webhook, a connector), which by construction is not.
+        claim_origin = (origin or "").strip() or (
+            "manual_edit" if observer == "rodrigo" else "mcp"
+        )
 
         claim_id = _claim_id(entity_id, predicate_slug, object_raw, observer)
         new_claim = Claim(
@@ -264,11 +347,28 @@ def write_claim(
             confidence=confidence,
             valid_from=_date_from_episode_id(source_episode),
             source_episodes=[source_episode] if source_episode else [],
-            origin=origin,
+            origin=claim_origin,
+            session_id=(session_id or "").strip() or None,
         )
 
         parsed = markdown_parser.parse(page)
-        existing_claims = parse_claims(parsed.body)
+        try:
+            existing_claims = parse_claims(parsed.body, strict=True)
+        except MalformedClaimsBlockError as exc:
+            # Refuse to touch the page: with a lenient parse the corrupt block
+            # would read as "no claims" and the rewrite below would wipe it.
+            logger.error(f"corrupt ```claims block on {entity_id}, refusing to write: {exc}")
+            return {
+                "subject": subject_raw,
+                "entity_id": entity_id,
+                "claim_id": None,
+                "action": "corrupt_claims_block",
+                "observer": observer,
+                "error": (
+                    f"entity '{entity_id}' has an unparseable ```claims block; "
+                    "repair it before writing claims (nothing was modified)"
+                ),
+            }
 
         settings = _ReconcileSettings(memory_path=memory_path)
         reconciled, nudges, audit = reconcile_stage3(
@@ -276,6 +376,9 @@ def write_claim(
             {entity_id: existing_claims},
             settings,
         )
+        # G113 — an agent's claim superseding or being rejected against the
+        # page is feedback on that agent, same as in the Sleep pipeline.
+        telemetry.record_audit(audit, subject_hint=entity_id, bank=memory_path.name, stage="reconcile")
         reconciled_claims = reconciled.get(entity_id, existing_claims)
 
         action = _determine_action(claim_id, reconciled_claims, nudges, audit)
@@ -283,6 +386,21 @@ def write_claim(
         new_body = write_claims(parsed.body, reconciled_claims)
         if new_body != parsed.body:
             markdown_parser.write(page, parsed.frontmatter, new_body)
+
+        # G61 — "here's where to check this fact". Attributed to the same
+        # author the claim carries, so the entity page records WHO said to
+        # look there.
+        if sources:
+            from api.services import fact_sources
+
+            for ref in sources:
+                fact_sources.add_source(
+                    memory_path,
+                    entity_id,
+                    ref,
+                    predicate=predicate_slug,
+                    added_by=(new_claim.authored_by or "agent"),
+                )
 
         return {
             "subject": subject_raw,
@@ -345,12 +463,20 @@ def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:
     return out
 
 
-def mark_episodes_processed(memory_path: Path, ids: list[str]) -> int:
+def mark_episodes_processed(memory_path: Path, ids: list[str], *, by: str = "agent") -> int:
     """Set ``processed: true`` on the named episodes. Returns the count matched.
 
     Matches by frontmatter ``id`` (falling back to the filename stem), so it
     tolerates whatever id shape :func:`list_unprocessed_episodes` handed back.
     Never raises: an unreadable/unwritable file is skipped, not fatal.
+
+    ``by`` is stamped as ``processed_by`` beside the flag (G114 R6): a bare
+    ``processed: true`` cannot say whether Sleep consolidated the episode or an
+    agent marked it after its own lightweight pass, and the two differ in what
+    the graph actually received. Sleep writes ``"sleep"`` through its own
+    marker; this entry point defaults to the generic ``"agent"`` and lets the
+    MCP seam pass the harness name when it knows it. Written only alongside
+    ``processed: true``, never removed.
     """
     memory_path = Path(memory_path)
     episodes_dir = memory_path / "episodes"
@@ -374,6 +500,7 @@ def mark_episodes_processed(memory_path: Path, ids: list[str]) -> int:
             continue
         try:
             fm["processed"] = True
+            fm["processed_by"] = (by or "").strip() or "agent"
             markdown_parser.write(filepath, fm, parsed.body)
             count += 1
         except Exception as exc:

@@ -9,7 +9,10 @@ and manage *every* bank, not just the resolved active one.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+import hashlib
+
+from starlette.concurrency import run_in_threadpool
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
 from loguru import logger
 
 from api.config import Settings, get_settings
@@ -23,14 +26,36 @@ from api.models.schemas import (
     BankRenameRequest,
 )
 from api.routers.conversations import _stage_episodes, parse_export_bytes
-from api.services import bank_registry
+from api.services import bank_index, bank_registry, sync_service
+from api.services.bank_migrations import run_bank_migrations
+from api.services.graph_builder import file_mtime
 
 router = APIRouter()
 
 
 @router.get("/banks", response_model=BankListResponse)
-async def list_banks(settings: Settings = Depends(get_settings)) -> BankListResponse:
-    data = bank_registry.list_banks(settings.memory_root)
+async def list_banks(
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+) -> BankListResponse:
+    root = settings.memory_root
+    registry_mtime = file_mtime(root / "banks.yaml")
+    registry = bank_registry.load_registry(root)
+    # The listing's body includes each bank's live entity_count/episode_count
+    # (bank_registry.list_banks -> _count(bank_dir(...), "entities"/"episodes")),
+    # so the ETag must cover those per-bank counts too -- not just banks.yaml's
+    # own mtime -- or a 304 would hide a changed count.
+    parts = [str(registry_mtime)]
+    for name in sorted((registry.get("banks", {}) or {}).keys()):
+        bank_path = bank_registry.bank_dir(root, name)
+        entities_stamp = bank_index.dir_stamp(bank_path, "entities")
+        episodes_stamp = bank_index.dir_stamp(bank_path, "episodes")
+        parts.append(f"{name}:{entities_stamp}:{episodes_stamp}")
+    etag = '"' + hashlib.sha1("|".join(parts).encode()).hexdigest()[:16] + '"'
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    data = bank_registry.list_banks(root)
     return BankListResponse(
         banks=[BankInfo(**b) for b in data["banks"]],
         active=data["active"],
@@ -68,6 +93,15 @@ async def activate_bank(
     except ValueError as e:
         raise HTTPException(404, str(e))
     logger.info(f"Activated bank '{name}'")
+    # A bank switched to at runtime gets the SAME one-shot migrations the
+    # boot-time bank gets in `main.lifespan` — otherwise its pages stay
+    # unclassed (and the Feed / decay engines disagree about them) until the
+    # next API restart. Every migration is marker-guarded and never raises, so
+    # this is a few `stat`s on an already-migrated bank and can't fail the
+    # switch.
+    # A first activate of a big bank rewrites hundreds of pages + git — keep it
+    # off the event loop like every other blocking route in this codebase.
+    await run_in_threadpool(run_bank_migrations, bank_registry.bank_dir(settings.memory_root, name))
     data = bank_registry.list_banks(settings.memory_root)
     return BankListResponse(
         banks=[BankInfo(**b) for b in data["banks"]],
@@ -165,10 +199,21 @@ async def import_into_bank(
         f"  Staged {created} new, {updated} updated, {skipped} unchanged ({fmt})"
     )
 
+    # G87 / Wave-1 1.6: `name` need not be the ACTIVE bank — episodes staged
+    # into a non-active bank are invisible to Sleep until someone switches to
+    # it. Surface that in the response instead of a plain "imported" success.
+    is_active = name == registry.get("active", bank_registry.DEFAULT_BANK)
+    if not is_active:
+        logger.warning(
+            f"Import into bank '{name}' staged {created + updated} episode(s) into a "
+            "NON-active bank — they will not be consolidated until it is switched to."
+        )
+
     return BankImportResponse(
         episodes_staged=created,
         episodes_updated=updated,
         duplicates_skipped=skipped,
         date_range=date_range,
         format=fmt,
+        active=is_active,
     )

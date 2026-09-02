@@ -92,4 +92,12 @@ async def _run_if_idle(settings: Settings) -> None:
         logger.info("Skipping scheduled sleep cycle: another cycle is running")
         return
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
-    await sleep_cycle.run(settings, cycle_id)
+    # Fix round 1, H1: this is the unattended nightly cron, never a human
+    # pressing Run — `user_triggered=False` keeps the agent rung (the
+    # Claude card's "Use for Sleep" toggle, and "auto") out of reach here
+    # even when it's switched on, per spec §7's trigger scope and what
+    # `Copy.sleepEngineExplainer` promises ("never on the nightly
+    # schedule"). An explicit `CICADA_LLM_MODE=agent`/`local` in api/.env
+    # still applies — that's deliberate dotfile config, unaffected by who
+    # triggered the cycle.
+    await sleep_cycle.run(settings, cycle_id, user_triggered=False)

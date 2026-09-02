@@ -8,8 +8,12 @@ Cursor) can connect to. Provides tools for:
 """
 
 import json
+import os
+import re
 import sys
-from datetime import datetime
+import uuid
+from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 
 # Allow importing sibling packages (api.services.vector_index) when run as a script
@@ -17,7 +21,113 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# Hoisted to module level (not lazy-local like most api.services imports below)
+# so tests can monkeypatch `server.agentic_write.write_claim` — the name
+# binding lives here, but handle_write_claim's body still calls through it.
+from api.services import agentic_write  # noqa: E402
+# Pure filesystem + datetime, no bank/config state — safe to hoist alongside.
+from api.services import episode_ids  # noqa: E402
+
 # MCP protocol uses JSON-RPC 2.0 over stdin/stdout
+
+# --- G48: conversation identity ---------------------------------------------
+#
+# stdio MCP is ONE process per client conversation, so a single module-level
+# identity resolved at import time IS the conversation id. Ranked by
+# reliability (see the G48 spec, "Session-id capture at the MCP seam"):
+#
+#   1. CLAUDE_CODE_SESSION_ID (+ CLAUDE_PROJECT_DIR) — undocumented but
+#      verified on Claude Code v2.1.251: injected per-child at spawn, matches
+#      the actively-written transcript, survives `--resume`. Gated on the
+#      strict UUID regex so a future non-uuid value can never reach the
+#      resume path.
+#   2. CICADA_SESSION_ID — explicit override for any MCP client; doubles as a
+#      manual re-attach handle. CICADA_SESSION_HARNESS names the harness.
+#   3. A minted `ses_YYYY-MM-DD_<uuid4hex[:8]>` — still groups this
+#      conversation's episodes; simply never resumable.
+#
+# NOTHING here reads a transcript. The only filesystem contact anywhere in
+# this feature is an isfile() check, and it lives in main(), not here.
+
+SESSION_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
+
+@dataclass(frozen=True)
+class SessionIdentity:
+    session_id: str
+    harness: str
+    project_dir: str | None = None
+
+
+def resolve_session_identity(env: dict | None = None) -> SessionIdentity:
+    """Resolve this process's conversation identity. Pure — pass ``env`` in tests."""
+    env = os.environ if env is None else env
+
+    claude_id = (env.get("CLAUDE_CODE_SESSION_ID") or "").strip()
+    if SESSION_UUID_RE.match(claude_id):
+        return SessionIdentity(
+            session_id=claude_id,
+            harness="claude-code",
+            project_dir=(env.get("CLAUDE_PROJECT_DIR") or "").strip() or None,
+        )
+
+    explicit = (env.get("CICADA_SESSION_ID") or "").strip()
+    if explicit:
+        return SessionIdentity(
+            session_id=explicit,
+            harness=(env.get("CICADA_SESSION_HARNESS") or "").strip() or "unknown",
+            project_dir=(env.get("CLAUDE_PROJECT_DIR") or "").strip() or None,
+        )
+
+    return SessionIdentity(
+        session_id=f"ses_{date.today().isoformat()}_{uuid.uuid4().hex[:8]}",
+        harness="unknown",
+        project_dir=None,
+    )
+
+
+SESSION = resolve_session_identity()
+
+# Filled in by the `initialize` handler from the client's own `clientInfo`
+# (name/version only — the MCP protocol carries nothing else there).
+CLIENT_INFO: dict = {}
+
+
+def _session_frontmatter() -> dict:
+    """The session keys to merge into an episode's frontmatter.
+
+    Additive and inert: origin_stats ignores unknown keys, import re-staging
+    (`_stage_episodes` / `_update_episode_in_place`) preserves them, and
+    markdown_parser round-trips them.
+    """
+    fm: dict = {"session_id": SESSION.session_id}
+    if SESSION.harness and SESSION.harness != "unknown":
+        fm["harness"] = SESSION.harness
+    if SESSION.project_dir:
+        fm["project_dir"] = SESSION.project_dir
+    return fm
+
+
+def _warn_if_transcript_missing() -> None:
+    """Warn (never drop) when a claude-code session has no transcript on disk.
+
+    isfile() ONLY — the transcript is never opened, and its path is never
+    printed, logged, or persisted. stderr, so the JSON-RPC stream on stdout
+    stays clean.
+    """
+    if SESSION.harness != "claude-code" or not SESSION.project_dir:
+        return
+    slug = re.sub(r"[^A-Za-z0-9]", "-", SESSION.project_dir)
+    path = Path.home() / ".claude" / "projects" / slug / f"{SESSION.session_id}.jsonl"
+    if not path.is_file():
+        print(
+            f"cicada-mcp: no transcript found for session {SESSION.session_id} — "
+            "episodes still group by conversation, but Resume may not work",
+            file=sys.stderr,
+        )
+
 
 # Tool list advertised via `tools/list` and dispatched via `tools/call`. Kept at
 # module scope (not local to main()) so both main() and other modules (e.g. a
@@ -194,6 +304,15 @@ TOOLS = [
                     "type": "string",
                     "description": "Optional episode id this claim was grounded in (e.g. from cicada_save_episode or cicada_pending).",
                 },
+                "force_new_entity": {
+                    "type": "boolean",
+                    "description": "Only set true after an 'ambiguous subject' response, when none of the suggested near-match entities is the intended subject — creates a genuinely new entity page despite the near-matches. Default false.",
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional 'where to check this fact' references the user gave you — a URL, a file path, or a plain-English instruction ('ask me, I announce job changes'). Stored on the subject's entity page, attributed to you.",
+                },
             },
             "required": ["subject", "predicate", "object"],
         },
@@ -213,7 +332,7 @@ TOOLS = [
     },
     {
         "name": "cicada_mark_processed",
-        "description": "Mark episodes as processed (processed: true) after you have consolidated their facts via cicada_write_claim. Only mark an episode processed once you have actually extracted what's worth keeping from it — an unmarked episode is still picked up by the next Sleep cycle as a safety net.",
+        "description": "Mark episodes as processed (processed: true) after you have consolidated their facts via cicada_write_claim. The mark is attributed — the episode is stamped processed_by with your harness name (or 'agent'), distinct from the 'sleep' stamp a Sleep cycle writes. Only mark an episode processed once you have actually extracted what's worth keeping from it — an unmarked episode is still picked up by the next Sleep cycle as a safety net.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -226,11 +345,59 @@ TOOLS = [
             "required": ["episode_ids"],
         },
     },
+    {
+        "name": "cicada_resolve_inbox",
+        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation. Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'a', 'b', 'both', 'neither'), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The inbox item id, e.g. 'inbox-001' (shown by cicada_check_nudges).",
+                },
+                "option_key": {
+                    "type": "string",
+                    "description": "The key of the option the user chose ('a', 'b', 'both', 'neither', …).",
+                },
+                "answer": {
+                    "type": "string",
+                    "description": "Free-text answer, when none of the options is correct. Recorded as a user-stated claim.",
+                },
+                "defer": {
+                    "type": "boolean",
+                    "description": "True when the user wants to be asked again later. Default false.",
+                },
+                "remind_days": {
+                    "type": "integer",
+                    "description": "With defer=true: how many days out to ask again (default 30).",
+                },
+            },
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "cicada_repo_context",
+        "description": "Return live git context (branch, ahead/behind, dirty files, worktrees, last commit) for a repo Cicada knows about — either an entity that declares a `repos:` link, or a raw filesystem path. Use when the user asks about the state of a project's git repo/checkout, or before suggesting git actions, so you're grounded in what's actually on disk right now rather than guessing. Degrades gracefully (e.g. 'repo context unavailable (...)') when the path is missing, not a git repo, or belongs to a different device.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": "An entity id or name that declares a `repos:` link (e.g. 'cicada'). Exactly one of entity_id/path is required.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "A raw filesystem path to a git repo (e.g. '~/Documents/roros_lab/cicada'). Exactly one of entity_id/path is required.",
+                },
+            },
+        },
+    },
 ]
 
 
 def main():
     """Main loop: read JSON-RPC requests from stdin, write responses to stdout."""
+    _warn_if_transcript_missing()
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -246,6 +413,16 @@ def main():
         params = request.get("params", {})
 
         if method == "initialize":
+            # G48: stop discarding params — the client names itself here, and
+            # nowhere else. Name/version only; bounded so a hostile client
+            # can't grow a telemetry line without limit.
+            client = params.get("clientInfo")
+            if isinstance(client, dict):
+                CLIENT_INFO.clear()
+                CLIENT_INFO.update({
+                    "name": str(client.get("name") or "")[:64],
+                    "version": str(client.get("version") or "")[:32],
+                })
             respond(req_id, {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
@@ -362,13 +539,40 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("confidence"),
             arguments.get("context"),
             arguments.get("source_episode"),
+            bool(arguments.get("force_new_entity", False)),
+            arguments.get("sources"),
         )
     elif name == "cicada_pending":
         return handle_pending(arguments.get("limit"))
     elif name == "cicada_mark_processed":
         return handle_mark_processed(arguments.get("episode_ids"))
+    elif name == "cicada_repo_context":
+        return handle_repo_context(arguments.get("entity_id"), arguments.get("path"))
+    elif name == "cicada_resolve_inbox":
+        return handle_resolve_inbox(
+            arguments.get("id", ""),
+            arguments.get("option_key"),
+            arguments.get("answer"),
+            bool(arguments.get("defer", False)),
+            arguments.get("remind_days"),
+        )
     else:
         raise ValueError(f"Unknown tool: {name}")
+
+
+def _backend_headers() -> dict[str, str]:
+    """Bearer token for the local backend (api/services/auth.py)."""
+    token = (os.environ.get("CICADA_API_TOKEN") or "").strip()
+    if not token:
+        home = Path(os.environ.get("CICADA_HOME") or Path.home() / ".cicada").expanduser()
+        try:
+            token = (home / "api_token").read_text(encoding="utf-8").strip()
+        except OSError:
+            token = ""
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
 def handle_ask(query: str, top_k: int = 6) -> str:
@@ -398,7 +602,7 @@ def handle_ask(query: str, top_k: int = 6) -> str:
         req = urllib.request.Request(
             "http://127.0.0.1:8000/ask",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=_backend_headers(),
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
@@ -470,11 +674,17 @@ def handle_save_url(url: str, note: str | None) -> str:
     try:
         import urllib.request
 
-        payload = json.dumps({"url": url, "note": note}).encode("utf-8")
+        payload = json.dumps({
+            "url": url,
+            "note": note,
+            "sessionId": SESSION.session_id,
+            "harness": SESSION.harness,
+            "projectDir": SESSION.project_dir,
+        }).encode("utf-8")
         req = urllib.request.Request(
             "http://127.0.0.1:8000/sources/save",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=_backend_headers(),
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=8) as resp:
@@ -500,7 +710,13 @@ def handle_save_url(url: str, note: str | None) -> str:
         (memory_path / "entities").mkdir(parents=True, exist_ok=True)
 
         async def _save():
-            item = media_ingestor.RawItem(url=url, note=note)
+            item = media_ingestor.RawItem(
+                url=url,
+                note=note,
+                session_id=SESSION.session_id,
+                harness=SESSION.harness,
+                project_dir=SESSION.project_dir,
+            )
             idx = media_ingestor.load_url_index(memory_path)
             async with httpx.AsyncClient() as client:
                 result = await media_ingestor.ingest_one(item, memory_path, client, idx)
@@ -875,10 +1091,10 @@ def handle_write_claim(
     confidence,
     context: str | None,
     source_episode: str | None,
+    force_new_entity: bool = False,
+    sources: list | None = None,
 ) -> str:
     """Write one atomic fact as an observer-tagged claim (agentic write path)."""
-    from api.services import agentic_write
-
     result = agentic_write.write_claim(
         get_memory_path(),
         subject,
@@ -888,10 +1104,48 @@ def handle_write_claim(
         confidence=confidence if confidence is not None else 0.7,
         context=(context or "general"),
         source_episode=source_episode,
+        force_new_entity=force_new_entity,
+        sources=sources,
+        # PR #20 review fix: stamp the writing session on the claim itself so
+        # an episode-less write (no source_episode) still records which
+        # conversation touched this entity — see agentic_write.write_claim's
+        # docstring and session_stats._group's claims fallback.
+        session_id=SESSION.session_id,
     )
 
-    if result.get("action") == "error":
+    if result.get("action") == "ambiguous_subject":
+        lines = [
+            f"NOT written — ambiguous subject '{subject}'. Existing entities are close matches:"
+        ]
+        for cand in result.get("candidates", []):
+            lines.append(f"  - {cand['entity_id']} (match {cand['score']})")
+        lines.append(
+            "Re-issue cicada_write_claim with the intended entity_id as the subject, "
+            "or force_new_entity=true if this is genuinely a different, new entity."
+        )
+        return "\n".join(lines)
+
+    if result.get("action") == "error" or result.get("error"):
         return f"Could not write claim: {result.get('error', 'unknown error')}"
+
+    from api.services import telemetry
+
+    telemetry.record(telemetry.UsageEvent(
+        kind="agentic_write", stage="driver", connection="session", engine="mcp-client",
+        model=None, bank=get_memory_path().name, billing="subscription", invocations=1,
+        refs={
+            "entity_id": result.get("entity_id"),
+            "claim_id": result.get("claim_id"),
+            "episode_id": source_episode,
+            "action": result.get("action"),
+            # G48: the ledger becomes the model<->conversation join key, and
+            # `GET /conversations/recent` reads `refs.session_id` back out.
+            "session_id": SESSION.session_id,
+            "harness": SESSION.harness,
+            "client_name": CLIENT_INFO.get("name") or None,
+            "client_version": CLIENT_INFO.get("version") or None,
+        },
+    ))
 
     action = result.get("action")
     verb = {
@@ -928,14 +1182,111 @@ def handle_pending(limit) -> str:
 
 
 def handle_mark_processed(episode_ids) -> str:
-    """Flip processed:true on the given episode ids."""
+    """Flip processed:true on the given episode ids.
+
+    Stamps ``processed_by`` with this process's harness name (G48 session
+    identity — ``claude-code``, or whatever ``CICADA_SESSION_HARNESS`` said)
+    so the episode records WHICH agent surface consolidated it, not just that
+    one did (G114 R6). ``"unknown"`` is G48's placeholder, not an identity, so
+    it falls back to the generic ``"agent"`` rather than being recorded.
+    """
     from api.services import agentic_write
 
     if not isinstance(episode_ids, list) or not episode_ids:
         return "episode_ids is required (a non-empty array of episode ids)."
 
-    count = agentic_write.mark_episodes_processed(get_memory_path(), episode_ids)
-    return f"Marked {count} episode(s) as processed."
+    harness = (SESSION.harness or "").strip()
+    by = harness if harness and harness != "unknown" else "agent"
+    count = agentic_write.mark_episodes_processed(get_memory_path(), episode_ids, by=by)
+    return f"Marked {count} episode(s) as processed (processed_by: {by})."
+
+
+def handle_repo_context(entity_id: str | None, path: str | None) -> str:
+    """Live git context for a repo Cicada knows about (backlog G-repo).
+
+    Exactly one of ``entity_id`` / ``path`` is required. ``entity_id`` reads
+    the resolved entity's own declared ``repos:`` frontmatter and renders one
+    or more contexts (an entity can declare more than one repo); ``path``
+    probes that filesystem path directly with no declared metadata to compare
+    against. Always returns rendered text — never raw JSON — and degrades to a
+    human-readable "repo context unavailable (...)" line on any non-ok status.
+    """
+    entity_id = (entity_id or "").strip()
+    path = (path or "").strip()
+
+    if bool(entity_id) == bool(path):
+        return "Exactly one of entity_id or path is required."
+
+    from api.services import repo_context
+
+    if path:
+        ctx = repo_context.resolve_repo_context({"path": path})
+        return _render_repo_context(path, [ctx])
+
+    memory_path = get_memory_path()
+    entities_dir = memory_path / "entities"
+    resolved_id = _entity_id_for_name(entities_dir, entity_id) or entity_id
+    entity_path = entities_dir / f"{resolved_id}.md"
+    if not entity_path.exists():
+        return f"Entity '{entity_id}' not found."
+
+    try:
+        from api.services import markdown_parser
+
+        parsed = markdown_parser.parse(entity_path)
+    except Exception as e:
+        return f"Could not read '{entity_id}': {e}"
+
+    declared = parsed.frontmatter.get("repos") or []
+    declared = [d for d in declared if isinstance(d, dict) and d.get("path")]
+    if not declared:
+        return f"Entity '{resolved_id}' has no declared repos."
+
+    contexts = [repo_context.resolve_repo_context(d) for d in declared]
+    return _render_repo_context(resolved_id, contexts)
+
+
+def _render_repo_context(label: str, contexts: list[dict]) -> str:
+    """Render one or more ``RepoContext`` dicts as human-readable text."""
+    blocks = []
+    for ctx in contexts:
+        if ctx.get("status") != "ok":
+            blocks.append(
+                f"repo context unavailable for `{ctx.get('path')}` "
+                f"(status: {ctx.get('status')})"
+            )
+            continue
+
+        lines = [f"**{ctx.get('path')}**"]
+        branch = ctx.get("current_branch") or "(detached)"
+        lines.append(f"- branch: {branch}")
+        ahead, behind = ctx.get("ahead"), ctx.get("behind")
+        if ahead is not None or behind is not None:
+            lines.append(f"- ahead/behind origin: {ahead or 0}/{behind or 0}")
+        dirty = ctx.get("dirty_files")
+        if dirty is not None:
+            lines.append(f"- dirty files: {dirty}")
+        commit = ctx.get("last_commit")
+        if commit:
+            lines.append(
+                f"- last commit: {commit.get('hash', '')[:8]} "
+                f"by {commit.get('author')} ({commit.get('date')}): {commit.get('subject')}"
+            )
+        worktrees = ctx.get("worktrees") or []
+        if len(worktrees) > 1:
+            wt_lines = ", ".join(
+                f"{w.get('path')} ({w.get('branch') or 'detached'}"
+                f"{', main' if w.get('is_main') else ''})"
+                for w in worktrees
+            )
+            lines.append(f"- worktrees: {wt_lines}")
+        if ctx.get("stale_hint"):
+            lines.append(f"- note: {ctx['stale_hint']}")
+        blocks.append("\n".join(lines))
+
+    header = f"Repo context for `{label}`:" if len(contexts) > 1 or contexts[0].get("path") != label else ""
+    body = "\n\n".join(blocks)
+    return f"{header}\n\n{body}".strip() if header else body
 
 
 def handle_get_perspective(
@@ -1202,6 +1553,8 @@ def _inbox_files(memory_path: Path):
 def _format_inbox_blurb(fm: dict, body: str) -> str:
     kind = str(fm.get("kind", fm.get("type", "")) or "")
     ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
+    if fm.get("question"):
+        return f"- [{kind or 'item'}] **{ename}**\n" + render_question(fm, body)
     if kind in ("clarification", "merge_suggestion"):
         utype = fm.get("uncertainty_type", "unknown")
         suggestion = fm.get("suggested_classification", "unknown")
@@ -1216,7 +1569,101 @@ def _format_inbox_blurb(fm: dict, body: str) -> str:
     return f"- [{label}] **{ename}** — {title}"
 
 
+def render_question(fm: dict, body: str, today: str | None = None) -> str:
+    """Render an inbox item's question object for an agent to ask in-flow (§2.7).
+
+    Shape:
+
+        Where does Rodrigo work now?
+          a) MongoDB — 6 months ago
+          b) Supahost — 5 days ago
+          both) Both are true (different contexts)
+          Other / Later — reply with any other answer, or ask to be reminded later
+          Source to check: https://…
+
+    Falls back to the item body when there is no question, so legacy items still
+    render something an agent can read out.
+    """
+    from datetime import date as _date
+
+    from api.services import inbox_questions
+
+    now = today or str(_date.today())
+    lines = [str(fm.get("question") or fm.get("title") or "").strip() or (body or "").strip()]
+
+    for option in inbox_questions.normalize_options(fm.get("options")):
+        age = inbox_questions.humanize_age(
+            option.get("last_referenced") or option.get("observed_at"), now
+        )
+        suffix = f" — {age}" if age != "unknown" else ""
+        lines.append(f"  {option.get('key')}) {option.get('label')}{suffix}")
+
+    if fm.get("allow_other") or fm.get("allow_defer"):
+        lines.append(
+            "  Other / Later — reply with any other answer, "
+            "or ask to be reminded later"
+        )
+    if fm.get("hint"):
+        lines.append(f"  Source to check: {fm['hint']}")
+    return "\n".join(line for line in lines if line.strip())
+
+
+def _backend_post(path: str, payload: dict) -> dict:
+    """POST JSON to the local backend and return the decoded response."""
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"http://127.0.0.1:8000{path}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=_backend_headers(),
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def handle_resolve_inbox(
+    item_id: str,
+    option_key: str | None,
+    answer: str | None,
+    defer: bool,
+    remind_days,
+) -> str:
+    """Resolve (or defer) one inbox item through the backend (§2.7)."""
+    item_id = (item_id or "").strip()
+    if not item_id:
+        return "Error: id is required (e.g. 'inbox-001')."
+
+    if defer:
+        payload: dict = {"action": "defer"}
+        if remind_days is not None:
+            payload["remindDays"] = int(remind_days)
+    else:
+        payload = {"action": "resolve"}
+        if option_key:
+            payload["optionKey"] = str(option_key)
+        if answer:
+            payload["answer"] = str(answer)
+        if not option_key and not answer:
+            return "Error: pass option_key, answer, or defer=true."
+
+    try:
+        result = _backend_post(f"/inbox/{item_id}/resolve", payload)
+    except Exception as e:
+        return (
+            f"Could not resolve {item_id} ({type(e).__name__}: {e}). "
+            "Is the Cicada backend running on 127.0.0.1:8000?"
+        )
+
+    status = result.get("status", "unknown")
+    if status == "deferred":
+        return f"Deferred {item_id} until {result.get('remindAfter', 'later')}."
+    return f"Inbox item {item_id}: {status}."
+
+
 def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
+    from api.services import inbox_questions
+
     q = query.lower()
     blurbs: list[str] = []
     for filepath in _inbox_files(memory_path):
@@ -1230,6 +1677,11 @@ def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
             f"{body}"
         ).lower()
         if not _topic_matches(q, haystack):
+            continue
+        # A deferred item is hidden everywhere it could be surfaced, the
+        # proactive recall block included — the user asked to be reminded
+        # later, not on the next unrelated question.
+        if inbox_questions.is_deferred(fm, str(date.today())):
             continue
         blurbs.append(_format_inbox_blurb(fm, body))
     return blurbs
@@ -1248,12 +1700,8 @@ def handle_save_episode(content: str, title: str | None) -> str:
     today = datetime.now().strftime("%Y-%m-%d")
     # ID = max existing suffix + 1 (NOT count+1): count-based numbering collides
     # and overwrites if any same-day episode was deleted/consolidated away.
-    max_num = 0
-    for filepath in episodes_dir.glob(f"ep_{today}_*.md"):
-        suffix = filepath.stem.rsplit("_", 1)[-1]
-        if suffix.isdigit():
-            max_num = max(max_num, int(suffix))
-    episode_id = f"ep_{today}_{max_num + 1:03d}"
+    # One rule for every writer lives in episode_ids (G114 R1).
+    episode_id = episode_ids.next_episode_id(episodes_dir, today)
 
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
 
@@ -1280,6 +1728,8 @@ def handle_save_episode(content: str, title: str | None) -> str:
         "title": title or "MCP capture",
         "processed": False,
         "content_hash": content_hash,
+        # G48: which conversation produced this episode. Additive + inert.
+        **_session_frontmatter(),
     }
     filepath = episodes_dir / f"{episode_id}.md"
     try:
@@ -1318,18 +1768,30 @@ def handle_check_nudges(topic: str | None) -> str:
             if not _topic_matches(topic.lower(), combined):
                 continue
 
+        from api.services import inbox_questions
+
+        if inbox_questions.is_deferred(fm, str(date.today())):
+            continue
+
         kind = str(fm.get("kind", fm.get("type", "")) or "")
         ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
-        if kind in ("clarification", "merge_suggestion") or (
+        if fm.get("question"):
+            results.append(
+                f"**{(kind or 'Item').title()}** `{filepath.stem}`: {ename}\n"
+                + render_question(fm, body)
+                + f"\n  Resolve with cicada_resolve_inbox(id=\"{filepath.stem}\", option_key=…)"
+            )
+        elif kind in ("clarification", "merge_suggestion") or (
             not kind and fm.get("uncertainty_type")
         ):
             results.append(
-                f"**Clarification**: {ename} — {fm.get('uncertainty_type', '')}\n  {body[:200]}"
+                f"**Clarification** `{filepath.stem}`: {ename} — "
+                f"{fm.get('uncertainty_type', '')}\n  {body[:200]}"
             )
         else:
             title = fm.get("title", fm.get("short_description", ""))
             results.append(
-                f"**{kind or 'Item'}**: {ename} — {title}\n  {body[:200]}"
+                f"**{kind or 'Item'}** `{filepath.stem}`: {ename} — {title}\n  {body[:200]}"
             )
 
     if not results:

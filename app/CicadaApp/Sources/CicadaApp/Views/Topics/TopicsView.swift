@@ -182,7 +182,7 @@ private struct TopicsListView: View {
         VStack(alignment: .leading, spacing: 0) {
             PageHeader(
                 title: "Clusters",
-                subtitle: "Auto-detected groups of related entities."
+                subtitle: Copy.clustersSubtitle
             )
 
             // Search + filter row
@@ -205,7 +205,7 @@ private struct TopicsListView: View {
                                 .font(.system(size: 11))
                                 .foregroundStyle(CicadaTheme.textTertiary)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.cicadaPlain)
                     }
                 }
                 .padding(.horizontal, CicadaTheme.spacingMD)
@@ -225,8 +225,7 @@ private struct TopicsListView: View {
                     .padding(.horizontal, CicadaTheme.spacingMD)
                     .padding(.vertical, CicadaTheme.spacingSM)
                 }
-                .buttonStyle(.plain)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
                 .popover(isPresented: $showFilterPopover, arrowEdge: .top) {
                     TopicsFilterPopover(enabledTypes: $enabledTypes)
                 }
@@ -244,8 +243,7 @@ private struct TopicsListView: View {
                     .padding(.horizontal, CicadaTheme.spacingMD)
                     .padding(.vertical, CicadaTheme.spacingSM)
                 }
-                .buttonStyle(.plain)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
                 .popover(isPresented: $showLabelPopover, arrowEdge: .top) {
                     TopicsLabelPopover(
                         allLabels: allLabels,
@@ -272,7 +270,7 @@ private struct TopicsListView: View {
 
                     // Count + expand/collapse-all control
                     HStack(spacing: CicadaTheme.spacingMD) {
-                        Text("\(filteredEntities.count) clusters")
+                        Text(Copy.clusterCount(entities: filteredEntities.count, groups: groupedEntities.count))
                             .font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textTertiary)
 
@@ -296,7 +294,7 @@ private struct TopicsListView: View {
                                 }
                                 .foregroundStyle(CicadaTheme.textSecondary)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cicadaPlain)
                         }
 
                         Spacer()
@@ -403,7 +401,7 @@ private struct TypeSectionHeader: View {
                     .fill(isHovered ? CicadaTheme.surfaceHover : .clear)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
     }
@@ -470,7 +468,7 @@ private struct TypeChip: View {
                     .stroke(isFocused ? color.opacity(0.6) : CicadaTheme.border, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
     }
@@ -512,7 +510,7 @@ private struct TopicsFilterPopover: View {
                     }
                     .padding(.vertical, 3)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
         }
         .padding(CicadaTheme.spacingMD)
@@ -602,7 +600,7 @@ private struct TopicsLabelPopover: View {
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 3)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cicadaPlain)
                         }
 
                         if hiddenCount > 0 {
@@ -631,7 +629,7 @@ private struct TopicsLabelPopover: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .padding(.vertical, 4)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
         }
         .padding(CicadaTheme.spacingMD)
@@ -650,9 +648,7 @@ private struct TopicRowListItem: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: CicadaTheme.spacingMD) {
-                Circle()
-                    .fill(CicadaTheme.entityColor(for: entity.type))
-                    .frame(width: 10, height: 10)
+                LogoImage(entityId: entity.id, name: entity.name, type: entity.type, size: 20)
 
                 Text(entity.name)
                     .font(.system(size: 13, weight: .medium))
@@ -684,7 +680,7 @@ private struct TopicRowListItem: View {
                     .fill(isHovered ? CicadaTheme.surfaceHover : .clear)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
     }
@@ -698,8 +694,52 @@ private struct TopicDetailView: View {
     @Environment(GraphViewModel.self) private var graphVM
     @State private var fullEntity: Entity?
 
+    // Bug 3 / G108 — this page keeps its OWN local "go deeper, then come
+    // back" trail rather than sharing `graphVM`'s, since this detail view
+    // has always tracked its own selection independently of the graph tab's
+    // floating card (see `EntityCardNavigation`'s doc comment). Naturally
+    // resets whenever this view itself is torn down and recreated — leaving
+    // the detail page (`onBack`) or picking a different entity from the list
+    // both go through `TopicsView`'s `selectedEntity = nil` transition first,
+    // and a tab switch tears down the whole Clusters subtree — so no
+    // explicit reset call is needed here, unlike `GraphViewModel`'s
+    // long-lived instance. The trail, the pushed entity and the "is this
+    // response still wanted" decision all live in `TopicDetailNavigation`
+    // (PR #29 round 2) so a fetch that lands after Back can't undo it.
+    @State private var nav = TopicDetailNavigation<Entity>()
+    /// The one in-flight full-body fetch; cancelled on every new
+    /// `navigate`/`goBackEntity`. `nav`'s token check is the backstop for a
+    /// cancellation that arrives too late to stop the response.
+    @State private var navTask: Task<Void, Never>?
+
     private var displayEntity: Entity {
-        fullEntity ?? entity
+        nav.pushed ?? fullEntity ?? entity
+    }
+
+    private func navigate(to id: String) {
+        navTask?.cancel()
+        // Instant placeholder from the graph's stub cache (already has at
+        // least id/name/summary), then upgrade to the full body.
+        let token = nav.navigate(from: displayEntity,
+                                 toStub: graphVM.entities.first(where: { $0.id == id }))
+        navTask = Task {
+            guard let full = try? await APIClient.shared.fetchEntity(id: id) else { return }
+            nav.apply(full, token: token)
+        }
+    }
+
+    private func goBackEntity() {
+        navTask?.cancel()
+        nav.goBack(rootID: entity.id)
+    }
+
+    private var cardNavigation: EntityCardNavigation {
+        EntityCardNavigation(
+            canGoBack: nav.canGoBack,
+            backTargetName: nav.backTarget?.name,
+            goBack: goBackEntity,
+            navigate: navigate
+        )
     }
 
     var body: some View {
@@ -719,8 +759,7 @@ private struct TopicDetailView: View {
                     .padding(.horizontal, CicadaTheme.spacingMD)
                     .padding(.vertical, CicadaTheme.spacingSM)
                 }
-                .buttonStyle(.plain)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
 
                 Spacer()
             }
@@ -730,7 +769,12 @@ private struct TopicDetailView: View {
             // Detail card — EntityDetailCard already has its own internal
             // ScrollView, so wrapping it in a second one broke the width
             // proposal chain for long markdown bodies (the "zoomed in" bug).
-            EntityDetailCard(entity: displayEntity, showsCloseButton: false)
+            EntityDetailCard(entity: displayEntity, showsCloseButton: false, navigation: cardNavigation)
+                // One card identity PER ENTITY (matches the graph overlay's
+                // rule) — keyed on `displayEntity.id` rather than the outer
+                // `entity.id` now that a wikilink push can swap the shown
+                // entity without `entity` itself changing.
+                .id(displayEntity.id)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(CicadaTheme.spacingXL)

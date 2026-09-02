@@ -10,7 +10,9 @@ token gate.
 from __future__ import annotations
 
 import asyncio
+import functools
 
+import httpx
 from fastapi.testclient import TestClient
 
 from api.services import telegram_capture
@@ -92,7 +94,7 @@ def test_ingest_url_message_calls_save_url_fn(tmp_path):
     memory = tmp_path / "memory"
     calls = []
 
-    def fake_save_url(memory_path, url, *, note=None):
+    def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
         calls.append((memory_path, url, note))
         return {"status": "created", "media_entity_id": "media-example", "episode_id": "ep_x"}
 
@@ -112,7 +114,7 @@ def test_ingest_url_message_calls_save_url_fn(tmp_path):
 def test_ingest_url_message_save_url_fn_may_be_async(tmp_path):
     memory = tmp_path / "memory"
 
-    async def fake_save_url(memory_path, url, *, note=None):
+    async def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
         return {"status": "created", "media_entity_id": "media-async", "episode_id": "ep_a"}
 
     update = _text_update("https://async.example.com")
@@ -125,7 +127,7 @@ def test_ingest_text_only_message_stages_episode(tmp_path):
     memory = tmp_path / "memory"
     calls = []
 
-    def fake_save_episode(memory_path, text, *, title=None):
+    def fake_save_episode(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
         calls.append((memory_path, text, title))
         return {"status": "created", "episode_id": "ep_2026-07-02_001"}
 
@@ -148,11 +150,11 @@ def test_ingest_prefers_url_path_when_both_text_and_url_present(tmp_path):
     url_calls = []
     episode_calls = []
 
-    def fake_save_url(memory_path, url, *, note=None):
+    def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
         url_calls.append(url)
         return {"status": "created"}
 
-    def fake_save_episode(memory_path, text, *, title=None):
+    def fake_save_episode(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
         episode_calls.append(text)
         return {"status": "created"}
 
@@ -176,7 +178,7 @@ def test_ingest_non_message_update_is_skipped(tmp_path):
 def test_ingest_never_raises_when_save_fn_errors(tmp_path):
     memory = tmp_path / "memory"
 
-    def boom(memory_path, text, *, title=None):
+    def boom(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
         raise RuntimeError("disk full")
 
     update = _text_update("a note that will fail to save")
@@ -254,3 +256,673 @@ def test_settings_telegram_enabled_reflects_token(monkeypatch):
 
     assert Settings(telegram_bot_token="").telegram_enabled is False
     assert Settings(telegram_bot_token="abc123").telegram_enabled is True
+
+
+# --- G57 / Wave-1 1.5: per-request webhook secret ---------------------------
+
+
+def _client_with_secret(tmp_path, monkeypatch, *, token: str = "fake-token-123",
+                         webhook_secret: str = "",
+                         auto_provision: tuple[bool, str] = (False, "test: auto-provisioning disabled")):
+    import api.routers.capture as capture_module
+
+    client, memory = _client(tmp_path, monkeypatch, token=token)
+    if webhook_secret:
+        monkeypatch.setenv("CICADA_TELEGRAM_WEBHOOK_SECRET", webhook_secret)
+    else:
+        monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+    # module-level "attempt once" state must not leak between tests
+    monkeypatch.setattr(capture_module, "_attempted_webhook_secret_setup", False)
+
+    async def fake_ingest(memory_path, update, **kwargs):
+        return {"kind": "note", "result": {"status": "created", "episode_id": "ep_test_001"}}
+
+    monkeypatch.setattr("api.routers.capture.ingest_telegram_update", fake_ingest)
+
+    # Auto-provisioning (G57 round 2) makes real outbound calls to Telegram's
+    # API by default — never allowed in a hermetic test. Every test injects
+    # a fixed, fake outcome instead; `test_auto_provisioning_*` below
+    # exercises `ensure_webhook_secret` itself in isolation with a fake
+    # httpx transport.
+    async def fake_ensure(bot_token):
+        return auto_provision
+
+    monkeypatch.setattr("api.routers.capture.ensure_webhook_secret", fake_ensure)
+    return client, memory
+
+
+def test_no_secret_configured_keeps_todays_behavior_and_accepts_any_caller(tmp_path, monkeypatch):
+    client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="")
+    resp = client.post("/capture/telegram", json=_text_update("hello"))
+    assert resp.status_code == 200, resp.text
+
+
+def test_no_secret_configured_logs_a_warning_exactly_once(tmp_path, monkeypatch):
+    from loguru import logger
+
+    records: list[str] = []
+    sink_id = logger.add(lambda msg: records.append(msg.record["message"]), level="WARNING")
+    try:
+        client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="")
+        client.post("/capture/telegram", json=_text_update("one"))
+        client.post("/capture/telegram", json=_text_update("two"))
+        client.post("/capture/telegram", json=_text_update("three"))
+    finally:
+        logger.remove(sink_id)
+
+    warnings = [r for r in records if "CICADA_TELEGRAM_WEBHOOK_SECRET" in r]
+    assert len(warnings) == 1, "must warn once, not once per request"
+
+
+def test_secret_configured_rejects_missing_header(tmp_path, monkeypatch):
+    client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="shh-its-a-secret")
+    resp = client.post("/capture/telegram", json=_text_update("hello"))
+    assert resp.status_code == 403
+    assert "invalid" in resp.json()["detail"]
+
+
+def test_secret_configured_rejects_wrong_header(tmp_path, monkeypatch):
+    client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="shh-its-a-secret")
+    resp = client.post(
+        "/capture/telegram",
+        json=_text_update("hello"),
+        headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-value"},
+    )
+    assert resp.status_code == 403
+
+
+def test_secret_configured_accepts_matching_header(tmp_path, monkeypatch):
+    client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="shh-its-a-secret")
+    resp = client.post(
+        "/capture/telegram",
+        json=_text_update("hello"),
+        headers={"X-Telegram-Bot-Api-Secret-Token": "shh-its-a-secret"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+# --- reason extraction (G71 §1) ---------------------------------------------
+
+
+def test_parse_extracts_reason_after_the_url():
+    update = _text_update("/save https://example.com/recipe great for meal prep")
+    parsed = parse_telegram_update(update)
+    assert parsed["urls"] == ["https://example.com/recipe"]
+    assert parsed["reason"] == "great for meal prep"
+
+
+def test_parse_extracts_reason_written_before_the_url():
+    update = _text_update("great for meal prep https://example.com/recipe")
+    assert parse_telegram_update(update)["reason"] == "great for meal prep"
+
+
+def test_parse_strips_the_bot_command_and_its_at_suffix():
+    update = _text_update("/save@cicada_bot https://example.com/x — worth rereading")
+    assert parse_telegram_update(update)["reason"] == "worth rereading"
+
+
+def test_parse_reason_is_none_when_only_a_url_was_sent():
+    update = _text_update("https://example.com/bare")
+    assert parse_telegram_update(update)["reason"] is None
+
+
+def test_parse_reason_is_none_for_a_text_only_message():
+    update = _text_update("remember to buy milk")
+    assert parse_telegram_update(update)["reason"] is None
+
+
+def test_parse_returns_the_chat_id():
+    assert parse_telegram_update(_text_update("hello"))["chat_id"] == 111
+
+
+# --- reason routing + ACK (G71 §1) ------------------------------------------
+
+
+def test_ingest_passes_the_reason_to_the_url_writer(tmp_path):
+    seen = {}
+
+    def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
+        seen["reason"] = reason
+        return {"status": "created", "media_entity_id": "media-x", "episode_id": "ep_x"}
+
+    update = _text_update("/save https://example.com/recipe great for meal prep")
+    result = run(ingest_telegram_update(tmp_path, update, save_url_fn=fake_save_url))
+    assert seen["reason"] == "great for meal prep"
+    assert result["ack"] == "Saved with note: great for meal prep"
+    assert result["chat_id"] == 111
+
+
+def test_ingest_acks_a_plain_save_and_a_duplicate(tmp_path):
+    def created(memory_path, url, *, note=None, reason=None, captured_at=None):
+        return {"status": "created", "media_entity_id": "m", "episode_id": "e"}
+
+    def duplicate(memory_path, url, *, note=None, reason=None, captured_at=None):
+        return {"status": "duplicate", "media_entity_id": "m", "episode_id": "e"}
+
+    plain = _text_update("https://example.com/bare")
+    assert run(ingest_telegram_update(tmp_path, plain, save_url_fn=created))["ack"] == "Saved."
+    assert run(ingest_telegram_update(tmp_path, plain, save_url_fn=duplicate))["ack"] == "Already saved."
+
+
+def test_ingest_acks_a_duplicate_with_a_new_reason_as_a_note_update(tmp_path):
+    """L3 (final review): a repeat /save with a reason still writes it (see
+    ``_default_save_url``'s duplicate branch) — the ACK must say so, not
+    imply the reason was silently dropped the way a bare "Already saved."
+    would."""
+    def duplicate(memory_path, url, *, note=None, reason=None, captured_at=None):
+        return {"status": "duplicate", "media_entity_id": "m", "episode_id": "e"}
+
+    with_reason = _text_update("https://example.com/bare — actually worth rereading")
+    result = run(ingest_telegram_update(tmp_path, with_reason, save_url_fn=duplicate))
+    assert result["ack"] == "Already saved — note updated."
+
+
+def test_ingest_acks_a_text_only_note(tmp_path):
+    def fake_save_episode(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
+        return {"status": "created", "episode_id": "ep_1"}
+
+    result = run(ingest_telegram_update(
+        tmp_path, _text_update("call the dentist"), save_episode_fn=fake_save_episode))
+    assert result["ack"] == "Noted."
+
+
+def test_skipped_update_has_no_ack(tmp_path):
+    result = run(ingest_telegram_update(tmp_path, {"update_id": 9, "poll_answer": {}}))
+    assert result["kind"] == "skipped"
+    assert result.get("ack") is None
+
+
+def test_default_save_url_writes_a_saved_because_claim(tmp_path, monkeypatch):
+    """The real writer, hermetic: enrichment offline, git commit stubbed."""
+    import asyncio
+
+    from api.services import claims, markdown_parser, media_ingestor
+    from api.services.media_ingestor import MediaMeta
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    async def offline(url, client, from_bookmark_file=False):
+        return MediaMeta(title="A Recipe", description="", site="example.com",
+                         media_type="url")
+
+    async def no_commit(memory_path, count, paths=None):
+        return None
+
+    monkeypatch.setattr(media_ingestor, "enrich", offline)
+    monkeypatch.setattr(media_ingestor, "_commit_media", no_commit)
+
+    result = asyncio.run(telegram_capture._default_save_url(
+        memory, "https://example.com/recipe", note="great for meal prep",
+        reason="great for meal prep",
+    ))
+    assert result["status"] == "created"
+
+    page = memory / "entities" / f"{result['media_entity_id']}.md"
+    written = [c for c in claims.parse_claims(markdown_parser.parse(page).body)
+               if c.predicate == "saved-because"]
+    assert len(written) == 1
+    assert written[0].object == "great for meal prep"
+    assert written[0].origin == "telegram"
+    assert written[0].object_kind == "literal"
+
+
+def test_default_save_url_updates_the_note_on_a_repeat_save_of_an_existing_url(
+    tmp_path, monkeypatch,
+):
+    """L3 (final review): a repeat ``/save`` of an already-saved URL WITH a
+    reason must write/update the ``saved-because`` claim and append the
+    episode's ``## Saved because`` section if it's absent — previously both
+    fired only on ``status == "created"``, so a second save's reason for an
+    already-saved URL vanished with no trace at all."""
+    import asyncio
+
+    from api.services import claims, git_service, markdown_parser, media_ingestor
+    from api.services.media_ingestor import MediaMeta
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    async def offline(url, client, from_bookmark_file=False):
+        return MediaMeta(title="A Recipe", description="", site="example.com",
+                         media_type="url")
+
+    async def no_commit(memory_path, count, paths=None):
+        return None
+
+    async def no_git_commit(memory_path, message):
+        return None
+
+    monkeypatch.setattr(media_ingestor, "enrich", offline)
+    monkeypatch.setattr(media_ingestor, "_commit_media", no_commit)
+    monkeypatch.setattr(git_service, "commit_changes", no_git_commit)
+
+    # First save: no reason — matches the ordinary "just save this" flow.
+    first = asyncio.run(telegram_capture._default_save_url(
+        memory, "https://example.com/recipe",
+    ))
+    assert first["status"] == "created"
+    episode_path = memory / "episodes" / f"{first['episode_id']}.md"
+    assert "## Saved because" not in markdown_parser.parse(episode_path).body
+
+    # Second save of the SAME url, now WITH a reason.
+    second = asyncio.run(telegram_capture._default_save_url(
+        memory, "https://example.com/recipe", reason="actually worth rereading",
+    ))
+    assert second["status"] == "duplicate"
+    assert second["media_entity_id"] == first["media_entity_id"]
+    assert second["episode_id"] == first["episode_id"]
+
+    # The claim landed on the entity page.
+    page = memory / "entities" / f"{first['media_entity_id']}.md"
+    written = [c for c in claims.parse_claims(markdown_parser.parse(page).body)
+               if c.predicate == "saved-because"]
+    assert len(written) == 1
+    assert written[0].object == "actually worth rereading"
+
+    # The ORIGINAL episode (not a new one) gained the section.
+    assert list((memory / "episodes").glob("*.md")) == [episode_path], (
+        "a duplicate must not create a second episode file"
+    )
+    body = markdown_parser.parse(episode_path).body
+    assert "## Saved because" in body
+    assert "actually worth rereading" in body
+
+
+def test_default_save_url_does_not_duplicate_the_section_on_a_third_save(tmp_path, monkeypatch):
+    """A THIRD save with yet another reason still updates the claim (claim
+    history is append-only) but must not append a second `## Saved because`
+    section onto the same episode — the section is written once."""
+    import asyncio
+
+    from api.services import claims, git_service, markdown_parser, media_ingestor
+    from api.services.media_ingestor import MediaMeta
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    async def offline(url, client, from_bookmark_file=False):
+        return MediaMeta(title="A Recipe", description="", site="example.com",
+                         media_type="url")
+
+    async def no_commit(memory_path, count, paths=None):
+        return None
+
+    async def no_git_commit(memory_path, message):
+        return None
+
+    monkeypatch.setattr(media_ingestor, "enrich", offline)
+    monkeypatch.setattr(media_ingestor, "_commit_media", no_commit)
+    monkeypatch.setattr(git_service, "commit_changes", no_git_commit)
+
+    first = asyncio.run(telegram_capture._default_save_url(
+        memory, "https://example.com/recipe", reason="first reason",
+    ))
+    asyncio.run(telegram_capture._default_save_url(
+        memory, "https://example.com/recipe", reason="second reason",
+    ))
+
+    episode_path = memory / "episodes" / f"{first['episode_id']}.md"
+    body = markdown_parser.parse(episode_path).body
+    assert body.count("## Saved because") == 1
+    assert "first reason" in body
+    assert "second reason" not in body, "the section is written once, not overwritten per-save"
+
+    page = memory / "entities" / f"{first['media_entity_id']}.md"
+    written = [c for c in claims.parse_claims(markdown_parser.parse(page).body)
+               if c.predicate == "saved-because"]
+    assert any(c.object == "second reason" for c in written), (
+        "the claim itself IS updated on every save, unlike the section"
+    )
+
+
+def _webhook_client(tmp_path, monkeypatch):
+    from api import config, main
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    monkeypatch.setenv("CICADA_TELEGRAM_BOT_TOKEN", "123:abc")
+    config.get_settings.cache_clear()
+    return TestClient(main.app), memory
+
+
+def test_webhook_answers_with_a_send_message_ack(tmp_path, monkeypatch):
+    """Telegram executes a `method` returned in the webhook RESPONSE, so the
+    ACK needs no outgoing HTTP client and no token in this process."""
+    from api import config
+
+    client, _ = _webhook_client(tmp_path, monkeypatch)
+
+    async def fake_ingest(memory_path, update):
+        return {"kind": "url", "url": "https://example.com/x", "result": {},
+                "ack": "Saved with note: worth rereading", "chat_id": 111}
+
+    monkeypatch.setattr("api.routers.capture.ingest_telegram_update", fake_ingest)
+    resp = client.post("/capture/telegram", json=_text_update("x"))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["method"] == "sendMessage"
+    assert body["chat_id"] == 111
+    assert body["text"] == "Saved with note: worth rereading"
+    config.get_settings.cache_clear()
+
+
+def test_webhook_omits_the_method_when_there_is_nothing_to_ack(tmp_path, monkeypatch):
+    from api import config
+
+    client, _ = _webhook_client(tmp_path, monkeypatch)
+
+    async def fake_ingest(memory_path, update):
+        return {"kind": "skipped", "reason": "nope", "ack": None, "chat_id": None}
+
+    monkeypatch.setattr("api.routers.capture.ingest_telegram_update", fake_ingest)
+    body = client.post("/capture/telegram", json={}).json()
+    assert "method" not in body
+    config.get_settings.cache_clear()
+
+
+# --- G57 round 2 / Wave-1 1.5 (Devin PR #24 finding 5): the secure webhook
+# secret path is automatic by default, not opt-in ---------------------------
+
+
+def test_when_auto_provisioning_succeeds_the_triggering_request_still_succeeds(tmp_path, monkeypatch):
+    """The message that TRIGGERS provisioning necessarily predates Telegram
+    learning about the new secret (it was already in flight) — it must not
+    be rejected; enforcement begins on the NEXT request."""
+    from loguru import logger
+
+    records: list[str] = []
+    sink_id = logger.add(lambda msg: records.append(msg.record["message"]), level="INFO")
+    try:
+        client, _ = _client_with_secret(
+            tmp_path, monkeypatch, webhook_secret="",
+            auto_provision=(True, "provisioned"),
+        )
+        resp = client.post("/capture/telegram", json=_text_update("hello"))
+    finally:
+        logger.remove(sink_id)
+
+    assert resp.status_code == 200, resp.text
+    assert any("Auto-provisioned" in r and "CICADA_TELEGRAM_WEBHOOK_SECRET" in r for r in records)
+
+
+def test_auto_provisioning_is_only_attempted_once(tmp_path, monkeypatch):
+    calls = {"n": 0}
+
+    async def counting_ensure(bot_token):
+        calls["n"] += 1
+        return False, "still failing"
+
+    client, _ = _client_with_secret(tmp_path, monkeypatch, webhook_secret="")
+    monkeypatch.setattr("api.routers.capture.ensure_webhook_secret", counting_ensure)
+
+    client.post("/capture/telegram", json=_text_update("one"))
+    client.post("/capture/telegram", json=_text_update("two"))
+    client.post("/capture/telegram", json=_text_update("three"))
+
+    assert calls["n"] == 1, "must attempt auto-provisioning once per process, not once per request"
+
+
+# --- ensure_webhook_secret in isolation (fake httpx transport, no network) --
+
+
+def _mock_telegram_transport(get_webhook_info: dict, set_webhook: dict | None = None) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/getWebhookInfo"):
+            return httpx.Response(200, json=get_webhook_info)
+        if request.url.path.endswith("/setWebhook"):
+            return httpx.Response(200, json=set_webhook or {"ok": True, "result": True})
+        return httpx.Response(404, json={"ok": False, "description": "unexpected path"})
+
+    return httpx.MockTransport(handler)
+
+
+def _patch_httpx(monkeypatch, transport: httpx.MockTransport) -> None:
+    monkeypatch.setattr("httpx.AsyncClient", functools.partial(httpx.AsyncClient, transport=transport))
+
+
+def test_ensure_webhook_secret_is_a_noop_when_already_configured(monkeypatch):
+    monkeypatch.setenv("CICADA_TELEGRAM_WEBHOOK_SECRET", "already-there")
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is False
+    assert detail == "already configured"
+
+
+def test_ensure_webhook_secret_provisions_and_persists_when_a_webhook_is_registered(monkeypatch):
+    monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+    _patch_httpx(
+        monkeypatch,
+        _mock_telegram_transport(
+            {"ok": True, "result": {"url": "https://tunnel.example/capture/telegram"}}
+        ),
+    )
+    stored: dict[str, str] = {}
+    monkeypatch.setattr(
+        "api.services.connections.secrets.set_secret",
+        lambda name, value: stored.__setitem__(name, value),
+    )
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is True
+    assert detail == "provisioned"
+    assert stored.get("CICADA_TELEGRAM_WEBHOOK_SECRET"), "the secret must be persisted on success"
+
+
+def test_ensure_webhook_secret_skips_when_no_webhook_registered_yet(monkeypatch):
+    monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+    _patch_httpx(monkeypatch, _mock_telegram_transport({"ok": True, "result": {"url": ""}}))
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is False
+    assert "no webhook" in detail
+
+
+def test_ensure_webhook_secret_reports_a_getwebhookinfo_api_error(monkeypatch):
+    monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+    _patch_httpx(
+        monkeypatch,
+        _mock_telegram_transport({"ok": False, "description": "Unauthorized"}),
+    )
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is False
+    assert "getWebhookInfo failed" in detail
+
+
+def test_ensure_webhook_secret_reports_a_setwebhook_api_error(monkeypatch):
+    monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+    _patch_httpx(
+        monkeypatch,
+        _mock_telegram_transport(
+            {"ok": True, "result": {"url": "https://tunnel.example/capture/telegram"}},
+            set_webhook={"ok": False, "description": "bad secret_token"},
+        ),
+    )
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is False
+    assert "setWebhook failed" in detail
+
+
+def test_ensure_webhook_secret_never_raises_on_a_network_error(monkeypatch):
+    monkeypatch.delenv("CICADA_TELEGRAM_WEBHOOK_SECRET", raising=False)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no network", request=request)
+
+    _patch_httpx(monkeypatch, httpx.MockTransport(handler))
+
+    provisioned, detail = asyncio.run(telegram_capture.ensure_webhook_secret("fake-token"))
+
+    assert provisioned is False
+    assert "ConnectError" in detail
+
+
+# --- G114 R3: the message's own date is the episode timestamp ---------------
+
+# 1756684800 s since the epoch is exactly 2025-09-01T00:00:00Z — a round
+# instant, so the expected id date and timestamp are readable at a glance.
+_EPOCH = 1_756_684_800
+_EPOCH_ISO = "2025-09-01T00:00:00+00:00"
+
+
+def _read_episode_frontmatter(memory, episode_id: str) -> dict:
+    from api.services import markdown_parser
+
+    return markdown_parser.parse(memory / "episodes" / f"{episode_id}.md").frontmatter
+
+
+def test_parse_date_is_aware_utc_iso():
+    parsed = parse_telegram_update(_text_update("hello", date=_EPOCH))
+    assert parsed["date"] == _EPOCH_ISO
+
+
+def test_ingest_stamps_the_episode_with_the_message_date_not_receipt_time(tmp_path):
+    """A webhook retry or a late delivery must not restamp yesterday's
+    message as today (R3): the episode ``timestamp`` is the message's own
+    ``date`` in ``+00:00`` form, and the id carries that UTC date."""
+    memory = tmp_path / "memory"
+    result = run(ingest_telegram_update(memory, _text_update("dated note", date=_EPOCH)))
+
+    assert result["kind"] == "note"
+    episode_id = result["result"]["episode_id"]
+    assert episode_id.startswith("ep_2025-09-01_")
+    fm = _read_episode_frontmatter(memory, episode_id)
+    assert fm["timestamp"] == _EPOCH_ISO
+
+
+def test_default_save_episode_falls_back_to_now_without_a_message_date(tmp_path):
+    from datetime import datetime, timezone
+
+    memory = tmp_path / "memory"
+    for captured_at in (None, "not a timestamp"):
+        result = telegram_capture._default_save_episode(
+            memory, f"undated note {captured_at}", captured_at=captured_at,
+        )
+        fm = _read_episode_frontmatter(memory, result["episode_id"])
+        assert fm["timestamp"].endswith("+00:00")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert fm["timestamp"].startswith(today)
+        assert result["episode_id"].startswith(f"ep_{today}_")
+
+
+def test_ingest_passes_captured_at_to_the_url_writer(tmp_path):
+    seen = {}
+
+    def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
+        seen["captured_at"] = captured_at
+        return {"status": "created", "media_entity_id": "media-x", "episode_id": "ep_x"}
+
+    update = _text_update("/save https://example.com/recipe great for meal prep", date=_EPOCH)
+    run(ingest_telegram_update(tmp_path, update, save_url_fn=fake_save_url))
+    assert seen["captured_at"] == _EPOCH_ISO
+
+
+def test_default_save_url_records_the_message_date_as_the_saved_date(tmp_path, monkeypatch):
+    """For a URL save the message date becomes ``RawItem.added`` (R3), so the
+    media episode's ``saved_at`` is the day it was sent, not the day it was
+    ingested."""
+    from api.services import media_ingestor
+    from api.services.media_ingestor import MediaMeta
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    async def offline(url, client, from_bookmark_file=False):
+        return MediaMeta(title="A Recipe", description="", site="example.com",
+                         media_type="url")
+
+    async def no_commit(memory_path, count, paths=None):
+        return None
+
+    monkeypatch.setattr(media_ingestor, "enrich", offline)
+    monkeypatch.setattr(media_ingestor, "_commit_media", no_commit)
+
+    result = asyncio.run(telegram_capture._default_save_url(
+        memory, "https://example.com/recipe", captured_at=_EPOCH_ISO,
+    ))
+    assert result["status"] == "created"
+    fm = _read_episode_frontmatter(memory, result["episode_id"])
+    assert fm["saved_at"] == "2025-09-01"
+
+
+# --- G114 R4: /remind is honest, not scheduled -------------------------------
+
+
+def test_remind_saves_an_honest_note_episode(tmp_path):
+    """``/remind`` used to match ``_COMMAND_RE`` and fall into the note path
+    silently, ACKing "Noted." as if something had been scheduled. It is still
+    saved as a note — tagged ``capture_kind: reminder`` so a later feature can
+    find it — but the ACK says plainly that nothing is scheduled."""
+    memory = tmp_path / "memory"
+    result = run(ingest_telegram_update(memory, _text_update("/remind call the dentist")))
+
+    assert result["kind"] == "note"
+    assert "reminders aren't scheduled yet" in result["ack"]
+    episode_id = result["result"]["episode_id"]
+    fm = _read_episode_frontmatter(memory, episode_id)
+    assert fm["capture_kind"] == "reminder"
+    body = (memory / "episodes" / f"{episode_id}.md").read_text(encoding="utf-8")
+    assert "call the dentist" in body
+
+
+def test_remind_passes_capture_kind_to_an_injected_episode_writer(tmp_path):
+    seen = {}
+
+    def fake_save_episode(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
+        seen["text"] = text
+        seen["capture_kind"] = capture_kind
+        return {"status": "created", "episode_id": "ep_1"}
+
+    result = run(ingest_telegram_update(
+        tmp_path, _text_update("/remind@cicada_bot call the dentist"),
+        save_episode_fn=fake_save_episode,
+    ))
+    assert seen["capture_kind"] == "reminder"
+    assert "call the dentist" in seen["text"]
+    assert result["ack"] == "Saved as a note — reminders aren't scheduled yet."
+
+
+def test_remind_with_a_url_is_still_a_reminder_not_a_media_save(tmp_path):
+    """The URL path normally wins when both text and a URL are present, but a
+    ``/remind`` that also carries a link is asking to be reminded, not to
+    bookmark — routing it to media with a "Saved." ACK would be exactly the
+    silent misroute R4 removes."""
+    url_calls = []
+    seen = {}
+
+    def fake_save_url(memory_path, url, *, note=None, reason=None, captured_at=None):
+        url_calls.append(url)
+        return {"status": "created"}
+
+    def fake_save_episode(memory_path, text, *, title=None, captured_at=None, capture_kind=None):
+        seen["capture_kind"] = capture_kind
+        return {"status": "created", "episode_id": "ep_1"}
+
+    result = run(ingest_telegram_update(
+        tmp_path, _text_update("/remind read https://example.com/paper on friday"),
+        save_url_fn=fake_save_url, save_episode_fn=fake_save_episode,
+    ))
+    assert result["kind"] == "note"
+    assert url_calls == []
+    assert seen["capture_kind"] == "reminder"
+
+
+def test_a_plain_note_carries_no_capture_kind(tmp_path):
+    memory = tmp_path / "memory"
+    result = run(ingest_telegram_update(memory, _text_update("/note buy milk")))
+    fm = _read_episode_frontmatter(memory, result["result"]["episode_id"])
+    assert "capture_kind" not in fm
+    assert result["ack"] == "Noted."

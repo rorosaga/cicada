@@ -1,8 +1,9 @@
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
@@ -15,21 +16,28 @@ from api.routers import (
     capture,
     claims,
     clarifications,
+    connections,
+    connectors,
+    consumption,
     contributors,
     conversations,
     entities,
     graph,
     inbox,
     local_refs,
+    maintenance,
     nudges,
     origins,
     search,
     sleep,
     sources,
     status,
+    sync,
 )
 from api.services import bank_registry, sleep_scheduler
-from api.services.inbox_migration import migrate_to_inbox
+from api.services.providers import warm_query_embedder
+from api.services.auth import auth_enabled, get_token, require_token
+from api.services.bank_migrations import run_bank_migrations
 
 # --- Logging setup ---
 # Remove loguru default handler and add our own format
@@ -57,6 +65,23 @@ litellm.set_verbose = False
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    if auth_enabled():
+        get_token()  # generate the token file on first boot so clients can read it
+    else:
+        logger.warning("CICADA_API_AUTH=off — the local API is UNAUTHENTICATED (dev/test only)")
+
+    from api.services.connections import secrets as connection_secrets
+
+    loaded = connection_secrets.load_secrets()
+    if loaded:
+        logger.info(f"Loaded {len(loaded)} provider key(s) from {connection_secrets.secrets_path()}")
+
+    # Preload the query embedder recorded in the bank's index in the
+    # background so the first /search request doesn't pay the model-load
+    # cost. Never awaited — must not block startup — and warm_query_embedder
+    # swallows its own errors so a slow/missing index can't crash boot.
+    asyncio.get_running_loop().run_in_executor(None, warm_query_embedder, settings.memory_path)
+
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")
 
@@ -75,11 +100,12 @@ async def lifespan(app: FastAPI):
     if not git_existed and (settings.memory_path / ".git").exists():
         logger.info("Initialized git repo in memory directory")
 
-    # One-time idempotent migration of legacy nudges/clarifications into inbox/.
-    # Never crashes boot — a failure logs loudly and leaves legacy dirs intact.
-    moved = migrate_to_inbox(settings.memory_path)
-    if moved:
-        logger.info(f"Migrated {moved} legacy items into inbox/")
+    # The one-shot per-bank migrations (legacy nudges -> inbox/, duplicate open
+    # question collapse, decay-class backfill). Each is marker-guarded and never
+    # raises, so boot continues on failure. The SAME set runs from
+    # `POST /banks/{name}/activate`, so a bank switched to at runtime is
+    # migrated too — see api/services/bank_migrations.py.
+    run_bank_migrations(settings.memory_path)
 
     entities_count = len(list((settings.memory_path / "entities").glob("*.md")))
     episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))
@@ -100,11 +126,25 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Cicada API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="Cicada API",
+    version="0.1.0",
+    lifespan=lifespan,
+    dependencies=[Depends(require_token)],
+)
+
+# This backend is a LOCAL service: the only legitimate browser origins are the
+# companion app's WKWebView and local tooling on loopback (any port). A wildcard
+# meant any page the user happened to have open could script requests at
+# localhost:8000 — and while every route but /healthz and the Telegram webhook
+# needs a bearer token, the provider-key, logout and memory-write routes are not
+# doors to leave open. Native clients (URLSession, the MCP server, curl) send no
+# Origin at all and are unaffected; the bearer scheme is untouched.
+LOCAL_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=LOCAL_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -127,3 +167,8 @@ app.include_router(sources.router, tags=["sources"])
 app.include_router(banks.router, tags=["banks"])
 app.include_router(local_refs.router, tags=["local-refs"])
 app.include_router(capture.router, tags=["capture"])
+app.include_router(connectors.router, tags=["connectors"])
+app.include_router(maintenance.router, tags=["maintenance"])
+app.include_router(connections.router, tags=["connections"])
+app.include_router(sync.router, tags=["sync"])
+app.include_router(consumption.router, tags=["consumption"])

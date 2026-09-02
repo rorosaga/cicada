@@ -33,7 +33,10 @@ CLAUDE_CLI="${CLAUDE_CLI:-claude}"
 API_DIR="$REPO/api"
 VENV="$API_DIR/.venv"
 VENV_PY="$VENV/bin/python"
-VENV_UVICORN="$VENV/bin/uvicorn"
+# NOTE: the plist runs `$VENV_PY -m uvicorn`, never $VENV/bin/uvicorn. A venv
+# console script hardcodes its interpreter path in the shebang, so moving the
+# repo silently breaks it (launchd then fails with EX_CONFIG and an empty log).
+# `python -m` resolves through the venv symlink and survives a move.
 ENV_FILE="$API_DIR/.env"
 ENV_EXAMPLE="$API_DIR/.env.example"
 MCP_SERVER="$REPO/mcp/server.py"
@@ -283,6 +286,10 @@ if backend_healthy; then
 else
   step "Writing launchd plist -> $PLIST_PATH"
   run mkdir -p "$LAUNCH_AGENTS_DIR"
+  # CICADA_ALLOW_FEED_FETCH=1 is the opt-in for the nightly RSS-feed + ICS-calendar
+  # refresh at the tail of every Sleep cycle (G114 R5); the user-initiated
+  # POST /sources/poll-feeds and POST /sources/poll-calendars are gated by the same
+  # var. Without it an installed backend's subscriptions would never refresh.
   write_plist() {
     cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -292,7 +299,8 @@ else
   <key>Label</key><string>$PLIST_LABEL</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$VENV_UVICORN</string>
+    <string>$VENV_PY</string>
+    <string>-m</string><string>uvicorn</string>
     <string>api.main:app</string>
     <string>--host</string><string>127.0.0.1</string>
     <string>--port</string><string>$PORT</string>
@@ -301,6 +309,7 @@ else
   <key>EnvironmentVariables</key>
   <dict>
     <key>CICADA_MEMORY_PATH</key><string>$MEMORY_PATH</string>
+    <key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>
     <key>PYTHONPATH</key><string>$REPO</string>
   </dict>
   <key>RunAtLoad</key><true/>
@@ -354,5 +363,6 @@ else
 fi
 echo "  launchd:       $PLIST_PATH"
 [ "$DO_SKILL" -eq 1 ] && echo "  skill:         $CLAUDE_SKILLS_DIR/cicada/SKILL.md"
+echo "  API token:     ${CICADA_HOME:-$HOME/.cicada}/api_token (the app and MCP server read it automatically)"
 echo
 echo "  Next: run 'make doctor' to verify, or 'curl localhost:$PORT/healthz'."

@@ -1,6 +1,8 @@
+from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, UploadFile
+from starlette.concurrency import run_in_threadpool
 from loguru import logger
 from pydantic import BaseModel
 
@@ -9,13 +11,30 @@ from api.models.schemas import (
     BookmarkSyncRequest,
     BookmarkSyncResponse,
     MediaSourceItem,
+    NotesSyncRequest,
+    NotesSyncResponse,
+    SourceChannel,
+    SourceChannelsResponse,
     SourceListResponse,
     SourceRssRequest,
     SourceSaveRequest,
     SourceSaveResponse,
+    SourceUploadCollection,
+    SourceUploadPreview,
     SourceUploadResponse,
 )
-from api.services import bookmark_sync, feed_registry, media_ingestor
+from api.services import (
+    bookmark_sync,
+    calendar_registry,
+    channel_registry,
+    feed_registry,
+    media_ingestor,
+    notes_sync,
+    saved_at as saved_at_service,
+    sync_service,
+    sync_state,
+)
+from api.services.connectors import ADAPTERS
 from api.services.media_ingestor import MAX_BATCH, RawItem
 
 router = APIRouter()
@@ -27,6 +46,15 @@ class FeedSubscribeRequest(BaseModel):
 
 
 class FeedUnsubscribeRequest(BaseModel):
+    url: str
+
+
+class CalendarSubscribeRequest(BaseModel):
+    url: str
+    tags: list[str] | None = None
+
+
+class CalendarUnsubscribeRequest(BaseModel):
     url: str
 
 
@@ -43,7 +71,14 @@ async def save_source(
         raise HTTPException(status_code=422, detail="URL must start with http:// or https://")
 
     memory_path = settings.memory_path
-    item = RawItem(url=url, tags=request.tags, note=request.note)
+    item = RawItem(
+        url=url,
+        tags=request.tags,
+        note=request.note,
+        session_id=request.session_id,
+        harness=request.harness,
+        project_dir=request.project_dir,
+    )
     idx = media_ingestor.load_url_index(memory_path)
     async with httpx.AsyncClient() as client:
         result = await media_ingestor.ingest_one(item, memory_path, client, idx)
@@ -71,23 +106,59 @@ async def save_source(
     )
 
 
-@router.post("/sources/upload", response_model=SourceUploadResponse)
+@router.post("/sources/upload", response_model=None)
 async def upload_sources(
     file: UploadFile,
     background_tasks: BackgroundTasks,
+    preview: bool = Query(False),
+    include_history: bool = Query(False),
     settings: Settings = Depends(get_settings),
-):
-    """Ingest a bookmarks/Takeout/URL-list export.
+) -> SourceUploadResponse | SourceUploadPreview:
+    """Ingest — or, with ``?preview=true``, merely *describe* — a saved-content export.
 
     Parses and dedups synchronously so counts come back immediately; enrichment
     and the episode/entity writes run in the background for large batches.
+
+    ``?preview=true`` (G71 §4.3) STAGES NOTHING: it runs the identical sniff and
+    parse, then returns the collection/board/playlist breakdown with per-item
+    counts so the import overlay can show the user what they are about to import
+    before they commit to it. Nothing is cached server-side — Confirm re-posts
+    the same file without the flag.
+
+    ``?include_history=true`` opts a TikTok export's Browsing History in (default
+    off: ambient exhaust, not saves — G69).
     """
     content = await file.read()
     filename = file.filename or ""
+
+    if preview:
+        # Off the event loop: parsing a large export (a Takeout zip) is CPU-bound
+        # and would otherwise stall the SSE stream, same reason /sources/channels
+        # threadpools its origin scan.
+        result = await run_in_threadpool(
+            media_ingestor.preview_upload,
+            content,
+            filename,
+            include_history=include_history,
+        )
+        logger.info(
+            f"Sources preview: {filename} ({len(content)} bytes) -> "
+            f"{result.platform}, {result.total} item(s)"
+        )
+        return SourceUploadPreview(
+            recognized=result.recognized,
+            platform=result.platform,
+            total=result.total,
+            collections=[SourceUploadCollection(**c) for c in result.collections],
+            warnings=result.warnings,
+        )
+
     logger.info(f"Sources upload: {filename} ({len(content)} bytes)")
 
     try:
-        items, source_label, from_bookmark_file = media_ingestor.parse_upload(content, filename)
+        items, source_label, from_bookmark_file = media_ingestor.parse_upload(
+            content, filename, include_history=include_history
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -101,7 +172,14 @@ async def upload_sources(
 
     memory_path = settings.memory_path
     idx = media_ingestor.load_url_index(memory_path)
-    fresh, duplicates = media_ingestor._dedup_items(items, idx)
+    fresh, duplicates, backfilled = media_ingestor._dedup_items(items, idx)
+    # G99d (Devin round 1, PR #26 finding 1): this router loads its OWN `idx`
+    # object purely to compute `duplicates`/dispatch mode — `ingest_batch`
+    # below does an independent reload, so a backfill mutated here must be
+    # persisted explicitly or it is silently lost (this is the primary path
+    # for backfilling dates on a full re-upload of an already-saved export).
+    if backfilled:
+        media_ingestor.save_url_index(memory_path, idx)
 
     if not fresh:
         return SourceUploadResponse(
@@ -196,7 +274,11 @@ async def ingest_rss(
             it.tags = sorted(set((it.tags or []) + request.tags))
 
     idx = media_ingestor.load_url_index(memory_path)
-    fresh, duplicates = media_ingestor._dedup_items(items, idx)
+    fresh, duplicates, backfilled = media_ingestor._dedup_items(items, idx)
+    # G99d (Devin round 1, PR #26 finding 1) — see the /sources/upload
+    # handler's identical comment above.
+    if backfilled:
+        media_ingestor.save_url_index(memory_path, idx)
     if not fresh:
         return SourceUploadResponse(
             status="ok",
@@ -260,11 +342,19 @@ async def sync_bookmarks(
     else:
         result = await bookmark_sync.sync_from_local_files(memory_path)
 
+    # G62: the only durable trace that bookmark sync ever ran. `found` is the
+    # number of bookmarks seen this pass (new + already-known), which is what
+    # the Capture row means by "412 bookmarks".
+    found = sum(int(s.get("found") or 0) for s in result.get("sources", []))
+    sync_state.record_sync(memory_path, "bookmarks", count=found)
+
     return BookmarkSyncResponse(**result)
 
 
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
+    request: Request,
+    response: Response,
     sort: str = Query("recent", pattern="^(recent|relevance)$"),
     settings: Settings = Depends(get_settings),
 ):
@@ -275,6 +365,9 @@ async def list_sources(
     computed from each entity's frontmatter.
     """
     memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", extra=sort)
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
     idx = media_ingestor.load_url_index(memory_path)
 
     items = []
@@ -320,6 +413,7 @@ async def list_sources(
                 channel=channel,
                 thumbnail=entry.get("thumbnail"),
                 saved_at=entry.get("saved_at", ""),
+                content_saved_at=entry.get("content_saved_at"),
                 tags=tags,
                 status=status,
                 related_count=related_count,
@@ -328,11 +422,61 @@ async def list_sources(
             )
         )
 
+    # G99d — recency prefers the recovered true save date, falling back to
+    # the ingest timestamp only when no source date was recoverable. This
+    # deliberately reorders the Feed relative to the old ingest-only sort.
+    # Parsed to a real instant (review finding) rather than compared as raw
+    # strings — a bare content_saved_at date and a full saved_at timestamp
+    # otherwise mix formats and tie-break by string length, not by time. See
+    # `saved_at.sort_instant`'s docstring for the exact same-day rule.
+    def _recency_key(i: MediaSourceItem) -> datetime:
+        return saved_at_service.sort_instant(i.content_saved_at or i.saved_at)
+
     if sort == "relevance":
-        items.sort(key=lambda i: (i.relevance, i.saved_at), reverse=True)
+        items.sort(key=lambda i: (i.relevance, _recency_key(i)), reverse=True)
     else:
-        items.sort(key=lambda i: i.saved_at, reverse=True)
+        items.sort(key=_recency_key, reverse=True)
     return SourceListResponse(items=items, total=len(items))
+
+
+@router.get("/sources/channels", response_model=SourceChannelsResponse)
+async def list_source_channels(
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """Every capture channel + whether it is actually connected (G62).
+
+    The Capture page renders its "Connected" list straight from this. State is
+    derived from what is on disk (feeds/calendars registries, sync_state.json,
+    origin counts, the saved-URL index) plus the Telegram env flag — nothing
+    here reflects the result of the last button press, so the page is correct
+    on a cold launch.
+    """
+    memory_path = settings.memory_path
+    connectors_connected = {cid: adapter.is_connected() for cid, adapter in ADAPTERS.items()}
+    # `telegram_enabled` and connector credentials are config/secrets facts, not
+    # filesystem-in-the-bank ones: configuring a bot token, or connecting an
+    # account, flips a channel to "connected" without touching any component
+    # below, so without them in the ETag a warm client 304s and keeps showing
+    # "not connected" forever.
+    connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
+    etag = sync_service.etag_for(
+        memory_path, "sources", "episodes", "entities",
+        extra=f"telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    # Off the event loop: `build_channels` runs the same full episode+entity
+    # origin scan `/origins` does, which on a cold `bank_index` re-parses every
+    # frontmatter inline and would stall the SSE stream (see `/origins`).
+    channels = await run_in_threadpool(
+        channel_registry.build_channels,
+        memory_path,
+        telegram_enabled=settings.telegram_enabled,
+        connectors_connected=connectors_connected,
+    )
+    return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
 
 
 # --- Feed subscriptions (registry + poll) -----------------------------------
@@ -381,3 +525,88 @@ async def poll_feeds(settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
     result = await feed_registry.poll_feeds(memory_path)
     return result
+
+
+# --- Calendar subscriptions (registry + poll) --------------------------------
+
+
+@router.get("/sources/calendars")
+async def list_calendar_subscriptions(settings: Settings = Depends(get_settings)):
+    """List every subscribed calendar (``<memory>/calendars.yaml``)."""
+    calendars = calendar_registry.list_calendars(settings.memory_path)
+    return {"calendars": calendars, "total": len(calendars)}
+
+
+@router.post("/sources/calendars")
+async def subscribe_calendar(
+    request: CalendarSubscribeRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """Subscribe to an ICS/webcal calendar. Idempotent — re-subscribing dedups
+    on the normalized URL. ``webcal://`` is normalized to ``https://``."""
+    url = request.url.strip()
+    if not url.lower().startswith(("http://", "https://", "webcal://")):
+        raise HTTPException(
+            status_code=422, detail="URL must start with http://, https://, or webcal://"
+        )
+    record = calendar_registry.subscribe_calendar(settings.memory_path, url, tags=request.tags)
+    return record
+
+
+@router.delete("/sources/calendars")
+async def unsubscribe_calendar(
+    request: CalendarUnsubscribeRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """Unsubscribe a calendar by URL."""
+    removed = calendar_registry.unsubscribe_calendar(settings.memory_path, request.url)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Calendar not subscribed")
+    return {"status": "ok", "url": request.url}
+
+
+@router.post("/sources/poll-calendars")
+async def poll_calendars(settings: Settings = Depends(get_settings)):
+    """Run a poll cycle over every subscribed calendar.
+
+    Respects the same network gate as feed polling
+    (``CICADA_ALLOW_FEED_FETCH=1``) — with no fetch allowed, this is a no-op
+    that reports ``skipped_no_network`` instead of hitting the network. Each
+    VEVENT within the ingestion window becomes one episode (dedup: UID +
+    DTSTART + SEQUENCE).
+    """
+    memory_path = settings.memory_path
+    result = await calendar_registry.poll_calendars(memory_path)
+    return result
+
+
+# --- Apple Notes one-way import ----------------------------------------------
+
+
+@router.post("/sources/sync-notes", response_model=NotesSyncResponse)
+async def sync_notes(
+    request: NotesSyncRequest | None = None,
+    settings: Settings = Depends(get_settings),
+):
+    """Keyless Apple Notes sync: enumerate local Notes via ``osascript`` and
+    write an episode for every new or modified note.
+
+    Body is optional. Pass an inline ``notesDump`` (the raw delimited dump —
+    what tests and a future companion-app path use) to sync against that data
+    hermetically. Omit the body to read the real local Notes.app via
+    ``osascript`` instead — never exercised in tests.
+
+    Dedup/re-emit is entirely ``memory/sources/notes_index.json`` (keyed on
+    note id, last-seen modification date): unchanged notes are skipped,
+    edited notes re-emit an updated episode, brand-new notes emit a fresh one.
+    """
+    memory_path = settings.memory_path
+
+    if request is not None and request.notes_dump is not None:
+        result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump)
+    else:
+        result = await notes_sync.sync_from_local_notes(memory_path)
+
+    sync_state.record_sync(memory_path, "notes", count=int(result.get("total") or 0))
+
+    return NotesSyncResponse(**result)

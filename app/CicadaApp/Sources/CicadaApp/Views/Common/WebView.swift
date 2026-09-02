@@ -64,7 +64,7 @@ struct WebPreviewSheet: View {
                         .font(.system(size: 12))
                         .foregroundStyle(CicadaTheme.textSecondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
                 .help("Open in your browser")
 
                 Button { dismiss() } label: {
@@ -75,7 +75,7 @@ struct WebPreviewSheet: View {
                         .background(CicadaTheme.surfaceHover)
                         .clipShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
             .padding(CicadaTheme.spacingLG)
 

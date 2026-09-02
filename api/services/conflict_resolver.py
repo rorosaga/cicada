@@ -2,7 +2,7 @@
 
 import json
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import litellm
@@ -10,13 +10,38 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import entity_body, markdown_parser
+from api.models.schemas import DecayClass
+from api.services import decay_policy, engine_errors, entity_body, json_parse, markdown_parser
+from api.services.providers import resolve_llm_fn
+
+# Confidence floor a decaying/archived entity is restored to when it is
+# mentioned again (G66 §1.6) — high enough to clear `decay_nudge_threshold`
+# (0.4) and `archive_threshold` (0.2) with room to spare, low enough that a
+# single passing mention doesn't outrank a well-established belief.
+RECOVERY_CONFIDENCE = 0.6
+
+# G85 §2 / Wave-1 1.8: a single decay pass never charges more than one
+# week's worth of decay, regardless of how many days have actually elapsed
+# since the baseline. `decay_rate` is defined per-week, so a week is the
+# natural unit. This is a safety rail INDEPENDENT of the one-shot
+# `decayed_through` backfill migration (`decay_migration.py`) — a future gap
+# (a paused schedule, a laptop off for a month, an engine outage) must
+# degrade gracefully over several cycles instead of charging the whole gap
+# as if it were user disinterest in one cliff. The watermark advances by
+# only the CAPPED amount, so the remaining "debt" persists and gets worked
+# off on subsequent cycles rather than being silently dropped.
+MAX_DECAY_DAYS_PER_CYCLE = 7
 
 
 async def resolve_and_prune(
-    resolved: list[dict], existing: list[dict], settings: Settings
+    resolved: list[dict], existing: list[dict], settings: Settings, *, now: datetime | None = None
 ) -> list[dict]:
-    """Apply conflict resolution and temporal decay to all entities."""
+    """Apply conflict resolution and temporal decay to all entities.
+
+    ``now``: decay reference time; defaults to ``datetime.now()``. Mirrors
+    ``claim_reconciler.reconcile_stage3``'s ``now_date`` — injectable so a test
+    can simulate elapsed time without monkeypatching the stdlib clock.
+    """
     changes: list[dict] = list(resolved)
 
     # IDs of entities referenced in this cycle
@@ -66,6 +91,13 @@ async def resolve_and_prune(
             )
             if synthesized:
                 change["synthesized_body"] = synthesized
+        except engine_errors.EngineError:
+            # G74(a), M2: an ENGINE failure is not "nothing to synthesize" —
+            # flattening it here let a partial throttle silently skip
+            # synthesis for every entity while the cycle still committed and
+            # reported "Completed". Propagate so the cycle stops with the
+            # episode queue intact, same contract as the resolver's judge.
+            raise
         except Exception as e:
             logger.debug(f"Synthesis failed for {entity_id}: {e}")
 
@@ -79,6 +111,10 @@ async def resolve_and_prune(
                 new_description=new_desc,
                 settings=settings,
             )
+        except engine_errors.EngineError:
+            # Same reasoning as the synthesis branch above: an engine failure
+            # must not be read as "no contradiction found".
+            raise
         except Exception as e:
             logger.debug(f"Contradiction check failed for {entity_id}: {e}")
             contradiction = None
@@ -86,21 +122,27 @@ async def resolve_and_prune(
         if contradiction and contradiction.get("has_unresolvable_contradiction"):
             conflicts_found += 1
             progress.set_postfix_str(f"conflicts={conflicts_found}", refresh=False)
+            today_str = str(date.today())
+            built = build_entity_question(entity_name, contradiction, today_str)
             changes.append({
                 "id": entity_id,
                 "action": "conflict_nudge",
                 "entity": new_entity,
                 "conflict_context": contradiction.get("contradiction", ""),
-                "options": contradiction.get("options", []),
+                "predicate": "description",
+                "question": built["question"],
+                "options": built["options"],
+                "allow_other": True,
+                "allow_defer": True,
                 "source_episode": change.get("source_episode", ""),
                 "trigger": "sleep/conflict_resolution",
             })
 
     progress.close()
 
-    # Temporal decay for unreferenced entities
-    # decay_rate is a per-week rate — convert per-cycle decay to days-based decay
-    now = datetime.now()
+    # Temporal decay for unreferenced entities. The per-week rate and the class
+    # both come from `decay_policy.resolve` — evergreen entities are skipped.
+    now = now or datetime.now()
     decay_candidates = [e for e in existing if e["id"] not in referenced_ids]
     decay_progress = tqdm(
         total=len(decay_candidates),
@@ -123,13 +165,39 @@ async def resolve_and_prune(
             continue
 
         confidence = fm.get("confidence", 0.5)
-        decay_rate = fm.get("decay_rate", 0.05)
-        days_since = _days_since_last_referenced(fm.get("last_referenced"), now)
+        decay_class, decay_rate = decay_policy.resolve(fm)
+        if decay_class is DecayClass.evergreen:
+            # An artifact, not a belief: it does not become less true by going
+            # unmentioned. No decay math, no decay nudge, never auto-archived.
+            continue
+        # G85 §2 / Wave-1 1.1: decay must be charged exactly once per elapsed
+        # interval. The write branch below stamps `decayed_through` on every
+        # decay pass; read it back here and measure `days_since` from
+        # whichever is more recent — `last_referenced` (moved forward by an
+        # actual re-mention) or `decayed_through` (moved forward by the last
+        # decay pass itself, referenced or not). Without this, an unreferenced
+        # entity's `last_referenced` never advances and every Sleep run
+        # re-subtracts the SAME full interval from the already-decayed value.
+        baseline = _max_date(
+            _extract_date_string(fm.get("last_referenced")),
+            _extract_date_string(fm.get("decayed_through")),
+        )
+        days_since = _days_since_last_referenced(baseline, now)
         if days_since is None:
             # Fallback: single step if we cannot determine last reference
             decay_amount = decay_rate
+            decay_today = now.date().isoformat()
         else:
-            decay_amount = decay_rate * (days_since / 7.0)
+            # Wave-1 1.8: cap the charge at MAX_DECAY_DAYS_PER_CYCLE and
+            # advance the watermark by only that capped amount — a long gap
+            # (outage, paused schedule) works off gradually over several
+            # cycles instead of hitting the whole gap in one.
+            charged_days = min(days_since, MAX_DECAY_DAYS_PER_CYCLE)
+            decay_amount = decay_rate * (charged_days / 7.0)
+            baseline_date = date.fromisoformat(baseline) if baseline else now.date()
+            decay_today = min(
+                now.date(), baseline_date + timedelta(days=charged_days)
+            ).isoformat()
         new_confidence = max(0.0, confidence - decay_amount)
 
         if new_confidence < settings.archive_threshold:
@@ -140,6 +208,7 @@ async def resolve_and_prune(
                 "new_status": "archived",
                 "source_episode": "",
                 "trigger": "sleep/decay",
+                "decayed_through": decay_today,
             })
         elif new_confidence < settings.decay_nudge_threshold:
             changes.append({
@@ -149,6 +218,7 @@ async def resolve_and_prune(
                 "new_status": "decaying",
                 "source_episode": "",
                 "trigger": "sleep/decay",
+                "decayed_through": decay_today,
             })
         else:
             changes.append({
@@ -158,6 +228,7 @@ async def resolve_and_prune(
                 "new_status": status,
                 "source_episode": "",
                 "trigger": "sleep/decay",
+                "decayed_through": decay_today,
             })
 
     decay_progress.close()
@@ -187,14 +258,21 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             entity = change.get("entity", {})
             created_date = _earliest_change_date(change) or str(date.today())
             last_referenced = _latest_change_date(change) or created_date
+            entity_type = entity.get("type", "concept")
+            # Stage-1 may PROPOSE a class; `agent_class` re-applies the rail here
+            # so an `evergreen` that slipped past extraction can never be written.
+            decay_class = (
+                decay_policy.agent_class(entity.get("decay_class"))
+                or decay_policy.default_class_for(entity_type)
+            )
             frontmatter = {
                 "name": entity.get("name", entity_id.replace("-", " ").title()),
-                "type": entity.get("type", "concept"),
+                "type": entity_type,
                 "status": "active",
                 "confidence": entity.get("confidence", 0.5),
                 "created": created_date,
                 "last_referenced": last_referenced,
-                "decay_rate": 0.05,
+                **decay_policy.frontmatter_fields(decay_class),
                 "source_episodes": _change_source_episodes(change),
                 "tags": entity.get("tags", []) or [],
                 "aliases": entity.get("aliases", []) or [],
@@ -219,6 +297,19 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 _latest_change_date(change),
             ) or str(date.today())
             parsed.frontmatter["version"] = parsed.frontmatter.get("version", 1) + 1
+
+            # Recovery (G66 §1.6): a re-mention is the counter-signal to decay.
+            # CLAUDE.md has always promised "if mentioned again: promoted back,
+            # confidence restored" — before this, only `last_referenced` moved.
+            # `dropped` is deliberately excluded: the user dismissed that entity
+            # and it is never resurfaced.
+            if str(parsed.frontmatter.get("status", "active")) in ("decaying", "archived"):
+                parsed.frontmatter["status"] = "active"
+                parsed.frontmatter["confidence"] = max(
+                    float(parsed.frontmatter.get("confidence", 0.0) or 0.0),
+                    RECOVERY_CONFIDENCE,
+                )
+
             episodes = parsed.frontmatter.get("source_episodes", [])
             for source_ep in _change_source_episodes(change):
                 if source_ep and source_ep not in episodes:
@@ -300,6 +391,12 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             parsed.frontmatter["confidence"] = change.get("new_confidence", 0.0)
             if "new_status" in change:
                 parsed.frontmatter["status"] = change["new_status"]
+            # G85 §2 / Wave-1 1.1: stamp the watermark so the NEXT decay pass
+            # charges only the interval elapsed since today, not the whole
+            # span back to `last_referenced` again. Uses the SAME reference
+            # date the decay pass computed against (falls back to the real
+            # today for a change dict built outside `resolve_and_prune`).
+            parsed.frontmatter["decayed_through"] = change.get("decayed_through") or str(date.today())
             markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
 
     write_progress.close()
@@ -574,8 +671,14 @@ async def _synthesize_entity_update(
         new_history=json.dumps(new_history_entries) if new_history_entries else "[]",
         source_reference_date=source_reference_date or "unknown",
     )
-    response = await litellm.acompletion(
-        model=settings.litellm_model,
+    # Route through the provider factory (CQA-H3) so llm_mode="local" (ollama)
+    # and consolidation_model overrides apply uniformly here too. completion
+    # stays litellm.acompletion, so this is still awaited exactly as before.
+    llm_fn = resolve_llm_fn(
+        settings, model=settings.effective_consolidation_model,
+        completion=litellm.acompletion, stage="merge",
+    )
+    response = await llm_fn(
         messages=[{"role": "user", "content": prompt}],
     )
     body = response.choices[0].message.content or ""
@@ -605,10 +708,62 @@ Respond with JSON only:
 {{
   "has_unresolvable_contradiction": true | false,
   "contradiction": "one-sentence description of the contradiction, or empty",
-  "options": ["Option A matching an existing claim", "Option B matching the new claim", "Both are true (different contexts)"]
+  "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does Rodrigo work now?'). Empty when there is no contradiction.",
+  "options": [
+    {{"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"}},
+    {{"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"}},
+    {{"label": "Both are true (different contexts)", "description": "Keep both, each tagged with its context"}}
+  ]
 }}
 
-If there is no contradiction, set has_unresolvable_contradiction to false and options to []."""
+If there is no contradiction, set has_unresolvable_contradiction to false, question to "", and options to []."""
+
+
+_BOTH_OPTION = {
+    "key": "both",
+    "label": "Both are true (different contexts)",
+    "description": "Keep both claims, each tagged with its context",
+    "claim_id": None,
+}
+
+
+def build_entity_question(entity_name: str, raw: dict | None, today: str) -> dict:
+    """Normalize an LLM contradiction payload into the G60 question object.
+
+    The entity path has no claims behind its options (it compares page bodies),
+    so every option carries ``claim_id: None`` and the item keys on the literal
+    predicate ``"description"``. A missing/blank ``question`` or a flat
+    ``options: [str]`` payload degrades to the deterministic template rather
+    than producing a card with no question — under-specifying is safe here.
+    """
+    from api.services import predicates
+
+    raw = raw or {}
+    question = str(raw.get("question", "") or "").strip()
+    if not question:
+        question = predicates.predicate_question("description", entity_name)
+
+    options: list[dict] = []
+    for key, item in zip(("a", "b"), raw.get("options") or []):
+        if isinstance(item, dict):
+            label = str(item.get("label", "") or "").strip()
+            description = str(item.get("description", "") or "").strip()
+        else:
+            label = str(item).strip()
+            description = ""
+        if not label or label == _BOTH_OPTION["label"]:
+            continue
+        options.append({
+            "key": key,
+            "label": label,
+            "description": description or f"Described on the page as of {today}",
+            "claim_id": None,
+            "observed_at": today,
+            "last_referenced": today,
+        })
+
+    options.append(dict(_BOTH_OPTION))
+    return {"question": question, "options": options}
 
 
 async def _detect_contradiction(
@@ -623,10 +778,13 @@ async def _detect_contradiction(
         existing_body=existing_body[:4000],
         new_description=new_description[:2000],
     )
-    response = await litellm.acompletion(
-        model=settings.litellm_model,
+    llm_fn = resolve_llm_fn(
+        settings, model=settings.effective_consolidation_model,
+        completion=litellm.acompletion, stage="conflict",
+    )
+    response = await llm_fn(
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )
     raw = response.choices[0].message.content
-    return json.loads(raw)
+    return json_parse.parse_json_object(raw)

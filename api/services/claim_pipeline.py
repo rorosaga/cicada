@@ -44,7 +44,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import markdown_parser
+from api.services import markdown_parser, telemetry
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, parse_claims, write_claims
 from api.services.entity_extractor import entities_to_claims
@@ -116,6 +116,16 @@ def run_claim_pipeline(
         settings,
         now_date=today,
     )
+    # G113 — every supersede/reject the reconciler decided lands in the ledger.
+    # One pass covers every subject, so the subject is recovered per entry from
+    # the claim ids involved rather than passed once for the whole batch.
+    subject_by_id = {c.id: c.subject for claims in existing_by_subject.values() for c in claims}
+    subject_by_id.update({c.id: c.subject for c in incoming})
+    for entry in audit:
+        subject = subject_by_id.get(entry.get("by") or entry.get("dropped")) or subject_by_id.get(
+            entry.get("closed") or entry.get("kept")
+        )
+        telemetry.record_audit([entry], subject_hint=subject, bank=memory_path.name, stage="reconcile")
 
     # ---- Stage 5: write reconciled claims back INTO each entity page ----
     entities_dir = memory_path / "entities"
@@ -134,6 +144,9 @@ def run_claim_pipeline(
             continue
         try:
             parsed = markdown_parser.parse(filepath)
+            # strict guard: if the existing block is unparseable, raise (caught
+            # below) instead of overwriting claims we could not read.
+            parse_claims(parsed.body, strict=True)
             new_body = write_claims(parsed.body, claims)
             if new_body != parsed.body:
                 markdown_parser.write(filepath, parsed.frontmatter, new_body)

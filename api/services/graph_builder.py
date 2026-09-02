@@ -1,12 +1,57 @@
+import hashlib
+import json
+import re
 from collections import Counter
 from pathlib import Path
 
 import yaml
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import predicates
+from api.services import bank_index, decay_policy, logo_service, predicates
 from api.services.claims import parse_claims
+from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import parse
+
+_SUMMARY_RE = re.compile(r"^##\s+Summary\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def summarize(body: str) -> str | None:
+    """Return a short preview: the first non-empty line under a ``## Summary``
+    heading, else the first 200 chars of the body with newlines collapsed."""
+    text = (body or "").strip()
+    if not text:
+        return None
+    m = _SUMMARY_RE.search(text)
+    if m:
+        rest = text[m.end():]
+        for line in rest.splitlines():
+            s = line.strip()
+            if s.startswith("#"):
+                break
+            if s:
+                return s[:200]
+    flat = " ".join(l.strip() for l in text.splitlines() if l.strip() and not l.strip().startswith("#"))
+    return flat[:200] or None
+
+
+def content_hash(fm: dict, body: str) -> str:
+    """sha1 of frontmatter JSON + body, truncated to 12 hex chars."""
+    return hashlib.sha1((json.dumps(fm, sort_keys=True, default=str) + "\n" + (body or "")).encode()).hexdigest()[:12]
+
+
+def synthetic_hash(*parts) -> str:
+    """Deterministic 12-hex fingerprint for a node with no file behind it.
+
+    ``hub:*`` and ``repo:*`` nodes are derived at read time, so they have no
+    frontmatter/body to hash — they used to ship ``content_hash=""``. The
+    companion app's diff treats an empty hash as "assume changed" (the safe
+    degradation path for an older backend), so every one of them was re-pushed
+    in every single delta. Hashing their defining fields instead means they
+    change exactly when they change.
+    """
+    joined = "\x1f".join("" if p is None else str(p) for p in parts)
+    return hashlib.sha1(joined.encode()).hexdigest()[:12]
+
 
 # Module-level mtime cache. The full (unfiltered) graph is expensive to build
 # over ~1882 entities; keying on the entities-dir + edges-file + inbox mtimes
@@ -48,6 +93,10 @@ def _build_full(memory_path: Path) -> GraphResponse:
         _mtime(edges_file),
         _dir_mtime(hubs_dir),
         _inbox_mtime(memory_path),
+        # G59: the logo cache lives outside the bank, so a warm-up or an
+        # on-demand fetch moves no other key here — without this the cached
+        # response keeps every node's stale `has_logo` (and `content_hash`).
+        _mtime(logo_service.meta_path(logo_service.bank_name(memory_path))),
     )
     if _CACHE["key"] == key:
         return _CACHE["value"]
@@ -71,16 +120,30 @@ def _build_full(memory_path: Path) -> GraphResponse:
     subject_contexts: dict[str, set[str]] = {}
     edge_claim_index: dict[tuple[str, str, str], tuple[str, str]] = {}
     all_observers: set[str] = set()
-    for filepath in sorted(entities_dir.glob("*.md")):
+    # G-repo: read-time repo:<slug> synthetic nodes + "has repo" edges, derived
+    # from each entity's declared `repos:` frontmatter — nothing persisted to
+    # disk. One node per distinct repo PATH (not per entity), so two entities
+    # pointing at the same checkout share a single node with an edge from each
+    # owner (mirrors the hub: injection just below).
+    repo_node_names: dict[str, str] = {}  # "repo:<slug>" -> display name
+    repo_node_paths: dict[str, set[str]] = {}  # "repo:<slug>" -> declared paths
+    repo_links: list[GraphLink] = []
+    # G59: which entities already have a cached logo. One read of a small JSON
+    # index — never a fetch, never a per-node stat storm.
+    try:
+        logo_ids = logo_service.cached_ids(logo_service.bank_name(memory_path))
+    except Exception:
+        logo_ids = set()
+    for f in bank_index.files(memory_path, "entities"):
+        fm = f.frontmatter
+        eid = f.stem
         try:
-            parsed = parse(filepath)
-            fm = parsed.frontmatter
+            body = f.body()
         except Exception:
             continue
-        eid = filepath.stem
         entity_ids.add(eid)
         try:
-            for claim in parse_claims(parsed.body):
+            for claim in parse_claims(body):
                 if claim.valid_to is not None or claim.superseded_by:
                     continue  # overlay reflects currently-valid beliefs only
                 if claim.observer:
@@ -106,6 +169,35 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 has_pending=eid in pending_ids,
                 observers=sorted(subject_observers.get(eid, set())),
                 contexts=sorted(subject_contexts.get(eid, set())),
+                summary=summarize(body),
+                content_hash=content_hash(fm, body),
+                has_logo=eid in logo_ids,
+                decay_class=decay_policy.resolve(fm)[0],
+            )
+        )
+        for repo_decl in fm.get("repos") or []:
+            if not isinstance(repo_decl, dict):
+                continue
+            repo_path = str(repo_decl.get("path", "") or "").strip()
+            if not repo_path:
+                continue
+            display_name = Path(repo_path).name or repo_path
+            repo_id = f"repo:{sanitize_id(display_name)}"
+            repo_node_names.setdefault(repo_id, display_name)
+            repo_node_paths.setdefault(repo_id, set()).add(repo_path)
+            repo_links.append(GraphLink(source=eid, target=repo_id, label="has repo"))
+
+    for repo_id, display_name in repo_node_names.items():
+        # Paths are sorted so the hash does not depend on entity scan order.
+        paths = sorted(repo_node_paths.get(repo_id, set()))
+        nodes.append(
+            GraphNode(
+                id=repo_id,
+                name=display_name,
+                type="repo",
+                status="active",
+                confidence=1.0,
+                content_hash=synthetic_hash("repo", repo_id, display_name, *paths),
             )
         )
 
@@ -134,6 +226,23 @@ def _build_full(memory_path: Path) -> GraphResponse:
                     is_hub=True,
                     member_count=int(fm.get("member_count", len(members)) or 0),
                     hub_kind=fm.get("hub_kind"),
+                    # `len(members)` is in the hash because it is also the
+                    # node's `degree`, and because a membership change rewrites
+                    # this hub's `member of` edges — the client replaces the
+                    # whole link list when the edge set moves, so the hub node
+                    # should report as updated in the same delta rather than
+                    # lagging a cycle behind its own edges. Note this tracks
+                    # the member *count*, not identity: swapping one member for
+                    # another leaves the hash unchanged, which is acceptable
+                    # because the edge diff carries that change already.
+                    content_hash=synthetic_hash(
+                        "hub",
+                        hub_id,
+                        fm.get("name", filepath.stem),
+                        fm.get("hub_kind"),
+                        int(fm.get("member_count", len(members)) or 0),
+                        len(members),
+                    ),
                 )
             )
             for m in members:
@@ -149,9 +258,26 @@ def _build_full(memory_path: Path) -> GraphResponse:
         if node.id in member_to_hub:
             node.hub_id = member_to_hub[node.id]
 
+    # Fold the server-derived fields into each entity node's content hash.
+    # `degree`, `has_pending` and `hub_id` are computed here, not stored in the
+    # entity file, so a change in any of them leaves `content_hash(fm, body)`
+    # identical — and the companion app's `GraphDiff` would never report the
+    # node as updated (the pending-clarification pulse never appeared live).
+    # The file hash stays the base; the extras are folded in deterministically.
+    # Runs after hub injection (so `hub_id` is known) and before facet nodes are
+    # built (they fold the parent's hash in, so they follow their subject).
+    for node in nodes:
+        if node.id in entity_ids:
+            node.content_hash = synthetic_hash(
+                node.content_hash, node.degree, node.has_pending, node.hub_id,
+                node.has_logo, node.decay_class.value,
+            )
+
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).
-    valid_ids = entity_ids | {n.id for n in nodes if n.is_hub}
+    # repo:<slug> ids join valid_ids so `has repo` edges survive filtering too.
+    valid_ids = entity_ids | {n.id for n in nodes if n.is_hub} | set(repo_node_names)
     links = [l for l in raw_links if l.source in valid_ids and l.target in valid_ids]
+    links.extend(repo_links)
 
     # M5b: tag each edge with the backing claim's id + context when a valid claim
     # matches (subject, normalized-label, object). Additive — leaves context/
@@ -192,6 +318,14 @@ def _build_full(memory_path: Path) -> GraphResponse:
                     is_facet=True,
                     parent_id=subject,
                     context=ctx,
+                    # Facets are synthetic too — derived from the parent's
+                    # claim contexts, with no file of their own. Fold the
+                    # parent's own hash in so a facet moves when its subject
+                    # does. (Same empty-hash re-push problem as hub:/repo:.)
+                    content_hash=synthetic_hash(
+                        "facet", subject, ctx, parent.type, parent.status,
+                        parent.confidence, parent.content_hash,
+                    ),
                 )
             )
             facet_links.append(
@@ -418,3 +552,10 @@ def _inbox_mtime(memory_path: Path) -> float:
         if m > latest:
             latest = m
     return latest
+
+
+# Public aliases for callers outside this module (e.g. sync_service) that only
+# need the cheap mtime helpers, not the full cached graph build.
+dir_mtime = _dir_mtime
+file_mtime = _mtime
+inbox_mtime = _inbox_mtime

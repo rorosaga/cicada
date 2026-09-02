@@ -12,6 +12,7 @@ final class MenuBarManager: NSObject {
 
     private var statusItem: NSStatusItem?
     private var frameTimer: Timer?
+    private var digestExpiryTask: Task<Void, Never>?
     private var frameIndex = 0
     private var currentSnapshot: StatusSnapshot?
     private var justFinishedAt: Date?
@@ -58,6 +59,31 @@ final class MenuBarManager: NSObject {
             renderCurrentFrame()
         }
         rebuildMenu()
+        scheduleDigestExpiry(for: newState, snapshot: snapshot)
+    }
+
+    /// `digesting` is the one state that expires on a clock rather than on new
+    /// data (`deriveBookwormState` drops it 6s after the cycle finished). Push
+    /// models don't guarantee another status event inside that window, so
+    /// re-derive once ourselves — otherwise the worm chews forever.
+    private func scheduleDigestExpiry(for newState: BookwormState, snapshot: StatusSnapshot) {
+        digestExpiryTask?.cancel()
+        digestExpiryTask = nil
+        guard case .digesting = newState, let finished = justFinishedAt else { return }
+        let remaining = 6.1 - Date().timeIntervalSince(finished)
+        guard remaining > 0 else { return }
+        digestExpiryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled, let self else { return }
+            // Same snapshot, later clock: `digesting` has aged out by now.
+            self.apply(snapshot: snapshot, justFinishedAt: self.justFinishedAt)
+        }
+    }
+
+    /// The ``Store`` owns sleep running→idle edge detection; it tells us when a
+    /// cycle finished so `digesting` fires exactly once from one authority.
+    func noteCycleFinished(at date: Date = Date()) {
+        justFinishedAt = date
     }
 
     /// Patches only the sleep portion of the current snapshot and re-derives.
@@ -72,12 +98,11 @@ final class MenuBarManager: NSObject {
             cycleId: sleep.cycleId,
             error: sleep.error
         )
-        // Track the running -> idle edge locally so digesting fires even when the
-        // 30s poll hasn't run yet.
-        let wasRunning = currentSnapshot?.sleep.status == "running"
-        if wasRunning, sleep.status != "running", (sleep.error ?? "").isEmpty {
-            justFinishedAt = Date()
-        }
+        // NOTE: the running -> idle edge is NOT computed here. The Store is the
+        // single owner of `justFinishedAt` (it sees both `/status` refreshes and
+        // live `sleep` SSE events) and hands it to us via `apply` /
+        // `noteCycleFinished(at:)`. Two independent edge detectors used to
+        // double-fire `digesting`.
         apply(snapshot: snap, justFinishedAt: justFinishedAt)
     }
 

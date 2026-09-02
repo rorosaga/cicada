@@ -74,6 +74,38 @@ def test_activate_switches_resolution(tmp_path):
     assert bank_registry.resolve_active_bank_path(tmp_path) == tmp_path
 
 
+def test_scaffold_seeds_the_real_predicate_map_not_an_empty_placeholder(tmp_path):
+    """Wave-1 1.3: a bare `{}` left the cardinality oracle with no
+    single_valued/multi_valued data for every predicate — `uses`, `is-a`,
+    `located-in`, `depends-on` and friends all silently defaulted to
+    "unseen => coexist" until Sleep happened to install the seed itself.
+    """
+    from api.services import predicates
+
+    bank_registry.scaffold_bank(tmp_path, git_init=False)
+    predicates_path = tmp_path / "_predicates.yaml"
+    assert predicates_path.read_text(encoding="utf-8").strip() != "{}"
+
+    card = predicates.build_cardinality_fn(tmp_path)
+    assert card("works-at") is True  # still single-valued
+    # moved to multi-valued (G98: set-valued predicates, not primary choices)
+    assert card("uses") is False
+    assert card("is-a") is False
+    assert card("located-in") is False
+    assert card("depends-on") is False
+
+
+def test_scaffold_does_not_clobber_an_already_populated_predicate_map(tmp_path):
+    bank_registry.scaffold_bank(tmp_path, git_init=False)
+    predicates_path = tmp_path / "_predicates.yaml"
+    predicates_path.write_text(
+        "canonical: [custom]\nsynonyms: {}\nsingle_valued: [custom]\nmulti_valued: []\n",
+        encoding="utf-8",
+    )
+    bank_registry.scaffold_bank(tmp_path, git_init=False)  # idempotent re-run
+    assert "custom" in predicates_path.read_text(encoding="utf-8")
+
+
 def test_activate_unknown_rejected(tmp_path):
     with pytest.raises(ValueError):
         bank_registry.activate_bank(tmp_path, "nope")
@@ -179,6 +211,39 @@ def test_create_then_activate_then_duplicate(tmp_path, monkeypatch):
     config.get_settings.cache_clear()
 
 
+def test_activate_runs_the_one_shot_migrations_for_the_new_bank(tmp_path, monkeypatch):
+    """M2: the per-bank migrations used to run only for the boot-time bank.
+
+    A bank switched to at runtime stayed unclassed — so its media pages kept
+    fading in the Feed while the graph and both decay engines called them
+    evergreen — until the next API restart.
+    """
+    client = _client(tmp_path, monkeypatch)
+    client.post("/banks", json={"name": "Research"})
+
+    bank = tmp_path / "banks" / "research"
+    markdown_parser.write(
+        bank / "entities" / "saved-video.md",
+        {
+            "name": "Saved Video",
+            "type": "media",
+            "status": "active",
+            "confidence": 0.7,
+            "decay_rate": 0.03,  # legacy: no decay_class
+            "version": 1,
+        },
+        "## Summary\n\nA saved video.",
+    )
+
+    assert client.post("/banks/research/activate").status_code == 200
+
+    fm = markdown_parser.parse(bank / "entities" / "saved-video.md").frontmatter
+    assert fm["decay_class"] == "evergreen"
+    assert fm["decay_rate"] == 0.0
+    assert (bank / ".decay_classed").exists(), "marker-guarded, so a re-activate is a no-op"
+    config.get_settings.cache_clear()
+
+
 def test_activate_unknown_404(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     assert client.post("/banks/ghost/activate").status_code == 404
@@ -254,6 +319,9 @@ def test_import_claude_backdates_episodes(tmp_path, monkeypatch):
     assert body["duplicatesSkipped"] == 0
     assert body["dateRange"]["from"] == "2025-11-03"
     assert body["dateRange"]["to"] == "2026-02-24"
+    # G87 / Wave-1 1.6: "imports" was created but never activated — "default"
+    # still is, so these episodes are staged into a bank Sleep never touches.
+    assert body["active"] is False
 
     # Episodes land in the TARGET bank, backdated to the conversation date.
     ep_dir = tmp_path / "banks" / "imports" / "episodes"
@@ -264,7 +332,9 @@ def test_import_claude_backdates_episodes(tmp_path, monkeypatch):
     assert "ep_2025-11-03_001" in stems
 
     parsed = markdown_parser.parse(ep_dir / "ep_2026-02-24_001.md")
-    assert parsed.frontmatter["timestamp"] == "2026-02-24T12:39:02.701295Z"
+    # G114 R2: the export's `...Z` instant is kept to the microsecond but
+    # written in the one `+00:00` shape every writer emits.
+    assert parsed.frontmatter["timestamp"] == "2026-02-24T12:39:02.701295+00:00"
     assert parsed.frontmatter["origin"] == "claude-export"
     assert parsed.frontmatter["processed"] is False
 
@@ -283,6 +353,26 @@ def test_import_dedup_against_target_bank(tmp_path, monkeypatch):
     assert r2.json()["episodesStaged"] == 0
     assert r2.json()["duplicatesSkipped"] == 2
     config.get_settings.cache_clear()
+
+
+def test_import_into_the_active_bank_reports_active_true(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    # "default" is the legacy bank and is active from the start (no create/
+    # activate call needed) — importing straight into it must report active.
+    r = _upload(client, "default", _CLAUDE_EXPORT)
+    assert r.status_code == 200, r.text
+    assert r.json()["active"] is True
+
+
+def test_import_after_switching_active_reports_active_true(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/banks", json={"name": "Imports"})
+    activate = client.post("/banks/imports/activate")
+    assert activate.status_code == 200, activate.text
+
+    r = _upload(client, "imports", _CLAUDE_EXPORT)
+    assert r.status_code == 200, r.text
+    assert r.json()["active"] is True
 
 
 def test_import_unknown_bank_404(tmp_path, monkeypatch):

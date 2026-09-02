@@ -1,14 +1,15 @@
 """Stage 2: Entity Resolution & Deduplication."""
 
 import asyncio
-import json
 from collections import Counter
+from typing import Callable
 
 import litellm
 from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
+from api.services import engine_errors, json_parse
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -18,11 +19,52 @@ from api.services.vector_index import PendingEntity, SqliteVecIndexer
 
 
 async def resolve(
-    extracted: list[dict], existing: list[dict], settings: Settings
+    extracted: list[dict],
+    existing: list[dict],
+    settings: Settings,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> dict:
     """Resolve extracted entities against existing graph. Enforce promotion model.
 
     Returns dict with 'changes' (entity updates) and 'relationships' (resolved edges).
+
+    ``cancel_check`` (sleep-control): an optional zero-arg predicate polled at
+    the top of every iteration of the per-name judging loop below — the long
+    sequential LLM-judge loop the whole Stage exists to run. Once it starts
+    returning ``True``, the loop stops taking new names (no further judge
+    calls spent) and this returns whatever it has accumulated so far; the
+    caller (``sleep_cycle._run_stages``) discards a partial result like this
+    entirely on a cancelled cycle, so returning early rather than raising
+    keeps this function's contract simple. ``None`` (the default, and every
+    existing call site) means "never cancel" — behavior is unchanged.
+
+    Transactional Stage 2 (Devin PR #27 round 1, CRITICAL): every disk
+    mutation this stage can make — a new/resolved clarification file
+    (``ClarificationManager.create`` / ``.check_organic_resolution``, the
+    latter of which can *delete* an inbox item) and a pending-entity index
+    write (``SqliteVecIndexer.index_pending_entity`` / ``.promote_from_
+    pending`` / ``.rebuild_pending_index``) — used to run INLINE, interleaved
+    with the per-name loop, before ``sleep_cycle`` ever got to check
+    ``cancel_check()`` and discard the returned ``changes``. A cancel after
+    even one name had already left those side effects behind: a dirty bank —
+    precisely what "cancel must never leave a dirty bank" promises never
+    happens — and worse, an organically-resolved clarification could be
+    permanently deleted with no corresponding entity update ever reaching
+    Stage 5 to justify it. Silent data loss on an action advertised as safe.
+
+    Fixed by recording every one of those calls into ``pending_actions``
+    during the loop — never executing them there — and flushing the list
+    (in the same order they were queued) ONLY if the loop ran to completion
+    without cancelling. A cancelled call therefore makes ZERO disk writes,
+    exactly like every other Stage 1-4 abort point already guarantees; the
+    deferred actions are simply dropped along with the (already-discarded)
+    return value. Disclosed trade-off: flushing at the end means a pending-
+    index write from an early name in THIS SAME loop is no longer visible to
+    a ``pending_by_name`` read for a later name in the SAME loop (only a
+    PRIOR cycle's committed writes are) — arguably the more correct reading
+    of "was this already staged as pending" anyway, and the actual cross-
+    cycle promotion-from-pending path this exists for is unaffected.
     """
     disambig_model = (
         getattr(settings, "litellm_disambiguation_model", "") or settings.litellm_model
@@ -101,6 +143,13 @@ async def resolve(
     resolved_updates: dict[str, dict] = {}
     resolved_creates: dict[str, dict] = {}
 
+    # Transactional Stage 2 (see the docstring above): every clarifier/index
+    # WRITE the loop below would have made inline is recorded here instead —
+    # (callable, args, kwargs), executed in this exact order only if the
+    # loop completes without cancelling. `cancelled` records whether it did.
+    pending_actions: list[tuple[Callable, tuple, dict]] = []
+    cancelled = False
+
     # Process more specific names first so "Rodrigo Sagastegui" becomes the
     # canonical in-cycle entity and "Rodrigo" can merge into it rather than
     # the other way around.
@@ -111,6 +160,13 @@ async def resolve(
     )
 
     for name_lower, entity in ordered_entities:
+        # Sleep-control checkpoint: the long sequential loop the task calls
+        # out by name. Checked BEFORE each name's own (possibly LLM-calling)
+        # judge — never mid-judge — so a cancel stops taking new names
+        # without ever interrupting one already in flight.
+        if cancel_check is not None and cancel_check():
+            cancelled = True
+            break
         name = entity["name"]
         match = _find_direct_candidate_match(
             new_entity=entity,
@@ -129,13 +185,14 @@ async def resolve(
         if match is not None and match["decision"] == "same":
             candidate = match["candidate"]
             name_to_id[name_lower] = candidate["id"]
-            try:
-                clarifier.check_organic_resolution(
-                    entity_name=name,
-                    confidence=float(entity.get("confidence", 0.0) or 0.0),
-                )
-            except Exception as e:
-                logger.debug(f"Organic clarification check failed for {name}: {e}")
+            # Deferred (see the transactional-Stage-2 docstring above): this
+            # can DELETE an inbox item, which must never happen for a name
+            # whose match a cancellation is about to discard.
+            pending_actions.append((
+                clarifier.check_organic_resolution,
+                (),
+                {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
+            ))
 
             if candidate["source"] == "existing":
                 _merge_into_update(
@@ -179,11 +236,11 @@ async def resolve(
         )
 
         if ambiguous_match:
-            _create_duplicate_clarification(
-                clarifier=clarifier,
-                entity=entity,
-                candidate=match["candidate"],
-            )
+            pending_actions.append((
+                _create_duplicate_clarification,
+                (),
+                {"clarifier": clarifier, "entity": entity, "candidate": match["candidate"]},
+            ))
 
         if should_promote and not ambiguous_match:
             entity_id = sanitize_id(name)
@@ -206,46 +263,38 @@ async def resolve(
                 "source_episode_timestamps": [entity.get("source_episode_timestamp")] if entity.get("source_episode_timestamp") else [],
                 "trigger": "sleep/promotion",
             }
-            try:
-                clarifier.check_organic_resolution(
-                    entity_name=name,
-                    confidence=float(entity.get("confidence", 0.0) or 0.0),
-                )
-            except Exception as e:
-                logger.debug(
-                    f"Organic clarification check failed for {name}: {e}"
-                )
+            # Deferred (same reasoning as the "same"-match branch above).
+            pending_actions.append((
+                clarifier.check_organic_resolution,
+                (),
+                {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
+            ))
             if indexer is not None and pending_entry is not None:
-                try:
-                    indexer.promote_from_pending(name)
-                except Exception as e:
-                    logger.debug(
-                        f"Failed to clear pending entry for {name}: {e}"
-                    )
+                pending_actions.append((indexer.promote_from_pending, (name,), {}))
         else:
             confidence = float(entity.get("confidence", 0.3) or 0.3)
             if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match:
-                try:
-                    clarifier.create(
-                        entity_name=name,
-                        source_episode=entity.get("source_episode", ""),
-                        uncertainty_type=_infer_uncertainty_type(entity),
-                        suggested_classification=(
+                pending_actions.append((
+                    clarifier.create,
+                    (),
+                    {
+                        "entity_name": name,
+                        "source_episode": entity.get("source_episode", ""),
+                        "uncertainty_type": _infer_uncertainty_type(entity),
+                        "suggested_classification": (
                             f"{entity.get('type', 'concept')} — "
                             f"{(entity.get('description') or '')[:120]}"
                         ),
-                        suggested_confidence=confidence,
-                        source_context=entity.get("description", "") or "",
-                        source_episode_timestamp=entity.get("source_episode_timestamp"),
-                    )
-                except Exception as e:
-                    logger.debug(
-                        f"Failed to create clarification for {name}: {e}"
-                    )
+                        "suggested_confidence": confidence,
+                        "source_context": entity.get("description", "") or "",
+                        "source_episode_timestamp": entity.get("source_episode_timestamp"),
+                    },
+                ))
 
             if indexer is not None:
-                try:
-                    indexer.index_pending_entity(PendingEntity(
+                pending_actions.append((
+                    indexer.index_pending_entity,
+                    (PendingEntity(
                         name=name,
                         type=entity.get("type", "concept"),
                         description=entity.get("description", "") or "",
@@ -253,9 +302,9 @@ async def resolve(
                         confidence=confidence,
                         tags=list(entity.get("tags", []) or []),
                         history_entries=list(entity.get("history_entries", []) or []),
-                    ))
-                except Exception as e:
-                    logger.debug(f"Failed to store pending entity {name}: {e}")
+                    ),),
+                    {},
+                ))
 
     resolved = list(resolved_updates.values()) + list(resolved_creates.values())
 
@@ -292,14 +341,37 @@ async def resolve(
                     "label": label,
                 })
 
-    # Rebuild the pending LEANN index once, after all sub-threshold entities
-    # have been appended to the store. Rebuilding per-entity is O(N^2) and
-    # sends every passage back to OpenAI on every call.
-    if indexer is not None:
-        try:
-            indexer.rebuild_pending_index()
-        except Exception as e:
-            logger.debug(f"Pending index rebuild failed: {e}")
+    # Transactional Stage 2 (see the module docstring above): flush every
+    # deferred clarifier/index write ONLY if the loop was never cancelled —
+    # a cancelled call makes ZERO disk writes, in the same exact order the
+    # loop would have made them inline. Each is wrapped individually so one
+    # failed write (a duplicate clarification collision, a locked index
+    # file) can never stop the rest from applying — the same resilience
+    # every original inline call site already had on its own.
+    if not cancelled:
+        for fn, args, kwargs in pending_actions:
+            try:
+                fn(*args, **kwargs)
+            except Exception as e:
+                logger.debug(
+                    f"Deferred Stage 2 side effect failed "
+                    f"({getattr(fn, '__name__', fn)}): {type(e).__name__}: {e}"
+                )
+
+        # Rebuild the pending LEANN index once, after all sub-threshold
+        # entities have been appended to the store. Rebuilding per-entity is
+        # O(N^2) and sends every passage back to OpenAI on every call.
+        if indexer is not None:
+            try:
+                indexer.rebuild_pending_index()
+            except Exception as e:
+                logger.debug(f"Pending index rebuild failed: {e}")
+    elif pending_actions:
+        logger.info(
+            f"Stage 2 cancelled — discarding {len(pending_actions)} deferred "
+            f"clarifier/index write(s) instead of applying them; nothing was "
+            f"written to disk"
+        )
 
     return {
         "changes": resolved,
@@ -687,8 +759,12 @@ async def _llm_judge_same_entity(
         getattr(settings, "litellm_disambiguation_model", "") or settings.litellm_model
     )
     try:
-        response = await litellm.acompletion(
-            model=disambig_model,
+        from api.services.providers import resolve_llm_fn
+
+        llm_fn = resolve_llm_fn(
+            settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation"
+        )
+        response = await llm_fn(
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             # Disable provider-side reasoning + cap the call: a same/different
@@ -699,11 +775,17 @@ async def _llm_judge_same_entity(
             timeout=120,
         )
         raw = response.choices[0].message.content or "{}"
-        parsed = json.loads(raw)
+        parsed = json_parse.parse_json_object(raw)
         decision = str(parsed.get("decision", "")).strip().lower()
         if decision in {"same", "different", "unsure"}:
             return decision
         return "unsure"
+    except engine_errors.EngineError:
+        # G74(a): an ENGINE failure is not a model's uncertainty. Flattening it
+        # to "unsure" here created a clarification and split the entity page —
+        # the inbox floods and the graph fragments while the cycle reports
+        # success. Propagate so the cycle stops with the episode queue intact.
+        raise
     except Exception as e:
         logger.debug(f"Disambiguation judge failed for {new_name} vs {existing_name}: {e}")
         return "unsure"

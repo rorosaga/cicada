@@ -21,12 +21,13 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from loguru import logger
 
-from api.services import markdown_parser
+from api.services import decay_policy, episode_ids, markdown_parser, saved_at
 from api.services.id_utils import sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
@@ -51,8 +52,42 @@ class RawItem:
     title: str | None = None
     tags: list[str] = field(default_factory=list)
     channel: str | None = None
+    # G99d: the user's actual save/bookmark/like date, ALREADY NORMALIZED to
+    # an ISO ``YYYY-MM-DD`` string by the parser that sets it (see
+    # ``api/services/saved_at.py`` — each of the five source-specific formats
+    # is converted at parse time, never carried raw). ``None`` means unknown
+    # — a source that provides no date, or one that failed to parse — and
+    # must never be guessed at downstream. Distinct from the episode's
+    # ``timestamp``/entity's ``created`` (when Cicada ingested the item).
     added: str | None = None
     note: str | None = None
+    # Human-readable source folder/category path, e.g. "Bookmarks Bar/AI/Papers"
+    # (Chrome/Safari folder tree) or a single enclosing folder name (Netscape
+    # HTML export). Provenance only — never part of dedup identity.
+    folder: str | None = None
+    # Explicit capture-provenance tag (G9 ``origin``), set by the caller when
+    # known — e.g. ``bookmark_sync._tag_origin`` sets ``"chrome-bookmark"`` /
+    # ``"safari-bookmark"``. Threaded straight through to the episode + media
+    # entity frontmatter by ``write_media_episode``/``write_media_entity``
+    # rather than derived from ``tags`` (which also carries arbitrary bookmark
+    # folder names and must not be mistaken for provenance). ``None`` when the
+    # caller has no origin to report — those writes simply omit the field, same
+    # as before this was added.
+    origin: str | None = None
+    # G48 conversation provenance, threaded from a live MCP client through
+    # `POST /sources/save`. Same contract as `origin` above: written to the
+    # episode ONLY when the caller supplies it, so every non-MCP capture path
+    # (bookmarks, RSS, the app's paste field) produces byte-identical
+    # frontmatter to before.
+    session_id: str | None = None
+    harness: str | None = None
+    project_dir: str | None = None
+    # G71 §1 — why the user saved this, in their own words (the text around the
+    # URL in a Telegram `/save`). Rendered verbatim on the episode body as a
+    # `## Saved because` section so Stage 1 extraction can pull concepts out of
+    # it exactly as it would from conversation text, and written separately as a
+    # `saved-because` claim by the caller that has one.
+    reason: str | None = None
 
 
 @dataclass
@@ -146,6 +181,8 @@ def _classify(url: str, from_bookmark_file: bool = False) -> str:
         return "youtube"
     if "instagram.com" in host:
         return "instagram"
+    if "linkedin.com" in host:
+        return "linkedin"
     if from_bookmark_file:
         return "bookmark"
     return "url"
@@ -158,6 +195,13 @@ def _site_of(url: str) -> str | None:
 
 def _fallback_title(url: str) -> str:
     parsed = urlparse(url if "://" in url else "https://" + url)
+    # A ``/watch?v=<id>`` URL carries its identity in the query string, not
+    # the path (``parsed.path`` is just ``"/watch"`` for every video) — fall
+    # back to the video id so two different unenriched videos never collide
+    # on the same fallback title (and, downstream, the same entity filename).
+    vid = _youtube_video_id(parsed)
+    if vid:
+        return vid
     seg = parsed.path.strip("/").split("/")[-1] if parsed.path.strip("/") else ""
     seg = seg.replace("-", " ").replace("_", " ").strip()
     return seg or (parsed.hostname or url)
@@ -179,6 +223,12 @@ async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMet
             return await _enrich_youtube(url, client, fallback)
         if media_type == "instagram":
             # Login-walled — never attempt scraping; URL-only by design.
+            return fallback
+        if media_type == "linkedin":
+            # ToS-walled (G69: §8.2 bans fetching the post body) — never
+            # attempt scraping; URL-only by design, same as Instagram above.
+            # This is what makes ``parse_linkedin_saved``'s "thin by design"
+            # claim actually true once an item is STAGED, not just previewed.
             return fallback
         return await _enrich_opengraph(url, client, fallback)
     except Exception as e:
@@ -257,14 +307,21 @@ def parse_netscape_bookmarks(html: str) -> list[RawItem]:
             continue
         tags = [t.strip() for t in (a.get("tags", "") or "").split(",") if t.strip()]
         # Nearest enclosing folder <H3> name -> a tag for nested links.
-        folder = a.find_previous("h3")
-        if folder and folder.get_text(strip=True):
-            tags.append(folder.get_text(strip=True))
+        # Netscape's loose/unclosed-tag HTML doesn't expose a clean DL/DT
+        # nesting to reconstruct a full folder *path* (that would mean
+        # rewriting this parser around real DOM ancestry); we carry the single
+        # nearest-enclosing folder name only, same depth this parser already
+        # sees for the tag above.
+        folder_tag = a.find_previous("h3")
+        folder_name = folder_tag.get_text(strip=True) if folder_tag else None
+        if folder_name:
+            tags.append(folder_name)
         items.append(RawItem(
             url=href,
             title=(a.get_text(strip=True) or None),
             tags=tags,
-            added=a.get("add_date"),
+            added=saved_at.from_netscape_epoch(a.get("add_date")),
+            folder=folder_name or None,
         ))
     return items
 
@@ -278,7 +335,10 @@ def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
         recursed, and each ``WebBookmarkTypeLeaf`` yields a ``RawItem`` from
         ``URLString`` + ``URIDictionary["title"]``. Folders themselves are
         skipped (never emitted as items); leaves with a non-http(s) URL
-        (``javascript:``, ``mailto:``, etc.) are skipped too.
+        (``javascript:``, ``mailto:``, etc.) are skipped too. Each folder's
+        ``Title`` is threaded down as a ``/``-joined path (e.g. ``"Favorites/
+        AI/Papers"``) and stamped on every leaf beneath it as ``folder``; the
+        root list's own ``Title`` is normally ``""`` and contributes nothing.
     (b) A Safari-exported bookmarks HTML file — Safari exports the same
         Netscape Bookmark File Format Chrome/Firefox do, so on plist-parse
         failure we decode the bytes as text and delegate straight to
@@ -299,7 +359,7 @@ def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
 
     items: list[RawItem] = []
 
-    def walk(node) -> None:
+    def walk(node, path: tuple[str, ...]) -> None:
         if not isinstance(node, dict):
             return
         if node.get("WebBookmarkType") == "WebBookmarkTypeLeaf":
@@ -307,12 +367,15 @@ def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
             if isinstance(url, str) and url.startswith(("http://", "https://")):
                 uri_dict = node.get("URIDictionary")
                 title = uri_dict.get("title") if isinstance(uri_dict, dict) else None
-                items.append(RawItem(url=url, title=title or None))
+                folder = "/".join(path) if path else None
+                items.append(RawItem(url=url, title=title or None, folder=folder))
             return
+        title = node.get("Title")
+        new_path = path + (title,) if title else path
         for child in node.get("Children", []) or []:
-            walk(child)
+            walk(child, new_path)
 
-    walk(root)
+    walk(root, ())
     return items
 
 
@@ -334,25 +397,38 @@ def read_live_safari_bookmarks() -> list[RawItem]:
 
 
 def parse_chrome_bookmarks_json(data: dict) -> list[RawItem]:
-    """Chrome ``Bookmarks`` JSON — recurse the roots tree, type=='url'."""
+    """Chrome ``Bookmarks`` JSON — recurse the roots tree, type=='url'.
+
+    Each root (``bookmark_bar``, ``other``, ``synced``) and every nested
+    ``type == "folder"`` node carries a display ``name`` (e.g. "Bookmarks
+    bar", "Reading"); that name is threaded down the recursion as a
+    ``/``-joined path (e.g. ``"Bookmarks bar/Reading"``) and stamped on every
+    ``type == "url"`` leaf beneath it as ``folder``. Folders themselves are
+    still never emitted as items — only their name flows onto descendant
+    leaves.
+    """
     items: list[RawItem] = []
 
-    def walk(node):
+    def walk(node, path: tuple[str, ...]) -> None:
         if not isinstance(node, dict):
             return
         if node.get("type") == "url" and node.get("url"):
             items.append(RawItem(
                 url=node["url"],
                 title=node.get("name") or None,
-                added=node.get("date_added"),
+                added=saved_at.from_webkit_micros(node.get("date_added")),
+                folder="/".join(path) if path else None,
             ))
+            return
+        name = node.get("name")
+        new_path = path + (name,) if name else path
         for child in node.get("children", []) or []:
-            walk(child)
+            walk(child, new_path)
 
     roots = data.get("roots", {})
     if isinstance(roots, dict):
         for root in roots.values():
-            walk(root)
+            walk(root, ())
     return items
 
 
@@ -390,8 +466,417 @@ def parse_youtube_takeout(content: bytes, filename: str) -> list[RawItem]:
             url=url,
             title=entry.get("title") or None,
             channel=channel,
-            added=entry.get("time"),
+            added=saved_at.from_iso8601(entry.get("time")),
         ))
+    return items
+
+
+def parse_instagram_saved(data: dict) -> list[RawItem]:
+    """Meta "Download your information" saved-posts export.
+
+    Canonical shape: a top-level dict with ``saved_saved_media`` holding a list
+    of records like::
+
+        {"title": "<account name>",
+         "string_map_data": {"Saved on": {"href": "https://instagram.com/reel/...",
+                                            "timestamp": 1699000000}}}
+
+    Also tolerates a **collections** variant where saves are grouped under
+    collection names — either ``saved_saved_media`` itself is a
+    ``{collection_name: [record, ...]}`` dict, or a record carries a nested
+    ``name`` + ``sources``/``media`` list (a collection wrapper). The
+    collection name becomes ``RawItem.folder``; ungrouped saves default to
+    folder ``"Saved"``.
+
+    Parses defensively — any unknown/missing key is tolerated, malformed
+    input degrades to ``[]`` rather than raising.
+    """
+    items: list[RawItem] = []
+    if not isinstance(data, dict):
+        return items
+
+    media = data.get("saved_saved_media")
+    if media is None:
+        # Tolerate any other "saved_*" top-level key carrying the payload.
+        for key, value in data.items():
+            if isinstance(key, str) and key.startswith("saved_") and value:
+                media = value
+                break
+    if media is None:
+        return items
+
+    def item_from_record(record, folder: str | None) -> None:
+        if not isinstance(record, dict):
+            return
+        title = record.get("title")
+        href = None
+        smd = record.get("string_map_data")
+        if isinstance(smd, dict):
+            saved_on = smd.get("Saved on")
+            if isinstance(saved_on, dict):
+                href = saved_on.get("href")
+            if not href:
+                for v in smd.values():
+                    if isinstance(v, dict) and v.get("href"):
+                        href = v["href"]
+                        break
+        if not href:
+            href = record.get("href") or record.get("url")
+        if not href or not isinstance(href, str):
+            return
+        items.append(RawItem(
+            url=href,
+            title=title if isinstance(title, str) else None,
+            folder=folder or "Saved",
+            origin="instagram-saved",
+        ))
+
+    if isinstance(media, list):
+        for record in media:
+            # A collections wrapper nests a "name" + "sources"/"media" list
+            # instead of a leaf record's "string_map_data".
+            if isinstance(record, dict) and "string_map_data" not in record and (
+                "sources" in record or "media" in record
+            ):
+                coll_name = record.get("name") if isinstance(record.get("name"), str) else None
+                sub_records = record.get("sources") or record.get("media") or []
+                if isinstance(sub_records, list):
+                    for sub in sub_records:
+                        item_from_record(sub, coll_name)
+                    continue
+            item_from_record(record, None)
+    elif isinstance(media, dict):
+        # {collection_name: [record, ...]}
+        for coll_name, records in media.items():
+            if isinstance(records, list):
+                for record in records:
+                    item_from_record(record, coll_name if isinstance(coll_name, str) else None)
+
+    return items
+
+
+def _is_instagram_saved_json(data) -> bool:
+    """Sniff rule: a ``.json`` whose top-level dict has a ``saved_*`` key."""
+    return isinstance(data, dict) and any(
+        isinstance(k, str) and k.startswith("saved_") for k in data.keys()
+    )
+
+
+# TikTok's "Download your data" JSON, one row per section:
+# (activity-section key, the list key inside it, the folder name, is_history).
+_TIKTOK_SECTIONS = (
+    ("Favorite Videos", "FavoriteVideoList", "Favorites", False),
+    ("Like List", "ItemFavoriteList", "Likes", False),
+    ("Video Browsing History", "VideoList", "Browsing History", True),
+)
+
+
+def _tiktok_activity(data) -> dict | None:
+    """The activity dict, under either the old ``Activity`` key or the newer
+    ``Your Activity`` one."""
+    if not isinstance(data, dict):
+        return None
+    for key in ("Activity", "Your Activity"):
+        section = data.get(key)
+        if isinstance(section, dict):
+            return section
+    return None
+
+
+def _is_tiktok_export_json(data) -> bool:
+    """Sniff rule: an activity wrapper holding at least one known section."""
+    activity = _tiktok_activity(data)
+    return isinstance(activity, dict) and any(
+        name in activity for name, _list_key, _folder, _hist in _TIKTOK_SECTIONS
+    )
+
+
+def parse_tiktok_export(data, *, include_history: bool = False) -> list[RawItem]:
+    """TikTok "Download your data" ``user_data.json`` (G71 §3).
+
+    Favourites and Likes are intentional saves and are always parsed.
+    Browsing History is ambient exhaust (G69: high noise) and is parsed only
+    when the caller opts in; even then it keeps a distinct ``tiktok-history``
+    origin so ``/origins`` — and anyone reading the graph later — can tell a
+    save from a scroll.
+
+    Entry shape is ``{"Date": "...", "Link": "https://..."}``; older exports
+    lowercase ``link``. Malformed input degrades to ``[]`` rather than raising.
+    """
+    activity = _tiktok_activity(data)
+    if not isinstance(activity, dict):
+        return []
+
+    items: list[RawItem] = []
+    for section_name, list_key, folder, is_history in _TIKTOK_SECTIONS:
+        if is_history and not include_history:
+            continue
+        section = activity.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        rows = section.get(list_key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            url = row.get("Link") or row.get("link") or row.get("URL") or row.get("url")
+            if not isinstance(url, str) or not url.strip():
+                continue
+            date = row.get("Date") or row.get("date")
+            items.append(RawItem(
+                url=url.strip(),
+                added=saved_at.from_tiktok(date),
+                folder=folder,
+                origin="tiktok-history" if is_history else "tiktok-saved",
+            ))
+    return items
+
+
+def _playlist_name_from_filename(filename: str) -> str:
+    """``"Watch later-videos.csv"`` -> ``"Watch later"``; ``"<Name>-videos.csv"`` -> ``"<Name>"``."""
+    stem = Path(filename).stem  # strips ".csv"
+    if stem.lower().endswith("-videos"):
+        stem = stem[: -len("-videos")]
+    stem = stem.strip()
+    return stem or "Playlist"
+
+
+def _sniff_youtube_video_id_column(fieldnames: list[str] | None) -> str | None:
+    for name in fieldnames or []:
+        if name and name.strip() in ("Video ID", "Video Id"):
+            return name
+    return None
+
+
+def parse_youtube_playlist_csv(content: bytes, filename: str) -> list[RawItem]:
+    """A single Google Takeout per-playlist video CSV.
+
+    Takeout ships one CSV per playlist under ``Playlists/``, with the playlist
+    name baked into the filename (e.g. ``"Watch later-videos.csv"``,
+    ``"<Name>-videos.csv"``). Columns include a video-id column
+    (``"Video ID"`` or ``"Video Id"``) and a timestamp; there is no title
+    column — titles are filled in later by the youtube oEmbed enrichment path.
+
+    An unrecognized CSV (no video-id column) yields ``[]`` — never raises.
+    """
+    import csv
+    import io
+
+    try:
+        text = content.decode("utf-8", errors="replace")
+    except Exception:
+        return []
+
+    try:
+        reader = csv.DictReader(io.StringIO(text))
+        vid_col = _sniff_youtube_video_id_column(reader.fieldnames)
+    except Exception:
+        return []
+    if vid_col is None:
+        return []
+
+    playlist_name = _playlist_name_from_filename(filename)
+    items: list[RawItem] = []
+    for row in reader:
+        vid = (row.get(vid_col) or "").strip()
+        if not vid:
+            continue
+        items.append(RawItem(
+            url=f"https://www.youtube.com/watch?v={vid}",
+            title=None,
+            folder=playlist_name,
+            origin="youtube-playlist",
+        ))
+    return items
+
+
+# --- Shared CSV header sniffing (LinkedIn + Reddit exports) ------------------
+
+
+def _norm_header(name: str | None) -> str:
+    """Lowercased, BOM- and whitespace-stripped column name for comparison."""
+    return (name or "").strip().lstrip("﻿").lower()
+
+
+def _pick_column(fieldnames: list[str] | None, candidates: tuple[str, ...]) -> str | None:
+    """The first real column name whose normalized form is in ``candidates``."""
+    for name in fieldnames or []:
+        if _norm_header(name) in candidates:
+            return name
+    return None
+
+
+# LinkedIn has renamed this column across export generations, so match a set
+# rather than one string. The SPECIFIC names are safe to match anywhere; the
+# GENERIC ones (``url``, ``link``) are only trusted when the filename already
+# says LinkedIn, or every plain URL CSV in the world would be claimed here.
+_LINKEDIN_SPECIFIC_URL_FIELDS = ("saveditem", "saved item", "saveditemurl", "saved item url")
+_LINKEDIN_GENERIC_URL_FIELDS = ("url", "link", "itemurl", "item url")
+_LINKEDIN_DATE_FIELDS = (
+    "savedat", "saved at", "saveddate", "saved date", "createdtime", "created time", "date",
+)
+
+
+def _is_linkedin_saved_filename(filename: str) -> bool:
+    stem = Path(filename or "").stem.lower().replace("_", " ").replace("-", " ")
+    return "saved item" in stem
+
+
+def parse_linkedin_saved(content: bytes, filename: str) -> list[RawItem]:
+    """LinkedIn "Get a copy of your data" — the Saved Items file.
+
+    Thin by design (G69): the export carries a URL and a saved date and nothing
+    else — no post text, no author. LinkedIn §8.2 bans fetching the post body,
+    so these stay thin nodes whose only edges come from the folder tag, and the
+    UI says so. Never invents a title.
+
+    An unrecognized CSV yields ``[]`` — never raises.
+    """
+    import csv
+    import io
+
+    try:
+        text = content.decode("utf-8-sig", errors="replace")
+        reader = csv.DictReader(io.StringIO(text))
+        fieldnames = reader.fieldnames
+    except Exception:
+        return []
+
+    url_col = _pick_column(fieldnames, _LINKEDIN_SPECIFIC_URL_FIELDS)
+    if url_col is None and _is_linkedin_saved_filename(filename):
+        url_col = _pick_column(fieldnames, _LINKEDIN_GENERIC_URL_FIELDS)
+    if url_col is None:
+        return []
+    date_col = _pick_column(fieldnames, _LINKEDIN_DATE_FIELDS)
+
+    items: list[RawItem] = []
+    for row in reader:
+        url = (row.get(url_col) or "").strip()
+        if not url.startswith(("http://", "https://")):
+            continue
+        added = None
+        if date_col:
+            added = saved_at.from_freeform(row.get(date_col))
+        items.append(RawItem(
+            url=url,
+            added=added,
+            folder="Saved Items",
+            origin="linkedin-saved",
+        ))
+    return items
+
+
+_REDDIT_PERMALINK_FIELDS = ("permalink",)
+_REDDIT_FALLBACK_URL_FIELDS = ("permalink url", "url", "link")
+REDDIT_BASE_URL = "https://www.reddit.com"
+
+
+def _is_reddit_saved_filename(filename: str) -> bool:
+    stem = Path(filename or "").stem.lower().replace("-", "_")
+    return stem.startswith("saved_posts") or stem.startswith("saved_comments")
+
+
+def parse_reddit_saved_csv(content: bytes, filename: str) -> list[RawItem]:
+    """Reddit GDPR export ``saved_posts.csv`` / ``saved_comments.csv`` (G71 §2).
+
+    Rows are ``id,permalink`` and nothing else. The export exists to backfill
+    past the API's ~1,000-item listing cap (G69) — it is not the primary route.
+    No Reddit-specific hydration call is needed: ``ingest_one`` already runs
+    every URL through the OpenGraph enrichment path and reddit.com serves OG
+    tags, so an online install gets a real title and an offline one degrades to
+    the permalink slug, exactly like every other save.
+
+    Permalinks may be relative (``/r/x/comments/...``); they are absolutized
+    against ``https://www.reddit.com`` so ``normalize_url``/``url_hash`` dedup
+    them against the same items pulled by the API connector.
+
+    An unrecognized CSV yields ``[]`` — never raises.
+    """
+    import csv
+    import io
+
+    try:
+        text = content.decode("utf-8-sig", errors="replace")
+        reader = csv.DictReader(io.StringIO(text))
+        fieldnames = reader.fieldnames
+    except Exception:
+        return []
+
+    url_col = _pick_column(fieldnames, _REDDIT_PERMALINK_FIELDS)
+    if url_col is None and _is_reddit_saved_filename(filename):
+        url_col = _pick_column(fieldnames, _REDDIT_FALLBACK_URL_FIELDS)
+    if url_col is None:
+        return []
+
+    stem = Path(filename or "").stem.lower()
+    folder = "Saved comments" if "comment" in stem else "Saved posts"
+
+    items: list[RawItem] = []
+    for row in reader:
+        raw = (row.get(url_col) or "").strip()
+        if not raw:
+            continue
+        if raw.startswith("/"):
+            raw = REDDIT_BASE_URL + raw
+        if not raw.startswith(("http://", "https://")):
+            continue
+        items.append(RawItem(url=raw, folder=folder, origin="reddit-saved"))
+    return items
+
+
+# Cap on the number of members walked inside an uploaded zip archive — a
+# saved-content export zip has at most a handful of playlist CSVs + one
+# watch-history.json; this just bounds a maliciously/accidentally huge zip.
+_MAX_ZIP_MEMBERS = 5000
+
+
+def parse_youtube_takeout_zip(content: bytes, warnings: list[str] | None = None) -> list[RawItem]:
+    """Walk a whole Google Takeout zip: ``playlists/*.csv`` + ``watch-history.json``.
+
+    Lets a user drop one Takeout export zip in a single upload instead of
+    hunting for individual files. Unrecognized members (anything that isn't a
+    ``playlists/*.csv`` or a ``watch-history.json``) are skipped. Any read
+    error on an individual member is skipped rather than raised — a partially
+    corrupt zip still yields whatever is parseable. A non-zip or unreadable
+    archive degrades to ``[]``. ``warnings`` (G71 §4.3), when given, is
+    appended to with a summary of anything skipped, so a preview caller can
+    surface it instead of only the debug log.
+    """
+    import zipfile
+
+    items: list[RawItem] = []
+    skipped = 0
+    try:
+        zf = zipfile.ZipFile(BytesIO(content))
+    except Exception:
+        if warnings is not None:
+            warnings.append("This file is not a readable zip archive.")
+        return []
+
+    with zf:
+        names = zf.namelist()[:_MAX_ZIP_MEMBERS]
+        for name in names:
+            lower = name.lower()
+            # Match case-insensitively, but pass the *original*-cased base
+            # filename down to the parsers — the playlist name is derived
+            # from it and must keep its real casing.
+            base = name.rsplit("/", 1)[-1]
+            try:
+                if lower.endswith(".csv") and "playlists/" in lower:
+                    member_bytes = zf.read(name)
+                    items.extend(parse_youtube_playlist_csv(member_bytes, base))
+                elif base.lower() == "watch-history.json":
+                    member_bytes = zf.read(name)
+                    items.extend(parse_youtube_takeout(member_bytes, base))
+            except Exception as e:
+                logger.debug(f"Skipping unreadable zip member {name}: {type(e).__name__}: {e}")
+                skipped += 1
+                continue
+
+    if warnings is not None and skipped:
+        warnings.append(f"Skipped {skipped} unreadable file(s) inside the archive.")
+
     return items
 
 
@@ -540,10 +1025,22 @@ async def ingest_feed(
     return await ingest_batch(items, memory_path, from_bookmark_file=False, commit=commit)
 
 
-def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, bool]:
+def parse_upload(
+    content: bytes,
+    filename: str,
+    *,
+    include_history: bool = False,
+    warnings: list[str] | None = None,
+) -> tuple[list[RawItem], str, bool]:
     """Route an uploaded file to the right parser by extension + sniff.
 
     Returns ``(items, source_label, from_bookmark_file)``.
+
+    ``include_history`` (G71 §3) opts a TikTok export's Browsing History in —
+    default off, because ambient watch/browse exhaust is noise, not a save.
+    ``warnings`` is an optional sink a caller (the preview endpoint) passes so
+    partial-parse detail reaches the user instead of only the debug log; every
+    existing positional caller is unaffected.
     """
     name = (filename or "").lower()
     if name.endswith(".xml") or name.endswith(".rss") or name.endswith(".atom"):
@@ -560,6 +1057,32 @@ def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, boo
         data = json.loads(content)
         if isinstance(data, dict) and "roots" in data:
             return parse_chrome_bookmarks_json(data), "Chrome Bookmarks", True
+        # Instagram "Download your information" saved-posts export — sniffed
+        # BEFORE the generic-JSON fallback below (and before the Takeout list
+        # check, which only ever matches a list, never a dict, so ordering
+        # between the two doesn't matter).
+        if _is_instagram_saved_json(data):
+            return parse_instagram_saved(data), "Instagram Saved", False
+        # TikTok's export nests everything under an activity wrapper, so it can
+        # never collide with the Instagram (`saved_*`) or Takeout (list) sniffs.
+        if _is_tiktok_export_json(data):
+            items = parse_tiktok_export(data, include_history=include_history)
+            if not include_history and warnings is not None:
+                # Browsing History was intentionally dropped by the
+                # ``include_history`` opt-in above — a preview caller must
+                # still be told it exists, or "recognized" silently hides
+                # data the export actually contains (G71 §3 fix round: the
+                # Task 4 brief under-specified this). Re-run with history
+                # included just to size the gap; cheap in-memory JSON walk,
+                # no I/O.
+                excluded = len(parse_tiktok_export(data, include_history=True)) - len(items)
+                if excluded > 0:
+                    warnings.append(
+                        f"Browsing history ({excluded} item"
+                        f"{'s' if excluded != 1 else ''}) excluded by default — "
+                        "enable it when importing."
+                    )
+            return items, "TikTok Export", False
         # Takeout JSON is a list of watch entries; otherwise a generic URL list.
         if isinstance(data, list) and data and isinstance(data[0], dict) and (
             "titleUrl" in data[0] or "subtitles" in data[0]
@@ -575,15 +1098,157 @@ def parse_upload(content: bytes, filename: str) -> tuple[list[RawItem], str, boo
                     items.append(RawItem(url=entry["url"], title=entry.get("title")))
         return items, "URL List", False
     if name.endswith(".csv"):
-        text = content.decode("utf-8", errors="replace")
-        if "Video ID" in text or "Video Id" in text:
-            return parse_youtube_takeout(content, name), "YouTube Takeout", False
-        return parse_csv_url_list(text), "URL List", False
+        # A per-playlist Takeout CSV is sniffed by header (a real video-id
+        # column), not a fragile "in text" substring check — an unrecognized
+        # CSV (no such column) falls through to the plain URL-list parser.
+        # Pass the *original* filename (not the lowercased ``name``) so the
+        # derived playlist folder keeps its real casing.
+        playlist_items = parse_youtube_playlist_csv(content, filename or name)
+        if playlist_items:
+            return playlist_items, "YouTube Playlist", False
+        reddit_items = parse_reddit_saved_csv(content, filename or name)
+        if reddit_items:
+            return reddit_items, "Reddit Saved Export", False
+        linkedin_items = parse_linkedin_saved(content, filename or name)
+        if linkedin_items:
+            return linkedin_items, "LinkedIn Saved", False
+        return parse_csv_url_list(content.decode("utf-8", errors="replace")), "URL List", False
+    if name.endswith(".zip"):
+        # L4 (final review): a zip is sniffed by extension alone, but
+        # `parse_youtube_takeout_zip` only recognizes `playlists/*.csv` /
+        # `watch-history.json` members — a non-Takeout archive (an Instagram
+        # or TikTok export, say) reads as an empty zip to it and previously
+        # still carried the "YouTube Takeout (zip)" label into the preview's
+        # "found no saved links" warning, naming the wrong platform. Only
+        # claim the specific label when it actually found Takeout-shaped
+        # content; otherwise a generic one, same "unzip it and drop the
+        # individual file" guidance either way (via the caller's `total == 0`
+        # warning below).
+        zip_items = parse_youtube_takeout_zip(content, warnings)
+        zip_label = "YouTube Takeout (zip)" if zip_items else "ZIP archive"
+        return zip_items, zip_label, False
     if name.endswith(".txt"):
         return parse_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     raise ValueError(
-        "Unsupported file format. Use .html, .json, .csv, .txt, .plist, or .xml/.rss/.atom"
+        "Unsupported file format. Use .html, .json, .csv, .txt, .plist, .zip, or .xml/.rss/.atom"
     )
+
+
+# --- Import preview (G71 §4.3) ----------------------------------------------
+
+# `parse_upload` source label -> stable lowercase platform id. The id is never
+# user-facing: the companion app owns every display name (Copy.swift). Tasks
+# that add a parser add their label here.
+PLATFORM_BY_LABEL = {
+    "Instagram Saved": "instagram",
+    "YouTube Takeout": "youtube",
+    "YouTube Takeout (zip)": "youtube",
+    "YouTube Playlist": "youtube",
+    "Bookmarks": "bookmarks",
+    "Safari Bookmarks": "bookmarks",
+    "Chrome Bookmarks": "bookmarks",
+    "RSS Feed": "rss",
+    "URL List": "urls",
+    "LinkedIn Saved": "linkedin",
+    "TikTok Export": "tiktok",
+    "Reddit Saved Export": "reddit",
+}
+
+# What ONE grouping is called on each platform, so the overlay can say
+# "6 collections" / "6 boards" instead of a generic word.
+COLLECTION_KIND_BY_PLATFORM = {
+    "instagram": "collection",
+    "youtube": "playlist",
+    "pinterest": "board",
+    "bookmarks": "folder",
+    "rss": "feed",
+    "urls": "list",
+    "linkedin": "saved",
+    "tiktok": "list",
+    "reddit": "saved",
+    "unknown": "list",
+}
+
+DEFAULT_COLLECTION_NAME = "Ungrouped"
+
+
+@dataclass
+class UploadPreview:
+    """What a dropped export CONTAINS — computed without staging any of it."""
+
+    recognized: bool
+    platform: str
+    total: int
+    collections: list[dict]  # [{"name": str, "kind": str, "count": int}]
+    warnings: list[str]
+
+
+def preview_upload(
+    content: bytes, filename: str, *, include_history: bool = False
+) -> UploadPreview:
+    """Parse an upload WITHOUT staging anything (G71 §4.3).
+
+    Pure and side-effect free: no episode, no entity, no ``url_index`` write,
+    no commit, no network — it runs the same sniff/parse ``parse_upload`` does
+    and then only *counts*. ``recognized`` is ``total > 0``: a format we can
+    name but from which nothing parses is not a usable export, and saying
+    "recognized" about it would be a lie the overlay then repeats.
+    """
+    warnings: list[str] = []
+    try:
+        items, label, _ = parse_upload(
+            content, filename, include_history=include_history, warnings=warnings
+        )
+    except ValueError as e:
+        # `parse_upload`'s own "Unsupported file format" message already names
+        # what's wrong without a filename; every OTHER ValueError bubbling up
+        # from a parser (e.g. a `json.JSONDecodeError`, itself a ValueError)
+        # needs the filename stitched in or the warning is anonymous.
+        msg = str(e)
+        if not msg.startswith("Unsupported file format"):
+            msg = f"Could not parse {filename or 'this file'}: {msg}"
+        return UploadPreview(False, "unknown", 0, [], [msg])
+    except Exception as e:
+        return UploadPreview(
+            False, "unknown", 0, [],
+            [f"Could not parse {filename or 'this file'}: {type(e).__name__}: {e}"],
+        )
+
+    platform = PLATFORM_BY_LABEL.get(label, "unknown")
+    kind = COLLECTION_KIND_BY_PLATFORM.get(platform, "list")
+
+    counts: dict[str, int] = {}
+    for item in items:
+        if not item.url:
+            continue
+        name = (item.folder or "").strip() or DEFAULT_COLLECTION_NAME
+        counts[name] = counts.get(name, 0) + 1
+
+    total = sum(counts.values())
+    if total == 0:
+        warnings.append(
+            f"Read this as {label} but found no saved links in it — if you dropped "
+            "an archive, unzip it and drop the individual export file instead."
+        )
+    # M3 (final review): mirror the SAME check `POST /sources/upload`'s
+    # confirm path enforces (`len(items) > MAX_BATCH` -> 413), on the SAME
+    # basis (`items`, before the URL-filtering `counts` above) — the preview
+    # promising an import Confirm then refuses is the bug being fixed, so the
+    # two checks must agree exactly. Deliberately a warning only: Confirm
+    # still hard-rejects rather than silently importing a truncated first
+    # slice, so this preview must not claim partial success either.
+    if len(items) > MAX_BATCH:
+        warnings.append(
+            f"{len(items):,} items exceeds the {MAX_BATCH:,}-item batch cap — "
+            "Confirm will reject this import; split the export into smaller "
+            "files first."
+        )
+
+    collections = [
+        {"name": n, "kind": kind, "count": counts[n]}
+        for n in sorted(counts, key=lambda n: (-counts[n], n))
+    ]
+    return UploadPreview(total > 0, platform, total, collections, warnings)
 
 
 # --- Relevance metric (§3.4, feed sorting) ---------------------------------
@@ -597,9 +1262,18 @@ def compute_relevance(fm: dict, *, now: datetime | None = None) -> float:
 
     - ``confidence`` (default 0.7) — the save-time/Sleep-adjusted confidence;
     - ``recency_decay = exp(-decay_rate * weeks_since_last_referenced)`` — fresh
-      items score near 1.0, stale items fade; ``decay_rate`` defaults to 0.03/wk;
+      items score near 1.0, stale items fade;
     - ``personal_relevance_weight`` (default 1.0) — an optional manual boost
       surfaced by §3.2 (read-if-present, neutral otherwise).
+
+    The rate comes from :func:`decay_policy.resolve`, NOT from a raw
+    ``decay_rate:`` read (G66 §1.9). That matters for a page written before the
+    class vocabulary existed and not yet touched by the backfill: a legacy
+    ``type: media`` page still carrying ``decay_rate: 0.03`` resolves to
+    ``evergreen``/0.0, so the Feed agrees with the graph, the entity engine and
+    the claim engine instead of being the one consumer that still fades a
+    bookmark. An explicit numeric on a decaying class still wins, per the
+    resolver's own precedence.
 
     Pure + side-effect-free so it is directly unit-testable. Any malformed field
     degrades to its default rather than raising.
@@ -614,11 +1288,7 @@ def compute_relevance(fm: dict, *, now: datetime | None = None) -> float:
         confidence = 0.7
     confidence = max(0.0, min(1.0, confidence))
 
-    try:
-        decay_rate = float(fm.get("decay_rate", 0.03))
-    except (TypeError, ValueError):
-        decay_rate = 0.03
-    decay_rate = max(0.0, decay_rate)
+    decay_rate = decay_policy.resolve(fm)[1]  # already clamped to >= 0
 
     # Age in weeks since last reference (or save). Default: treat as fresh.
     weeks = 0.0
@@ -646,27 +1316,18 @@ def compute_relevance(fm: dict, *, now: datetime | None = None) -> float:
     return max(0.0, min(1.0, score))
 
 
-# --- Episode ID generation (shared, collision-safe) ---
-
-
-def _next_episode_id(episodes_dir: Path, ep_date: str) -> str:
-    """Next ``ep_<date>_NNN`` id = max existing seq for that date + 1.
-
-    Max-based (not ``len(glob)+1``) so deletions never cause a collision.
-    """
-    max_num = 0
-    for filepath in episodes_dir.glob(f"ep_{ep_date}_*.md"):
-        try:
-            max_num = max(max_num, int(filepath.stem.split("_")[-1]))
-        except ValueError:
-            continue
-    return f"ep_{ep_date}_{max_num + 1:03d}"
-
-
 # --- Writers ---
 
 
-def _episode_body(meta: MediaMeta, url: str, saved_date: str, note: str | None) -> str:
+def _episode_body(
+    meta: MediaMeta,
+    url: str,
+    saved_date: str,
+    note: str | None,
+    folder: str | None = None,
+    reason: str | None = None,
+    content_saved_at: str | None = None,
+) -> str:
     lines = [
         f"# {meta.title}",
         "",
@@ -677,9 +1338,18 @@ def _episode_body(meta: MediaMeta, url: str, saved_date: str, note: str | None) 
         lines.append(f"**Site:** {meta.site}")
     if meta.channel:
         lines.append(f"**Channel:** {meta.channel}")
+    if folder:
+        lines.append(f"**Folder:** {folder}")
     lines.append(f"**Saved:** {saved_date}")
+    # G99d — the source export's own recovered save date, when it differs
+    # from the ingest date above. Never shown when equal/absent so the common
+    # case (saved and imported the same day) doesn't grow a redundant line.
+    if content_saved_at and content_saved_at != saved_date:
+        lines.append(f"**Originally saved:** {content_saved_at}")
     if meta.description:
         lines += ["", "## Description", meta.description]
+    if reason:
+        lines += ["", "## Saved because", reason]
     if note:
         lines += ["", "## User note", note]
     return "\n".join(lines)
@@ -699,13 +1369,24 @@ def write_media_episode(
     episodes_dir: Path, item: RawItem, meta: MediaMeta, media_entity_id: str
 ) -> str:
     episodes_dir.mkdir(parents=True, exist_ok=True)
-    now = datetime.now()
-    ep_date = now.strftime("%Y-%m-%d")
-    episode_id = _next_episode_id(episodes_dir, ep_date)
-    timestamp = now.isoformat() + "Z"
+    ep_date = datetime.now().strftime("%Y-%m-%d")
+    episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
+    # Aware UTC (G114 R2) — the old naive `now` + a bare "Z" suffix stamped
+    # LOCAL time and labelled it UTC, off by the machine's offset.
+    timestamp = episode_ids.utc_now_iso()
     saved_date = ep_date
 
-    body = _episode_body(meta, item.url, saved_date, item.note)
+    # G99d seam guard (Devin round 1, PR #26): `RawItem.added` is
+    # contractually pre-normalized, but validate here anyway — the one place
+    # every write of this value funnels through — so a future producer that
+    # forgets to normalize (as Pinterest's `created_at` did) can never leak a
+    # raw value into frontmatter or the body.
+    validated_added = saved_at.validate(item.added)
+
+    body = _episode_body(
+        meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason,
+        content_saved_at=validated_added,
+    )
     content_hash = hashlib.sha256(normalize_url(item.url).encode()).hexdigest()[:12]
 
     frontmatter = {
@@ -717,15 +1398,65 @@ def write_media_episode(
         "content_hash": content_hash,
         "url": item.url,
         "media_entity_id": media_entity_id,
+        "folder": item.folder or None,
     }
+    if validated_added:
+        # G99d — when the user actually saved/bookmarked this, recovered from
+        # the source export (normalized in api/services/saved_at.py). Absent
+        # (never a guess) when the source gave no date or it failed to parse.
+        # Distinct from `timestamp` above, which is when Cicada ingested it.
+        frontmatter["saved_at"] = validated_added
+    if item.origin:
+        frontmatter["origin"] = item.origin
+    if item.session_id:
+        frontmatter["session_id"] = item.session_id
+        if item.harness and item.harness != "unknown":
+            frontmatter["harness"] = item.harness
+        if item.project_dir:
+            frontmatter["project_dir"] = item.project_dir
     markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
     return episode_id
+
+
+# Byte budget for the slug portion of a media entity id. macOS/APFS (and most
+# filesystems) cap a filename at 255 *bytes*, not characters — a long OG title
+# heavy on multi-byte emoji/CJK can blow past that in far fewer than 255
+# characters. "media-" (6 bytes) + slug + an optional "-<8 hex>" hash suffix
+# (9 bytes) + ".md" (3 bytes) must stay comfortably under 255; 120 leaves a
+# wide margin.
+_MAX_SLUG_BYTES = 120
+
+
+def _truncate_utf8(s: str, max_bytes: int) -> tuple[str, bool]:
+    """Truncate ``s`` to at most ``max_bytes`` UTF-8 bytes without splitting a
+    multi-byte character. Returns ``(truncated, was_truncated)``.
+    """
+    encoded = s.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return s, False
+    chunk = encoded[:max_bytes]
+    # Back off one byte at a time until the tail decodes cleanly (a multi-byte
+    # UTF-8 character split mid-sequence raises UnicodeDecodeError).
+    while chunk:
+        try:
+            return chunk.decode("utf-8"), True
+        except UnicodeDecodeError:
+            chunk = chunk[:-1]
+    return "", True
 
 
 def _media_entity_id(meta: MediaMeta, item: RawItem) -> str:
     slug = sanitize_id(meta.title) if meta.title else ""
     if not slug or slug == "unnamed":
         slug = sanitize_id(_fallback_title(item.url))
+
+    slug, truncated = _truncate_utf8(slug, _MAX_SLUG_BYTES)
+    slug = slug.strip("-") or "unnamed"
+    if truncated:
+        # A stable suffix derived from the URL so two different long titles
+        # that truncate to the same prefix never collide on the same filename.
+        suffix = hashlib.sha256(normalize_url(item.url).encode("utf-8")).hexdigest()[:8]
+        slug = f"{slug}-{suffix}"
     return f"media-{slug}"
 
 
@@ -738,7 +1469,14 @@ def write_media_entity(
 ) -> None:
     entities_dir.mkdir(parents=True, exist_ok=True)
     today = datetime.now()
-    tags = sorted(set([meta.media_type] + (item.tags or [])))
+    tag_set = set([meta.media_type] + (item.tags or []))
+    # Sanitized folder-slug tag mirrors notes_sync stamping its Apple Notes
+    # folder onto the episode: raw human path lives in frontmatter (below),
+    # a filesystem-/graph-safe slug also lands in tags so folder/category is
+    # filterable the same way any other tag is.
+    if item.folder:
+        tag_set.add(sanitize_id(item.folder))
+    tags = sorted(tag_set)
 
     frontmatter = {
         "name": meta.title,
@@ -747,20 +1485,39 @@ def write_media_entity(
         "confidence": 0.7,
         "created": today.strftime("%Y-%m-%d"),
         "last_referenced": today.strftime("%Y-%m-%d"),
-        "decay_rate": 0.03,
+        **decay_policy.frontmatter_fields(
+            decay_policy.default_class_for("media", source="media")
+        ),
         "source_episodes": [episode_id],
         "tags": tags,
         "related": [],
         "version": 1,
-        "media": {
-            "url": item.url,
-            "media_type": meta.media_type,
-            "site": meta.site,
-            "channel": meta.channel,
-            "thumbnail": meta.thumbnail,
-            "saved_at": today.isoformat() + "Z",
-            "url_hash": url_hash(item.url),
-        },
+        "folder": item.folder or None,
+    }
+    # G99d seam guard (Devin round 1, PR #26): see write_media_episode's same
+    # comment — validate before persisting, don't just trust the producer.
+    validated_added = saved_at.validate(item.added)
+    if validated_added:
+        # G99d — the user's actual save/bookmark/like date (top-level, next
+        # to `created`/`last_referenced`), recovered from the source export.
+        # NOT the same thing as the nested `media.saved_at` below, which —
+        # despite its name — has always meant "when Cicada ingested this"
+        # (kept as-is for back-compat rather than rewritten under everyone's
+        # feet); `created` above is that same ingest moment. Absent when the
+        # source gave no date or it didn't parse — never a guess.
+        frontmatter["saved_at"] = validated_added
+    if item.origin:
+        frontmatter["origin"] = item.origin
+    frontmatter["media"] = {
+        "url": item.url,
+        "media_type": meta.media_type,
+        "site": meta.site,
+        "channel": meta.channel,
+        "thumbnail": meta.thumbnail,
+        # Ingest moment as aware UTC (G114 R2); `created` above is the same
+        # moment as a bare local date.
+        "saved_at": episode_ids.utc_now_iso(),
+        "url_hash": url_hash(item.url),
     }
     body = _entity_body(meta, item.note)
     markdown_parser.write(entities_dir / f"{entity_id}.md", frontmatter, body)
@@ -790,12 +1547,44 @@ def save_url_index(memory_path: Path, idx: dict) -> None:
 # --- Single-item ingest + batch ---
 
 
+def _backfill_content_saved_at(existing: dict, item: RawItem) -> bool:
+    """A duplicate hit is not a pure no-op (Devin round 1, PR #26 finding 1).
+
+    If the existing ``url_index.json`` entry has no recoverable
+    ``content_saved_at`` and THIS item's parser/connector did recover one,
+    backfill it onto the existing entry in place. A re-import is the
+    realistic path to ever recovering a save date for an already-ingested
+    item — 0% of the 789 items on the live bank had one at write time — so
+    silently discarding a genuine value on every duplicate hit would make
+    that path permanently dead.
+
+    Never overwrites an existing value with a different one (only fills a
+    genuine gap) and never downgrades — ``content_saved_at`` is always a bare
+    date once validated, so there is no "more precise" value to lose here.
+    Runs the incoming value through ``saved_at.validate`` (the same
+    write-boundary guard every other write site uses) rather than trusting
+    the caller. Returns ``True`` iff ``existing`` was mutated.
+    """
+    if existing.get("content_saved_at"):
+        return False
+    validated = saved_at.validate(item.added)
+    if not validated:
+        return False
+    existing["content_saved_at"] = validated
+    return True
+
+
 async def ingest_one(
     item: RawItem, memory_path: Path, client, idx: dict, from_bookmark_file: bool = False
 ) -> IngestResult:
     h = url_hash(item.url)
     if h in idx:
         existing = idx[h]
+        # Caller is responsible for persisting `idx` afterward — every
+        # current caller (`POST /sources/save`, the Telegram `/save` path)
+        # already calls `save_url_index` unconditionally right after this
+        # returns, so a backfill here is never silently lost.
+        _backfill_content_saved_at(existing, item)
         return IngestResult(
             status="duplicate",
             media_entity_id=existing.get("media_entity_id", ""),
@@ -827,8 +1616,16 @@ async def ingest_one(
         "title": meta.title,
         "media_type": meta.media_type,
         "thumbnail": meta.thumbnail,
-        "saved_at": datetime.now().isoformat() + "Z",
+        # Kept as-is: despite the name, this has always been the *ingest*
+        # timestamp, not the user's save date — `GET /sources` reads it
+        # straight into `MediaSourceItem.saved_at`. `content_saved_at` below
+        # (G99d) is the genuinely new, distinct, optional field. Aware UTC
+        # since G114 R2.
+        "saved_at": episode_ids.utc_now_iso(),
     }
+    validated_added = saved_at.validate(item.added)
+    if validated_added:
+        idx[h]["content_saved_at"] = validated_added
     return IngestResult(
         status="created",
         media_entity_id=entity_id,
@@ -840,21 +1637,38 @@ async def ingest_one(
     )
 
 
-def _dedup_items(items: list[RawItem], idx: dict) -> tuple[list[RawItem], int]:
-    """Drop items already in the url_index and collapse in-batch dup URLs."""
+def _dedup_items(items: list[RawItem], idx: dict) -> tuple[list[RawItem], int, bool]:
+    """Drop items already in the url_index and collapse in-batch dup URLs.
+
+    A duplicate hit against an existing ``idx`` entry (not an in-batch dup —
+    those have no existing entry to backfill into yet) still gets a chance to
+    backfill ``content_saved_at`` via ``_backfill_content_saved_at`` (G99d,
+    Devin round 1 PR #26 finding 1) — this is THE bulk-reimport path, i.e.
+    the realistic way a user ever recovers save dates for items already on
+    disk. Returns ``(fresh_items, skipped_count, index_was_mutated)`` — every
+    caller MUST persist ``idx`` (``save_url_index``) whenever the third value
+    is ``True``, even when ``fresh_items`` ends up empty (a wholly-duplicate
+    re-import must not silently discard the backfill).
+    """
     seen: set[str] = set()
     fresh: list[RawItem] = []
     skipped = 0
+    backfilled = False
     for item in items:
         if not item.url:
             continue
         h = url_hash(item.url)
-        if h in idx or h in seen:
+        if h in idx:
+            skipped += 1
+            if _backfill_content_saved_at(idx[h], item):
+                backfilled = True
+            continue
+        if h in seen:
             skipped += 1
             continue
         seen.add(h)
         fresh.append(item)
-    return fresh, skipped
+    return fresh, skipped, backfilled
 
 
 async def ingest_batch(
@@ -872,13 +1686,27 @@ async def ingest_batch(
     import httpx
 
     idx = load_url_index(memory_path)
-    fresh, _ = _dedup_items(items, idx)
+    fresh, _, backfilled = _dedup_items(items, idx)
     if not fresh:
+        # G99d (Devin round 1, PR #26 finding 1): a wholly-duplicate batch —
+        # e.g. re-importing the SAME bookmarks export to backfill dates —
+        # must not silently drop a backfill just because nothing new was
+        # created. Persist it before returning.
+        if backfilled:
+            save_url_index(memory_path, idx)
         return 0, len(items)
 
     sem = asyncio.Semaphore(8)
     lock = asyncio.Lock()
     created = 0
+    # Devin PR #25 round 1, finding 3: `_commit_media` used to `git add -A`,
+    # which absorbs any PRE-EXISTING dirty edit in the bank (a hand-edit in
+    # Obsidian, say) into a media/connector commit under false `user`
+    # provenance. Track exactly the paths THIS batch wrote — the same
+    # `commit_paths` mechanism the decay-watermark/decay-only commits use —
+    # so the commit stages only its own outputs regardless of what else is
+    # sitting dirty in the working tree.
+    created_paths: list[str] = []
 
     async with httpx.AsyncClient() as client:
         async def worker(item: RawItem) -> None:
@@ -895,6 +1723,8 @@ async def ingest_batch(
             if result.status == "created":
                 async with lock:
                     created += 1
+                    created_paths.append(f"entities/{result.media_entity_id}.md")
+                    created_paths.append(f"episodes/{result.episode_id}.md")
 
         await asyncio.gather(*(worker(it) for it in fresh))
 
@@ -902,26 +1732,31 @@ async def ingest_batch(
 
     if commit and created:
         try:
-            await _commit_media(memory_path, created)
+            await _commit_media(memory_path, created, ["sources/url_index.json", *created_paths])
         except Exception as e:
             logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
 
     return created, len(items) - len(fresh)
 
 
-async def _commit_media(memory_path: Path, count: int) -> None:
+async def _commit_media(memory_path: Path, count: int, paths: list[str]) -> None:
+    """Commit scoped to exactly ``paths`` — never ``git add -A`` (finding 3
+    above). ``paths`` is memory-relative: ``sources/url_index.json`` plus one
+    ``entities/<id>.md`` + ``episodes/<id>.md`` pair per item this batch
+    actually created.
+    """
     from api.services import git_service
 
     date_str = datetime.now().strftime("%Y-%m-%d")
     message = git_service.build_commit_message(
         f"Sources ingest {date_str}",
         [
-            "memory/sources/url_index.json: updated (trigger: user/media_save)",
+            "sources/url_index.json: updated (trigger: user/media_save)",
             f"{count} media item(s) saved (trigger: user/media_save)",
         ],
         authors=["user"],
     )
-    await git_service.commit_changes(memory_path, message)
+    await git_service.commit_paths(memory_path, message, paths)
 
 
 # --- Sleep-cycle media edge injection (CRITIC FIX) ---

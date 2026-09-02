@@ -6,8 +6,10 @@ import SwiftUI
 /// the Topics screen's list + TopBarControls layout and the app's CicadaTheme.
 struct FeedView: View {
     @Binding var selectedTab: AppTab
-    @State private var viewModel = FeedViewModel()
+    @Environment(FeedViewModel.self) private var viewModel
     @State private var showUploadOverlay = false
+    @State private var showAddSheet = false
+    @State private var sheetTile: AddSourceTile?
 
     var body: some View {
         ZStack {
@@ -18,6 +20,10 @@ struct FeedView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 header
+
+                ConnectedChannelsStrip { tile in openSheet(tile) }
+                    .padding(.horizontal, CicadaTheme.spacingXL)
+                    .padding(.bottom, CicadaTheme.spacingMD)
 
                 searchAndSortRow
 
@@ -36,14 +42,26 @@ struct FeedView: View {
             // ZStack child; Feed keeps a fixed header, so it must fill explicitly).
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            // Top-right controls (Upload + Sleep), shared chrome.
+            // Top-right controls (Add + Upload + Sleep + Help), shared chrome.
+            // `addButton` used to live inline in the page header's trailing
+            // slot (PageHeader's own right-aligned HStack), which put it at
+            // nearly the same top-right coordinates as this floating overlay
+            // — the header's blue "+" circle bled out from behind the Help
+            // button on every Feed render (G68 §1, round 2). Feed is the only
+            // page that pairs a PageHeader trailing action with the floating
+            // TopBarControls row, so folding the button into this same row
+            // (same pattern as GraphContainerView's AskButton) removes the
+            // collision entirely instead of just tuning padding.
             VStack {
                 HStack {
                     Spacer()
-                    TopBarControls(
-                        selectedTab: $selectedTab,
-                        showUploadOverlay: $showUploadOverlay
-                    )
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        addButton
+                        TopBarControls(
+                            selectedTab: $selectedTab,
+                            showUploadOverlay: $showUploadOverlay
+                        )
+                    }
                     .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
@@ -54,19 +72,50 @@ struct FeedView: View {
                     .transition(.opacity)
             }
         }
-        .task { await viewModel.load() }
+        // No `.task { load() }` here: `FeedViewModel` is a thin projection
+        // over `Store.sources`, which the Store already hydrates from disk
+        // and keeps live via SSE — this tab renders instantly from whatever
+        // the Store already has, on every revisit, with no per-view refetch.
         .onChange(of: showUploadOverlay) { _, isShowing in
             // Refresh after the upload overlay closes — newly saved items appear.
             if !isShowing { Task { await viewModel.load() } }
         }
         .animation(.spring(duration: 0.3), value: showUploadOverlay)
+        // ⌘N while Feed is on screen opens the picker. Hidden-button pattern,
+        // same as ContentView's ⌘K — and the ONLY registration of this
+        // shortcut in the app.
+        .background {
+            Button("") { openSheet(nil) }
+                .keyboardShortcut("n", modifiers: .command)
+                .buttonStyle(.cicadaPlain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+        }
+        .sheet(isPresented: $showAddSheet) {
+            AddSourceSheet(initialTile: sheetTile) { showAddSheet = false }
+        }
     }
 
     private var header: some View {
-        PageHeader(
-            title: "Feed",
-            subtitle: "Recently ingested sources and saved resources."
-        )
+        PageHeader(title: Copy.feed, subtitle: Copy.feedSubtitle)
+    }
+
+    private var addButton: some View {
+        Button { openSheet(nil) } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(CicadaTheme.accent))
+        }
+        .buttonStyle(.cicadaPlain)
+        .help("\(Copy.addASource) (⌘N)")
+        .accessibilityLabel(Copy.addASource)
+    }
+
+    private func openSheet(_ tile: AddSourceTile?) {
+        sheetTile = tile
+        showAddSheet = true
     }
 
     private var searchAndSortRow: some View {
@@ -75,7 +124,10 @@ struct FeedView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12))
                     .foregroundStyle(CicadaTheme.textTertiary)
-                TextField("Search saved media...", text: $viewModel.searchText)
+                TextField("Search saved media...", text: Binding(
+                    get: { viewModel.searchText },
+                    set: { viewModel.searchText = $0 }
+                ))
                     .textFieldStyle(.plain)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -85,14 +137,17 @@ struct FeedView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(CicadaTheme.textTertiary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cicadaPlain)
                 }
             }
             .padding(.horizontal, CicadaTheme.spacingMD)
             .padding(.vertical, CicadaTheme.spacingSM)
             .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
 
-            Picker("", selection: $viewModel.sort) {
+            Picker("", selection: Binding(
+                get: { viewModel.sort },
+                set: { viewModel.sort = $0 }
+            )) {
                 ForEach(FeedViewModel.SortMode.allCases) { mode in
                     Text(mode.label).tag(mode)
                 }
@@ -100,6 +155,7 @@ struct FeedView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 200)
+            .accessibilityLabel("Sort feed items")
         }
         .padding(.horizontal, CicadaTheme.spacingXL)
         .padding(.bottom, CicadaTheme.spacingMD)
@@ -128,7 +184,7 @@ struct FeedView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(viewModel.filteredItems) { item in
-                        FeedRow(item: item)
+                        FeedRow(item: item, showRelevance: viewModel.scoresAreInformative)
                     }
                 }
                 .padding(.horizontal, CicadaTheme.spacingXL)
@@ -173,6 +229,7 @@ struct FeedView: View {
 
 private struct FeedRow: View {
     let item: MediaFeedItem
+    let showRelevance: Bool
     @State private var isHovered = false
     @State private var showPreview = false
 
@@ -212,7 +269,9 @@ private struct FeedRow: View {
 
                 Spacer()
 
-                relevanceBadge
+                if showRelevance {
+                    relevanceBadge
+                }
             }
             .padding(.horizontal, CicadaTheme.spacingMD)
             .padding(.vertical, CicadaTheme.spacingMD)
@@ -221,7 +280,7 @@ private struct FeedRow: View {
                     .fill(isHovered ? CicadaTheme.surfaceHover : .clear)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
         .sheet(isPresented: $showPreview) {
@@ -296,7 +355,7 @@ private struct FeedItemPreviewSheet: View {
                         .background(CicadaTheme.surfaceHover)
                         .clipShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
             .padding(CicadaTheme.spacingLG)
 

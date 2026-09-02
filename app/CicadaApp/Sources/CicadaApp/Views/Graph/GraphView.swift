@@ -63,17 +63,22 @@ struct GraphView: NSViewRepresentable {
         // will push the pending data when it receives the "graphReady" message
         // from init(). Calling updateGraph() before DOMContentLoaded raises
         // "TypeError: undefined is not a function".
-        if viewModel.pendingGraphUpdate && viewModel.isGraphReady {
-            let json = viewModel.graphDataJSON
+        // The JSON is prepared off the main actor by `GraphViewModel`
+        // (`prepareGraphPush`); this method only evaluates it. A delta payload
+        // goes to `updateGraphDelta`, which mutates the live simulation in
+        // place so unchanged nodes keep their positions.
+        if viewModel.pendingGraphUpdate && viewModel.isGraphReady,
+           let json = viewModel.pendingPushJSON {
+            let call = viewModel.pendingPushIsDelta ? "updateGraphDelta" : "updateGraph"
             let filterJSON = viewModel.filterJSON
-            webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
+            webView.evaluateJavaScript("\(call)(\(json))") { _, error in
                 if let error { print("Graph update error: \(error)") }
                 // Re-assert the current filter so a fresh payload respects it
                 // (status/confidence defaults hide archived nodes from first paint).
                 webView.evaluateJavaScript("applyFilters(\(filterJSON))", completionHandler: nil)
             }
             DispatchQueue.main.async {
-                self.viewModel.pendingGraphUpdate = false
+                self.viewModel.clearPendingPush()
             }
         }
 
@@ -84,6 +89,17 @@ struct GraphView: NSViewRepresentable {
             }
             DispatchQueue.main.async {
                 self.viewModel.pendingFilterUpdate = false
+            }
+        }
+
+        // G59: hand the canvas the cached logo bitmaps as data URLs. The
+        // webview can't call the bearer-authenticated API itself.
+        if viewModel.isGraphReady, let logoJSON = viewModel.pendingLogoPushJSON {
+            webView.evaluateJavaScript("setNodeLogos(\(logoJSON))") { _, error in
+                if let error { print("Logo push error: \(error)") }
+            }
+            DispatchQueue.main.async {
+                self.viewModel.clearPendingLogoPush()
             }
         }
     }
@@ -149,8 +165,16 @@ struct GraphView: NSViewRepresentable {
             guard !hasPushedInitialData, let webView else { return }
             hasPushedInitialData = true
             let json = viewModel.graphDataJSON
+            let filterJSON = viewModel.filterJSON
             webView.evaluateJavaScript("updateGraph(\(json))") { _, error in
                 if let error { print("Initial graph push error: \(error)") }
+                // Re-assert the current filter on this cold paint too (G84a) —
+                // without this, the FIRST push (this one) ran on graph.js's own
+                // built-in defaults instead of Swift's GraphFilter defaults,
+                // which used to disagree (minDegree 1 vs 0) and silently hid
+                // every zero-degree node until the user touched any filter
+                // control. Mirrors the completion handler above (`:74-79`).
+                webView.evaluateJavaScript("applyFilters(\(filterJSON))", completionHandler: nil)
             }
         }
     }

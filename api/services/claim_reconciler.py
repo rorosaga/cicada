@@ -30,16 +30,21 @@ the human-protection rule must be deterministic and auditable.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable
 
 from loguru import logger
 
-from api.services import predicates
+from api.models.schemas import DecayClass
+from api.services import decay_policy, inbox_questions, predicates
 from api.services.claims import Claim
 
 # A cardinality oracle: predicate -> True (single-valued) | False (multi-valued).
 CardinalityFn = Callable[[str], bool]
+
+# A decay-class oracle: subject entity id -> the subject's DecayClass. Injected
+# so this module stays pure trust/temporal logic with no filesystem dependency.
+DecayClassFn = Callable[[str], DecayClass]
 
 # Decay lookup (D2 table): base rate per cycle by epistemic class.
 _DECAY_BASE = {"explicit": 0.02, "deductive": 0.05, "inductive": 0.10, "abductive": 0.20}
@@ -50,8 +55,18 @@ _DECAY_FACTOR = {
     "agent_reflected": 1.5,
     "external": 1.0,
 }
+# A THIRD factor (G66): the SUBJECT entity's decay class. An evergreen subject
+# multiplies to 0.0 — its claims never decay — while a volatile subject's fade
+# twice as fast. See ``schemas.CLAIM_DECAY_MULTIPLIERS``.
 
 _HUMAN_ORIGINS = {"manual_edit", "clarification"}
+
+# G85 §2 / Wave-1 1.8: mirrors conflict_resolver.MAX_DECAY_DAYS_PER_CYCLE — a
+# single decay pass never charges more than one week's worth, regardless of
+# the actual elapsed gap. Independent safety rail from the one-shot
+# `decayed_through` backfill migration: a future outage/paused-schedule gap
+# degrades gradually over several cycles instead of one cliff.
+MAX_DECAY_DAYS_PER_CYCLE = 7
 
 
 # --------------------------------------------------------------------------- #
@@ -133,6 +148,18 @@ def _reinforce(existing: Claim, incoming: Claim) -> None:
             existing.source_episodes.append(ep)
     if incoming.recorded_at:
         existing.recorded_at = incoming.recorded_at
+    # PR #20 round-2 review fix — "repeated facts lose later conversations":
+    # a scalar `session_id` can only ever remember the FIRST writer, so a
+    # later conversation restating the same fact would silently vanish from
+    # that conversation's `GET /conversations` entity list. Merge every
+    # session either claim has ever carried (first-writer scalar included)
+    # into `existing.session_ids`, additive and deduped, so aggregation
+    # (`session_stats._group`) credits both conversations.
+    merged_sessions = existing.all_session_ids()
+    for sid in incoming.all_session_ids():
+        if sid not in merged_sessions:
+            merged_sessions.append(sid)
+    existing.session_ids = merged_sessions
 
 
 # --------------------------------------------------------------------------- #
@@ -218,19 +245,52 @@ def _entity_name(claim: Claim) -> str:
     return claim.subject.replace("-", " ").title()
 
 
-def _conflict_nudge(existing: Claim, new: Claim) -> dict:
+def _claim_option(key: str, claim: Claim, today: str) -> dict:
+    """One question option backed by a claim, description led by its age."""
+    observed = claim.valid_from or claim.recorded_at
+    parts = [f"Last mentioned {observed or 'unknown'}", inbox_questions.humanize_age(observed, today)]
+    episode = (claim.source_episodes or [""])[0]
+    if episode:
+        parts.append(f"extracted from {episode}")
+    return {
+        "key": key,
+        "label": claim.object,
+        "description": " · ".join(parts),
+        "claim_id": claim.id,
+        "observed_at": observed,
+        "last_referenced": observed,
+    }
+
+
+def _conflict_nudge(existing: Claim, new: Claim, today: str) -> dict:
+    """A conflict nudge carrying the G60 question object.
+
+    ``today`` is the reconciliation reference date, so the age phrases in each
+    option's description are computed once at generation time (``age_days`` is
+    re-derived at read time by ``inbox_service``).
+    """
+    name = _entity_name(new)
     return {
         "id": new.subject,
         "action": "conflict_nudge",
-        "entity": {"name": _entity_name(new)},
+        "entity": {"name": name},
+        "predicate": new.predicate,
+        "question": predicates.predicate_question(new.predicate, name),
+        "allow_other": True,
+        "allow_defer": True,
         "conflict_context": (
-            f"Conflicting beliefs about {_entity_name(new)} "
+            f"Conflicting beliefs about {name} "
             f"({new.predicate}): '{existing.object}' vs '{new.object}'."
         ),
         "options": [
-            f"{existing.object}",
-            f"{new.object}",
-            "Both are true (different contexts)",
+            _claim_option("a", existing, today),
+            _claim_option("b", new, today),
+            {
+                "key": "both",
+                "label": "Both are true (different contexts)",
+                "description": "Keep both claims, each tagged with its context",
+                "claim_id": None,
+            },
         ],
         "source_episode": (new.source_episodes or [""])[0],
         "trigger": "sleep/conflict_resolution",
@@ -288,6 +348,7 @@ def reconcile_stage3(
     *,
     cardinality_fn: CardinalityFn | None = None,
     now_date: str | None = None,
+    decay_class_fn: DecayClassFn | None = None,
 ) -> tuple[dict[str, list[Claim]], list[dict], list[dict]]:
     """Trust-gated invalidate-and-supersede over claims. Nothing deleted.
 
@@ -302,6 +363,10 @@ def reconcile_stage3(
         cardinality_fn: ``predicate -> is_single_valued``. Defaults to the
             ``_predicates.yaml`` cardinality oracle for ``settings.memory_path``.
         now_date: decay reference date (ISO); defaults to today.
+        decay_class_fn: ``subject_id -> DecayClass``, multiplying each claim's
+            decay by its subject entity's class (G66). Defaults to the
+            filesystem lookup for ``settings.memory_path``; an evergreen subject
+            means its claims never decay.
 
     Returns ``(reconciled_by_subject, nudges, audit)``. ``nudges`` carries
     ``conflict_nudge`` / ``divergence_nudge`` / ``normalization_audit`` records in
@@ -311,6 +376,8 @@ def reconcile_stage3(
     today = now_date or str(date.today())
     if cardinality_fn is None:
         cardinality_fn = _default_cardinality_fn(settings)
+    if decay_class_fn is None:
+        decay_class_fn = decay_policy.class_lookup(getattr(settings, "memory_path", "."))
 
     reconciled: dict[str, list[Claim]] = {
         sub: list(claims) for sub, claims in existing_claims_by_subject.items()
@@ -368,13 +435,13 @@ def reconcile_stage3(
             slot.append(_stamp_new(new, settings, today=today, status_note="shadowed_by_human"))
             nudges.append(_divergence_nudge(existing, new))
         elif action == "CONFLICT_NUDGE":
-            nudges.append(_conflict_nudge(existing, new))
+            nudges.append(_conflict_nudge(existing, new, today))
         elif action == "REJECT":
             audit.append({"action": "rejected", "kept": existing.id, "dropped": new.id})
         elif action == "KEEP_BOTH":
             slot.append(_stamp_new(new, settings, today=today))
 
-    _decay_claims(reconciled, referenced_subjects, settings, nudges, today)
+    _decay_claims(reconciled, referenced_subjects, settings, nudges, today, decay_class_fn)
     return reconciled, nudges, audit
 
 
@@ -392,12 +459,19 @@ def _days_since(ref: str | None, today: str) -> int:
     return max(0, (a - b).days)
 
 
+def _max_date(left: str | None, right: str | None) -> str | None:
+    """The later of two ISO date/date-time strings; either may be missing."""
+    candidates = [str(c)[:10] for c in (left, right) if c]
+    return max(candidates) if candidates else None
+
+
 def _decay_claims(
     reconciled: dict[str, list[Claim]],
     referenced_subjects: set[str],
     settings,
     nudges: list[dict],
     today: str,
+    decay_class_fn: DecayClassFn,
 ) -> None:
     archive_threshold = float(getattr(settings, "archive_threshold", 0.2) or 0.2)
     nudge_threshold = float(getattr(settings, "decay_nudge_threshold", 0.4) or 0.4)
@@ -405,40 +479,62 @@ def _decay_claims(
     for subject, claims in reconciled.items():
         if subject in referenced_subjects:
             continue
+        # One lookup per subject, not per claim.
+        multiplier = decay_policy.claim_multiplier(decay_class_fn(subject))
+        if multiplier <= 0:
+            continue  # evergreen subject: its claims are artifacts, they don't fade
         for c in claims:
             if not open_(c):
                 continue  # closed claims don't decay; they're history
             base = _DECAY_BASE.get(c.epistemic, 0.02)
             factor = _DECAY_FACTOR.get(c.source_trust, 1.0)
-            ref = c.recorded_at or c.valid_from
-            days = _days_since(ref, today)
-            amount = base * factor * (days / 7.0)
-            if amount <= 0:
-                continue
-            new_conf = max(0.0, c.confidence - amount)
-            if new_conf == c.confidence:
-                continue
-            c.confidence = new_conf
-            # Decay never closes a claim and never touches a human claim's
-            # validity — it only lowers the retrieval weight + may nudge.
-            if new_conf < archive_threshold:
-                nudges.append({
-                    "id": subject,
-                    "action": "decay_nudge",
-                    "entity": {"name": _entity_name(c)},
-                    "new_confidence": new_conf,
-                    "claim_id": c.id,
-                    "trigger": "sleep/decay",
-                })
-            elif new_conf < nudge_threshold:
-                nudges.append({
-                    "id": subject,
-                    "action": "decay_nudge",
-                    "entity": {"name": _entity_name(c)},
-                    "new_confidence": new_conf,
-                    "claim_id": c.id,
-                    "trigger": "sleep/decay",
-                })
+            # G85 §2 / Wave-1 1.1: `recorded_at`/`valid_from` never move, so
+            # anchoring decay to them alone re-charges the SAME elapsed span
+            # on every Sleep run. `decayed_through` is the watermark this pass
+            # itself stamps below; anchor to whichever is more recent so an
+            # interval is charged exactly once.
+            anchor = _max_date(c.decayed_through, c.recorded_at or c.valid_from)
+            raw_days = _days_since(anchor, today)
+            # Wave-1 1.8: cap the charge at MAX_DECAY_DAYS_PER_CYCLE and
+            # advance the watermark by only that capped amount (not to
+            # `today`) — a long gap works off gradually over several cycles
+            # instead of charging the whole span as one cliff.
+            charged_days = min(raw_days, MAX_DECAY_DAYS_PER_CYCLE)
+            amount = base * factor * multiplier * (charged_days / 7.0)
+            today_date = date.fromisoformat(today[:10])
+            try:
+                anchor_date = date.fromisoformat((anchor or today)[:10])
+                new_watermark = min(today_date, anchor_date + timedelta(days=charged_days))
+            except ValueError:
+                new_watermark = today_date
+            if amount > 0:
+                new_conf = max(0.0, c.confidence - amount)
+                if new_conf != c.confidence:
+                    c.confidence = new_conf
+                    # Decay never closes a claim and never touches a human
+                    # claim's validity — it only lowers the retrieval weight
+                    # + may nudge.
+                    if new_conf < archive_threshold:
+                        nudges.append({
+                            "id": subject,
+                            "action": "decay_nudge",
+                            "entity": {"name": _entity_name(c)},
+                            "new_confidence": new_conf,
+                            "claim_id": c.id,
+                            "trigger": "sleep/decay",
+                        })
+                    elif new_conf < nudge_threshold:
+                        nudges.append({
+                            "id": subject,
+                            "action": "decay_nudge",
+                            "entity": {"name": _entity_name(c)},
+                            "new_confidence": new_conf,
+                            "claim_id": c.id,
+                            "trigger": "sleep/decay",
+                        })
+            # Stamp the watermark regardless of whether `amount` moved
+            # anything this pass — the next pass must measure from here.
+            c.decayed_through = new_watermark.isoformat()
 
 
 # --------------------------------------------------------------------------- #

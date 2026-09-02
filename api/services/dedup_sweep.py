@@ -4,7 +4,7 @@ uncertain. Runs on a duplicate bank; never on the live bank in tests."""
 from __future__ import annotations
 import logging
 from pathlib import Path
-from api.services import markdown_parser
+from api.services import markdown_parser, telemetry
 from api.services.entity_merge import merge_entities
 
 logger = logging.getLogger(__name__)
@@ -47,15 +47,26 @@ def find_candidate_pairs(memory_path: Path, *, embed_fn=None, min_cosine=0.85):
 
 
 def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
-                seed_pairs=None, auto_merge_threshold=0.9) -> dict:
+                seed_pairs=None, auto_merge_threshold=0.9, dry_run=False,
+                limit=None) -> dict:
+    """Run the full-graph dedup sweep.
+
+    ``dry_run`` (G21 maintenance endpoint): when True, a pair the judge calls
+    "same" with high enough confidence is reported under ``proposed`` instead
+    of actually calling ``merge_entities`` — nothing is written to disk.
+    ``limit`` caps how many candidate pairs are considered, bounding judge
+    (LLM) calls on a large graph.
+    """
     if judge_fn is None:  # pragma: no cover - resolved at runtime
         judge_fn = _default_judge_fn(settings)
     pairs = list(seed_pairs or [])
     if not pairs:
         pairs = [(a, b) for (a, b, _score) in find_candidate_pairs(memory_path, embed_fn=embed_fn)]
+    if limit is not None:
+        pairs = pairs[:limit]
 
     ents = memory_path / "entities"
-    merged, nudged = [], []
+    merged, proposed, nudged = [], [], []
     gone: set[str] = set()
     for a, b in pairs:
         if a in gone or b in gone:
@@ -68,14 +79,20 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
             verdict = v.get("verdict")
             confidence = float(v.get("confidence", 0) or 0)
             winner = v.get("winner")
+            applied = "none"
             if (
                 verdict == "same"
                 and confidence >= auto_merge_threshold
                 and winner in (a, b)
             ):
                 loser = b if winner == a else a
-                merge_entities(memory_path, loser_id=loser, winner_id=winner)
-                merged.append((loser, winner))
+                if dry_run:
+                    proposed.append((loser, winner))
+                    applied = "proposed"
+                else:
+                    merge_entities(memory_path, loser_id=loser, winner_id=winner)
+                    merged.append((loser, winner))
+                    applied = "merged"
                 gone.add(loser)
             elif verdict in ("same", "unsure"):
                 # Either genuinely uncertain, or "same" with a high enough
@@ -83,16 +100,29 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
                 # candidates (hallucinated/mis-cased id) — treat as uncertain
                 # rather than guessing which side to keep.
                 nudged.append((a, b))
+                applied = "nudged"
+            # G113 — one ledger row per judged pair, `applied` taken from the
+            # branch above (never a second judgement). ``winner`` is recorded
+            # only when it names one of the two slugs: the judge is an LLM and a
+            # free-text winner is not an id, and ids are all the ledger may hold.
+            telemetry.record(telemetry.UsageEvent(
+                kind="dedup_verdict", stage="dedup", bank=memory_path.name,
+                invocations=0, billing="free",
+                refs={
+                    "a": a, "b": b, "verdict": verdict, "confidence": confidence,
+                    "winner": winner if winner in (a, b) else None, "applied": applied,
+                },
+            ))
         except Exception as exc:  # noqa: BLE001 - one bad pair must not abort the sweep
             logger.warning("dedup_sweep: skipping pair (%s, %s) after error: %s", a, b, exc)
             continue
-    return {"merged": merged, "nudged": nudged}
+    return {"merged": merged, "proposed": proposed, "nudged": nudged, "candidate_pairs": len(pairs)}
 
 
 def _default_judge_fn(settings):  # pragma: no cover - needs a real model
-    import json
+    from api.services import json_parse
     from api.services.providers import resolve_llm_fn
-    llm = resolve_llm_fn(settings, model=settings.effective_consolidation_model)
+    llm = resolve_llm_fn(settings, model=settings.effective_consolidation_model, stage="dedup")
 
     def judge(a_body, b_body, a_id, b_id):
         prompt = (
@@ -104,6 +134,5 @@ def _default_judge_fn(settings):  # pragma: no cover - needs a real model
         resp = llm(messages=[{"role": "user", "content": prompt}],
                    response_format={"type": "json_object"})
         txt = resp["choices"][0]["message"]["content"]
-        s, e = txt.find("{"), txt.rfind("}")
-        return json.loads(txt[s:e + 1]) if s >= 0 else {"verdict": "unsure", "confidence": 0.0}
+        return json_parse.parse_json_object_or(txt, {"verdict": "unsure", "confidence": 0.0})
     return judge

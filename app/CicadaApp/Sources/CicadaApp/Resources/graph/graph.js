@@ -29,6 +29,7 @@ const typeColors = {
     media:    "#F65BA6",
     hub:      "#E0A93A",   // deeper amber gold — distinct from skill gold + project purple
     directory:"#7AA0C4",   // slate blue-gray "Finder folder" — mirrors CicadaTheme.entityColor(.directory)
+    repo:     "#5B6472",   // dark slate — subtle, read-time synthetic node (backlog G-repo)
     unknown:  "#9BA1AE",
 };
 
@@ -52,6 +53,7 @@ const typeClusterPositions = {
     location: [-450,  150],
     media:    [ -90, -540],
     directory:[-450, -360],
+    repo:     [ 540, -360],
     hub:      [   0,    0],
 };
 
@@ -149,10 +151,43 @@ let filters = {
     statuses: null,     // null = all except dropped; otherwise Set<string>
     minConfidence: 0,
     tags: null,         // null/empty = no tag filter; otherwise Set<string>
-    minDegree: 1,       // default drops only fully isolated nodes
+    // G84a: must agree with Swift's default (GraphFilter.swift `minDegree = 0`).
+    // This used to default to 1 here while Swift defaulted to 0, so the very
+    // first cold paint (before Swift's applyFilters push landed) ran on this
+    // stricter default and dropped every zero-degree node until the user
+    // touched any filter control. Now both start at "show isolated nodes."
+    minDegree: 0,
     contexts: null,     // null = all contexts; otherwise Set<string> — DROPS non-matching edges/facets
     observers: null,    // null = all observers; otherwise Set<string> — DIMS non-matching nodes (kept visible)
+    // G59: draw cached brand marks inside the node discs. Off by default —
+    // drawImage per node costs real frames on a 1800-node graph, and the
+    // colored discs are the primary type signal. Toggled from the Swift
+    // filter popover.
+    showLogos: false,
 };
+
+// G59: id -> { img, ready }. Fed by `setNodeLogos`, which Swift calls with
+// base64 data URLs (the webview can't reach the bearer-authenticated API).
+// Entries are additive and reused: rebuilding an Image restarts its decode and
+// flickers the node on every delta push.
+const logoImages = new Map();
+
+function setNodeLogos(payload) {
+    const data = typeof payload === "string" ? JSON.parse(payload) : payload;
+    let added = 0;
+    for (const [id, src] of Object.entries(data || {})) {
+        const existing = logoImages.get(id);
+        if (existing && existing.img && existing.img.src === src) continue;
+        if (typeof Image !== "function") continue;
+        const entry = { img: new Image(), ready: false };
+        entry.img.onload = () => { entry.ready = true; scheduleRedraw(); };
+        entry.img.onerror = () => { logoImages.delete(id); };
+        entry.img.src = src;
+        logoImages.set(id, entry);
+        added += 1;
+    }
+    if (added) scheduleRedraw();
+}
 
 // Focus / ego mode.
 let focusNodeId = null;         // ego anchor; null = full graph
@@ -173,6 +208,30 @@ let draggingNode = null;
 let pressStart = null;          // { x, y } screen coords of mousedown for click-vs-drag
 let lastClickTime = 0;          // for double-click detection
 let lastClickId = null;
+
+// G84b: throw-velocity tracking for the dragged node. While fx/fy are set,
+// d3 zeroes the node's OWN vx/vy every tick (it's pinned, not physically
+// simulated), so at release vx/vy are exactly 0 and a throw is impossible by
+// construction unless we seed them ourselves from the pointer's own motion.
+// `dragVX`/`dragVY` are an exponentially-smoothed world-units-per-tick
+// velocity estimate, sampled in onMouseMove and consumed (then reset) in
+// onMouseUp. Timestamps are `performance.now()` (monotonic — immune to
+// system-clock adjustments mid-gesture), never `Date.now()`.
+let dragVX = 0;
+let dragVY = 0;
+let lastDragSample = null;      // { t, x, y } world coords + performance.now() at last sample
+const DRAG_VELOCITY_SMOOTHING = 0.35;  // weight given to each new sample (EMA)
+const SIM_TICK_MS = 1000 / 60;         // d3's timer runs on rAF, ~60fps
+// Devin review (PR #23): dragVX/dragVY used to retain the last movement delta
+// indefinitely — grab a node, move it, PAUSE while still holding (no more
+// mousemove events fire, so the EMA is simply never updated), then release,
+// and the stationary node launched off in the direction you were moving a
+// second ago. Worse than the pre-G84b stop-dead behavior because it's
+// surprising rather than merely inert. DRAG_STALE_MS is the "still moving"
+// vs "parked" cutoff, checked at RELEASE time against how long it's been
+// since the last recorded move sample (not against the next move's delta,
+// which is exactly why a stall-then-release used to slip through).
+const DRAG_STALE_MS = 100;             // ~6 ticks at 60fps; a real flick's last sample is always fresher than this
 
 let hubsOnlyMode = false;       // set true when the payload is the hubs-only tier
 
@@ -439,6 +498,133 @@ function updateGraph(dataStr) {
     scheduleRedraw();
 }
 
+// Incremental *delta* update (§5.6). The Swift side diffs two /graph snapshots
+// by node id + contentHash and sends only what moved:
+//   { added: [node], updated: [node], removed: [id], links?: [link] }
+// Unlike updateGraph, this never rebuilds the node array from the payload — it
+// mutates the live objects the simulation already holds, so every untouched
+// node keeps its exact x/y/vx/vy and the layout doesn't re-explode after a
+// Sleep cycle that changed one entity. `links` is present only when the link
+// set actually changed; absent means "leave the links alone".
+// Keys the Swift encoder omits when empty/false, so `updateGraphDelta` has to
+// clear them explicitly before merging an updated node (see below).
+const DELTA_OPTIONAL_KEYS = ["hubId", "observers", "contexts", "isFacet", "parentId", "context"];
+
+function updateGraphDelta(dataStr) {
+    const data = typeof dataStr === "string" ? JSON.parse(dataStr) : dataStr;
+
+    // A delta is only meaningful on top of an existing simulation. A full
+    // payload, or a first paint, goes down the full path — reshaped so nothing
+    // is lost: a delta payload has no `nodes` key, so handing it to
+    // updateGraph verbatim would wipe the canvas.
+    if (data.isFull || !nodes.length) {
+        return updateGraph(Array.isArray(data.nodes) ? data : {
+            nodes: [...(data.added || []), ...(data.updated || [])],
+            links: data.links || [],
+        });
+    }
+
+    resizeCanvas();
+
+    const added = (data.added || []).slice();
+    const updated = data.updated || [];
+    const removed = data.removed || [];
+
+    // 1. Removals — drop the nodes, plus any link left dangling by them.
+    if (removed.length) {
+        const gone = new Set(removed);
+        nodes = nodes.filter(n => !gone.has(n.id));
+        links = links.filter(l => {
+            const sid = typeof l.source === "object" ? l.source.id : l.source;
+            const tid = typeof l.target === "object" ? l.target.id : l.target;
+            return !gone.has(sid) && !gone.has(tid);
+        });
+        for (const id of removed) prevPositions.delete(id);
+        if (focusNodeId && gone.has(focusNodeId)) focusNodeId = null;
+    }
+
+    // 2. Updates — copy the new fields onto the *existing* object so its
+    // simulation state (x/y/vx/vy, any drag pin, d3's index) survives. An
+    // "updated" node we don't actually have is treated as an addition.
+    if (updated.length) {
+        const byId = new Map(nodes.map(n => [n.id, n]));
+        for (const u of updated) {
+            const cur = byId.get(u.id);
+            if (!cur) { added.push(u); continue; }
+            const x = cur.x, y = cur.y, vx = cur.vx, vy = cur.vy;
+            const fx = cur.fx, fy = cur.fy, index = cur.index;
+            // Object.assign can only add or overwrite keys, so a field the
+            // Swift encoder omits when empty/false would keep its stale value
+            // (a node that stops being a facet, or loses its hub, would keep
+            // the old parentId/hubId until the next full push). Clear the
+            // known-optional keys first; the payload re-supplies whatever is
+            // still true.
+            for (const k of DELTA_OPTIONAL_KEYS) delete cur[k];
+            Object.assign(cur, u);
+            cur.x = x; cur.y = y; cur.vx = vx; cur.vy = vy;
+            cur.fx = fx; cur.fy = fy; cur.index = index;
+        }
+    }
+
+    // 3. Links — replaced wholesale when the payload carries them. Fresh
+    // objects with *string* endpoints, exactly like updateGraph: d3.forceLink
+    // rewrites endpoints into node references once the sim starts, and reusing
+    // those stale references would resurrect removed nodes.
+    if (Array.isArray(data.links)) {
+        links = data.links.map(l => ({
+            ...l,
+            source: typeof l.source === "object" ? l.source.id : l.source,
+            target: typeof l.target === "object" ? l.target.id : l.target,
+        }));
+    }
+
+    // 4. Additions — append, then (after the hub index is rebuilt, so anchors
+    // exist) seed each one near its hub or type cluster.
+    if (added.length) {
+        const present = new Set(nodes.map(n => n.id));
+        for (const a of added) {
+            if (present.has(a.id)) continue;
+            present.add(a.id);
+            nodes.push(a);
+        }
+    }
+
+    computeDegree();
+    buildHubIndex();
+
+    for (const a of added) {
+        const n = nodes.find(x => x.id === a.id);
+        if (!n || n.x != null) continue;
+        const p = prevPositions.get(n.id);
+        if (p) { n.x = p.x; n.y = p.y; n.vx = p.vx || 0; n.vy = p.vy || 0; }
+        else { const s = seedPositionFor(n); n.x = s.x; n.y = s.y; n.vx = 0; n.vy = 0; }
+    }
+
+    // Keep the position cache current for the touched nodes, so a later FULL
+    // updateGraph (bank switch back, forced full push) re-seeds them where they
+    // are now instead of throwing them back at their type anchor.
+    for (const t of [...added, ...updated]) {
+        const n = nodes.find(x => x.id === t.id);
+        if (n && n.x != null) prevPositions.set(n.id, { x: n.x, y: n.y, vx: n.vx || 0, vy: n.vy || 0 });
+    }
+
+    rebuildVisible();
+    rebuildNeighborsIndex();
+    // Always a low reheat: a delta by definition sits on a settled layout.
+    // G109 (disclosed, phase 2): even a NO-OP delta still moves a packed core —
+    // bench `deltaNoop*`: 31 / 80 wu mean, 173 / 573 max on the medium / dense
+    // synthetic (was ~1,000 / 1,200 mean before phase 1). The value here is a
+    // real lever on medium density (0.1 -> 19 / 60) but not on dense (0.1 ->
+    // 73 / 340): the residual there is the never-alpha-scaled forceCollide
+    // re-resolving a core the alpha-scaled forces re-compress on every reheat.
+    // Retune with phase 2's settle criterion + a collide lever, measured in-app;
+    // the number stays until then (plan rulings R8/R10).
+    startSimulation({ reheat: 0.3 });
+
+    if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
+    scheduleRedraw();
+}
+
 // Degree from links. This has to run BEFORE d3.forceLink mutates the link
 // objects (it replaces the string id endpoints with node refs). The server
 // degree is authoritative for sizing once present, but the JS recompute is
@@ -593,33 +779,156 @@ function rebuildNeighborsIndex() {
 
 // Per-tick force pulling each member node toward its hub's current position.
 // This gives the graph real centers of gravity instead of a uniform blob.
+// G109: `alpha` is what d3 passes every force each tick (1.0 cold -> alphaMin).
+// This force used to ignore it — a permanent `strength`-per-tick spring that,
+// against the never-alpha-scaled forceCollide, kept ~1,500 nodes bouncing for
+// ever (KE/node plateau ~20 at tick 400 on the bench, 4e-4 once scaled). That
+// bounce is what velocityDecay 0.45 / alphaMin 0.05 were papering over. The
+// nominal 0.05 is unchanged, so a cold layout at alpha 1.0 is identical to
+// before for its first ticks. The id map is built once per simulation in
+// initialize() (d3 calls it when the force is bound and when nodes change),
+// not on every tick — the force now also runs on every drag frame.
 function hubGravityForce(strength) {
-    let force;
-    function tick() {
+    let byId = new Map();
+    function force(alpha) {
         if (!memberToHub.size) return;
-        const byId = new Map(visibleNodes.map(n => [n.id, n]));
+        const k = strength * alpha;
         for (const n of visibleNodes) {
             const hid = memberToHub.get(n.id);
             if (!hid) continue;
             const hub = byId.get(hid);
             if (!hub) continue;
-            n.vx += (hub.x - n.x) * strength;
-            n.vy += (hub.y - n.y) * strength;
+            n.vx += (hub.x - n.x) * k;
+            n.vy += (hub.y - n.y) * k;
         }
     }
-    force = tick;
+    force.initialize = (simNodes) => { byId = new Map(simNodes.map(n => [n.id, n])); };
     return force;
+}
+
+// ---------- G109 isolate containment ----------
+//
+// A zero-degree node has nothing pulling it in: forceCenter is a uniform
+// translation of the centroid (it cannot pull an individual node), and the
+// 0.04 type anchor loses to forceManyBody(-150) from ~1,000 bodies until the
+// node clears distanceMax(700) and parks — the ring the user photographed. Each
+// isolate gets its own slot on a Vogel-phyllotaxis disc centred on its type's
+// anchor (the same arrangement d3 uses to initialise nodes), pulled by the
+// existing xType/yType forces at ISOLATE_ANCHOR_STRENGTH, and exerts a weaker
+// charge so a disc of them does not blast itself apart. Measured on the bench
+// (1500-node synthetic): isolate max radius 2.0x -> 1.3x core p90, no isolate
+// beyond the farthest connected node, core median unchanged. Phase 3 (not
+// built) excludes isolates from the simulation entirely, which makes the disc
+// a guarantee instead of a tuning outcome.
+//
+// Levers, for the phase-2 live-bank tuning pass: ISOLATE_ANCHOR_STRENGTH (0.2
+// -> ratio 1.4, 0.3 -> 1.3, 0.5 -> 1.2 but +30% post-release motion and the
+// disc inside the type cluster); ISOLATE_SLOT_SPACING (20 is collision-free for
+// two high-confidence isolates: 2 x (4 + 8 + 6) = 36 wu); ISOLATE_ANCHOR_SCALE
+// (measured NOT to move the outcome at 1.0-1.8: the resting radius is set by
+// the core's outward push, which per-node charge cannot reduce — d3's
+// strength() sets what a body EXERTS, not what it receives).
+const ISOLATE_ANCHOR_SCALE = 1.0;     // multiplies the type anchor; 1.0 = centred on it
+const ISOLATE_RING_R = 480;           // fallback for a type with no anchor: same radius as the type anchors (450-540), never a halo beyond them
+const ISOLATE_SLOT_SPACING = 20;      // c in r = c * sqrt(i)
+const ISOLATE_ANCHOR_STRENGTH = 0.3;  // forceX/forceY strength for an isolate (d3 range [0, 1])
+const ISOLATE_CHARGE = -30;           // what an isolate EXERTS (vs -150 for a connected node)
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const VMAX_WU_PER_TICK = 60;          // speed clamp; a 1000 px/s flick at k=0.6 seeds ~28
+
+let isolateSlots = new Map();                 // id -> { x, y, type, index }
+const isolateSlotIndexByType = new Map();     // type -> Set<index> in use
+
+// Visible degree 0, not a hub (hubs anchor to the ring), not a hub member or a
+// facet with its parent on the graph (both are pulled by hubGravity). Reads
+// neighborsById — built from visibleLinks — so a node whose only edges the
+// contexts filter dropped counts as isolated, unlike _localDegree. An orphan
+// facet (parent not on the graph) IS an isolate: today it falls to a 0.04 pull
+// toward typeClusterPositions[<facet type>], i.e. (0, 0), and drifts.
+function isIsolate(d) {
+    return !nodeIsHub(d) && !memberToHub.has(d.id) && !neighborsById.has(d.id);
+}
+
+function isolateAnchor(type) {
+    const t = typeClusterPositions[type];
+    if (t && type !== "hub") return [t[0] * ISOLATE_ANCHOR_SCALE, t[1] * ISOLATE_ANCHOR_SCALE];
+    const a = (hashHue(String(type)) / 360) * 2 * Math.PI;
+    return [Math.cos(a) * ISOLATE_RING_R, Math.sin(a) * ISOLATE_RING_R];
+}
+
+function isolateSlotPosition(type, index) {
+    const [cx, cy] = isolateAnchor(type);
+    const r = ISOLATE_SLOT_SPACING * Math.sqrt(index + 0.5);
+    const a = index * GOLDEN_ANGLE;
+    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), type, index };
+}
+
+// Stable per-type free-list: an isolate keeps its slot across updateGraph /
+// updateGraphDelta / applyFilters for as long as it stays an isolate of the
+// same type; a newcomer takes the lowest free index of its type; a node that
+// gains a visible link, changes type, or leaves releases its index. Sorting
+// isolates by id instead would re-shuffle every slot after any insert that
+// sorts earlier, defeating the delta path's position preservation. Runs at
+// the top of startSimulation, which every caller reaches only after
+// rebuildNeighborsIndex(), and before d3 evaluates the forceX/forceY accessors
+// (once, at initialize).
+function assignIsolateSlots() {
+    const current = new Map();
+    for (const n of visibleNodes) if (isIsolate(n)) current.set(n.id, n.type);
+    for (const [id, slot] of isolateSlots) {
+        if (current.get(id) !== slot.type) {
+            isolateSlots.delete(id);
+            isolateSlotIndexByType.get(slot.type)?.delete(slot.index);
+        }
+    }
+    const ids = [...current.keys()].filter(id => !isolateSlots.has(id)).sort();
+    for (const id of ids) {
+        const type = current.get(id);
+        if (!isolateSlotIndexByType.has(type)) isolateSlotIndexByType.set(type, new Set());
+        const used = isolateSlotIndexByType.get(type);
+        let index = 0;
+        while (used.has(index)) index += 1;
+        used.add(index);
+        isolateSlots.set(id, isolateSlotPosition(type, index));
+    }
+}
+
+// Guard, not a force: with velocityDecay at 0.2 a reheat can launch a node;
+// this rescales any velocity above VMAX down to it. Registered LAST so it sees
+// the summed velocity (d3 applies forces in insertion order, then damping).
+// Deliberately not alpha-scaled — it can only remove energy, so it cannot
+// re-create the plateau that rule "alpha-scale every custom force" guards.
+function clampSpeedForce() {
+    return function force() {
+        for (const n of visibleNodes) {
+            const s = Math.hypot(n.vx, n.vy);
+            if (s > VMAX_WU_PER_TICK) { const k = VMAX_WU_PER_TICK / s; n.vx *= k; n.vy *= k; }
+        }
+    };
 }
 
 function startSimulation({ reheat = 1.0 } = {}) {
     if (simulation) simulation.stop();
+    assignIsolateSlots();
 
     simulation = d3.forceSimulation(visibleNodes)
         // Alpha/velocity tuning for dense graphs. Defaults are fine for a
         // hundred nodes; at 1500 they keep the sim bouncing indefinitely.
         .alphaDecay(0.05)
-        .velocityDecay(0.55)
-        .alphaMin(0.05)
+        // G109: 0.2 (d3 default 0.4; was 0.55, then 0.45 under G84b). Each
+        // tick keeps 80% of velocity, so a 28 wu/tick flick coasts ~13 ticks /
+        // ~100 wu with collide on (bench) instead of 6 / 34. The "indefinite
+        // bouncing at ~1500 nodes" that kept this high was the unscaled
+        // hubGravity force, not d3: with it alpha-scaled, KE/node at tick 400
+        // is 4e-6 at 0.2 on the bench. graph-physics.test.js guards that.
+        .velocityDecay(0.2)
+        // G109: d3's default. 0.05 stopped the timer ~27 ticks after any
+        // reheat, freezing a thrown node mid-coast; the release path no longer
+        // bumps alpha (see onMouseUp), so the runway has to come from here.
+        // Cost: a cold run is 135 ticks instead of 59, a 0.3 reheat 112
+        // instead of 35 (log arithmetic); phase 2's owned loop replaces this
+        // alpha cut-off with a physical settle criterion.
+        .alphaMin(0.001)
         .force("link", d3.forceLink(visibleLinks)
             .id(d => d.id)
             .distance(90)
@@ -631,7 +940,7 @@ function startSimulation({ reheat = 1.0 } = {}) {
             // Stronger, longer-reach repulsion so clusters breathe instead of
             // clumping — nodes push apart farther before the type/hub anchors
             // and center pull them back into recognizable clusters.
-            .strength(-150)
+            .strength(d => isIsolate(d) ? ISOLATE_CHARGE : -150)
             .distanceMax(700)
             .theta(0.9))
         .force("center", d3.forceCenter(0, 0).strength(0.04))
@@ -643,6 +952,7 @@ function startSimulation({ reheat = 1.0 } = {}) {
         .force("xType", d3.forceX(d => xAnchor(d)).strength(d => anchorStrength(d, "x")))
         .force("yType", d3.forceY(d => yAnchor(d)).strength(d => anchorStrength(d, "y")))
         .force("hubGravity", hubGravityForce(0.05))
+        .force("clampSpeed", clampSpeedForce())
         .on("tick", scheduleRedraw)
         .on("end", () => { simulation.stop(); });
 
@@ -650,16 +960,21 @@ function startSimulation({ reheat = 1.0 } = {}) {
 }
 
 function xAnchor(d) {
+    const slot = isolateSlots.get(d.id);
+    if (slot) return slot.x;
     if (nodeIsHub(d) && hubAnchors.has(d.id)) return hubAnchors.get(d.id)[0];
     return typeClusterPositions[d.type]?.[0] ?? 0;
 }
 
 function yAnchor(d) {
+    const slot = isolateSlots.get(d.id);
+    if (slot) return slot.y;
     if (nodeIsHub(d) && hubAnchors.has(d.id)) return hubAnchors.get(d.id)[1];
     return typeClusterPositions[d.type]?.[1] ?? 0;
 }
 
 function anchorStrength(d) {
+    if (isolateSlots.has(d.id)) return ISOLATE_ANCHOR_STRENGTH;  // G109: isolates sit in their disc
     if (nodeIsHub(d) && hubAnchors.has(d.id)) return 0.08;  // hubs anchor strongly
     if (memberToHub.has(d.id)) return 0;                    // hubGravity handles members
     return 0.04;                                            // soft type clustering
@@ -910,6 +1225,22 @@ function draw() {
         ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
         ctx.fill();
 
+        // G59: the entity's own brand mark, clipped to the disc. Only past the
+        // node-label zoom tier — below that the marks smear into indistinct
+        // pixels and cost a drawImage per node for nothing.
+        if (filters.showLogos && n.hasLogo && transform.k >= ZOOM_NODE_LABELS && alpha > 0.2) {
+            const entry = logoImages.get(n.id);
+            if (entry && entry.ready) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+                ctx.clip();
+                ctx.drawImage(entry.img, n.x - r, n.y - r, r * 2, r * 2);
+                ctx.restore();
+                ctx.globalAlpha = alpha;
+            }
+        }
+
         if (n.status === "decaying") {
             ctx.stroke();
             ctx.setLineDash([]);
@@ -1135,6 +1466,16 @@ function wireMouseEvents() {
     canvas.addEventListener("mousemove", onMouseMove, true);
     canvas.addEventListener("mouseup", onMouseUp, true);
     canvas.addEventListener("mouseleave", onMouseLeave);
+    // G84b: mouseup on the canvas only fires when the release point is over
+    // the canvas (or, for our capture-phase listener, when canvas is on the
+    // event's path at all). Releasing the button after dragging the cursor
+    // OUTSIDE the canvas bounds never reached that listener, so the node
+    // stayed pinned (fx/fy never cleared) until the next click. A window-level
+    // listener catches every release regardless of where the cursor ends up.
+    // onMouseUp doesn't read `event`, and it's a no-op once draggingNode is
+    // already null, so this is safe to also fire for an ordinary in-canvas
+    // release (it just runs twice, second time as a no-op).
+    window.addEventListener("mouseup", onMouseUp);
 }
 
 function screenToWorld(sx, sy) {
@@ -1159,6 +1500,21 @@ function pickNode(sx, sy) {
     return n || null;
 }
 
+// Pure, testable on its own (Tests/graph/graph-drag-velocity.test.js): given
+// the timestamp of the last recorded move sample, the current time, and the
+// EMA-smoothed velocity accumulated so far, decide what velocity a release
+// RIGHT NOW should actually seed. A hold that's gone stale (no move sample
+// within DRAG_STALE_MS of now — including "never moved," lastSampleTime ===
+// null) returns zero, no matter how large vx/vy still are: a stationary node
+// must release stationary. A genuinely fresh sample passes vx/vy through
+// unchanged.
+function seededDragVelocity(lastSampleTime, now, vx, vy) {
+    if (lastSampleTime === null || now - lastSampleTime > DRAG_STALE_MS) {
+        return { vx: 0, vy: 0 };
+    }
+    return { vx, vy };
+}
+
 function onMouseDown(event) {
     const [sx, sy] = eventScreenXY(event);
     pressStart = { x: sx, y: sy, moved: false };
@@ -1167,7 +1523,15 @@ function onMouseDown(event) {
         draggingNode = picked;
         picked.fx = picked.x;
         picked.fy = picked.y;
-        if (simulation) simulation.alphaTarget(0.3).restart();
+        // G84b: reset the throw-velocity estimate for this new drag gesture —
+        // a re-grab must never inherit a prior drag's momentum.
+        dragVX = 0;
+        dragVY = 0;
+        lastDragSample = { t: performance.now(), x: picked.x, y: picked.y };
+        // G109: 0.1, not 0.3 — the hold used to heat the whole graph so every
+        // node jittered under the cursor (bench: KE/node 2e3-8e3 during a
+        // hold, 4e-3-5.5 at 0.1). Enough alpha for the neighbours to follow.
+        if (simulation) simulation.alphaTarget(0.1).restart();
         canvas.classList.add("dragging");
         // Claim this gesture: d3-zoom's own mousedown listener (registered on
         // the same canvas) calls stopImmediatePropagation to start a pan, which
@@ -1203,6 +1567,26 @@ function onMouseMove(event) {
             const [wx, wy] = screenToWorld(sx, sy);
             draggingNode.fx = wx;
             draggingNode.fy = wy;
+
+            // G84b: sample the pointer's world-space velocity so onMouseUp
+            // can seed vx/vy on release and let the node coast instead of
+            // stopping dead. EMA-smoothed so a single jittery sub-frame move
+            // doesn't dominate the throw. performance.now() — monotonic,
+            // unlike Date.now() — and it's this SAME timestamp that
+            // onMouseUp later compares against to detect a stale/parked hold
+            // (see seededDragVelocity, DRAG_STALE_MS).
+            const now = performance.now();
+            if (lastDragSample) {
+                const dt = now - lastDragSample.t;
+                if (dt > 0) {
+                    const instVX = ((wx - lastDragSample.x) / dt) * SIM_TICK_MS;
+                    const instVY = ((wy - lastDragSample.y) / dt) * SIM_TICK_MS;
+                    dragVX = dragVX + (instVX - dragVX) * DRAG_VELOCITY_SMOOTHING;
+                    dragVY = dragVY + (instVY - dragVY) * DRAG_VELOCITY_SMOOTHING;
+                }
+            }
+            lastDragSample = { t: now, x: wx, y: wy };
+
             scheduleRedraw();
         }
         return;
@@ -1226,11 +1610,47 @@ function onMouseUp(event) {
         // drag pin if this node isn't a frozen context node.
         const keepPinned = focusNodeId && focusSet && !focusSet.has(clickedId);
         if (!keepPinned) {
+            // G84b: seed the node's velocity from the tracked pointer motion
+            // BEFORE clearing fx/fy. While fx/fy are set d3 zeroes vx/vy every
+            // tick, so this MUST happen first — clearing the pin first would
+            // hand the node back to the simulation already at rest, same as
+            // before this fix. A click (never crossed the drag threshold)
+            // leaves dragVX/dragVY at their reset 0, so a plain click still
+            // releases the node motionless, as before.
+            //
+            // Devin review (PR #23): route through seededDragVelocity instead
+            // of using dragVX/dragVY directly — they used to retain the last
+            // movement delta indefinitely, so grab, move, PAUSE while still
+            // holding, then release used to launch the (by-then stationary)
+            // node off in a now-stale direction. seededDragVelocity zeroes
+            // the seed whenever the last recorded move sample is older than
+            // DRAG_STALE_MS at the moment of release.
+            const seeded = seededDragVelocity(
+                lastDragSample ? lastDragSample.t : null,
+                performance.now(),
+                dragVX, dragVY
+            );
+            draggingNode.vx = seeded.vx;
+            draggingNode.vy = seeded.vy;
             draggingNode.fx = null;
             draggingNode.fy = null;
         }
         draggingNode = null;
-        if (simulation) simulation.alphaTarget(0);
+        dragVX = 0;
+        dragVY = 0;
+        lastDragSample = null;
+        if (simulation) {
+            // G109: NO alpha bump on release. d3 integrates `x += vx *= (1 -
+            // velocityDecay)` regardless of alpha, so the seeded velocity
+            // coasts on its own; alpha only needs to be above alphaMin (now
+            // 0.001, and the hold's alphaTarget(0.1) already raised it) so the
+            // timer keeps ticking. The old `alpha(max(alpha, 0.2))` reheated
+            // every node: measured ~1,000 wu mean displacement of the OTHER
+            // nodes over the next second, and the link springs at alpha 0.2
+            // cancelled a 26 wu/tick throw in a single tick — the "no
+            // deceleration" the user saw. Now 1-30 wu and a real coast.
+            simulation.alphaTarget(0).restart();
+        }
         canvas.classList.remove("dragging");
 
         if (wasClick) {
@@ -1328,6 +1748,9 @@ function applyFilters(payload) {
     if ("minDegree" in f) filters.minDegree = Number(f.minDegree) || 0;
     if ("contexts" in f) filters.contexts = toSet(f.contexts);
     if ("observers" in f) filters.observers = toSet(f.observers);
+    // Not set-affecting: no node enters or leaves the visible set, so this
+    // must not trigger a rebuild + reheat — just a repaint.
+    if ("showLogos" in f) filters.showLogos = Boolean(f.showLogos);
 
     if (nodes.length === 0) { scheduleRedraw(); return; }
 

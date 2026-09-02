@@ -2,16 +2,17 @@
 
 import asyncio
 import hashlib
-import json
-import re
 import sys
 from pathlib import Path
+from typing import Callable
 
 import litellm
 from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
+from api.services import decay_policy, engine_errors
+from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
 Given a conversation transcript, extract meaningful entities and the relationships between them.
@@ -34,6 +35,7 @@ Output valid JSON with this exact structure:
       "open_questions": ["unresolved point about this entity"],
       "tags": ["relevant", "tags"],
       "confidence": 0.7,
+      "decay_class": "durable|active|volatile",
       "description": "Optional. Same content as summary; kept only for backward compatibility."
     }
   ],
@@ -87,6 +89,16 @@ OPEN QUESTIONS (## Open Questions):
 - Capture unresolved points the user or system still needs to settle about this entity
   (an unconfirmed identity, an undecided choice, a missing date). Leave empty if none.
 
+DECAY CLASS (optional, per entity) — how fast this belief should fade if it stops
+being mentioned:
+- volatile: a fact you expect to change within weeks (a current role, a status, a
+  current focus, an in-flight decision).
+- durable: a stable preference, a skill, or a long-lived concept that rarely moves.
+- active: everything else — the default. Omit the field when unsure.
+- NEVER EVERGREEN a belief here: "evergreen" is reserved for ingested artifacts
+  (bookmarks, saved media) and the user — an extraction may only propose
+  durable|active|volatile.
+
 EXTRACTION GUIDELINES:
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
 - Confidence reflects how certain you are about the entity's attributes, not how important it is.
@@ -137,62 +149,40 @@ EXTRACTION_EXTRA_BODY = {"reasoning": {"enabled": False}}
 # Errors worth one retry inside a single chunk call: transient rate limits,
 # timeouts, and a malformed/empty response (``_parse_json_lenient`` raises
 # ValueError; ``json.JSONDecodeError`` is a ValueError subclass).
+#
+# G74(a): the tuple was litellm-exception-typed ONLY, so under
+# ``llm_mode="agent"`` a CLI failure matched nothing and got zero retries.
+# ``engine_errors.RETRYABLE`` adds the three subprocess failures worth one more
+# attempt — deliberately NOT ``EngineThrottled`` (the breaker handles it; a
+# retry would just spawn again), ``EngineUnavailable``, ``EngineExhausted`` or
+# ``EngineModelNotFound``, all of which need a human rather than a retry.
 _EXTRACT_RETRYABLE = (
     litellm.exceptions.RateLimitError,
     litellm.exceptions.Timeout,
     ValueError,
+    *engine_errors.RETRYABLE,
 )
 
 
-def _parse_json_lenient(raw: str | None) -> dict:
-    """Parse a JSON object from a possibly-noisy LLM response.
+# Historical name: the parser now lives in ``json_parse`` (six other call
+# sites needed it). Kept as an alias — ``api/tests/test_extractor_robustness.py``
+# and every reader of this module still reach for it here.
+_parse_json_lenient = parse_json_object
 
-    Tolerates a reasoning model's output: ```json fences, leading prose/thinking
-    before the object, and trailing commentary after it. Raises ``ValueError``
-    on empty or unparseable content so the caller counts the chunk failed (and
-    the episode is omitted from extraction → requeued by the Sleep cycle).
+
+def sanitize_decay_class(entity: dict) -> None:
+    """Stage-1 anti-pollution rail, applied to ONE extracted entity dict.
+
+    The extractor may PROPOSE ``durable|active|volatile``. Anything else — junk,
+    a missing key, or ``evergreen`` (reserved for the ingest writers and the
+    user) — is removed so the downstream writer falls back to its own default.
+    Mutates in place; never raises.
     """
-    if not raw or not raw.strip():
-        raise ValueError("empty LLM response")
-    text = raw.strip()
-
-    # Strip a leading ```json / ``` fence and its closing ``` if present.
-    if text.startswith("```"):
-        text = re.sub(r"^```[A-Za-z0-9]*\s*", "", text)
-        text = re.sub(r"\s*```$", "", text).strip()
-
-    # Fast path: the whole thing is JSON.
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # Otherwise carve out the first balanced {...} object (skips reasoning prose
-    # before it and any trailing text after it).
-    start = text.find("{")
-    if start == -1:
-        raise ValueError("no JSON object found in response")
-    depth = 0
-    in_str = False
-    esc = False
-    for i in range(start, len(text)):
-        ch = text[i]
-        if in_str:
-            if esc:
-                esc = False
-            elif ch == "\\":
-                esc = True
-            elif ch == '"':
-                in_str = False
-        elif ch == '"':
-            in_str = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[start : i + 1])  # JSONDecodeError -> ValueError
-    raise ValueError("unbalanced JSON object in response")
+    if "decay_class" not in entity:
+        return
+    cls = decay_policy.agent_class(entity.pop("decay_class"))
+    if cls is not None:
+        entity["decay_class"] = cls.value
 
 
 def _chunk_content(content: str) -> list[str]:
@@ -231,8 +221,12 @@ async def _extract_chunk(
     reasoning model that wraps the object in fences or prose.
     """
     try:
-        response = await litellm.acompletion(
-            model=settings.litellm_model,
+        from api.services.providers import resolve_llm_fn
+
+        llm_fn = resolve_llm_fn(
+            settings, model=settings.litellm_model, completion=litellm.acompletion, stage="extraction"
+        )
+        response = await llm_fn(
             messages=[
                 {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
                 {"role": "user", "content": chunk},
@@ -247,7 +241,8 @@ async def _extract_chunk(
         if _attempt >= 1:
             raise
         # Rate limits need a real cooldown; timeouts/parse failures retry fast.
-        backoff = 10 if isinstance(e, litellm.exceptions.RateLimitError) else 2
+        slow = isinstance(e, (litellm.exceptions.RateLimitError, engine_errors.EngineTimeout))
+        backoff = 10 if slow else 2
         logger.warning(
             f"  {ep_id} chunk {chunk_idx + 1}/{total_chunks} — "
             f"{type(e).__name__}, retrying in {backoff}s..."
@@ -258,8 +253,35 @@ async def _extract_chunk(
         )
 
 
-async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
-    """Extract entities and relationships from unprocessed episodes (parallel)."""
+async def extract(
+    episodes: list[dict],
+    settings: Settings,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+    progress_callback: Callable[[], None] | None = None,
+) -> list[dict]:
+    """Extract entities and relationships from unprocessed episodes (parallel).
+
+    ``cancel_check`` (sleep-control): an optional zero-arg predicate polled at
+    the natural per-episode checkpoints in this fan-out — before an episode
+    even queues for a semaphore slot, and again right after it acquires one
+    (it may have waited a while). Once it starts returning ``True``, no
+    NEW episode starts any work (no LLM call spent) — its slot in ``results``
+    stays ``None``, so it comes back out of ``extract`` exactly like a failed
+    episode: absent from the returned list, left ``processed: false`` by the
+    caller. Episodes already mid-``_extract_chunk`` when the flag flips are
+    NOT interrupted — they finish normally ("let in-flight work finish").
+    ``None`` (the default, and every existing call site) means "never
+    cancel" — behavior is unchanged.
+
+    ``progress_callback`` (sleep debt, G106 amendment): an optional zero-arg
+    callback fired exactly once per episode, the instant that episode is
+    fully done with THIS stage — success, failure, empty-content fast path,
+    or cancelled-skip all count (mirrors the existing ``tqdm`` bar's own
+    ``update(1)``, which fires on every one of those paths already). This is
+    what makes ``SleepStatusResponse``'s live "Progress %" during Stage 1
+    possible without waiting for the whole fan-out to finish.
+    """
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
     results: list[dict | None] = [None] * len(episodes)
     success = 0
@@ -281,6 +303,12 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
         ep_id = episode["id"]
         content = episode["content"]
 
+        # Sleep-control checkpoint 1: before this episode even queues for a
+        # semaphore slot. A cancel requested any time before this task got
+        # its turn on the event loop means it never spends a call.
+        if cancel_check is not None and cancel_check():
+            return
+
         if not content.strip():
             # No LLM call needed, but record a zero-entity result so the Sleep
             # cycle marks this episode processed (done — nothing to extract)
@@ -298,6 +326,12 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
         chunks = _chunk_content(content)
 
         async with semaphore:
+            # Sleep-control checkpoint 2: this task may have waited a while
+            # for a slot to free up — re-check right after acquiring one, so
+            # a cancel that arrived during that wait still stops it before
+            # its first (real) LLM call.
+            if cancel_check is not None and cancel_check():
+                return
             try:
                 # Extract from all chunks and merge results
                 all_entities = []
@@ -312,6 +346,7 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
                     entity["source_episode"] = ep_id
                     entity["source_episode_timestamp"] = episode.get("timestamp")
                     entity["origin"] = ep_origin
+                    sanitize_decay_class(entity)
                 for rel in all_relationships:
                     rel["source_episode"] = ep_id
                     rel["source_episode_timestamp"] = episode.get("timestamp")
@@ -339,9 +374,30 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
             except litellm.exceptions.AuthenticationError as e:
                 failed += 1
                 logger.error(f"  [{i+1}/{total}] {ep_id} — auth error (check API key): {e}")
-            except litellm.exceptions.NotFoundError as e:
+            except litellm.exceptions.NotFoundError:
                 failed += 1
                 logger.error(f"  [{i+1}/{total}] {ep_id} — model not found: {settings.litellm_model}")
+            # G74(a): the agent rung's failures are subprocess-shaped. Each one
+            # names its own fix so the Sleep page never says "check API credits"
+            # for a plan that has no credits to check.
+            except engine_errors.EngineThrottled as e:
+                failed += 1
+                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude plan throttled: {e}")
+            except engine_errors.EngineExhausted as e:
+                failed += 1
+                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude plan budget exhausted: {e}")
+            except engine_errors.EngineUnavailable as e:
+                failed += 1
+                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude Code is signed out or missing: {e}")
+            except engine_errors.EngineModelNotFound as e:
+                failed += 1
+                logger.error(
+                    f"  [{i+1}/{total}] {ep_id} — model not accepted by the Claude CLI "
+                    f"({settings.agent_model}): {e}"
+                )
+            except engine_errors.EngineError as e:
+                failed += 1
+                logger.error(f"  [{i+1}/{total}] {ep_id} — engine failure: {type(e).__name__}: {e}")
             except Exception as e:
                 failed += 1
                 logger.error(f"  [{i+1}/{total}] {ep_id} — {type(e).__name__}: {e}")
@@ -351,6 +407,8 @@ async def extract(episodes: list[dict], settings: Settings) -> list[dict]:
             await _do_process(i, episode)
         finally:
             progress.update(1)
+            if progress_callback is not None:
+                progress_callback()
 
     # Fire all tasks with semaphore-controlled concurrency
     try:

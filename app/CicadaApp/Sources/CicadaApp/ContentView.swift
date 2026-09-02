@@ -1,13 +1,20 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @State private var selectedTab: AppTab = .graph
+    /// Reopen where the user left off. Always read back through
+    /// `AppTab.restored(from:)`: this string can name a tab that no longer
+    /// exists (G68 retired five of them).
+    @AppStorage("cicada.selectedTab") private var selectedTabRaw = AppTab.graph.rawValue
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     // First-launch onboarding: show the Connect guide once, then it lives in
-    // the sidebar under Setup. Stored flag so reinstalls of the same Mac user
+    // Settings → Agents (⌘,). Stored flag so reinstalls of the same Mac user
     // don't re-trigger it on every launch.
     @AppStorage("cicada.hasSeenConnectGuide") private var hasSeenConnectGuide = false
     @State private var showOnboarding = false
+    // ⌘K Ask panel (G52, spec §5.9).
+    @State private var showAskPanel = false
 
     // Theme: mirrors the persisted mode into `CicadaTheme.mode` (see
     // Theme/CicadaTheme.swift) on every render, before Sidebar/detail are
@@ -18,6 +25,9 @@ struct ContentView: View {
 
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(InboxViewModel.self) private var inboxVM
+    @Environment(Store.self) private var store
+    @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(ConnectionsViewModel.self) private var connectionsVM
 
     var body: some View {
         // `ViewBuilder` only accepts declarations/`let _ = ...` statements
@@ -28,13 +38,20 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 selectedTab: $selectedTab,
-                inboxCount: inboxVM.pendingCount
+                inboxCount: inboxVM.pendingCount,
+                isSleeping: store.status.value?.sleep.status == "running" || sleepVM.isRunning,
+                needsAttention: connectionsVM.needsAttention,
+                onOpenSettings: openSettings
             )
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
         } detail: {
             detailContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CicadaTheme.background)
+                // A rolled-back mutation (or a refresh that failed with
+                // nothing on screen) posts `store.toast`; show it at the
+                // bottom of whatever page is open (§5.4).
+                .overlay(alignment: .bottom) { toastBanner }
         }
         // Most CicadaTheme.xxx tokens are plain static reads, not
         // @Environment-tracked, so SwiftUI's dependency tracker won't know to
@@ -45,12 +62,23 @@ struct ContentView: View {
         // outside this subtree.
         .id(colorSchemeRaw)
         .navigationSplitViewStyle(.prominentDetail)
-        .task {
-            await graphVM.loadGraph()
-            await inboxVM.loadInbox()
-        }
+        // No `.task { load() }` here: `graphVM`/`inboxVM` are thin
+        // projections over `Store.graph`/`Store.inbox` (§5.5). The Store
+        // hydrates both from disk and refreshes them itself
+        // (`store.bootstrap()`, wired in `CicadaApp`'s `.onAppear`); the VMs
+        // pick up every subsequent change reactively (`GraphViewModel`'s
+        // `observeStore()`; `InboxViewModel.items` reads the snapshot
+        // directly), so there's nothing left for ContentView to kick off.
         .onAppear {
+            selectedTab = AppTab.restored(from: selectedTabRaw)
             if !hasSeenConnectGuide { showOnboarding = true }
+        }
+        .onChange(of: selectedTab) { _, newValue in
+            selectedTabRaw = newValue.rawValue
+            // Bug 3 / G108 — a different tab drops the entity card's stale
+            // "go deeper" trail (the currently-open card, if any, is left
+            // alone; only its click-through history is cleared).
+            graphVM.resetNavigationHistory()
         }
         .sheet(isPresented: $showOnboarding) {
             ConnectView(isOnboarding: true) {
@@ -59,13 +87,56 @@ struct ContentView: View {
             }
             .frame(width: 780, height: 640)
         }
+        // ⌘K opens the Ask panel (G52) from anywhere in the app — a hidden
+        // button is the standard SwiftUI way to attach a global keyboard
+        // shortcut that isn't tied to a visible control.
+        .background {
+            Button("") { showAskPanel = true }
+                .keyboardShortcut("k", modifiers: .command)
+                .buttonStyle(.cicadaPlain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+        }
+        .sheet(isPresented: $showAskPanel) {
+            AskPanel { entityId in
+                withAnimation(.spring(duration: 0.25)) { selectedTab = .graph }
+                graphVM.selectEntity(id: entityId)
+                showAskPanel = false
+            }
+        }
+    }
+
+    /// Transient capsule for `store.toast`, auto-clearing after 4 s. Keyed on
+    /// the message so a second toast restarts the timer instead of inheriting
+    /// the first one's remaining time.
+    @ViewBuilder
+    private var toastBanner: some View {
+        if let toast = store.toast {
+            Text(toast)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(
+                    Capsule().fill(CicadaTheme.surface)
+                        .overlay(Capsule().stroke(CicadaTheme.border, lineWidth: 1))
+                )
+                .shadow(color: .black.opacity(0.25), radius: 10, y: 3)
+                .padding(.bottom, 22)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .task(id: toast) {
+                    try? await Task.sleep(for: .seconds(4))
+                    guard !Task.isCancelled else { return }
+                    store.toast = nil
+                }
+        }
     }
 
     @ViewBuilder
     private var detailContent: some View {
         switch selectedTab {
         case .graph:
-            GraphContainerView(selectedTab: $selectedTab)
+            GraphContainerView(selectedTab: $selectedTab, showAskPanel: $showAskPanel)
         case .clusters:
             TopicsView(selectedTab: $selectedTab)
         case .feed:
@@ -74,13 +145,20 @@ struct ContentView: View {
             SleepView(selectedTab: $selectedTab)
         case .inbox:
             InboxListView()
-        case .contributors:
-            ContributorsView()
-        case .connect:
-            ConnectView()
-        case .sources:
-            SourcesView()
+        case .activity:
+            // An entity chip on a conversation row navigates the same way an
+            // Ask citation does: select in the graph, then show the graph.
+            ActivityView { entityId in
+                withAnimation(.spring(duration: 0.25)) { selectedTab = .graph }
+                graphVM.selectEntity(id: entityId)
+            }
         }
+    }
+
+    /// SwiftUI has no API for opening the `Settings` scene programmatically,
+    /// so the footer gear posts the same AppKit action ⌘, does.
+    private func openSettings() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 }
 
@@ -88,6 +166,7 @@ struct ContentView: View {
 
 struct GraphContainerView: View {
     @Binding var selectedTab: AppTab
+    @Binding var showAskPanel: Bool
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(BanksViewModel.self) private var banksVM
     @State private var showUploadOverlay = false
@@ -97,14 +176,17 @@ struct GraphContainerView: View {
             GraphView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Top-right: Sleep + Upload + Help buttons
+            // Top-right: Ask + Sleep + Upload + Help buttons
             VStack {
                 HStack {
                     Spacer()
-                    TopBarControls(
-                        selectedTab: $selectedTab,
-                        showUploadOverlay: $showUploadOverlay
-                    )
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        AskButton(showAskPanel: $showAskPanel)
+                        TopBarControls(
+                            selectedTab: $selectedTab,
+                            showUploadOverlay: $showUploadOverlay
+                        )
+                    }
                     .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
@@ -159,6 +241,10 @@ struct GraphContainerView: View {
                     .transition(.opacity)
 
                 EntityDetailCard(entity: entity, defaultRaw: false)
+                    // One card identity PER ENTITY. Without this, following a
+                    // wikilink A → B reuses A's @State — A's claims, repos,
+                    // fact sources and selected tab render under B's name.
+                    .id(entity.id)
                     .frame(maxWidth: 620, maxHeight: 680)
                     .padding(CicadaTheme.spacingXL)
                     .transition(.scale(scale: 0.97).combined(with: .opacity))
@@ -190,9 +276,8 @@ struct FilterButton: View {
                 .foregroundStyle(allEnabled ? (isHovered ? CicadaTheme.textPrimary : CicadaTheme.textSecondary) : CicadaTheme.accent)
                 .frame(width: 36, height: 32)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
         .onHover { isHovered = $0 }
-        .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
         .popover(isPresented: Binding(
             get: { graphVM.showFilterPopover },
             set: { graphVM.showFilterPopover = $0 }
@@ -234,7 +319,7 @@ struct FilterPopoverContent: View {
                     }
                     .padding(.vertical, 3)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
 
             Divider()
@@ -264,7 +349,7 @@ struct FilterPopoverContent: View {
                     }
                     .padding(.vertical, 3)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cicadaPlain)
             }
 
             Divider()
@@ -290,6 +375,17 @@ struct FilterPopoverContent: View {
                 in: 0...1
             )
             .controlSize(.small)
+
+            Divider()
+            Toggle("Show logos", isOn: Binding(
+                get: { graphVM.filter.showLogos },
+                set: { newValue in
+                    graphVM.filter.showLogos = newValue
+                    if newValue { Task { await graphVM.pushVisibleLogos() } }
+                }
+            ))
+            .toggleStyle(.switch)
+            .accessibilityLabel("Show entity logos on graph nodes")
         }
         .padding(CicadaTheme.spacingMD)
         .frame(width: 220)
@@ -314,6 +410,35 @@ struct ZoomControls: View {
     }
 }
 
+// MARK: - Ask Button (G52)
+
+/// Toolbar entry point for the ⌘K Ask panel — the keyboard shortcut works
+/// from anywhere in `ContentView`, this just gives it a discoverable button
+/// alongside Sleep/Upload/Help.
+struct AskButton: View {
+    @Binding var showAskPanel: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            showAskPanel = true
+        } label: {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Image(systemName: "sparkle.magnifyingglass")
+                    .font(.system(size: 12))
+                Text("Ask")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.accent)
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .padding(.vertical, CicadaTheme.spacingSM)
+        }
+        .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .onHover { isHovered = $0 }
+        .help("Ask your memory (⌘K)")
+    }
+}
+
 private struct ZoomButton: View {
     let icon: String
     let action: () -> Void
@@ -327,7 +452,7 @@ private struct ZoomButton: View {
                 .frame(width: 36, height: 32)
                 .background(isHovered ? CicadaTheme.surfaceHover : .clear)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
     }

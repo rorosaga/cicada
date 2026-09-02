@@ -63,6 +63,48 @@ class EntityStatus(str, Enum):
     dropped = "dropped"
 
 
+class DecayClass(str, Enum):
+    """How fast a belief about a life should fade when it stops being mentioned (G66).
+
+    Decay models "absence of mention is a signal" for *beliefs*. A bookmark is an
+    *artifact*, not a belief — it does not become less true by going unmentioned,
+    so it is ``evergreen`` and never decays at all.
+    """
+
+    evergreen = "evergreen"   # never fades — artifacts (media/bookmarks) + user pins
+    durable = "durable"       # fades slowly — stable preferences, skills, long-lived concepts
+    active = "active"         # the default for a belief about the user's life
+    volatile = "volatile"     # expected to change within weeks (role, status, current focus)
+
+
+# Per-week confidence drop used by the ENTITY decay engine
+# (``conflict_resolver.resolve_and_prune``).
+DECAY_CLASS_RATES: dict[DecayClass, float] = {
+    DecayClass.evergreen: 0.0,
+    DecayClass.durable: 0.02,
+    DecayClass.active: 0.05,
+    DecayClass.volatile: 0.15,
+}
+
+# Multiplier applied to the CLAIM decay engine's per-epistemic x source_trust
+# rate (``claim_reconciler._decay_claims``), keyed by the SUBJECT entity's class.
+# An evergreen subject's claims never decay (0.0).
+CLAIM_DECAY_MULTIPLIERS: dict[DecayClass, float] = {
+    DecayClass.evergreen: 0.0,
+    DecayClass.durable: 0.5,
+    DecayClass.active: 1.0,
+    DecayClass.volatile: 2.0,
+}
+
+# ANTI-POLLUTION RAIL, mirroring ``PRODUCIBLE_ENTITY_TYPES`` above: Stage-1
+# extraction may PROPOSE only these three. ``evergreen`` is reserved for the
+# ingest writers and for the user, so an over-eager extractor can never stop the
+# graph from archiving.
+AGENT_PRODUCIBLE_DECAY_CLASSES: frozenset[DecayClass] = frozenset(
+    {DecayClass.durable, DecayClass.active, DecayClass.volatile}
+)
+
+
 class NudgeType(str, Enum):
     decay = "decay"
     conflict = "conflict"
@@ -72,14 +114,46 @@ class NudgeType(str, Enum):
 # --- Entity ---
 
 
+class DiffLine(CamelModel):
+    """One row of a unified diff for an entity file (G69).
+
+    ``kind`` is one of ``context`` / ``add`` / ``remove`` / ``hunk``. Line
+    numbers are 1-based and follow git's own accounting: a ``context`` row
+    carries both, an ``add`` row only ``new_line``, a ``remove`` row only
+    ``old_line``, and a ``hunk`` row (whose ``text`` is the raw ``@@ … @@``
+    header) carries neither. Serialized camelCase (``oldLine`` / ``newLine``).
+    """
+
+    kind: str
+    old_line: Optional[int] = None
+    new_line: Optional[int] = None
+    text: str = ""
+
+
 class EntityDiff(CamelModel):
-    # Added / removed line blocks for one entity file at one commit, newline-joined.
-    # git_service caps each side at DIFF_MAX_LINES so the response can't explode on
-    # a huge rewrite; when the cap is hit a truncation marker is appended to the
-    # affected side and ``truncated`` is set so the client can show "diff clipped".
+    # G69: ``lines`` is the real, ordered unified diff — additions, removals AND
+    # the unchanged context around them, each with its old/new line number, so
+    # the app can render a GitHub-style interleaved view instead of two blocks.
+    # Capped at DIFF_MAX_CONTEXT_LINES.
+    #
+    # ``added`` / ``removed`` are the pre-G69 newline-joined blocks, KEPT for
+    # back-compat: an older app build (and any client decoding a cached payload)
+    # still renders from them. git_service caps each side at DIFF_MAX_LINES so
+    # the response can't explode on a huge rewrite; when either cap is hit a
+    # truncation marker is appended to the affected side and ``truncated`` is set
+    # so the client can show "diff clipped".
     added: str = ""
     removed: str = ""
+    # ``truncated`` is the UNION flag — true when ANY of the three sinks was
+    # clipped — and keeps its exact pre-G69 meaning for the two flat blocks.
+    # ``lines_truncated`` is specifically "the ORDERED list was cut", which is
+    # what a client rendering ``lines`` must show its "diff clipped" banner on:
+    # a 500-addition commit clips the 400-cap flat side while ``lines`` is
+    # whole, and a banner driven by ``truncated`` would sit above a complete
+    # diff claiming it was shortened.
     truncated: bool = False
+    lines: list[DiffLine] = Field(default_factory=list)
+    lines_truncated: bool = False
 
 
 class EntityHistoryEntry(CamelModel):
@@ -95,6 +169,16 @@ class EntityHistoryEntry(CamelModel):
     author: str = "unknown"
     commit_hash: str = ""
     diff: Optional[EntityDiff] = None
+    # G48: the conversation(s) that produced THIS ENTITY's change at this
+    # commit. PR #20 review fix: precise when derivable — parsed from the
+    # entity's own manifest line (`git_service._parse_entity_sessions`), which
+    # a batched Sleep cycle (multiple conversations in one commit) stamps per
+    # entity from only the episode(s) that touched it — falling back to the
+    # commit-wide ``Cicada-Session:`` trailers only when no precise per-entity
+    # data exists (a decay/archive change with no episode, or a pre-fix
+    # commit). Empty for every pre-G48 commit and for user-action writes, so
+    # the app's "from conversation" affordance simply doesn't render there.
+    sessions: list[str] = []
 
 
 # --- Contributors (git-trailer attribution, backlog A2) ---
@@ -121,6 +205,37 @@ class Contributor(CamelModel):
     avatar_url: Optional[str] = None
 
 
+class ContributorCommit(CamelModel):
+    """One commit attributed to a contributor (G67 §2.2).
+
+    ``entities`` are the entity ids (file STEMS) this commit touched, so the app
+    can render a chip per entity and fetch that entity's diff at this commit
+    from ``GET /entities/{id}/history/{commit}/diff``. ``files_changed`` is a
+    COUNT of every changed path (entities and everything else) — the ids
+    themselves are already in ``entities``.
+
+    ``entities`` is CAPPED (``git_service.MAX_COMMIT_ENTITIES``): a real Sleep
+    cycle touches hundreds of pages (895 in one live commit) and the app lays
+    out one tappable chip per id, so an uncapped list is a payload and a
+    render-time blow-up. ``entities_total`` is the true count, so the app can
+    render "+N more" honestly instead of silently under-reporting.
+    """
+
+    commit_hash: str
+    date: str  # ISO date (YYYY-MM-DD)
+    subject: str
+    entities: list[str] = []
+    entities_total: int = 0
+    files_changed: int = 0
+    # G48: same trailer, same contract as EntityHistoryEntry.sessions.
+    sessions: list[str] = []
+
+
+class ContributorCommitsResponse(CamelModel):
+    author: str
+    commits: list[ContributorCommit] = []
+
+
 class ContributorsResponse(CamelModel):
     contributors: list[Contributor] = []
 
@@ -140,6 +255,57 @@ class OriginStat(CamelModel):
 
 class OriginsResponse(CamelModel):
     origins: list[OriginStat] = []
+
+
+# --- Conversations (G48 conversation-level provenance) ---------------------
+
+
+class ConversationSummary(CamelModel):
+    """One conversation that wrote to memory — a live MCP session or an
+    imported chat thread.
+
+    ``conversation_id`` is the stamped ``session_id`` (kind ``"mcp"``) or G20's
+    ``source_id`` (kind ``"import"``). ``entity_ids`` is CAPPED
+    (``session_stats.MAX_CONVERSATION_ENTITIES``) with the honest total in
+    ``entity_count``, so the app can say "+N more". ``project_dir`` is
+    deliberately absent — it is returned only by the resume endpoint, which
+    needs a cwd to launch. ``resumable`` is computed per request and never
+    persisted.
+
+    ``model`` is RESERVED and always ``None`` in this slice: nothing that
+    writes memory records a model against a conversation id yet, so it would be
+    a structurally-null join (see ``session_stats.project_conversation``). It
+    stays on the wire — the app already decodes it — for when engine calls
+    carry session refs (G49).
+    """
+
+    conversation_id: str
+    kind: str = "mcp"  # "mcp" | "import"
+    harness: str = ""
+    origin: str = ""
+    title: str = ""
+    first_seen: str = ""
+    last_seen: str = ""
+    episode_count: int = 0
+    entity_ids: list[str] = []
+    entity_count: int = 0
+    model: Optional[str] = None
+    resumable: bool = False
+
+
+class ResumeDescriptor(CamelModel):
+    """How to reopen a conversation. The BACKEND validates; the APP launches.
+
+    ``argv`` is a fixed list — never a shell string — whose head is the literal
+    binary name ``claude`` (never API-configurable). ``cwd`` is present only
+    when the stamped ``project_dir`` passed a conservative charset gate AND
+    still exists; the app falls back to ``$HOME`` when it is null.
+    """
+
+    mode: str = "terminal"
+    argv: list[str] = []
+    cwd: Optional[str] = None
+    display_command: str = ""
 
 
 class EntityMedia(CamelModel):
@@ -172,6 +338,10 @@ class EntityResponse(CamelModel):
     created: str
     last_referenced: str
     decay_rate: float
+    # G66 — the semantic decay class beside the numeric rate. Additive +
+    # defaulted so an older client that doesn't decode it is unaffected, and a
+    # legacy page with no `decay_class:` still gets a resolved value.
+    decay_class: DecayClass = DecayClass.active
     source_episodes: list[str]
     tags: list[str]
     related: list[str]
@@ -184,6 +354,18 @@ class EntityResponse(CamelModel):
     # Structured media metadata for ``type: media`` entities (G11); ``None`` for
     # every other entity. Populated from the nested ``media:`` frontmatter block.
     media: Optional[EntityMedia] = None
+
+
+class EntityDecayUpdate(CamelModel):
+    """Body of ``PUT /entities/{id}/decay`` — the user's decay override (G66).
+
+    The field is named ``decay_class`` (``class`` is a Python keyword); the
+    camelCase alias ``decayClass`` is what the app sends, and
+    ``populate_by_name`` means a snake_case body works too. Pydantic rejects
+    anything outside the ``DecayClass`` enum with a 422.
+    """
+
+    decay_class: DecayClass
 
 
 # --- Location listing (#7 — show a location entity's directory contents) ---
@@ -217,6 +399,119 @@ class LocationListing(CamelModel):
     accessible: bool = True
     truncated: bool = False
     entries: list[LocationEntry] = []
+
+
+# --- Fact sources (G61 — "where to look this up") ---
+
+
+class EntitySource(CamelModel):
+    """One declared refresh source on an entity page's ``sources:`` key."""
+
+    ref: str
+    kind: str = "note"          # url | path | note
+    predicate: Optional[str] = None
+    added_by: str = "user"      # model id, or "user"
+    added_at: str = ""
+
+
+class EntitySourceCreate(CamelModel):
+    """``POST /entities/{id}/sources`` body. ``kind`` is inferred when omitted."""
+
+    ref: str
+    kind: Optional[str] = None
+    predicate: Optional[str] = None
+
+
+class EntitySourceList(CamelModel):
+    entity_id: str
+    sources: list[EntitySource] = []
+
+
+# --- Repo links (backlog G-repo) ---
+#
+# Deliberately plain BaseModel (NOT CamelModel) — the G-repo shared contract
+# fixes this wire shape as snake_case JSON so the MCP tool, the router, and
+# any other in-flight agent's work all match byte-for-byte. Don't swap in
+# CamelModel here even though the rest of this file uses it.
+
+
+class RepoWorktree(BaseModel):
+    """One entry from ``git worktree list`` for a repo, declared-flag merged in.
+
+    ``is_main`` is derived from ``--git-common-dir`` (git.py's source of
+    truth), not from frontmatter. ``declared`` is True when this worktree's
+    path also appears in the entity's declared ``repos[].worktrees`` list.
+    """
+
+    path: str
+    branch: Optional[str] = None
+    is_main: bool = False
+    is_dirty: Optional[bool] = None
+    declared: bool = False
+
+
+class RepoLastCommit(BaseModel):
+    hash: str
+    author: str
+    date: str
+    subject: str
+
+
+class RepoContext(BaseModel):
+    """Live git snapshot for one declared ``repos:`` entry on an entity.
+
+    ``status`` is one of ``ok`` | ``other_device`` | ``missing`` |
+    ``not_a_repo`` | ``git_unavailable`` | ``timeout`` — only ``ok`` carries
+    live data; every other status degrades the rest of the fields to
+    ``None``/``[]`` rather than raising. ``stale_hint`` is populated only when
+    a declared value contradicts what git actually observes (e.g. a declared
+    ``default_branch`` that doesn't match the observed one).
+    """
+
+    path: str
+    device: Optional[str] = None
+    status: str
+    exists: bool = False
+    is_git_repo: bool = False
+    remote: Optional[str] = None
+    current_branch: Optional[str] = None
+    default_branch_declared: Optional[str] = None
+    default_branch_observed: Optional[str] = None
+    ahead: Optional[int] = None
+    behind: Optional[int] = None
+    dirty_files: Optional[int] = None
+    worktrees: list[RepoWorktree] = []
+    last_commit: Optional[RepoLastCommit] = None
+    stale_hint: Optional[str] = None
+
+
+class RepoContextList(BaseModel):
+    """``GET /entities/{id}/repos`` response — [] when the entity has no ``repos:`` key."""
+
+    entity_id: str
+    repos: list[RepoContext] = []
+
+
+class RepoWorktreeInput(BaseModel):
+    path: str
+    branch: Optional[str] = None
+    primary: bool = False
+
+
+class RepoInput(BaseModel):
+    """One ``repos:`` entry as submitted to ``PATCH /entities/{id}/repos``."""
+
+    path: str = Field(..., min_length=1)
+    device: Optional[str] = None
+    remote: Optional[str] = None
+    default_branch: Optional[str] = None
+    worktrees: Optional[list[RepoWorktreeInput]] = None
+
+
+class RepoUpdateRequest(BaseModel):
+    """``repos: []`` removes the frontmatter key entirely (not written as an empty list)."""
+
+    repos: list[RepoInput] = []
 
 
 # --- Claims (M5b — the CPCG belief atom on the wire) ---
@@ -318,6 +613,21 @@ class GraphNode(CamelModel):
     is_facet: bool = False
     parent_id: Optional[str] = None
     context: Optional[str] = None
+    # Sync-engine fields (additive): a short body-derived preview and a
+    # content fingerprint so the companion app can detect per-node changes
+    # without diffing full entity bodies.
+    summary: Optional[str] = None
+    content_hash: str = ""
+    # G59: does this entity have a *cached* logo right now? Filled from the
+    # on-disk logo index only — `GET /graph` never fetches. Folded into
+    # `content_hash` below so the app's delta repaints the node when a logo
+    # lands (e.g. after a Sleep warm-up).
+    has_logo: bool = False
+    # G66: the entity's decay class, resolved server-side from frontmatter
+    # (explicit key, else legacy type inference). Additive + defaulted, and
+    # folded into `content_hash` below — the `has_logo` precedent — so the
+    # companion app's delta repaints the node when the class changes.
+    decay_class: DecayClass = DecayClass.active
 
 
 class GraphLink(CamelModel):
@@ -466,6 +776,22 @@ class RequiredInput(str, Enum):
     merge = "merge"
 
 
+class InboxOption(CamelModel):
+    """One answerable option on an inbox question (AskUserQuestion shape).
+
+    ``age_days`` is derived at read time from ``last_referenced`` (falling back
+    to ``observed_at``) — it is never persisted into the item file.
+    """
+
+    key: str
+    label: str
+    description: Optional[str] = None
+    claim_id: Optional[str] = None
+    observed_at: Optional[str] = None
+    last_referenced: Optional[str] = None
+    age_days: Optional[int] = None
+
+
 class InboxItem(CamelModel):
     id: str
     kind: InboxKind
@@ -476,8 +802,16 @@ class InboxItem(CamelModel):
     entity_name: str = ""
     title: str
     body: str
-    options: Optional[list[str]] = None
+    options: list[InboxOption] = []
     created_date: str = ""
+    # G60 question object
+    question: Optional[str] = None
+    allow_other: bool = False
+    allow_defer: bool = False
+    predicate: Optional[str] = None
+    hint: Optional[str] = None
+    remind_after: Optional[str] = None
+    updated_date: Optional[str] = None
     # clarification/merge extras (only populated for those kinds)
     uncertainty_type: Optional[str] = None
     suggested_classification: Optional[str] = None
@@ -488,6 +822,12 @@ class InboxItem(CamelModel):
 class InboxResolveRequest(CamelModel):
     action: str
     answer: Optional[str] = None
+    # G60: the stable key of the chosen option ("a", "b", "both", "neither").
+    # ``answer`` stays the free-text channel; both may be sent together when the
+    # user picks "neither" AND types what is actually true.
+    option_key: Optional[str] = None
+    # G60 defer: how far out to push `remind_after` (default: settings).
+    remind_days: Optional[int] = None
     merge_target: Optional[str] = None
     # #1 merge direction: the id/name the user wants to KEEP as the canonical
     # survivor. When absent (or equal to ``merge_target``), the legacy behavior
@@ -524,6 +864,7 @@ class StatusResponse(CamelModel):
     episodes: StatusEpisodes
     last_sleep_at: Optional[str] = None
     next_sleep_at: Optional[str] = None
+    connections: Optional["StatusConnections"] = None
 
 
 # --- Health (liveness probe for installer / doctor) ---
@@ -538,6 +879,17 @@ class HealthResponse(CamelModel):
     # installer/doctor can confirm the offline path is actually active.
     embedding_mode: str
     memory_path: str
+    # The raw *configured* root (Settings.memory_root / CICADA_MEMORY_PATH) —
+    # the container of banks.yaml + banks/<name>/, distinct from memory_path
+    # above (the *resolved active bank*). This is the single source of truth
+    # a client should copy into a fresh `CICADA_MEMORY_PATH=...` MCP
+    # registration: the app and any agent registered from this value are
+    # guaranteed to resolve the same bank, because both apply
+    # resolve_active_bank_path to the identical root (G88 follow-up — see
+    # ConnectView.swift, which fetches this instead of re-deriving a root
+    # from local heuristics that could disagree with whatever the backend
+    # was actually started with).
+    memory_root: str
     # True when any LEANN index sidecar (<name>.meta.json) exists on disk.
     leann_present: bool
 
@@ -549,6 +901,40 @@ class SleepTriggerResponse(CamelModel):
     status: str
     message: str
     cycle_id: Optional[str] = None
+
+
+class SleepCancelResponse(CamelModel):
+    """``POST /sleep/cancel`` — cooperative-cancel request for whatever cycle
+    is currently running.
+
+    Mirrors ``SleepTriggerResponse``'s own "no 404/409, just an honest 200
+    body" convention (see ``/sleep/trigger``'s ``already_running`` status):
+    ``status`` is ``"cancelling"`` when a cycle was found running (idempotent
+    — a second call while a cancel is already pending returns the same
+    shape), or ``"not_running"`` when there was nothing to cancel. ``message``
+    always states the cooperative contract plainly: this stops the cycle at
+    its next safe point, not instantly, and nothing already captured is lost.
+    """
+    status: str
+    message: str
+    cycle_id: Optional[str] = None
+
+
+class SleepDebtResponse(CamelModel):
+    """How far behind Sleep is, right now — independent of whether a cycle
+    is currently running (that's `stage`/`progress` on `SleepStatusResponse`).
+    See `api/services/sleep_debt.py::SleepDebt` for the formula.
+    """
+    unprocessed_count: int
+    oldest_unprocessed_age_hours: Optional[float] = None
+    hours_since_last_cycle: Optional[float] = None
+    has_run_before: bool
+    volume_pct: int
+    age_pct: int
+    # None ONLY when the queue is empty AND Sleep has never run in this bank
+    # — no baseline to call "rested". Every other state gets an honest
+    # number (see `sleep_debt.rested_pct_from_components`).
+    rested_pct: Optional[int] = None
 
 
 class SleepStatusResponse(CamelModel):
@@ -574,6 +960,50 @@ class SleepStatusResponse(CamelModel):
     # ``episodes_requeued`` > 0 means "completed, but re-run Sleep to finish".
     episodes_processed: int = 0
     episodes_requeued: int = 0
+    # G60 — open-question re-scoring outcomes for the Sleep dashboard.
+    questions_refreshed: int = 0
+    organic_resolutions: int = 0
+    # G74(a) — which engine this cycle ran on, and one sentence about its
+    # state ("Claude Code is signed out — run `claude auth login`").
+    last_engine: Optional[str] = None
+    engine_detail: Optional[str] = None
+    # Sleep control — episode cap (settings-driven; see
+    # ``Settings.sleep_max_episodes_per_cycle``). ``episodes_queued`` is the
+    # FULL unprocessed count found at the top of this cycle, BEFORE capping;
+    # ``episode_cap`` is the cap applied. ``episodes_total`` above is the
+    # (possibly capped) count this cycle actually attempted, so
+    # ``episodes_queued > episodes_total`` means the cap truncated this
+    # cycle and the rest stayed queued for the next one.
+    episode_cap: int = 0
+    episodes_queued: int = 0
+    # Sleep control — cooperative cancellation. ``cancel_requested`` is true
+    # from the moment ``POST /sleep/cancel`` is accepted for the currently
+    # running cycle until it reaches its next safe point (as opposed to a
+    # cancel requested too late — after writes began — which the cycle
+    # still finishes and commits normally). ``cancelled`` is true when a
+    # cycle stopped early because of one, for a bounded time window after
+    # (``sleep_cycle.CANCELLED_DISPLAY_WINDOW_SECONDS``, currently 5
+    # minutes) rather than a fragile one-shot "first read only" — see
+    # ``sleep_cycle.cancelled_is_visible``'s docstring for why: a true
+    # read-and-clear would race across every concurrent reader of the
+    # backend's shared state, each "using up" the single display for every
+    # OTHER reader. A time window means every reader agrees, there is no
+    # mutation-on-read, and the flag still genuinely clears rather than
+    # sticking forever the way it originally did (Devin PR #27 round 1,
+    # finding 3 — the field used to document one-read semantics no code
+    # ever implemented).
+    cancel_requested: bool = False
+    cancelled: bool = False
+    # Sleep debt (G106) — always present, computed fresh from the current
+    # queue + git log on every response. See `api/services/sleep_debt.py`
+    # for the formula and full field contract.
+    debt: SleepDebtResponse
+    # Sleep debt (G106) — live "episodes processed / episodes in this cycle"
+    # DURING a cycle. `None` — never a fabricated 0 — whenever there's no
+    # honest live number: idle, or Stage 1 has already finished and stages
+    # 2-5 have no per-episode unit to report (see
+    # `sleep_cycle.progress_pct`'s docstring for the full contract).
+    progress_pct: Optional[int] = None
 
 
 class SleepHistoryEntry(CamelModel):
@@ -581,15 +1011,32 @@ class SleepHistoryEntry(CamelModel):
     date: str
     message: str
     files_changed: list[str]
+    # G74(a) Task 6 — which engine drove this cycle's commit, parsed from the
+    # commit's optional ``Cicada-Engine:`` trailer. ``None`` for every commit
+    # made before this trailer existed, and for the `cicada`-authored
+    # decay-only commit (G85 split): no LLM engine ran for pure decay
+    # arithmetic, so the honest answer is "no engine", never a guess.
+    engine: Optional[str] = None
 
 
 class EpisodeQueueItem(CamelModel):
     id: str
     timestamp: str
     source: str
+    # G9 origin — the harness-normalized id (`claude-code`, `chatgpt-export`,
+    # `telegram`, `pinterest`, ...), derived the same way Stage 1 extraction
+    # already does (`sleep_cycle._derive_origin`) so the Sleep debt
+    # breakdown groups by the SAME identity the rest of the app's origin
+    # iconography already keys on, not the legacy `source` string.
+    origin: str = "unknown"
     title: Optional[str] = None
     preview: str
     processed: bool
+    # G114 R6: who flipped `processed` — "sleep" for a Sleep-cycle
+    # consolidation, "agent" (or the harness name) for an agent's
+    # `cicada_mark_processed`. Optional so an older app build keeps decoding,
+    # and null for every episode processed before the stamp existed.
+    processed_by: Optional[str] = None
 
 
 class ScheduleConfig(CamelModel):
@@ -663,6 +1110,11 @@ class BankImportResponse(CamelModel):
     duplicates_skipped: int = 0
     date_range: BankImportDateRange = Field(default_factory=BankImportDateRange)
     format: str = "unknown"
+    # G87 / Wave-1 1.6: whether `{name}` is the bank Sleep actually consolidates.
+    # An import into a NON-active bank stages real episodes that nothing will
+    # ever process — the app branches its toast on this rather than showing a
+    # plain success message that silently hides the consequence.
+    active: bool = False
 
 
 # --- Sources (media ingestion) ---
@@ -672,6 +1124,11 @@ class SourceSaveRequest(CamelModel):
     url: str
     note: Optional[str] = None
     tags: list[str] = []
+    # G48: conversation provenance from a live MCP client (`cicada_save_url`).
+    # Optional — the menu-bar quick action and the app's paste field send none.
+    session_id: Optional[str] = None
+    harness: Optional[str] = None
+    project_dir: Optional[str] = None
 
 
 class SourceSaveResponse(CamelModel):
@@ -694,6 +1151,31 @@ class SourceUploadResponse(CamelModel):
     duplicates_skipped: int
     message: str
     source: str = "unknown"
+
+
+class SourceUploadCollection(CamelModel):
+    """One grouping inside an export — an IG collection, a YT playlist, a
+    Pinterest board, a bookmark folder — with how many items it holds."""
+
+    name: str
+    kind: str = "list"
+    count: int = 0
+
+
+class SourceUploadPreview(CamelModel):
+    """`POST /sources/upload?preview=true` — what a dropped export CONTAINS.
+
+    Staging-free by contract: answering this request writes no episode, no
+    entity, no url_index entry and no commit, and touches no network.
+    ``recognized`` is false both for a file we cannot parse at all and for one
+    whose format we recognize but which yields nothing — ``warnings`` says which.
+    """
+
+    recognized: bool = False
+    platform: str = "unknown"
+    total: int = 0
+    collections: list[SourceUploadCollection] = []
+    warnings: list[str] = []
 
 
 class SourceRssRequest(CamelModel):
@@ -720,6 +1202,14 @@ class MediaSourceItem(CamelModel):
     # §3.4 relevance: confidence x recency-decay x personal weight, in [0,1].
     relevance: float = 0.0
     personal_relevance: Optional[str] = None
+    # G99d — the user's actual save/bookmark/like date, recovered from the
+    # source export (see api/services/saved_at.py). Distinct from `saved_at`
+    # above, which — despite its name — has always meant "when Cicada
+    # ingested the item" (kept as-is rather than rewritten out from under
+    # existing readers). `None` means unknown, never a guess. Recency sorts
+    # (GET /sources ?sort=recent, the app's Recent toggle) should prefer this
+    # and fall back to `saved_at`.
+    content_saved_at: Optional[str] = None
 
 
 class SourceListResponse(CamelModel):
@@ -745,3 +1235,259 @@ class BookmarkSyncResponse(CamelModel):
     new: int
     skipped: int
     sources: list[BookmarkSyncSourceSummary] = []
+
+
+# --- Maintenance (G21 dedup sweep) ------------------------------------------
+
+
+class MaintenanceDedupSweepRequest(CamelModel):
+    # Default True: an unguarded POST from a naive client must never write.
+    dry_run: bool = True
+    # Caps how many candidate pairs are judged (bounds LLM calls on a large
+    # graph). None (default) means "no cap".
+    limit: Optional[int] = None
+
+
+class MaintenanceMergePair(CamelModel):
+    loser: str
+    winner: str
+
+
+class MaintenanceNudgePair(CamelModel):
+    a: str
+    b: str
+
+
+class MaintenanceDedupSweepResponse(CamelModel):
+    dry_run: bool
+    candidate_pairs: int = 0
+    # Merges actually performed (only possible when dry_run=false).
+    merged: list[MaintenanceMergePair] = []
+    # Merges the judge would have performed, held back because dry_run=true.
+    proposed: list[MaintenanceMergePair] = []
+    # Pairs the judge was uncertain about — same shape as the Nudge Inbox.
+    nudged: list[MaintenanceNudgePair] = []
+
+
+class NotesSyncRequest(CamelModel):
+    # The raw delimited osascript dump (what tests and a future companion-app
+    # path use), mirroring BookmarkSyncRequest's inline-data shape. Omitted
+    # entirely -> the endpoint falls back to a real local osascript enumeration.
+    notes_dump: Optional[str] = None
+
+
+class NotesSyncResponse(CamelModel):
+    new: int
+    updated: int
+    skipped: int
+    total: int = 0
+    # Notes dropped by CICADA_NOTES_EXCLUDE_FOLDERS before dedup/ingest.
+    excluded: int = 0
+
+# --- Capture channels (G62) --------------------------------------------------
+
+
+class SourceChannel(CamelModel):
+    """One capture channel as the Capture page sees it. `connected` is derived
+    from persisted state only (registries, sync_state.json, env, origin counts)
+    — never from the transient result of a sync/import button press."""
+
+    id: str
+    label: str
+    connected: bool = False
+    count: int = 0
+    last_sync: Optional[str] = None
+    # G71 — the last poll's failure, when there was one. Present so the Capture
+    # page can say "last sync failed · <reason>" instead of silently showing a
+    # stale success. Never carries a credential: connectors build this string
+    # from an exception type + message only.
+    last_error: Optional[str] = None
+    detail: Optional[str] = None
+    actions: list[str] = []
+
+
+class SourceChannelsResponse(CamelModel):
+    channels: list[SourceChannel] = []
+
+
+# --- Saved-content connectors (G71 §2) ---
+
+
+class ConnectorField(CamelModel):
+    """One credential the connector needs. ``present`` says whether it is
+    stored; the VALUE is never returned by any endpoint, ever."""
+
+    name: str
+    label: str
+    secret: bool = False
+    present: bool = False
+
+
+class ConnectorStatus(CamelModel):
+    id: str
+    label: str
+    connected: bool = False
+    fields: list[ConnectorField] = []
+    last_sync: Optional[str] = None
+    last_error: Optional[str] = None
+    detail: Optional[str] = None
+    # "oauth" (Pinterest: save app id/secret, then authorize in a browser) or
+    # "credentials" (a script-app-style connector needs no redirect round trip).
+    login_mode: str = "credentials"
+
+
+class ConnectorsResponse(CamelModel):
+    connectors: list[ConnectorStatus] = []
+
+
+class ConnectorAuthorizeResponse(CamelModel):
+    authorize_url: str
+    state: str
+
+
+class ConnectorSyncResult(CamelModel):
+    status: str            # ok | skipped | error
+    reason: Optional[str] = None
+    new: int = 0
+    seen: int = 0
+    error: Optional[str] = None
+    # G71 follow-up (Task 14): pay-per-use connectors (X) report the number of
+    # billed resource reads this sync incurred, distinct from `new`/`seen` —
+    # every connector defaults to 0, so this is additive, not a shape change.
+    resources_read: int = 0
+
+
+# --- Provider connections (G50) ---
+
+
+class ConnectionKind(str, Enum):
+    subscription = "subscription"
+    usage = "usage"
+    local = "local"
+
+
+class LoginHint(CamelModel):
+    mode: str  # terminal | device-code | key | none
+    command: Optional[str] = None
+
+
+class ConnectionStatus(CamelModel):
+    id: str
+    label: str
+    kind: ConnectionKind
+    available: bool = False
+    connected: bool = False
+    plan: Optional[str] = None
+    plan_label: Optional[str] = None
+    tier: Optional[str] = None
+    account: Optional[str] = None
+    price_usd_month: Optional[float] = None
+    price_note: Optional[str] = None
+    billing: str = "usage"  # subscription | usage | free
+    engine_role: Optional[str] = None
+    detail: Optional[str] = None
+    # G63: one sentence explaining *why this card says Connected*, authored
+    # next to the probe that decided it so the copy can never drift from the
+    # check. None when the connection isn't connected — there is nothing to
+    # explain yet, and `detail` already carries the "here's how to connect" hint.
+    how: Optional[str] = None
+    # What this connection currently does for Cicada. The registry assigns
+    # these across the probed set (only one adapter is the engine at a time),
+    # so an adapter can't know its own answer.
+    powers: list[str] = []
+    # G74(a) — the user has picked this connection as the Sleep engine. Only
+    # meaningful on `claude-plan`; a machine-global preference, never a probe.
+    use_for_sleep: bool = False
+    login: Optional[LoginHint] = None
+
+
+class LoginSession(CamelModel):
+    session_id: str
+    connection_id: str
+    mode: str
+    state: str = "pending"  # pending | done | failed
+    command: Optional[str] = None
+    code: Optional[str] = None
+    url: Optional[str] = None
+    raw_output: str = ""
+    detail: Optional[str] = None
+
+
+class ConnectionsResponse(CamelModel):
+    connections: list[ConnectionStatus]
+
+
+class StatusConnections(CamelModel):
+    connected: list[str] = []
+    engine: Optional[str] = None
+
+
+# --- Consumption / traceability (G51) ---
+
+
+class ConsumptionSummary(CamelModel):
+    cost_usd: float = 0.0
+    equiv_cost_usd: float = 0.0
+    invocations: int = 0
+    tokens: int = 0
+    memory_writes: int = 0
+    sleep_runs: int = 0
+    agentic_writes: int = 0
+    streak_current: int = 0
+    streak_best: int = 0
+    range: str
+    since: Optional[str] = None
+
+
+class CalendarDay(CamelModel):
+    date: str
+    memory_writes: int = 0
+    events: int = 0
+    tokens: int = 0
+    cost_usd: float = 0.0
+    equiv_cost_usd: float = 0.0
+    level: int = 0
+
+
+class ConsumptionCalendar(CamelModel):
+    days: list[CalendarDay]
+    weeks: int
+
+
+class ConsumptionStats(CamelModel):
+    by_model: list[dict]
+    by_stage: list[dict]
+    by_connection: list[dict]
+    by_bank: list[dict]
+    hour_histogram: list[int]
+    peak_day: Optional[dict] = None
+    longest_sleep_run: Optional[dict] = None
+    favorite_model: Optional[str] = None
+    lifetime_tokens: int = 0
+    first_event: Optional[str] = None
+    series: list[dict]
+    range: str
+
+
+class ConnectionConsumption(CamelModel):
+    id: str
+    label: str
+    billing: str
+    connected: bool = False
+    price_usd_month: Optional[float] = None
+    cost_usd: Optional[float] = None
+    equiv_cost_usd: Optional[float] = None
+    invocations: int = 0
+    tokens: int = 0
+    throttle_events: int = 0
+    by_model: list[dict] = []
+
+
+class ConsumptionConnections(CamelModel):
+    connections: list[ConnectionConsumption]
+    range: str
+
+
+class HarnessStats(CamelModel):
+    claude_code: Optional[dict] = None
+    codex: Optional[dict] = None

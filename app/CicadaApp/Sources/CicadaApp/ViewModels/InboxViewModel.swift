@@ -1,19 +1,37 @@
 import Foundation
+import Observation
 
-/// Single ViewModel backing the unified Inbox tab. Replaces the old
-/// `NudgeViewModel` + `ClarificationViewModel`. Reads `GET /inbox` and routes
-/// every resolution through `POST /inbox/{id}/resolve`, dispatched server-side
-/// on the item's `kind`.
+/// Single ViewModel backing the unified Inbox tab. Thin projection over
+/// `Store.inbox` (§5.5): `items` reads straight from the snapshot so a tab
+/// switch renders whatever the Store already has, instantly. Resolutions go
+/// through `Store.perform(InboxResolve)` (§5.4), which hides the card
+/// optimistically, sends `POST /inbox/{id}/resolve`, refreshes `.inbox`, and
+/// rolls the card back with a toast if the request never landed.
 @Observable
+@MainActor
 final class InboxViewModel {
-    var items: [InboxItem] = []
-    var isLoading = false
+    private let store: Store
+
     var errorMessage: String?
 
     /// Wired by the App to `menuBarManager.refreshAfterAction()` so the menu-bar
     /// badge updates the instant an item resolves (mirrors `SleepViewModel`'s
     /// callback hooks). `nil` when no menu bar is attached (previews/tests).
     var onResolved: (() async -> Void)?
+
+    init(store: Store) {
+        self.store = store
+    }
+
+    /// Straight projection over the Store, minus anything an optimistic
+    /// `InboxResolve` is hiding (`Store.hiddenInboxIds`). The Task-7 stopgap
+    /// (`locallyResolvedIds`, dropped unconditionally after the refresh) is
+    /// gone: the Store now un-hides an id only once a snapshot without it
+    /// arrives, so a 304 racing the server-side delete can't flash the card
+    /// back.
+    var items: [InboxItem] { store.visibleInbox }
+
+    var isLoading: Bool { store.inbox.isEmpty && store.inbox.isRefreshing }
 
     /// Sidebar / menu-bar badge — number of pending items.
     var pendingCount: Int { items.count }
@@ -24,19 +42,18 @@ final class InboxViewModel {
     }
 
     func loadInbox() async {
-        isLoading = true
         errorMessage = nil
-        do {
-            items = try await APIClient.shared.fetchInbox()
-        } catch {
-            errorMessage = error.localizedDescription
+        await store.refresh([.inbox])
+        if store.inbox.value == nil {
+            errorMessage = store.toast
         }
-        isLoading = false
     }
 
-    /// Resolve one item. Every action except `skip` removes the card locally
-    /// (the file is unlinked server-side). `skip` keeps the item in the queue,
-    /// so we reload to reflect any organic changes since last fetch.
+    /// Resolve one item, optimistically (§5.4): every action except `skip`
+    /// hides the card the instant it is clicked, and a failed request puts it
+    /// back at its original position with a toast. `skip` keeps the item in
+    /// the queue, so nothing is hidden — the refresh just picks up any
+    /// organic change.
     ///
     /// Returns whether the resolve succeeded, so callers (`InboxCardView` via
     /// `InboxListView`) can reset UI state — e.g. the card's `resolving` dim
@@ -46,25 +63,23 @@ final class InboxViewModel {
         id: String,
         action: String,
         answer: String? = nil,
+        optionKey: String? = nil,
+        remindDays: Int? = nil,
         mergeTarget: String? = nil,
         mergeSurvivor: String? = nil
     ) async -> Bool {
-        do {
-            try await APIClient.shared.resolveInboxItem(
-                id: id, action: action, answer: answer,
-                mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor
-            )
-            if action == "skip" {
-                await loadInbox()
-            } else {
-                items.removeAll { $0.id == id }
-            }
+        errorMessage = nil
+        let ok = await store.perform(InboxResolve(
+            id: id, action: action, answer: answer,
+            optionKey: optionKey, remindDays: remindDays,
+            mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor
+        ))
+        if ok {
             // Keep the menu-bar badge in lockstep with the resolve.
             await onResolved?()
-            return true
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
+        } else {
+            errorMessage = store.toast
         }
+        return ok
     }
 }

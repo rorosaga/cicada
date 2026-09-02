@@ -191,14 +191,10 @@ inverse_pairs:
 # multi_valued: objects COEXIST; multiple valid objects are normal, never a conflict.
 # ---------------------------------------------------------------------------
 single_valued:
-  - uses              # primary store / primary stack — "switched from Postgres to SQLite". NOTE: real graphs DO list multiple `uses`; treat single-valued ONLY when context marks it as the PRIMARY of a kind (see rationale: needs object-typing to be safe -> AUDIT).
   - runs-on           # primary runtime/platform
-  - located-in        # an entity is in one primary place
   - takes-place-in    # an event has one primary place/time
   - works-at          # primary current employer (historical via valid_* bi-temporal)
   - part-of           # a part belongs to one primary whole
-  - is-a              # one primary type (Cicada's closed 8-type set already enforces this)
-  - depends-on        # a primary/critical dependency (audit: often multi in practice)
 
 multi_valued:
   - relates-to        # generic association
@@ -224,6 +220,14 @@ multi_valued:
   - writes
   - targets
   - considering
+  # G98 / Wave-1 1.3: real graphs legitimately hold more than one of these at
+  # once (a hybrid solver uses MPI AND OpenMP; a project is Python AND C++) —
+  # 9 of 27 measured conflicts on the live bank were exactly this false
+  # single-valued assumption, not a real contradiction.
+  - uses              # a tech stack is a set, not a primary choice
+  - is-a              # multiple type facets can coexist (e.g. tool + concept)
+  - located-in        # an entity/event can have more than one associated place
+  - depends-on        # often multi in practice (see historical note above)
 
 # ---------------------------------------------------------------------------
 # uncertain_flag_for_audit: HEAD-frequency labels deliberately LEFT UNFOLDED

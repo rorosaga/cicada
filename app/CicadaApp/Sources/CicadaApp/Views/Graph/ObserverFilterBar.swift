@@ -3,10 +3,10 @@ import SwiftUI
 // MARK: - ObserverFilterBar
 //
 // Graph-level "who believes what" lens (§3a). A segmented control
-// All · Cicada · Rodrigo · External that calls `applyFilters` with an
+// All · Cicada · You · External that calls `applyFilters` with an
 // `observers` array; graph.js DIMS (not deletes) non-matching nodes via the
-// focus-alpha mechanism, so the contrast reads as "this is the slice Rodrigo
-// personally asserts vs. what the agent inferred." Sibling to FilterButton.
+// focus-alpha mechanism, so the contrast reads as "this is the slice you
+// personally asserted vs. what the agent inferred." Sibling to FilterButton.
 
 struct ObserverFilterBar: View {
     @Environment(GraphViewModel.self) private var graphVM
@@ -18,7 +18,7 @@ struct ObserverFilterBar: View {
         [
             ("All", nil, "circle.grid.2x2"),
             ("Cicada", "agent", "cpu"),
-            ("Rodrigo", "rodrigo", "person.fill"),
+            (Copy.you, "rodrigo", "person.fill"),
             ("External", "external", "quote.bubble.fill"),
         ]
     }
@@ -58,6 +58,6 @@ struct ObserverFilterBar: View {
             .frame(height: 32)
             .background(isSelected ? CicadaTheme.surfaceHover : .clear)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
     }
 }

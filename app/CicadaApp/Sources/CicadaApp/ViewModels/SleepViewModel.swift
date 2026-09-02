@@ -1,13 +1,24 @@
 import Foundation
 import Observation
 
+/// Backs the Sleep dashboard. `status` is still `SleepStatusResponse` (richer
+/// than `Store.status`'s `StatusSnapshot.Sleep` — it carries the per-cycle
+/// counters `/sleep/status` returns that `/status` doesn't), so this VM keeps
+/// fetching it via `APIClient` rather than projecting it wholesale. What it
+/// *does* take from the Store: an immediate, synchronous read of
+/// `store.status.value?.sleep.status` to know whether a cycle is already
+/// running without waiting on its own network round-trip, and as an extra
+/// signal (alongside its own poll) for noticing the running → idle edge.
+/// `episodes`/`schedule` have no Store domain (§brief) — those stay plain
+/// `APIClient` fetches.
 @Observable
 @MainActor
 final class SleepViewModel {
+    private let store: Store
+
     var status: SleepStatusResponse?
     var episodes: [EpisodeQueueItem] = []
     var schedule: ScheduleConfig = ScheduleConfig(enabled: false, hour: 3, minute: 0)
-    var isLoading = false
     var errorMessage: String?
 
     /// Hook fired exactly once when a cycle transitions ``running`` -> ``idle``
@@ -26,7 +37,84 @@ final class SleepViewModel {
 
     private var pollTask: Task<Void, Never>?
 
+    /// PR #19 review: `SleepView` fires an untracked `load()` for every live
+    /// `store.status.episodes.unprocessed` change (reconciling the queue rows
+    /// against a count that can move faster than one round-trip). Overlapping
+    /// calls have no cancellation or identity guard, so a slower, older
+    /// response can land after a newer one and repaint the queue with stale
+    /// rows. Bumped at the top of every `load()`; mirrors
+    /// `UsageViewModel.rangeToken` — a response whose token no longer matches
+    /// current lost the race and is dropped.
+    private var loadToken = 0
+
+    /// Bumped by every `startPolling()`. A finishing loop clears `pollTask`
+    /// only if this still matches the generation it was started with, so a
+    /// newer poll (started while the old one was closing out) is never nilled
+    /// out from under itself. A counter rather than `Task` identity because a
+    /// `@Sendable` task closure can't capture the mutable local it is being
+    /// assigned to.
+    private var pollGeneration = 0
+
+    /// Set the first time the poll loop's *own* fetch (never the Store's)
+    /// observes `status == "running"`. `onCycleCompleted` fires exactly once,
+    /// when this is `true` and a later self-fetched tick reports `"idle"` —
+    /// this is what makes the loop immune to a Store snapshot that is still
+    /// reporting the previous cycle's "idle" the instant a new one starts.
+    private var hasSeenRunning = false
+
+    /// Consecutive non-running ticks seen since the poll started without ever
+    /// observing `"running"`. A cycle can finish in under a second (an empty
+    /// episode queue does), in which case the loop never catches a running
+    /// frame — but the graph was still mutated. After `idleTickBound` such
+    /// ticks we close out exactly like a normally-observed cycle instead of
+    /// polling for nothing.
+    private var idleTicksSinceStart = 0
+    private static let idleTickBound = 5
+
+    /// Injectable so tests can feed a deterministic running/running/idle
+    /// sequence without a live backend. Defaults to the real network call.
+    private let fetchSleepStatus: () async throws -> SleepStatusResponse
+
+    /// Injectable, same reasoning as `fetchSleepStatus`. Defaults to the
+    /// real `POST /sleep/cancel` call.
+    private let requestCancel: () async throws -> SleepCancelResponse
+
+    /// True from the moment `cancel()` is called until the poll loop
+    /// observes the cycle has actually stopped (whether because of the
+    /// cancel or otherwise) — cooperative cancellation means the backend
+    /// doesn't flip to idle the instant the request lands, so this is what
+    /// drives the button's "Cancelling…" state in between.
+    var cancelRequested = false
+
+    init(
+        store: Store,
+        fetchSleepStatus: @escaping () async throws -> SleepStatusResponse = {
+            try await APIClient.shared.fetchSleepStatus()
+        },
+        requestCancel: @escaping () async throws -> SleepCancelResponse = {
+            try await APIClient.shared.cancelSleep()
+        }
+    ) {
+        self.store = store
+        self.fetchSleepStatus = fetchSleepStatus
+        self.requestCancel = requestCancel
+    }
+
+    /// `/sleep/status` isn't a Store domain, so this mirrors the Store's
+    /// `.status` loading state as the closest available signal (both come
+    /// from the same "how healthy is my view of Sleep" question).
+    var isLoading: Bool { store.status.isEmpty && store.status.isRefreshing }
+
     var isRunning: Bool { status?.status == "running" }
+
+    /// Review fix L2: `cancelRequested` (above) is this CLIENT's own tap —
+    /// instant feedback with no network round-trip, but blind to a cancel
+    /// requested by another client, or one already in flight before this
+    /// app instance started or reconnected. `status?.cancelRequested` is
+    /// the server's own authoritative flag. ORing them means whichever one
+    /// knows first wins — never stuck disagreeing with the server the way
+    /// reading only the local flag could.
+    var isCancelling: Bool { cancelRequested || (status?.cancelRequested ?? false) }
 
     var progressFraction: Double {
         guard let s = status, s.totalStages > 0 else { return 0 }
@@ -46,51 +134,100 @@ final class SleepViewModel {
     /// Load everything the Sleep dashboard needs: current status, the full
     /// episode list (queued + processed), and the persisted schedule.
     ///
-    /// If the snapshot reveals that a cycle is already running — either
-    /// because the user triggered it from elsewhere, or because the APScheduler
-    /// daily cron fired while the app was closed — we start polling so the
-    /// dashboard becomes a *live* view instead of a stale snapshot. Without
-    /// this, a scheduled run would render frozen until the user clicked
-    /// "Run now" manually, defeating the entire point of the page.
+    /// If the Store's own `/status` snapshot already shows a cycle running
+    /// (pushed over SSE, or hydrated from disk), start polling immediately
+    /// rather than waiting on this function's own `/sleep/status` round-trip
+    /// — a scheduled run that started while the app was closed becomes live
+    /// the instant this view appears, not one network round-trip later.
     func load() async {
-        isLoading = true
-        defer { isLoading = false }
+        loadToken &+= 1
+        let token = loadToken
 
-        async let statusTask = APIClient.shared.fetchSleepStatus()
+        errorMessage = nil
+        // Never re-arm the poll loop while one is already alive: `hasSeenRunning`
+        // and the running→idle edge live only inside that loop's own task, and
+        // starting a second one here would race it (and could re-fire
+        // `onCycleCompleted` off a fresh, reset `hasSeenRunning`).
+        if pollTask == nil, store.status.value?.sleep.status == "running" {
+            startPolling()
+        }
+
+        async let statusTask = fetchSleepStatus()
         async let episodesTask = APIClient.shared.fetchEpisodeQueue()
         async let scheduleTask = APIClient.shared.fetchSchedule()
 
+        // Each result is guarded individually rather than once at the end —
+        // the three fetches race independently, and a newer `load()` call can
+        // start (and even finish) while any one of them is still in flight.
+        // Without the per-assignment check, a call that lost the race on
+        // `status` could still win on `episodes` (or vice versa), stitching
+        // together a queue view that never existed on the server at any one
+        // moment.
         do {
-            status = try await statusTask
+            let s = try await statusTask
+            if token == loadToken { status = s }
         } catch {
-            errorMessage = "Status: \(error.localizedDescription)"
+            if token == loadToken { errorMessage = "Status: \(error.localizedDescription)" }
         }
         do {
-            episodes = try await episodesTask
+            let e = try await episodesTask
+            if token == loadToken { episodes = e }
         } catch {
-            errorMessage = "Episodes: \(error.localizedDescription)"
+            if token == loadToken { errorMessage = "Episodes: \(error.localizedDescription)" }
         }
         do {
-            schedule = try await scheduleTask
+            let sc = try await scheduleTask
+            if token == loadToken { schedule = sc }
         } catch {
-            errorMessage = "Schedule: \(error.localizedDescription)"
+            if token == loadToken { errorMessage = "Schedule: \(error.localizedDescription)" }
         }
 
+        // A superseded call must not make poll-loop decisions either — the
+        // newer call (or one still in flight) owns that now.
+        guard token == loadToken else { return }
+
         // If a cycle is already running (e.g. started by the daily cron
-        // before the user opened the page), attach to it. startPolling()
-        // cancels any prior poll task so this is idempotent.
-        if status?.status == "running" {
+        // before the user opened the page), attach to it — but only if
+        // nothing is polling yet (see the guard above).
+        if pollTask == nil, isRunning {
             startPolling()
         }
     }
 
+    /// Start a cycle. `TriggerSleep` (§5.4) flips the Store's sleep status to
+    /// `running` before the POST goes out, so the dashboard and the menu-bar
+    /// bookworm react on the click; a failure restores the previous status and
+    /// the Store's toast explains why.
     func triggerManually() async {
         errorMessage = nil
-        do {
-            _ = try await APIClient.shared.triggerSleep()
+        if await store.perform(TriggerSleep()) {
             startPolling()
+        } else {
+            errorMessage = store.toast
+        }
+    }
+
+    /// Request cooperative cancellation of the running cycle. Does not touch
+    /// `status` locally — the cycle keeps running until it reaches its next
+    /// safe point, and the already-armed poll loop (a cycle must be running
+    /// for `isRunning` to gate this call) is what observes and reports the
+    /// eventual running -> idle edge, exactly like a normal completion.
+    func cancel() async {
+        // `isCancelling`, not the bare local flag: a cancel already known to
+        // the server (another client, or one already in flight before this
+        // instance connected) must also short-circuit a redundant POST —
+        // the request is idempotent server-side, but there is nothing to gain
+        // from sending it again.
+        guard isRunning, !isCancelling else { return }
+        cancelRequested = true
+        do {
+            _ = try await requestCancel()
         } catch {
-            errorMessage = error.localizedDescription
+            // The request itself failed (network blip) — nothing was
+            // actually cancelled, so un-arm the button rather than leaving
+            // it stuck on "Cancelling…" for a request that never landed.
+            cancelRequested = false
+            errorMessage = "Cancel: \(error.localizedDescription)"
         }
     }
 
@@ -107,20 +244,54 @@ final class SleepViewModel {
     /// know "is a cycle running?" reads this view model.
     private func startPolling() {
         pollTask?.cancel()
+        hasSeenRunning = false
+        idleTicksSinceStart = 0
+        // A brand-new cycle never carries over a stale "Cancelling…" from
+        // whatever the button was showing for the previous one.
+        cancelRequested = false
+        pollGeneration += 1
+        let generation = pollGeneration
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self else { return }
                 do {
-                    let next = try await APIClient.shared.fetchSleepStatus()
+                    let next = try await self.fetchSleepStatus()
                     self.status = next
                     // Feed live sleep progress to the menu-bar bookworm so its
                     // stage dots advance at the 1s poll cadence.
                     self.onStatusChanged?(next)
-                    if next.status == "idle" {
+                    // The running→idle edge is decided ONLY from this loop's
+                    // own fetch — never from `store.status`/`store.sleepEvent`.
+                    // Right after `triggerManually()`, the Store can still be
+                    // reporting the *previous* cycle's "idle" for up to one
+                    // SSE round-trip; trusting it here would fire
+                    // `onCycleCompleted` after a single "running" tick. The
+                    // Store may only ever *start* a poll early (see `load()`),
+                    // never stop one.
+                    if next.status == "running" {
+                        self.hasSeenRunning = true
+                    } else if !self.hasSeenRunning {
+                        self.idleTicksSinceStart += 1
+                    }
+                    // Sub-1s cycle: never seen running, but `idleTickBound`
+                    // idle ticks have gone by since the trigger. Treat it as
+                    // finished — the cycle did run and did change the graph.
+                    let boundReached = !self.hasSeenRunning
+                        && self.idleTicksSinceStart >= Self.idleTickBound
+                    if (self.hasSeenRunning && next.status == "idle") || boundReached {
+                        // The cycle actually stopped (cancelled or not) —
+                        // clear the button's "Cancelling…" state now rather
+                        // than waiting for the next `startPolling()`.
+                        self.cancelRequested = false
                         // Refresh the queue once the cycle finishes so the
-                        // UI shows the post-cycle state.
+                        // UI shows the post-cycle state. `pollTask` is nilled
+                        // *after* that call, not before: `load()` re-arms the
+                        // poll when it sees no poll in flight, which would
+                        // restart this loop (and, on the `boundReached` path,
+                        // re-fire the hook every 5 ticks forever).
                         await self.load()
+                        if self.pollGeneration == generation { self.pollTask = nil }
                         // Fire the post-cycle hook exactly once. We do not
                         // refresh the graph if the cycle ended in error
                         // (Sleep crashed mid-pipeline → markdown graph could

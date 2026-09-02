@@ -2,10 +2,10 @@
 page richer + strictly source-faithful. Preserves human sections + claims block.
 Every rewrite is a git commit (caller commits in batch mode)."""
 from __future__ import annotations
-import json
+from loguru import logger
 from pathlib import Path
-from api.services import markdown_parser, entity_body
-from api.services.claims import parse_claims, write_claims, strip_claims_block
+from api.services import markdown_parser, entity_body, json_parse
+from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims, strip_claims_block
 from api.services.entity_sources import gather_entity_sources
 
 _PROMPT = (
@@ -48,21 +48,15 @@ def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
 
     if llm_fn is None:  # pragma: no cover - runtime
         from api.services.providers import resolve_llm_fn
-        llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model)
+        llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model,
+                                stage="rewrite")
 
     resp = llm_fn(messages=[{"role": "user",
                              "content": _PROMPT.format(page=par.body[:4000], sources=sources)}],
                   response_format={"type": "json_object"})
     txt = resp["choices"][0]["message"]["content"]
-    s, e = txt.find("{"), txt.rfind("}")
-    if s < 0 or e <= s:
-        return {"entity_id": entity_id, "changed": False,
-                "before_words": before, "after_words": before}
-    try:
-        new_body = json.loads(txt[s:e + 1]).get("body", "").strip()
-    except Exception:
-        return {"entity_id": entity_id, "changed": False,
-                "before_words": before, "after_words": before}
+    parsed = json_parse.parse_json_object_or(txt, {})
+    new_body = str(parsed.get("body", "") or "").strip()
     if not new_body:
         return {"entity_id": entity_id, "changed": False,
                 "before_words": before, "after_words": before}
@@ -70,7 +64,15 @@ def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
     # Preserve the existing ```claims block verbatim — the rewrite must not
     # introduce/alter claims. Capture it before merging, then merge on the
     # claims-stripped bodies so the fence can never end up mid-section.
-    existing_claims = parse_claims(par.body)
+    # strict: a corrupt block would otherwise read as "no claims" and the
+    # rewrite below would drop it from the final body.
+    try:
+        existing_claims = parse_claims(par.body, strict=True)
+    except MalformedClaimsBlockError as exc:
+        logger.error(f"corrupt ```claims block on {entity_id}, skipping rewrite: {exc}")
+        return {"entity_id": entity_id, "changed": False,
+                "before_words": before, "after_words": before,
+                "error": "corrupt_claims_block"}
 
     # Human-safe merge: never lose human sections or the claims block. Convert the
     # LLM's new body to the STRUCTURED new_fields shape via sections_to_fields

@@ -47,16 +47,50 @@ enum EntityStatus: String, Codable, CaseIterable {
     }
 }
 
-enum HistoryChangeType: String, Codable {
-    case created, updated, statusChange, confidenceChange, relationAdded
+/// G66 — how fast a belief fades when it stops being mentioned.
+///
+/// Decode-tolerant everywhere: an unknown future value, or an older backend
+/// that omits the field entirely, resolves to `.active` (the neutral default)
+/// rather than failing the whole entity/graph decode.
+enum DecayClass: String, Codable, CaseIterable, Identifiable {
+    case evergreen, durable, active, volatile
 
-    var color: String {
+    var id: String { rawValue }
+
+    var label: String { rawValue.capitalized }
+
+    /// One-line "what this means" for the picker menu.
+    var blurb: String {
         switch self {
-        case .created: "22C55E"
-        case .updated, .relationAdded: "4A9EFF"
-        case .statusChange, .confidenceChange: "F59E0B"
+        case .evergreen: "Never fades. For artifacts — saved links, media — and anything you want kept."
+        case .durable: "Fades slowly. For stable preferences, skills, long-lived concepts."
+        case .active: "The default. Fades if it stops coming up."
+        case .volatile: "Expected to change within weeks — a role, a status, a current focus."
         }
     }
+
+    /// The chip text in the entity card's metadata strip.
+    var chipText: String {
+        switch self {
+        case .evergreen: "evergreen · never fades"
+        case .durable: "durable · fades slowly"
+        case .active: "active"
+        case .volatile: "volatile · expected to change"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .evergreen: "infinity"
+        case .durable: "tortoise.fill"
+        case .active: "clock"
+        case .volatile: "hare.fill"
+        }
+    }
+}
+
+enum HistoryChangeType: String, Codable {
+    case created, updated, statusChange, confidenceChange, relationAdded
 
     var icon: String {
         switch self {
@@ -69,8 +103,39 @@ enum HistoryChangeType: String, Codable {
     }
 }
 
-// Added/removed lines for one entity file at one commit (backlog A1).
-// NOT BUILD-VERIFIED — needs Xcode compile (M3).
+// One row of the backend's ordered unified diff (G69). `kind` is left as a raw
+// String rather than an enum on purpose: an unrecognised future kind decodes
+// cleanly and `DiffModel` maps it onto `.context` (render it plainly) instead of
+// failing the whole payload.
+struct EntityDiffLine: Codable, Equatable {
+    let kind: String
+    // 1-based, following git's own accounting: a context row has both, an
+    // addition only `newLine`, a removal only `oldLine`, a hunk header neither.
+    let oldLine: Int?
+    let newLine: Int?
+    let text: String
+
+    enum CodingKeys: String, CodingKey {
+        case kind, oldLine, newLine, text
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "context"
+        oldLine = try c.decodeIfPresent(Int.self, forKey: .oldLine)
+        newLine = try c.decodeIfPresent(Int.self, forKey: .newLine)
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+    }
+
+    init(kind: String, oldLine: Int? = nil, newLine: Int? = nil, text: String) {
+        self.kind = kind
+        self.oldLine = oldLine
+        self.newLine = newLine
+        self.text = text
+    }
+}
+
+// Diff for one entity file at one commit (backlog A1; context lines in G69).
 struct EntityDiff: Codable, Equatable {
     let added: String
     let removed: String
@@ -78,9 +143,20 @@ struct EntityDiff: Codable, Equatable {
     // marker line is appended to the affected side). decodeIfPresent so an older
     // backend that doesn't send this field still decodes (defaults to false).
     let truncated: Bool
+    // G69: the real ordered unified diff — changed lines AND the unchanged
+    // context around them, each with its old/new line number. Absent (→ empty)
+    // from a pre-G69 backend or a payload cached before the upgrade, in which
+    // case `DiffModel` falls back to rendering `removed` then `added` as blocks.
+    let lines: [EntityDiffLine]
+    // Whether the ORDERED list specifically was cut. `truncated` is the union
+    // of all three of the backend's caps, so it goes true when the 400-line
+    // flat `added`/`removed` blocks clip even though `lines` (cap 2000) is
+    // complete — driving the "Diff clipped" banner off it would put the banner
+    // above a whole diff. This is the flag the ordered path renders on.
+    let linesTruncated: Bool
 
     enum CodingKeys: String, CodingKey {
-        case added, removed, truncated
+        case added, removed, truncated, lines, linesTruncated
     }
 
     init(from decoder: Decoder) throws {
@@ -88,12 +164,17 @@ struct EntityDiff: Codable, Equatable {
         added = try c.decodeIfPresent(String.self, forKey: .added) ?? ""
         removed = try c.decodeIfPresent(String.self, forKey: .removed) ?? ""
         truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+        lines = try c.decodeIfPresent([EntityDiffLine].self, forKey: .lines) ?? []
+        linesTruncated = try c.decodeIfPresent(Bool.self, forKey: .linesTruncated) ?? false
     }
 
-    init(added: String, removed: String, truncated: Bool = false) {
+    init(added: String, removed: String, truncated: Bool = false,
+         lines: [EntityDiffLine] = [], linesTruncated: Bool = false) {
         self.added = added
         self.removed = removed
         self.truncated = truncated
+        self.lines = lines
+        self.linesTruncated = linesTruncated
     }
 }
 
@@ -109,6 +190,9 @@ struct EntityHistoryEntry: Identifiable, Codable {
     let commitHash: String
     // Inline diff, present only when history was fetched with includeDiff=true.
     let diff: EntityDiff?
+    // G48: the conversations that produced this commit (parsed Cicada-Session:
+    // trailers). Empty for pre-G48 and user-action commits.
+    let sessions: [String]
 
     var dateValue: Date {
         let f = DateFormatter()
@@ -117,7 +201,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case date, changeType, description, author, commitHash, diff
+        case date, changeType, description, author, commitHash, diff, sessions
     }
 
     init(from decoder: Decoder) throws {
@@ -128,6 +212,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
         author = try c.decodeIfPresent(String.self, forKey: .author) ?? "unknown"
         commitHash = try c.decodeIfPresent(String.self, forKey: .commitHash) ?? ""
         diff = try c.decodeIfPresent(EntityDiff.self, forKey: .diff)
+        sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? []
     }
 
     init(
@@ -136,7 +221,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         description: String,
         author: String = "unknown",
         commitHash: String = "",
-        diff: EntityDiff? = nil
+        diff: EntityDiff? = nil,
+        sessions: [String] = []
     ) {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -146,6 +232,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
         self.author = author
         self.commitHash = commitHash
         self.diff = diff
+        self.sessions = sessions
     }
 
     func encode(to encoder: Encoder) throws {
@@ -156,6 +243,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
         try c.encode(author, forKey: .author)
         try c.encode(commitHash, forKey: .commitHash)
         try c.encodeIfPresent(diff, forKey: .diff)
+        try c.encode(sessions, forKey: .sessions)
     }
 }
 
@@ -197,6 +285,63 @@ struct Contributor: Identifiable, Codable {
 
 struct ContributorsResponse: Codable {
     let contributors: [Contributor]
+}
+
+// G67 — one commit in a contributor's drill-down. `entities` are entity ids,
+// each of which can be handed to `/entities/{id}/history/{commit}/diff` to show
+// exactly what this author changed on that page in this commit.
+//
+// `entities` is CAPPED by the backend (a real Sleep cycle touches hundreds of
+// pages); `entitiesTotal` is the true count, so the chip row can render an
+// honest "+N more" instead of quietly under-reporting. An older backend that
+// doesn't send the field falls back to `entities.count` — no phantom "+N".
+struct ContributorCommit: Identifiable, Codable {
+    var id: String { commitHash }
+    let commitHash: String
+    let date: String
+    let subject: String
+    let entities: [String]
+    let entitiesTotal: Int
+    let filesChanged: Int
+    // G48: the conversations that produced this commit (parsed Cicada-Session:
+    // trailers). Empty for pre-G48 and user-action commits.
+    let sessions: [String]
+
+    /// How many touched entities the backend withheld from `entities`.
+    var hiddenEntityCount: Int { max(0, entitiesTotal - entities.count) }
+
+    enum CodingKeys: String, CodingKey {
+        case commitHash, date, subject, entities, entitiesTotal, filesChanged, sessions
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commitHash = try c.decode(String.self, forKey: .commitHash)
+        date = try c.decodeIfPresent(String.self, forKey: .date) ?? ""
+        subject = try c.decodeIfPresent(String.self, forKey: .subject) ?? ""
+        let ids = try c.decodeIfPresent([String].self, forKey: .entities) ?? []
+        entities = ids
+        entitiesTotal = try c.decodeIfPresent(Int.self, forKey: .entitiesTotal) ?? ids.count
+        filesChanged = try c.decodeIfPresent(Int.self, forKey: .filesChanged) ?? 0
+        sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? []
+    }
+
+    init(commitHash: String, date: String, subject: String,
+         entities: [String] = [], entitiesTotal: Int? = nil, filesChanged: Int = 0,
+         sessions: [String] = []) {
+        self.commitHash = commitHash
+        self.date = date
+        self.subject = subject
+        self.entities = entities
+        self.entitiesTotal = entitiesTotal ?? entities.count
+        self.filesChanged = filesChanged
+        self.sessions = sessions
+    }
+}
+
+struct ContributorCommitsResponse: Codable {
+    let author: String
+    let commits: [ContributorCommit]
 }
 
 // MARK: - Location listing (issue #7)
@@ -241,6 +386,158 @@ struct LocationListing: Codable {
         accessible = (try? c.decode(Bool.self, forKey: .accessible)) ?? false
         truncated = (try? c.decode(Bool.self, forKey: .truncated)) ?? false
         entries = (try? c.decode([LocationEntry].self, forKey: .entries)) ?? []
+    }
+}
+
+// MARK: - Project repository context (G9 companion)
+//
+// `GET /entities/{id}/repos` surfaces the git-repo context declared under a
+// project/directory entity's `repos:` frontmatter — local checkout status,
+// branch, ahead/behind, worktrees, last commit — so the companion app can
+// show "what's the state of this repo on disk" without the user opening a
+// terminal. NOT INTEGRATION-TESTED against a live backend (built in parallel
+// by another agent) — this matches the shared API contract exactly and is
+// compile-verified only.
+//
+// Unlike the rest of this file's endpoints (which ride the app-wide camelCase
+// wire convention — see `api/models/schemas.py::to_camel`), this endpoint is
+// SPECIFIED as snake_case JSON in the shared contract, so every multi-word key
+// below gets an explicit snake_case `CodingKeys` raw value rather than relying
+// on the Swift property name.
+
+/// One worktree entry inside a `RepoContext.worktrees` list.
+struct RepoWorktree: Codable, Hashable {
+    let path: String
+    let branch: String?
+    let isMain: Bool
+    let isDirty: Bool?
+    let declared: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case path, branch
+        case isMain = "is_main"
+        case isDirty = "is_dirty"
+        case declared
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
+        branch = try c.decodeIfPresent(String.self, forKey: .branch)
+        isMain = try c.decodeIfPresent(Bool.self, forKey: .isMain) ?? false
+        isDirty = try c.decodeIfPresent(Bool.self, forKey: .isDirty)
+        declared = try c.decodeIfPresent(Bool.self, forKey: .declared) ?? false
+    }
+}
+
+/// The last commit on a repo/worktree, as surfaced by `RepoContext.last_commit`.
+struct RepoLastCommit: Codable, Hashable {
+    let hash: String
+    let author: String
+    let date: String
+    let subject: String
+
+    enum CodingKeys: String, CodingKey { case hash, author, date, subject }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        hash = try c.decodeIfPresent(String.self, forKey: .hash) ?? ""
+        author = try c.decodeIfPresent(String.self, forKey: .author) ?? ""
+        date = try c.decodeIfPresent(String.self, forKey: .date) ?? ""
+        subject = try c.decodeIfPresent(String.self, forKey: .subject) ?? ""
+    }
+
+    /// The commit date parsed leniently — the backend emits an ISO-8601-ish
+    /// git date string; fall back to `.now` (never shown, callers only use
+    /// this for `RelativeDateTimeFormatter`) if it doesn't parse.
+    var dateValue: Date {
+        ISO8601DateFormatter().date(from: date)
+            ?? RepoLastCommit.looseFormatter.date(from: date)
+            ?? .now
+    }
+
+    private static let looseFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    var shortHash: String { String(hash.prefix(7)) }
+}
+
+/// One repo declared on a project entity's `repos:` frontmatter, enriched
+/// with live local-checkout status. Every non-identifying field is optional —
+/// a repo can be `missing`, on `other_device`, or simply not a git repo, and
+/// still round-trips through this type.
+struct RepoContext: Codable, Identifiable {
+    let path: String
+    let device: String?
+    /// `ok | other_device | missing | not_a_repo | git_unavailable | timeout`
+    let status: String
+    let exists: Bool
+    let isGitRepo: Bool
+    let remote: String?
+    let currentBranch: String?
+    let defaultBranchDeclared: String?
+    let defaultBranchObserved: String?
+    let ahead: Int?
+    let behind: Int?
+    let dirtyFiles: Int?
+    let worktrees: [RepoWorktree]
+    let lastCommit: RepoLastCommit?
+    let staleHint: String?
+
+    var id: String { path }
+
+    enum CodingKeys: String, CodingKey {
+        case path, device, status, exists
+        case isGitRepo = "is_git_repo"
+        case remote
+        case currentBranch = "current_branch"
+        case defaultBranchDeclared = "default_branch_declared"
+        case defaultBranchObserved = "default_branch_observed"
+        case ahead, behind
+        case dirtyFiles = "dirty_files"
+        case worktrees
+        case lastCommit = "last_commit"
+        case staleHint = "stale_hint"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
+        device = try c.decodeIfPresent(String.self, forKey: .device)
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? "missing"
+        exists = try c.decodeIfPresent(Bool.self, forKey: .exists) ?? false
+        isGitRepo = try c.decodeIfPresent(Bool.self, forKey: .isGitRepo) ?? false
+        remote = try c.decodeIfPresent(String.self, forKey: .remote)
+        currentBranch = try c.decodeIfPresent(String.self, forKey: .currentBranch)
+        defaultBranchDeclared = try c.decodeIfPresent(String.self, forKey: .defaultBranchDeclared)
+        defaultBranchObserved = try c.decodeIfPresent(String.self, forKey: .defaultBranchObserved)
+        ahead = try c.decodeIfPresent(Int.self, forKey: .ahead)
+        behind = try c.decodeIfPresent(Int.self, forKey: .behind)
+        dirtyFiles = try c.decodeIfPresent(Int.self, forKey: .dirtyFiles)
+        worktrees = try c.decodeIfPresent([RepoWorktree].self, forKey: .worktrees) ?? []
+        lastCommit = try c.decodeIfPresent(RepoLastCommit.self, forKey: .lastCommit)
+        staleHint = try c.decodeIfPresent(String.self, forKey: .staleHint)
+    }
+}
+
+/// `GET /entities/{id}/repos` response envelope.
+struct RepoContextList: Codable {
+    let entityId: String
+    let repos: [RepoContext]
+
+    enum CodingKeys: String, CodingKey {
+        case entityId = "entity_id"
+        case repos
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entityId = try c.decodeIfPresent(String.self, forKey: .entityId) ?? ""
+        repos = try c.decodeIfPresent([RepoContext].self, forKey: .repos) ?? []
     }
 }
 
@@ -305,6 +602,10 @@ struct Entity: Identifiable, Codable {
     var created: String
     var lastReferenced: String
     var decayRate: Double
+    /// G66 — the semantic class beside the numeric rate. Server-resolved (an
+    /// explicit `decay_class:`, else inferred from the entity type), so this is
+    /// always populated for a real entity; `.active` for a graph-node stub.
+    var decayClass: DecayClass = .active
     var sourceEpisodes: [String]
     var tags: [String]
     var related: [String]
@@ -330,7 +631,7 @@ struct Entity: Identifiable, Codable {
         confidence: Double, created: String, lastReferenced: String,
         decayRate: Double, sourceEpisodes: [String], tags: [String],
         related: [String], version: Int, markdownContent: String,
-        history: [EntityHistoryEntry]
+        history: [EntityHistoryEntry], decayClass: DecayClass = .active
     ) {
         self.id = id
         self.name = name
@@ -340,6 +641,7 @@ struct Entity: Identifiable, Codable {
         self.created = created
         self.lastReferenced = lastReferenced
         self.decayRate = decayRate
+        self.decayClass = decayClass
         self.sourceEpisodes = sourceEpisodes
         self.tags = tags
         self.related = related
@@ -350,7 +652,7 @@ struct Entity: Identifiable, Codable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
-        case decayRate, sourceEpisodes, tags, related, version
+        case decayRate, decayClass, sourceEpisodes, tags, related, version
         case markdownContent, rawMarkdown, path, media, history
     }
 
@@ -366,6 +668,7 @@ struct Entity: Identifiable, Codable {
         created = try c.decode(String.self, forKey: .created)
         lastReferenced = try c.decode(String.self, forKey: .lastReferenced)
         decayRate = try c.decode(Double.self, forKey: .decayRate)
+        decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
         sourceEpisodes = try c.decodeIfPresent([String].self, forKey: .sourceEpisodes) ?? []
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         related = try c.decodeIfPresent([String].self, forKey: .related) ?? []
@@ -455,7 +758,7 @@ struct Entity: Identifiable, Codable {
     }
 }
 
-struct GraphEdge: Codable {
+struct GraphEdge: Codable, Sendable {
     let source: String
     let target: String
     let label: String
@@ -488,7 +791,7 @@ struct GraphEdge: Codable {
     }
 }
 
-struct GraphResponse: Codable {
+struct GraphResponse: Codable, Sendable {
     let nodes: [GraphNode]
     let links: [GraphEdge]
     // §3: distinct-observer roster so the observer filter bar can populate its
@@ -503,9 +806,15 @@ struct GraphResponse: Codable {
         links = try c.decodeIfPresent([GraphEdge].self, forKey: .links) ?? []
         observers = try c.decodeIfPresent([String].self, forKey: .observers) ?? []
     }
+
+    init(nodes: [GraphNode] = [], links: [GraphEdge] = [], observers: [String] = []) {
+        self.nodes = nodes
+        self.links = links
+        self.observers = observers
+    }
 }
 
-struct GraphNode: Codable {
+struct GraphNode: Codable, Sendable {
     let id: String
     let name: String
     let type: EntityType
@@ -528,11 +837,59 @@ struct GraphNode: Codable {
     let isFacet: Bool
     let parentId: String?
     let context: String?
+    /// Sync-engine fields (§5.6/§5.7). `summary` is a ≤200-char body-derived
+    /// preview the detail card renders instantly before the full entity
+    /// arrives; `contentHash` is a 12-hex fingerprint of the entity's
+    /// frontmatter + body that `GraphDiff` uses to spot per-node changes
+    /// without comparing whole bodies. Both are optional/defaulted so an older
+    /// backend that emits neither still decodes — an empty `contentHash` is
+    /// treated by `GraphDiff` as "changed", never as "equal".
+    let summary: String?
+    let contentHash: String
+    /// G59: the backend has a cached logo for this entity. Purely a render
+    /// hint — the bytes arrive separately via `setNodeLogos`.
+    let hasLogo: Bool
+    /// G66: the entity's decay class, resolved server-side. Lets the detail
+    /// card show the right chip on the very first frame, before the full entity
+    /// arrives. Decode-tolerant so an old on-disk `SnapshotCache` still loads.
+    let decayClass: DecayClass
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, tags
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
+        case summary, contentHash, hasLogo, decayClass
+    }
+
+    init(
+        id: String, name: String, type: EntityType, status: EntityStatus = .active,
+        confidence: Double = 1.0, tags: [String] = [], degree: Int = 0,
+        isHub: Bool = false, hasPending: Bool = false, memberCount: Int = 0,
+        hubId: String? = nil, observers: [String] = [], contexts: [String] = [],
+        isFacet: Bool = false, parentId: String? = nil, context: String? = nil,
+        summary: String? = nil, contentHash: String = "", hasLogo: Bool = false,
+        decayClass: DecayClass = .active
+    ) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.status = status
+        self.confidence = confidence
+        self.tags = tags
+        self.degree = degree
+        self.isHub = isHub
+        self.hasPending = hasPending
+        self.memberCount = memberCount
+        self.hubId = hubId
+        self.observers = observers
+        self.contexts = contexts
+        self.isFacet = isFacet
+        self.parentId = parentId
+        self.context = context
+        self.summary = summary
+        self.contentHash = contentHash
+        self.hasLogo = hasLogo
+        self.decayClass = decayClass
     }
 
     init(from decoder: Decoder) throws {
@@ -558,5 +915,9 @@ struct GraphNode: Codable {
         isFacet = try c.decodeIfPresent(Bool.self, forKey: .isFacet) ?? false
         parentId = try c.decodeIfPresent(String.self, forKey: .parentId)
         context = try c.decodeIfPresent(String.self, forKey: .context)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        contentHash = try c.decodeIfPresent(String.self, forKey: .contentHash) ?? ""
+        hasLogo = try c.decodeIfPresent(Bool.self, forKey: .hasLogo) ?? false
+        decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
     }
 }

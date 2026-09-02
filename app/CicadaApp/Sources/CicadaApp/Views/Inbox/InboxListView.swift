@@ -20,23 +20,30 @@ struct InboxListView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerBar
 
-            // Error branch MUST come before the empty-items check — otherwise a
-            // failed `GET /inbox` (items stays []) falls through to the "All
-            // caught up" happy state and a real backend error looks like
-            // nothing needed attention.
+            // Order matters. Error first: a failed `GET /inbox` leaves `items`
+            // empty and would otherwise read as the happy state. Loading
+            // second: an empty snapshot mid-first-fetch is not "all caught up",
+            // and claiming it is for a round-trip is the worst possible lie for
+            // this page to tell.
             if let err = viewModel.errorMessage, viewModel.items.isEmpty {
                 errorState(err)
+            } else if viewModel.isLoading {
+                loadingState
             } else if viewModel.items.isEmpty {
                 emptyState
             } else {
                 ScrollView {
                     LazyVStack(spacing: CicadaTheme.spacingSM) {
                         ForEach(visibleItems) { item in
-                            InboxCardView(item: item) { action, answer, mergeTarget, mergeSurvivor in
+                            InboxCardView(item: item) { resolution in
                                 await viewModel.resolve(
-                                    id: item.id, action: action,
-                                    answer: answer, mergeTarget: mergeTarget,
-                                    mergeSurvivor: mergeSurvivor
+                                    id: item.id,
+                                    action: resolution.action,
+                                    answer: resolution.answer,
+                                    optionKey: resolution.optionKey,
+                                    remindDays: resolution.remindDays,
+                                    mergeTarget: resolution.mergeTarget,
+                                    mergeSurvivor: resolution.mergeSurvivor
                                 )
                             }
                             .transition(.asymmetric(
@@ -56,7 +63,6 @@ struct InboxListView: View {
         // ignoreSafeArea here — combined with maxHeight:.infinity that extended the
         // content under the menu bar and stretched the whole window to full height.
         .background(CicadaTheme.background)
-        .task { await viewModel.loadInbox() }
     }
 
     // MARK: - Header (title + kind filter chips)
@@ -65,7 +71,7 @@ struct InboxListView: View {
         VStack(alignment: .leading, spacing: 0) {
             PageHeader(
                 title: "Inbox",
-                subtitle: "Nudges and clarifications waiting on you."
+                subtitle: Copy.inboxSubtitle
             ) {
                 if !viewModel.items.isEmpty {
                     Text("\(viewModel.items.count) pending")
@@ -121,6 +127,21 @@ struct InboxListView: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Loading state (first fetch, nothing cached)
+
+    private var loadingState: some View {
+        VStack(spacing: CicadaTheme.spacingMD) {
+            Spacer()
+            ProgressView().controlSize(.small)
+            Text("Checking what needs you…")
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
             Spacer()
             Spacer()
         }
@@ -198,7 +219,7 @@ private struct KindChip: View {
                     .stroke(selected ? color.opacity(0.5) : Color.clear, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
         .animation(.easeInOut(duration: 0.15), value: selected)

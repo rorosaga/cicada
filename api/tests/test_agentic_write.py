@@ -113,6 +113,54 @@ def test_write_claim_reuses_existing_page_without_duplicating(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# session_id — PR #20 review fix: episode-less writes still leave a durable
+# session-to-entity association for session_stats to read back.
+# --------------------------------------------------------------------------- #
+
+
+def test_write_claim_stamps_the_given_session_id_on_the_claim(tmp_path):
+    result = agentic_write.write_claim(
+        tmp_path, "Rodrigo", "prefers", "dark mode",
+        observer="agent", session_id="ses_2026-08-31_deadbeef",
+    )
+    assert result["action"] == "written"
+
+    parsed = markdown_parser.parse(tmp_path / "entities" / "rodrigo.md")
+    claims = parse_claims(parsed.body)
+    assert claims[0].session_id == "ses_2026-08-31_deadbeef"
+
+
+def test_write_claim_with_no_session_id_leaves_it_none(tmp_path):
+    agentic_write.write_claim(tmp_path, "Rodrigo", "prefers", "dark mode", observer="agent")
+    parsed = markdown_parser.parse(tmp_path / "entities" / "rodrigo.md")
+    assert parse_claims(parsed.body)[0].session_id is None
+
+
+def test_write_claim_stamps_session_id_even_against_an_existing_entity(tmp_path):
+    # The exact bug shape: an existing page, an episode-less write. Frontmatter
+    # source_episodes never changes for an existing page, so the claim's own
+    # session_id is the ONLY durable trail this write leaves behind.
+    entities_dir = tmp_path / "entities"
+    entities_dir.mkdir(parents=True)
+    markdown_parser.write(
+        entities_dir / "rodrigo.md",
+        {"name": "Rodrigo", "type": "person", "status": "active", "source_episodes": []},
+        "Some existing prose about Rodrigo.",
+    )
+
+    agentic_write.write_claim(
+        tmp_path, "Rodrigo", "uses", "sqlite-vec",
+        observer="agent", session_id="ses_2026-08-31_deadbeef",
+    )
+
+    parsed = markdown_parser.parse(entities_dir / "rodrigo.md")
+    assert parsed.frontmatter.get("source_episodes") == []
+    claims = parse_claims(parsed.body)
+    assert claims[0].session_id == "ses_2026-08-31_deadbeef"
+    assert claims[0].source_episodes == []
+
+
+# --------------------------------------------------------------------------- #
 # Trust invariant — agent claim must NOT overwrite a user_stated claim
 # --------------------------------------------------------------------------- #
 
@@ -252,6 +300,33 @@ def test_mark_episodes_processed_missing_ids_returns_zero(tmp_path):
     assert count == 0
 
 
+def test_mark_episodes_processed_stamps_processed_by_agent_by_default(tmp_path):
+    """G114 R6: an agent-marked episode must be distinguishable from a
+    Sleep-consolidated one, so the mark carries `processed_by` beside
+    `processed: true`. The default is the generic "agent"; an untouched
+    episode never gains the key."""
+    _write_episode(tmp_path, "ep_2026-01-01_001", "First", "raw chunk one", False)
+    _write_episode(tmp_path, "ep_2026-01-02_001", "Second", "raw chunk two", False)
+
+    agentic_write.mark_episodes_processed(tmp_path, ["ep_2026-01-01_001"])
+
+    fm1 = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-01-01_001.md").frontmatter
+    fm2 = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-01-02_001.md").frontmatter
+    assert fm1["processed"] is True
+    assert fm1["processed_by"] == "agent"
+    assert "processed_by" not in fm2
+
+
+def test_mark_episodes_processed_accepts_an_explicit_by(tmp_path):
+    _write_episode(tmp_path, "ep_2026-01-01_001", "First", "raw chunk one", False)
+
+    agentic_write.mark_episodes_processed(tmp_path, ["ep_2026-01-01_001"], by="claude-code")
+
+    fm = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-01-01_001.md").frontmatter
+    assert fm["processed"] is True
+    assert fm["processed_by"] == "claude-code"
+
+
 # --------------------------------------------------------------------------- #
 # write_claim never raises on bad input
 # --------------------------------------------------------------------------- #
@@ -302,6 +377,23 @@ def test_cicada_write_claim_dispatches_via_handle_tool(tmp_path, monkeypatch):
     assert page.exists()
 
 
+def test_cicada_write_claim_dispatch_stamps_the_sessions_own_session_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    server = _load_server()
+    monkeypatch.setattr(
+        server, "SESSION",
+        server.SessionIdentity(session_id="ses_test_fixed", harness="claude-code", project_dir=None),
+    )
+
+    server.handle_tool(
+        "cicada_write_claim",
+        {"subject": "Rodrigo", "predicate": "prefers", "object": "dark mode", "observer": "agent"},
+    )
+
+    parsed = markdown_parser.parse(tmp_path / "entities" / "rodrigo.md")
+    assert parse_claims(parsed.body)[0].session_id == "ses_test_fixed"
+
+
 def test_cicada_pending_and_mark_processed_dispatch(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
     server = _load_server()
@@ -318,3 +410,91 @@ def test_cicada_pending_and_mark_processed_dispatch(tmp_path, monkeypatch):
 
     fm = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-02-01_001.md").frontmatter
     assert fm["processed"] is True
+
+
+def test_cicada_mark_processed_stamps_the_harness_when_known(tmp_path, monkeypatch):
+    """G114 R6: the MCP mark passes the harness name (G48 session identity)
+    as `processed_by` when the process knows it, so the stamp says WHICH
+    agent surface consolidated the episode, not just that one did."""
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    server = _load_server()
+    monkeypatch.setattr(
+        server, "SESSION",
+        server.SessionIdentity(session_id="ses_test_fixed", harness="claude-code", project_dir=None),
+    )
+    _write_episode(tmp_path, "ep_2026-02-01_001", "Standup", "we discussed X", False)
+
+    server.handle_tool("cicada_mark_processed", {"episode_ids": ["ep_2026-02-01_001"]})
+
+    fm = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-02-01_001.md").frontmatter
+    assert fm["processed"] is True
+    assert fm["processed_by"] == "claude-code"
+
+
+def test_cicada_mark_processed_falls_back_to_agent_for_an_unknown_harness(tmp_path, monkeypatch):
+    """An "unknown" harness is the G48 placeholder, not an identity — the
+    stamp must fall back to the generic "agent" rather than record it."""
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    server = _load_server()
+    monkeypatch.setattr(
+        server, "SESSION",
+        server.SessionIdentity(session_id="ses_test_fixed", harness="unknown", project_dir=None),
+    )
+    _write_episode(tmp_path, "ep_2026-02-01_001", "Standup", "we discussed X", False)
+
+    server.handle_tool("cicada_mark_processed", {"episode_ids": ["ep_2026-02-01_001"]})
+
+    fm = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-02-01_001.md").frontmatter
+    assert fm["processed_by"] == "agent"
+
+
+def test_write_claim_accepts_an_explicit_origin(tmp_path):
+    """G71 §1: a Telegram save is `user_stated` but is NOT a manual-assertion
+    channel, so its claim must carry `origin: telegram` — which is deliberately
+    outside claim_reconciler._HUMAN_ORIGINS, i.e. not overwrite-protected."""
+    from api.services import markdown_parser
+    from api.services.agentic_write import write_claim
+    from api.services.claims import parse_claims
+
+    entities = tmp_path / "entities"
+    entities.mkdir(parents=True)
+    markdown_parser.write(
+        entities / "media-a-recipe.md",
+        {"name": "A Recipe", "type": "media", "status": "active", "confidence": 0.7},
+        "## Summary\nSaved url — A Recipe.",
+    )
+
+    result = write_claim(
+        tmp_path,
+        "media-a-recipe",
+        "saved-because",
+        "great for meal prep",
+        observer="rodrigo",
+        object_kind="literal",
+        origin="telegram",
+    )
+    assert result["action"] != "error", result
+
+    claims = parse_claims(markdown_parser.parse(entities / "media-a-recipe.md").body)
+    written = [c for c in claims if c.predicate == "saved-because"]
+    assert len(written) == 1
+    assert written[0].origin == "telegram"
+    assert written[0].source_trust == "user_stated"
+    assert written[0].object_kind == "literal"
+
+
+def test_write_claim_without_origin_is_unchanged(tmp_path):
+    from api.services import markdown_parser
+    from api.services.agentic_write import write_claim
+    from api.services.claims import parse_claims
+
+    entities = tmp_path / "entities"
+    entities.mkdir(parents=True)
+    markdown_parser.write(
+        entities / "media-a-recipe.md",
+        {"name": "A Recipe", "type": "media", "status": "active", "confidence": 0.7},
+        "## Summary\nSaved url — A Recipe.",
+    )
+    write_claim(tmp_path, "media-a-recipe", "relates-to", "cooking", observer="rodrigo")
+    claims = parse_claims(markdown_parser.parse(entities / "media-a-recipe.md").body)
+    assert [c.origin for c in claims if c.predicate == "relates-to"] == ["manual_edit"]

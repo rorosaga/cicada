@@ -59,6 +59,22 @@ struct MemoryBank: Codable, Identifiable {
         case name, active, entityCount, episodeCount, createdAt, description
     }
 
+    /// Memberwise init (the `init(from:)` below suppresses the synthesized
+    /// one). `ActivateBank`'s optimistic apply needs to flip `active` on a
+    /// roster row before the server echoes the new roster back.
+    init(name: String, active: Bool, entityCount: Int, episodeCount: Int,
+         createdAt: String, description: String?) {
+        self.name = name; self.active = active
+        self.entityCount = entityCount; self.episodeCount = episodeCount
+        self.createdAt = createdAt; self.description = description
+    }
+
+    /// A copy with `active` replaced.
+    func settingActive(_ isActive: Bool) -> MemoryBank {
+        MemoryBank(name: name, active: isActive, entityCount: entityCount,
+                   episodeCount: episodeCount, createdAt: createdAt, description: description)
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
@@ -92,6 +108,28 @@ struct BanksResponse: Codable {
     }
 }
 
+/// Minimal decode of `GET /healthz`. Decode-tolerant: only `memoryRoot` is
+/// modeled (everything else `/healthz` returns is unused here), and it's
+/// optional so an older backend that hasn't shipped this field yet still
+/// decodes — callers must treat `nil`/empty as "unknown, fall back".
+///
+/// `memoryRoot` is the raw *configured* `CICADA_MEMORY_PATH` — the container
+/// of `banks.yaml` + `banks/<name>/`, not a resolved bank path. It's the
+/// single source of truth for "which bank does the app's own backend
+/// actually use", read by `ConnectView` instead of re-deriving a root from
+/// local heuristics that can disagree depending on install layout (G88
+/// follow-up).
+struct HealthSnapshot: Codable {
+    let memoryRoot: String?
+
+    enum CodingKeys: String, CodingKey { case memoryRoot }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        memoryRoot = try? c.decode(String.self, forKey: .memoryRoot)
+    }
+}
+
 /// Mirror of the backend's `sanitize_id` (`api/services/id_utils.py`): banks are
 /// keyed on disk by this slug, and `POST /banks/{name}/import` looks the bank up
 /// by the *exact* slug — it does NOT re-sanitize. So a name like "My Project" is
@@ -120,9 +158,14 @@ struct BankImportResponse: Codable {
     let duplicatesSkipped: Int
     let format: String?
     let dateRange: BankImportDateRange?
+    /// G87 / Wave-1 1.6: whether the target bank is the one Sleep actually
+    /// consolidates. Absent on a legacy backend defaults to `true` (today's
+    /// silent-success behavior) rather than false, which would wrongly warn
+    /// every import against a backend that hasn't shipped this field yet.
+    let active: Bool
 
     enum CodingKeys: String, CodingKey {
-        case episodesStaged, episodesUpdated, duplicatesSkipped, format, dateRange
+        case episodesStaged, episodesUpdated, duplicatesSkipped, format, dateRange, active
     }
 
     init(from decoder: Decoder) throws {
@@ -132,6 +175,7 @@ struct BankImportResponse: Codable {
         duplicatesSkipped = (try? c.decode(Int.self, forKey: .duplicatesSkipped)) ?? 0
         format = try c.decodeIfPresent(String.self, forKey: .format)
         dateRange = try c.decodeIfPresent(BankImportDateRange.self, forKey: .dateRange)
+        active = (try? c.decode(Bool.self, forKey: .active)) ?? true
     }
 }
 
@@ -165,12 +209,56 @@ struct MediaFeedItem: Codable, Identifiable {
     let relatedCount: Int
     let relevance: Double
     let personalRelevance: String?
+    /// G99d — the user's actual save/bookmark/like date, recovered from the
+    /// source export when the format allows. Distinct from `savedAt` above,
+    /// which — despite its name — has always meant "when Cicada ingested
+    /// this" (kept as-is for back-compat rather than renamed out from under
+    /// existing readers). `nil` means unknown, never a guess. Use
+    /// `recencyDate` for any "most recent first" sort.
+    let contentSavedAt: String?
 
-    var id: String { mediaEntityId }
+    // Row identity must be unique per SAVED ITEM, not per entity page: the
+    // ingestor slugifies page titles into mediaEntityId, so 148 distinct
+    // Google-consent bookmarks share one entity id — ForEach keyed on it
+    // rendered blank row slots for every duplicate.
+    var id: String { mediaEntityId + "|" + url }
+
+    /// Prefer the true save date; fall back to the ingest timestamp when no
+    /// source date was recoverable (G99d) — what "Recent" should sort by.
+    ///
+    /// Review finding: comparing `contentSavedAt`/`savedAt` as raw STRINGS
+    /// mixed a bare `YYYY-MM-DD` against a full `YYYY-MM-DDTHH:MM:SSZ`
+    /// timestamp — on the same calendar day the bare date is a string-prefix
+    /// of, and therefore sorts as "less than", the full timestamp, which
+    /// happened to look plausible by accident of string length, not by any
+    /// documented rule. Parsing both to real `Date`s makes the rule explicit
+    /// instead: a bare date has no time-of-day and is anchored to
+    /// 00:00:00 UTC (the start of that day), so same-day ties still land the
+    /// same way, now on purpose. Mirrors `SourceChannel.lastSyncDate`'s
+    /// three-shape tolerance (fractional-seconds ISO8601, plain ISO8601,
+    /// bare `yyyy-MM-dd`).
+    var recencyDate: Date {
+        Self.parseRecencyInstant(contentSavedAt) ?? Self.parseRecencyInstant(savedAt) ?? .distantPast
+    }
+
+    private static func parseRecencyInstant(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: value) { return d }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let d = plain.date(from: value) { return d }
+        let dayOnly = DateFormatter()
+        dayOnly.dateFormat = "yyyy-MM-dd"
+        dayOnly.timeZone = TimeZone(identifier: "UTC")
+        return dayOnly.date(from: value)
+    }
 
     enum CodingKeys: String, CodingKey {
         case mediaEntityId, url, title, mediaType, site, channel, thumbnail
         case savedAt, tags, status, relatedCount, relevance, personalRelevance
+        case contentSavedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -188,6 +276,7 @@ struct MediaFeedItem: Codable, Identifiable {
         relatedCount = (try? c.decode(Int.self, forKey: .relatedCount)) ?? 0
         relevance = (try? c.decode(Double.self, forKey: .relevance)) ?? 0
         personalRelevance = try c.decodeIfPresent(String.self, forKey: .personalRelevance)
+        contentSavedAt = try c.decodeIfPresent(String.self, forKey: .contentSavedAt)
     }
 }
 
@@ -226,6 +315,23 @@ struct BookmarkSyncResult: Codable {
     let sources: [BookmarkSyncSourceSummary]
 }
 
+/// `POST /sources/sync-notes` result — Apple Notes one-way sync tally. Mirrors
+/// `BookmarkSyncResult`'s new/skipped shape; Notes is a single local source so
+/// there's no per-app breakdown to carry. Any extra fields the backend sends
+/// (e.g. a `sources` echo) are simply ignored by `Decodable`.
+struct NoteSyncResult: Codable {
+    let new: Int
+    let skipped: Int
+
+    enum CodingKeys: String, CodingKey { case new, skipped }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        new = (try? c.decode(Int.self, forKey: .new)) ?? 0
+        skipped = (try? c.decode(Int.self, forKey: .skipped)) ?? 0
+    }
+}
+
 // MARK: - RSS feed subscriptions (G9 — feeds.yaml registry)
 
 /// One subscribed RSS/Atom feed (`GET /sources/feeds` / `POST /sources/feeds`).
@@ -245,6 +351,12 @@ struct FeedSubscription: Codable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case url, tags, added
         case lastPolled = "last_polled"
+    }
+
+    /// Memberwise init — `SubscribeFeed`'s optimistic apply inserts a
+    /// provisional row (no `lastPolled` yet) that the server's echo replaces.
+    init(url: String, tags: [String] = [], added: String = "", lastPolled: String? = nil) {
+        self.url = url; self.tags = tags; self.added = added; self.lastPolled = lastPolled
     }
 
     init(from decoder: Decoder) throws {
@@ -317,6 +429,101 @@ struct PollFeedsResult: Codable {
     }
 }
 
+// MARK: - Calendar subscriptions (mirrors RSS feed subscriptions above,
+// same on-disk-registry reasoning — calendars.yaml in place of feeds.yaml)
+
+/// One subscribed ICS/webcal calendar (`GET /sources/calendars` /
+/// `POST /sources/calendars`). Mirrors `FeedSubscription` field-for-field:
+/// echoes the raw on-disk record straight from the calendar registry, so
+/// `last_polled` stays snake_case on the wire like its feed counterpart.
+struct CalendarSubscription: Codable, Identifiable {
+    let url: String
+    let tags: [String]
+    let added: String
+    let lastPolled: String?
+
+    var id: String { url }
+
+    enum CodingKeys: String, CodingKey {
+        case url, tags, added
+        case lastPolled = "last_polled"
+    }
+
+    /// Memberwise init — mirrors `FeedSubscription`'s, for the optimistic
+    /// `SubscribeCalendar` row.
+    init(url: String, tags: [String] = [], added: String = "", lastPolled: String? = nil) {
+        self.url = url; self.tags = tags; self.added = added; self.lastPolled = lastPolled
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decode(String.self, forKey: .url)
+        tags = (try? c.decode([String].self, forKey: .tags)) ?? []
+        added = (try? c.decode(String.self, forKey: .added)) ?? ""
+        lastPolled = try c.decodeIfPresent(String.self, forKey: .lastPolled)
+    }
+}
+
+/// `GET /sources/calendars` envelope — the calendar list plus a count.
+private struct CalendarListResponse: Codable {
+    let calendars: [CalendarSubscription]
+    let total: Int
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        calendars = (try? c.decode([CalendarSubscription].self, forKey: .calendars)) ?? []
+        total = (try? c.decode(Int.self, forKey: .total)) ?? 0
+    }
+    enum CodingKeys: String, CodingKey { case calendars, total }
+}
+
+/// One calendar's outcome within a `POST /sources/poll-calendars` sweep.
+/// Snake_case wire keys, mirrors `PollFeedItemResult`.
+struct PollCalendarItemResult: Codable, Identifiable {
+    let url: String
+    let status: String
+    let new: Int?
+    let duplicates: Int?
+    let error: String?
+
+    var id: String { url }
+
+    enum CodingKeys: String, CodingKey { case url, status, new, duplicates, error }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decode(String.self, forKey: .url)
+        status = (try? c.decode(String.self, forKey: .status)) ?? ""
+        new = try c.decodeIfPresent(Int.self, forKey: .new)
+        duplicates = try c.decodeIfPresent(Int.self, forKey: .duplicates)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+/// `POST /sources/poll-calendars` result. Mirrors `PollFeedsResult` — when
+/// the network gate is closed server-side, `new`/`perCalendar` stay at their
+/// zero/empty defaults and `skippedNoNetwork` reports the count instead.
+struct PollCalendarsResult: Codable {
+    let polled: Int
+    let new: Int
+    let skippedNoNetwork: Int
+    let perCalendar: [PollCalendarItemResult]
+
+    enum CodingKeys: String, CodingKey {
+        case polled, new
+        case skippedNoNetwork = "skipped_no_network"
+        case perCalendar = "per_calendar"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        polled = (try? c.decode(Int.self, forKey: .polled)) ?? 0
+        new = (try? c.decode(Int.self, forKey: .new)) ?? 0
+        skippedNoNetwork = (try? c.decode(Int.self, forKey: .skippedNoNetwork)) ?? 0
+        perCalendar = (try? c.decode([PollCalendarItemResult].self, forKey: .perCalendar)) ?? []
+    }
+}
+
 // MARK: - Origins (ORIGIN-PROVENANCE — "where did this memory come from")
 
 /// One capture origin's tally from `GET /origins` — mirrors `Contributor`'s
@@ -354,6 +561,58 @@ struct OriginsResponse: Codable {
     enum CodingKeys: String, CodingKey { case origins }
 }
 
+/// How far behind Sleep is, right now — independent of whether a cycle is
+/// currently running. Mirrors `api/models/schemas.py::SleepDebtResponse`;
+/// see `api/services/sleep_debt.py` for the formula. Decode-tolerant (every
+/// numeric field defaults to a safe value) so an older cached app build
+/// reading a payload that lacks this block entirely still constructs one via
+/// `SleepDebtInfo.unknown`.
+struct SleepDebtInfo: Codable, Equatable {
+    let unprocessedCount: Int
+    let oldestUnprocessedAgeHours: Double?
+    let hoursSinceLastCycle: Double?
+    let hasRunBefore: Bool
+    let volumePct: Int
+    let agePct: Int
+    /// `nil` ONLY when the queue is empty AND Sleep has never run in this
+    /// bank — no baseline to call "rested" (see the backend docstring).
+    let restedPct: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case unprocessedCount, oldestUnprocessedAgeHours, hoursSinceLastCycle
+        case hasRunBefore, volumePct, agePct, restedPct
+    }
+
+    init(unprocessedCount: Int, oldestUnprocessedAgeHours: Double?, hoursSinceLastCycle: Double?,
+         hasRunBefore: Bool, volumePct: Int, agePct: Int, restedPct: Int?) {
+        self.unprocessedCount = unprocessedCount
+        self.oldestUnprocessedAgeHours = oldestUnprocessedAgeHours
+        self.hoursSinceLastCycle = hoursSinceLastCycle
+        self.hasRunBefore = hasRunBefore
+        self.volumePct = volumePct
+        self.agePct = agePct
+        self.restedPct = restedPct
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        unprocessedCount = try c.decodeIfPresent(Int.self, forKey: .unprocessedCount) ?? 0
+        oldestUnprocessedAgeHours = try c.decodeIfPresent(Double.self, forKey: .oldestUnprocessedAgeHours)
+        hoursSinceLastCycle = try c.decodeIfPresent(Double.self, forKey: .hoursSinceLastCycle)
+        hasRunBefore = try c.decodeIfPresent(Bool.self, forKey: .hasRunBefore) ?? false
+        volumePct = try c.decodeIfPresent(Int.self, forKey: .volumePct) ?? 0
+        agePct = try c.decodeIfPresent(Int.self, forKey: .agePct) ?? 0
+        restedPct = try c.decodeIfPresent(Int.self, forKey: .restedPct)
+    }
+
+    /// A backend too old to send `debt` at all — the honest "we don't know"
+    /// shape, not a fabricated zero-debt reading.
+    static let unknown = SleepDebtInfo(
+        unprocessedCount: 0, oldestUnprocessedAgeHours: nil, hoursSinceLastCycle: nil,
+        hasRunBefore: false, volumePct: 0, agePct: 0, restedPct: nil
+    )
+}
+
 struct SleepStatusResponse: Codable {
     let status: String
     let cycleId: String?
@@ -368,11 +627,39 @@ struct SleepStatusResponse: Codable {
     let entitiesUpdated: Int
     let relationshipsCreated: Int
     let skillsDetected: Int
+    /// G74(a) — which engine the last cycle ran on ("claude-cli" | "ollama" |
+    /// "litellm"), and one sentence about its state. Both absent on an older
+    /// backend, so both are optional.
+    let lastEngine: String?
+    let engineDetail: String?
+    /// Sleep control — episode cap. `episodesQueued` is the FULL unprocessed
+    /// count found before capping; `episodeCap` is the cap applied.
+    /// `episodesQueued > episodesTotal` means this cycle was truncated.
+    /// Both absent (0) on an older backend.
+    let episodeCap: Int
+    let episodesQueued: Int
+    /// Sleep control — cooperative cancellation. `cancelRequested` is true
+    /// while a `/sleep/cancel` is pending on the running cycle;
+    /// `cancelled` is true on the first status read after a cycle actually
+    /// stopped early because of one. Both absent (false) on an older backend.
+    let cancelRequested: Bool
+    let cancelled: Bool
+    /// Sleep debt (G106) — always present on a current backend; `.unknown`
+    /// on an older one that never sent the block at all.
+    let debt: SleepDebtInfo
+    /// Live "episodes processed / episodes in this cycle" DURING a cycle.
+    /// `nil` — never a fabricated 0 — whenever there is no honest live
+    /// number: idle, or Stage 1 has already finished (see the backend's
+    /// `sleep_cycle.progress_pct` docstring for the full contract).
+    let progressPct: Int?
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
+        case lastEngine, engineDetail
+        case episodeCap, episodesQueued, cancelRequested, cancelled
+        case debt, progressPct
     }
 
     init(from decoder: Decoder) throws {
@@ -390,6 +677,14 @@ struct SleepStatusResponse: Codable {
         entitiesUpdated = try c.decodeIfPresent(Int.self, forKey: .entitiesUpdated) ?? 0
         relationshipsCreated = try c.decodeIfPresent(Int.self, forKey: .relationshipsCreated) ?? 0
         skillsDetected = try c.decodeIfPresent(Int.self, forKey: .skillsDetected) ?? 0
+        lastEngine = try c.decodeIfPresent(String.self, forKey: .lastEngine)
+        engineDetail = try c.decodeIfPresent(String.self, forKey: .engineDetail)
+        episodeCap = try c.decodeIfPresent(Int.self, forKey: .episodeCap) ?? 0
+        episodesQueued = try c.decodeIfPresent(Int.self, forKey: .episodesQueued) ?? 0
+        cancelRequested = try c.decodeIfPresent(Bool.self, forKey: .cancelRequested) ?? false
+        cancelled = try c.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
+        debt = try c.decodeIfPresent(SleepDebtInfo.self, forKey: .debt) ?? .unknown
+        progressPct = try c.decodeIfPresent(Int.self, forKey: .progressPct)
     }
 }
 
@@ -399,13 +694,42 @@ struct SleepTriggerResponse: Codable {
     let cycleId: String?
 }
 
+/// `POST /sleep/cancel` — see `SleepCancelResponse` on the API side for the
+/// full contract (idempotent, "not_running" | "cancelling", no 404/409).
+struct SleepCancelResponse: Codable {
+    let status: String
+    let message: String
+    let cycleId: String?
+}
+
 struct EpisodeQueueItem: Codable, Identifiable {
     let id: String
     let timestamp: String
     let source: String
+    /// G9 origin — the harness-normalized id (`claude-code`, `chatgpt-export`,
+    /// `telegram`, `pinterest`, …), used by the Sleep debt catch-up
+    /// breakdown to group by the same identity the rest of the app's origin
+    /// iconography keys on. `"unknown"` on an older backend that doesn't
+    /// send it.
+    let origin: String
     let title: String?
     let preview: String
     let processed: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, source, origin, title, preview, processed
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        timestamp = try c.decode(String.self, forKey: .timestamp)
+        source = try c.decode(String.self, forKey: .source)
+        origin = try c.decodeIfPresent(String.self, forKey: .origin) ?? "unknown"
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        preview = try c.decode(String.self, forKey: .preview)
+        processed = try c.decode(Bool.self, forKey: .processed)
+    }
 }
 
 struct ScheduleConfig: Codable, Equatable {
@@ -450,6 +774,85 @@ actor APIClient {
         return d
     }()
 
+    /// Every request goes through this session, not `.shared` — it disables
+    /// `URLCache` entirely (`urlCache = nil`) and forces
+    /// `.reloadIgnoringLocalCacheData` at the configuration level, so no
+    /// helper (get/post/put/delete/multipart uploads/`syncEventLines`) can
+    /// accidentally replay a disk-persisted, process-independent cache entry
+    /// — the bug `getConditional`'s old per-request `.reloadIgnoringLocalCacheData`
+    /// only patched for itself. We already do our own conditional-GET
+    /// caching (`etag`, `Snapshot`, `SnapshotCache`); `URLCache` must never
+    /// also intercept these requests.
+    private let session: URLSession
+
+    /// `session` is an init parameter (default: the real, cache-disabled
+    /// configuration below) purely so tests can hand in a
+    /// `URLProtocol`-backed session instead of hitting a real backend on
+    /// 127.0.0.1:8000 — `APIClient.shared` always uses the default.
+    init(session: URLSession? = nil) {
+        if let session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.urlCache = nil
+            config.requestCachePolicy = .reloadIgnoringLocalCacheData
+            // NB: deliberately NOT setting `timeoutIntervalForRequest` here. A
+            // session-wide cap would also apply to the long-running writes
+            // (`POST /ask` blocks on an LLM call; `/sources/sync-bookmarks`,
+            // `/sources/poll-feeds`, `/conversations/upload`), where a client-side
+            // timeout makes `Store.perform` roll back and toast "reverted" for
+            // work the server actually completed. The cap belongs on the refresh
+            // path only — see `refreshTimeout`.
+            self.session = URLSession(configuration: config)
+        }
+    }
+
+    /// Timeout for the *refresh* path only (`getConditional`, `fetchStatus`).
+    ///
+    /// A refresh request holds its domain's `Snapshot.isRefreshing` for as
+    /// long as it runs, and `Store.refreshOne` coalesces into that flag — so a
+    /// request parked on Foundation's 60 s default makes the app deaf to every
+    /// version event for that domain for a full minute. These GETs are all
+    /// small and idempotent, so capping them well below the default costs
+    /// nothing and bounds the deaf window. Writes keep the 60 s default; the
+    /// SSE stream sets its own 3600 (see `syncEventLines`).
+    static let refreshTimeout: TimeInterval = 30
+
+    /// Bearer token generated by the backend at `$CICADA_HOME/api_token`
+    /// (see api/services/auth.py). Cached after the first successful read —
+    /// re-reading the file on every request cost a disk hit per call. A *miss*
+    /// is never cached: on first launch the file appears a moment after the
+    /// backend boots, so caching nil would strand the app in 401s until
+    /// restart. Any 401 clears the cache (`invalidateToken()`) so a rotated
+    /// token is picked up on the next attempt.
+    private nonisolated(unsafe) static var cachedToken: String?
+
+    static func invalidateToken() { cachedToken = nil }
+
+    private static func loadToken() -> String? {
+        if let cachedToken { return cachedToken }
+        let env = ProcessInfo.processInfo.environment
+        if let t = env["CICADA_API_TOKEN"], !t.isEmpty { cachedToken = t; return t }
+        let home = env["CICADA_HOME"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cicada")
+        let file = home.appendingPathComponent("api_token")
+        guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+        let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return nil }
+        cachedToken = token
+        return token
+    }
+
+    private func makeRequest(_ path: String, method: String, json: Bool = true) -> URLRequest {
+        var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
+        request.httpMethod = method
+        if json { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        if let token = Self.loadToken() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        return request
+    }
+
     // MARK: - Graph
 
     func fetchGraph() async throws -> GraphResponse {
@@ -466,14 +869,15 @@ actor APIClient {
         return name.addingPercentEncoding(withAllowedCharacters: allowed) ?? name
     }
 
-    /// `GET /banks` → all banks plus the active one. Returns an empty roster on
-    /// a 404 so the dropdown degrades gracefully on a pre-M6 backend.
+    /// `GET /banks` → all banks plus the active one.
+    ///
+    /// A 404 propagates. It used to be swallowed into an empty roster, but an
+    /// empty roster is indistinguishable from a real one and every caller reads
+    /// it as truth — `BanksViewModel.load()` treats a *missing* roster as its
+    /// error path, so degrading turned an honest failure into a silently empty
+    /// dropdown with no explanation.
     func fetchBanks() async throws -> BanksResponse {
-        do {
-            return try await get("/banks")
-        } catch APIError.httpError(404, _) {
-            return BanksResponse(banks: [], active: nil)
-        }
+        try await get("/banks")
     }
 
     /// `POST /banks` `{name, description?}` → create a NEW EMPTY bank. Returns
@@ -531,9 +935,7 @@ actor APIClient {
     /// `POST /banks/{name}/import` (multipart file) → stage parsed conversations
     /// into bank `name` as dated episodes. Format is auto-detected server-side.
     func importToBank(name: String, fileURL: URL) async throws -> BankImportResponse {
-        let url = URL(string: "\(baseURL)/banks/\(encodedBank(name))/import")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        var request = makeRequest("/banks/\(encodedBank(name))/import", method: "POST", json: false)
 
         let boundary = UUID().uuidString
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -549,11 +951,12 @@ actor APIClient {
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
         guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
             let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw APIError.httpError(http.statusCode, msg)
         }
@@ -577,6 +980,33 @@ actor APIClient {
 
     func fetchEntity(id: String) async throws -> Entity {
         return try await get("/entities/\(encodedID(id))")
+    }
+
+    /// `PUT /entities/{id}/decay` (G66 §1.7) — the user's decay override.
+    /// The backend writes the class plus its mapped numeric rate and commits as
+    /// `Cicada-Author: user`, then returns the refreshed entity. Errors
+    /// propagate so the picker can revert its optimistic selection.
+    func setDecayClass(entityId: String, _ decayClass: DecayClass) async throws -> Entity {
+        return try await put(
+            "/entities/\(encodedID(entityId))/decay",
+            body: ["decayClass": decayClass.rawValue]
+        )
+    }
+
+    /// `GET /entities/{id}/logo`. Returns nil on 404 — "this entity has no
+    /// logo" is an ordinary answer, not an error, and the caller draws a
+    /// monogram instead.
+    func fetchEntityLogo(id: String) async throws -> Data? {
+        var request = makeRequest("/entities/\(encodedID(id))/logo", method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
     }
 
     func fetchEntityHistory(id: String, includeDiff: Bool = false) async throws -> [EntityHistoryEntry] {
@@ -605,6 +1035,41 @@ actor APIClient {
         } catch APIError.httpError(404, _) {
             return nil
         }
+    }
+
+    /// `GET /entities/{id}/repos` (G9 companion) — the git-repo(s) declared on
+    /// a project/directory entity's `repos:` frontmatter, enriched with live
+    /// local-checkout status. Returns `[]` on a 404 (endpoint not shipped yet,
+    /// or entity carries no `repos:` key) or any other error so the entity
+    /// detail card degrades quietly — no Repository section rather than an
+    /// error state. NOT INTEGRATION-TESTED against a live backend (built in
+    /// parallel by another agent); matches the shared contract exactly.
+    func fetchEntityRepos(entityId: String) async throws -> [RepoContext] {
+        do {
+            let r: RepoContextList = try await get("/entities/\(encodedID(entityId))/repos")
+            return r.repos
+        } catch {
+            return []
+        }
+    }
+
+    // MARK: - Fact sources (G61)
+
+    func fetchEntitySources(entityId: String) async throws -> [EntitySource] {
+        let payload: EntitySourceList = try await get("/entities/\(encodedID(entityId))/sources")
+        return payload.sources
+    }
+
+    func addEntitySource(entityId: String, ref: String, predicate: String? = nil) async throws -> [EntitySource] {
+        var body: [String: Any] = ["ref": ref]
+        if let predicate { body["predicate"] = predicate }
+        let data = try await post("/entities/\(encodedID(entityId))/sources", body: body)
+        return try JSONDecoder().decode(EntitySourceList.self, from: data).sources
+    }
+
+    func deleteEntitySource(entityId: String, index: Int) async throws -> [EntitySource] {
+        let data = try await delete("/entities/\(encodedID(entityId))/sources/\(index)")
+        return try JSONDecoder().decode(EntitySourceList.self, from: data).sources
     }
 
     // MARK: - Claims (CPCG claim layer)
@@ -655,6 +1120,177 @@ actor APIClient {
         return resp.contributors
     }
 
+    /// `GET /contributors/commits?author=&limit=` (G67) — one author's recent
+    /// commits, for the Contributors drill-down. `author` is a QUERY value
+    /// because model ids contain slashes (`anthropic/claude-opus-4`); it is
+    /// percent-encoded so the slash never splits the path. On demand only — no
+    /// Store domain, no ETag.
+    ///
+    /// THROWS on failure. It used to swallow every error into `[]`, which the
+    /// drill-down then cached and rendered as "No commits found for this
+    /// author" — a false claim about who wrote memory, sticky for the life of
+    /// the view, and triggered by something as ordinary as collapsing the row
+    /// mid-flight (a cancelled task). The one exception is a 404, which means
+    /// the backend predates this endpoint rather than that the fetch failed:
+    /// there is genuinely no drill-down to show, and no retry would help.
+    func fetchContributorCommits(author: String, limit: Int = 50) async throws -> [ContributorCommit] {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        let a = author.addingPercentEncoding(withAllowedCharacters: allowed) ?? author
+        do {
+            let resp: ContributorCommitsResponse = try await get(
+                "/contributors/commits?author=\(a)&limit=\(limit)"
+            )
+            return resp.commits
+        } catch APIError.httpError(404, _) {
+            return []
+        }
+    }
+
+    // MARK: - Conversations (G48)
+
+    /// `GET /conversations/recent?limit=` — conversations that wrote to
+    /// memory, newest write first. On demand only, like `/contributors/commits`
+    /// — no Store domain, no ETag. A 404 means the backend predates this
+    /// endpoint, not that the fetch failed, so it degrades to an empty list
+    /// rather than throwing.
+    func fetchRecentConversations(limit: Int = 20) async throws -> [ConversationSummary] {
+        do {
+            return try await get("/conversations/recent?limit=\(limit)")
+        } catch APIError.httpError(404, _) {
+            return []
+        }
+    }
+
+    /// `GET /conversations/{id}` — one conversation by exact id, resolved
+    /// against the WHOLE bank rather than the capped `/recent` page. `nil`
+    /// means the backend genuinely has no episode carrying that id (404) — or
+    /// predates the route, which is indistinguishable and equally "can't show
+    /// it". Never throws on a 404, so the caller can say something honest.
+    func fetchConversation(id: String) async throws -> ConversationSummary? {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: allowed) ?? id
+        do {
+            return try await get("/conversations/\(encoded)")
+        } catch APIError.httpError(404, _) {
+            return nil
+        }
+    }
+
+    /// `POST /conversations/{id}/resume` — validate a conversation and hand
+    /// back a launch descriptor (G48 §5). 400 (not a resumable id), 404
+    /// (unknown conversation) and 409 (transcript retention-cleaned) all
+    /// propagate as `APIError.httpError` for the view model to interpret.
+    func resumeConversation(id: String) async throws -> ResumeDescriptor {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: allowed) ?? id
+        return try await post("/conversations/\(encoded)/resume")
+    }
+
+    // MARK: - Connections (G50)
+
+    func fetchConnections(fresh: Bool = false) async throws -> [ConnectionStatus] {
+        let resp: ConnectionsResponse = try await get("/connections\(fresh ? "?fresh=true" : "")")
+        return resp.connections
+    }
+
+    /// Fetch a single connection's status (`GET /connections/{id}`). Used by
+    /// terminal-login polling so it checks only the one connection instead of
+    /// sweeping all six on every tick.
+    func fetchConnection(_ id: String, fresh: Bool = false) async throws -> ConnectionStatus {
+        try await get("/connections/\(id)\(fresh ? "?fresh=true" : "")")
+    }
+
+    func beginLogin(_ id: String) async throws -> LoginSession {
+        try await post("/connections/\(id)/login")
+    }
+
+    func loginState(_ id: String, sessionId: String) async throws -> LoginSession {
+        try await get("/connections/\(id)/login/\(sessionId)")
+    }
+
+    func logout(_ id: String) async throws -> ConnectionStatus {
+        try await post("/connections/\(id)/logout")
+    }
+
+    func setKey(_ id: String, key: String) async throws -> ConnectionStatus {
+        try await put("/connections/\(id)/key", body: ["key": key])
+    }
+
+    func removeKey(_ id: String) async throws -> ConnectionStatus {
+        let data = try await delete("/connections/\(id)/key")
+        return try decoder.decode(ConnectionStatus.self, from: data)
+    }
+
+    func setTier(_ id: String, tier: String?) async throws -> ConnectionStatus {
+        try await put("/connections/\(id)/prefs", body: ["tier": tier ?? NSNull()])
+    }
+
+    /// G74(a) — already matches `SyncAPI.setUseForSleep`'s signature exactly,
+    /// so (like `subscribeFeed` etc. below) it satisfies the protocol from
+    /// this declaration directly; no separate conformance forwarder.
+    func setUseForSleep(_ id: String, on: Bool) async throws -> ConnectionStatus {
+        try await put("/connections/\(id)/prefs", body: ["useForSleep": on])
+    }
+
+    // MARK: - Saved-content connectors (G71)
+
+    func fetchConnectors() async throws -> [ConnectorStatus] {
+        let response: ConnectorsResponse = try await get("/sources/connectors")
+        return response.connectors
+    }
+
+    func saveConnectorCredentials(
+        _ id: String, fields: [String: String]
+    ) async throws -> ConnectorStatus {
+        try await put("/sources/connectors/\(id)/credentials", body: ["fields": fields])
+    }
+
+    /// `delete(_:)` returns raw `Data` (mirrors `removeKey`'s DELETE-then-decode
+    /// pattern) — there is no generic `delete<T: Decodable>` helper on this actor.
+    func forgetConnector(_ id: String) async throws -> ConnectorStatus {
+        let data = try await delete("/sources/connectors/\(id)/credentials")
+        return try decoder.decode(ConnectorStatus.self, from: data)
+    }
+
+    func authorizeConnector(_ id: String) async throws -> ConnectorAuthorizeResponse {
+        try await post("/sources/connectors/\(id)/authorize")
+    }
+
+    func syncConnector(_ id: String) async throws -> ConnectorSyncResult {
+        try await post("/sources/connectors/\(id)/sync")
+    }
+
+    // MARK: - Consumption (G51)
+    //
+    // Plain (non-conditional) fetches for a range the Store's default
+    // "month" bundle doesn't cover — `UsageViewModel.loadRange()` calls these
+    // directly, the same way `ConnectionsViewModel` bypasses the Store for a
+    // `fresh: true` probe. The Store's own default-view fetch is
+    // `fetchConsumption(etag:current:)` below, in the `SyncAPI` conformance.
+
+    func fetchConsumptionSummary(range: String) async throws -> ConsumptionSummary {
+        try await get("/consumption/summary?range=\(range)")
+    }
+
+    func fetchConsumptionCalendar(weeks: Int = 53) async throws -> ConsumptionCalendar {
+        try await get("/consumption/calendar?weeks=\(weeks)")
+    }
+
+    func fetchConsumptionStats(range: String) async throws -> ConsumptionStats {
+        try await get("/consumption/stats?range=\(range)")
+    }
+
+    func fetchConsumptionConnections(range: String) async throws -> ConsumptionConnections {
+        try await get("/consumption/connections?range=\(range)")
+    }
+
+    func fetchHarnessStats() async throws -> HarnessStats {
+        try await get("/consumption/harness")
+    }
+
     // MARK: - Inbox
 
     /// Fetch the unified inbox (`GET /inbox`). Optionally filter by kinds —
@@ -678,11 +1314,15 @@ actor APIClient {
         id: String,
         action: String,
         answer: String? = nil,
+        optionKey: String? = nil,
+        remindDays: Int? = nil,
         mergeTarget: String? = nil,
         mergeSurvivor: String? = nil
     ) async throws {
         var body: [String: Any] = ["action": action]
         if let answer { body["answer"] = answer }
+        if let optionKey { body["optionKey"] = optionKey }
+        if let remindDays { body["remindDays"] = remindDays }
         if let mergeTarget { body["mergeTarget"] = mergeTarget }
         if let mergeSurvivor { body["mergeSurvivor"] = mergeSurvivor }
         try await post("/inbox/\(id)/resolve", body: body)
@@ -693,8 +1333,22 @@ actor APIClient {
     /// Fetch the aggregate status snapshot (`GET /status`). The endpoint is live
     /// (wave 1); a `StatusSnapshot` decodes straight from the nested
     /// sleep/inbox/episodes wire shape.
+    /// Refresh-path GET: capped like `getConditional`, because `refreshStatus`
+    /// holds `status.isRefreshing` for the duration and coalesces behind it.
     func fetchStatus() async throws -> StatusSnapshot {
-        return try await get("/status")
+        return try await get("/status", timeout: Self.refreshTimeout)
+    }
+
+    // MARK: - Health (liveness probe; also the memory-root source of truth)
+
+    /// Fetch `GET /healthz` (auth-exempt, so this works even before a token
+    /// file exists). Used by `ConnectView` to read the backend's OWN
+    /// configured `memoryRoot` instead of re-deriving one locally — the two
+    /// can otherwise disagree depending on install layout (G88 follow-up).
+    /// Capped like the refresh path: it's retried with backoff while the
+    /// backend comes up, so one attempt must never park for a full minute.
+    func fetchHealth() async throws -> HealthSnapshot {
+        return try await get("/healthz", timeout: Self.refreshTimeout)
     }
 
     // MARK: - Sources (media / bookmark ingestion — ships in a later wave)
@@ -707,8 +1361,14 @@ actor APIClient {
 
     /// Upload a single source file (bookmarks HTML/JSON, Takeout) to
     /// `POST /sources/upload`. Multipart, same envelope as conversation upload.
-    func uploadSource(fileURL: URL) async throws -> UploadResponse {
-        return try await uploadMultipart(path: "/sources/upload", fileURL: fileURL)
+    ///
+    /// `includeHistory` mirrors `previewSource`'s flag (G71 fix round 1, H2):
+    /// Confirm must carry whatever toggle state the preview was shown under,
+    /// or the real import's counts can silently disagree with what the
+    /// preview promised.
+    func uploadSource(fileURL: URL, includeHistory: Bool = false) async throws -> UploadResponse {
+        let query = includeHistory ? "?include_history=true" : ""
+        return try await uploadMultipart(path: "/sources/upload" + query, fileURL: fileURL)
     }
 
     /// Fetch the saved-media feed (`GET /sources`). `sort` is `relevance` (the
@@ -765,6 +1425,16 @@ actor APIClient {
         return try await post("/sources/sync-bookmarks", body: body.isEmpty ? nil : body)
     }
 
+    /// One-way Apple Notes sync (`POST /sources/sync-notes`). Mirrors
+    /// `syncBookmarks()` — keyless, reads local Notes via AppleScript/osascript
+    /// (no login, no OAuth). The first call triggers a macOS automation
+    /// permission prompt for Notes; the Capture page's "Sync Notes now" action
+    /// calls this with no arguments.
+    @discardableResult
+    func syncNotes() async throws -> NoteSyncResult {
+        return try await post("/sources/sync-notes")
+    }
+
     // MARK: - RSS feed subscriptions (G9)
 
     /// `GET /sources/feeds` → every subscribed RSS/Atom feed, in subscription order.
@@ -798,6 +1468,38 @@ actor APIClient {
         return try await post("/sources/poll-feeds")
     }
 
+    // MARK: - Calendar subscriptions (mirrors RSS feed subscriptions above)
+
+    /// `GET /sources/calendars` → every subscribed webcal/ICS calendar, in
+    /// subscription order.
+    func fetchCalendars() async throws -> [CalendarSubscription] {
+        let resp: CalendarListResponse = try await get("/sources/calendars")
+        return resp.calendars
+    }
+
+    /// `POST /sources/calendars` `{url, tags?}` → subscribe to a webcal://.ics
+    /// calendar. Idempotent, mirrors `subscribeFeed`.
+    @discardableResult
+    func subscribeCalendar(url: String, tags: [String] = []) async throws -> CalendarSubscription {
+        var body: [String: Any] = ["url": url]
+        if !tags.isEmpty { body["tags"] = tags }
+        return try await post("/sources/calendars", body: body)
+    }
+
+    /// `DELETE /sources/calendars` `{url}` → unsubscribe. Throws
+    /// `.httpError(404, _)` if the URL wasn't subscribed, mirrors `unsubscribeFeed`.
+    func unsubscribeCalendar(url: String) async throws {
+        try await delete("/sources/calendars", body: ["url": url])
+    }
+
+    /// `POST /sources/poll-calendars` → check every subscribed calendar for
+    /// new events. Mirrors `pollFeeds`, including the same network-gate
+    /// behavior when live fetch is disabled server-side.
+    @discardableResult
+    func pollCalendars() async throws -> PollCalendarsResult {
+        return try await post("/sources/poll-calendars")
+    }
+
     // MARK: - Origins (ORIGIN-PROVENANCE)
 
     /// `GET /origins` → repo-wide episode/entity counts per capture origin.
@@ -814,11 +1516,11 @@ actor APIClient {
 
     /// Shared multipart POST for file ingestion endpoints. Mirrors `uploadFile`
     /// but takes the target path so both `/conversations/upload` and
-    /// `/sources/upload` reuse it.
-    private func uploadMultipart(path: String, fileURL: URL) async throws -> UploadResponse {
-        let url = URL(string: "\(baseURL)\(path)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+    /// `/sources/upload` reuse it. Generic over the response so the same
+    /// wire-up serves the real upload (`UploadResponse`) and the staging-free
+    /// preview (`UploadPreview`) without duplicating the multipart plumbing.
+    private func uploadMultipart<T: Decodable>(path: String, fileURL: URL) async throws -> T {
+        var request = makeRequest(path, method: "POST", json: false)
 
         let boundary = UUID().uuidString
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -834,15 +1536,23 @@ actor APIClient {
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
         guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
             let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw APIError.httpError(http.statusCode, msg)
         }
-        return try decoder.decode(UploadResponse.self, from: data)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    /// `POST /sources/upload?preview=true` — describe a file without importing
+    /// any of it. Safe to call on every drop: the backend stages nothing.
+    func previewSource(fileURL: URL, includeHistory: Bool = false) async throws -> UploadPreview {
+        let query = includeHistory ? "?preview=true&include_history=true" : "?preview=true"
+        return try await uploadMultipart(path: "/sources/upload" + query, fileURL: fileURL)
     }
 
     /// Convenience: upload several source files, aggregating the counts.
@@ -889,6 +1599,22 @@ actor APIClient {
         return try await post("/sleep/trigger")
     }
 
+    /// Cooperative-cancel whatever cycle is currently running. See
+    /// `SleepCancelResponse` — always 200, `status` says whether there was
+    /// anything to cancel.
+    func cancelSleep() async throws -> SleepCancelResponse {
+        return try await post("/sleep/cancel")
+    }
+
+    // MARK: - Ask (G52)
+
+    /// `POST /ask` — grounded NL synthesis over the graph
+    /// (`api/routers/ask.py`). `topK` defaults to the same 6 the server uses
+    /// when the field is omitted.
+    func ask(query: String, topK: Int = 6) async throws -> AskResponse {
+        return try await post("/ask", body: ["query": query, "topK": topK])
+    }
+
     func fetchEpisodeQueue() async throws -> [EpisodeQueueItem] {
         return try await get("/sleep/episodes")
     }
@@ -908,9 +1634,7 @@ actor APIClient {
     // MARK: - Upload
 
     func uploadFile(fileURL: URL) async throws -> UploadResponse {
-        let url = URL(string: "\(baseURL)/conversations/upload")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        var request = makeRequest("/conversations/upload", method: "POST", json: false)
 
         let boundary = UUID().uuidString
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -927,11 +1651,12 @@ actor APIClient {
 
         request.httpBody = body
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
         guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
             let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw APIError.httpError(http.statusCode, msg)
         }
@@ -941,13 +1666,18 @@ actor APIClient {
 
     // MARK: - Generic Helpers
 
-    private func get<T: Decodable>(_ path: String) async throws -> T {
-        let url = URL(string: "\(baseURL)\(path)")!
-        let (data, response) = try await URLSession.shared.data(from: url)
+    /// `timeout` overrides Foundation's 60 s default for this one request.
+    /// Only the refresh path passes it (see `refreshTimeout`); everything else
+    /// keeps the default so a slow-but-succeeding call is not cut short.
+    private func get<T: Decodable>(_ path: String, timeout: TimeInterval? = nil) async throws -> T {
+        var request = makeRequest(path, method: "GET", json: false)
+        if let timeout { request.timeoutInterval = timeout }
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
         guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
             let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw APIError.httpError(http.statusCode, msg)
         }
@@ -960,19 +1690,17 @@ actor APIClient {
 
     @discardableResult
     private func post<T: Decodable>(_ path: String, body: [String: Any]? = nil) async throws -> T {
-        let url = URL(string: "\(baseURL)\(path)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var request = makeRequest(path, method: "POST")
         if let body {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
         guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
             let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw APIError.httpError(http.statusCode, msg)
         }
@@ -981,19 +1709,17 @@ actor APIClient {
 
     @discardableResult
     private func post(_ path: String, body: [String: Any]? = nil) async throws -> Data {
-        let url = URL(string: "\(baseURL)\(path)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var request = makeRequest(path, method: "POST")
         if let body {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
         guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
             let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw APIError.httpError(http.statusCode, msg)
         }
@@ -1004,19 +1730,17 @@ actor APIClient {
     /// only caller today). Mirrors the `post(_:body:) -> Data` shape.
     @discardableResult
     private func delete(_ path: String, body: [String: Any]? = nil) async throws -> Data {
-        let url = URL(string: "\(baseURL)\(path)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var request = makeRequest(path, method: "DELETE")
         if let body {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
         guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
             let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw APIError.httpError(http.statusCode, msg)
         }
@@ -1024,19 +1748,17 @@ actor APIClient {
     }
 
     private func put<T: Decodable>(_ path: String, body: [String: Any]? = nil) async throws -> T {
-        let url = URL(string: "\(baseURL)\(path)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var request = makeRequest(path, method: "PUT")
         if let body {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
         guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
             let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw APIError.httpError(http.statusCode, msg)
         }
@@ -1045,5 +1767,248 @@ actor APIClient {
         } catch {
             throw APIError.decodingError("\(error)")
         }
+    }
+}
+
+// MARK: - Sync engine support (conditional GETs, version vector, SSE)
+
+extension APIClient {
+    /// Conditional GET. Sends `If-None-Match` when we hold an etag and reports
+    /// a 304 as `notModified` (value nil) so the caller keeps its snapshot.
+    func getConditional<T: Decodable>(_ path: String, etag: String?) async throws -> Conditional<T> {
+        var request = makeRequest(path, method: "GET", json: false)
+        // `session`'s own configuration already disables `URLCache` and
+        // forces `.reloadIgnoringLocalCacheData` for every request this
+        // client makes — see the `session` property. Nothing extra to set
+        // here; we still layer our own conditional-GET caching on top via
+        // `etag` / `Snapshot` / `SnapshotCache`.
+        if let etag, !etag.isEmpty { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 304 { return Conditional(value: nil, etag: etag, notModified: true) }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        do {
+            return Conditional(
+                value: try decoder.decode(T.self, from: data),
+                etag: http.value(forHTTPHeaderField: "ETag"),
+                notModified: false
+            )
+        } catch {
+            throw APIError.decodingError("\(error)")
+        }
+    }
+}
+
+extension APIClient: SyncAPI {
+    func fetchGraph(etag: String?) async throws -> Conditional<GraphResponse> {
+        try await getConditional("/graph", etag: etag)
+    }
+
+    func fetchInbox(etag: String?) async throws -> Conditional<[InboxItem]> {
+        try await getConditional("/inbox", etag: etag)
+    }
+
+    /// Same rule as every other conditional fetch: a 404 is "no such endpoint",
+    /// not "no banks". An empty roster here would overwrite the real one *and*
+    /// persist it under `_roster`, so the dropdown would come up empty on the
+    /// next launch too.
+    func fetchBanks(etag: String?) async throws -> Conditional<BanksResponse> {
+        do {
+            return try await getConditional("/banks", etag: etag)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    func fetchSources(etag: String?) async throws -> Conditional<[MediaFeedItem]> {
+        do {
+            let c: Conditional<SourceListResponse> = try await getConditional("/sources?sort=relevance", etag: etag)
+            return c.map(\.items)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    func fetchChannels(etag: String?) async throws -> Conditional<[SourceChannel]> {
+        do {
+            let c: Conditional<SourceChannelsResponse> = try await getConditional("/sources/channels", etag: etag)
+            return c.map(\.channels)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    func fetchFeeds(etag: String?) async throws -> Conditional<[FeedSubscription]> {
+        do {
+            let c: Conditional<FeedListResponse> = try await getConditional("/sources/feeds", etag: etag)
+            return c.map(\.feeds)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    func fetchCalendars(etag: String?) async throws -> Conditional<[CalendarSubscription]> {
+        do {
+            let c: Conditional<CalendarListResponse> = try await getConditional("/sources/calendars", etag: etag)
+            return c.map(\.calendars)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    func fetchContributors(etag: String?) async throws -> Conditional<[Contributor]> {
+        do {
+            let c: Conditional<ContributorsResponse> = try await getConditional("/contributors", etag: etag)
+            return c.map(\.contributors)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    func fetchOrigins(etag: String?) async throws -> Conditional<[OriginStat]> {
+        do {
+            let c: Conditional<OriginsResponse> = try await getConditional("/origins", etag: etag)
+            return c.map(\.origins)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    /// `/connections` has no ETag support server-side yet; `getConditional`
+    /// simply never sees a 304 and this behaves as a plain GET.
+    func fetchConnections(etag: String?) async throws -> Conditional<[ConnectionStatus]> {
+        do {
+            let c: Conditional<ConnectionsResponse> = try await getConditional("/connections", etag: etag)
+            return c.map(\.connections)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    /// Last-resort fallback for `fetchConsumption` when `/stats` comes back
+    /// 304 and there is no `current` bundle to reuse instead (the very first
+    /// fetch can't 304 at all, so in practice this only fires if the caller
+    /// passes `current: nil`) — `ConsumptionStats` has no custom initializer,
+    /// only `init(from decoder:)`, so build it by decoding its own tolerant
+    /// defaults from an empty object.
+    private static let emptyConsumptionStats: ConsumptionStats =
+        // swiftlint:disable:next force_try — every field of `init(from:)` is
+        // tolerant of a missing key, so decoding "{}" can never throw.
+        try! JSONDecoder().decode(ConsumptionStats.self, from: Data("{}".utf8))
+
+    /// Fans out to all five `/consumption/*` endpoints for the Store's
+    /// default view (range "month", 53-week calendar) and folds them into one
+    /// `ConsumptionBundle`. Only `/summary`, `/calendar` and `/stats` carry a
+    /// server-side ETag (see `api/routers/consumption.py`) — `/connections`
+    /// and `/harness` are always refetched.
+    ///
+    /// A 304 on any of the three ETag'd endpoints must only short-circuit
+    /// *that* section, never the whole bundle: `/connections`/`/harness` are
+    /// freshly polled on every single call (a 304 there is impossible), so
+    /// discarding the response outright whenever the other three happened to
+    /// be unchanged — the old behaviour — silently dropped real, new
+    /// connections/harness data on the floor (worst case: on every app
+    /// bootstrap, since the reconcile fetch typically lands right after the
+    /// cache-hydrated etags were already current). Each 304'd section falls
+    /// back to `current`'s matching section instead, so the merged bundle is
+    /// always complete and this always returns a value (`notModified` is
+    /// only ever `true` via the 404 branch below, i.e. "no dashboard at
+    /// all" — not "nothing new"). The combined etag is the three sub-etags
+    /// pipe-joined; a 404 on any endpoint is treated as "this backend
+    /// doesn't ship the dashboard yet", not an empty payload.
+    func fetchConsumption(etag: String?, current: ConsumptionBundle?) async throws -> Conditional<ConsumptionBundle> {
+        let range = "month"
+        let weeks = 53
+        let rawParts = (etag ?? "").components(separatedBy: "|")
+        let parts: [String?] = (0..<3).map { i in
+            guard i < rawParts.count, !rawParts[i].isEmpty else { return nil }
+            return rawParts[i]
+        }
+        do {
+            async let s: Conditional<ConsumptionSummary> = getConditional("/consumption/summary?range=\(range)", etag: parts[0])
+            async let c: Conditional<ConsumptionCalendar> = getConditional("/consumption/calendar?weeks=\(weeks)", etag: parts[1])
+            async let st: Conditional<ConsumptionStats> = getConditional("/consumption/stats?range=\(range)", etag: parts[2])
+            async let conn: ConsumptionConnections = get("/consumption/connections?range=\(range)")
+            async let h: HarnessStats = get("/consumption/harness")
+            let (summaryResult, calendarResult, statsResult, connections, harness) = try await (s, c, st, conn, h)
+            let bundle = ConsumptionBundle(
+                summary: summaryResult.value ?? current?.summary ?? ConsumptionSummary(),
+                calendar: calendarResult.value ?? current?.calendar ?? ConsumptionCalendar(days: [], weeks: weeks),
+                stats: statsResult.value ?? current?.stats ?? Self.emptyConsumptionStats,
+                connections: connections,
+                harness: harness
+            )
+            let newEtag = [summaryResult.etag ?? parts[0] ?? "", calendarResult.etag ?? parts[1] ?? "", statsResult.etag ?? parts[2] ?? ""]
+                .joined(separator: "|")
+            return Conditional(value: bundle, etag: newEtag, notModified: false)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    /// `GET /sync/version` → the current component version vector.
+    func fetchSyncVersion() async throws -> VersionVector {
+        try await get("/sync/version")
+    }
+
+    // MARK: Writes (§5.4)
+    //
+    // `subscribeFeed`/`unsubscribeFeed`/`subscribeCalendar`/
+    // `unsubscribeCalendar`/`activateBank`/`triggerSleep`/`setUseForSleep`
+    // already match their `SyncAPI` requirements exactly, so they satisfy the
+    // protocol from their primary declarations above. The five below only exist to give the
+    // protocol's connection/inbox names a home; each forwards verbatim.
+
+    func resolveInbox(id: String, action: String, answer: String?,
+                      optionKey: String?, remindDays: Int?,
+                      mergeTarget: String?, mergeSurvivor: String?) async throws {
+        try await resolveInboxItem(id: id, action: action, answer: answer,
+                                   optionKey: optionKey, remindDays: remindDays,
+                                   mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+    }
+
+    func setConnectionTier(_ id: String, tier: String?) async throws -> ConnectionStatus {
+        try await setTier(id, tier: tier)
+    }
+
+    func setConnectionKey(_ id: String, key: String) async throws -> ConnectionStatus {
+        try await setKey(id, key: key)
+    }
+
+    func removeConnectionKey(_ id: String) async throws -> ConnectionStatus {
+        try await removeKey(id)
+    }
+
+    func logoutConnection(_ id: String) async throws -> ConnectionStatus {
+        try await logout(id)
+    }
+
+    /// Opens the long-lived `GET /sync/events` SSE stream. The 1-hour timeout
+    /// is a backstop only — the server pings every 15 s, and `SyncEngine`
+    /// reconnects with backoff whenever the sequence ends for any reason.
+    func syncEventLines() async throws -> (AsyncThrowingStream<String, any Error>, HTTPURLResponse) {
+        var request = makeRequest("/sync/events", method: "GET", json: false)
+        // `timeoutInterval` is an *idle* timeout — time waiting for the next
+        // byte, not total connection lifetime — so a stream that keeps
+        // trickling data lives indefinitely. 3600 is set explicitly (a
+        // per-request value overrides any session-wide default) and the
+        // backend's `PING_SECONDS = 15` keeps the gap between bytes far below
+        // it. If that ping cadence is ever raised past this interval, the
+        // stream would start dying on idle: see `api/routers/sync.py`.
+        request.timeoutInterval = 3600
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard http.statusCode == 200 else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, "sync/events")
+        }
+        // NOT `bytes.lines`: Foundation's AsyncLineSequence swallows empty
+        // lines, and an empty line is what terminates an SSE frame.
+        return (SSELineSplitter.lines(from: bytes), http)
     }
 }

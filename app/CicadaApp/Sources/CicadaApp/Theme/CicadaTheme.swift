@@ -36,6 +36,36 @@ enum CicadaTheme {
     // MARK: - Accent
     static var accent: Color { mode == .dark ? Dark.accent : Light.accent }
 
+    // MARK: - Semantic State Colors (G68)
+    // Mode-aware success/warning/danger/info, following the `entityColor`
+    // pattern above: one accessor here, one hue per palette below. Every page
+    // that used to hardcode 0x22C55E / 0xF59E0B / 0xEF4444 / 0x3B82F6 (or the
+    // near-duplicate blue 0x4A9EFF) reads these instead, so a state colour is
+    // legible in BOTH modes and moves in one place. Brand hues (a vendor's own
+    // colour — OriginPill, channel tints, AgentSetup.brand, provider badges)
+    // stay literal at their call sites — they are identity, not state.
+    static var success: Color { mode == .dark ? Dark.success : Light.success }
+    static var warning: Color { mode == .dark ? Dark.warning : Light.warning }
+    static var danger: Color { mode == .dark ? Dark.danger : Light.danger }
+    static var info: Color { mode == .dark ? Dark.info : Light.info }
+
+    /// Plate behind a monospaced command/config snippet (`CommandBox`). The
+    /// old flat `Color.black.opacity(0.35)` put near-black `textPrimary` on a
+    /// near-black plate in light mode; this is one step darker than the
+    /// surface it sits on, in both modes.
+    static var codeBackground: Color { mode == .dark ? Dark.codeBackground : Light.codeBackground }
+
+    /// Timeline dot hue per commit change type (entity History tab). Replaces
+    /// `HistoryChangeType.color`, which returned a hex STRING that the view
+    /// re-parsed — a model has no business naming a colour.
+    static func historyColor(for change: HistoryChangeType) -> Color {
+        switch change {
+        case .created: success
+        case .updated, .relationAdded: info
+        case .statusChange, .confidenceChange: warning
+        }
+    }
+
     // MARK: - Entity Type Colors
     // Mirrors the `typeColors` map in graph.js so the SwiftUI chrome and the d3
     // canvas agree on hue per type. Light mode reuses the same hue family, just
@@ -61,6 +91,19 @@ enum CicadaTheme {
     // MARK: - Status Colors
     static func statusColor(for status: EntityStatus) -> Color {
         mode == .dark ? Dark.statusColor(for: status) : Light.statusColor(for: status)
+    }
+
+    // MARK: - Usage heatmap (G51)
+    /// Five-step sequential ramp for the usage heatmap (0 = empty cell).
+    /// Derived from `accent` so it follows the light/dark palette automatically.
+    static func heatRamp(level: Int) -> Color {
+        switch max(0, min(4, level)) {
+        case 0: surfaceElevated
+        case 1: accent.opacity(0.30)
+        case 2: accent.opacity(0.55)
+        case 3: accent.opacity(0.80)
+        default: accent
+        }
     }
 
     // MARK: - Typography
@@ -89,6 +132,20 @@ enum CicadaTheme {
     static func inboxColor(for kind: InboxKind) -> Color {
         mode == .dark ? Dark.inboxColor(for: kind) : Light.inboxColor(for: kind)
     }
+
+    // MARK: - Diff / Decay Colors (G67 / G66)
+    // Added/removed line color in the shared commit-diff renderer (`DiffView`,
+    // reused by the entity History tab and the Contributors drill-down), and
+    // the decay-chip tint. Both are THIN ALIASES of the semantic state tokens
+    // above (G68) rather than their own hex pairs — dark mode was already the
+    // exact same hex as success/danger/info/warning; light mode's separate
+    // ~600-band values are dropped in favor of the deeper, higher-contrast
+    // ~700-band the state tokens use. No duplicated hex pairs left in the
+    // theme.
+    static var diffAdded: Color { success }
+    static var diffRemoved: Color { danger }
+    static var decayDurable: Color { info }
+    static var decayVolatile: Color { warning }
 }
 
 // MARK: - Dark Palette
@@ -115,6 +172,14 @@ private extension CicadaTheme {
 
         // Periwinkle, nudged one notch brighter so it pops on the darker base.
         static let accent = Color(hex: 0x8896FF)
+
+        // State hues, Tailwind ~500 band — same brightness register as the
+        // entity hues above so they read as one system on the near-black base.
+        static let success = Color(hex: 0x22C55E)
+        static let warning = Color(hex: 0xF59E0B)
+        static let danger = Color(hex: 0xEF4444)
+        static let info = Color(hex: 0x4A9EFF)
+        static let codeBackground = Color(hex: 0x0A0B0F)
 
         static func entityColor(for type: EntityType) -> Color {
             // Tailwind-400-band hues: each keeps its type identity but is pushed
@@ -212,6 +277,15 @@ private extension CicadaTheme {
         // Same periwinkle family, deepened for AA contrast on a near-white
         // surface (~4.7:1 vs the dark mode value's ~1.7:1 on white).
         static let accent = Color(hex: 0x5A62E0)
+
+        // Same families, deepened into the Tailwind ~700 band so each clears
+        // ~4.5:1 on the near-white surface instead of the ~1.8:1 the dark
+        // values give.
+        static let success = Color(hex: 0x15803D)
+        static let warning = Color(hex: 0xB45309)
+        static let danger = Color(hex: 0xB91C1C)
+        static let info = Color(hex: 0x1D4ED8)
+        static let codeBackground = Color(hex: 0xE7E9F0)
 
         static func entityColor(for type: EntityType) -> Color {
             switch type {
@@ -313,6 +387,84 @@ struct GlassCard: ViewModifier {
 extension View {
     func glassCard(cornerRadius: CGFloat = CicadaTheme.cornerRadius) -> some View {
         modifier(GlassCard(cornerRadius: cornerRadius))
+    }
+}
+
+// MARK: - Plain Button Style (G83)
+
+/// Shared replacement for `.buttonStyle(.cicadaPlain)`. Two problems in one fix:
+///
+/// 1. **Hit area.** A bare `Button { ... } label: { HStack { Image; Text } }`
+///    styled `.plain` paints no background of its own, so SwiftUI falls back
+///    to its default content shape — the union of the label's rendered
+///    glyphs. Padding grows the layout box but NOT the tap target, which is
+///    why clicking the icon/text works and the surrounding padded pill
+///    doesn't. Wrapping `configuration.label` in `.contentShape(Rectangle())`
+///    makes the tappable region match the label's full layout frame
+///    (including padding) every time, at every adopting call site, from one
+///    definition.
+/// 2. **Snappy feedback.** Plain buttons gave no visual acknowledgement of a
+///    click. A subtle scale-down + opacity dip keyed on `configuration.isPressed`,
+///    with a short eased animation, makes every adopting button feel
+///    responsive without changing its resting appearance.
+struct CicadaPlainButtonStyle: ButtonStyle {
+    /// Scale applied to the label while the button is pressed.
+    static let pressedScale: CGFloat = 0.97
+    /// Opacity applied to the label while the button is pressed.
+    static let pressedOpacity: Double = 0.85
+    /// Duration of the press/release transition.
+    static let pressAnimationDuration: Double = 0.12
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .scaleEffect(configuration.isPressed ? Self.pressedScale : 1.0)
+            .opacity(configuration.isPressed ? Self.pressedOpacity : 1.0)
+            .animation(.easeOut(duration: Self.pressAnimationDuration), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == CicadaPlainButtonStyle {
+    /// Drop-in replacement for `.buttonStyle(.cicadaPlain)` that also fixes the
+    /// hit-area bug and adds pressed-state feedback. See `CicadaPlainButtonStyle`.
+    static var cicadaPlain: CicadaPlainButtonStyle { CicadaPlainButtonStyle() }
+}
+
+// MARK: - Glass Plain Button Style (G83 review finding 2)
+
+/// `CicadaPlainButtonStyle` for a button whose visible chrome is a
+/// `.glassCard(...)` pill. `.glassCard()` chained AFTER `.buttonStyle(.cicadaPlain)`
+/// wraps the button's ALREADY-styled output — the pill background sits outside
+/// `CicadaPlainButtonStyle`'s own `scaleEffect`/`opacity`, which only reaches
+/// `configuration.label`. The result: on press, the label dips but the glass
+/// pill drawn behind it stays static — partial, not-quite-there feedback on
+/// exactly the top-bar/toolbar buttons the user hits constantly.
+///
+/// This style folds the SAME glass-card decoration (`.modifier(GlassCard(...))`
+/// — the existing `GlassCard` recipe, not a duplicated copy) into `makeBody`
+/// itself, so the card is composed BEFORE the pressed-state transform, and the
+/// whole pill — background, border, shadow included — scales/dims together.
+/// Replaces the `.buttonStyle(.cicadaPlain)` + `.glassCard(cornerRadius:)` pair
+/// at every site where they decorate the SAME button (not a container that
+/// merely happens to wrap several buttons in one shared card — that pattern is
+/// unaffected and stays as plain `.glassCard()` on the container).
+struct CicadaGlassButtonStyle: ButtonStyle {
+    var cornerRadius: CGFloat = CicadaTheme.cornerRadius
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .modifier(GlassCard(cornerRadius: cornerRadius))
+            .scaleEffect(configuration.isPressed ? CicadaPlainButtonStyle.pressedScale : 1.0)
+            .opacity(configuration.isPressed ? CicadaPlainButtonStyle.pressedOpacity : 1.0)
+            .animation(.easeOut(duration: CicadaPlainButtonStyle.pressAnimationDuration), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == CicadaGlassButtonStyle {
+    static var cicadaGlass: CicadaGlassButtonStyle { CicadaGlassButtonStyle() }
+    static func cicadaGlass(cornerRadius: CGFloat) -> CicadaGlassButtonStyle {
+        CicadaGlassButtonStyle(cornerRadius: cornerRadius)
     }
 }
 
