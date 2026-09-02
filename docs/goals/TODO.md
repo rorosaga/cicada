@@ -4,7 +4,16 @@
 > compacted context of the 2026-08-31/09-01 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (2026-09-01, evening)
+## Where things stand (2026-09-02)
+
+**Open branch: `feat/safari-import`** (`.worktrees/safari-import`, five commits on `dev` @ `bad8461`,
+PR not yet opened). Safari iCloud tabs + bookmark folder selection + the family → member import
+catalog; G30/G47/G71 rows carry the shipped clauses, G118 (Arc/Firefox/Brave) is filed. The one
+step no agent runs: after merge, with Rodrigo at the machine, `make install-app`, grant **Full Disk
+Access** to Cicada.app once, then Feed → `+` → Browsers → Safari — *iCloud tabs* (preview lists the
+phone and the Mac, import, `safari-tabs` lights in the Connected strip), then *Bookmarks & Reading
+List* with one folder ticked (a non-zero `skipped` there is the idempotency proof). Until each browser
+row syncs on its own, `chrome-bookmarks` / `safari-bookmarks` both read the legacy `bookmarks` count.
 
 **Merged to `dev`:** PRs #21–#29. **No open PRs.** The big one is **#25 — the agent engine (G74a)**:
 Sleep can now run on the user's Claude Max plan via `claude -p`, after ~2.5 months with no engine.
@@ -113,13 +122,17 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-**Nothing is broken; one branch is awaiting a PR.** **G114** shipped on `feat/capture-hygiene`
-(2026-09-01/02, seven commits, PR #30 against `dev`). The 2026-09-01 evening session merged
+**Nothing is broken; one branch is awaiting a PR** (`feat/safari-import`, item 0). **G114** shipped
+on `feat/capture-hygiene` (2026-09-01/02, seven commits, PR #30 against `dev`, merged). The 2026-09-01 evening session merged
 #28/#29, reframed CLAUDE.md around the *experience port* north star (Silver & Sutton's *Era of
 Experience*, WikiSkill), filed **G112/G113/G114** research-grounded, and started **G109** as a
 research run (inventory → five engine candidates → three-lens judge → decision memo) rather than
 a blind re-tune.
 
+0. **Merge `feat/safari-import`** after an independent re-run of both suites (`pytest api/tests`
+   → only the baseline calendar/provenance failures; `swift build && swift test` → 0 failures), then
+   run the live import once with the owner present (Full Disk Access to Cicada.app is a one-time
+   grant — the launchd backend never gets it, only the app bundle does).
 1. **G109 phase 1 is in PR #32 (merged)** — merged after an independent re-run of
    `node app/CicadaApp/Tests/graph/graph-physics.test.js`, the four sibling JS tests and
    `swift test`, then have Rodrigo eyeball the live bank at fit-zoom (isolates should read as discs
@@ -144,10 +157,10 @@ a blind re-tune.
    review — the live bank holds real people). Same for any `macos-harness` verification that
    needs a permission prompt accepted.
 
-**Worktrees:** `.worktrees/g114` holds `feat/capture-hygiene` until its PR merges.
-`.worktrees/devloop` and `.worktrees/wikilinks` are safe to remove (`devloop-report.md` there is
-untracked scratch — never commit `*-report.md`); `sleepctl`, `hygiene`, `saves-and-imports` are
-stale from earlier sessions. `git worktree list` to see them; never `--force`-remove one without
+**Worktrees:** `.worktrees/safari-import` holds `feat/safari-import` until its PR merges;
+`.worktrees/g113` (`feat/feedback-ledger`), `.worktrees/link-summaries` and `.worktrees/mascot` are
+other in-flight branches — check each's `git status --porcelain -uall` before touching it. Never
+commit a `*-report.md` left as untracked scratch in any of them. `git worktree list` to see them; never `--force`-remove one without
 looking at `git status --porcelain -uall` in it first.
 
 ---
@@ -159,7 +172,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-02 (PRs #21–#31 merged — #30 G114, #31 G113 slices 1–2; G109 phase 1 in PR #32; inbox redesign folded as G115/G116)._
+_Last synced: 2026-09-02 (PRs #21–#34 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes; `feat/safari-import` awaiting PR; G118 filed; inbox redesign folded as G115/G116)._
 
 ---
 
@@ -225,6 +238,11 @@ trailers, Ghostty resume)
   `memory-evolution.md` for the per-row evidence
 
 **2026-09-02**
+- **Safari import track** (`feat/safari-import`, PR #TBD) — Safari iCloud tabs (device picker),
+  bookmark folder selection with tree preview (Reading List as its own folder), per-browser channels,
+  the app reads `~/Library` and posts bytes (the launchd backend never could), Full-Disk-Access fix
+  shown in place, and the `+` sheet re-layered into a logo-first family → member catalog with keyboard
+  navigation. Follow-up: G118 (Arc/Firefox/Brave).
 - **G109 phase 1** graph physics (PR #32) — alpha-scaled hub gravity, no reheat on release,
   `velocityDecay` 0.2 / `alphaMin` 0.001, per-isolate phyllotaxis slots, speed clamp; headless
   physics bench + test under `Tests/graph/`; numbers in the G109 row
