@@ -1,12 +1,13 @@
 # Cicada — TODO & handoff
 
 > **If you are an agent picking this project up cold, read this section first.** It is the
-> compacted context of the 2026-08-31/09-01 sessions: what is true right now, what is in flight,
+> compacted context of the 2026-08-31 → 09-02 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
 ## Where things stand (2026-09-02)
 
-**Merged to `dev`:** PRs #21–#29. **No open PRs.** The big one is **#25 — the agent engine (G74a)**:
+**Merged to `dev`:** PRs #21–#34. **Open:** `feat/mascot` (G107, PR #TBD — fill in once opened).
+The big one is **#25 — the agent engine (G74a)**:
 Sleep can now run on the user's Claude Max plan via `claude -p`, after ~2.5 months with no engine.
 Also #24, the **correctness gate**, which fixed decay (see rulings below), #23's app fixes, #26's
 `saved_at` fix, and #27's sleep cancel/cap/debt screen.
@@ -120,12 +121,14 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-**Nothing is broken; one branch is awaiting a PR.** **G114** shipped on `feat/capture-hygiene`
-(2026-09-01/02, seven commits, PR #30 against `dev`). The 2026-09-01 evening session merged
-#28/#29, reframed CLAUDE.md around the *experience port* north star (Silver & Sutton's *Era of
-Experience*, WikiSkill), filed **G112/G113/G114** research-grounded, and started **G109** as a
-research run (inventory → five engine candidates → three-lens judge → decision memo) rather than
-a blind re-tune. (G107 shipped 2026-09-02 — see Where things stand)
+**Nothing is broken; one branch is awaiting a PR: `feat/mascot` (G107 pixel mascot, PR #TBD).**
+Its last unchecked box is the visual pass on the installed app — menu bar in light and dark, the
+Sleep page at 120 pt, Reduce Motion holding frame 0 — which needs `make install-app` and Rodrigo at
+the machine; the suites are green. Before it: **G114** shipped on `feat/capture-hygiene` (PR #30,
+merged), the 2026-09-01 evening session merged #28/#29, reframed CLAUDE.md around the *experience
+port* north star (Silver & Sutton's *Era of Experience*, WikiSkill), filed **G112/G113/G114**
+research-grounded, and started **G109** as a research run (inventory → five engine candidates →
+three-lens judge → decision memo) rather than a blind re-tune.
 
 1. **G109 phase 1 is in PR #32 (merged)** — merged after an independent re-run of
    `node app/CicadaApp/Tests/graph/graph-physics.test.js`, the four sibling JS tests and
