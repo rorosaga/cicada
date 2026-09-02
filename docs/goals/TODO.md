@@ -301,7 +301,8 @@ trailers, Ghostty resume)
    telemetry event — ids and enums only, never text — with per-predicate agreement rates and a
    confidence-calibration curve as a fourth Activity card. Slice 5 (feeding rates back into
    prompts) stays 💸 DECIDE under G78 — slices 1–2 merged (PR #31); 3–7 open — S/M
-4d. **G115 Phase 1** — inbox redesign, first slice: one question object for every kind, `cause` on the
+4d. **G115 Phase 1** *(owner 2026-09-03: start with the dead chevron and the unbounded URL list on cards)*
+4d′. **G115 Phase 1** — inbox redesign, first slice: one question object for every kind, `cause` on the
    card (three tiers, `[ no source recorded ]` served), `(Recommended)` = the option `_verdict` scores
    `agreed` (never on merge), decay through `QuestionView`, number keys / `Esc` no-trace skip, ETag
    widened server-side AND `.inbox` added to `VersionVector`'s `entities`/`episodes` in the same
@@ -332,6 +333,9 @@ trailers, Ghostty resume)
     citable source, the prompt/turn that triggered every agent write, and a raw-source viewer with the
     cited passage highlighted (NotebookLM, but bi-temporal and attributed). Owner-marked central to
     the vision (2026-09-02). Slice 1 = span capture in Stage-1 + resolver; absorbs G100 — L
+9e. **G122 Sleep engine & model picker** — `GET/PUT /sleep/engine`, an Engine card on the Sleep page
+    (Auto · Claude plan · Codex · Ollama · Key, live state + model, next-cycle preview), Ollama guided as a
+    first-class option; prefs in `~/.cicada/connections.json`, never `api/.env` — M
 9d. **G121 world facts vs personal facts** — `source_trust: model_knowledge` + volatile decay for anything not
     grounded in an episode, two-tier entity card ("why it's in your memory" / "context as of <date>, verify"), the
     rule in the G75 handshake; a dry-run backfill count on the live bank first — M
