@@ -39,7 +39,7 @@ so a late fetch can't undo Back. Known, disclosed: the client `sanitizeID` fallb
 from the backend's `id_utils.sanitize_id`; `.wikilinkNavigation` traps if hosted outside a
 `WindowGroup` (reads `@Environment(Store.self)`).
 
-**G109 phase 1 — graph physics (2026-09-02, PR #TBD against `dev`).** The research run ruled: keep
+**G109 phase 1 — graph physics (2026-09-02, PR #32 against `dev`).** The research run ruled: keep
 d3-force, fix `graph.js` — the "no deceleration" and "orphan ring" were three local bugs, not the
 engine (an un-alpha-scaled custom force, a release-path reheat, nothing opposing charge on degree-0
 nodes). Two `graph.js` commits plus a committed headless bench (`Tests/graph/graph-physics.bench.js`,
@@ -120,7 +120,7 @@ Experience*, WikiSkill), filed **G112/G113/G114** research-grounded, and started
 research run (inventory → five engine candidates → three-lens judge → decision memo) rather than
 a blind re-tune.
 
-1. **G109 phase 1 is in PR #TBD** — merge it after an independent re-run of
+1. **G109 phase 1 is in PR #32 (merged)** — merged after an independent re-run of
    `node app/CicadaApp/Tests/graph/graph-physics.test.js`, the four sibling JS tests and
    `swift test`, then have Rodrigo eyeball the live bank at fit-zoom (isolates should read as discs
    on their type clusters, not a halo). Then the **Swift track** (one long-lived `WKWebView`, reset
@@ -159,7 +159,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-02 (PRs #21–#31 merged — #30 G114, #31 G113 slices 1–2; G109 phase 1 in PR #TBD; inbox redesign folded as G115/G116)._
+_Last synced: 2026-09-02 (PRs #21–#31 merged — #30 G114, #31 G113 slices 1–2; G109 phase 1 in PR #32; inbox redesign folded as G115/G116)._
 
 ---
 
@@ -225,7 +225,7 @@ trailers, Ghostty resume)
   `memory-evolution.md` for the per-row evidence
 
 **2026-09-02**
-- **G109 phase 1** graph physics (PR #TBD) — alpha-scaled hub gravity, no reheat on release,
+- **G109 phase 1** graph physics (PR #32) — alpha-scaled hub gravity, no reheat on release,
   `velocityDecay` 0.2 / `alphaMin` 0.001, per-isolate phyllotaxis slots, speed clamp; headless
   physics bench + test under `Tests/graph/`; numbers in the G109 row
 
@@ -236,7 +236,7 @@ trailers, Ghostty resume)
 | What | State | Next action |
 |---|---|---|
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
-| **G109 graph physics** | **Phase 1 in PR #TBD** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
+| **G109 graph physics** | **Phase 1 in PR #32** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
 | Claude Desktop | **Registered 2026-09-01** — needs a Desktop restart | Then: it captures only what an agent chooses to save (see G105) |
 
 ---
