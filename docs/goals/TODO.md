@@ -42,7 +42,7 @@ from the backend's `id_utils.sanitize_id`; `.wikilinkNavigation` traps if hosted
 **G109 phase 1 — graph physics (2026-09-02, PR #TBD against `dev`).** The research run ruled: keep
 d3-force, fix `graph.js` — the "no deceleration" and "orphan ring" were three local bugs, not the
 engine (an un-alpha-scaled custom force, a release-path reheat, nothing opposing charge on degree-0
-nodes). Three `graph.js` commits plus a committed headless bench (`Tests/graph/graph-physics.bench.js`,
+nodes). Two `graph.js` commits plus a committed headless bench (`Tests/graph/graph-physics.bench.js`,
 real d3 driving the real `startSimulation`): KE/node at tick 400 20 → 4e-6, a flick coasts 0 → 13
 ticks / 100 wu, a release moves the rest of the graph 1,200 → 9 wu, isolate max radius 2.0× → 1.3×
 core p90. Two rules now in CLAUDE.md: alpha-scale every custom force; never bump alpha on release.
