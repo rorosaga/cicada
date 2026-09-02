@@ -43,6 +43,14 @@ struct GraphView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        // Mirror the toolbar's sticky pan mode into graph.js. Idempotent on the
+        // JS side, so re-sending on every update is harmless; only push once
+        // the page is ready (before that, graph.js has no setPanToggle yet).
+        if viewModel.isGraphReady, context.coordinator.lastPanMode != viewModel.panModeOn {
+            context.coordinator.lastPanMode = viewModel.panModeOn
+            webView.evaluateJavaScript("setPanToggle(\(viewModel.panModeOn))", completionHandler: nil)
+        }
+
         // Handle zoom actions from Swift UI
         if let action = viewModel.zoomAction {
             let jsCall: String
@@ -109,6 +117,7 @@ struct GraphView: NSViewRepresentable {
     }
 
     class Coordinator: NSObject, WKScriptMessageHandler {
+        var lastPanMode = false
         let viewModel: GraphViewModel
         var webView: WKWebView?
         var isGraphReady = false

@@ -54,3 +54,18 @@ assert.ok(get("draggingNode"), "shift during a drag does not drop the node");
 sandbox.onMouseUp({});
 
 console.log("All graph pan-mode checks passed.");
+
+// Toolbar toggle: sticky pan mode without Shift; keyup/blur do not clear it.
+sandbox.setPanToggle(true);
+assert.strictEqual(get("panModifierHeld"), true, "toggle turns pan mode on");
+sandbox.onMouseMove({ clientX: sx, clientY: sy });
+assert.strictEqual(get("hoveredNode"), null, "toggled pan mode never highlights, even without Shift");
+stopped = false;
+sandbox.onMouseDown({ clientX: sx, clientY: sy, stopImmediatePropagation: () => { stopped = true; } });
+assert.strictEqual(get("draggingNode"), null, "toggled pan mode never grabs a node");
+assert.strictEqual(stopped, false, "toggled pan mode falls through to d3-zoom");
+sandbox.onMouseUp({});
+sandbox.setPanToggle(false);
+assert.strictEqual(get("panModifierHeld"), false, "toggle off restores normal mode");
+assert.ok(get("hoveredNode") && get("hoveredNode").id === node.id, "toggle off re-picks the hover");
+console.log("All graph pan-toggle checks passed.");

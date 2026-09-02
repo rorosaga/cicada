@@ -54,6 +54,9 @@ final class GraphViewModel {
     var backTargetName: String? { navHistory.backTarget?.name }
     var isGraphReady = false
     var zoomAction: ZoomAction?
+    /// Sticky pan mode from the toolbar toggle; `GraphView.updateNSView` mirrors
+    /// it into graph.js (`setPanToggle`). Holding Shift is the momentary twin.
+    var panModeOn = false
     var showFilterPopover = false
     var pendingFilterUpdate = false
     /// Flips true whenever a fresh graph snapshot lands (initial load, a

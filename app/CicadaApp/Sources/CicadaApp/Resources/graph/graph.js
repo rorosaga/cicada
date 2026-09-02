@@ -213,6 +213,11 @@ let hoveredNode = null;
 // without waiting for the next move. Releasing Shift mid-drag does not drop
 // the node: the drag branch in onMouseMove/onMouseUp runs untouched.
 let panModifierHeld = false;
+let panToggled = false;         // toolbar toggle (Swift → setPanToggle); sticky twin of Shift
+function setPanToggle(on) {
+    panToggled = !!on;
+    setPanMode(panToggled);
+}
 let lastPointer = null;         // { sx, sy } of the last mousemove, for the keyup re-pick
 function setPanMode(on) {
     if (on === panModifierHeld) return;
@@ -398,10 +403,10 @@ function init() {
         }
     });
     document.addEventListener("keyup", (e) => {
-        if (e.key === "Shift") setPanMode(false);
+        if (e.key === "Shift" && !panToggled) setPanMode(false);
     });
     // A Cmd-Tab or app switch while Shift is down never delivers the keyup.
-    window.addEventListener("blur", () => setPanMode(false));
+    window.addEventListener("blur", () => { if (!panToggled) setPanMode(false); });
 
     wireMouseEvents();
 
@@ -1547,7 +1552,7 @@ function seededDragVelocity(lastSampleTime, now, vx, vy) {
 function onMouseDown(event) {
     const [sx, sy] = eventScreenXY(event);
     pressStart = { x: sx, y: sy, moved: false };
-    if (event.shiftKey) {
+    if (event.shiftKey || panToggled) {
         // Pan mode: never claim the gesture, so d3-zoom's own mousedown (bubble
         // phase, after this capture listener) starts a pan even over a node.
         setPanMode(true);
@@ -1582,7 +1587,7 @@ function onMouseMove(event) {
     const [sx, sy] = eventScreenXY(event);
     lastPointer = { sx, sy };
     if (!draggingNode) {
-        if (event.shiftKey) { setPanMode(true); return; }
+        if (event.shiftKey || panToggled) { setPanMode(true); return; }
         if (panModifierHeld) setPanMode(false);
     }
 
