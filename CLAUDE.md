@@ -114,6 +114,16 @@ with the evidence that settled it. Treat a ruling as binding. Revisit one only o
 row names, and only after reading why it was made — several were reached by disproving the
 obvious answer, so re-deriving them from first principles reliably gets them wrong.
 
+**Privacy rule for both files (standing, from 2026-09-02).** Nothing personal about the owner
+or anyone in their life goes into `docs/goals/`, `CLAUDE.md`, a plan, a commit message, or a PR
+body: no names of other people, employers, clients, or companies from the bank; no episode or
+inbox titles; no quoted conversation or claim text; no URLs, handles, or contact details. The
+owner's own *thoughts and ideas* are fine to quote — a row that starts "Rodrigo 2026-09-01: …"
+and carries a design opinion is the intended voice of the backlog. When a row needs an example to
+make its argument, use placeholders (`<surname-a>`, `alpha-project`, `bob-example`) exactly as
+the test fixtures do, and say "real values redacted". The repo is public; the bank is not, and
+the line between them is this rule.
+
 Keep the split honest: **add detail to the backlog, track state in TODO.md.** After finishing
 work, update both — mark the `G` row done and move its TODO entry to Shipped — and refresh the
 handoff header if anything it asserts about the environment or the in-flight PRs has changed. A
