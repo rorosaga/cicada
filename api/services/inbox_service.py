@@ -14,8 +14,15 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from api.config import Settings
-from api.models.schemas import InboxItem, InboxOption, InboxResolveRequest
-from api.services import decay_policy, inbox_questions, markdown_parser, telemetry
+from api.models.schemas import InboxCause, InboxItem, InboxOption, InboxResolveRequest
+from api.services import (
+    decay_policy,
+    inbox_context,
+    inbox_questions,
+    markdown_parser,
+    predicates,
+    telemetry,
+)
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 logger = logging.getLogger(__name__)
@@ -49,15 +56,28 @@ def _required_input_for(kind: str) -> str:
     return "freetext"
 
 
-def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
+def _item_from_file(
+    filepath: Path, *, today: str | None = None, context: "inbox_context.InboxContext | None" = None
+) -> InboxItem:
+    """One inbox file → ``InboxItem``.
+
+    ``context`` (G115 Phase 1, R2) is the per-``load_inbox`` read cache; with it
+    the item also carries what the OLD read path threw away at the API boundary
+    (G97): the subject's type, the cause (conversation + excerpt), the
+    extractor's confidence/model behind the item, and the G98 ``informational``
+    flag for a conflict on a multi-valued predicate. Without it — every legacy
+    caller and test — the shape is exactly what it was.
+    """
     parsed = markdown_parser.parse(filepath)
     fm = parsed.frontmatter
     kind = str(fm.get("kind", "decay"))
     required_input = str(fm.get("required_input", "") or _required_input_for(kind))
     now = today or str(date.today())
+    entity_id = str(fm.get("entity_id", "") or "")
+    raw_options = inbox_questions.normalize_options(fm.get("options"))
 
     options: list[InboxOption] = []
-    for raw in inbox_questions.normalize_options(fm.get("options")):
+    for raw in raw_options:
         observed = _opt_str(raw.get("observed_at"))
         last_ref = _opt_str(raw.get("last_referenced")) or observed
         options.append(
@@ -72,13 +92,23 @@ def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
             )
         )
 
+    extra: dict = {}
+    if context is not None:
+        extra["entity_type"] = context.entity_type(entity_id)
+        extra["cause"] = InboxCause(**context.cause_for(fm, raw_options).to_wire())
+        extra["informational"] = (
+            kind == "conflict"
+            and predicates.cardinality(context.memory_path, str(fm.get("predicate", "") or "")) == "multi"
+        )
+        extra.update(_extractor_refs(fm, kind, context))
+
     return InboxItem(
         id=filepath.stem,
         kind=kind,
         required_input=required_input,
         status=str(fm.get("status", "pending") or "pending"),
         priority=float(fm.get("priority", 0.0) or 0.0),
-        entity_id=str(fm.get("entity_id", "") or ""),
+        entity_id=entity_id,
         entity_name=str(fm.get("entity_name", "") or ""),
         title=str(fm.get("title", "") or fm.get("entity_name", "") or ""),
         body=parsed.body,
@@ -98,7 +128,35 @@ def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
         suggested_classification=fm.get("suggested_classification"),
         suggested_confidence=fm.get("suggested_confidence"),
         merge_target_hint=fm.get("merge_target_hint"),
+        source_episode=_opt_str(fm.get("source_episode")),
+        source_episode_timestamp=_opt_str(fm.get("source_episode_timestamp")),
+        claim_id=_opt_str(fm.get("claim_id")),
+        **extra,
     )
+
+
+def _extractor_refs(fm: dict, kind: str, context: "inbox_context.InboxContext") -> dict:
+    """The extractor's side of the item, for the card's provenance line.
+
+    Mirrors what ``_feedback_refs`` records at resolve time (G113) so the app
+    can show ``Cicada's guess at 0.42`` BEFORE the person answers: decay →
+    the item's priority (the decayed confidence), clarification/merge → the
+    extractor's ``suggested_confidence``, conflict → the proposed claim's
+    ``confidence`` and ``authored_by``. Read-only; ids and numbers only.
+    """
+    out: dict = {"extractor_confidence": None, "extractor_model": None}
+    if kind == "decay":
+        out["extractor_confidence"] = _as_float(fm.get("priority"))
+    elif kind in ("clarification", "merge_suggestion"):
+        out["extractor_confidence"] = _as_float(fm.get("suggested_confidence"))
+    else:
+        claim_id = _opt_str(fm.get("claim_id"))
+        if claim_id:
+            claim = next((c for c in context.claims(str(fm.get("entity_id", "") or "")) if c.id == claim_id), None)
+            if claim is not None:
+                out["extractor_confidence"] = _as_float(claim.confidence)
+                out["extractor_model"] = _opt_str(claim.authored_by)
+    return out
 
 
 def _opt_str(value: object) -> str | None:
@@ -160,13 +218,22 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
       FROM an existing page) but kept for ``clarification`` — its subject can
       legitimately not have a page yet, and answering it is what creates one
       (see :func:`_subject_gone`).
+
+    G115 Phase 1: every item served carries its ``cause`` (G97, three tiers,
+    ``[ no source recorded ]`` when none), ``entity_type``, and — for a conflict
+    on a predicate the vocabulary marks multi-valued — ``informational: true``
+    (G98). All three are derived at read from one shared
+    :class:`inbox_context.InboxContext`, never stored.
     """
     inbox_dir = _inbox_dir(memory_path)
     today = str(date.today())
+    # G115 R2: one read cache for the whole inbox — episode + entity frontmatter
+    # through bank_index, claim blocks parsed once per subject.
+    context = inbox_context.InboxContext(memory_path, today=today)
     items: list[InboxItem] = []
     for filepath in sorted(inbox_dir.glob("inbox-*.md")):
         try:
-            item = _item_from_file(filepath, today=today)
+            item = _item_from_file(filepath, today=today, context=context)
         except Exception as exc:
             logger.warning(f"skipping unparseable inbox item {filepath.name}: {exc}")
             continue
@@ -676,7 +743,6 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     competing claim. A claims block that will not parse aborts the resolve
     (409) with the page untouched and the question kept.
     """
-    from api.services import predicates
     from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
     from api.services.conflict_resolver import _synthesize_entity_update
 

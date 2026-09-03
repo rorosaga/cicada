@@ -317,3 +317,20 @@ def test_merge_on_collision_adopts_the_new_date_keyed_claim_id(tmp_path):
     assert fm["options"][0]["last_referenced"] == "2026-08-30"
     # The label the user already saw is preserved (match is case-insensitive).
     assert fm["options"][0]["label"] == "mongodb"
+
+
+def test_write_claim_nudges_persists_source_episode_and_skips_multi_valued(tmp_path):
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+    base = {"id": "alpha-project", "action": "conflict_nudge", "entity": {"name": "Alpha Project"},
+            "question": "q?", "allow_other": True, "allow_defer": True, "conflict_context": "c",
+            "options": [{"key": "a", "label": "x"}, {"key": "b", "label": "y"}],
+            "claim_id": "clm_b", "existing_claim_id": "clm_a", "source_episode": "ep_2026-08-20_001"}
+    single = {**base, "predicate": "works-at"}
+    multi = {**base, "predicate": "uses"}   # the seed says a tech stack is a set (G98)
+    out = inbox_generator.write_claim_nudges([single, multi], memory)
+    assert out == {"written": 1, "merged": 0, "skipped_multi_valued": 1}
+    [path] = sorted((memory / "inbox").glob("inbox-*.md"))
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["predicate"] == "works-at" and fm["source_episode"] == "ep_2026-08-20_001"

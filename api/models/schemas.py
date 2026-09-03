@@ -890,7 +890,11 @@ class InboxOption(CamelModel):
     """One answerable option on an inbox question (AskUserQuestion shape).
 
     ``age_days`` is derived at read time from ``last_referenced`` (falling back
-    to ``observed_at``) — it is never persisted into the item file.
+    to ``observed_at``) — it is never persisted into the item file. G115 Phase 1:
+    ``recommended`` marks the ONE option Sleep proposed (the key the G113
+    ``_verdict`` scores ``agreed``); ``verdict`` is what picking this option
+    would be graded as (``agreed``/``overruled``/``neutral``) — on the wire for
+    agents and tests, never rendered as copy. Both are derived at read.
     """
 
     key: str
@@ -900,6 +904,38 @@ class InboxOption(CamelModel):
     observed_at: Optional[str] = None
     last_referenced: Optional[str] = None
     age_days: Optional[int] = None
+    recommended: bool = False
+    verdict: Optional[str] = None
+
+
+class InboxCause(CamelModel):
+    """Why this item exists — the conversation and sentence that raised it (G97).
+
+    Resolved at read by ``inbox_context`` through three tiers (``tier``: the
+    item's own ``source_episode`` → the freshest option claim's episode → the
+    subject page's last ``source_episodes`` entry → ``none``). ``excerpt`` is a
+    ±240-char window of the episode body around the mention, ``mention_offsets``
+    are ``[start, end]`` pairs INTO THE EXCERPT, ``start``/``end`` are the
+    mention's absolute offsets into the episode body (what
+    ``GET /episodes/{id}/span`` takes). Nothing here is stored: a rewritten
+    episode changes the excerpt on the next read instead of mis-highlighting.
+    ``span_kind`` is ``derived`` (found by name at read) or ``asserted`` (a G118
+    evidence span on the claim). Tier ``none`` serves the literal
+    ``[ no source recorded ]`` — a card is never hidden for lacking a cause.
+    """
+
+    episode_id: Optional[str] = None
+    timestamp: Optional[str] = None
+    conversation_id: Optional[str] = None
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    conversation_title: Optional[str] = None
+    excerpt: str = ""
+    mention_offsets: list[list[int]] = []
+    start: Optional[int] = None
+    end: Optional[int] = None
+    tier: str = "none"
+    span_kind: str = "derived"
 
 
 class InboxItem(CamelModel):
@@ -927,6 +963,17 @@ class InboxItem(CamelModel):
     suggested_classification: Optional[str] = None
     suggested_confidence: Optional[float] = None
     merge_target_hint: Optional[str] = None
+    # G115 Phase 1 — all additive so an older app build still decodes.
+    entity_type: Optional[str] = None
+    source_episode: Optional[str] = None
+    source_episode_timestamp: Optional[str] = None
+    claim_id: Optional[str] = None
+    cause: Optional[InboxCause] = None
+    extractor_confidence: Optional[float] = None
+    extractor_model: Optional[str] = None
+    recommended_key: Optional[str] = None
+    # G98: a conflict on a multi-valued predicate is shown, never asked.
+    informational: bool = False
 
 
 class InboxResolveRequest(CamelModel):
