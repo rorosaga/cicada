@@ -13,29 +13,26 @@ against the live bank the same day (iPhone tabs: 188 new / 9 skipped; the big Fa
 0 new / 496 skipped — the idempotency proof). Until each browser
 row syncs on its own, `chrome-bookmarks` / `safari-bookmarks` both read the legacy `bookmarks` count.
 
-**G124 — the Sources page — is on `feat/sources-page` (worktree `.worktrees/g124`), awaiting a PR against
-`dev`:** Activity is gone; ⌘6 is *Sources* — a card grid from `GET /sources/overview`, per-source pages
-(harness conversations with Resume, channel state with Sync/Poll now and folder counts), a contributors
-calendar per model (`GET /contributors/calendar`), and an Advanced toggle holding counts only
-(`GET /contributors/top-entities`, the ids-only `read` ledger kind). No price or token is rendered anywhere
-in the app; `/consumption/*` and the ledger are untouched. A persisted "Activity" selection restores onto
-Sources. Owner-present check after `make install-app`: ⌘6, a harness card → Resume, Safari → Sync now,
-Advanced on → no `$`.
+**G124 — the Sources page — merged as PR #47 (2026-09-03, `feat/sources-page`):** Activity is gone; ⌘6 is
+*Sources* — a card grid from `GET /sources/overview`, per-source pages (harness conversations with Resume,
+channel state with Sync/Poll now and folder counts), a contributors calendar per model
+(`GET /contributors/calendar`), and an Advanced toggle holding counts only (`GET /contributors/top-entities`,
+the ids-only `read` ledger kind). No price or token is rendered anywhere in the app; `/consumption/*` and the
+ledger are untouched. Owner-present check: ⌘6, a harness card → Resume, Safari → Sync now, Advanced on → no `$`.
 
-**G115 Phase 1 — the inbox redesign's first slice — is on `feat/inbox-phase1` (worktree `.worktrees/g115`),
-awaiting a PR against `dev`:** cause on every card (G97 delivered), `(Recommended)` from the shipped
-`_verdict`, decay through `QuestionView`, keys, both ETag halves, `render_question` v2, the G98
-informational rule, the dead chevron and the unbounded list closed. Owner-present check after
-`make install-app`: ⌘5, expand a card → line 2 names the conversation and the excerpt bolds the
-mention; press `2` on a decay card; a `uses` conflict shows "These can all be true"; the chevron
-opens the card; a media clarification shows "Show all N".
+**G115 Phase 1 — the inbox redesign's first slice — merged as PR #48 (2026-09-03, `feat/inbox-phase1`):**
+cause on every card (G97 delivered), `(Recommended)` from the shipped `_verdict`, decay through
+`QuestionView`, keys `1–9`/⏎/`o`/`l`/Esc, both ETag halves, `render_question` v2, the G98 informational
+rule, the dead chevron and the unbounded list closed. Owner-present check: ⌘5, expand a card → line 2 names
+the conversation and the excerpt bolds the mention; press `2` on a decay card; a `uses` conflict shows
+"These can all be true"; the chevron opens the card; a media clarification shows "Show all N".
 
 **G118 slice 1 — evidence spans — merged as PR #44 (`feat/provenance-spans`):** every new claim carries
 `evidence` spans (offsets + hash into the stored body, never copies), `cicada_write_claim` cites
 `{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift change; legacy claims
 show no evidence, honestly.
 
-**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`) — then #40 (`feat/link-summaries`, the G102 cheap slice, see the G102 paragraph below) and #44 (`feat/provenance-spans`, G118 slice 1). **No open PRs** other than the pending `feat/sources-page` one (G124).
+**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`) — then #40 (`feat/link-summaries`, the G102 cheap slice, see the G102 paragraph below) and #44 (`feat/provenance-spans`, G118 slice 1). Then #45 (`feat/state-handshake`, G53+G75), #46 (`feat/deterministic-capture`, G105), #47 (`feat/sources-page`, G124) and #48 (`feat/inbox-phase1`, G115 Phase 1). **No open PRs; nothing is running.**
 
 **G118 slice 1 — evidence spans — merged to `dev` as PR #44 (2026-09-03, from `feat/provenance-spans`):**
 every new claim carries `evidence` spans (offsets + hash into the stored body, never copies),
@@ -180,76 +177,34 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-**Nothing is broken; one branch is awaiting a PR: `feat/sources-page` (G124 — the Sources page,
-worktree `.worktrees/g124`). Merged 2026-09-03: `feat/provenance-spans` (G118 slice 1, PR #44),
-`feat/state-handshake` (G53 + G75, PR #45), `feat/deterministic-capture` (G105, PR #46 — the `Stop` hook is
-registered on the owner's install; `make doctor` check 12 confirms it); `feat/link-summaries` (G102 cheap slice)
-merged as PR #40.**
-`feat/mascot` merged as PR #36.
-Its last unchecked box is the visual pass on the installed app — menu bar in light and dark, the
-Sleep page at 120 pt, Reduce Motion holding frame 0 — which needs `make install-app` and Rodrigo at
-the machine; the suites are green. Before it: `feat/safari-import` merged as PR #35 (2026-09-02), **G114** shipped as PR #30, the 2026-09-01 evening session merged #28/#29, reframed CLAUDE.md around the *experience
-port* north star (Silver & Sutton's *Era of Experience*, WikiSkill), filed **G112/G113/G114**
-research-grounded, and started **G109** as a research run (inventory → five engine candidates →
-three-lens judge → decision memo) rather than a blind re-tune.
+**Nothing is running and nothing is queued to start.** The owner paused the queue on 2026-09-03 after
+G115 Phase 1 landed. Everything about *what to do next and why* now lives in one place:
 
-0. **Merge `feat/safari-import`** after an independent re-run of both suites (`pytest api/tests`
-   → only the baseline calendar/provenance failures; `swift build && swift test` → 0 failures), then
-   run the live import once with the owner present (Full Disk Access to Cicada.app is a one-time
-   grant — the launchd backend never gets it, only the app bundle does).
-0b. **Owner priorities (2026-09-02):** after the three in-flight tracks (mascot, Safari import, link
-   summaries) land, the order was **G118 slice 1 → G105 → G93 → G53+G75 → G81→G95**; slice 1 is done (`feat/provenance-spans`),
-   so it now reads **G118 slice 2 (viewer) → ~~G105~~ (shipped, `feat/deterministic-capture`) → G93 → G81→G95**
-   (G53+G75 merged as PR #45), with G113 s3–7,
-   G115 p1 and G117 interleaved as app polish. Provenance is the vision, not a feature.
-0c. **G102 cheap slice merged as PR #40** (`feat/link-summaries`); what is left is the owner running the
-   warm-up curl above and eyeballing the Feed (descriptions on rows, `about` pills on a link's entity card).
-1. **G109 phase 1 is in PR #32 (merged)** — merged after an independent re-run of
-   `node app/CicadaApp/Tests/graph/graph-physics.test.js`, the four sibling JS tests and
-   `swift test`, then have Rodrigo eyeball the live bank at fit-zoom (isolates should read as discs
-   on their type clusters, not a halo). Then the **Swift track** (one long-lived `WKWebView`, reset
-   `isGraphReady` on teardown — ~0.5 day) before phase 2; without it the user still sees a re-layout
-   every time they return to the Graph tab. Phases 2–3 are in the G109 row.
-2. **G113 slices 3–7 ($0, APPLY)** — slices 1–2 (`_verdict`, the `resolution` event, R1 labels) merged
-   as PR #31; the rest of the ledger (audit/dedup verdicts, the Sources ▸ Advanced feedback tile)
-   is still open. Slice 5 (closing the loop) stays 💸 DECIDE.
-3. ~~**G115 Phase 1**~~ — **on `feat/inbox-phase1`, PR pending**; the five commits are in the plan
-   (`docs/superpowers/plans/2026-09-03-g115-inbox-phase1.md`). Delivers G97. Phase 2 needs G113 s3–4
-   and G106(i); Phase 3 needs G116.
-4. **G112 step 1** is a bug fix, not a feature — do it when passing.
-5. **G115 Phase 2** — G105 (`feat/deterministic-capture`) and G53 + G75 (PR #45) both shipped — the same order
-   the waves give.
-6. **G110 is RESEARCH, deliberately not started.** Its own cheapest-first ruling: build G53/G75 and
-   see whether the fork want survives — G53/G75 shipped; re-read G110 against the handshake before
-   starting it. Second data point to read first: Cursor's "Import from Claude Code".
-7. **G7 is open again, on purpose.** The hygiene pass could not find the measurement TODO.md claimed
-   ("premise measured false") anywhere in tracked history. Re-measure it or delete the claim.
-8. **G90 README screenshots** wait for Rodrigo to be at the machine (demo bank or frame-by-frame
-   review — the live bank holds real people). Same for any `macos-harness` verification that
-   needs a permission prompt accepted.
+> **[`working-method.md`](working-method.md)** — the bar a change has to clear, the test baselines that
+> are not failures, the rails, how to start / resume / land a Workflow track, and the paused queue with
+> the reasoning for its order.
 
-**Worktrees:** `.worktrees/g124` holds `feat/sources-page` (G124) and `.worktrees/g115` holds
-`feat/inbox-phase1` (G115 Phase 1) until their PRs merge; `.worktrees/g118`,
-`.worktrees/handshake` and `.worktrees/g105` were removed after PRs #44, #45 and #46 merged;
-`.worktrees/safari-import` holds `feat/safari-import` until its PR merges;
-`.worktrees/g118` (`feat/provenance-spans`, merged as PR #44), `.worktrees/g113` (`feat/feedback-ledger`),
-`.worktrees/link-summaries` and `.worktrees/mascot` are other in-flight or already-merged branches —
-check each's `git status --porcelain -uall` before touching it. Never
-commit a `*-report.md` left as untracked scratch in any of them. `git worktree list` to see them; never `--force`-remove one without
-looking at `git status --porcelain -uall` in it first.
+The queue there, in order: **G113 slices 3–7** (the grounded-reward ledger, half-built — its entry carries
+a per-task table verified against `dev` and the two places its committed plan is now stale) → **G125**
+(Sleep as the study desk) → **G122** (engine/model picker) → **G117** (first-run onboarding) → **G126**
+(Integrations page) → **G118 slice 2** (the provenance viewer) → **G93** (cross-stream ask). Then the
+bigger rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a build.
 
----
+Owner-present checks still unticked, none blocking: the mascot visual pass in light and dark, the G109
+graph eyeball at fit-zoom, the G124 and G115 checks in the paragraphs above, and the README screenshots
+(G90), which must come from the demo bank rather than the live one.
 
+**One manual step on any existing install:** re-run `./install.sh` (idempotent) so the G105 `Stop` hook is
+registered in `~/.claude/settings.json`; `make doctor` check 12 confirms it. Done on the owner's machine.
 
-The **execution view**. [`memory-evolution.md`](memory-evolution.md) stays the reference: it holds
-the full reasoning, evidence and file:line for every row. This file answers one question only —
-*what is done, what is moving, and what is next.*
+**Worktrees:** only `.worktrees/g113` remains, holding `feat/feedback-ledger` (G113 slices 1–2 merged as
+PR #31; slices 3–7 paused). Every other track worktree was removed after its PR merged. A worktree's
+`api/.venv` is a symlink to the main checkout's. Never `--force`-remove one without reading
+`git status --porcelain -uall` in it first, and never commit a `*-report.md` left there as scratch.
 
-**Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
-
-_Last synced: 2026-09-03 late (G115 Phase 1 on `feat/inbox-phase1`, PR pending; G97 delivered); 2026-09-03 (G124 on `feat/sources-page`, PR pending; G105 merged as PR #46; G53+G75 merged as PR #45; G118 slice 1 merged as PR #44); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
-
----
+_Last synced: 2026-09-03 — queue paused after PR #48. Merged that day: #44 (G118 slice 1), #45 (G53+G75),
+#46 (G105), #47 (G124), #48 (G115 Phase 1); before that #40 (G102 cheap slice) and #30–#39. Next work and
+its reasoning: [`working-method.md`](working-method.md)._
 
 ## ✅ Shipped
 
