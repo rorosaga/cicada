@@ -18,9 +18,9 @@ against `dev`:** every new claim carries `evidence` spans (offsets + hash into t
 `cicada_write_claim` cites `{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift
 change; legacy claims show no evidence, honestly.
 
-**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`). **No open PRs.** `feat/link-summaries` (G102 backfill) is complete on its branch and awaiting a PR (see the G102 paragraph below).
+**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`). **No open PRs** other than the pending `feat/provenance-spans` one; `feat/link-summaries` merged as PR #40 (see the G102 paragraph below).
 
-**G102 cheap slice (PR against `dev` from `feat/link-summaries`):** saved links get descriptions + `about` edges nightly (20/night, oldest first) and on demand. **One-time warm-up the owner can run now:** `curl -s -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" "http://127.0.0.1:8000/maintenance/enrich-links?limit=50"` — repeat until `remaining` is 0 (each run: ≤ 50 fetches + summaries on the resolved engine, ~7 extraction calls); the response's `engine` says whether the plan or the API key paid.
+**G102 cheap slice (merged as PR #40 from `feat/link-summaries`):** saved links get descriptions + `about` edges nightly (20/night, oldest first) and on demand. **One-time warm-up the owner can run now:** `curl -s -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" "http://127.0.0.1:8000/maintenance/enrich-links?limit=50"` — repeat until `remaining` is 0 (each run: ≤ 50 fetches + summaries on the resolved engine, ~7 extraction calls); the response's `engine` says whether the plan or the API key paid.
 The big one is **#25 — the agent engine (G74a)**: Sleep can now run on the user's Claude Max plan
 via `claude -p`, after ~2.5 months with no engine.
 Also #24, the **correctness gate**, which fixed decay (see rulings below), #23's app fixes, #26's
@@ -195,7 +195,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-03 (G118 slice 1 on `feat/provenance-spans`, PR pending); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice complete on `feat/link-summaries`, PR pending)._
+_Last synced: 2026-09-03 (G118 slice 1 on `feat/provenance-spans`, PR pending); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
 
 ---
 
@@ -270,7 +270,7 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 - **G109 phase 1** graph physics (PR #32) — alpha-scaled hub gravity, no reheat on release,
   `velocityDecay` 0.2 / `alphaMin` 0.001, per-isolate phyllotaxis slots, speed clamp; headless
   physics bench + test under `Tests/graph/`; numbers in the G109 row
-- **G102 cheap slice** — link backfill on the Sleep tail + `POST /maintenance/enrich-links`; recon
+- **G102 cheap slice** (PR #40) — link backfill on the Sleep tail + `POST /maintenance/enrich-links`; recon
   over stored OG text → `about` claims/edges through the existing Stage-1 prompt and Stage-2
   judgment; `GET /sources` `description`/`about`. Plan:
   `docs/superpowers/plans/2026-09-02-link-summaries-backfill.md`
@@ -283,7 +283,6 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 |---|---|---|
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
 | **G109 graph physics** | **Phase 1 in PR #32** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
-| **G102 cheap slice** | On `feat/link-summaries` (2026-09-02): backfill + recon + endpoint + Feed fields, six feature commits (+ one review-fix commit and the plan), five new test files | Open the PR against `dev` after an independent re-run; owner runs the warm-up curl; merge |
 | Claude Desktop | **Registered 2026-09-01** — needs a Desktop restart | Then: it captures only what an agent chooses to save (see G105) |
 
 ---
