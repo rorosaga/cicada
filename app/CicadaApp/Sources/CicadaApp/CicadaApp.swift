@@ -164,11 +164,11 @@ struct CicadaApp: App {
                 .environment(sleepVM)
                 .environment(store)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
-                // M3: `CicadaTheme.*` are static reads SwiftUI doesn't track
-                // (see `ContentView`'s `.id(colorSchemeRaw)` above), so without
-                // this the Settings window keeps a stale palette after a
-                // theme toggle even though `.preferredColorScheme` updates.
-                .id(colorSchemeRaw)
+                // The `.id(colorSchemeRaw)` that used to be here is gone with
+                // its twin in `ContentView`: `CicadaTheme.mode` is observable
+                // now, so this window's own token reads repaint it on a theme
+                // flip. The comment it carried — "static reads SwiftUI doesn't
+                // track" — described the bug, not a rule.
         }
     }
 
