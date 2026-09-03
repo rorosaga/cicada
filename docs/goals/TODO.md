@@ -353,7 +353,8 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 9d. **G121 world facts vs personal facts** — `source_trust: model_knowledge` + volatile decay for anything not
     grounded in an episode, two-tier entity card ("why it's in your memory" / "context as of <date>, verify"), the
     rule in the G75 handshake; a dry-run backfill count on the live bank first — M
-9c. **G93 cross-stream ask** and **G105 deterministic capture** — moved up (owner, 2026-09-02): G105
+9c. **G93 cross-stream ask** and **G105 deterministic capture** *(ruled 2026-09-03: block-level extraction —
+    the person's text turns + the agent's final reply per turn; tool blocks/code/secrets never; hook-driven)* — moved up (owner, 2026-09-02): G105
     is what makes every write have a cause; G93 is where citations become answers — M each
 10. **G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
     (G76, G77, G54 all assume it); zero LLM — M
