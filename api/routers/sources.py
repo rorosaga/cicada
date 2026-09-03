@@ -84,6 +84,12 @@ async def save_source(
         url=url,
         tags=request.tags,
         note=request.note,
+        # G9 provenance. Without it these pages were the bank's only nil-origin
+        # media, so the Sources page could count them but never attribute an
+        # episode, a conversation or an entity to them. An MCP save also passes
+        # a `session_id`, and `source_overview.source_key` reads that first, so
+        # an agent's save still credits its harness row, not this one.
+        origin="saved-link",
         session_id=request.session_id,
         harness=request.harness,
         project_dir=request.project_dir,

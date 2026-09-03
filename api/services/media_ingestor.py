@@ -1022,6 +1022,12 @@ async def ingest_feed(
     items = parse_rss(xml)
     if not items:
         return 0, 0
+    for item in items:
+        # G9 provenance, stamped here rather than in `parse_rss` so a feed
+        # parsed from an uploaded `.xml` file keeps reading as a file import.
+        # This is what lets the Sources page attribute a feed's episodes and
+        # entities to the RSS row instead of leaving them origin-less.
+        item.origin = "rss"
     return await ingest_batch(items, memory_path, from_bookmark_file=False, commit=commit)
 
 

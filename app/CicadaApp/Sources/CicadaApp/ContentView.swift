@@ -16,13 +16,6 @@ struct ContentView: View {
     // ⌘K Ask panel (G52, spec §5.9).
     @State private var showAskPanel = false
 
-    // Theme: mirrors the persisted mode into `CicadaTheme.mode` (see
-    // Theme/CicadaTheme.swift) on every render, before Sidebar/detail are
-    // constructed below. @AppStorage guarantees SwiftUI re-invokes this body
-    // whenever the key changes, from anywhere (e.g. the toggle button in
-    // SidebarView).
-    @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
-
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(InboxViewModel.self) private var inboxVM
     @Environment(Store.self) private var store
@@ -30,11 +23,6 @@ struct ContentView: View {
     @Environment(ConnectionsViewModel.self) private var connectionsVM
 
     var body: some View {
-        // `ViewBuilder` only accepts declarations/`let _ = ...` statements
-        // ahead of the returned View expression, not arbitrary statements —
-        // hence the `let _ =` wrapper around this side effect.
-        let _ = { CicadaTheme.mode = AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }()
-
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 selectedTab: $selectedTab,
@@ -53,14 +41,13 @@ struct ContentView: View {
                 // bottom of whatever page is open (§5.4).
                 .overlay(alignment: .bottom) { toastBanner }
         }
-        // Most CicadaTheme.xxx tokens are plain static reads, not
-        // @Environment-tracked, so SwiftUI's dependency tracker won't know to
-        // re-invoke every descendant's `body` on a theme flip. Keying the
-        // whole sidebar/detail subtree on the raw mode string forces a clean
-        // rebuild (fresh body calls everywhere) whenever it changes, while
-        // `selectedTab`/`columnVisibility` above stay intact since they live
-        // outside this subtree.
-        .id(colorSchemeRaw)
+        // No `.id(colorSchemeRaw)` here any more. Keying this subtree on the
+        // mode string used to be what repainted it, because the tokens were
+        // static reads SwiftUI could not track — but it rebuilt the whole
+        // sidebar/detail tree on every flip, which tears down and reloads the
+        // graph's WKWebView and loses its layout. `CicadaTheme.mode` is now
+        // backed by an `@Observable` store, so each view that reads a token
+        // subscribes to the mode itself and repaints on its own.
         .navigationSplitViewStyle(.prominentDetail)
         // No `.task { load() }` here: `graphVM`/`inboxVM` are thin
         // projections over `Store.graph`/`Store.inbox` (§5.5). The Store
@@ -98,9 +85,14 @@ struct ContentView: View {
                 .opacity(0)
         }
         .sheet(isPresented: $showAskPanel) {
+            // G123: a citation lands ON its node — the graph zooms to that
+            // node's neighbourhood, not just opens its card. An answer's
+            // citation is a claim about where something sits in the graph, and
+            // showing the card while the viewport stays wherever it was left
+            // makes the reader hunt for it.
             AskPanel { entityId in
                 withAnimation(.spring(duration: 0.25)) { selectedTab = .graph }
-                graphVM.selectEntity(id: entityId)
+                graphVM.revealEntity(id: entityId)
                 showAskPanel = false
             }
         }
@@ -166,10 +158,11 @@ struct ContentView: View {
             InboxListView()
         case .sources:
             // An entity chip on a source page's conversation row navigates the
-            // same way an Ask citation does: select in the graph, then show it.
+            // same way an Ask citation does (G123): land on the node, then
+            // show its card.
             SourcesPageView { entityId in
                 withAnimation(.spring(duration: 0.25)) { selectedTab = .graph }
-                graphVM.selectEntity(id: entityId)
+                graphVM.revealEntity(id: entityId)
             }
         }
     }

@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 /// The two theme modes the SwiftUI chrome supports. Persisted via
@@ -8,17 +9,58 @@ enum AppColorScheme: String, CaseIterable {
     case dark
 }
 
+/// Storage behind `CicadaTheme.mode`, and the reason the sidebar's sun/moon
+/// toggle repaints the whole app instead of two views.
+///
+/// `CicadaTheme` is a namespace of *static computed* colours. When the mode was
+/// a plain `static var`, flipping it changed what every token would return but
+/// invalidated nothing: SwiftUI only re-evaluates a `body` whose tracked inputs
+/// changed, so only the root and the sidebar — the two views that read
+/// `@AppStorage("cicada.colorScheme")` themselves — repainted, and the rest of
+/// the app kept its cached dark colours. The toggle looked broken because it
+/// effectively was.
+///
+/// Holding the mode in an `@Observable` object fixes that without touching a
+/// single one of the hundreds of `CicadaTheme.xxx` call sites: SwiftUI evaluates
+/// every `body` inside observation tracking, so reading `CicadaTheme.surface`
+/// registers a dependency on `mode` and that view repaints when it changes.
+///
+/// The initial value is read from `UserDefaults` rather than mirrored out of a
+/// view's `body`, so the persisted choice applies on the first frame and no
+/// view writes observable state while rendering.
+@Observable
+final class ThemeStore {
+    static let shared = ThemeStore()
+
+    /// The key `@AppStorage` persists the toggle under.
+    static let defaultsKey = "cicada.colorScheme"
+
+    var mode: AppColorScheme
+
+    init(defaults: UserDefaults = .standard) {
+        let raw = defaults.string(forKey: Self.defaultsKey)
+        mode = raw.flatMap(AppColorScheme.init(rawValue:)) ?? .dark
+    }
+}
+
 enum CicadaTheme {
     /// Active theme mode. Defaults to `.dark` to preserve the app's original
     /// hardcoded look for anyone who hasn't touched the toggle yet.
     ///
-    /// The root of the view tree (`CicadaApp.swift`) reads the persisted
-    /// `cicada.colorScheme` AppStorage value and assigns it here once per
-    /// render pass, before any child view's `body` is evaluated. That's the
-    /// cheapest way to make every existing `CicadaTheme.xxx` call site
-    /// theme-reactive without threading an `@Environment` value through the
-    /// entire view tree and rewriting every reference.
-    static var mode: AppColorScheme = .dark
+    /// Stored in `ThemeStore`, which is `@Observable` — see its doc comment for
+    /// why. Reading any token below inside a SwiftUI `body` subscribes that view
+    /// to this value, so a flip repaints the whole tree without threading an
+    /// `@Environment` value through it or rewriting a single reference.
+    /// Assigning the value it already holds is a no-op: `@Observable` notifies
+    /// on every write regardless of equality, and a redundant notification from
+    /// inside a render pass is how you get an invalidation loop.
+    static var mode: AppColorScheme {
+        get { ThemeStore.shared.mode }
+        set {
+            guard ThemeStore.shared.mode != newValue else { return }
+            ThemeStore.shared.mode = newValue
+        }
+    }
 
     // MARK: - Background & Surface
     static var background: Color { mode == .dark ? Dark.background : Light.background }

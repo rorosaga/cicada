@@ -417,9 +417,12 @@ final class GraphViewModel {
         applySelection(id: id)
     }
 
-    /// G123: the search field's ⏎ — zoom the graph to the node's neighbourhood
-    /// and open its card. Same seam an Ask citation or an Activity chip could
-    /// use to land on a node instead of only opening the card.
+    /// G123: zoom the graph to a node's neighbourhood and open its card.
+    /// Every navigation that arrives from outside the canvas goes through here
+    /// — the search field's ⏎, an Ask answer's citation, an entity chip on a
+    /// source page — so they all land on the node instead of opening a card
+    /// while the viewport stays wherever it was left. A click on the canvas
+    /// itself does not: you are already looking at the node you hit.
     func revealEntity(id: String) {
         pendingReveal = id
         selectEntity(id: id)
