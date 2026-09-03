@@ -17,9 +17,44 @@ fail closed (unresolvable in a network-less sandbox = refused). Default it to
 a fixed public address instead; the handful of tests that exercise the guard
 itself pass their own ``resolver=``, which always wins over this default.
 """
+import os
+from pathlib import Path
+
 import pytest
 
 from api.services import logo_service
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _forget_the_developers_dotenv():
+    """Stop `api/.env` leaking into the suite through litellm.
+
+    `litellm/__init__.py` calls `load_dotenv()` at import time, so the first
+    test that transitively imports it — anything reaching `api.main` — copies
+    the developer's own `api/.env` into `os.environ` for the rest of the
+    process. Every later bare `Settings()` then reads that machine's config
+    instead of the packaged defaults, which is order-dependent by construction:
+    the same test passes alone and fails in the full run, and which tests fail
+    depends on collection order and on what the developer happens to have
+    configured. It cost this session a false attribution before it was found.
+
+    Import litellm here so its side effect is done deterministically, then drop
+    exactly the names `api/.env` defines. A test that wants one of them sets it
+    with `monkeypatch.setenv`, which runs after this and still wins.
+    """
+    try:
+        import litellm  # noqa: F401  (imported for its load_dotenv side effect)
+    except Exception:
+        pass
+
+    dotenv = Path(__file__).resolve().parents[1] / ".env"
+    if not dotenv.exists():
+        return
+    for line in dotenv.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        os.environ.pop(line.split("=", 1)[0].strip(), None)
 
 
 @pytest.fixture(autouse=True)
