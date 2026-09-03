@@ -124,6 +124,12 @@ make its argument, use placeholders (`<surname-a>`, `alpha-project`, `bob-exampl
 the test fixtures do, and say "real values redacted". The repo is public; the bank is not, and
 the line between them is this rule.
 
+**[`docs/goals/working-method.md`](docs/goals/working-method.md) — how the work is run.** The bar a
+change has to clear (plan → critic → per-task implement+review → two-lens final review → verify
+yourself → PR to `dev`), the test baselines that are *not* failures, the rails that override
+convenience, the Workflow track machinery (how to start, resume and land one), and the **paused
+queue** with the reasoning for its order. Read it before starting or resuming any track.
+
 Keep the split honest: **add detail to the backlog, track state in TODO.md.** After finishing
 work, update both — mark the `G` row done and move its TODO entry to Shipped — and refresh the
 handoff header if anything it asserts about the environment or the in-flight PRs has changed. A
