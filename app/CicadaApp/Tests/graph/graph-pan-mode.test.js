@@ -69,3 +69,27 @@ sandbox.setPanToggle(false);
 assert.strictEqual(get("panModifierHeld"), false, "toggle off restores normal mode");
 assert.ok(get("hoveredNode") && get("hoveredNode").id === node.id, "toggle off re-picks the hover");
 console.log("All graph pan-toggle checks passed.");
+
+// Entity card open: hover is suppressed, clicks still select.
+sandbox.setHoverSuppressed(true);
+sandbox.onMouseMove({ clientX: sx, clientY: sy });
+assert.strictEqual(get("hoveredNode"), null, "no hover highlight while the entity card is open");
+stopped = false;
+sandbox.onMouseDown({ clientX: sx, clientY: sy, stopImmediatePropagation: () => { stopped = true; } });
+assert.ok(get("draggingNode"), "a press still grabs/selects a node while the card is open");
+assert.strictEqual(stopped, true);
+sandbox.onMouseUp({});
+sandbox.setHoverSuppressed(false);
+sandbox.onMouseMove({ clientX: sx, clientY: sy });
+assert.ok(get("hoveredNode") && get("hoveredNode").id === node.id, "hover returns once the card closes");
+console.log("All graph hover-suppression checks passed.");
+
+// G123 revealNode: zooms to a visible node (readable scale, node centred); unknown id → false.
+const before = get("transform");
+assert.strictEqual(sandbox.revealNode("no-such-node"), false);
+assert.strictEqual(sandbox.revealNode(node.id), true);
+const tr2 = get("transform");
+assert.ok(tr2.k >= 1.0 && tr2.k <= 6.0, "reveal lands at a readable scale");
+const cx = node.x * tr2.k + tr2.x, cy = node.y * tr2.k + tr2.y;
+assert.ok(Math.abs(cx - 600) < 2 && Math.abs(cy - 400) < 2, "the node sits at the viewport centre");
+console.log("All graph reveal checks passed.");

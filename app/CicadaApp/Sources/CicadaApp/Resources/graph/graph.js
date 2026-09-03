@@ -214,6 +214,16 @@ let hoveredNode = null;
 // the node: the drag branch in onMouseMove/onMouseUp runs untouched.
 let panModifierHeld = false;
 let panToggled = false;         // toolbar toggle (Swift → setPanToggle); sticky twin of Shift
+// Hover is suppressed while the entity detail card is open (owner, 2026-09-03:
+// "as I move my cursor it still highlights the nodes while an entity page is
+// open"). Swift mirrors `selectedEntity != nil` here; clicks still work so a
+// second node can be selected, only the hover pick is quiet.
+let hoverSuppressed = false;
+function setHoverSuppressed(on) {
+    hoverSuppressed = !!on;
+    if (hoverSuppressed && hoveredNode) { hoveredNode = null; scheduleRedraw(); }
+    if (hoverSuppressed && canvas && !panModifierHeld) canvas.style.cursor = "";
+}
 function setPanToggle(on) {
     panToggled = !!on;
     setPanMode(panToggled);
@@ -1121,6 +1131,33 @@ function highlightSearch(idsStr) {
     scheduleRedraw();
 }
 
+// G123: land the viewport on a node and its neighbourhood — the search
+// field's ⏎, and the seam Ask citations / Activity chips reveal through.
+// Moves only the zoom transform; the simulation is never reheated (G109 rule).
+// Returns false when the node is not in the visible set (hidden by a filter),
+// so the caller can say so instead of silently doing nothing.
+function revealNode(id) {
+    const n = visibleNodes.find(x => x.id === id);
+    if (!n || n.x == null) return false;
+    const nb = neighborsById.get(id) || new Set();
+    const group = [n];
+    for (const m of visibleNodes) {
+        if (nb.has(m.id)) group.push(m);
+        if (group.length >= 40) break;
+    }
+    const fit = transformForNodes(group, 80);
+    // Readable scale, centred on the node itself so the eye lands on it.
+    const k = Math.min(MAX_ZOOM, Math.max(1.0, fit ? fit.k : 1.6));
+    const t = d3.zoomIdentity.translate(width / 2, height / 2).scale(k).translate(-n.x, -n.y);
+    if (currentZoom) {
+        d3.select(canvas).transition().duration(450).call(currentZoom.transform, t);
+    } else {
+        transform = t;   // headless (no zoom behaviour attached): apply directly
+    }
+    scheduleRedraw();
+    return true;
+}
+
 function focusOnNode(id) {
     const n = visibleNodes.find(x => x.id === id) || nodes.find(x => x.id === id);
     if (!n || n.x == null) return;
@@ -1656,6 +1693,10 @@ function onMouseMove(event) {
 
     // Hover pick. Only swap hoveredNode if it actually changed so we don't
     // spam redraws on every pixel of mouse movement.
+    if (hoverSuppressed) {
+        if (hoveredNode) { hoveredNode = null; scheduleRedraw(); }
+        return;
+    }
     const picked = pickNode(sx, sy);
     if (picked !== hoveredNode) {
         hoveredNode = picked;

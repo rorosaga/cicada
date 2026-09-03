@@ -360,6 +360,12 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 11. ~~G100~~ — absorbed into G118 (slice 1 shipped the write-time citation; the derived-span class and
     the viewer are G118 slice 2)
 12. **G103** observer model in the UI — whose belief, who was in the room — S
+12e. **G125** Sleep page as the study desk — `reading` mascot state, the queue as a per-category study list,
+    breakdowns moved to Sources/Settings, schedule frequency picker (`interval_hours`/`after_import`), the
+    deprecated Sleep/Upload toolbar buttons removed — M
+12d. **G124** Activity → Conversations-first *Sources* page: per-harness cards with counts (clickable →
+    per-source page), conversation rows with Resume, contributors calendar per model, Usage + read/write
+    stats under Advanced, no segmented control, no horizontal strip — M/L (decide the sidebar order in G108)
 12c. **G108** landing page + navigation — decide *before* building: status vs graph as the front
     door, and linear vs browser-style history (G106 makes history the better bet) — decision
 12b. **G106** two-way conversations ↔ entities browser — the inverse index works today; content
@@ -392,7 +398,8 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
     (engine → capture channel → first Sleep), honest empty states per tab, and a one-click synthetic
     demo bank so the graph is never blank. Ships with G76 and G90 for a downloadable 1.0 — M
 23. **G92** onboarding at scale — decide what Cicada *is* before optimising a funnel — decision
-24. **G72** skills manager · **G73** prompt library · **G70** design memory *(absorbs G14)* — M each
+24. **G72** skills manager *(owner 2026-09-03: two halves — skills Cicada compiled about you (G112) and the
+    harness skills you actually use, ranked by the harness's own usage counters, adoptable into memory)* · **G73** prompt library · **G70** design memory *(absorbs G14)* — M each
 25. **G54** onboarding interview · **G55** executable skills · **G13** tasks/ideas backlog
 
 ### Research / decisions (not builds)
@@ -411,6 +418,8 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
 
 ### Small & cheap — grab when passing
+- **G123** graph node search — shipped 2026-09-03 (PR #43); follow-up: route Ask citations and Activity
+  chips through `revealEntity` so they land on the node too — XS
 G7 centrality *(recommended for closing — "premise measured false" per a prior session, but this
 hygiene pass could not find the underlying measurement anywhere in tracked docs; left OPEN — see
 the report for what was checked)*
@@ -418,6 +427,9 @@ the report for what was checked)*
 ---
 
 ## 🩹 Known-broken, not yet queued
+- Sidebar footer: the sun/moon button next to the gear writes `cicada.colorScheme` but the owner reports
+  nothing happens on press (2026-09-03) — verify whether the scheme is applied at the root (`preferredColorScheme`)
+  and whether the graph page (hard-coded dark d3 palette, see GraphView.swift comment) masks it — XS
 - Graph re-lays out on every return to the Graph tab: `ContentView` rebuilds the `WKWebView` per
   tab switch *(G109 Swift track — Wave A #1; the physics half shipped in phase 1)*
 - Bank `.git` is 69 MB against 16 MB of markdown — future growth stopped, **history not rewritten**

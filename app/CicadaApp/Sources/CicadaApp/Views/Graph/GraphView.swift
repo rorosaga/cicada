@@ -51,6 +51,21 @@ struct GraphView: NSViewRepresentable {
             webView.evaluateJavaScript("setPanToggle(\(viewModel.panModeOn))", completionHandler: nil)
         }
 
+        // Quiet the hover highlight while the entity detail card is open.
+        let cardOpen = viewModel.selectedEntity != nil
+        if viewModel.isGraphReady, context.coordinator.lastHoverSuppressed != cardOpen {
+            context.coordinator.lastHoverSuppressed = cardOpen
+            webView.evaluateJavaScript("setHoverSuppressed(\(cardOpen))", completionHandler: nil)
+        }
+
+        // G123: land on a searched node. JSON-encode the id so a quote in a
+        // slug can never break out of the call.
+        if viewModel.isGraphReady, let id = viewModel.pendingReveal,
+           let data = try? JSONEncoder().encode(id), let quoted = String(data: data, encoding: .utf8) {
+            webView.evaluateJavaScript("revealNode(\(quoted))", completionHandler: nil)
+            DispatchQueue.main.async { self.viewModel.pendingReveal = nil }
+        }
+
         // Handle zoom actions from Swift UI
         if let action = viewModel.zoomAction {
             let jsCall: String
@@ -118,6 +133,7 @@ struct GraphView: NSViewRepresentable {
 
     class Coordinator: NSObject, WKScriptMessageHandler {
         var lastPanMode = false
+        var lastHoverSuppressed = false
         let viewModel: GraphViewModel
         var webView: WKWebView?
         var isGraphReady = false
