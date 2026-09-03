@@ -517,6 +517,22 @@ class RepoUpdateRequest(BaseModel):
 # --- Claims (M5b — the CPCG belief atom on the wire) ---
 
 
+class EvidenceModel(CamelModel):
+    """One evidence span on a claim (G118 slice 1) — offsets into a stored
+    document, never a copy. ``episode`` is a source-document id: ``ep_*`` is an
+    episode, anything else an entity page (a ``page`` span cites the media
+    entity). ``kind`` is ``user`` | ``assistant`` | ``page`` | ``reasoning``;
+    a ``reasoning`` entry has ``start == end == -1``. Resolve a span with
+    ``GET /episodes/{episode}/span?start=&end=&hash=``.
+    """
+
+    episode: str = ""
+    start: int = -1
+    end: int = -1
+    kind: str = "reasoning"
+    hash: str = ""
+
+
 class ClaimModel(CamelModel):
     """One perspectival, bi-temporal claim, camelCase on the wire.
 
@@ -547,6 +563,8 @@ class ClaimModel(CamelModel):
     premises: list[str] = []
     authored_by: str = "unknown"
     origin: Optional[str] = None
+    # G118 slice 1 — additive; an older app build ignores the key (R10).
+    evidence: list[EvidenceModel] = []
 
 
 class ClaimListResponse(CamelModel):
@@ -565,6 +583,26 @@ class ClaimTimeline(CamelModel):
     predicate: str
     context: str
     claims: list[ClaimModel] = []
+
+
+class EpisodeSpan(CamelModel):
+    """``GET /episodes/{id}/span`` — a slice of a stored document's evidence
+    text with context on either side (G118 slice 1). ``stale`` is true when
+    the caller's ``hash`` no longer matches the document, i.e. the offsets
+    were minted against an earlier body and may not mean the same words.
+    ``kind`` is derived at read time (speaker marker for an episode, ``page``
+    for an entity document), never stored here.
+    """
+
+    episode: str
+    text: str
+    before: str
+    after: str
+    start: int
+    end: int
+    length: int
+    stale: bool = False
+    kind: str = "user"
 
 
 class TransclusionPayload(CamelModel):

@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from api.models.schemas import ClaimModel, TransclusionPayload
+from api.models.schemas import ClaimModel, EvidenceModel, TransclusionPayload
 from api.services import markdown_parser
 from api.services.claims import Claim, parse_claims
 from api.services.hub_builder import _one_line_summary
@@ -63,6 +63,7 @@ def _to_model(claim: Claim) -> ClaimModel:
         premises=claim.premises,
         authored_by=claim.authored_by or "unknown",
         origin=claim.origin,
+        evidence=[EvidenceModel(**e.to_dict()) for e in (claim.evidence or [])],
     )
 
 

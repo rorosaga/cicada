@@ -316,3 +316,33 @@ def test_transclude_endpoint_empty_ref_soft_stub(tmp_path):
     (tmp_path / "entities").mkdir()
     payload = run(claims_router.get_transclusion(ref="", settings=_FakeSettings(tmp_path)))
     assert payload.resolved is False
+
+
+# --------------------------------------------------------------------------- #
+# G118 slice 1 — `evidence` rides the claim projections, camelCase, additive
+# --------------------------------------------------------------------------- #
+
+
+def test_claims_endpoint_projects_evidence_camelcase(tmp_path):
+    from api.routers import claims as claims_router
+    from api.services.claims import Evidence
+
+    _write_page(tmp_path, "alpha-project", "Alpha Project", [
+        Claim(id="clm_e", text="alpha-project uses sqlite-vec", subject="alpha-project", predicate="uses",
+              object="sqlite-vec", context="engineering",
+              evidence=[Evidence(episode="ep_2026-09-01_001", start=6, end=40, kind="user", hash="0123456789ab")]),
+        Claim(id="clm_legacy", text="alpha-project uses git", subject="alpha-project", predicate="uses",
+              object="git", context="engineering"),
+    ])
+    resp = run(claims_router.get_entity_claims("alpha-project", settings=_FakeSettings(tmp_path)))
+    by_id = {c.id: c for c in resp.claims}
+    assert by_id["clm_legacy"].evidence == []
+    (ev,) = by_id["clm_e"].evidence
+    assert (ev.episode, ev.start, ev.end, ev.kind, ev.hash) == ("ep_2026-09-01_001", 6, 40, "user", "0123456789ab")
+    wire = {c["id"]: c for c in resp.model_dump(by_alias=True)["claims"]}
+    assert wire["clm_legacy"]["evidence"] == []
+    assert set(wire["clm_e"]["evidence"][0]) == {"episode", "start", "end", "kind", "hash"}
+    assert "sourceEpisodes" in wire["clm_e"]  # the rest of the shape is untouched (camelCase)
+    tl = run(claims_router.get_entity_timeline("alpha-project", predicate="uses", context="engineering",
+                                               settings=_FakeSettings(tmp_path)))
+    assert {c.id: len(c.evidence) for c in tl.claims} == {"clm_e": 1, "clm_legacy": 0}

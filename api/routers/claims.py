@@ -26,6 +26,7 @@ from api.models.schemas import (
     ClaimListResponse,
     ClaimModel,
     ClaimTimeline,
+    EvidenceModel,
     TransclusionPayload,
 )
 from api.services import markdown_parser, transclusion_resolver
@@ -56,6 +57,7 @@ def _claim_to_model(c: Claim) -> ClaimModel:
         premises=c.premises,
         authored_by=c.authored_by or "unknown",
         origin=c.origin,
+        evidence=[EvidenceModel(**e.to_dict()) for e in (c.evidence or [])],
     )
 
 

@@ -33,8 +33,8 @@ from loguru import logger
 
 # Both are cycle-free at module level: ``engine_errors`` is import-free by
 # design and ``markdown_parser`` imports nothing from ``api.services``.
-from api.services import engine_errors, markdown_parser
-from api.services.claims import Claim
+from api.services import engine_errors, evidence, markdown_parser
+from api.services.claims import Claim, Evidence
 
 # R4: each card's title+description is clipped so 8 cards (~400 tokens each)
 # under the ~1.1k-token extraction prompt stay one small call.
@@ -159,13 +159,17 @@ def scan_recon(memory_path: Path, settings) -> list[LinkCard]:
 
 
 def _build_about_claim(media_id: str, target_id: str, target_name: str, confidence: float,
-                       episode: str, today: str, model: str) -> Claim:
+                       episode: str, today: str, model: str,
+                       spans: list[Evidence] | None = None) -> Claim:
     """R6: the claim lives on the MEDIA page, object is the target's node id.
     The id is deterministic in ``(media, target)`` so ``_append_claim``'s
     id-dedupe makes a re-run a no-op; confidence is capped at 0.7 because a
     blurb is weaker evidence than a conversation. ``about`` is not in the
     predicate seed, so the cardinality oracle treats it as multi-valued —
-    many ``about`` objects on one link can never raise a conflict item."""
+    many ``about`` objects on one link can never raise a conflict item.
+    ``spans`` (G118 R12) is the surface-form evidence ``_page_evidence`` found
+    — named ``spans`` rather than ``evidence`` so the module import is never
+    shadowed inside this function."""
     return Claim(
         id=f"clm_about_{hashlib.sha1(f'{media_id}\x00{target_id}'.encode()).hexdigest()[:8]}",
         text=f"This saved page is about {target_name}.",
@@ -175,7 +179,27 @@ def _build_about_claim(media_id: str, target_id: str, target_name: str, confiden
         valid_from=today, recorded_at=today,
         source_episodes=[episode] if episode else [],
         authored_by=model or "unknown", origin="sleep/link_recon",
+        evidence=list(spans or []),
     )
+
+
+def _page_evidence(media_id: str, page_text: str, ent: dict) -> list[Evidence]:
+    """R12: the surface form recon grounded on, as a ``page`` span into the
+    media page's prose — name first, then each alias, whole-word only (the
+    whole-token rail ``_mentions`` applies to a single-token name; a
+    multi-token surface is bounded the same way here, tighter than the
+    phrase match ``attribute()`` accepts). A name present only in the
+    frontmatter title, or only as scattered tokens, is ``reasoning``: a span
+    must point at text that is actually there (spans, not copies — G118).
+    The document hash is kept on the ``reasoning`` entry too, so a viewer can
+    still open the page (R6)."""
+    surfaces = [str(ent.get("name") or "")] + [str(a) for a in (ent.get("aliases") or [])]
+    for surface in surfaces:
+        span = evidence.locate(page_text, surface, whole_word=True)
+        if span is not None:
+            return [Evidence(episode=media_id, start=span[0], end=span[1], kind="page",
+                             hash=evidence.body_hash(page_text))]
+    return [evidence.reasoning(media_id, hash=evidence.body_hash(page_text))]
 
 
 async def default_extract(text: str, settings) -> list[dict]:
@@ -328,6 +352,10 @@ async def run_recon(memory_path: Path, settings, report, *, limit=None, extract_
                         pending_written += 1
                     except Exception as e:
                         logger.debug(f"pending candidate not recorded: {type(e).__name__}: {e}")
+            # G118: evidence is located on the page text BEFORE any claim is
+            # appended — R1 makes that text invariant to the append anyway,
+            # but reading once per card keeps this one parse.
+            page_text = evidence.source_text(memory_path, card.media_id) or ""
             fp = memory_path / "entities" / f"{card.media_id}.md"
             seen: set[str] = set()
             for target, ent in related_ids:
@@ -335,7 +363,8 @@ async def run_recon(memory_path: Path, settings, report, *, limit=None, extract_
                     continue
                 seen.add(target)
                 claim = _build_about_claim(card.media_id, target, name_of.get(target, target),
-                                           ent.get("confidence", 0.5), card.episode, today.isoformat(), model)
+                                           ent.get("confidence", 0.5), card.episode, today.isoformat(), model,
+                                           spans=_page_evidence(card.media_id, page_text, ent))
                 if _append_claim(fp, claim):
                     report.related += 1
             # R6: the media page's ``related:`` list gains the target id so

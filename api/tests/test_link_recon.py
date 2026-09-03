@@ -307,3 +307,49 @@ def test_match_existing_uses_direct_then_llm_and_never_creates(tmp_path, monkeyp
     assert run_(entity_resolver.match_existing({"name": "Graphs Weekly", "type": "concept"}, existing, s, cache=cache)) is None
     assert run_(entity_resolver.match_existing({"name": "Knowledge Base", "type": "tool"}, existing, s, cache=cache)) is None  # type gate
     assert not list(tmp_path.rglob("*.md"))
+
+
+# --------------------------------------------------------------------------- #
+# G118 slice 1 — an `about` claim cites the surface form on the page body
+# --------------------------------------------------------------------------- #
+
+
+def test_about_claim_carries_a_page_span_onto_the_media_entity(tmp_path):
+    from api.services import evidence
+
+    memory = _bank(tmp_path)
+    _entity(memory, "ros", "ROS", "tool")
+    _entity(memory, "knowledge-graphs", "Knowledge Graphs", "concept")
+    _media(memory, "media-a", "Robotics Conf List", "https://a.example", saved_at="2026-01-01", description=ROBOTICS)
+    _media(memory, "media-b", "Graph Intro", "https://b.example", saved_at="2026-01-02", description=GRAPHS)
+    page_text_before = evidence.source_text(memory, "media-a")
+    ents = [{"name": "ROS", "type": "tool", "aliases": []},
+            {"name": "Knowledge Graphs", "type": "concept", "aliases": ["knowledge graph"]}]
+    report = link_enrichment.BackfillReport()
+    run(link_recon.run_recon(memory, _settings(memory), report, extract_fn=_extract_fixed(ents),
+                             match_fn=_match_direct, indexer_factory=lambda mp: _Spy(), today=date(2026, 9, 3)))
+    page_a = markdown_parser.parse(memory / "entities" / "media-a.md").body
+    (about,) = [c for c in parse_claims(page_a) if c.predicate == "about"]
+    (ev,) = about.evidence
+    assert ev.kind == "page" and ev.episode == "media-a"
+    text_now = evidence.source_text(memory, "media-a")
+    assert text_now == page_text_before            # R1: writing the claim did not move the evidence text
+    assert text_now[ev.start:ev.end] == "ROS" and ev.hash == evidence.body_hash(text_now)
+    # media-b: the page says "knowledge graphs" in lowercase, so the name
+    # "Knowledge Graphs" lands on the case-insensitive rung (R5) — the span is
+    # the page's own casing, not the entity's.
+    page_b = markdown_parser.parse(memory / "entities" / "media-b.md").body
+    (about_b,) = [c for c in parse_claims(page_b) if c.predicate == "about"]
+    (ev_b,) = about_b.evidence
+    text_b = evidence.source_text(memory, "media-b")
+    assert text_b[ev_b.start:ev_b.end] == "knowledge graphs"
+
+
+def test_page_evidence_falls_back_to_reasoning_when_the_name_is_only_in_the_title():
+    from api.services import evidence
+
+    text = "## Summary\nSaved bookmark.\n\n## Description\nA guide to vectors."
+    out = link_recon._page_evidence("media-z", text, {"name": "Vectorly", "aliases": ["Vector Ly"]})
+    assert out == [evidence.reasoning("media-z", hash=evidence.body_hash(text))]
+    out = link_recon._page_evidence("media-z", text, {"name": "Go", "aliases": []})
+    assert out[0].kind == "reasoning"  # "Go" is not on the page as a whole word (R12)

@@ -4,7 +4,7 @@
 > compacted context of the 2026-08-31 → 09-02 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (2026-09-02)
+## Where things stand (2026-09-03)
 
 **Merged 2026-09-02 as PR #35: `feat/safari-import`** — Safari iCloud
 tabs + bookmark folder selection + the family → member import catalog; G30/G47/G71 rows carry the
@@ -13,9 +13,14 @@ against the live bank the same day (iPhone tabs: 188 new / 9 skipped; the big Fa
 0 new / 496 skipped — the idempotency proof). Until each browser
 row syncs on its own, `chrome-bookmarks` / `safari-bookmarks` both read the legacy `bookmarks` count.
 
-**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`). **No open PRs.** `feat/link-summaries` (G102 backfill) is complete on its branch and awaiting a PR (see the G102 paragraph below).
+**G118 slice 1 — evidence spans — is on `feat/provenance-spans` (worktree `.worktrees/g118`), awaiting a PR
+against `dev`:** every new claim carries `evidence` spans (offsets + hash into the stored body, never copies),
+`cicada_write_claim` cites `{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift
+change; legacy claims show no evidence, honestly.
 
-**G102 cheap slice (PR against `dev` from `feat/link-summaries`):** saved links get descriptions + `about` edges nightly (20/night, oldest first) and on demand. **One-time warm-up the owner can run now:** `curl -s -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" "http://127.0.0.1:8000/maintenance/enrich-links?limit=50"` — repeat until `remaining` is 0 (each run: ≤ 50 fetches + summaries on the resolved engine, ~7 extraction calls); the response's `engine` says whether the plan or the API key paid.
+**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`). **No open PRs** other than the pending `feat/provenance-spans` one; `feat/link-summaries` merged as PR #40 (see the G102 paragraph below).
+
+**G102 cheap slice (merged as PR #40 from `feat/link-summaries`):** saved links get descriptions + `about` edges nightly (20/night, oldest first) and on demand. **One-time warm-up the owner can run now:** `curl -s -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" "http://127.0.0.1:8000/maintenance/enrich-links?limit=50"` — repeat until `remaining` is 0 (each run: ≤ 50 fetches + summaries on the resolved engine, ~7 extraction calls); the response's `engine` says whether the plan or the API key paid.
 The big one is **#25 — the agent engine (G74a)**: Sleep can now run on the user's Claude Max plan
 via `claude -p`, after ~2.5 months with no engine.
 Also #24, the **correctness gate**, which fixed decay (see rulings below), #23's app fixes, #26's
@@ -130,7 +135,8 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-**Nothing is broken; one branch is awaiting a PR: `feat/link-summaries` (G102 cheap slice, item 0c below).**
+**Nothing is broken; one branch is awaiting a PR: `feat/provenance-spans` (G118 slice 1 — evidence spans,
+worktree `.worktrees/g118`). `feat/link-summaries` (G102 cheap slice) merged as PR #40.**
 `feat/mascot` merged as PR #36.
 Its last unchecked box is the visual pass on the installed app — menu bar in light and dark, the
 Sleep page at 120 pt, Reduce Motion holding frame 0 — which needs `make install-app` and Rodrigo at
@@ -144,11 +150,11 @@ three-lens judge → decision memo) rather than a blind re-tune.
    run the live import once with the owner present (Full Disk Access to Cicada.app is a one-time
    grant — the launchd backend never gets it, only the app bundle does).
 0b. **Owner priorities (2026-09-02):** after the three in-flight tracks (mascot, Safari import, link
-   summaries) land, the order is **G118 slice 1 → G105 → G93 → G53+G75 → G81→G95**, with G113 s3–7,
+   summaries) land, the order was **G118 slice 1 → G105 → G93 → G53+G75 → G81→G95**; slice 1 is done (`feat/provenance-spans`),
+   so it now reads **G118 slice 2 (viewer) → G105 → G93 → G53+G75 → G81→G95**, with G113 s3–7,
    G115 p1 and G117 interleaved as app polish. Provenance is the vision, not a feature.
-0c. **G102 cheap slice is on `feat/link-summaries`** — open the PR against `dev` after an independent
-   re-run of the five new test files + the full suite; then have the owner run the warm-up curl above
-   and eyeball the Feed (descriptions on rows, `about` pills on a link's entity card).
+0c. **G102 cheap slice merged as PR #40** (`feat/link-summaries`); what is left is the owner running the
+   warm-up curl above and eyeballing the Feed (descriptions on rows, `about` pills on a link's entity card).
 1. **G109 phase 1 is in PR #32 (merged)** — merged after an independent re-run of
    `node app/CicadaApp/Tests/graph/graph-physics.test.js`, the four sibling JS tests and
    `swift test`, then have Rodrigo eyeball the live bank at fit-zoom (isolates should read as discs
@@ -173,7 +179,8 @@ three-lens judge → decision memo) rather than a blind re-tune.
    review — the live bank holds real people). Same for any `macos-harness` verification that
    needs a permission prompt accepted.
 
-**Worktrees:** `.worktrees/safari-import` holds `feat/safari-import` until its PR merges;
+**Worktrees:** `.worktrees/g118` holds `feat/provenance-spans` (G118 slice 1) until its PR merges;
+`.worktrees/safari-import` holds `feat/safari-import` until its PR merges;
 `.worktrees/g113` (`feat/feedback-ledger`), `.worktrees/link-summaries` and `.worktrees/mascot` are
 other in-flight branches — check each's `git status --porcelain -uall` before touching it. Never
 commit a `*-report.md` left as untracked scratch in any of them. `git worktree list` to see them; never `--force`-remove one without
@@ -188,7 +195,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice complete on `feat/link-summaries`, PR pending)._
+_Last synced: 2026-09-03 (G118 slice 1 on `feat/provenance-spans`, PR pending); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
 
 ---
 
@@ -213,7 +220,8 @@ G62 capture redesign · G63 connections clarity · G64 import walkthroughs · G6
 G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars · G107 pixel mascot + single menu-bar Tamagotchi
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
-trailers, Ghostty resume)
+trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #TBD)** — `Claim.evidence` offsets + hash, Stage-1 quote
+verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii)
 
 **2026-08-31 → 09-01 (PRs #21–#29, merged to dev)**
 - #21 diff context lines with line numbers, merge-commit handling
@@ -262,7 +270,7 @@ trailers, Ghostty resume)
 - **G109 phase 1** graph physics (PR #32) — alpha-scaled hub gravity, no reheat on release,
   `velocityDecay` 0.2 / `alphaMin` 0.001, per-isolate phyllotaxis slots, speed clamp; headless
   physics bench + test under `Tests/graph/`; numbers in the G109 row
-- **G102 cheap slice** — link backfill on the Sleep tail + `POST /maintenance/enrich-links`; recon
+- **G102 cheap slice** (PR #40) — link backfill on the Sleep tail + `POST /maintenance/enrich-links`; recon
   over stored OG text → `about` claims/edges through the existing Stage-1 prompt and Stage-2
   judgment; `GET /sources` `description`/`about`. Plan:
   `docs/superpowers/plans/2026-09-02-link-summaries-backfill.md`
@@ -275,7 +283,6 @@ trailers, Ghostty resume)
 |---|---|---|
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
 | **G109 graph physics** | **Phase 1 in PR #32** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
-| **G102 cheap slice** | On `feat/link-summaries` (2026-09-02): backfill + recon + endpoint + Feed fields, six feature commits (+ one review-fix commit and the plan), five new test files | Open the PR against `dev` after an independent re-run; owner runs the warm-up curl; merge |
 | Claude Desktop | **Registered 2026-09-01** — needs a Desktop restart | Then: it captures only what an agent chooses to save (see G105) |
 
 ---
@@ -337,7 +344,9 @@ trailers, Ghostty resume)
 9b. **G118 full provenance** — spans (not copies) on every claim, the contributor's rationale as a
     citable source, the prompt/turn that triggered every agent write, and a raw-source viewer with the
     cited passage highlighted (NotebookLM, but bi-temporal and attributed). Owner-marked central to
-    the vision (2026-09-02). Slice 1 = span capture in Stage-1 + resolver; absorbs G100 — L
+    the vision (2026-09-02). Slice 1 shipped (spans + agent citations + span endpoint, PR #TBD); next:
+    slice 2 viewer (Swift `Evidence` model, chips → raw pane with highlight), then triggers (needs G105),
+    then rationale — L
 9e. **G122 Sleep engine & model picker** — `GET/PUT /sleep/engine`, an Engine card on the Sleep page
     (Auto · Claude plan · Codex · Ollama · Key, live state + model, next-cycle preview), Ollama guided as a
     first-class option; prefs in `~/.cicada/connections.json`, never `api/.env` — M
@@ -348,8 +357,8 @@ trailers, Ghostty resume)
     is what makes every write have a cause; G93 is where citations become answers — M each
 10. **G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
     (G76, G77, G54 all assume it); zero LLM — M
-11. **G100** span citation — which *sentence* convinced the contributor, rendered in a
-    DiffView-style source viewer with prev/next across conversations — M
+11. ~~G100~~ — absorbed into G118 (slice 1 shipped the write-time citation; the derived-span class and
+    the viewer are G118 slice 2)
 12. **G103** observer model in the UI — whose belief, who was in the room — S
 12e. **G125** Sleep page as the study desk — `reading` mascot state, the queue as a per-category study list,
     breakdowns moved to Sources/Settings, schedule frequency picker (`interval_hours`/`after_import`), the

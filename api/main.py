@@ -22,6 +22,7 @@ from api.routers import (
     contributors,
     conversations,
     entities,
+    episodes,
     graph,
     inbox,
     local_refs,
@@ -159,6 +160,7 @@ app.include_router(nudges.router, tags=["nudges"])
 app.include_router(clarifications.router, tags=["clarifications"])
 app.include_router(entities.router, tags=["entities"])
 app.include_router(claims.router, tags=["claims"])
+app.include_router(episodes.router, tags=["episodes"])
 app.include_router(contributors.router, tags=["contributors"])
 app.include_router(origins.router, tags=["origins"])
 app.include_router(sleep.router, tags=["sleep"])

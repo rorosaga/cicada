@@ -49,6 +49,65 @@ _CLAIMS_BLOCK_RE = re.compile(
     re.DOTALL | re.MULTILINE,
 )
 
+# G118 slice 1 — the four evidence kinds. `user`/`assistant` are spans into a
+# conversation episode, attributed by the turn marker at or before the span
+# (R4); `page` is a span into an entity page's prose (a saved link's stored
+# description — link recon); `reasoning` is the contributor's own inference
+# and carries no offsets. The set is closed on purpose: a viewer renders each
+# kind differently, and G100's derived-span class, if it ever ships, will be
+# a fifth value rather than a flag on one of these.
+EVIDENCE_KINDS = ("user", "assistant", "page", "reasoning")
+
+
+@dataclass
+class Evidence:
+    """WHERE a claim came from — offsets into stored text, never a copy (G118).
+
+    ``episode`` is a source-document id (R3): ``ep_*`` resolves to
+    ``episodes/<id>.md``; anything else to ``entities/<id>.md`` (a ``page``
+    span cites the media entity that holds the description). ``start``/``end``
+    are character offsets into that document's evidence text — the body as
+    ``markdown_parser.parse`` returns it, with the ```claims fence stripped
+    for an entity page (R1) — and ``hash`` is ``sha256[:12]`` of that text
+    (R2) so a rewritten source reads as ``stale`` instead of mis-highlighting.
+    A ``reasoning`` entry has ``start == end == -1``: the contributor cited
+    itself, and nothing in the bank says it in so many words.
+    """
+
+    episode: str = ""
+    start: int = -1
+    end: int = -1
+    kind: str = "reasoning"
+    hash: str = ""
+
+    def is_span(self) -> bool:
+        return self.kind != "reasoning" and 0 <= self.start < self.end
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "Evidence":
+        """Forgiving on purpose: provenance must never make a claim unparseable
+        (a bad entry degrades to ``reasoning``; strict mode is for the block,
+        not for one evidence row)."""
+        data = dict(data or {}) if isinstance(data, dict) else {}
+        kind = str(data.get("kind") or "reasoning")
+        try:
+            start = int(data.get("start", -1))
+            end = int(data.get("end", -1))
+        except (TypeError, ValueError):
+            start, end = -1, -1
+        if kind not in EVIDENCE_KINDS or kind == "reasoning" or start < 0 or end <= start:
+            kind, start, end = "reasoning", -1, -1
+        return cls(
+            episode=str(data.get("episode") or ""),
+            start=start,
+            end=end,
+            kind=kind,
+            hash=str(data.get("hash") or ""),
+        )
+
 
 @dataclass
 class Claim:
@@ -106,6 +165,10 @@ class Claim:
     # `today` every time it evaluates an unreferenced subject's claim — the
     # claim-engine mirror of the entity engine's `decayed_through` frontmatter.
     decayed_through: str | None = None
+    # G118 slice 1 — evidence spans. Empty on every claim written before the
+    # field existed (no backfill, R6); at least one entry on every claim
+    # written since, `reasoning` when the writer had no source text.
+    evidence: list[Evidence] = field(default_factory=list)
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -122,7 +185,12 @@ class Claim:
         return out
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        # R7: omit an empty evidence list so `write_claims` re-rendering a page
+        # never diffs ~2,300 legacy claims for a field they do not have.
+        if not data.get("evidence"):
+            data.pop("evidence", None)
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Claim":
@@ -151,6 +219,9 @@ class Claim:
             session_id=_opt_str(data.get("session_id")),
             session_ids=[str(s) for s in (data.get("session_ids") or []) if str(s).strip()],
             decayed_through=_opt_str(data.get("decayed_through")),
+            evidence=[
+                Evidence.from_dict(e) for e in (data.get("evidence") or []) if isinstance(e, dict)
+            ],
         )
 
 
