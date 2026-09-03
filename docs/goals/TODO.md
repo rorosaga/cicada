@@ -22,6 +22,14 @@ in the app; `/consumption/*` and the ledger are untouched. A persisted "Activity
 Sources. Owner-present check after `make install-app`: ⌘6, a harness card → Resume, Safari → Sync now,
 Advanced on → no `$`.
 
+**G115 Phase 1 — the inbox redesign's first slice — is on `feat/inbox-phase1` (worktree `.worktrees/g115`),
+awaiting a PR against `dev`:** cause on every card (G97 delivered), `(Recommended)` from the shipped
+`_verdict`, decay through `QuestionView`, keys, both ETag halves, `render_question` v2, the G98
+informational rule, the dead chevron and the unbounded list closed. Owner-present check after
+`make install-app`: ⌘5, expand a card → line 2 names the conversation and the excerpt bolds the
+mention; press `2` on a decay card; a `uses` conflict shows "These can all be true"; the chevron
+opens the card; a media clarification shows "Show all N".
+
 **G118 slice 1 — evidence spans — merged as PR #44 (`feat/provenance-spans`):** every new claim carries
 `evidence` spans (offsets + hash into the stored body, never copies), `cicada_write_claim` cites
 `{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift change; legacy claims
@@ -203,12 +211,11 @@ three-lens judge → decision memo) rather than a blind re-tune.
    `isGraphReady` on teardown — ~0.5 day) before phase 2; without it the user still sees a re-layout
    every time they return to the Graph tab. Phases 2–3 are in the G109 row.
 2. **G113 slices 3–7 ($0, APPLY)** — slices 1–2 (`_verdict`, the `resolution` event, R1 labels) merged
-   as PR #31; the rest of the ledger (audit/dedup verdicts, the Sources ▸ Advanced feedback tile, `remind_later → _defer(7)`)
+   as PR #31; the rest of the ledger (audit/dedup verdicts, the Sources ▸ Advanced feedback tile)
    is still open. Slice 5 (closing the loop) stays 💸 DECIDE.
-3. **G115 Phase 1 ($0, 1–2 days, engine-free)** — the inbox redesign's first slice: cause on the card,
-   `(Recommended)` from the shipped `_verdict`, decay through `QuestionView`, number keys, ETag BOTH
-   halves, `render_question` v2. Delivers G97. Parallel to G113 in its own worktree — disjoint
-   functions of `inbox_service.py`. The two rulings it needs for Phase 3 are G116.
+3. ~~**G115 Phase 1**~~ — **on `feat/inbox-phase1`, PR pending**; the five commits are in the plan
+   (`docs/superpowers/plans/2026-09-03-g115-inbox-phase1.md`). Delivers G97. Phase 2 needs G113 s3–4
+   and G106(i); Phase 3 needs G116.
 4. **G112 step 1** is a bug fix, not a feature — do it when passing.
 5. **G115 Phase 2** — G105 (`feat/deterministic-capture`) and G53 + G75 (PR #45) both shipped — the same order
    the waves give.
@@ -221,7 +228,8 @@ three-lens judge → decision memo) rather than a blind re-tune.
    review — the live bank holds real people). Same for any `macos-harness` verification that
    needs a permission prompt accepted.
 
-**Worktrees:** `.worktrees/g124` holds `feat/sources-page` (G124) until its PR merges; `.worktrees/g118`,
+**Worktrees:** `.worktrees/g124` holds `feat/sources-page` (G124) and `.worktrees/g115` holds
+`feat/inbox-phase1` (G115 Phase 1) until their PRs merge; `.worktrees/g118`,
 `.worktrees/handshake` and `.worktrees/g105` were removed after PRs #44, #45 and #46 merged;
 `.worktrees/safari-import` holds `feat/safari-import` until its PR merges;
 `.worktrees/g118` (`feat/provenance-spans`, merged as PR #44), `.worktrees/g113` (`feat/feedback-ledger`),
@@ -239,7 +247,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-03 (G124 on `feat/sources-page`, PR pending; G105 merged as PR #46; G53+G75 merged as PR #45; G118 slice 1 merged as PR #44); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
+_Last synced: 2026-09-03 late (G115 Phase 1 on `feat/inbox-phase1`, PR pending; G97 delivered); 2026-09-03 (G124 on `feat/sources-page`, PR pending; G105 merged as PR #46; G53+G75 merged as PR #45; G118 slice 1 merged as PR #44); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
 
 ---
 
@@ -259,7 +267,8 @@ LinkedIn/TikTok/Reddit parsers, one adapter registry) · **G105 hook-driven dete
 updated in place, Sleep-queue source marks (`OriginMark`)
 
 **Memory model** — G60 conflict resolution with time-aware questions · G61 fact sources ·
-G66 decay classes · A5 gap analysis
+G66 decay classes · A5 gap analysis · **G115 Phase 1 / G97 (2026-09-03)** — cause on the card,
+Recommended, decay through the question component, the G98 informational rule
 
 **App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·
@@ -334,6 +343,7 @@ per-source pages with Resume, contributors calendar per model, Advanced counts; 
 |---|---|---|
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
 | **G109 graph physics** | **Phase 1 in PR #32** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
+| **G115 Phase 1 inbox** | On `feat/inbox-phase1`, five commits, both suites green | PR against `dev`; owner-present check in the header |
 | Claude Desktop | **Registered 2026-09-01** — needs a Desktop restart | Then: it captures only what an agent chooses to save (see G105) |
 
 ---
@@ -357,15 +367,18 @@ per-source pages with Resume, contributors calendar per model, Advanced counts; 
 4a. **G113 slices 1–4** — the grounded-reward ledger: every human verdict on memory (inbox resolve,
    decay keep/archive, merge accept/reject, `Cicada-Author: user` corrections) recorded as a
    telemetry event — ids and enums only, never text — with per-predicate agreement rates and a
-   confidence-calibration curve as a tile in Sources ▸ Advanced (the `feedbackTileSlot`). Slice 5 (feeding rates back into
-   prompts) stays 💸 DECIDE under G78 — slices 1–2 merged (PR #31); 3–7 open — S/M
-4d. **G115 Phase 1** *(owner 2026-09-03: start with the dead chevron and the unbounded URL list on cards)*
+   confidence-calibration curve as a tile in Sources ▸ Advanced (the `feedbackTileSlot`); R6
+   (`remind_later → _defer(7)`) landed with G115 Phase 1. Slice 5 (feeding rates back into prompts)
+   stays 💸 DECIDE under G78 — slices 1–2 merged (PR #31); 3–7 open — S/M
+4d. ~~**G115 Phase 1**~~ *(owner 2026-09-03: start with the dead chevron and the unbounded URL list
+   on cards)* — **shipped 2026-09-03 (`feat/inbox-phase1`)**
 4d″. **G115 Phase 2 — suggested outcome** *(owner 2026-09-03)*: a confidence-gated one-sentence "Cicada thinks…"
     under the recommended option, accept with ⏎, never auto-applied; suggestion id + confidence in the G113
     ledger so agreement becomes a rate and a training set — S/M, after G118 slice 1 (needs the cause spans)
     + research-resolvable conflicts: the same judge may grep a linked repo / read a declared source and must
     cite what it checked; multi-valued predicates (`uses`) never open a conflict at all (G98)
-4d′. **G115 Phase 1** — inbox redesign, first slice: one question object for every kind, `cause` on the
+4d′. ~~**G115 Phase 1**~~ — **shipped 2026-09-03 (`feat/inbox-phase1`)** — inbox redesign, first
+   slice: one question object for every kind, `cause` on the
    card (three tiers, `[ no source recorded ]` served), `(Recommended)` = the option `_verdict` scores
    `agreed` (never on merge), decay through `QuestionView`, number keys / `Esc` no-trace skip, ETag
    widened server-side AND `.inbox` added to `VersionVector`'s `entities`/`episodes` in the same
@@ -378,8 +391,8 @@ per-source pages with Resume, contributors calendar per model, Advanced counts; 
 4c. ~~**G105** deterministic conversation extraction~~ — **shipped 2026-09-03** (`feat/deterministic-capture`,
    PR #46): the Stop hook, `POST /capture/transcript`, the block-level extractor and the Sleep-queue
    source marks; the open remainder (Cursor/other harnesses, Codex payload verification) is in the G105 row
-5. **G97** inbox items show the conversation that caused them (43/49 reach an episode in ~100 ms,
-   no LLM) — **delivered by G115 Phase 1 (4d above)**; the ETag widening is both halves there. — S/M
+5. ~~**G97**~~ — delivered by G115 Phase 1 (2026-09-03): inbox items show the conversation that caused
+   them (43/49 reach an episode in ~100 ms, no LLM); the ETag widening shipped as both halves there. — S/M
 6. **G82** hub pages are unaddressable — your "Couldn't load history"; 15 sites hardcode
    `entities/<id>.md`; both layers must move together — M
 7. **G84(c)(d)** legend describes claim-context while nodes colour by type (byte-identical hexes),

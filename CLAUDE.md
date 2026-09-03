@@ -901,9 +901,9 @@ response shapes) kept only so the SwiftUI app and any external caller keep worki
 - Items resolved organically by later conversation are automatically removed
 - Badge count on the inbox icon
 
-**Question object (G60):** every `conflict` / `clarification` / `merge_suggestion` item carries
-  `question` (one sentence), `options: [{key, label, description, claim_id, observed_at,
-  last_referenced}]`, `allow_other`, `allow_defer`, `predicate`, and an optional `hint`
+**Question object (G60):** every `decay` (synthesised at read) / `conflict` / `clarification` /
+  `merge_suggestion` item carries `question` (one sentence), `options: [{key, label, description,
+  claim_id, observed_at, last_referenced}]`, `allow_other`, `allow_defer`, `predicate`, and an optional `hint`
   (from the entity's `sources:`). Descriptions lead with the age phrase ("6 months ago") so
   staleness is visible before choosing; `age_days` is derived at read time, never stored.
   Legacy flat `options: [str]` items still render — they are upgraded to `{key, label}` on read.
@@ -926,13 +926,44 @@ response shapes) kept only so the SwiftUI app and any external caller keep worki
 2. **Agent-initiated**: Agent detects current topic relates to a pending clarification, asks in conversation flow
 3. **Manual**: User answers in the companion app's inbox
 
-**Redesign direction (G115).** Every inbox item becomes one question object for every kind — the
-card shows the *cause* (the conversation and sentence that raised it), marks Sleep's own proposal
-as `(Recommended)` (the option the ledger's `_verdict` would score `agreed`; never on a merge),
-lets the person write a scoped "don't ask again" rule once in `<memory>/_inbox_rules.yaml`, and
-reaches an agent only through a server-side ask gate keyed on entity identity rather than body
-text. Zero LLM on any of it, ledger ids-only, user commits stay session-less pending G116; the
-full ruling, phases and rails are in the G115 row of `docs/goals/memory-evolution.md`.
+**Phase 1 shipped (G115, 2026-09-03; delivers G97).** Every item `GET /inbox` serves carries its
+**cause** — `cause: {episode_id, timestamp, conversation_id, harness, origin, conversation_title,
+excerpt, mention_offsets, start, end, tier, span_kind}` — resolved at read by
+`api/services/inbox_context.py` in three tiers (`item`: the item's own `source_episode` → `claim`:
+the freshest option claim's last episode → `entity`: the subject page's last `source_episodes`
+entry), engine-free through `bank_index`; the excerpt is ±240 chars around the mention, cut on
+word boundaries, offsets recomputed on every read and never stored (a G118 span on the claim is
+used instead and reads `span_kind: asserted`); nothing resolves → `tier: none` and the literal
+`[ no source recorded ]`, served, never a hidden card. Writers now persist `source_episode`
+(`write_claim_nudges`, the entity-path conflict, the reconciler's nudges). **ETag ship-together:**
+`GET /inbox` ETags over `inbox`+`entities`+`episodes` AND `VersionVector.swift` maps `entities`
+and `episodes` onto `.inbox` — change one half, change both. **Decay is no longer the special
+case:** it is served as `Still tracking {name}?` with `archive` / `keep` (synthesised at read
+from the page's `last_referenced`, never written; `resolve`+`archive|keep` maps onto the legacy
+verbs so the G113 R1 labels are unchanged; `remind_later` is a 7-day `defer`, G113 R6). Every option
+carries `verdict` and the ONE option Sleep proposed carries `recommended` (`recommended_key` on the
+item) — the key the ledger's `_verdict` grades `agreed`, served first; never `neither`/`both`, never
+on a merge or a clarification, absent on an entity-path conflict (no claim to agree with). The
+`resolution` ledger row gains `recommended_key` + `picked_recommended`. **G98 rule:** a predicate
+the vocabulary marks multi-valued (`predicates.cardinality` — the union of the bank's
+`_predicates.yaml` and the committed seed, `multi` winning, because `install_predicate_map` never
+refreshes a populated map and a bank seeded before `uses` moved lists would otherwise keep asking)
+never opens a conflict (`write_claim_nudges` counts `skipped_multi_valued`),
+and an existing one is served `informational: true` — the card lists the values and offers
+`Got it` (`dismiss`: item removed, no claim touched). The card: kind icon (no monogram), line 1 the
+question, line 2 the cause (`From “<title>” · <harness> · <age>`), the excerpt with the mention
+bolded, and — for the two kinds that carry a question object (decay and conflict) — options through
+`QuestionView` with `(Recommended)` first; keys `1–4` pick, `⏎`
+activates the highlighted (recommended) row, `o` Other, `l` Not now (7 days), `Esc` collapses with
+no write; bodies over four lines collapse to three + `Show all N`; the chevron is a real button.
+A `clarification` / `merge_suggestion` keeps its free-text / merge row in this phase (its question
+object is Phase 2) but gains the same title-as-question, cause line, excerpt and collapse.
+MCP `render_question` v2 prints `entity_id=<slug> · predicate=<p>`, a `Cause:` line (the same
+excerpt), `(Recommended)`, and the `skip=true` hint; `cicada_resolve_inbox(id, skip=true)` stays
+an in-process no-op. The observer for an owner-stated claim is `settings.observer_owner`
+(`CICADA_OBSERVER_OWNER`; unset falls back to the historical literal — TODO G117). Still open
+(Phases 2–3, G115): the ask gate, `_inbox_rules.yaml`, the suggested-outcome judge, silence clocks,
+grouped cards, and the two G116 rulings.
 
 ### 4. Manual Sleep Trigger
 Button to run the Sleep cycle on demand.
