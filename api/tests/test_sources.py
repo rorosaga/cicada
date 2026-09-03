@@ -948,8 +948,9 @@ def test_ingest_one_stamps_origin_on_episode_and_entity(tmp_path, monkeypatch):
 
 
 def test_ingest_one_without_origin_omits_the_field(tmp_path, monkeypatch):
-    """A plain /sources/save (no RawItem.origin) must not regress — no origin
-    key at all, same as before G9 threading landed."""
+    """A `RawItem` with no origin writes no origin key at all — the field is
+    never guessed at downstream. (Every caller in the tree supplies one now;
+    this guards the contract itself, and any future caller that cannot.)"""
     _offline_enrich(monkeypatch)
     memory = tmp_path / "memory"
     (memory / "episodes").mkdir(parents=True)
@@ -1539,3 +1540,44 @@ def test_write_media_episode_omits_the_section_without_a_reason(tmp_path):
     meta = MediaMeta(title="Plain", site="example.com", media_type="url")
     episode_id = media_ingestor.write_media_episode(episodes, item, meta, "media-plain")
     assert "Saved because" not in (episodes / f"{episode_id}.md").read_text(encoding="utf-8")
+
+
+def test_ingest_feed_stamps_the_rss_origin(tmp_path, monkeypatch):
+    """G124 follow-up. Feed items used to be written with no `origin:`, so the
+    Sources page could show how many feeds were subscribed but never say which
+    episodes or entities came from them. Both the episode and the media entity
+    carry it, because the page credits entities and the card credits episodes.
+    """
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+
+    created, _ = run(media_ingestor.ingest_feed(RSS_FEED, memory, commit=False))
+    assert created == 3
+
+    for path in (memory / "episodes").glob("ep_*.md"):
+        assert markdown_parser.parse(path).frontmatter["origin"] == "rss"
+    for path in (memory / "entities").glob("media-*.md"):
+        assert markdown_parser.parse(path).frontmatter["origin"] == "rss"
+
+
+def test_an_uploaded_feed_file_is_not_stamped_as_a_poll(tmp_path, monkeypatch):
+    """`parse_rss` is shared by the poll and by dropping an `.xml` on the
+    import overlay. The stamp lives in `ingest_feed`, not the parser, so a
+    file import keeps reading as a file import."""
+    items = media_ingestor.parse_rss(RSS_FEED)
+    assert items and all(i.origin is None for i in items)
+
+
+def test_saving_a_url_stamps_the_saved_link_origin(tmp_path, monkeypatch):
+    """The pasted-link / menu-bar / MCP save path. Without this the only
+    nil-origin media in a bank were the person's own saves — the one capture
+    channel that could not be attributed."""
+    client, memory = _make_client(tmp_path, monkeypatch)
+    resp = client.post("/sources/save", json={"url": "https://example.com/pasted"})
+    assert resp.status_code == 200
+    entity_id = resp.json()["mediaEntityId"]
+
+    fm = markdown_parser.parse(memory / "entities" / f"{entity_id}.md").frontmatter
+    assert fm["origin"] == "saved-link"

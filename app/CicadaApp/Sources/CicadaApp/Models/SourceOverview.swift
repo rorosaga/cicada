@@ -40,6 +40,32 @@ struct SourceOverview: Codable, Identifiable, Hashable {
         self.origins = origins; self.harness = harness
     }
 
+    /// The Feed items belonging to this row, newest first (R6 — a client-side
+    /// filter over the existing `sources` Store domain, no new endpoint).
+    ///
+    /// A row takes the pages stamped with one of its origins, and the row that
+    /// `ownsUnstampedItems` also takes the pages carrying no `origin:` at all.
+    /// That is the same rule `source_overview.build_overview` counts by, so a
+    /// card's number and the page behind it cannot drift apart.
+    func ownedItems(from all: [MediaFeedItem]) -> [MediaFeedItem] {
+        let mine = Set(origins)
+        return all
+            .filter { item in
+                let origin = (item.origin ?? "").trimmingCharacters(in: .whitespaces)
+                return origin.isEmpty ? ownsUnstampedItems : mine.contains(origin)
+            }
+            .sorted { $0.recencyDate > $1.recencyDate }
+    }
+
+    /// Whether this row owns media pages that carry no `origin:` at all.
+    ///
+    /// Files & links is that row, and the backend agrees — `build_overview`
+    /// counts nil-origin media into this card's `items` for the same reason.
+    /// The three writers behind it (`POST /sources/save`, `cicada_save_url`,
+    /// the RSS poll) stamp an origin now, but every link saved before they did
+    /// carries none, and those pages belong here rather than nowhere.
+    var ownsUnstampedItems: Bool { id == "files" }
+
     enum CodingKeys: String, CodingKey {
         case id, label, kind, mark, conversations, episodes, entities, items, lastActivityAt
         case connected, lastError, actions, channelId, origins, harness

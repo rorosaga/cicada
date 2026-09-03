@@ -220,3 +220,39 @@ def test_sources_items_carry_origin_and_folder(client, bank):
     items = client.get("/sources").json()["items"]
     row = next(i for i in items if i["mediaEntityId"] == "media-alpha")
     assert row["origin"] == "safari-bookmark" and row["folder"] == "Favorites/Papers"
+
+
+def test_saved_links_and_feeds_now_credit_their_own_rows(bank):
+    """G124 follow-up. Both rows used to carry no origins at all: the cards
+    showed a count and nothing else, because no episode on disk pointed at
+    them. With `saved-link` and `rss` stamped at the writers, the same joins
+    every other row uses start working for these two."""
+    _episode(bank, "ep_2026-08-07_001", timestamp="2026-08-07T09:00:00+00:00", origin="saved-link")
+    _episode(bank, "ep_2026-08-07_002", timestamp="2026-08-07T10:00:00+00:00", origin="rss")
+    _entity(bank, "delta-concept", ["ep_2026-08-07_001"])
+    _entity(bank, "epsilon-concept", ["ep_2026-08-07_002"])
+    _media_page(bank, "media-saved", origin="saved-link")
+    bank_index.invalidate()
+
+    rows = _rows(bank)
+    assert rows["files"]["episodes"] == 1
+    assert rows["files"]["entities"] == 1
+    assert rows["files"]["last_activity_at"] == "2026-08-07T09:00:00+00:00"
+    assert rows["rss"]["episodes"] == 1
+    assert rows["rss"]["entities"] == 1
+    assert rows["rss"]["last_activity_at"] == "2026-08-07T10:00:00+00:00"
+    # Neither leaks into the open `origin:<id>` family any more.
+    assert "origin:saved-link" not in rows and "origin:rss" not in rows
+
+
+def test_the_files_card_counts_stamped_and_pre_stamp_saves_together(bank):
+    """A bank spans the change: links saved before the writers stamped an
+    origin carry none, links saved after carry `saved-link`, and they are the
+    same card and the same page. Counting only one of the two would make the
+    card disagree with its own list — the M1 bug, inverted."""
+    _media_page(bank, "media-legacy", origin=None)
+    _media_page(bank, "media-new", origin="saved-link")
+    _media_page(bank, "media-bookmark", origin="safari-bookmark")
+    bank_index.invalidate()
+
+    assert _rows(bank)["files"]["items"] == 2

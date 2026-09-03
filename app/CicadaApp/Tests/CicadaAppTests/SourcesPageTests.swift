@@ -72,6 +72,33 @@ final class SourcesPageTests: XCTestCase {
         XCTAssertEqual(groups.map(\.count), [2, 1, 1])
     }
 
+    /// The Files & links row is the one that owns pages with no `origin:` at
+    /// all. Links saved before the three writers stamped `saved-link` carry
+    /// none, links saved after carry it, and both belong on the same page —
+    /// counted the same way the backend counts that card, so the number and
+    /// the list agree.
+    func testFilesRowOwnsBothStampedAndUnstampedSaves() throws {
+        func item(_ id: String, origin: String?) throws -> MediaFeedItem {
+            let o = origin.map { "\"origin\":\"\($0)\"," } ?? ""
+            return try JSONDecoder().decode(MediaFeedItem.self, from:
+                #"{"mediaEntityId":"\#(id)","url":"https://example.com/\#(id)","title":"t","mediaType":"url","savedAt":"2026-09-01T00:00:00Z","tags":[],"status":"active","relatedCount":0,"relevance":0,\#(o)"folder":null}"#.data(using: .utf8)!)
+        }
+        let all = [
+            try item("legacy", origin: nil),
+            try item("fresh", origin: "saved-link"),
+            try item("bookmark", origin: "safari-bookmark"),
+        ]
+
+        let files = SourceOverview(id: "files", label: "Files & links", kind: .import, origins: ["saved-link"])
+        XCTAssertEqual(Set(files.ownedItems(from: all).map(\.mediaEntityId)), ["legacy", "fresh"])
+
+        // Every other row takes only what it is stamped with — an unstamped
+        // page must never be adopted twice.
+        let safari = SourceOverview(id: "safari-bookmarks", label: "Safari", kind: .browser, origins: ["safari-bookmark"])
+        XCTAssertEqual(safari.ownedItems(from: all).map(\.mediaEntityId), ["bookmark"])
+        XCTAssertFalse(safari.ownsUnstampedItems)
+    }
+
     /// An older backend has no `origin`/`folder` on `/sources` items — the row
     /// still decodes, with both nil, so the Feed never blanks on upgrade skew.
     func testMediaFeedItemToleratesABackendWithoutOriginOrFolder() throws {

@@ -20,18 +20,10 @@ struct ChannelSourceView: View {
         return (store.channels.value ?? []).first { $0.id == id }
     }
 
-    /// The Feed's items that belong to this source (R6). A row with origins
-    /// matches pages stamped with one of them; a row with NONE (`files` —
-    /// R1: `POST /sources/save`, `cicada_save_url` and the RSS poll stamp no
-    /// origin) owns the pages that carry no `origin:` at all, so a pasted
-    /// link is still findable somewhere instead of nowhere.
+    /// The Feed's items that belong to this source — the rule itself lives on
+    /// `SourceOverview` so it can be tested without a view.
     private var items: [MediaFeedItem] {
-        let origins = Set(source.origins)
-        let all = store.sources.value ?? []
-        let mine = origins.isEmpty
-            ? all.filter { ($0.origin ?? "").isEmpty }
-            : all.filter { item in item.origin.map { origins.contains($0) } ?? false }
-        return mine.sorted { $0.recencyDate > $1.recencyDate }
+        source.ownedItems(from: store.sources.value ?? [])
     }
 
     var body: some View {

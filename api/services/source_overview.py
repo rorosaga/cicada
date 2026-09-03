@@ -40,12 +40,12 @@ class SourceSpec:
 
 
 # Every origin below is one a real writer stamps today (see R1 in the G124
-# plan for the file:line of each). Two rows deliberately carry NO origins:
-# `files` (`POST /sources/save`, `cicada_save_url` and the RSS poll all build a
-# bare `RawItem` — their pages have no `origin:`, so the app shows nil-origin
-# items under Files & links) and `rss` (same cause; its evidence is the
-# subscription registry alone until `ingest_feed` stamps one — follow-up on
-# the G124 row).
+# plan for the file:line of each). `saved-link` and `rss` were the G124
+# follow-up: the three writers that built a bare `RawItem` — `POST
+# /sources/save`, `cicada_save_url`'s backend-down path, and `ingest_feed` —
+# now stamp one, so both rows can attribute an episode and an entity instead
+# of resting on a count alone. Pages written before that stamp carry no
+# `origin:` and still count under Files & links; see `build_overview`.
 CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("chat-export:claude", "Claude export", "harness", "claude-export", ("claude-export",), "chat-export:claude"),
     SourceSpec("chat-export:chatgpt", "ChatGPT export", "harness", "chatgpt-export", ("chatgpt-export",), "chat-export:chatgpt"),
@@ -62,14 +62,15 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("youtube", "YouTube", "social", "youtube-playlist", ("youtube-playlist",), None),
     SourceSpec("linkedin", "LinkedIn", "social", "linkedin-saved", ("linkedin-saved",), None),
     SourceSpec("tiktok", "TikTok", "social", "tiktok-saved", ("tiktok-saved", "tiktok-history"), None),
-    SourceSpec("rss", "RSS feeds", "feed", "rss", (), "rss"),            # no origin stamped today — see R1
+    SourceSpec("rss", "RSS feeds", "feed", "rss", ("rss",), "rss"),
     SourceSpec("calendar", "Calendars", "feed", "calendar", ("calendar",), "calendar"),
     SourceSpec("telegram", "Telegram", "messaging", "telegram", ("telegram",), "telegram"),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),
-    SourceSpec("files", "Files & links", "import", "bookmark", (), "files"),  # nil-origin pages — see R1
+    SourceSpec("files", "Files & links", "import", "bookmark", ("saved-link",), "files"),
 )
 _BY_ID = {spec.id: spec for spec in CATALOG}
 _ORIGIN_TO_ID = {origin: spec.id for spec in CATALOG for origin in spec.origins}
+_FILES_ORIGINS = frozenset(_BY_ID["files"].origins)
 
 # Display names for harness ids an MCP client stamps (mcp/server.py SESSION).
 # Generic on purpose — portability means no owner-specific client here; an
@@ -153,12 +154,15 @@ def build_overview(memory_path: Path, *, channels: list[dict]) -> list[dict]:
     # included — so a bank with 400 imported bookmarks and 3 pasted links read
     # "400 items" on a card whose page showed 3. Counted here, on the same
     # entity walk as the credits, from the pages themselves.
-    nil_origin_media = 0
+    files_media = 0
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         entity_id = str(fm.get("id") or f.stem)
-        if fm.get("type") == "media" and not str(fm.get("origin") or "").strip():
-            nil_origin_media += 1
+        origin = str(fm.get("origin") or "").strip()
+        # Nil-origin OR `saved-link`: the writers stamp an origin now, but every
+        # link saved before they did carries none, and both are the same card.
+        if fm.get("type") == "media" and (not origin or origin in _FILES_ORIGINS):
+            files_media += 1
         for ep_id in fm.get("source_episodes", []) or []:
             key = episode_key.get(str(ep_id))
             if key:
@@ -170,15 +174,17 @@ def build_overview(memory_path: Path, *, channels: list[dict]) -> list[dict]:
             continue
         state = states.setdefault(spec.id, _new_state(spec.id))
         if spec.id == "files":
-            # Items AND connected follow the nil-origin set: a bank holding
-            # only imported bookmarks has no Files & links evidence (R2), so
-            # it gets no card rather than a connected one reading "0 items".
-            # `rss` (the other origin-less row) deliberately keeps the
-            # channel's count — that is the subscription count its page's
-            # state card already shows, and the honest fix is `ingest_feed`
-            # stamping an origin (the follow-up on the G124 row).
-            state["items"] = nil_origin_media
-            state["connected"] = nil_origin_media > 0
+            # Items AND connected follow the set the page renders: a bank
+            # holding only imported bookmarks has no Files & links evidence
+            # (R2), so it gets no card rather than a connected one reading
+            # "0 items". `channel_registry`'s `files.count` cannot serve here —
+            # it is `len(url_index)`, every item `ingest_batch` ever wrote,
+            # bookmarks and pins included. `rss` keeps its channel count on
+            # purpose: that is the subscription count its page's state card
+            # shows, and its origin now supplies the episode and entity credit
+            # that count never could.
+            state["items"] = files_media
+            state["connected"] = files_media > 0
         else:
             state["items"] = int(channel.get("count") or 0)
             state["connected"] = bool(channel.get("connected"))

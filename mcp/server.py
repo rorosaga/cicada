@@ -798,6 +798,10 @@ def handle_save_url(url: str, note: str | None) -> str:
             item = media_ingestor.RawItem(
                 url=url,
                 note=note,
+                # Byte-identical frontmatter to path 1's `POST /sources/save`,
+                # so which path ran (backend up or down) never shows up as a
+                # provenance difference.
+                origin="saved-link",
                 session_id=SESSION.session_id,
                 harness=SESSION.harness,
                 project_dir=SESSION.project_dir,

@@ -35,9 +35,13 @@ list is what a reviewer checks:
 
 | Suite | Command | Expected |
 |---|---|---|
-| Backend | `api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` | **8 failed** — all date-dependent in `test_calendar_registry.py` |
-| Backend, order-dependent | same | `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` fails when run with its file, passes alone. Pre-existing. |
+| Backend | `api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` | **12 failed** (measured on `dev`, 2026-09-03) — 8 date-dependent in `test_calendar_registry.py`, 3 order-dependent, 1 environment |
+| Backend, order-dependent | same | `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` and both `test_engine_select.py::test_the_default_install_*` fail in the full run, pass alone. Pre-existing. |
+| Backend, environment | same | `test_local_llm.py::test_default_llm_mode_is_byok` fails because `api/.env` sets `CICADA_LLM_MODE` on this machine. Fails alone too. |
 | App | `cd app/CicadaApp && swift test` | **0 failures** |
+| Graph (JS) | `node --test app/CicadaApp/Tests/graph/*.test.js` | **0 failures.** Pass the glob, not the directory — a bare directory arg fails with a bare "test failed". |
+
+Do not trust a remembered count: re-measure with `git stash` before blaming your own diff.
 
 Anything else red is yours. Never `swift run` the app (bundle-less binary, window never becomes key);
 `make dev` is the only correct launch.
@@ -226,11 +230,15 @@ skills), **G76** (paste-prompt install), **G127** (mascot identity — decide, d
 
 ### Known-broken, small, unclaimed
 
-- Sidebar sun/moon toggle: writes `cicada.colorScheme` and the root applies `preferredColorScheme`,
-  but the owner reports nothing happens. Suspect the theme's own dark palette masks it. XS.
-- `files` and `rss` source cards cannot attribute their items until three writers stamp an `origin`
-  (`POST /sources/save`, `cicada_save_url`, the RSS poll). One line each. XS.
-- The order-dependent provenance test above.
+- The order-dependent provenance and engine-select tests above.
+- Ask panel and source-page chips now land on their node (G123 seam). The *other* places that open an
+  entity from outside the canvas — if any get added — should call `revealEntity`, never `selectEntity`.
+
+Closed 2026-09-03 (PR #49): the sidebar sun/moon toggle and the two origin-less source cards.
+The toggle was not a palette problem — `CicadaTheme.mode` was a plain static, so flipping it changed
+what every colour token returned but invalidated no view; only the two views reading the AppStorage
+key repainted. It is backed by an `@Observable` store now, which also let the `.id()` rebuild go, so
+a theme flip no longer tears down the graph's web view.
 
 ---
 
