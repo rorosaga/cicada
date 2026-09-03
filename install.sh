@@ -12,6 +12,10 @@
 #   ./install.sh --dry-run       print every action without executing
 #   ./install.sh --skill         also copy SKILL.md to ~/.claude/skills/cicada/
 #   ./install.sh --uninstall     unload+remove launchd + MCP entry (keeps memory)
+#   Every full install also registers the G105 session-capture hook under
+#   hooks.Stop in ~/.claude/settings.json (and ~/.codex/hooks.json when the
+#   codex CLI is present) — merged in, never clobbering other hooks; re-run
+#   after moving the repo. --uninstall removes it.
 #
 # Test/override env vars (default to real locations):
 #   CICADA_MEMORY_PATH   memory dir            (default: ~/cicada/memory)
@@ -19,6 +23,8 @@
 #   LAUNCH_AGENTS_DIR    LaunchAgents dir      (default: ~/Library/LaunchAgents)
 #   CLAUDE_SKILLS_DIR    skills dir            (default: ~/.claude/skills)
 #   CLAUDE_CLI           claude binary name    (default: claude)
+#   CLAUDE_SETTINGS      Claude Code settings  (default: ~/.claude/settings.json)
+#   CODEX_HOOKS          Codex hooks file      (default: ~/.codex/hooks.json)
 #
 set -euo pipefail
 
@@ -29,6 +35,8 @@ MEMORY_PATH="${CICADA_MEMORY_PATH:-$HOME/cicada/memory}"
 LAUNCH_AGENTS_DIR="${LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
 CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 CLAUDE_CLI="${CLAUDE_CLI:-claude}"
+CLAUDE_SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
+CODEX_HOOKS="${CODEX_HOOKS:-$HOME/.codex/hooks.json}"
 
 API_DIR="$REPO/api"
 VENV="$API_DIR/.venv"
@@ -40,6 +48,11 @@ VENV_PY="$VENV/bin/python"
 ENV_FILE="$API_DIR/.env"
 ENV_EXAMPLE="$API_DIR/.env.example"
 MCP_SERVER="$REPO/mcp/server.py"
+HOOK_SCRIPT="$REPO/api/hooks/capture.py"
+HOOKS_REGISTRY="$REPO/api/hooks/registry.py"
+# The registered command, quoted per path so a space in $HOME survives the
+# harness's `sh -c`. One function so install, uninstall and doctor agree.
+hook_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$HOOK_SCRIPT" "$1"; }
 PLIST_LABEL="com.cicada.backend"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/$PLIST_LABEL.plist"
 PORT=8000
@@ -54,7 +67,7 @@ for arg in "$@"; do
     --skill)     DO_SKILL=1 ;;
     --uninstall) DO_UNINSTALL=1 ;;
     -h|--help)
-      sed -n '3,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '3,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown flag: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -103,6 +116,15 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
     ok "MCP entry removed (if it existed)"
   else
     warn "claude CLI not found — remove the 'cicada' MCP entry manually"
+  fi
+
+  if [ -x "$VENV_PY" ]; then
+    step "Removing the session-capture hook"
+    run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CLAUDE_SETTINGS" || true
+    [ -f "$CODEX_HOOKS" ] && { run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CODEX_HOOKS" || true; }
+    ok "Capture hook removed (if it existed)"
+  else
+    warn "venv missing — remove the api/hooks/capture.py entry from $CLAUDE_SETTINGS by hand"
   fi
 
   ok "Memory dir left intact: $MEMORY_PATH"
@@ -279,6 +301,26 @@ else
 EOF
 fi
 
+# --- 5b. Session-capture hook (G105) ---
+# Stop, not SessionEnd: SessionEnd only fires on a graceful exit and shares a
+# 1.5 s budget; Stop fires after every reply, and the endpoint is idempotent
+# (same content hash = no write), so the LAST Stop is the session's end
+# however it ended. The hook never reads the transcript — the backend does,
+# after validating the path against the harness root.
+hdr "5b. Session-capture hook"
+if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CLAUDE_SETTINGS" --event Stop --command "$(hook_command claude-code)"; then
+  ok "Claude Code Stop hook registered in $CLAUDE_SETTINGS (idempotent)"
+else
+  warn "Could not register the Stop hook in $CLAUDE_SETTINGS — fix the file and re-run ./install.sh"
+fi
+if command -v codex >/dev/null 2>&1; then
+  if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CODEX_HOOKS" --event Stop --command "$(hook_command codex)"; then
+    ok "Codex Stop hook registered in $CODEX_HOOKS"
+  else
+    warn "Could not register the Codex hook in $CODEX_HOOKS"
+  fi
+fi
+
 # --- 6. launchd backend ---
 hdr "6. Backend service (launchd)"
 if backend_healthy; then
@@ -362,6 +404,7 @@ if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
 else
   echo "  MCP:           manual JSON snippet printed above"
 fi
+echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop → api/hooks/capture.py)"
 echo "  launchd:       $PLIST_PATH"
 [ "$DO_SKILL" -eq 1 ] && echo "  skill:         $CLAUDE_SKILLS_DIR/cicada/SKILL.md"
 echo "  API token:     ${CICADA_HOME:-$HOME/.cicada}/api_token (the app and MCP server read it automatically)"

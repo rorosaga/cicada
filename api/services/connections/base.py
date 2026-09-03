@@ -83,7 +83,13 @@ def _resolve_argv(argv: list[str]) -> list[str] | None:
 
 
 def scrubbed_env() -> dict[str, str]:
-    return {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV_KEYS}
+    """Provider keys stripped, and ``CICADA_CAPTURE=off`` set: every CLI
+    Cicada spawns runs under this, and the G105 Stop hook exits on that
+    variable — otherwise Sleep's own ``claude -p`` extraction prompts would
+    be captured back into the bank as episodes (R8)."""
+    env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV_KEYS}
+    env["CICADA_CAPTURE"] = "off"
+    return env
 
 
 async def run_cli(
