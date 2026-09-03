@@ -40,12 +40,18 @@ struct HeatmapView: View {
                     RoundedRectangle(cornerRadius: 2).stroke(CicadaTheme.textPrimary, lineWidth: 1)
                 }
             }
-            .help(c.map(tooltip) ?? "")
+            .help(c.map(Self.tooltip) ?? "")
             .onTapGesture { if let c { selected = selected?.date == c.date ? nil : byDate[c.date] } }
     }
 
-    private func tooltip(_ c: CalendarCell) -> String {
-        "\(c.date) · \(c.memoryWrites) memory write\(c.memoryWrites == 1 ? "" : "s") · \(c.events) event\(c.events == 1 ? "" : "s") · \(UsageFormat.tokens(c.tokens)) tokens"
+    /// The cell's hover text. Writes always, events only when there are any,
+    /// tokens NEVER — the 2026-09-03 ruling on the G124 row took token counts
+    /// out of the app; `CalendarCell.tokens` stays decoded but unrendered.
+    /// Static and pure so the "never tokens" rule is unit-tested.
+    static func tooltip(_ c: CalendarCell) -> String {
+        var text = "\(c.date) · \(c.memoryWrites) memory write\(c.memoryWrites == 1 ? "" : "s")"
+        if c.events > 0 { text += " · \(c.events) event\(c.events == 1 ? "" : "s")" }
+        return text
     }
 
     private func monthRow(_ cols: [[CalendarCell?]]) -> some View {

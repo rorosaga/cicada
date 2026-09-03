@@ -132,10 +132,10 @@ final class UsageViewModel {
     /// all-zero range whether the selected range simply hasn't loaded for the
     /// first time yet (`!hasLoadedSelectedRange` — before `Store.bootstrap()`
     /// lands, or before a non-default range's first response arrives) or a
-    /// fetch is actively in flight (mirrors `UsageAdvancedView.showsProgress`,
-    /// same two loading flags). `UsageSection.tiles` gates on this so it never
-    /// renders the tile row's numbers as if they were loaded when they are
-    /// either not here yet or already known stale.
+    /// fetch is actively in flight (the static `showsProgress(isLoadingRange:
+    /// isLoading:)` below, same two loading flags). `AdvancedStatsView` gates
+    /// its tile row on this so it never renders the numbers as if they were
+    /// loaded when they are either not here yet or already known stale.
     ///
     /// PR #19 round-4 review: a *failed* fetch also leaves
     /// `hasLoadedSelectedRange` false forever (the catch path in `loadRange()`
@@ -147,20 +147,23 @@ final class UsageViewModel {
     /// of zeroes" concern this guarded against belongs to the value-rendering
     /// branches themselves (`isEmptyRange` and the tile/table views), which
     /// already require `errorMessage == nil` on their own — see
-    /// `UsageSection.tiles` and `UsageAdvancedView.body`.
+    /// `AdvancedStatsView.body`.
     var showsProgress: Bool {
         guard errorMessage == nil else { return false }
-        return !hasLoadedSelectedRange || UsageAdvancedView.showsProgress(isLoadingRange: isLoadingRange, isLoading: isLoading)
+        return !hasLoadedSelectedRange || Self.showsProgress(isLoadingRange: isLoadingRange, isLoading: isLoading)
     }
 
-    /// Flat monthly price of every connected subscription, or nil when none.
-    var subscriptionUsdMonth: Double? {
-        let prices = connections.filter { $0.billing == "subscription" && $0.connected }.compactMap(\.priceUsdMonth)
-        return prices.isEmpty ? nil : prices.reduce(0, +)
-    }
-
-    var costLine: String {
-        UsageFormat.costLine(costUsd: summary.costUsd, equivUsd: summary.equivCostUsd, subscriptionUsd: subscriptionUsdMonth)
+    /// M1: the old guard (`isLoadingRange` alone) only covers a non-month
+    /// range fetch. For `range == "month"`, `stats` reads straight from
+    /// `store.consumption` — `nil` on a first-ever launch and after a bank
+    /// switch — so the plain `isLoadingRange` check let the month view fall
+    /// through to "No usage in this range" mid-reconcile. `isLoading` covers
+    /// that case. Pulled out as a pure function (rather than inlined) so the
+    /// precedence is unit-testable. Lived on `UsageAdvancedView` until G124
+    /// deleted that view; `nonisolated` because it touches no state and the
+    /// test calls it off the main actor.
+    nonisolated static func showsProgress(isLoadingRange: Bool, isLoading: Bool) -> Bool {
+        isLoadingRange || isLoading
     }
 
     // MARK: - Loading

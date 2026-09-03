@@ -1169,6 +1169,31 @@ actor APIClient {
         }
     }
 
+    /// G124 R14 — one contributor's memory-write calendar. On demand, like the
+    /// commit drill-down: no Store domain, no ETag on the app side. Same
+    /// author encoding as `fetchContributorCommits` so a `+` in a model id
+    /// never decodes to a space server-side.
+    func fetchContributorCalendar(author: String, weeks: Int = 53) async throws -> ContributorCalendar {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        let a = author.addingPercentEncoding(withAllowedCharacters: allowed) ?? author
+        return try await get("/contributors/calendar?author=\(a)&weeks=\(weeks)")
+    }
+
+    /// G124 — most-written / most-read entity pages, counts only.
+    func fetchTopEntities(limit: Int = 10, range: String = "all") async throws -> TopEntities {
+        try await get("/contributors/top-entities?limit=\(limit)&range=\(range)")
+    }
+
+    /// G124 R11 — the app opened an entity card. Fire-and-forget: a ledger
+    /// miss, a 404 (the page vanished between click and open) or an old
+    /// backend must never surface on the card, so every error is swallowed.
+    /// The body is ids-only — an entity id and the surface enum, never a
+    /// title or body text — by the telemetry rail on the G124 row.
+    func recordEntityRead(id: String) async {
+        _ = try? await post("/entities/\(id)/read", body: ["surface": "app"]) as Data
+    }
+
     // MARK: - Conversations (G48)
 
     /// `GET /conversations/recent?limit=&harness=&origin=` — conversations

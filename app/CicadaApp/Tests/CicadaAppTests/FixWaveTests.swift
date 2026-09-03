@@ -115,10 +115,12 @@ final class FixWaveTests: XCTestCase {
     /// reads straight from `store.consumption` and is `nil` on a first-ever
     /// launch or after a bank switch, so the panel fell through to
     /// "No usage in this range" mid-reconcile.
+    /// G124 moved the static from the deleted `UsageAdvancedView` onto
+    /// `UsageViewModel`; the precedence rule is unchanged.
     func testUsageAdvancedShowsProgressWhileEitherLoadingFlagIsSet() {
-        XCTAssertTrue(UsageAdvancedView.showsProgress(isLoadingRange: true, isLoading: false))
-        XCTAssertTrue(UsageAdvancedView.showsProgress(isLoadingRange: false, isLoading: true))
-        XCTAssertFalse(UsageAdvancedView.showsProgress(isLoadingRange: false, isLoading: false))
+        XCTAssertTrue(UsageViewModel.showsProgress(isLoadingRange: true, isLoading: false))
+        XCTAssertTrue(UsageViewModel.showsProgress(isLoadingRange: false, isLoading: true))
+        XCTAssertFalse(UsageViewModel.showsProgress(isLoadingRange: false, isLoading: false))
     }
 
     // MARK: M3 — Settings scene re-paints on theme toggle

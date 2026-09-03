@@ -220,7 +220,7 @@ final class UsageRangeTests: XCTestCase {
     /// `showsProgress` must instead clear once the attempt is *done*
     /// (success or failure) so the error can render; not falling through to
     /// zero-valued data is now the job of the view's own error branch (see
-    /// `UsageSection.tiles` / `UsageAdvancedView.body`), which — like
+    /// `AdvancedStatsView.body`, the G124 successor of the Usage views), which — like
     /// `isEmptyRange` — requires `errorMessage == nil`.
     func testShowsProgressClearsAfterAFailedRangeFetchSoTheErrorCanRender() async throws {
         struct Boom: Error {}
