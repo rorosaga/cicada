@@ -146,9 +146,19 @@ def build_overview(memory_path: Path, *, channels: list[dict]) -> list[dict]:
         if _sortable(ts) > _sortable(state["last_activity_at"]):
             state["last_activity_at"] = ts
 
+    # Final review M1: the `files` card must count what its page renders. The
+    # page (ChannelSourceView.items) lists the Feed items whose page carries
+    # no `origin:`, but `channel_registry`'s `files.count` is `len(url_index)`
+    # — every item `ingest_batch` ever wrote, bookmarks/pins/iCloud tabs
+    # included — so a bank with 400 imported bookmarks and 3 pasted links read
+    # "400 items" on a card whose page showed 3. Counted here, on the same
+    # entity walk as the credits, from the pages themselves.
+    nil_origin_media = 0
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         entity_id = str(fm.get("id") or f.stem)
+        if fm.get("type") == "media" and not str(fm.get("origin") or "").strip():
+            nil_origin_media += 1
         for ep_id in fm.get("source_episodes", []) or []:
             key = episode_key.get(str(ep_id))
             if key:
@@ -159,8 +169,19 @@ def build_overview(memory_path: Path, *, channels: list[dict]) -> list[dict]:
         if spec is None:
             continue
         state = states.setdefault(spec.id, _new_state(spec.id))
-        state["items"] = int(channel.get("count") or 0)
-        state["connected"] = bool(channel.get("connected"))
+        if spec.id == "files":
+            # Items AND connected follow the nil-origin set: a bank holding
+            # only imported bookmarks has no Files & links evidence (R2), so
+            # it gets no card rather than a connected one reading "0 items".
+            # `rss` (the other origin-less row) deliberately keeps the
+            # channel's count — that is the subscription count its page's
+            # state card already shows, and the honest fix is `ingest_feed`
+            # stamping an origin (the follow-up on the G124 row).
+            state["items"] = nil_origin_media
+            state["connected"] = nil_origin_media > 0
+        else:
+            state["items"] = int(channel.get("count") or 0)
+            state["connected"] = bool(channel.get("connected"))
         state["last_error"] = channel.get("last_error")
         state["actions"] = list(channel.get("actions") or [])
         last_sync = str(channel.get("last_sync") or "")

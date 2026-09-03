@@ -112,11 +112,21 @@ def test_calendar_route_is_per_author_and_etagged(client):
 
 def test_top_entities_route_merges_git_and_ledger(client):
     from api.services import telemetry as tm
+    empty = client.get("/contributors/top-entities?limit=5&range=all")
+    assert empty.json()["read"] == []
+    stale = empty.headers["etag"]
     tm.record_read("bob-example", surface="app", bank="memory")
     tm.record_read("bob-example", surface="mcp", bank="memory")
     tm.record_read("alpha-project", surface="mcp-recall", bank="memory")
-    body = client.get("/contributors/top-entities?limit=5&range=all").json()
+    # Final review M2: reads are filed apart from the `telemetry` component,
+    # so this endpoint's ETag must move on its own when the reads file grows —
+    # a 304 here would pin the most-read list to the pre-read payload.
+    fresh = client.get("/contributors/top-entities?limit=5&range=all", headers={"If-None-Match": stale})
+    assert fresh.status_code == 200 and fresh.headers["etag"] != stale
+    body = fresh.json()
     assert body["written"][0]["entityId"] == "alpha-project" and body["written"][0]["commits"] == 3
     assert body["commitsScanned"] == 5 and body["range"] == "all"
     assert [(r["entityId"], r["reads"]) for r in body["read"]] == [("bob-example", 2), ("alpha-project", 1)]
     assert body["read"][0]["lastRead"]
+    assert client.get("/contributors/top-entities?limit=5&range=all",
+                      headers={"If-None-Match": fresh.headers["etag"]}).status_code == 304

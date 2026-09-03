@@ -22,12 +22,12 @@ in the app; `/consumption/*` and the ledger are untouched. A persisted "Activity
 Sources. Owner-present check after `make install-app`: ⌘6, a harness card → Resume, Safari → Sync now,
 Advanced on → no `$`.
 
-**G118 slice 1 — evidence spans — is on `feat/provenance-spans` (worktree `.worktrees/g118`), awaiting a PR
-against `dev`:** every new claim carries `evidence` spans (offsets + hash into the stored body, never copies),
-`cicada_write_claim` cites `{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift
-change; legacy claims show no evidence, honestly.
+**G118 slice 1 — evidence spans — merged as PR #44 (`feat/provenance-spans`):** every new claim carries
+`evidence` spans (offsets + hash into the stored body, never copies), `cicada_write_claim` cites
+`{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift change; legacy claims
+show no evidence, honestly.
 
-**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`). **No open PRs** other than the pending `feat/provenance-spans` one; `feat/link-summaries` merged as PR #40 (see the G102 paragraph below).
+**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`) — then #40 (`feat/link-summaries`, the G102 cheap slice, see the G102 paragraph below) and #44 (`feat/provenance-spans`, G118 slice 1). **No open PRs** other than the pending `feat/sources-page` one (G124).
 
 **G102 cheap slice (merged as PR #40 from `feat/link-summaries`):** saved links get descriptions + `about` edges nightly (20/night, oldest first) and on demand. **One-time warm-up the owner can run now:** `curl -s -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" "http://127.0.0.1:8000/maintenance/enrich-links?limit=50"` — repeat until `remaining` is 0 (each run: ≤ 50 fetches + summaries on the resolved engine, ~7 extraction calls); the response's `engine` says whether the plan or the API key paid.
 The big one is **#25 — the agent engine (G74a)**: Sleep can now run on the user's Claude Max plan
@@ -144,9 +144,9 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-**Nothing is broken; two branches are awaiting a PR: `feat/sources-page` (G124 — the Sources page,
-worktree `.worktrees/g124`) and `feat/provenance-spans` (G118 slice 1 — evidence spans,
-worktree `.worktrees/g118`). `feat/link-summaries` (G102 cheap slice) merged as PR #40.**
+**Nothing is broken; one branch is awaiting a PR: `feat/sources-page` (G124 — the Sources page,
+worktree `.worktrees/g124`). `feat/provenance-spans` (G118 slice 1 — evidence spans) merged as PR #44;
+`feat/link-summaries` (G102 cheap slice) merged as PR #40.**
 `feat/mascot` merged as PR #36.
 Its last unchecked box is the visual pass on the installed app — menu bar in light and dark, the
 Sleep page at 120 pt, Reduce Motion holding frame 0 — which needs `make install-app` and Rodrigo at
@@ -190,10 +190,10 @@ three-lens judge → decision memo) rather than a blind re-tune.
    needs a permission prompt accepted.
 
 **Worktrees:** `.worktrees/g124` holds `feat/sources-page` (G124) until its PR merges;
-`.worktrees/g118` holds `feat/provenance-spans` (G118 slice 1) until its PR merges;
 `.worktrees/safari-import` holds `feat/safari-import` until its PR merges;
-`.worktrees/g113` (`feat/feedback-ledger`), `.worktrees/link-summaries` and `.worktrees/mascot` are
-other in-flight branches — check each's `git status --porcelain -uall` before touching it. Never
+`.worktrees/g118` (`feat/provenance-spans`, merged as PR #44), `.worktrees/g113` (`feat/feedback-ledger`),
+`.worktrees/link-summaries` and `.worktrees/mascot` are other in-flight or already-merged branches —
+check each's `git status --porcelain -uall` before touching it. Never
 commit a `*-report.md` left as untracked scratch in any of them. `git worktree list` to see them; never `--force`-remove one without
 looking at `git status --porcelain -uall` in it first.
 
@@ -206,7 +206,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-03 (G124 on `feat/sources-page`, PR pending; G118 slice 1 on `feat/provenance-spans`, PR pending); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
+_Last synced: 2026-09-03 (G124 on `feat/sources-page`, PR pending; G118 slice 1 merged as PR #44); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
 
 ---
 

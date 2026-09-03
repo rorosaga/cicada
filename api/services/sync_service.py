@@ -178,8 +178,15 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # sleep run, or agentic write always appends to it. The month is UTC's,
         # because that is the clock `telemetry.record` stamps events with — the
         # machine's local month names the wrong file either side of a boundary.
+        # The sibling `reads-YYYY-MM.jsonl` (the `read` kind, G124) is
+        # deliberately NOT stat'd: the app maps this component onto its
+        # `.consumption` domain, and a tick refetches every `/consumption/*`
+        # endpoint — five GETs per entity-card open, `/harness` walking
+        # `~/.codex/sessions` among them (G124 final review M2). The one
+        # endpoint that reports reads folds that file's mtime into its own
+        # ETag (`/contributors/top-entities`).
         "telemetry": (
-            f"{file_mtime(telemetry.telemetry_dir() / f'events-{_utc_now():%Y-%m}.jsonl'):.6f}"
+            f"{file_mtime(telemetry.ledger_file(f'{_utc_now():%Y-%m}')):.6f}"
         ),
         "git_head": git_head(mp),
         "bank": mp.name,

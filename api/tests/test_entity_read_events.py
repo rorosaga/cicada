@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import consumption_stats, telemetry as tm
+from api.services import consumption_stats, sync_service, telemetry as tm
 
 mcp = importlib.import_module("mcp.server")
 
@@ -22,9 +22,11 @@ def home(tmp_path, monkeypatch):
     return tmp_path / "home"
 
 
-def _events(home):
+def _events(home, prefix="*"):
+    """Ledger rows on disk. Reads are filed in `reads-*.jsonl` beside the
+    `events-*.jsonl` spend ledger (final review M2); the default reads both."""
     out = []
-    for path in sorted((home / "telemetry").glob("events-*.jsonl")):
+    for path in sorted((home / "telemetry").glob(f"{prefix}-*.jsonl")):
         out += [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
     return out
 
@@ -38,6 +40,26 @@ def test_record_read_is_ids_only_and_non_spend(home):
     assert ev["kind"] == "read" and ev["refs"] == {"entity_id": "alpha-project", "surface": "app"}
     assert ev["invocations"] == 0 and ev["billing"] == "free" and ev["connection"] is None
     assert "read" in tm.KINDS and "read" in tm.NON_SPEND_KINDS
+
+
+def test_reads_land_in_a_sibling_file_and_never_tick_the_telemetry_component(home, tmp_path):
+    """Final review M2: the app maps `components["telemetry"]` onto its
+    `.consumption` domain and refetches every `/consumption/*` endpoint on a
+    tick — so an entity-card open must not move it. Reads go to
+    `reads-YYYY-MM.jsonl`; `events-*.jsonl` is untouched; `read_events` still
+    returns one ledger."""
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+    before = sync_service.components(memory)["telemetry"]
+    tm.record_read("alpha-project", surface="app", bank="demo")
+    assert sync_service.components(memory)["telemetry"] == before
+    assert _events(home, "reads") and not _events(home, "events")
+    assert [e.kind for e in tm.read_events()] == ["read"]
+    # a spend event still lands in events-* and still ticks the component
+    tm.record(tm.UsageEvent(kind="llm_call", model="gpt-5.4-mini", input_tokens=1, output_tokens=1))
+    assert sync_service.components(memory)["telemetry"] != before
+    assert [e["kind"] for e in _events(home, "events")] == ["llm_call"]
+    assert sorted(e.kind for e in tm.read_events()) == ["llm_call", "read"]
 
 
 def test_reads_never_invent_an_unknown_connection_in_stats(home, tmp_path):

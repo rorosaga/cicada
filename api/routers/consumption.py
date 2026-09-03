@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic.alias_generators import to_camel
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
@@ -109,4 +110,11 @@ async def connections(range_: str = Depends(_range), settings: Settings = Depend
 
 @router.get("/harness", response_model=HarnessStats)
 async def harness():
-    return HarnessStats(claude_code=harness_stats.claude_code_stats(), codex=harness_stats.codex_rate_limits())
+    # Off the event loop (G124 final review M2): `codex_rate_limits` rglobs
+    # `~/.codex/sessions` and reads up to 20 files, `claude_code_stats` reads
+    # the Claude config — both synchronous, and this endpoint is refetched
+    # whenever the app's `.consumption` domain ticks. Inline, that stalled the
+    # SSE stream the same way `/origins`' cold origin scan did.
+    claude_code = await run_in_threadpool(harness_stats.claude_code_stats)
+    codex = await run_in_threadpool(harness_stats.codex_rate_limits)
+    return HarnessStats(claude_code=claude_code, codex=codex)

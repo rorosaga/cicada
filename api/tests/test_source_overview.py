@@ -123,6 +123,40 @@ def test_unknown_origin_gets_an_open_family_row_and_empty_catalog_rows_are_hidde
     assert "files" not in rows, "an empty url index is no evidence either (R1: files has no origins of its own)"
 
 
+def _media_page(memory, entity_id, *, origin=None):
+    origin_line = f"origin: {origin}\n" if origin else ""
+    (memory / "entities" / f"{entity_id}.md").write_text(
+        f"---\nid: {entity_id}\ntype: media\nstatus: active\nconfidence: 0.9\n{origin_line}"
+        f"source_episodes: []\nrelated: []\nmedia:\n  url: https://example.com/{entity_id}\n---\n\n# {entity_id}\n",
+        encoding="utf-8")
+
+
+def test_files_row_counts_nil_origin_media_pages_not_the_url_index(bank):
+    """Final review M1: the Files & links page lists the Feed items whose page
+    carries no `origin:`, so its card must count exactly those — not
+    `len(url_index)`, which is every item `ingest_batch` ever wrote. Three
+    imported bookmarks + one pasted link: the card says 1, not 4."""
+    from api.services import media_ingestor
+    index = {}
+    for i, origin in enumerate(("safari-bookmark", "safari-bookmark", "chrome-bookmark", None)):
+        entity_id = f"media-{i}"
+        _media_page(bank, entity_id, origin=origin)
+        index[f"h{i}"] = {"media_entity_id": entity_id, "episode_id": "ep_x", "url": f"https://example.com/{i}",
+                          "title": entity_id, "media_type": "url", "thumbnail": None,
+                          "saved_at": "2026-08-04T10:00:00+00:00"}
+    media_ingestor.save_url_index(bank, index)
+    bank_index.invalidate()
+    rows = _rows(bank)
+    assert rows["files"]["items"] == 1 and rows["files"]["connected"] is True
+    channels = {c["id"]: c for c in channel_registry.build_channels(bank, telegram_enabled=False)}
+    assert channels["files"]["count"] == 4, "the channel row keeps counting the whole index — only the card changed"
+    assert rows["safari-bookmarks"]["items"] == 42, "an origin-bearing row still reads its channel's count"
+    # only imported pages -> no nil-origin evidence -> no Files & links card (R2)
+    (bank / "entities" / "media-3.md").unlink()
+    bank_index.invalidate()
+    assert "files" not in _rows(bank)
+
+
 def test_rows_are_ordered_by_kind_then_recency(bank):
     ordered = source_overview.build_overview(
         bank, channels=channel_registry.build_channels(bank, telegram_enabled=False))

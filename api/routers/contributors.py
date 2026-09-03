@@ -19,7 +19,8 @@ from api.models.schemas import (
     TopEntityRead,
     TopEntityWrite,
 )
-from api.services import consumption_stats, git_service, sync_service
+from api.services import consumption_stats, git_service, sync_service, telemetry
+from api.services.graph_builder import file_mtime
 
 router = APIRouter()
 
@@ -96,13 +97,20 @@ async def get_top_entities(
 ):
     """Most-written (git) and most-read (ledger) entity pages (G124).
 
-    Two sources, one ETag: ``git_head`` for the writes, ``telemetry`` for the
-    reads, the UTC date for the rolling range. Counts only — no cost, no
-    tokens — by the 2026-09-03 ruling on the G124 row.
+    Two sources, one ETag: ``git_head`` for the writes, the reads ledger's
+    mtime for the reads, the UTC date for the rolling range. The reads are
+    filed in ``reads-YYYY-MM.jsonl``, which no ``sync_service`` component
+    watches on purpose (G124 final review M2: a card open must not tick the
+    app's `.consumption` domain), so this on-demand endpoint folds that
+    file's mtime into its ``extra`` itself rather than naming the
+    ``telemetry`` component — which stats only ``events-*`` and would 304 a
+    stale most-read list. Counts only — no cost, no tokens — by the
+    2026-09-03 ruling on the G124 row.
     """
     today = _utc_today()
+    reads_mtime = file_mtime(telemetry.ledger_file(f"{today:%Y-%m}", kind=telemetry.READS_KIND))
     etag = sync_service.etag_for(
-        settings.memory_path, "git_head", "telemetry", extra=f"{limit}:{range_}:{today}")
+        settings.memory_path, "git_head", extra=f"{limit}:{range_}:{today}:{reads_mtime:.6f}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     written, scanned = await git_service.top_written_entities(settings.memory_path, limit=limit)
