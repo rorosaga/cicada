@@ -164,10 +164,10 @@ struct ContentView: View {
             SleepView(selectedTab: $selectedTab)
         case .inbox:
             InboxListView()
-        case .activity:
-            // An entity chip on a conversation row navigates the same way an
-            // Ask citation does: select in the graph, then show the graph.
-            ActivityView { entityId in
+        case .sources:
+            // An entity chip on a source page's conversation row navigates the
+            // same way an Ask citation does: select in the graph, then show it.
+            SourcesPageView { entityId in
                 withAnimation(.spring(duration: 0.25)) { selectedTab = .graph }
                 graphVM.selectEntity(id: entityId)
             }

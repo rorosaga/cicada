@@ -7,7 +7,7 @@ import XCTest
 final class SidebarTabTests: XCTestCase {
 
     func testTheSidebarIsSixRowsInVisualOrder() {
-        XCTAssertEqual(AppTab.allCases, [.graph, .clusters, .feed, .sleep, .inbox, .activity])
+        XCTAssertEqual(AppTab.allCases, [.graph, .clusters, .feed, .sleep, .inbox, .sources])
     }
 
     /// Raw values ARE the persisted identity. A surviving tab must never
@@ -18,16 +18,18 @@ final class SidebarTabTests: XCTestCase {
         XCTAssertEqual(AppTab.feed.rawValue, "Feed")
         XCTAssertEqual(AppTab.sleep.rawValue, "Sleep")
         XCTAssertEqual(AppTab.inbox.rawValue, "Inbox")
-        XCTAssertEqual(AppTab.activity.rawValue, "Activity")
+        XCTAssertEqual(AppTab.sources.rawValue, "Sources")
     }
 
-    /// The five retired raw values still exist in some user's defaults. Each
+    /// The six retired raw values still exist in some user's defaults. Each
     /// must land on the page that inherited its content — never trap, never
-    /// silently show the wrong thing.
+    /// silently show the wrong thing. G124: Activity itself retired into
+    /// Sources, taking the two G68 aliases with it.
     func testRetiredTabsFallBackToWhereTheirContentWent() {
         XCTAssertEqual(AppTab.restored(from: "Capture"), .feed)
-        XCTAssertEqual(AppTab.restored(from: "Contributors"), .activity)
-        XCTAssertEqual(AppTab.restored(from: "Usage"), .activity)
+        XCTAssertEqual(AppTab.restored(from: "Activity"), .sources)
+        XCTAssertEqual(AppTab.restored(from: "Contributors"), .sources)
+        XCTAssertEqual(AppTab.restored(from: "Usage"), .sources)
         XCTAssertEqual(AppTab.restored(from: "Connections"), .graph)
         XCTAssertEqual(AppTab.restored(from: "Connect"), .graph)
     }

@@ -31,6 +31,8 @@ final class Store {
     var calendars = Snapshot<[CalendarSubscription]>()
     var contributors = Snapshot<[Contributor]>()
     var origins = Snapshot<[OriginStat]>()
+    /// G124 — the Sources page's card grid. Per-bank like `origins`.
+    var sourcesOverview = Snapshot<[SourceOverview]>()
     var connections = Snapshot<[ConnectionStatus]>()
     var status = Snapshot<StatusSnapshot>()
     /// Usage dashboard (G51) default view. Machine-global, cached under
@@ -193,6 +195,7 @@ final class Store {
         await take(.calendars, \.calendars)
         await take(.contributors, \.contributors)
         await take(.origins, \.origins)
+        await take(.sourcesOverview, \.sourcesOverview)
         await take(.connections, \.connections)
         // Machine-global like the banks roster above (see the `consumption`
         // property comment) — read from `rosterBank`, not the per-bank `take()`.
@@ -249,6 +252,7 @@ final class Store {
             case .calendars: await refreshOne(domain, \.calendars) { [api] e in try await api.fetchCalendars(etag: e) }
             case .contributors: await refreshOne(domain, \.contributors) { [api] e in try await api.fetchContributors(etag: e) }
             case .origins: await refreshOne(domain, \.origins) { [api] e in try await api.fetchOrigins(etag: e) }
+            case .sourcesOverview: await refreshOne(domain, \.sourcesOverview) { [api] e in try await api.fetchSourcesOverview(etag: e) }
             case .connections: await refreshOne(domain, \.connections) { [api] e in try await api.fetchConnections(etag: e) }
             case .consumption: await refreshOne(domain, \.consumption) { [api, self] e in
                 try await api.fetchConsumption(etag: e, current: self.consumption.value)
@@ -486,6 +490,7 @@ final class Store {
         calendars.isRefreshing = false
         contributors.isRefreshing = false
         origins.isRefreshing = false
+        sourcesOverview.isRefreshing = false
         connections.isRefreshing = false
         consumption.isRefreshing = false
         status.isRefreshing = false

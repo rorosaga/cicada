@@ -222,6 +222,12 @@ struct MediaFeedItem: Codable, Identifiable {
     /// decodes; `nil` means "not described / related yet", never a guess.
     let description: String?
     let about: [String]?
+    /// G124 R6 — the media page's own origin / folder (bookmark folder, board,
+    /// device). Optional: an older backend or a pre-origin page has neither.
+    /// The Sources page filters the Feed's items to one source by `origin`
+    /// and groups them by `folder`; nothing else reads them.
+    let origin: String?
+    let folder: String?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -266,6 +272,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case savedAt, tags, status, relatedCount, relevance, personalRelevance
         case contentSavedAt
         case description, about
+        case origin, folder
     }
 
     init(from decoder: Decoder) throws {
@@ -286,6 +293,8 @@ struct MediaFeedItem: Codable, Identifiable {
         contentSavedAt = try c.decodeIfPresent(String.self, forKey: .contentSavedAt)
         description = try c.decodeIfPresent(String.self, forKey: .description)
         about = try c.decodeIfPresent([String].self, forKey: .about)
+        origin = try c.decodeIfPresent(String.self, forKey: .origin)
+        folder = try c.decodeIfPresent(String.self, forKey: .folder)
     }
 }
 
@@ -1162,14 +1171,29 @@ actor APIClient {
 
     // MARK: - Conversations (G48)
 
-    /// `GET /conversations/recent?limit=` — conversations that wrote to
-    /// memory, newest write first. On demand only, like `/contributors/commits`
-    /// — no Store domain, no ETag. A 404 means the backend predates this
-    /// endpoint, not that the fetch failed, so it degrades to an empty list
-    /// rather than throwing.
-    func fetchRecentConversations(limit: Int = 20) async throws -> [ConversationSummary] {
+    /// `GET /conversations/recent?limit=&harness=&origin=` — conversations
+    /// that wrote to memory, newest write first. On demand only, like
+    /// `/contributors/commits` — no Store domain, no ETag. A 404 means the
+    /// backend predates this endpoint, not that the fetch failed, so it
+    /// degrades to an empty list rather than throwing.
+    ///
+    /// G124 R5: the filters are applied by the backend BEFORE its 200-row cap,
+    /// so a harness's page never loses an older conversation to the cap.
+    /// `harness: "unknown"` travels literally — the backend matches it to an
+    /// empty harness. Values are percent-encoded the way
+    /// `fetchContributorCommits` encodes `author`.
+    func fetchRecentConversations(limit: Int = 20, harness: String? = nil, origin: String? = nil) async throws -> [ConversationSummary] {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        var path = "/conversations/recent?limit=\(limit)"
+        if let harness {
+            path += "&harness=\(harness.addingPercentEncoding(withAllowedCharacters: allowed) ?? harness)"
+        }
+        if let origin {
+            path += "&origin=\(origin.addingPercentEncoding(withAllowedCharacters: allowed) ?? origin)"
+        }
         do {
-            return try await get("/conversations/recent?limit=\(limit)")
+            return try await get(path)
         } catch APIError.httpError(404, _) {
             return []
         }
@@ -1918,6 +1942,18 @@ extension APIClient: SyncAPI {
         do {
             let c: Conditional<OriginsResponse> = try await getConditional("/origins", etag: etag)
             return c.map(\.origins)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    /// G124 — `GET /sources/overview`. A 404 means the backend predates the
+    /// endpoint: keep whatever snapshot the page already has rather than
+    /// blanking the grid.
+    func fetchSourcesOverview(etag: String?) async throws -> Conditional<[SourceOverview]> {
+        do {
+            let c: Conditional<SourceOverviewResponse> = try await getConditional("/sources/overview", etag: etag)
+            return c.map(\.sources)
         } catch APIError.httpError(404, _) {
             return .unavailable(etag: etag)
         }

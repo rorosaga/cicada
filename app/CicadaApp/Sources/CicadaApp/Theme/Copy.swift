@@ -17,7 +17,7 @@ enum Copy {
     static let plansAndKeys = "Plans & keys"
     static let agents = "Agents"
     static let feed = "Feed"
-    static let activity = "Activity"
+    static let sources = "Sources"
     /// The Settings scene's third tab (G106 amendment) — the schedule
     /// editor moved out of the Sleep page proper. Named "Schedule", not
     /// "Sleep", so a reader is never asked to tell it apart from the
@@ -107,16 +107,12 @@ enum Copy {
     static let inboxSubtitle = "Questions waiting on you."
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."
-    static let activitySubtitle = "What Cicada spent, and who authored what."
+    static let sourcesSubtitle = "Where your memory comes from, and who wrote it."
     static let scheduleSubtitle = "When Sleep runs on its own, and what powers it."
 
     // MARK: Pointers
 
     static let noConnections = "No connections yet — add one in \(settingsPlansAndKeys)."
-
-    /// Section label above the origins strip. Sentence-shaped on purpose —
-    /// it explains a row of pills that would otherwise read as decoration.
-    static let originsLabel = "WHERE YOUR MEMORY COMES FROM"
 
     // MARK: Derived
 

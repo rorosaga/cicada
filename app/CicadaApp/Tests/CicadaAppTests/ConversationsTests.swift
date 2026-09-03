@@ -108,7 +108,7 @@ final class ConversationsTests: XCTestCase {
         }
 
         let rows = try await APIClient(session: MockURLProtocol.makeSession())
-            .fetchRecentConversations(limit: 20)
+            .fetchRecentConversations(limit: 20, harness: nil, origin: nil)
 
         XCTAssertEqual(rows.map(\.id), [uuid])
     }
@@ -120,7 +120,7 @@ final class ConversationsTests: XCTestCase {
             return (response, Data("Not Found".utf8))
         }
         let rows = try await APIClient(session: MockURLProtocol.makeSession())
-            .fetchRecentConversations(limit: 20)
+            .fetchRecentConversations(limit: 20, harness: nil, origin: nil)
         XCTAssertTrue(rows.isEmpty)
     }
 
@@ -359,14 +359,5 @@ final class ConversationsTests: XCTestCase {
         let plan = ConversationRow.chipPlan(for: convo)
         XCTAssertEqual(plan.ids, ["a", "b"])
         XCTAssertEqual(plan.hidden, 0)
-    }
-
-    // MARK: - Section persistence
-
-    func testActivitySectionRoundTripsTheConversationsCase() {
-        XCTAssertEqual(ActivitySection.restored(from: "Conversations"), .conversations)
-        XCTAssertEqual(ActivitySection.conversations.rawValue, "Conversations")
-        XCTAssertEqual(ActivitySection.restored(from: "Nonsense"), .usage)
-        XCTAssertTrue(ActivitySection.allCases.contains(.conversations))
     }
 }

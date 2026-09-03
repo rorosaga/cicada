@@ -5,12 +5,14 @@ struct VersionVector: Codable, Equatable {
     let components: [String: String]
 
     static let mapping: [String: Set<SyncDomain>] = [
-        "entities": [.graph, .contributors, .origins], "edges": [.graph, .contributors, .origins], "hubs": [.graph, .contributors, .origins],
-        "inbox": [.inbox, .graph, .status], "episodes": [.status, .origins, .sources, .channels],
+        // `sourcesOverview` (G124 R7) rides `entities`, `episodes` and
+        // `sources` — the three components its ETag is computed from.
+        "entities": [.graph, .contributors, .origins, .sourcesOverview], "edges": [.graph, .contributors, .origins], "hubs": [.graph, .contributors, .origins],
+        "inbox": [.inbox, .graph, .status], "episodes": [.status, .origins, .sources, .channels, .sourcesOverview],
         // The `sources` component folds in `feeds.yaml`, `calendars.yaml` and
         // `sync_state.json` (see `sync_service.components`), so the feed,
         // calendar and capture-channel lists all ride it.
-        "sources": [.sources, .feeds, .calendars, .channels], "git_head": [.contributors], "sleep": [.status],
+        "sources": [.sources, .feeds, .calendars, .channels, .sourcesOverview], "git_head": [.contributors], "sleep": [.status],
         // The logo cache sits outside the bank; a Sleep warm-up or an on-demand
         // fetch changes `/graph`'s `hasLogo` and nothing else, so it needs its
         // own key or the node keeps painting a monogram.

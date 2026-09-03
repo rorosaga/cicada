@@ -2,9 +2,10 @@ import SwiftUI
 
 // M3 (backlog A2): "which model authored which belief" — repo-wide attribution
 // parsed from Cicada-Author commit trailers.
-/// The Contributors half of the Activity page: repo-wide model/user
-/// attribution parsed from `Cicada-Author` commit trailers. No page header of
-/// its own — `ActivityView` owns the title.
+/// The Contributors section of the Sources page (G124; the Activity page
+/// before it): repo-wide model/user attribution parsed from `Cicada-Author`
+/// commit trailers. No page header of its own — `SourcesPageView` owns the
+/// title and the section heading.
 struct ContributorsSection: View {
     @Environment(ContributorsViewModel.self) private var viewModel
 
