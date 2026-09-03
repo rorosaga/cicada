@@ -220,7 +220,7 @@ G62 capture redesign · G63 connections clarity · G64 import walkthroughs · G6
 G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars · G107 pixel mascot + single menu-bar Tamagotchi
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
-trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #TBD)** — `Claim.evidence` offsets + hash, Stage-1 quote
+trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
 verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii)
 
 **2026-08-31 → 09-01 (PRs #21–#29, merged to dev)**
@@ -344,7 +344,7 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 9b. **G118 full provenance** — spans (not copies) on every claim, the contributor's rationale as a
     citable source, the prompt/turn that triggered every agent write, and a raw-source viewer with the
     cited passage highlighted (NotebookLM, but bi-temporal and attributed). Owner-marked central to
-    the vision (2026-09-02). Slice 1 shipped (spans + agent citations + span endpoint, PR #TBD); next:
+    the vision (2026-09-02). Slice 1 shipped (spans + agent citations + span endpoint, PR #44); next:
     slice 2 viewer (Swift `Evidence` model, chips → raw pane with highlight), then triggers (needs G105),
     then rationale — L
 9e. **G122 Sleep engine & model picker** — `GET/PUT /sleep/engine`, an Engine card on the Sleep page
