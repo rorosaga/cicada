@@ -165,27 +165,6 @@ Continuous episode capture during conversations. Raw timestamped chunks go to `e
   captured. A counts-only `capture` ledger row per firing; the hook logs one line per firing to
   `~/.cicada/logs/capture.log`. Claude Desktop / ChatGPT stay export-based; Cursor and other
   harnesses have no hook yet.
-- **Hook-driven session capture (G105, deterministic):** every Claude Code session — and every
-  Codex session when the CLI is installed — is captured by the harness's own `Stop` hook
-  (`api/hooks/capture.py`, registered by `install.sh` in `~/.claude/settings.json` /
-  `~/.codex/hooks.json`, merged never clobbered, `make doctor` reports it). The hook forwards the
-  harness's stdin fields to the bearer-authed `POST /capture/transcript`; **the backend reads the
-  transcript**, and only after the path resolves under the harness root as `<session_id>.jsonl`
-  within the size cap — anything else is refused unread. `api/services/transcript_extract.py` keeps
-  exactly (a) the person's turns (`user` messages whose blocks are `text`; a `tool_result` wearing
-  the user role is dropped) and (b) the agent's **final reply per turn** (the last assistant `text`
-  after the last `tool_use`); interstitial narration, `tool_use`/`tool_result`/thinking blocks, file
-  dumps, harness-injected `<task-notification>`/`<command-…>`/`<system-reminder>` text are skipped by
-  construction. On what survives: code fences stripped, secrets scrubbed, a 2,000-char per-turn cap
-  and a head-stable 100,000-char session cap. **One episode per session** (`capture_kind:
-  transcript`, `origin: claude-code|codex`, `session_id`, `harness`, `project_dir`), body as
-  `role: text` lines exactly like the importer so G118 spans cite it; every later Stop on the same
-  session rewrites that episode in place and flips `processed: false` (`processed_by` popped) —
-  never two episodes for one conversation (G104). `CICADA_CAPTURE_ASSISTANT_REPLIES=false` keeps only
-  the person's turns. Cicada's own `claude -p` spawns run with `CICADA_CAPTURE=off` and are never
-  captured. A counts-only `capture` ledger row per firing; the hook logs one line per firing to
-  `~/.cicada/logs/capture.log`. Claude Desktop / ChatGPT stay export-based; Cursor and other
-  harnesses have no hook yet.
 - **Export-based ingestion** (ChatGPT, Claude Desktop/iOS): Periodic import from conversation exports (`/banks/{name}/import`). ChatGPT and Claude both give JSON/HTML exports parsed by dedicated import parsers.
 - **Telegram bot** (`/save`, `/note`, `/remind`): On-the-go capture of links, voice notes, text snippets, via `POST /capture/telegram`. `/save <url> <reason…>` also captures *why* — see Save-with-reason (G71) below.
 - **Browsers (G30 + 2026-09-02):** Safari bookmarks (by folder — Favorites, Bookmarks Menu, Reading List —
@@ -785,9 +764,6 @@ POST /sources/poll-feeds                  → on-demand RSS poll
 GET/POST /banks, POST /banks/{name}/activate|duplicate|rename|import → memory-bank management
 GET  /local-ref                           → resolve local device/path references
 POST /capture/telegram                    → token-gated Telegram capture webhook
-POST /capture/transcript                  → Stop-hook session capture (G105): validates the transcript
-                                            path against the harness root, extracts, writes/updates
-                                            ONE episode per session_id; 400 with an enum reason otherwise
 POST /capture/transcript                  → Stop-hook session capture (G105): validates the transcript
                                             path against the harness root, extracts, writes/updates
                                             ONE episode per session_id; 400 with an enum reason otherwise

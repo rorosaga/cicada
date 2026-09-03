@@ -128,8 +128,9 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
    `cicada_save_episode` path stays as the deliberate, agent-chosen episode.
 7. **The Stop hook, not SessionEnd, is the capture trigger** (G105 R1) — SessionEnd never fires for
    a closed window or a killed process and shares a 1.5 s budget; the endpoint's content-hash
-   short-circuit makes per-turn firing idempotent. Revisit only if per-turn transcript reads show up
-   in `capture.log` latencies above the hook's 3 s timeout on the live bank.
+   short-circuit makes per-turn firing idempotent. Revisit only if `capture.log` starts showing
+   timeout `error:` lines (the hook's 3 s budget, `TIMEOUT_S` in `api/hooks/capture.py`) on the live
+   bank — the hook logs no timing, so a blown budget surfaces as an `error:` line, not a latency figure.
 
 ## How work is run here
 
