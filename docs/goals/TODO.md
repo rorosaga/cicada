@@ -351,6 +351,9 @@ trailers, Ghostty resume)
 11. **G100** span citation — which *sentence* convinced the contributor, rendered in a
     DiffView-style source viewer with prev/next across conversations — M
 12. **G103** observer model in the UI — whose belief, who was in the room — S
+12e. **G125** Sleep page as the study desk — `reading` mascot state, the queue as a per-category study list,
+    breakdowns moved to Sources/Settings, schedule frequency picker (`interval_hours`/`after_import`), the
+    deprecated Sleep/Upload toolbar buttons removed — M
 12d. **G124** Activity → Conversations-first *Sources* page: per-harness cards with counts (clickable →
     per-source page), conversation rows with Resume, contributors calendar per model, Usage + read/write
     stats under Advanced, no segmented control, no horizontal strip — M/L (decide the sidebar order in G108)
@@ -386,7 +389,8 @@ trailers, Ghostty resume)
     (engine → capture channel → first Sleep), honest empty states per tab, and a one-click synthetic
     demo bank so the graph is never blank. Ships with G76 and G90 for a downloadable 1.0 — M
 23. **G92** onboarding at scale — decide what Cicada *is* before optimising a funnel — decision
-24. **G72** skills manager · **G73** prompt library · **G70** design memory *(absorbs G14)* — M each
+24. **G72** skills manager *(owner 2026-09-03: two halves — skills Cicada compiled about you (G112) and the
+    harness skills you actually use, ranked by the harness's own usage counters, adoptable into memory)* · **G73** prompt library · **G70** design memory *(absorbs G14)* — M each
 25. **G54** onboarding interview · **G55** executable skills · **G13** tasks/ideas backlog
 
 ### Research / decisions (not builds)
