@@ -363,6 +363,34 @@ back to whole conversations). `cicada_write_claim` accepts `sources: [str]`, att
 model that wrote the claim. Conflict generation consults them: a matching source becomes the
 card's "Source to check" hint. Nothing is fetched in this slice.
 
+### Evidence spans (G118 slice 1)
+Every claim written since this slice carries `evidence: [{episode, start, end, kind, hash}]` —
+**spans, not copies**. `episode` is a source-document id (`ep_*` → `episodes/<id>.md`; anything
+else → `entities/<id>.md`, so a `kind: page` span cites the media entity whose stored description
+it points into); `start`/`end` are character offsets into that document's *evidence text* — the
+body exactly as `markdown_parser.parse` returns it, with the ```claims fence stripped for an entity
+page, so writing a claim never stales its own span; `hash` is `sha256[:12]` of that text, and a
+mismatch reads as `stale` rather than mis-highlighting. `kind` is `user` | `assistant` (by the
+last `<role>:` turn marker at or before the span — no marker means `user`, since every marker-less
+writer captures the person's own input) | `page` | `reasoning` (the contributor's own inference:
+`start == end == -1`, never a faked span). One module, `api/services/evidence.py`, does the work
+for every writer — locate is exact → whitespace-normalised → case-insensitive and **never fuzzy**;
+an unlocatable quote becomes `reasoning` and **the claim is still written** (provenance never blocks
+memory). Writers: Stage-1 extraction asks for a verbatim `evidence_quote` per relationship and
+`extract` verifies it against the body it chunked (chunk window preferred, offsets into the whole
+body, quote consumed — nothing downstream sees it); `cicada_write_claim` / `agentic_write.write_claim`
+take `evidence: [{episode, quote}]` and record `reasoning` on the source episode when omitted; link
+recon cites the surface form it grounded on as a `page` span; the Telegram `saved-because` claim
+cites its `## Saved because` section. `claim_reconciler._reinforce` merges a later conversation's
+spans onto the existing claim. **Legacy claims carry no `evidence` and `to_dict` omits the empty
+key** — an empty list means "written before evidence existed", a `reasoning` entry means "no source
+text"; no backfill (G100's derived-span class, if it ever ships, is a distinct kind). Read path:
+`evidence` rides `GET /entities/{id}/claims`, `/timeline` and `/transclude` (camelCase, additive —
+the app's `Claim` decoder ignores unknown keys), and `GET /episodes/{id}/span?start=&end=&context=&hash=`
+slices the evidence text back out, engine-free, with `stale` and the derived `kind`. No ETag on
+either (the span response validates itself; no new `sync_service` component). Out of scope until
+the later slices: the highlight viewer, trigger traces, rationale, backfill.
+
 ### Save-with-reason (G71)
 A Telegram `/save <url> <reason…>` writes the reason twice: verbatim as a
 `## Saved because` section on the media episode (so Stage-1 extraction mines its
@@ -668,9 +696,12 @@ GET  /entities/{id}/logo                  → cached entity logo image (ETag, ma
 GET  /entities/{id}/sources               → declared "where to check this fact" sources (G61)
 POST /entities/{id}/sources               → append a source {ref, kind?, predicate?}; kind inferred
 DELETE /entities/{id}/sources/{index}     → remove one source
-GET  /entities/{id}/claims                → claim layer for an entity
-GET  /entities/{id}/timeline              → bi-temporal claim timeline
+GET  /entities/{id}/claims                → claim layer for an entity (+ evidence spans, G118)
+GET  /entities/{id}/timeline              → bi-temporal claim timeline (+ evidence spans, G118)
 GET  /transclude                          → transclusion payload for embedding one page inside another
+GET  /episodes/{id}/span                  → slice a stored document's evidence text at [start,end) with
+                                            context (default 240, max 2000); `hash=` → `stale`; `kind`
+                                            derived; 404 unknown doc, 422 bad range (G118 slice 1)
 GET  /contributors                        → repo-wide per-author (model/user) commit/file/entity counts + last-active
 GET  /contributors/commits?author=&limit= → one author's recent commits (+ entities touched) for the diff drill-down
 GET  /origins                             → origin-harness provenance aggregation (G9)
