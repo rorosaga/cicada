@@ -864,6 +864,9 @@ def handle_recall(query: str) -> str:
         (h.get("entity_id") or h.get("id")) for h in merged[:7]
         if (h.get("entity_id") or h.get("id"))
     ]
+    from api.services import telemetry  # G124 R11: a suggested page is a read (ids only)
+    for _eid in suggested:
+        telemetry.record_read(_eid, surface="mcp-recall", bank=memory_path.name)
     if not suggested and hub_member_ids:
         suggested = hub_member_ids[:7]
     hints_block = _hints_block(suggested, relevant_hub, hub_member_ids)
@@ -1081,6 +1084,8 @@ def handle_recall_detail(entity_id: str) -> str:
     for cid in candidate_ids:
         path = entities_dir / f"{cid}.md"
         if path.exists():
+            from api.services import telemetry  # G124 R11: ids only, never the page text
+            telemetry.record_read(cid, surface="mcp", bank=memory_path.name)
             return path.read_text(encoding="utf-8")
 
     return f"Entity '{entity_id}' not found."

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -238,6 +238,39 @@ class ContributorCommitsResponse(CamelModel):
 
 class ContributorsResponse(CamelModel):
     contributors: list[Contributor] = []
+
+
+class TopEntityWrite(CamelModel):
+    entity_id: str
+    commits: int = 0
+    last_written: str = ""  # ISO date
+
+
+class TopEntityRead(CamelModel):
+    entity_id: str
+    reads: int = 0
+    last_read: str = ""  # ISO timestamp
+
+
+class TopEntities(CamelModel):
+    """Most-written (git, bounded by ``git_service.TOP_ENTITIES_LOG_WINDOW`` —
+    ``commits_scanned`` says how far back) and most-read (the ids-only ``read``
+    ledger kind) entity pages — G124's read/write stats, all engine-free."""
+
+    written: list[TopEntityWrite] = []
+    read: list[TopEntityRead] = []
+    commits_scanned: int = 0
+    range: str = "all"
+
+
+class EntityReadRequest(CamelModel):
+    # G124 R11: the app's card open. ``mcp``/``mcp-recall`` reads are recorded
+    # by the MCP server itself, never posted through this route.
+    surface: Literal["app", "mcp"] = "app"
+
+
+class EntityReadResponse(CamelModel):
+    recorded: bool
 
 
 # --- Origins (capture-provenance aggregation) ---
@@ -1638,6 +1671,16 @@ class CalendarDay(CamelModel):
 class ConsumptionCalendar(CamelModel):
     days: list[CalendarDay]
     weeks: int
+
+
+class ContributorCalendar(CamelModel):
+    """`/consumption/calendar`'s shape for one `Cicada-Author` (G124 R14).
+    ``days`` reuse ``CalendarDay`` with events/tokens/cost at zero so the app
+    renders it with the same heatmap and no new cell type."""
+
+    author: str
+    days: list[CalendarDay] = []
+    weeks: int = 53
 
 
 class ConsumptionStats(CamelModel):

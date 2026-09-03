@@ -20,7 +20,7 @@ from api.services.auth import cicada_home
 
 KINDS = (
     "llm_call", "sleep_run", "agentic_write", "ask", "import", "throttle",
-    "resolution", "audit", "dedup_verdict",
+    "resolution", "audit", "dedup_verdict", "read",
 )
 # G113: grounded-feedback rows — a user's verdict on an inbox item, a reconcile
 # supersede/reject, a dedup judgement. Ids/enums/numbers only, never claim text
@@ -29,6 +29,11 @@ KINDS = (
 # they carry no spend: a ``resolution`` has ``connection=None`` and would
 # otherwise surface as an "unknown" connection.
 FEEDBACK_KINDS = ("resolution", "audit", "dedup_verdict")
+# G124 R12: kinds that carry no spend. ``read`` (an entity page opened by the
+# app or served to an agent by cicada_recall/recall_detail) joins the feedback
+# kinds in being excluded from connection rollups — a `connection=None` row
+# would otherwise surface as an "unknown" connection in ``/consumption/stats``.
+NON_SPEND_KINDS = FEEDBACK_KINDS + ("read",)
 
 
 def now_iso() -> str:
@@ -170,6 +175,24 @@ def record_audit(
             record(UsageEvent(kind="audit", stage=stage, bank=bank, invocations=0, billing="free", refs=refs))
         except Exception:  # noqa: BLE001 — a ledger failure never blocks a write
             continue
+
+
+def record_read(entity_id: str, *, surface: str, bank: str | None) -> None:
+    """One ``read`` event: an entity page was looked at (G124 R11).
+
+    ``refs`` carries the entity id and a surface enum (``app`` — a card opened
+    in the companion app; ``mcp`` — ``cicada_recall_detail`` served the page;
+    ``mcp-recall`` — ``cicada_recall`` suggested it) and NOTHING else: never
+    the query, never the page. The ledger is machine-global and outside the
+    bank, so this is the same privacy line the G113 feedback rows draw. An
+    empty id is ignored; nothing here can raise into a recall or a card open.
+    """
+    if not (entity_id or "").strip():
+        return
+    record(UsageEvent(
+        kind="read", stage="recall", bank=bank, invocations=0, billing="free",
+        refs={"entity_id": entity_id, "surface": surface},
+    ))
 
 
 def read_events(start: date | None = None, end: date | None = None) -> list[UsageEvent]:

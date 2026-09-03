@@ -121,6 +121,13 @@ MAX_COMMIT_ENTITIES = 12
 CONTRIBUTOR_LOG_WINDOW_MULTIPLIER = 20
 CONTRIBUTOR_LOG_WINDOW_MIN = 500
 
+# How far back `top_written_entities` walks (G124 R13). Same reason as the
+# contributor window above: `git log --name-only` materialises every commit's
+# file list before Python can stop, so an unbounded walk grows with every
+# Sleep cycle. The response says how many commits were scanned so the UI can
+# say "over the last N commits" instead of implying all-time.
+TOP_ENTITIES_LOG_WINDOW = 2000
+
 
 def build_commit_message(
     subject: str,
@@ -818,6 +825,49 @@ async def get_contributor_commits(
             break
 
     return commits
+
+
+async def top_written_entities(memory_path: Path, *, limit: int = 10) -> tuple[list[dict], int]:
+    """Entity pages ranked by how many commits touched them (G124 R13).
+
+    Engine-free: one ``git log --name-only`` over the last
+    ``TOP_ENTITIES_LOG_WINDOW`` commits; every ``entities/*.md`` path counts
+    once per commit. Returns ``(rows, commits_scanned)``; rows are
+    ``{entity_id, commits, last_written}`` sorted by commits desc, then
+    newest, then id. ``([], 0)`` for a non-git directory.
+    """
+    if not (memory_path / ".git").exists():
+        return [], 0
+    rec = "\x1e"
+    try:
+        out = await _run_git(
+            memory_path, "log", f"--max-count={TOP_ENTITIES_LOG_WINDOW}",
+            f"--format={rec}%ad", "--date=short", "--name-only",
+        )
+    except GitError:
+        return [], 0
+    counts: dict[str, int] = {}
+    last: dict[str, str] = {}
+    scanned = 0
+    for record in out.split(rec):
+        if not record.strip():
+            continue
+        scanned += 1
+        date_str, _, tail = record.partition("\n")
+        date_str = date_str.strip()
+        for line in tail.splitlines():
+            f = line.strip()
+            if f.startswith("entities/") and f.endswith(".md"):
+                entity_id = f[len("entities/"):-len(".md")].rsplit("/", 1)[-1]
+                counts[entity_id] = counts.get(entity_id, 0) + 1
+                if date_str > last.get(entity_id, ""):
+                    last[entity_id] = date_str
+    rows = [{"entity_id": eid, "commits": n, "last_written": last[eid]} for eid, n in counts.items()]
+    # Two stable sorts: newest first, then commits desc — so ties on commit
+    # count show the page that was written most recently first, then by id.
+    rows.sort(key=lambda r: (r["last_written"], r["entity_id"]), reverse=True)
+    rows.sort(key=lambda r: -r["commits"])
+    return rows[: max(1, int(limit or 10))], scanned
 
 
 async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:

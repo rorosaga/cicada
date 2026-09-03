@@ -17,6 +17,8 @@ from api.models.schemas import (
     EntityDiff,
     EntityHistoryEntry,
     EntityMedia,
+    EntityReadRequest,
+    EntityReadResponse,
     EntityResponse,
     EntitySource,
     EntitySourceCreate,
@@ -35,6 +37,7 @@ from api.services import (
     logo_service,
     markdown_parser,
     repo_context,
+    telemetry,
 )
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
@@ -86,6 +89,22 @@ async def get_entity(
         history=history,
         media=_build_media_block(fm, parsed.body),
     )
+
+
+@router.post("/entities/{entity_id}/read", response_model=EntityReadResponse)
+async def record_entity_read(
+    entity_id: str,
+    body: EntityReadRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """The app opened this entity's card (G124 R11) — one ids-only ``read``
+    ledger event. 404 for a page that does not exist so a stray id can never
+    seed the most-read list. Nothing is written to the bank; nothing here can
+    fail the card open (``telemetry.record`` never raises)."""
+    if not (settings.memory_path / "entities" / f"{entity_id}.md").is_file():
+        raise HTTPException(status_code=404, detail="Entity not found")
+    telemetry.record_read(entity_id, surface=body.surface, bank=telemetry.bank_name(settings))
+    return EntityReadResponse(recorded=telemetry.enabled())
 
 
 @router.get("/entities/{entity_id}/logo")
