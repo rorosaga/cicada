@@ -211,6 +211,12 @@ brief written from this table over fighting the cache.
    span citations rather than page citations. Partly a DECIDE row: what "smart" adds over today's
    `/ask` is still open.
 
+**Filed 2026-09-03, unqueued:** **G128** — visits and places as a capture channel (photos you already take
+first, in-the-moment notes second, wearable video only as research), grounded in MemPal
+(arXiv:2502.01801), whose transferable result is that *a text diary beat a spatial index*. It answers
+"which artworks influenced me" out of G120 recurrence + G118 provenance + G66 decay rather than a new
+subsystem.
+
 Then the standing bigger rocks, unchanged: **G81 → G95** (contacts, then meetings and human-to-human
 conversations — the largest gap between the vision and the code), **G112 steps 2–4** (portable
 skills), **G76** (paste-prompt install), **G127** (mascot identity — decide, don't build).
