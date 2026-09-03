@@ -208,7 +208,11 @@ def test_ledger_row_is_counts_only(roots, memory, monkeypatch, tmp_path):
     events = [e for e in telemetry.read_events() if e.kind == "capture"]
     assert len(events) == 1
     ev = events[0]
-    assert ev.stage == "claude-code" and ev.bank == "test-bank" and ev.connection is None
+    # Final review F1: a receipt, not a unit of LLM work — zero invocations,
+    # `capture` stage; the harness lives in refs.
+    assert ev.stage == "capture" and ev.invocations == 0 and ev.tokens == 0
+    assert ev.bank == "test-bank" and ev.connection is None
+    assert ev.refs["harness"] == "claude-code"
     assert ev.refs["status"] == "created" and ev.refs["turns_user"] == 1 and ev.refs["session_id"] == SID
     raw = ev.to_json()
     assert "secret words" not in raw and "alpha-project" not in raw

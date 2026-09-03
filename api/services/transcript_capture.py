@@ -177,7 +177,16 @@ def _record(harness: str, session_id: str, status: str, conv: Conversation | Non
     """R10: one ``capture`` ledger row — ids, enums and counts only. Never a
     turn's text, a title, or the cwd: the ledger is machine-global and
     outside the bank. ``telemetry.record`` swallows its own failures, so this
-    can never raise into the capture path."""
+    can never raise into the capture path.
+
+    Final review (2026-09-03) F1: ``invocations=0`` and ``stage="capture"``.
+    A Stop hook fires after every reply of every session, so with the
+    dataclass default ``invocations=1`` and ``stage=<harness>`` the Usage
+    page grew a ``claude-code`` stage whose invocation count was the
+    person's reply cadence, not a unit of Cicada's LLM work. The harness
+    already lives in ``refs`` for anyone reading the ledger row itself.
+    ``consumption_stats`` additionally keeps ``capture`` rows out of every
+    activity view (``by_stage``/``by_bank``/hour histogram/daily series)."""
     summary = conv.summary if conv else {}
     refs = {
         "harness": harness, "status": status, "session_id": session_id,
@@ -191,8 +200,8 @@ def _record(harness: str, session_id: str, status: str, conv: Conversation | Non
     }
     if reason:
         refs["reason"] = reason
-    telemetry.record(telemetry.UsageEvent(kind="capture", stage=harness, bank=bank, billing="free",
-                                          refs=refs, ok=status != "refused"))
+    telemetry.record(telemetry.UsageEvent(kind="capture", stage="capture", bank=bank, billing="free",
+                                          invocations=0, refs=refs, ok=status != "refused"))
 
 
 def capture_transcript(

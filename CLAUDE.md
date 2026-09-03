@@ -213,8 +213,11 @@ Continuous episode capture during conversations. Raw timestamped chunks go to `e
 minted once per MCP process from `CLAUDE_CODE_SESSION_ID` → `CICADA_SESSION_ID` → a
 `ses_YYYY-MM-DD_xxxxxxxx` fallback that groups but never resumes. Entities credit to
 conversations transitively via `source_episodes`, exactly as they do for `origin`.
-**Transcripts under `~/.claude/` are never read** — the only contact is an `isfile()` check
-answering "is this session still resumable", computed per request and never persisted.
+**Transcripts under `~/.claude/` are never read by the MCP seam or the resume path** — their only
+contact is an `isfile()` check answering "is this session still resumable", computed per request
+and never persisted. The one read anywhere in Cicada is G105's Stop-hook capture of the session
+that just ended (`POST /capture/transcript`), and only after the path resolves under the harness
+root as `<session_id>.jsonl`.
 A conversation row's `model` is **reserved — always null**, and will be populated once engine
 calls carry session refs (G49); nothing that writes memory records a model against a
 conversation id today, so the row states that rather than joining a ledger that can't answer.
