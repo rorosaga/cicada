@@ -35,13 +35,24 @@ list is what a reviewer checks:
 
 | Suite | Command | Expected |
 |---|---|---|
-| Backend | `api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` | **12 failed** (measured on `dev`, 2026-09-03) — 8 date-dependent in `test_calendar_registry.py`, 3 order-dependent, 1 environment |
-| Backend, order-dependent | same | `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` and both `test_engine_select.py::test_the_default_install_*` fail in the full run, pass alone. Pre-existing. |
-| Backend, environment | same | `test_local_llm.py::test_default_llm_mode_is_byok` fails because `api/.env` sets `CICADA_LLM_MODE` on this machine. Fails alone too. |
+| Backend | `api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` | **0 failures**, 2014 passed (2026-09-03, PR #50) |
 | App | `cd app/CicadaApp && swift test` | **0 failures** |
 | Graph (JS) | `node --test app/CicadaApp/Tests/graph/*.test.js` | **0 failures.** Pass the glob, not the directory — a bare directory arg fails with a bare "test failed". |
 
-Do not trust a remembered count: re-measure with `git stash` before blaming your own diff.
+**Every suite is green. Anything red is yours** — that was not true before PR #50, which removed the
+last twelve expected failures. Two causes, both worth not reintroducing:
+
+- **The developer's `api/.env` was leaking into the suite.** `litellm/__init__.py` calls `load_dotenv()`
+  at import time, so the first test reaching `api.main` copied that machine's config into `os.environ`
+  for the rest of the process, and every later bare `Settings()` read it. Order-dependent by
+  construction: pass alone, fail in the run. A session fixture in `api/tests/conftest.py` drops those
+  names now. Never assert on a bare `Settings()` expecting the developer's config.
+- **Eight calendar tests were on a timer.** Their ICS fixtures carried fixed 2026-07 dates and fell out
+  of the ±window about a month after they were written. They are built relative to today now, which is
+  what a window test actually means. Use `_soon(days)`; pin a date only where the window boundary
+  itself is under test (those pass their own `now` to `parse_ics`).
+
+Still: do not trust a remembered count. Re-measure with `git stash` before blaming your own diff.
 
 Anything else red is yours. Never `swift run` the app (bundle-less binary, window never becomes key);
 `make dev` is the only correct launch.
@@ -230,7 +241,6 @@ skills), **G76** (paste-prompt install), **G127** (mascot identity — decide, d
 
 ### Known-broken, small, unclaimed
 
-- The order-dependent provenance and engine-select tests above.
 - Ask panel and source-page chips now land on their node (G123 seam). The *other* places that open an
   entity from outside the canvas — if any get added — should call `revealEntity`, never `selectEntity`.
 
