@@ -364,7 +364,8 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 12e. **G125** Sleep page as the study desk — `reading` mascot state, the queue as a per-category study list,
     breakdowns moved to Sources/Settings, schedule frequency picker (`interval_hours`/`after_import`), the
     deprecated Sleep/Upload toolbar buttons removed — M
-12d. **G124** Activity → Conversations-first *Sources* page: per-harness cards with counts (clickable →
+12d. **G124** Activity → Conversations-first *Sources* page *(ruled 2026-09-03: no prices/tokens in the app —
+    endpoints stay)*: per-harness cards with counts (clickable →
     per-source page), conversation rows with Resume, contributors calendar per model, Usage + read/write
     stats under Advanced, no segmented control, no horizontal strip — M/L (decide the sidebar order in G108)
 12c. **G108** landing page + navigation — decide *before* building: status vs graph as the front
