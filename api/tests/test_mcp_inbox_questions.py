@@ -123,7 +123,7 @@ def test_resolve_inbox_tool_is_registered(server):
     tool = next(t for t in server.TOOLS if t["name"] == "cicada_resolve_inbox")
     assert tool["inputSchema"]["required"] == ["id"]
     assert set(tool["inputSchema"]["properties"]) == {
-        "id", "option_key", "answer", "defer", "remind_days",
+        "id", "option_key", "answer", "defer", "remind_days", "skip",
     }
 
 

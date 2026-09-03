@@ -20,7 +20,7 @@ from api.services.auth import cicada_home
 
 KINDS = (
     "llm_call", "sleep_run", "agentic_write", "ask", "import", "throttle",
-    "resolution", "audit", "dedup_verdict", "capture",
+    "resolution", "audit", "dedup_verdict", "capture", "handshake",
 )
 # G113: grounded-feedback rows — a user's verdict on an inbox item, a reconcile
 # supersede/reject, a dedup judgement. Ids/enums/numbers only, never claim text
@@ -30,9 +30,12 @@ KINDS = (
 # otherwise surface as an "unknown" connection.
 FEEDBACK_KINDS = ("resolution", "audit", "dedup_verdict")
 # G105 R10: a `capture` row (hook-driven transcript capture) is counts only
-# and carries no spend or connection; like the feedback kinds it must never
-# surface as an "unknown" connection in the cost rollup.
-NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture",)
+# and carries no spend or connection. G75: a `handshake` row (whether an agent
+# ever RECEIVED the primer — ids/enums only: delivery, variant, state_present,
+# state_age_hours, harness, client_name) likewise carries no spend. Both join
+# the feedback kinds in being excluded from connection/cost rollups so they
+# never surface as an "unknown" connection.
+NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture", "handshake")
 
 
 def now_iso() -> str:

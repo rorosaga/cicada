@@ -27,6 +27,10 @@ say one sentence, and `tail ~/.cicada/logs/capture.log` shows `claude-code <id> 
 page lists the episode with the Claude Code mark. Codex: registered when the CLI is present, payload not yet
 verified — the same log line says `skipped: no transcript_path` if Codex's Stop hook does not pass one.
 
+**G53 + G75 (live state + handshake) merged as PR #45 (2026-09-03):** `_state.md`, `GET /state`, `GET /handshake`,
+`initialize.instructions`, `cicada_handshake`; first check on the live bank: `curl -s -H "Authorization: Bearer $(cat ~/.cicada/api_token)" 'http://127.0.0.1:8000/state?refresh=true' | head -c 600`
+— the owner should eyeball that the projects list is the right seven.
+
 **Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`). **No open PRs** other than G105's `feat/deterministic-capture` (above); `feat/link-summaries` merged as PR #40 (see the G102 paragraph below).
 
 **G102 cheap slice (merged as PR #40 from `feat/link-summaries`):** saved links get descriptions + `about` edges nightly (20/night, oldest first) and on demand. **One-time warm-up the owner can run now:** `curl -s -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" "http://127.0.0.1:8000/maintenance/enrich-links?limit=50"` — repeat until `remaining` is 0 (each run: ≤ 50 fetches + summaries on the resolved engine, ~7 extraction calls); the response's `engine` says whether the plan or the API key paid.
@@ -157,7 +161,8 @@ deterministic capture, worktree `.worktrees/g105`, five commits: extractor → e
 → Swift source marks → docs). After it merges, the one manual step on an existing install is `./install.sh`
 (idempotent) so the `Stop` hook lands in `~/.claude/settings.json` — `make doctor` check 12 confirms it —
 then a one-sentence Claude Code session and `tail ~/.cicada/logs/capture.log`. `feat/provenance-spans`
-(G118 slice 1) merged as PR #44; `feat/link-summaries` (G102 cheap slice) merged as PR #40.**
+(G118 slice 1) merged as PR #44; `feat/state-handshake` (G53 + G75) merged as PR #45; `feat/link-summaries`
+(G102 cheap slice) merged as PR #40.**
 `feat/mascot` merged as PR #36.
 Its last unchecked box is the visual pass on the installed app — menu bar in light and dark, the
 Sleep page at 120 pt, Reduce Motion holding frame 0 — which needs `make install-app` and Rodrigo at
@@ -172,7 +177,8 @@ three-lens judge → decision memo) rather than a blind re-tune.
    grant — the launchd backend never gets it, only the app bundle does).
 0b. **Owner priorities (2026-09-02):** after the three in-flight tracks (mascot, Safari import, link
    summaries) land, the order was **G118 slice 1 → G105 → G93 → G53+G75 → G81→G95**; slice 1 is done (`feat/provenance-spans`),
-   so it now reads **G118 slice 2 (viewer) → ~~G105~~ (shipped, `feat/deterministic-capture`) → G93 → G53+G75 → G81→G95**, with G113 s3–7,
+   so it now reads **G118 slice 2 (viewer) → ~~G105~~ (shipped, `feat/deterministic-capture`) → G93 → G81→G95**
+   (G53+G75 merged as PR #45), with G113 s3–7,
    G115 p1 and G117 interleaved as app polish. Provenance is the vision, not a feature.
 0c. **G102 cheap slice merged as PR #40** (`feat/link-summaries`); what is left is the owner running the
    warm-up curl above and eyeballing the Feed (descriptions on rows, `about` pills on a link's entity card).
@@ -190,20 +196,20 @@ three-lens judge → decision memo) rather than a blind re-tune.
    halves, `render_question` v2. Delivers G97. Parallel to G113 in its own worktree — disjoint
    functions of `inbox_service.py`. The two rulings it needs for Phase 3 are G116.
 4. **G112 step 1** is a bug fix, not a feature — do it when passing.
-5. **G53 + G75**, then **G115 Phase 2** (G105 shipped on `feat/deterministic-capture`) — the same order
+5. **G115 Phase 2** — G105 (`feat/deterministic-capture`) and G53 + G75 (PR #45) both shipped — the same order
    the waves give.
 6. **G110 is RESEARCH, deliberately not started.** Its own cheapest-first ruling: build G53/G75 and
-   see whether the fork want survives. Second data point to read first: Cursor's "Import from Claude
-   Code".
+   see whether the fork want survives — G53/G75 shipped; re-read G110 against the handshake before
+   starting it. Second data point to read first: Cursor's "Import from Claude Code".
 7. **G7 is open again, on purpose.** The hygiene pass could not find the measurement TODO.md claimed
    ("premise measured false") anywhere in tracked history. Re-measure it or delete the claim.
 8. **G90 README screenshots** wait for Rodrigo to be at the machine (demo bank or frame-by-frame
    review — the live bank holds real people). Same for any `macos-harness` verification that
    needs a permission prompt accepted.
 
-**Worktrees:** `.worktrees/g105` holds `feat/deterministic-capture` (G105) until its PR merges;
-`.worktrees/g118` held `feat/provenance-spans` (G118 slice 1, merged as PR #44) and can go once its
-`git status --porcelain -uall` is clean;
+**Worktrees:** `.worktrees/g105` holds `feat/deterministic-capture` (G105) until its PR merges; `.worktrees/g124`
+holds `feat/sources-page` (G124) while its track runs; `.worktrees/g118` and `.worktrees/handshake` were removed
+after PRs #44 and #45 merged;
 `.worktrees/safari-import` holds `feat/safari-import` until its PR merges;
 `.worktrees/g113` (`feat/feedback-ledger`), `.worktrees/link-summaries` and `.worktrees/mascot` are
 other in-flight branches — check each's `git status --porcelain -uall` before touching it. Never
@@ -219,7 +225,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-03 (G105 on `feat/deterministic-capture`, PR pending; G118 slice 1 merged as PR #44); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
+_Last synced: 2026-09-03 (G105 on `feat/deterministic-capture`, PR pending; G53+G75 merged as PR #45; G118 slice 1 merged as PR #44); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
 
 ---
 
@@ -248,7 +254,9 @@ G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animati
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
-verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii)
+verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii) ·
+**G53 + G75 live state + handshake (2026-09-03, PR #45)** — `_state.md` cursor, `initialize.instructions`,
+`cicada_handshake`, `/state`, `/handshake`
 
 **2026-08-31 → 09-01 (PRs #21–#29, merged to dev)**
 - #21 diff context lines with line numbers, merge-commit handling
@@ -381,17 +389,21 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 9d. **G121 world facts vs personal facts** — `source_trust: model_knowledge` + volatile decay for anything not
     grounded in an episode, two-tier entity card ("why it's in your memory" / "context as of <date>, verify"), the
     rule in the G75 handshake; a dry-run backfill count on the live bank first — M
-9c. **G93 cross-stream ask** — moved up (owner, 2026-09-02) beside G105, which has now shipped (4c above):
-    G105 is what makes every write have a cause; G93 is where citations become answers — M
-10. **G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
-    (G76, G77, G54 all assume it); zero LLM — M
+9c. **G93 cross-stream ask** — moved up (owner, 2026-09-02) beside G105, which has now shipped (4c above;
+    ruled 2026-09-03: block-level extraction — the person's text turns + the agent's final reply per turn; tool
+    blocks/code/secrets never; hook-driven): G105 is what makes every write have a cause; G93 is where citations
+    become answers — M
+10. ~~**G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
+    (G76, G77, G54 all assume it); zero LLM — M~~ — shipped PR #45 (`feat/state-handshake`); open:
+    SessionStart hook (G49/G76), Store fetch of `/state`
 11. ~~G100~~ — absorbed into G118 (slice 1 shipped the write-time citation; the derived-span class and
     the viewer are G118 slice 2)
 12. **G103** observer model in the UI — whose belief, who was in the room — S
 12e. **G125** Sleep page as the study desk — `reading` mascot state, the queue as a per-category study list,
     breakdowns moved to Sources/Settings, schedule frequency picker (`interval_hours`/`after_import`), the
     deprecated Sleep/Upload toolbar buttons removed — M
-12d. **G124** Activity → Conversations-first *Sources* page: per-harness cards with counts (clickable →
+12d. **G124** Activity → Conversations-first *Sources* page *(ruled 2026-09-03: no prices/tokens in the app —
+    endpoints stay)*: per-harness cards with counts (clickable →
     per-source page), conversation rows with Resume, contributors calendar per model, Usage + read/write
     stats under Advanced, no segmented control, no horizontal strip — M/L (decide the sidebar order in G108)
 12c. **G108** landing page + navigation — decide *before* building: status vs graph as the front
@@ -408,6 +420,9 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
     need — S
 
 ### Wave D · new intake, in dependency order
+14a. **G126** Settings → Integrations by category over the existing channel registry (page first), then
+    adapters in this order: YouTube subscriptions (Takeout parser, no key) → Strava (OAuth, weekly aggregates)
+    → Todoist/Reminders (tasks → G13) → Garmin/Apple Health exports — S/M + S–M each
 15. **G81** contacts — identity anchors *(prerequisite for 16; absorbs G46)* — M
 16. **G95** meetings & human↔human conversations — M/L
 17. **G101** raw-conversation evidence layer — what to keep, what to discard — M
@@ -431,6 +446,9 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 25. **G54** onboarding interview · **G55** executable skills · **G13** tasks/ideas backlog
 
 ### Research / decisions (not builds)
+- **G127** mascot identity — bookworm vs a friendly WALL·E-*inspired* librarian robot (never a copy of the
+  character); prototype = three states behind a `mascot` setting, live with it a week, then rule — owner
+  said document only for now (2026-09-03)
 - **G99** relational tier — **DECLINED**; revisit only on a named trigger (warm p50 > 250 ms,
   claims > 25k, or a merged G94 adapter retaining raw samples). G99a (bank `.gitignore` for the
   vector index) has shipped; absorbs G96 (vector-as-entryway — validated, its storage question

@@ -17,6 +17,9 @@ the conversation, using the same `cicada_write_claim` write path the Sleep
 cycle uses. A keyless local Ollama nightly batch remains the fallback for
 whatever this skill doesn't catch.
 
+The interaction contract is the generated handshake (`cicada_handshake` / the
+server's `instructions`); this skill covers only the consolidation loop.
+
 ## When to consolidate
 
 - **End of a working session** — before the conversation closes, sweep it.

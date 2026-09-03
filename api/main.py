@@ -32,6 +32,7 @@ from api.routers import (
     search,
     sleep,
     sources,
+    state,
     status,
     sync,
 )
@@ -166,6 +167,7 @@ app.include_router(origins.router, tags=["origins"])
 app.include_router(sleep.router, tags=["sleep"])
 app.include_router(conversations.router, tags=["conversations"])
 app.include_router(sources.router, tags=["sources"])
+app.include_router(state.router, tags=["state"])
 app.include_router(banks.router, tags=["banks"])
 app.include_router(local_refs.router, tags=["local-refs"])
 app.include_router(capture.router, tags=["capture"])

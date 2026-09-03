@@ -10,14 +10,16 @@ description: >-
 
 # Cicada memory skill
 
-Cicada is the user's long-term memory. The MCP server gives you the tools; this
-file is the policy: when to recall, how to traverse, and what never to touch.
+Cicada is the user's long-term memory. The MCP server gives you the tools; the
+generated handshake is the contract; this file adds the traversal notes.
 
-## When to recall
-- Start of a session on a recurring topic, person, or project -> `cicada_recall` first.
-- User asks what you know about something -> `cicada_recall`, then `cicada_recall_detail`.
-- Conversation touches a known topic -> `cicada_check_nudges(topic)` to surface
-  pending decay/conflict/clarification items, and raise them naturally in-flow.
+## Handshake first
+The contract lives in one generated text: the `instructions` your harness received
+from the Cicada MCP server on connect, or `cicada_handshake()` if it did not surface
+them. Read it once per conversation — it carries what Cicada is, when to recall,
+how to check nudges after a recall, how to save and write with evidence, the
+bank's current projects and pending questions, and which conversations resume.
+This file only adds the traversal notes below.
 
 ## Two-pass recall (small-model friendly)
 1. `cicada_recall(query)` — Pass 1. Returns concise entity summaries plus any
@@ -61,6 +63,7 @@ Sleep cycle consolidate it. Direct edits bypass provenance and break dedup.
 ## Memory directory layout (read-only orientation)
     ~/cicada/memory/
       _index.md       top-level hub-tier entry point (start traversal here)
+      _state.md       the live now-view (cursor: ids + one-liners; GET /state for the object)
       hubs/           topic / type hub pages, each listing member entities
       entities/       one markdown page per entity (YAML frontmatter + body)
       episodes/       raw captured snippets (re-consolidation source of truth)

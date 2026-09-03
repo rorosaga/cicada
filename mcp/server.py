@@ -94,6 +94,20 @@ SESSION = resolve_session_identity()
 # (name/version only — the MCP protocol carries nothing else there).
 CLIENT_INFO: dict = {}
 
+# G53/G75 (R13): recall's `cicada-hints` carries the now-view ONCE per
+# process — stdio MCP is one process per conversation (G48), so a module
+# flag IS "once per conversation", the same shape G115's ask gate uses.
+# Flipped only when a hints block that carried the cursor was actually
+# emitted: `_hints_block` returns "" when there is nothing to suggest, and
+# an unsent cursor is not consumed.
+_STATE_HINT_SENT: bool = False
+# G75 contract item 2, `skip=true`: inbox ids the agent declined to ask this
+# session. In-process and never persisted — a skip is not the person's
+# verdict, so it must not become a write (the backend's `action: skip` IS a
+# resolution and is not this). Cleared when the MCP process restarts, which
+# is what "that session" means for a stdio server.
+_SKIPPED_INBOX_IDS: set[str] = set()
+
 
 def _session_frontmatter() -> dict:
     """The session keys to merge into an episode's frontmatter.
@@ -182,14 +196,19 @@ TOOLS = [
     },
     {
         "name": "cicada_check_nudges",
-        "description": "Check for pending inbox items in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, ambiguous mentions, or possible duplicates. Use this proactively when a conversation touches topics that might have pending items.",
+        "description": "Check for pending inbox items in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, ambiguous mentions, or possible duplicates. Use this proactively when a conversation touches topics that might have pending items. After `cicada_recall`, pass its suggested entity ids as `entity_ids`.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "topic": {
                     "type": "string",
                     "description": "Optional topic to filter inbox items by relevance",
-                }
+                },
+                "entity_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional entity ids (the `suggested_entities` from cicada_recall's hints) — only items whose entity_id is in this list are returned. Combine with topic freely.",
+                },
             },
         },
     },
@@ -365,7 +384,7 @@ TOOLS = [
     },
     {
         "name": "cicada_resolve_inbox",
-        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation. Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'a', 'b', 'both', 'neither'), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later.",
+        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation. Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'a', 'b', 'both', 'neither'), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later. Pass skip=true when the user did not answer at all: nothing is written and cicada_check_nudges stops returning the item for the rest of this session.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -389,6 +408,10 @@ TOOLS = [
                     "type": "integer",
                     "description": "With defer=true: how many days out to ask again (default 30).",
                 },
+                "skip": {
+                    "type": "boolean",
+                    "description": "True when the question went unanswered this session: no write, not re-asked until the MCP process restarts. Distinct from defer (which writes remind_after).",
+                },
             },
             "required": ["id"],
         },
@@ -410,7 +433,62 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "cicada_handshake",
+        "description": "Return Cicada's connection primer: what Cicada is, the interaction contract (recall first, check nudges after recall, save episodes as you learn, write claims with evidence and sources, world facts are a cache), the bank's now-view (engine, current projects with live branches, pending inbox count, recent conversations with resume handles) and capability notes. Identical to the `instructions` field of the MCP initialize response — call it once at the start of a conversation if your harness does not surface server instructions. No arguments.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
+
+
+def initialize_result(params: dict) -> dict:
+    """The MCP `initialize` result — G48's inbound capture plus G75's outbound primer.
+
+    `instructions` is the spec's optional hint-to-the-model field (schema
+    2024-11-05: "MAY be added to the system prompt"). It is the SAME text
+    `cicada_handshake` returns, built from `_state.md` as it is on disk —
+    never refreshed here (R4): connect latency is one file read, and a
+    stale now-view says so via its `generated_at`. Any failure to build it
+    degrades to no `instructions` at all rather than a failed connect.
+
+    G48: the client names itself here, and nowhere else. Name/version only;
+    bounded so a hostile client can't grow a telemetry line without limit.
+    """
+    client = params.get("clientInfo")
+    if isinstance(client, dict):
+        CLIENT_INFO.clear()
+        CLIENT_INFO.update({
+            "name": str(client.get("name") or "")[:64],
+            "version": str(client.get("version") or "")[:32],
+        })
+    result = {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {"tools": {}},
+        "serverInfo": {"name": "cicada-bookworm", "version": "0.1.0"},
+    }
+    try:
+        result["instructions"] = _handshake_text(delivery="initialize")
+    except Exception as exc:  # never fail a connect over a primer
+        print(f"cicada-mcp: handshake unavailable: {exc}", file=sys.stderr)
+    return result
+
+
+def _handshake_text(*, delivery: str) -> str:
+    """Build (or load from cache) the primer for the captured client and record
+    one `handshake` ledger row (R14 — ids/enums only; `record` never raises).
+    `delivery` names which surface asked: `initialize` or `tool`."""
+    from api.services import handshake
+
+    memory_path = get_memory_path()
+    text, meta = handshake.load_or_build(memory_path, CLIENT_INFO.get("name"))
+    handshake.record(delivery, meta, bank=memory_path.name, harness=SESSION.harness,
+                     client_name=CLIENT_INFO.get("name") or None)
+    return text
+
+
+def handle_handshake() -> str:
+    """`cicada_handshake` — the primer for harnesses that drop `instructions`."""
+    return _handshake_text(delivery="tool")
 
 
 def main():
@@ -431,24 +509,9 @@ def main():
         params = request.get("params", {})
 
         if method == "initialize":
-            # G48: stop discarding params — the client names itself here, and
-            # nowhere else. Name/version only; bounded so a hostile client
-            # can't grow a telemetry line without limit.
-            client = params.get("clientInfo")
-            if isinstance(client, dict):
-                CLIENT_INFO.clear()
-                CLIENT_INFO.update({
-                    "name": str(client.get("name") or "")[:64],
-                    "version": str(client.get("version") or "")[:32],
-                })
-            respond(req_id, {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {
-                    "name": "cicada-bookworm",
-                    "version": "0.1.0",
-                },
-            })
+            # G48 capture + G75 primer, both in initialize_result so the
+            # tests can drive it without the stdio loop.
+            respond(req_id, initialize_result(params))
 
         elif method == "notifications/initialized":
             # Client acknowledged init — no response needed
@@ -533,7 +596,9 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("title"),
         )
     elif name == "cicada_check_nudges":
-        return handle_check_nudges(arguments.get("topic"))
+        return handle_check_nudges(arguments.get("topic"), arguments.get("entity_ids"))
+    elif name == "cicada_handshake":
+        return handle_handshake()
     elif name == "cicada_open_hub":
         return handle_open_hub(arguments.get("hub", ""))
     elif name == "cicada_ask":
@@ -574,6 +639,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("answer"),
             bool(arguments.get("defer", False)),
             arguments.get("remind_days"),
+            skip=bool(arguments.get("skip", False)),
         )
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -866,9 +932,16 @@ def handle_recall(query: str) -> str:
     ]
     if not suggested and hub_member_ids:
         suggested = hub_member_ids[:7]
-    hints_block = _hints_block(suggested, relevant_hub, hub_member_ids)
+    # G53/G75 (R13): the now-view cursor rides in the FIRST hints block this
+    # process emits, and only there — a block that was never emitted (nothing
+    # to suggest) does not consume it.
+    global _STATE_HINT_SENT
+    state_hint = None if _STATE_HINT_SENT else _state_hint(memory_path)
+    hints_block = _hints_block(suggested, relevant_hub, hub_member_ids, state=state_hint)
     if hints_block:
         output_parts.append(hints_block)
+        if state_hint is not None:
+            _STATE_HINT_SENT = True
 
     # Surface the matched hub's member list when LEANN/keyword found nothing
     # (cold-start path) so the user still gets a navigable answer.
@@ -1018,12 +1091,19 @@ def _read_hub_body(memory_path: Path, rel_hub_path: str) -> str:
 
 
 def _hints_block(
-    suggested_entities: list[str], relevant_hub: str | None, hub_members: list[str]
+    suggested_entities: list[str],
+    relevant_hub: str | None,
+    hub_members: list[str],
+    state: dict | None = None,
 ) -> str:
     """Render the machine-parseable ``cicada-hints`` fenced JSON block.
 
     Fenced with the literal info-string ``cicada-hints`` so a small model can
-    locate it and ``json.loads`` deterministically.
+    locate it and ``json.loads`` deterministically. ``state`` (G53, R13) is
+    an optional compact now-view added under the ``"state"`` key — additive,
+    so a consumer that only knows the older keys is unaffected. The early
+    ``return ""`` when there is nothing to suggest is a kept contract: the
+    cursor rides in a block that exists, never in a block of its own.
     """
     if not suggested_entities and not relevant_hub:
         return ""
@@ -1034,7 +1114,30 @@ def _hints_block(
         "next_tool": "cicada_recall_detail",
         "note": "Call cicada_recall_detail with each suggested_entity id for full pages, or cicada_open_hub with relevant_hub for a topic index.",
     }
+    if state:
+        payload["state"] = state
     return "```cicada-hints\n" + json.dumps(payload, indent=2) + "\n```"
+
+
+def _state_hint(memory_path: Path) -> dict | None:
+    """Compact now-view for ``cicada-hints.state`` (G53): engine, pending count,
+    current project ids, and when it was generated. Read-only — never
+    regenerates (R4): the MCP process never dirties the bank with a
+    projection, and a stale cursor says so through ``as_of``. Ids and enums
+    only, for harnesses that drop the ``initialize`` ``instructions``; the
+    full primer is one ``cicada_handshake`` call away."""
+    from api.services import state_dictionary
+
+    state = state_dictionary.read_state(memory_path)
+    if not state:
+        return None
+    return {
+        "engine": (state.get("engine") or {}).get("engine"),
+        "pending": (state.get("inbox") or {}).get("pending", 0),
+        "projects": [p["id"] for p in state.get("projects") or []],
+        "as_of": state.get("generated_at"),
+        "next_tool": "cicada_handshake",
+    }
 
 
 def handle_open_hub(hub: str) -> str:
@@ -1671,11 +1774,25 @@ def handle_resolve_inbox(
     answer: str | None,
     defer: bool,
     remind_days,
+    *,
+    skip: bool = False,
 ) -> str:
-    """Resolve (or defer) one inbox item through the backend (§2.7)."""
+    """Resolve (or defer) one inbox item through the backend (§2.7).
+
+    ``skip=True`` (G75 contract item 2, final review) is an in-process no-op:
+    the id joins ``_SKIPPED_INBOX_IDS`` so ``handle_check_nudges`` stops
+    returning it this session, and NOTHING is posted to the backend. Before
+    this the primer named an argument the schema rejected (R12 — a bug), and
+    an agent hitting the tool error could fall back to ``defer=true``, a
+    real ``remind_after`` write the person never asked for.
+    """
     item_id = (item_id or "").strip()
     if not item_id:
         return "Error: id is required (e.g. 'inbox-001')."
+
+    if skip:
+        _SKIPPED_INBOX_IDS.add(item_id)
+        return f"Skipped {item_id} — not re-asked this session (nothing written)."
 
     if defer:
         payload: dict = {"action": "defer"}
@@ -1790,14 +1907,35 @@ def handle_save_episode(content: str, title: str | None) -> str:
     return f"Episode saved as {episode_id}. It will be processed during the next Sleep cycle."
 
 
-def handle_check_nudges(topic: str | None) -> str:
-    """Check for pending inbox items (decay/conflict/clarification/merge)."""
+def handle_check_nudges(topic: str | None, entity_ids: list | None = None) -> str:
+    """Check for pending inbox items (decay/conflict/clarification/merge).
+
+    ``entity_ids`` (G75 R12) is an exact-match filter on ``entity_id`` so the
+    primer's ``cicada_check_nudges(entity_ids=<recall ids>)`` is executable
+    today — a primer that names an argument the tool schema rejects is a
+    bug. The G115 Phase 2 gate (mode, vector score, asked set, cap) is not
+    this. Combines with ``topic`` as an AND.
+
+    Two more things the contract promises and this path therefore does
+    (final review): ``normalization`` items never come back — they are
+    app-only audit rows about a predicate fold, not a question a person can
+    answer in conversation — and an id the agent ``skip``ped this session
+    stays out (``_SKIPPED_INBOX_IDS``).
+    """
     memory_path = get_memory_path()
     results = []
+    wanted = {str(e).strip() for e in (entity_ids or []) if str(e).strip()}
 
     for filepath in _inbox_files(memory_path):
+        if filepath.stem in _SKIPPED_INBOX_IDS:
+            continue
         content = filepath.read_text(encoding="utf-8")
         fm, body = parse_frontmatter(content)
+
+        if str(fm.get("kind") or "") == "normalization":
+            continue
+        if wanted and str(fm.get("entity_id") or "") not in wanted:
+            continue
 
         if topic:
             combined = (
