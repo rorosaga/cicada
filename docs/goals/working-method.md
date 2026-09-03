@@ -125,36 +125,89 @@ where two tracks each added a kind — take the **union**) → push → `gh pr c
 |---|---|---|---|
 | **G115 Phase 1** — inbox redesign | `feat/inbox-phase1` · `.worktrees/g115` | `wf_baa1ec4d-f07` | Plan written (5 tasks); critic and tasks in flight. First attempt died on a model limit with the plan already written; resumed on Opus. |
 
-### Next, then stop
+### Next
 
-| Track | Branch / worktree | How to resume | Why it is next |
-|---|---|---|---|
-| **G113 slices 3–7** — grounded-reward ledger | `feat/feedback-ledger` · `.worktrees/g113` | `git merge --no-edit origin/dev` in the worktree, then resume run `wf_a38168f3-39b` with script `…--worktrees-g113/…/workflows/scripts/g113-feedback-ledger-wf_a38168f3-39b.js` and args `{worktree, plan: docs/superpowers/plans/2026-09-02-g113-feedback-ledger.md, out: <scratchpad>/g113, base: 78e9873}`. Tasks 1–2 replay from cache; work resumes at task 3. | Slices 1–2 shipped (PR #31): resolutions already name their action and emit a `resolution` event. Slices 3–7 close the loop — divergence/normalization kinds, sticky merge rejection, claim write-back for keep/answer, `GET /consumption/feedback`, docs. Without them the ledger records verdicts nobody can read. |
-
-**After G113 merges, nothing else starts.** The queue below is paused on purpose (owner, 2026-09-03).
+**Nothing.** G115 is the last track that runs (owner, 2026-09-03). When it merges, the queue below is
+paused with its reasoning; each entry carries enough to restart it cold.
 
 ### Paused, in the order they should resume
 
-1. **G125 — Sleep page as the study desk.** A `reading` mascot state while intake is being consumed,
+#### 1. G113 slices 3–7 — the grounded-reward ledger, half-built
+
+**What shipped** (PR #31, `feat/feedback-ledger`): slice 1, every inbox resolution's commit trigger
+names the action taken (`inbox/<kind>/resolved:<label>`, deferral stays `inbox/deferred`, decay
+archive/keep land as `statusChange`); slice 2, a `resolution` telemetry event per resolve/defer with
+the R3 verdict table (`agreed|overruled|neutral`), plus `audit` events from Stage-3 reconcile and
+`dedup_verdict` per judged pair, all ids/enums only, all excluded from spend rollups
+(`telemetry.FEEDBACK_KINDS`). So the system records verdicts today — and nothing reads them back.
+
+**What remains, verified against `dev` on 2026-09-03** (do not trust the plan's own prose here, it
+predates three merged tracks):
+
+| Task | Still to do | Verified state |
+|---|---|---|
+| 3 | `divergence` + `normalization` become real inbox kinds, API **and** the Swift `InboxKind` enum in the same commit | **Not started.** `InboxKind` on `dev` is still `decay·conflict·clarification·merge_suggestion`; Sleep writes the other two and `load_inbox` silently drops them. |
+| 4 | A rejected merge suggestion stays rejected — `<bank>/_merge_rejected.yaml` read by `clarification_manager.create` and `dedup_sweep`, plus a `reject` action and `cicada_resolve_inbox(reject=true)` | **Not started.** `api/services/merge_rejections.py` does not exist. |
+| 5 | Decay `keep_active` and clarification free-text answers write back to the claim layer | **Half superseded.** G115 Phase 1 moves `remind_later` onto a real 7-day defer (the plan's `_defer(days=…, label=…)` half). What remains is only the claim write-back. |
+| 6 | `consumption_stats.feedback()`, `ConsumptionFeedback` schema, `GET /consumption/feedback`, and the tile | **Not started, and its UI target moved.** The plan says "a fifth Usage tile"; G124 deleted `UsageView`/`UsageAdvancedView` and every price surface. The tile now goes in the named slot that already exists for it: `Views/Sources/AdvancedStatsView.swift` → `feedbackTileSlot` (currently `EmptyView()`), showing a **rate and counts, never a price**. |
+| 7 | Docs: CLAUDE.md inbox kinds (six, not four), the ledger paragraph, the endpoint; G113 row shipped; TODO handoff | Follows 3–6. |
+
+**Why it is worth finishing:** the ledger is the measurement half of "does extraction actually agree
+with the person" (G78's prerequisite, G98's live number, and what makes a compiled skill's evidence
+trustworthy in G112). Right now every verdict is written and none is legible.
+
+**How to resume it.** The plan is already written and committed on the branch
+(`docs/superpowers/plans/2026-09-02-g113-feedback-ledger.md`, tasks 1–7, rulings R1–R7 — R3 is the
+verdict table, R5 puts merge rejection in a bank file, R7 keeps feedback rows out of connection
+rollups). The worktree still exists at `.worktrees/g113` on `feat/feedback-ledger`, sitting where
+PR #31 left it.
+
+```sh
+cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113
+git merge --no-edit origin/dev          # it is several tracks behind; expect doc + telemetry-tuple conflicts
+```
+
+then resume the run — tasks 1–2 replay from cache, work restarts at task 3:
+
+```
+Workflow({
+  scriptPath: "~/.claude/projects/-Users-rorosaga-Documents-roros-lab-cicada--worktrees-g113/1d742a99-90a0-46a2-a0d9-4642052335bf/workflows/scripts/g113-feedback-ledger-wf_a38168f3-39b.js",
+  resumeFromRunId: "wf_a38168f3-39b",
+  args: { worktree: ".../.worktrees/g113",
+          plan: ".../.worktrees/g113/docs/superpowers/plans/2026-09-02-g113-feedback-ledger.md",
+          out: "<scratchpad>/g113",
+          base: "78e9873" }
+})
+```
+
+**Before restarting, patch the plan** (the critic pass is cached, so nobody will catch these for you):
+task 6's Swift steps must target `AdvancedStatsView.feedbackTileSlot` rather than the deleted
+`UsageView`, and task 5 must check what G115 already did to `_defer` instead of re-implementing it.
+If a resumed cached task looks wrong against today's `dev`, prefer starting a fresh track with a
+brief written from this table over fighting the cache.
+
+#### The rest, in order
+
+2. **G125 — Sleep page as the study desk.** A `reading` mascot state while intake is being consumed,
    the queue as a per-category study list (Claude Code conversations · Safari tabs · saved links…),
    breakdowns moved to Sources/Settings, a schedule frequency picker, the deprecated toolbar buttons
    removed. *Why here:* it is the page the owner watches while the bank fills, and G105 now feeds it
    real per-source volume.
-2. **G122 — engine and model picker on the Sleep page**, with Ollama guided as a first-class option.
+3. **G122 — engine and model picker on the Sleep page**, with Ollama guided as a first-class option.
    *Why here:* the ladder exists and works (`CICADA_LLM_MODE=auto` → Claude Max), but choosing it
    means editing `api/.env`. It is also step 1 of onboarding.
-3. **G117 — first-run onboarding**, including capturing the owner's identity so the owner entity
+4. **G117 — first-run onboarding**, including capturing the owner's identity so the owner entity
    renders as *Name (you)* and replaces the last hardcoded observer literal. *Why here:* release
    blocker, and the owner plans a clean-install run to watch a new user's first hour.
-4. **G126 — Settings → Integrations by category.** The page over the existing channel registry
+5. **G126 — Settings → Integrations by category.** The page over the existing channel registry
    first, then adapters: YouTube subscriptions (Takeout, no key) → Strava (weekly aggregates only)
    → Todoist/Reminders → Garmin/Apple Health exports.
-5. **G118 slice 2 — the provenance viewer.** Slice 1 shipped (PR #44): claims carry verified spans
+6. **G118 slice 2 — the provenance viewer.** Slice 1 shipped (PR #44): claims carry verified spans
    and `GET /episodes/{id}/span` serves the passage. The viewer is the half the owner actually asked
    for: click a belief, see the conversation with the cited sentence highlighted. *Why not sooner:*
    it is the largest UI surface of the four and wants the inbox card settled first (G115), since both
    render the same cause pane.
-6. **G93 — cross-stream ask.** A question that spans conversations, links, calendar and notes, with
+7. **G93 — cross-stream ask.** A question that spans conversations, links, calendar and notes, with
    span citations rather than page citations. Partly a DECIDE row: what "smart" adds over today's
    `/ask` is still open.
 
