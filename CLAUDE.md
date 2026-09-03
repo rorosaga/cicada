@@ -391,6 +391,51 @@ slices the evidence text back out, engine-free, with `stale` and the derived `ki
 either (the span response validates itself; no new `sync_service` component). Out of scope until
 the later slices: the highlight viewer, trigger traces, rationale, backfill.
 
+### Live state + handshake (G53 / G75)
+**`<bank>/_state.md` is the live state dictionary** — a *cursor* into the graph, never a copy of it:
+YAML frontmatter (`type: state`, `schema_version`, `generated_at`, `inputs_version`, `bank`, optional `owner_id`
+(only when `CICADA_OBSERVER_OWNER` / `settings.observer_owner` names an entity id whose page exists — never a name
+in code), `engine {mode, engine, model, connected}`, `sleep {last_at, queue_depth, next_at}`, `inbox {pending,
+by_kind}`, `projects[] {id, name, one_liner, confidence, last_referenced, repos[] {path, branch, dirty,
+ahead_behind, state}}`, `people[]`, `conversations[] {id, harness, title, last_seen, episode_count}`,
+`preferences[]` (top skill entities), `repos_probed_at`, `world_facts_note`) plus a short wikilinked body. Written
+only by `api/services/state_dictionary.refresh` — zero LLM, ≤ 6 KB, deterministic (a digest of the
+`entities`/`inbox`/`episodes`/`bank` sync components — never `git_head`, whose own `State snapshot` commit would
+self-invalidate — is stored as `inputs_version`; unchanged inputs mean no write, and even a forced rebuild writes
+only when the content differs with `generated_at`/`repos_probed_at`/`inputs_version` masked), repo probes
+read-only under a 2 s total budget (`state: unavailable` past it). Ranking is
+`confidence × 1/(1 + days_since_last_referenced/30)`, archived/dropped excluded, top-N from
+`Settings.state_projects|state_people|state_preferences|state_conversations` (7/7/5/5); rows are trimmed
+people → preferences → conversations → projects to fit the cap, so the projects list is given up last.
+**Who regenerates it:** Sleep's engine-independent tail, first step, every exit path, `force=True`, committed
+alone as `State snapshot <date>` / `Cicada-Author: cicada` / trigger `sleep/state` (no engine trailer — no LLM
+ran); `_finalize` splits a dirty `_state.md` out of the main commit the way G85 splits decay; `GET /state`
+refreshes lazily (no repo probes, previous repo blocks carried over) and `?refresh=true` forces live probes; an
+inbox resolution refreshes best-effort after its commit. The MCP server only ever *reads* it. `resumable` is
+never persisted (G48) — `GET /state` adds it per request, alongside `stale` (digest no longer matches the bank).
+A reader that finds the file stale or absent must still work: every field has a live twin (`/status`, `/inbox`,
+`/conversations/recent`, `cicada_repo_context`).
+
+**The handshake (`api/services/handshake.py`)** turns `_state.md` + a fixed contract into ≤ 1,800 tokens
+(measured as chars/4 — no tokenizer, the suite is offline) of primer: what Cicada is, a 2–3 line per-harness
+prelude keyed off `clientInfo.name` (`claude-code` / `codex` / `generic` via `handshake.variant_for`; the
+contract never varies), the contract (recall first; `cicada_check_nudges(entity_ids=…)` after recall with the
+G115 discipline verbatim; save episodes as you learn; `cicada_write_claim` with `evidence` and `sources`; the
+G121 sentence from `state_dictionary.WORLD_FACTS_NOTE`, the single source for both files; ask before assuming;
+never hand-edit pages), the now-view, and capability notes (resume availability — never "this transcript
+exists", decay classes, the span endpoint, repo context, hub walking). Cached at
+`$CICADA_HOME/handshake/<bank>.<variant>.json`, keyed on `CONTRACT_VERSION` + variant + the state file's
+mtime and size; the cache is a convenience, never a dependency. **Delivered three ways:** the MCP `initialize`
+result's `instructions` field (`mcp/server.py::initialize_result` — never refreshes the file, degrades to no
+`instructions` rather than a failed connect), the `cicada_handshake` tool (harnesses that drop
+`instructions`), and `GET /handshake?client=`. Recall's `cicada-hints` also carries a compact `state` block
+once per MCP process, and only inside a hints block that was going to be emitted anyway. `handshake.HOOK_POINTER`
+is the one line a SessionStart hook or AGENTS.md injects (the hook itself is G49/G76). A `handshake` telemetry
+row (ids/enums only — delivery, variant, `state_present`, `state_age_hours`, harness, client name;
+`stage="handshake"`, `billing="free"`, in `telemetry.NON_SPEND_KINDS` so it never shows as an unknown
+connection) records each delivery, answering for the primer what G105 asked of capture. `SKILL.md` points at
+the generated text rather than restating the contract — one prose source.
+
 ### Save-with-reason (G71)
 A Telegram `/save <url> <reason…>` writes the reason twice: verbatim as a
 `## Saved because` section on the media episode (so Stage-1 extraction mines its
@@ -515,7 +560,7 @@ Cicada-Author: gpt-5.4-mini
 Cicada-Author: gpt-5.4-nano
 ```
 
-**Trigger types:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`
+**Trigger types:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`, `sleep/state`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`
 
 **Commit-author trailers (`Cicada-Author:`).** Every Cicada write records *which agent
 authored it* as one or more `Cicada-Author:` git trailers appended after a blank line at the
@@ -526,7 +571,8 @@ are attributed to **`unknown`**. A third literal, **`cicada`**, is reserved for 
 maintenance* writes the system performs on its own behalf with no model and no user in the
 loop — the one-shot inbox dedup migration (`inbox_migration._commit_dedup`, trigger
 `inbox/dedup`), the one-shot decay-class backfill (`decay_migration.backfill_decay_classes`),
-and, every Sleep cycle, the split-out decay-only commit (G85, below). It classifies as an
+and, every Sleep cycle, the split-out decay-only commit (G85, below) and the `State snapshot` commit
+of `_state.md` (G53, above). It classifies as an
 author like any other, so it shows up in
 `GET /contributors` as a distinct, provider-less contributor. The trailer carries no entity id, so it is **inert to the
 entity-line parsing** above — extend it, don't break it. Built by
@@ -594,6 +640,8 @@ No changelog in frontmatter — git handles all history. Zero storage overhead, 
 
 ## MCP "Bookworm" Tool
 Interface between any LLM and the memory system. On query:
+0. On `initialize` the server returns `instructions` — the G75 handshake (`_state.md` + the contract, see
+   Live state + handshake above) — and `cicada_handshake` returns the same text on demand
 1. Checks `memory/inbox/` for relevant pending items
 2. Searches the sqlite-vec index for semantically similar chunks
 3. Searches markdown graph for structurally related entities
@@ -702,6 +750,11 @@ GET  /transclude                          → transclusion payload for embedding
 GET  /episodes/{id}/span                  → slice a stored document's evidence text at [start,end) with
                                             context (default 240, max 2000); `hash=` → `stale`; `kind`
                                             derived; 404 unknown doc, 422 bad range (G118 slice 1)
+GET  /state                               → the parsed _state.md (snake_case, the on-disk schema) + per-request
+                                            `resumable` and `stale`; lazy refresh; `?refresh=true` probes repos;
+                                            ETag over entities/inbox/episodes/git_head + the file mtime (G53)
+GET  /handshake?client=                   → {text, variant, state_present, hook_pointer} — the primer (G75);
+                                            no ETag, never refreshes the file
 GET  /contributors                        → repo-wide per-author (model/user) commit/file/entity counts + last-active
 GET  /contributors/commits?author=&limit= → one author's recent commits (+ entities touched) for the diff drill-down
 GET  /origins                             → origin-harness provenance aggregation (G9)
