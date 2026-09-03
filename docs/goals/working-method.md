@@ -121,14 +121,14 @@ where two tracks each added a kind — take the **union**) → push → `gh pr c
 
 ### Running now
 
-| Track | Branch / worktree | Run id | State |
-|---|---|---|---|
-| **G115 Phase 1** — inbox redesign | `feat/inbox-phase1` · `.worktrees/g115` | `wf_baa1ec4d-f07` | Plan written (5 tasks); critic and tasks in flight. First attempt died on a model limit with the plan already written; resumed on Opus. |
+**Nothing.** G115 Phase 1 merged as PR #48 on 2026-09-03 and the owner paused the queue there. The last
+five tracks landed the same day: #44 evidence spans (G118 slice 1), #45 live state + handshake (G53/G75),
+#46 deterministic capture (G105), #47 the Sources page (G124), #48 the inbox's first slice (G115).
 
 ### Next
 
-**Nothing.** G115 is the last track that runs (owner, 2026-09-03). When it merges, the queue below is
-paused with its reasoning; each entry carries enough to restart it cold.
+**Nothing is scheduled.** The queue below is paused on the owner's instruction; each entry carries enough
+to restart it cold. Start one by writing a brief from its entry and following §2.
 
 ### Paused, in the order they should resume
 
