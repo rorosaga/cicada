@@ -381,6 +381,9 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
     need — S
 
 ### Wave D · new intake, in dependency order
+14a. **G126** Settings → Integrations by category over the existing channel registry (page first), then
+    adapters in this order: YouTube subscriptions (Takeout parser, no key) → Strava (OAuth, weekly aggregates)
+    → Todoist/Reminders (tasks → G13) → Garmin/Apple Health exports — S/M + S–M each
 15. **G81** contacts — identity anchors *(prerequisite for 16; absorbs G46)* — M
 16. **G95** meetings & human↔human conversations — M/L
 17. **G101** raw-conversation evidence layer — what to keep, what to discard — M
