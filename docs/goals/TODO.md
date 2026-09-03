@@ -13,6 +13,15 @@ against the live bank the same day (iPhone tabs: 188 new / 9 skipped; the big Fa
 0 new / 496 skipped — the idempotency proof). Until each browser
 row syncs on its own, `chrome-bookmarks` / `safari-bookmarks` both read the legacy `bookmarks` count.
 
+**G124 — the Sources page — is on `feat/sources-page` (worktree `.worktrees/g124`), awaiting a PR against
+`dev`:** Activity is gone; ⌘6 is *Sources* — a card grid from `GET /sources/overview`, per-source pages
+(harness conversations with Resume, channel state with Sync/Poll now and folder counts), a contributors
+calendar per model (`GET /contributors/calendar`), and an Advanced toggle holding counts only
+(`GET /contributors/top-entities`, the ids-only `read` ledger kind). No price or token is rendered anywhere
+in the app; `/consumption/*` and the ledger are untouched. A persisted "Activity" selection restores onto
+Sources. Owner-present check after `make install-app`: ⌘6, a harness card → Resume, Safari → Sync now,
+Advanced on → no `$`.
+
 **G118 slice 1 — evidence spans — is on `feat/provenance-spans` (worktree `.worktrees/g118`), awaiting a PR
 against `dev`:** every new claim carries `evidence` spans (offsets + hash into the stored body, never copies),
 `cicada_write_claim` cites `{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift
@@ -135,7 +144,8 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 
 ## Pick up here
 
-**Nothing is broken; one branch is awaiting a PR: `feat/provenance-spans` (G118 slice 1 — evidence spans,
+**Nothing is broken; two branches are awaiting a PR: `feat/sources-page` (G124 — the Sources page,
+worktree `.worktrees/g124`) and `feat/provenance-spans` (G118 slice 1 — evidence spans,
 worktree `.worktrees/g118`). `feat/link-summaries` (G102 cheap slice) merged as PR #40.**
 `feat/mascot` merged as PR #36.
 Its last unchecked box is the visual pass on the installed app — menu bar in light and dark, the
@@ -162,7 +172,7 @@ three-lens judge → decision memo) rather than a blind re-tune.
    `isGraphReady` on teardown — ~0.5 day) before phase 2; without it the user still sees a re-layout
    every time they return to the Graph tab. Phases 2–3 are in the G109 row.
 2. **G113 slices 3–7 ($0, APPLY)** — slices 1–2 (`_verdict`, the `resolution` event, R1 labels) merged
-   as PR #31; the rest of the ledger (audit/dedup verdicts, the Activity card, `remind_later → _defer(7)`)
+   as PR #31; the rest of the ledger (audit/dedup verdicts, the Sources ▸ Advanced feedback tile, `remind_later → _defer(7)`)
    is still open. Slice 5 (closing the loop) stays 💸 DECIDE.
 3. **G115 Phase 1 ($0, 1–2 days, engine-free)** — the inbox redesign's first slice: cause on the card,
    `(Recommended)` from the shipped `_verdict`, decay through `QuestionView`, number keys, ETag BOTH
@@ -179,7 +189,8 @@ three-lens judge → decision memo) rather than a blind re-tune.
    review — the live bank holds real people). Same for any `macos-harness` verification that
    needs a permission prompt accepted.
 
-**Worktrees:** `.worktrees/g118` holds `feat/provenance-spans` (G118 slice 1) until its PR merges;
+**Worktrees:** `.worktrees/g124` holds `feat/sources-page` (G124) until its PR merges;
+`.worktrees/g118` holds `feat/provenance-spans` (G118 slice 1) until its PR merges;
 `.worktrees/safari-import` holds `feat/safari-import` until its PR merges;
 `.worktrees/g113` (`feat/feedback-ledger`), `.worktrees/link-summaries` and `.worktrees/mascot` are
 other in-flight branches — check each's `git status --porcelain -uall` before touching it. Never
@@ -195,7 +206,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-03 (G118 slice 1 on `feat/provenance-spans`, PR pending); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
+_Last synced: 2026-09-03 (G124 on `feat/sources-page`, PR pending; G118 slice 1 on `feat/provenance-spans`, PR pending); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
 
 ---
 
@@ -221,7 +232,9 @@ G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animati
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
-verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii)
+verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii) ·
+**G124 Sources page (2026-09-03, PR #TBD)** — Activity → Sources: card grid from /sources/overview,
+per-source pages with Resume, contributors calendar per model, Advanced counts; prices/tokens out of the app
 
 **2026-08-31 → 09-01 (PRs #21–#29, merged to dev)**
 - #21 diff context lines with line numbers, merge-commit handling
@@ -306,7 +319,7 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 4a. **G113 slices 1–4** — the grounded-reward ledger: every human verdict on memory (inbox resolve,
    decay keep/archive, merge accept/reject, `Cicada-Author: user` corrections) recorded as a
    telemetry event — ids and enums only, never text — with per-predicate agreement rates and a
-   confidence-calibration curve as a fourth Activity card. Slice 5 (feeding rates back into
+   confidence-calibration curve as a tile in Sources ▸ Advanced (the `feedbackTileSlot`). Slice 5 (feeding rates back into
    prompts) stays 💸 DECIDE under G78 — slices 1–2 merged (PR #31); 3–7 open — S/M
 4d. **G115 Phase 1** *(owner 2026-09-03: start with the dead chevron and the unbounded URL list on cards)*
 4d″. **G115 Phase 2 — suggested outcome** *(owner 2026-09-03)*: a confidence-gated one-sentence "Cicada thinks…"
@@ -364,10 +377,6 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 12e. **G125** Sleep page as the study desk — `reading` mascot state, the queue as a per-category study list,
     breakdowns moved to Sources/Settings, schedule frequency picker (`interval_hours`/`after_import`), the
     deprecated Sleep/Upload toolbar buttons removed — M
-12d. **G124** Activity → Conversations-first *Sources* page *(ruled 2026-09-03: no prices/tokens in the app —
-    endpoints stay)*: per-harness cards with counts (clickable →
-    per-source page), conversation rows with Resume, contributors calendar per model, Usage + read/write
-    stats under Advanced, no segmented control, no horizontal strip — M/L (decide the sidebar order in G108)
 12c. **G108** landing page + navigation — decide *before* building: status vs graph as the front
     door, and linear vs browser-style history (G106 makes history the better bet) — decision
 12b. **G106** two-way conversations ↔ entities browser — the inverse index works today; content
@@ -423,8 +432,8 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
 
 ### Small & cheap — grab when passing
-- **G123** graph node search — shipped 2026-09-03 (PR #43); follow-up: route Ask citations and Activity
-  chips through `revealEntity` so they land on the node too — XS
+- **G123** graph node search — shipped 2026-09-03 (PR #43); follow-up: route Ask citations and Sources
+  entity chips through `revealEntity` so they land on the node too — XS
 G7 centrality *(recommended for closing — "premise measured false" per a prior session, but this
 hygiene pass could not find the underlying measurement anywhere in tracked docs; left OPEN — see
 the report for what was checked)*
