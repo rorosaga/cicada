@@ -35,7 +35,7 @@ def test_build_schema_and_ranking(tmp_path):
     assert fm["bank"] == "memory" and "owner_id" not in fm
     assert fm["engine"] == {"mode": "byok", "engine": "litellm", "model": "gpt-5.4-mini", "connected": []}
     assert fm["sleep"]["last_at"].startswith("20") and fm["sleep"]["queue_depth"] == 1
-    assert fm["sleep"]["next_at"] is None
+    assert "next_at" not in fm["sleep"], "a clock, added per request by GET /state — never persisted"
     # the deferred conflict is hidden from the pending count, like GET /inbox
     assert fm["inbox"] == {"pending": 1, "by_kind": {"decay": 1}}
     # recency × confidence, archived excluded
@@ -185,6 +185,39 @@ def test_builder_never_touches_the_llm_seam(tmp_path, monkeypatch):
     memory = _bank(tmp_path)
     state_dictionary.refresh(memory, _settings(memory), force=True, today=TODAY, now=NOW, repo_resolver=_ok_repo)
     assert (memory / "_state.md").exists()
+
+
+def test_idle_night_with_a_schedule_writes_nothing(tmp_path):
+    """R1 under the LIVE configuration (final review): a schedule is enabled
+    and the forced rebuild runs the next day. The old in-file `next_at`
+    advanced with the date and made every idle night a commit."""
+    from datetime import timedelta
+
+    from api.models.schemas import ScheduleConfig
+    from api.services import sleep_scheduler
+
+    memory = _bank(tmp_path)
+    settings = _settings(memory)
+    sleep_scheduler.save_schedule(memory, ScheduleConfig(enabled=True, hour=3, minute=0))
+    first = state_dictionary.refresh(memory, settings, force=True, today=TODAY, now=NOW, repo_resolver=_ok_repo)
+    assert first["written"] is True
+    text = (memory / "_state.md").read_text()
+    assert "next_at" not in text
+    next_night = NOW + timedelta(days=1)
+    again = state_dictionary.refresh(memory, settings, force=True, today=TODAY + timedelta(days=1),
+                                     now=next_night, repo_resolver=_ok_repo)
+    assert again == {"written": False, "reason": "content unchanged", "path": str(memory / "_state.md")}
+    assert (memory / "_state.md").read_text() == text
+
+
+def test_default_clock_drives_both_now_and_today(tmp_path, monkeypatch):
+    """`build` derives `today` from the same instant as `generated_at`, so an
+    injected clock (the wiring test's "next night") moves both together."""
+    fake = datetime(2026, 12, 24, 23, 30, tzinfo=timezone.utc)
+    monkeypatch.setattr(state_dictionary, "_now", lambda: fake)
+    memory = _bank(tmp_path)
+    fm, _ = state_dictionary.build(memory, _settings(memory), repo_resolver=_ok_repo)
+    assert fm["generated_at"] == fake.isoformat()
 
 
 def test_next_run_at_moved_to_scheduler(tmp_path):

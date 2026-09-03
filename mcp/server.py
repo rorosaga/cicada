@@ -101,6 +101,12 @@ CLIENT_INFO: dict = {}
 # emitted: `_hints_block` returns "" when there is nothing to suggest, and
 # an unsent cursor is not consumed.
 _STATE_HINT_SENT: bool = False
+# G75 contract item 2, `skip=true`: inbox ids the agent declined to ask this
+# session. In-process and never persisted — a skip is not the person's
+# verdict, so it must not become a write (the backend's `action: skip` IS a
+# resolution and is not this). Cleared when the MCP process restarts, which
+# is what "that session" means for a stdio server.
+_SKIPPED_INBOX_IDS: set[str] = set()
 
 
 def _session_frontmatter() -> dict:
@@ -378,7 +384,7 @@ TOOLS = [
     },
     {
         "name": "cicada_resolve_inbox",
-        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation. Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'a', 'b', 'both', 'neither'), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later.",
+        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation. Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'a', 'b', 'both', 'neither'), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later. Pass skip=true when the user did not answer at all: nothing is written and cicada_check_nudges stops returning the item for the rest of this session.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -401,6 +407,10 @@ TOOLS = [
                 "remind_days": {
                     "type": "integer",
                     "description": "With defer=true: how many days out to ask again (default 30).",
+                },
+                "skip": {
+                    "type": "boolean",
+                    "description": "True when the question went unanswered this session: no write, not re-asked until the MCP process restarts. Distinct from defer (which writes remind_after).",
                 },
             },
             "required": ["id"],
@@ -629,6 +639,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("answer"),
             bool(arguments.get("defer", False)),
             arguments.get("remind_days"),
+            skip=bool(arguments.get("skip", False)),
         )
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -1763,11 +1774,25 @@ def handle_resolve_inbox(
     answer: str | None,
     defer: bool,
     remind_days,
+    *,
+    skip: bool = False,
 ) -> str:
-    """Resolve (or defer) one inbox item through the backend (§2.7)."""
+    """Resolve (or defer) one inbox item through the backend (§2.7).
+
+    ``skip=True`` (G75 contract item 2, final review) is an in-process no-op:
+    the id joins ``_SKIPPED_INBOX_IDS`` so ``handle_check_nudges`` stops
+    returning it this session, and NOTHING is posted to the backend. Before
+    this the primer named an argument the schema rejected (R12 — a bug), and
+    an agent hitting the tool error could fall back to ``defer=true``, a
+    real ``remind_after`` write the person never asked for.
+    """
     item_id = (item_id or "").strip()
     if not item_id:
         return "Error: id is required (e.g. 'inbox-001')."
+
+    if skip:
+        _SKIPPED_INBOX_IDS.add(item_id)
+        return f"Skipped {item_id} — not re-asked this session (nothing written)."
 
     if defer:
         payload: dict = {"action": "defer"}
@@ -1890,15 +1915,25 @@ def handle_check_nudges(topic: str | None, entity_ids: list | None = None) -> st
     today — a primer that names an argument the tool schema rejects is a
     bug. The G115 Phase 2 gate (mode, vector score, asked set, cap) is not
     this. Combines with ``topic`` as an AND.
+
+    Two more things the contract promises and this path therefore does
+    (final review): ``normalization`` items never come back — they are
+    app-only audit rows about a predicate fold, not a question a person can
+    answer in conversation — and an id the agent ``skip``ped this session
+    stays out (``_SKIPPED_INBOX_IDS``).
     """
     memory_path = get_memory_path()
     results = []
     wanted = {str(e).strip() for e in (entity_ids or []) if str(e).strip()}
 
     for filepath in _inbox_files(memory_path):
+        if filepath.stem in _SKIPPED_INBOX_IDS:
+            continue
         content = filepath.read_text(encoding="utf-8")
         fm, body = parse_frontmatter(content)
 
+        if str(fm.get("kind") or "") == "normalization":
+            continue
         if wanted and str(fm.get("entity_id") or "") not in wanted:
             continue
 

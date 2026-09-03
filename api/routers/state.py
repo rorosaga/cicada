@@ -3,18 +3,27 @@
 
 The on-disk frontmatter of ``<bank>/_state.md`` is the wire shape, verbatim
 and snake_case: one documented schema, read the same way by the API, the MCP
-server and any harness that ``cat``s the file. Two things are added per
+server and any harness that ``cat``s the file. Three things are added per
 request and never persisted: ``resumable`` on each conversation (G48 — a
 transcript can be retention-cleaned behind our back, so it is an ``isfile``
-per request through the same seam ``/conversations/recent`` uses) and
-``stale`` (the file's ``inputs_version`` no longer matches the bank).
+per request through the same seam ``/conversations/recent`` uses),
+``sleep.next_at`` (a clock, not a belief — in the file it advanced daily and
+made every idle night commit, breaking R1; computed here on the local clock
+the schedule is expressed in, exactly as ``/status`` does) and ``stale``
+(the file's ``inputs_version`` no longer matches the bank).
 
 Reads regenerate lazily (R4): an inbox resolution or an agentic write
 changed an input, so the first read afterwards rebuilds — cheaply, carrying
 the previous repo blocks over. ``?refresh=true`` forces a rebuild with live
-repo probes (bounded, ``state_dictionary.REPO_BUDGET_S``). Neither read
-commits: Sleep's tail owns the ``cicada`` commit (R2), and ``_finalize``
-splits a dirty projection out of any model commit (R3).
+repo probes (bounded, ``state_dictionary.REPO_BUDGET_S``). A read that
+rewrote the file COMMITS it, alone, as ``cicada`` — through the same
+``state_dictionary.refresh_and_commit`` Sleep's tail uses (final review,
+2026-09-03: a projection left dirty was reproduced riding in the next
+``git add -A`` writer's commit — an inbox resolution under
+``Cicada-Author: user`` — which is the G85-class smear R2/R3 exist to
+prevent). A read that wrote nothing commits nothing, so a 304-shaped read
+stays free. ``_finalize`` still splits a dirty projection out of any model
+commit (R3) for the failed-commit case.
 
 ETag (R9): the same components the file is built from plus the file's own
 mtime, so a 304 is exactly "nothing you would see has changed". Bearer-gated
@@ -33,7 +42,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.services import state_dictionary, sync_service
+from api.services import sleep_scheduler, state_dictionary, sync_service
 from api.services.repo_context import resolve_repo_context
 
 router = APIRouter()
@@ -59,9 +68,10 @@ async def get_state(
     memory_path = settings.memory_path
     # `connected` is filled by `refresh` from the registry's cache (R7) —
     # the same helper Sleep's tail uses, so a read never rewrites the file
-    # just because the two writers named different connection lists.
-    await run_in_threadpool(
-        state_dictionary.refresh, memory_path, settings,
+    # just because the two writers named different connection lists. The
+    # helper commits only when it wrote, and never raises on a normal bank.
+    await state_dictionary.refresh_and_commit(
+        memory_path, settings,
         force=refresh, probe_repos=refresh, repo_resolver=repo_resolver if refresh else None,
     )
     etag = sync_service.etag_for(
@@ -86,6 +96,8 @@ async def get_state(
     } if state.get("conversations") else {}
     for row in state.get("conversations", []) or []:
         row["resumable"] = bool(conv.transcript_exists(project_dirs.get(row["id"]), row["id"]))
+    # Per request, local clock — never in the file (see the module docstring).
+    state.setdefault("sleep", {})["next_at"] = sleep_scheduler.next_run_at(memory_path)
     state["stale"] = state.get("inputs_version") != state_dictionary.inputs_version(memory_path)
     state.pop("body", None)
     return state

@@ -395,7 +395,7 @@ the later slices: the highlight viewer, trigger traces, rationale, backfill.
 **`<bank>/_state.md` is the live state dictionary** — a *cursor* into the graph, never a copy of it:
 YAML frontmatter (`type: state`, `schema_version`, `generated_at`, `inputs_version`, `bank`, optional `owner_id`
 (only when `CICADA_OBSERVER_OWNER` / `settings.observer_owner` names an entity id whose page exists — never a name
-in code), `engine {mode, engine, model, connected}`, `sleep {last_at, queue_depth, next_at}`, `inbox {pending,
+in code), `engine {mode, engine, model, connected}`, `sleep {last_at, queue_depth}`, `inbox {pending,
 by_kind}`, `projects[] {id, name, one_liner, confidence, last_referenced, repos[] {path, branch, dirty,
 ahead_behind, state}}`, `people[]`, `conversations[] {id, harness, title, last_seen, episode_count}`,
 `preferences[]` (top skill entities), `repos_probed_at`, `world_facts_note`) plus a short wikilinked body. Written
@@ -407,12 +407,21 @@ read-only under a 2 s total budget (`state: unavailable` past it). Ranking is
 `confidence × 1/(1 + days_since_last_referenced/30)`, archived/dropped excluded, top-N from
 `Settings.state_projects|state_people|state_preferences|state_conversations` (7/7/5/5); rows are trimmed
 people → preferences → conversations → projects to fit the cap, so the projects list is given up last.
-**Who regenerates it:** Sleep's engine-independent tail, first step, every exit path, `force=True`, committed
-alone as `State snapshot <date>` / `Cicada-Author: cicada` / trigger `sleep/state` (no engine trailer — no LLM
-ran); `_finalize` splits a dirty `_state.md` out of the main commit the way G85 splits decay; `GET /state`
-refreshes lazily (no repo probes, previous repo blocks carried over) and `?refresh=true` forces live probes; an
-inbox resolution refreshes best-effort after its commit. The MCP server only ever *reads* it. `resumable` is
-never persisted (G48) — `GET /state` adds it per request, alongside `stale` (digest no longer matches the bank).
+**Who regenerates it:** every regeneration that touches disk goes through the one helper
+`state_dictionary.refresh_and_commit`, which writes only when the content changed and then commits `_state.md`
+ALONE as `State snapshot <date>` / `Cicada-Author: cicada` / trigger `sleep/state` (no engine trailer — no LLM
+ran; `commit_paths`, never `git add -A`). Sleep's engine-independent tail runs it first, on every exit path,
+`force=True` (the one place the file pays for live repo probes); `GET /state` runs it lazily (no repo probes,
+previous repo blocks carried over) and `?refresh=true` forces live probes; an inbox resolution runs it
+best-effort after its own commit. **The read path commits too, on purpose (final review 2026-09-03):** a
+projection left dirty "for Sleep's tail" was reproduced riding in the NEXT `git add -A` writer's commit — an
+`Inbox resolution` under `Cicada-Author: user` (Telegram capture, notes sync, `PATCH /entities/{id}/repos` and
+`POST /sources/poll-feeds` all commit the same way) — the G85-class smear on the read path. `_finalize` still
+splits a dirty `_state.md` out of the main commit the way G85 splits decay, for the failed-commit case. The MCP
+server only ever *reads* it. Never persisted, added per request by `GET /state`: `resumable` (G48), `stale`
+(digest no longer matches the bank), and `sleep.next_at` — a clock, not a belief: in the file it advanced every
+day on a bank with a schedule and made every idle night commit, breaking R1; it is computed on the local clock
+the schedule is expressed in, exactly as `/status` does.
 A reader that finds the file stale or absent must still work: every field has a live twin (`/status`, `/inbox`,
 `/conversations/recent`, `cicada_repo_context`).
 
@@ -420,7 +429,12 @@ A reader that finds the file stale or absent must still work: every field has a 
 (measured as chars/4 — no tokenizer, the suite is offline) of primer: what Cicada is, a 2–3 line per-harness
 prelude keyed off `clientInfo.name` (`claude-code` / `codex` / `generic` via `handshake.variant_for`; the
 contract never varies), the contract (recall first; `cicada_check_nudges(entity_ids=…)` after recall with the
-G115 discipline verbatim; save episodes as you learn; `cicada_write_claim` with `evidence` and `sources`; the
+G115 discipline — every argument it names exists in the tool schema: `entity_ids` filters `cicada_check_nudges`,
+which also never returns `normalization` items or an id skipped this session, and `cicada_resolve_inbox(id,
+skip=true)` is an in-process no-op that writes nothing (R12: a primer naming an argument the schema rejects is
+a bug — before the final review an agent hitting that error could fall back to `defer=true`, a real write); the
+Cause line and `(Recommended)` marker are stated as "when the item shows them" because they are G115 Phase 1
+card work not yet on the inbox files; save episodes as you learn; `cicada_write_claim` with `evidence` and `sources`; the
 G121 sentence from `state_dictionary.WORLD_FACTS_NOTE`, the single source for both files; ask before assuming;
 never hand-edit pages), the now-view, and capability notes (resume availability — never "this transcript
 exists", decay classes, the span endpoint, repo context, hub walking). Cached at

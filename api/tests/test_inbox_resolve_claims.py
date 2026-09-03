@@ -343,7 +343,8 @@ def test_the_commit_manifest_does_not_repeat_one_page_per_closed_claim(tmp_path)
         "inbox-001", InboxResolveRequest(action="resolve", optionKey="b"), _Settings(repo)
     ))
 
-    message = _git(repo, "log", "-1", "--format=%B")
+    # the person's commit, not HEAD — G53's `resolve()` commits `_state.md` as `cicada` on top
+    message = _git(repo, "log", "-1", "--grep=^Inbox resolution", "--format=%B")
     lines = [ln for ln in message.splitlines() if ln.startswith("entities/")]
     assert len(lines) == len(set(lines)) == 2, message
 

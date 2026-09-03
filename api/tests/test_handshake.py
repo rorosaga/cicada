@@ -50,8 +50,9 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     # what Cicada is + the contract
     assert text.startswith("# Cicada")
     assert "cicada_recall" in text and "cicada_check_nudges(entity_ids=" in text
-    assert "at most one question per turn" in text and "skip=true" in text
-    assert "Recommended" in text and "Cause" in text and "normalization" in text
+    assert "at most one question per turn" in text and "cicada_resolve_inbox(id, skip=true)" in text
+    assert "Recommended option when the item shows them" in text and "Cause" in text and "normalization" in text
+    assert handshake.CONTRACT_VERSION == 2, "item 2 changed — the on-disk cache key must move with it"
     assert "cicada_write_claim" in text and "evidence" in text and "sources" in text
     assert state_dictionary.WORLD_FACTS_NOTE in text
     # the now-view

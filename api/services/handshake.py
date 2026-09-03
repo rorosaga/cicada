@@ -40,7 +40,9 @@ from api.services.auth import cicada_home
 
 # Bump when the contract or capability copy changes: the cache key carries
 # it, so an upgraded backend never serves last version's text from disk.
-CONTRACT_VERSION = 1
+# 2: item 2 made honest against the tools (skip=true exists, normalization
+# filtered, Cause/Recommended stated as conditional) — final review.
+CONTRACT_VERSION = 2
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -84,19 +86,26 @@ _PRELUDE = {
     ),
 }
 
-# G115 discipline — item 2 is verbatim from the G75 row. Copy, not filter:
-# the server-side gate is G115 Phase 2 and does not depend on this being
-# read. Item 5 is G121 in one sentence, sourced from `state_dictionary` so
-# the state file and the primer can never drift apart on it.
+# G115 discipline — item 2 is the G75 row's paragraph, with one honesty
+# edit (final review, 2026-09-03): the Cause line and the `(Recommended)`
+# marker are G115 Phase 1 card work the inbox files do not carry yet, so the
+# sentence says "when the item shows them" instead of promising them; every
+# argument it names (`entity_ids`, `skip=true`) is in the tool schema and
+# `normalization` items really are filtered by `handle_check_nudges` (R12: a
+# primer naming behaviour the tools lack is a bug, not aspiration). Copy,
+# not filter: the server-side gate is G115 Phase 2 and does not depend on
+# this being read. Item 5 is G121 in one sentence, sourced from
+# `state_dictionary` so the state file and the primer can never drift apart.
 _CONTRACT = (
     "## Contract\n"
     "1. Recall first: `cicada_recall(query)` at the start of a topic, `cicada_recall_detail(id)` for a page, "
     "`cicada_ask` for a direct factual question. State only what the tools returned.\n"
     "2. After `cicada_recall`, call `cicada_check_nudges(entity_ids=<recall ids>)`; at most one question per "
-    "turn, after the user's request is done; quote the Cause line; Recommended first; never a blocking question "
-    "at the end of an unrelated turn; `skip=true` when unanswered and never re-ask that session; resolve only "
-    "with the person's own answer; say what changed in one line; `normalization` items are app-only and the "
-    "ask path never returns them.\n"
+    "turn, after the user's request is done; quote the Cause line and lead with the Recommended option when the "
+    "item shows them; never a blocking question at the end of an unrelated turn; "
+    "`cicada_resolve_inbox(id, skip=true)` when unanswered — it writes nothing and the item is not re-asked "
+    "that session; resolve only with the person's own answer; say what changed in one line; `normalization` "
+    "items are app-only and the ask path never returns them.\n"
     "3. Save as you learn: `cicada_save_episode(content, title)` for a decision, plan or fact worth keeping; "
     "`cicada_save_url` for a link.\n"
     "4. Write facts as claims: `cicada_write_claim(subject, predicate, object, evidence=[{episode, quote}], "

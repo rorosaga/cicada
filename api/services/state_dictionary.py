@@ -28,13 +28,32 @@ stale (``generated_at``) must still work, and every field has a live twin
 (``/status``, ``/inbox``, ``/conversations/recent``, ``cicada_repo_context``).
 
 This module is the ONLY writer of ``_state.md`` (R1: two schedulers of
-regeneration — Sleep's tail and the lazy read path — one writer). The MCP
-server only ever reads it (R4), so an agent connecting never dirties the bank
-with a projection.
+regeneration — Sleep's tail and the lazy read path — one writer), and
+``refresh_and_commit`` is the ONLY committer: every regeneration that
+touched the file lands in its own ``State snapshot`` commit authored
+``cicada`` before it returns. Final review (2026-09-03) reproduced why a
+write left dirty is not harmless: ``git_service.commit_changes`` is
+``git add -A`` and is what an inbox resolution, ``POST /capture/telegram``,
+the notes sync, ``PATCH /entities/{id}/repos`` and ``POST /sources/poll-feeds``
+all commit through, so a projection dirtied by ``GET /state`` was swept into
+the NEXT user write — an ``Inbox resolution`` commit under
+``Cicada-Author: user`` carrying 13 lines of ``_state.md`` — far more often
+than Sleep's tail ever got to claim it. That is the G85-class smear R2/R3
+exist to prevent, on the read path. The MCP server only ever reads the file
+(R4), so an agent connecting never dirties the bank with a projection.
+
+``sleep.next_at`` is deliberately NOT in the file: with a schedule enabled it
+advances every day, so a forced tail rebuild on an otherwise idle bank would
+write and commit a ``State snapshot`` every night — the exact R1 promise
+("an idle night makes no commit") broken under the live configuration. It is
+added per request by ``GET /state`` (local clock, like ``/status``), the
+same way ``resumable`` is (R5).
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hashlib
 import json
 import subprocess
@@ -239,17 +258,18 @@ def _default_git_runner(memory_path: Path, args: list[str]) -> str | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
-def _sleep_block(memory_path: Path, git_runner, now: datetime) -> dict:
+def _sleep_block(memory_path: Path, git_runner) -> dict:
+    """``last_at`` + ``queue_depth`` only. ``next_at`` is a clock, not a
+    belief: it moves every day on a bank with a schedule, which would make
+    an idle night's forced rebuild differ under ``_masked`` and commit (R1,
+    final review). ``GET /state`` adds it per request from
+    ``sleep_scheduler.next_run_at`` — on the LOCAL clock the schedule's
+    hours are expressed in, where the old in-file value fed a UTC wall time
+    and could name a time already past."""
     out = git_runner(memory_path, ["log", "-1", "--grep=^Sleep cycle", "--format=%aI"])
     last_at = (out or "").strip() or None
     queue = sum(1 for f in bank_index.files(memory_path, "episodes") if not f.frontmatter.get("processed", False))
-    from api.services import sleep_scheduler
-
-    try:
-        next_at = sleep_scheduler.next_run_at(memory_path, now=now.replace(tzinfo=None))
-    except Exception:
-        next_at = None
-    return {"last_at": last_at, "queue_depth": queue, "next_at": next_at}
+    return {"last_at": last_at, "queue_depth": queue}
 
 
 def _inbox_block(memory_path: Path) -> dict:
@@ -292,6 +312,13 @@ def _conversations(memory_path: Path, n: int) -> list[dict]:
 # --- build / render -----------------------------------------------------------
 
 
+def _now() -> datetime:
+    """The one clock ``build`` defaults to (aware UTC). A seam, so a test can
+    run "the next night" against a still bank and assert nothing is written —
+    the idle-night rail (R1) is only real if it holds across a date change."""
+    return datetime.now(timezone.utc)
+
+
 def _limit(settings, key: str) -> int:
     try:
         return int(getattr(settings, key, _DEFAULTS[key]) or _DEFAULTS[key])
@@ -314,8 +341,10 @@ def build(
 ) -> tuple[dict, str]:
     """Render the state dictionary. Pure given its seams; never calls an LLM."""
     memory_path = Path(memory_path)
-    today = today or date.today()
-    now = now or datetime.now(timezone.utc)
+    now = now or _now()
+    # The local calendar date of `now` — `date.today()` in production, and
+    # the injected clock's date under test, so the two never disagree.
+    today = today or now.astimezone().date()
     git_runner = git_runner or _default_git_runner
     if probe_repos and repo_resolver is None:
         from api.services.repo_context import resolve_repo_context
@@ -358,7 +387,7 @@ def build(
         fm["owner_id"] = owner
     fm.update({
         "engine": _engine_block(settings, connected_ids),
-        "sleep": _sleep_block(memory_path, git_runner, now),
+        "sleep": _sleep_block(memory_path, git_runner),
         "inbox": _inbox_block(memory_path),
         "projects": projects,
         "people": people,
@@ -474,6 +503,64 @@ def refresh(
         return {"written": False, "reason": "content unchanged", "path": str(path)}
     path.write_text(text, encoding="utf-8")
     return {"written": True, "reason": "rebuilt", "path": str(path)}
+
+
+def commit_message(today: date | None = None) -> str:
+    """The one ``State snapshot`` commit message, shared by every committer
+    (the tail, the read path, ``_finalize``'s R3 split) so `git log` shows one
+    shape: subject ``State snapshot <date>``, one manifest line under the
+    ``sleep/state`` trigger (``_infer_trigger_for_path`` names the projection,
+    not who asked for it), ``Cicada-Author: cicada`` — system maintenance
+    with no model and no user in the loop — and no engine trailer, because no
+    LLM ran (the same contract as the G85 decay commit)."""
+    from api.services import git_service
+
+    return git_service.build_commit_message(
+        f"State snapshot {(today or date.today()).isoformat()}",
+        [f"{STATE_FILENAME}: updated (trigger: sleep/state)"],
+        authors=["cicada"],
+    )
+
+
+async def refresh_and_commit(
+    memory_path: Path, settings=None, *, lock: asyncio.Lock | None = None, **refresh_kw,
+) -> dict:
+    """``refresh`` in a thread, then — only when it wrote — commit ``_state.md``
+    ALONE as ``cicada``. The single entry point for every regeneration that
+    can land on disk: Sleep's tail, ``GET /state``, an inbox resolution.
+
+    Why the read path commits too (final review, 2026-09-03): leaving the
+    file dirty "until Sleep's tail commits it" was reproduced to be wrong in
+    practice — the next ``git add -A`` writer (an inbox resolution, a
+    Telegram capture, a feed poll) swept it into ITS commit under the wrong
+    author and trigger. ``commit_paths``, never ``git add -A``, so a dirty
+    entity page beside it is never touched. Best-effort throughout: a commit
+    failure logs and returns ``committed: False`` with the file written —
+    ``_finalize``'s R3 split picks it up next cycle. A bank without git
+    (R8: a plain folder still gets a file) is written and never committed.
+    ``lock`` is the caller's asyncio lock when it serialises git itself
+    (Sleep's ``_lock``); the other callers share git's own index lock.
+    """
+    memory_path = Path(memory_path)
+    result = await asyncio.to_thread(refresh, memory_path, settings, **refresh_kw)
+    result["committed"] = False
+    if not result.get("written"):
+        return result
+    if not (memory_path / ".git").exists():
+        result["reason"] = f"{result.get('reason', 'written')} (no git — not committed)"
+        return result
+    from api.services import git_service
+
+    try:
+        async with (lock if lock is not None else contextlib.nullcontext()):
+            await git_service.commit_paths(memory_path, commit_message(), [STATE_FILENAME])
+        result["committed"] = True
+    except Exception as exc:
+        logger.warning(
+            f"State snapshot commit failed (file written, will be split out next cycle): "
+            f"{type(exc).__name__}: {exc}"
+        )
+    return result
 
 
 def _sleep_for_tests(seconds: float) -> None:  # pragma: no cover - a test seam

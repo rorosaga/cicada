@@ -545,18 +545,19 @@ async def resolve(
         change=change,
     )
     # G53 (R4) — the pending count just changed; refresh the projection
-    # cheaply (no repo probes, previous blocks carried over). Best-effort:
-    # a projection failure never fails a person's answer. Runs AFTER the
-    # commit on purpose: `commit_resolution` is `git add -A`, and refreshing
-    # first would attribute the projection to the person's answer. Its own
-    # rewrite stays dirty until Sleep's tail commits it as `cicada` (R2) —
-    # disclosed, same class as G85's path-granular asymmetry.
+    # cheaply (no repo probes, previous blocks carried over) and commit it
+    # alone as `cicada`. Best-effort: a projection failure never fails a
+    # person's answer. Runs AFTER the commit on purpose: `commit_resolution`
+    # is `git add -A`, and refreshing first would attribute the projection
+    # to the person's answer. It commits its own rewrite for the mirror
+    # reason (final review, 2026-09-03): a rewrite left dirty was reproduced
+    # riding in the NEXT resolution's `Cicada-Author: user` commit — the
+    # G85-class smear R2/R3 exist to prevent — so `refresh_and_commit`, not
+    # `refresh`, is the only regeneration entry point that touches disk.
     try:
-        from starlette.concurrency import run_in_threadpool
-
         from api.services import state_dictionary
 
-        await run_in_threadpool(state_dictionary.refresh, settings.memory_path, settings, probe_repos=False)
+        await state_dictionary.refresh_and_commit(settings.memory_path, settings, probe_repos=False)
     except Exception as exc:
         logger.warning(f"state refresh after resolution skipped: {type(exc).__name__}: {exc}")
     return {"status": "resolved", "id": item_id}

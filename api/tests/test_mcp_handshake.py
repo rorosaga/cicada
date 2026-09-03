@@ -98,3 +98,35 @@ def test_check_nudges_accepts_entity_ids(server, bank):
     assert schema["properties"]["entity_ids"]["type"] == "array"
     both = server.handle_tool("cicada_check_nudges", {})
     assert "inbox-001" in both and "inbox-003" in both
+
+
+def test_check_nudges_never_returns_normalization_items(server, bank):
+    """Contract item 2 says `normalization` items are app-only — so the ask
+    path must actually filter them (final review)."""
+    markdown_parser.write(bank / "inbox" / "inbox-004.md",
+                          {"kind": "normalization", "status": "pending", "entity_id": "alpha-project",
+                           "entity_name": "Alpha Project", "title": "Folded works-at into employed-by",
+                           "question": "Keep the fold?", "created_date": "2026-08-01"}, "audit")
+    out = server.handle_tool("cicada_check_nudges", {})
+    assert "inbox-004" not in out and "inbox-001" in out
+    assert "inbox-004" not in server.handle_tool("cicada_check_nudges", {"entity_ids": ["alpha-project"]})
+
+
+def test_resolve_inbox_skip_writes_nothing_and_is_not_reasked(server, bank, monkeypatch):
+    """`skip=true` is in the schema and is an in-process no-op: the backend is
+    never called, and the id leaves this session's `cicada_check_nudges`."""
+    def boom(path, payload):
+        raise AssertionError(f"skip must not POST — got {path} {payload}")
+
+    monkeypatch.setattr(server, "_backend_post", boom)
+    monkeypatch.setattr(server, "_SKIPPED_INBOX_IDS", set())
+    schema = {t["name"]: t for t in server.TOOLS}["cicada_resolve_inbox"]["inputSchema"]
+    assert schema["properties"]["skip"]["type"] == "boolean"
+    assert "inbox-001" in server.handle_tool("cicada_check_nudges", {})
+    before = (bank / "inbox" / "inbox-001.md").read_text()
+    out = server.handle_tool("cicada_resolve_inbox", {"id": "inbox-001", "skip": True})
+    assert "Skipped inbox-001" in out and "nothing written" in out
+    assert (bank / "inbox" / "inbox-001.md").read_text() == before
+    assert "inbox-001" not in server.handle_tool("cicada_check_nudges", {})
+    # the primer names exactly this call
+    assert "cicada_resolve_inbox(id, skip=true)" in server.handle_tool("cicada_handshake", {})

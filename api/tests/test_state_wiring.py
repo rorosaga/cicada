@@ -1,11 +1,14 @@
 """G53 wiring: Sleep's tail regenerates + commits `_state.md` as `cicada`,
 `_finalize` never lets it ride in a model commit, `GET /state` refreshes
-lazily with an ETag, and an inbox resolution refreshes it best-effort.
-Real git in a tmp bank (mirrors test_agent_provenance.py); no model."""
+lazily with an ETag and commits its own rewrite as `cicada`, and an inbox
+resolution refreshes + commits it best-effort — so no `git add -A` writer
+ever finds the projection dirty (final review). Real git in a tmp bank
+(mirrors test_agent_provenance.py); no model."""
 from __future__ import annotations
 
 import asyncio
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -77,13 +80,29 @@ def test_idle_cycle_writes_and_commits_the_state_as_cicada(tmp_path, monkeypatch
 
 
 def test_second_idle_cycle_makes_no_commit(tmp_path, monkeypatch):
+    """The idle-night rail (R1) under the LIVE configuration: a Sleep schedule
+    is enabled and the second cycle runs the next night. Before the final
+    review the persisted `sleep.next_at` advanced with the date, so this only
+    held with the schedule disabled and both cycles on the same day."""
+    from api.models.schemas import ScheduleConfig
+    from api.services import sleep_scheduler
+
     memory = _bank(tmp_path)
+    sleep_scheduler.save_schedule(memory, ScheduleConfig(enabled=True, hour=3, minute=0))
+    _git(memory, "add", "sleep_schedule.yaml")
+    _git(memory, "commit", "-q", "-m", "schedule")
     _quiet_tail(monkeypatch)
     monkeypatch.setattr(state_dictionary, "REPO_BUDGET_S", 0.0)
+    night_one = datetime(2026, 9, 3, 3, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(state_dictionary, "_now", lambda: night_one)
     asyncio.run(sleep_cycle.run(_settings(memory), "cycle-a"))
     head = _git(memory, "rev-parse", "HEAD")
+    assert "State snapshot" in _git(memory, "log", "-1", "--format=%s")
+    monkeypatch.setattr(state_dictionary, "_now", lambda: night_one + timedelta(days=1))
     asyncio.run(sleep_cycle.run(_settings(memory), "cycle-b"))
     assert _git(memory, "rev-parse", "HEAD") == head
+    assert _git(memory, "status", "--porcelain").strip() == ""
+    assert "next_at" not in (memory / "_state.md").read_text()
 
 
 def test_finalize_splits_a_dirty_state_file_out_of_the_model_commit(tmp_path, monkeypatch):
@@ -164,6 +183,34 @@ def test_get_state_refresh_true_forces_a_rebuild_with_probes(api_bank, monkeypat
         assert r.json()["projects"][0]["repos"][0]["branch"] == "main"
 
 
+def test_get_state_read_commits_its_own_rewrite_as_cicada(api_bank):
+    """Final review finding 1: a read-side refresh used to leave `_state.md`
+    dirty for the next `git add -A` writer to sweep under its own author."""
+    with TestClient(main.app) as client:
+        assert client.get("/state").status_code == 200
+    # app startup leaves its own untracked markers; the projection itself is clean
+    assert _git(api_bank, "status", "--porcelain", "--", "_state.md").strip() == "", "the read commits what it wrote"
+    body = _git(api_bank, "log", "-1", "--format=%B")
+    assert body.startswith("State snapshot ") and git_service._parse_authors(body) == ["cicada"]
+    assert "_state.md: updated (trigger: sleep/state)" in body
+    head = _git(api_bank, "rev-parse", "HEAD")
+    with TestClient(main.app) as client:
+        assert client.get("/state").status_code == 200
+    assert _git(api_bank, "rev-parse", "HEAD") == head, "a read that wrote nothing commits nothing"
+
+
+def test_get_state_adds_next_at_per_request_and_never_persists_it(api_bank):
+    from api.models.schemas import ScheduleConfig
+    from api.services import sleep_scheduler
+
+    sleep_scheduler.save_schedule(api_bank, ScheduleConfig(enabled=True, hour=3, minute=0))
+    with TestClient(main.app) as client:
+        data = client.get("/state").json()
+    assert data["sleep"]["next_at"] == sleep_scheduler.next_run_at(api_bank)
+    assert data["sleep"]["next_at"].startswith("20")
+    assert "next_at" not in (api_bank / "_state.md").read_text()
+
+
 def test_get_state_adds_resumable_per_request_and_never_persists_it(api_bank, monkeypatch):
     from api.routers import conversations
     markdown_parser.write(api_bank / "episodes" / "ep_2026-09-02_001.md",
@@ -189,3 +236,36 @@ def test_inbox_resolution_refreshes_the_state_best_effort(api_bank, monkeypatch)
     assert state_dictionary.read_state(api_bank)["inbox"]["pending"] == 1
     asyncio.run(inbox_service.resolve("inbox-001", InboxResolveRequest(action="keep_active"), settings))
     assert state_dictionary.read_state(api_bank)["inbox"]["pending"] == 0
+    # ... and commits its own rewrite, alone, as `cicada` — after the person's commit
+    assert _git(api_bank, "status", "--porcelain", "--", "_state.md").strip() == ""
+    subjects = _git(api_bank, "log", "-2", "--format=%s").splitlines()
+    assert subjects[0].startswith("State snapshot ") and subjects[1].startswith("Inbox resolution (decay)")
+    assert "_state.md" not in _git(api_bank, "log", "-1", "--format=%B", "HEAD~1")
+
+
+def test_a_user_write_never_sweeps_the_projection(api_bank):
+    """The reproduction from the final review: read `/state` (rebuild), then
+    resolve an inbox item. The resolution's `Cicada-Author: user` commit used
+    to carry 13 lines of `_state.md`."""
+    from api.models.schemas import InboxResolveRequest
+    from api.services import inbox_service
+    for n, eid in (("001", "alpha-project"), ("002", "alpha-project")):
+        markdown_parser.write(api_bank / "inbox" / f"inbox-{n}.md",
+                              {"kind": "decay", "status": "pending", "entity_id": eid,
+                               "entity_name": "Alpha Project", "title": "Still?", "created_date": "2026-08-01"}, "c")
+    settings = config.get_settings()
+    with TestClient(main.app) as client:
+        assert client.get("/state").json()["inbox"]["pending"] == 2
+    asyncio.run(inbox_service.resolve("inbox-001", InboxResolveRequest(action="keep_active"), settings))
+    with TestClient(main.app) as client:
+        assert client.get("/state").json()["inbox"]["pending"] == 1
+    asyncio.run(inbox_service.resolve("inbox-002", InboxResolveRequest(action="archive"), settings))
+    for line in _git(api_bank, "log", "--format=%H %s").splitlines():
+        sha, _, subject = line.partition(" ")
+        files = _git(api_bank, "show", "--name-only", "--format=", sha).split()
+        if subject.startswith("Inbox resolution"):
+            assert "_state.md" not in files, f"user commit swept the projection: {subject}"
+        if "_state.md" in files:
+            assert subject.startswith("State snapshot "), subject
+            assert files == ["_state.md"]
+            assert git_service._parse_authors(_git(api_bank, "log", "-1", "--format=%B", sha)) == ["cicada"]
