@@ -257,6 +257,45 @@ class OriginsResponse(CamelModel):
     origins: list[OriginStat] = []
 
 
+# --- Sources overview (G124 — one card per memory source) ---
+
+
+class SourceOverview(CamelModel):
+    """One memory source as the Sources page shows it.
+
+    ``id`` equals the ``GET /sources/channels`` id where the source is a
+    channel (so the app joins channel state by equality), ``harness:<name>``
+    for an MCP harness, ``origin:<id>`` for an origin the catalog does not
+    know (see ``source_overview.CATALOG``). ``kind`` is one of
+    ``source_overview.KIND_ORDER``. ``mark`` is an ``OriginIconography`` key.
+    Counts are engine-free: episodes/entities from frontmatter (entities via
+    ``source_episodes`` only — R3), conversations = distinct ``session_id`` /
+    ``source_id``, items = the channel's own count. ``origins`` and
+    ``harness`` are the filter values the app sends back (``GET /sources``
+    items by origin; ``GET /conversations/recent?harness=``).
+    """
+
+    id: str
+    label: str
+    kind: str
+    mark: str
+    conversations: int = 0
+    episodes: int = 0
+    entities: int = 0
+    items: int = 0
+    last_activity_at: Optional[str] = None
+    connected: bool = False
+    last_error: Optional[str] = None
+    actions: list[str] = []
+    channel_id: Optional[str] = None
+    origins: list[str] = []
+    harness: Optional[str] = None
+
+
+class SourceOverviewResponse(CamelModel):
+    sources: list[SourceOverview] = []
+
+
 # --- Conversations (G48 conversation-level provenance) ---------------------
 
 
@@ -1256,6 +1295,13 @@ class MediaSourceItem(CamelModel):
     # has not been described/related yet, never a guess.
     description: Optional[str] = None
     about: list[str] = []
+    # G124 R6 — the media entity's own `origin:` / `folder:` frontmatter
+    # (written by media_ingestor.write_media_entity) so the Sources page can
+    # filter the Feed's items to one source and group them by bookmark folder,
+    # Pinterest board or iCloud device without a second endpoint. Optional:
+    # a page ingested before origins were stamped simply has neither.
+    origin: Optional[str] = None
+    folder: Optional[str] = None
 
 
 class SourceListResponse(CamelModel):
