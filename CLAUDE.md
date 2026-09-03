@@ -144,6 +144,48 @@ Continuous episode capture during conversations. Raw timestamped chunks go to `e
 
 **Input sources:**
 - **MCP-native clients** (Claude Code, Cursor): Cicada MCP server is directly in the conversation loop. Episodes captured automatically. This is the primary deployment model.
+- **Hook-driven session capture (G105, deterministic):** every Claude Code session — and every
+  Codex session when the CLI is installed — is captured by the harness's own `Stop` hook
+  (`api/hooks/capture.py`, registered by `install.sh` in `~/.claude/settings.json` /
+  `~/.codex/hooks.json`, merged never clobbered, `make doctor` reports it). The hook forwards the
+  harness's stdin fields to the bearer-authed `POST /capture/transcript`; **the backend reads the
+  transcript**, and only after the path resolves under the harness root as `<session_id>.jsonl`
+  within the size cap — anything else is refused unread. `api/services/transcript_extract.py` keeps
+  exactly (a) the person's turns (`user` messages whose blocks are `text`; a `tool_result` wearing
+  the user role is dropped) and (b) the agent's **final reply per turn** (the last assistant `text`
+  after the last `tool_use`); interstitial narration, `tool_use`/`tool_result`/thinking blocks, file
+  dumps, harness-injected `<task-notification>`/`<command-…>`/`<system-reminder>` text are skipped by
+  construction. On what survives: code fences stripped, secrets scrubbed, a 2,000-char per-turn cap
+  and a head-stable 100,000-char session cap. **One episode per session** (`capture_kind:
+  transcript`, `origin: claude-code|codex`, `session_id`, `harness`, `project_dir`), body as
+  `role: text` lines exactly like the importer so G118 spans cite it; every later Stop on the same
+  session rewrites that episode in place and flips `processed: false` (`processed_by` popped) —
+  never two episodes for one conversation (G104). `CICADA_CAPTURE_ASSISTANT_REPLIES=false` keeps only
+  the person's turns. Cicada's own `claude -p` spawns run with `CICADA_CAPTURE=off` and are never
+  captured. A counts-only `capture` ledger row per firing; the hook logs one line per firing to
+  `~/.cicada/logs/capture.log`. Claude Desktop / ChatGPT stay export-based; Cursor and other
+  harnesses have no hook yet.
+- **Hook-driven session capture (G105, deterministic):** every Claude Code session — and every
+  Codex session when the CLI is installed — is captured by the harness's own `Stop` hook
+  (`api/hooks/capture.py`, registered by `install.sh` in `~/.claude/settings.json` /
+  `~/.codex/hooks.json`, merged never clobbered, `make doctor` reports it). The hook forwards the
+  harness's stdin fields to the bearer-authed `POST /capture/transcript`; **the backend reads the
+  transcript**, and only after the path resolves under the harness root as `<session_id>.jsonl`
+  within the size cap — anything else is refused unread. `api/services/transcript_extract.py` keeps
+  exactly (a) the person's turns (`user` messages whose blocks are `text`; a `tool_result` wearing
+  the user role is dropped) and (b) the agent's **final reply per turn** (the last assistant `text`
+  after the last `tool_use`); interstitial narration, `tool_use`/`tool_result`/thinking blocks, file
+  dumps, harness-injected `<task-notification>`/`<command-…>`/`<system-reminder>` text are skipped by
+  construction. On what survives: code fences stripped, secrets scrubbed, a 2,000-char per-turn cap
+  and a head-stable 100,000-char session cap. **One episode per session** (`capture_kind:
+  transcript`, `origin: claude-code|codex`, `session_id`, `harness`, `project_dir`), body as
+  `role: text` lines exactly like the importer so G118 spans cite it; every later Stop on the same
+  session rewrites that episode in place and flips `processed: false` (`processed_by` popped) —
+  never two episodes for one conversation (G104). `CICADA_CAPTURE_ASSISTANT_REPLIES=false` keeps only
+  the person's turns. Cicada's own `claude -p` spawns run with `CICADA_CAPTURE=off` and are never
+  captured. A counts-only `capture` ledger row per firing; the hook logs one line per firing to
+  `~/.cicada/logs/capture.log`. Claude Desktop / ChatGPT stay export-based; Cursor and other
+  harnesses have no hook yet.
 - **Export-based ingestion** (ChatGPT, Claude Desktop/iOS): Periodic import from conversation exports (`/banks/{name}/import`). ChatGPT and Claude both give JSON/HTML exports parsed by dedicated import parsers.
 - **Telegram bot** (`/save`, `/note`, `/remind`): On-the-go capture of links, voice notes, text snippets, via `POST /capture/telegram`. `/save <url> <reason…>` also captures *why* — see Save-with-reason (G71) below.
 - **Browsers (G30 + 2026-09-02):** Safari bookmarks (by folder — Favorites, Bookmarks Menu, Reading List —
@@ -185,7 +227,7 @@ Continuous episode capture during conversations. Raw timestamped chunks go to `e
   state. Arrows move, Enter opens, Esc backs out (`CatalogFocus`). `AddSourceTile` stays the leaf every
   flow keys on.
 
-**Episode tracking (G114):** Each episode has a unique ID (`ep_YYYY-MM-DD_NNN`), a timestamp, and a `processed: false` flag. Every writer — importer, MCP, media, Telegram, calendar, notes — mints the id through the one rule in `api/services/episode_ids.py`: `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap, and `markdown_parser.write` overwrites on collision), and stamps the timestamp as aware UTC from `episode_ids.utc_now_iso` (`+00:00` — never a naive local time with a `Z` appended). Legacy files are not migrated: readers accept both shapes and the Sleep queue sorts by `episode_ids.timestamp_sort_key`, so the mix still orders by instant. A Telegram episode is stamped with the message's own `date`, not receipt time. When an episode is marked processed it also carries `processed_by`: `sleep` for a Sleep cycle, `agent` (or the harness name) for `cicada_mark_processed`, so a flipped flag is distinguishable from a consolidation. Sleep cycle processes all unprocessed episodes regardless of source — the pipeline is source-agnostic. Its engine-independent tail also polls subscribed RSS feeds and ICS calendars, opt-in via `CICADA_ALLOW_FEED_FETCH=1` (a fresh install's LaunchAgent plist sets it — `install.sh` never rewrites a plist behind an already-running backend, so an older plist needs the key added by hand, see TODO.md's Live environment; the test suite never does), in the same clean-tree-guarded slot as the connector poll.
+**Episode tracking (G114):** Each episode has a unique ID (`ep_YYYY-MM-DD_NNN`), a timestamp, and a `processed: false` flag. Every writer — importer, MCP, media, Telegram, calendar, notes, the G105 transcript capture — mints the id through the one rule in `api/services/episode_ids.py`: `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap, and `markdown_parser.write` overwrites on collision), and stamps the timestamp as aware UTC from `episode_ids.utc_now_iso` (`+00:00` — never a naive local time with a `Z` appended). Legacy files are not migrated: readers accept both shapes and the Sleep queue sorts by `episode_ids.timestamp_sort_key`, so the mix still orders by instant. A Telegram episode is stamped with the message's own `date`, not receipt time. When an episode is marked processed it also carries `processed_by`: `sleep` for a Sleep cycle, `agent` (or the harness name) for `cicada_mark_processed`, so a flipped flag is distinguishable from a consolidation. Sleep cycle processes all unprocessed episodes regardless of source — the pipeline is source-agnostic. Its engine-independent tail also polls subscribed RSS feeds and ICS calendars, opt-in via `CICADA_ALLOW_FEED_FETCH=1` (a fresh install's LaunchAgent plist sets it — `install.sh` never rewrites a plist behind an already-running backend, so an older plist needs the key added by hand, see TODO.md's Live environment; the test suite never does), in the same clean-tree-guarded slot as the connector poll.
 
 **Conversation identity (G48).** An episode captured through MCP also carries `session_id`
 (the client conversation), plus `harness` and `project_dir` when the client exposes them —
@@ -632,7 +674,7 @@ The user-facing interface for inspecting, managing, and curating the knowledge g
 SwiftUI app spawns the FastAPI server as a child process on launch using Swift's `Process()` API (`uvicorn api.main:app --port 8000`). User never manually starts the backend. On app quit, child process is terminated.
 
 ### Sync engine
-A single `Store` holds one `Snapshot` per domain (graph, inbox, sources, channels, contributors, origins, status, banks, feeds, calendars, connections), hydrated instantly from a per-bank on-disk `SnapshotCache` (`~/Library/Application Support/Cicada/cache/<bank>/`) before the first network round-trip, so the app renders real data cold, even with the backend down. A `SyncEngine` holds one long-lived SSE connection to `GET /sync/events`, reconnecting with backoff and falling back to polling `GET /sync/version` while disconnected; each `version` event diffs against the last-seen vector and refreshes only the changed domains, every refresh sending `If-None-Match` so an unchanged domain costs a 304. View models are thin projections over `Store` snapshots (never blank — always the last-known-good data). Writes go through a `Mutation` protocol: optimistic apply to the local snapshot, rollback with a toast on failure. The graph view receives **deltas** (added/updated/removed node ids, each keyed by a `content_hash`) rather than a full re-layout, so d3 node positions are preserved across a Sleep cycle or a live edit. The sidebar is six rows — Graph, Clusters, Feed, Sleep, Inbox, Activity — reachable via ⌘1–6 (with matching accessibility labels); Feed carries the capture channels and the `+`/⌘N add-source sheet, Sleep carries the episode queue, and Activity merges consumption and contributor attribution behind a segmented control with the origins strip. Setup lives in a native `Settings{}` scene (⌘, or the sidebar's footer gear, which dots when a subscription login expires) holding Agents and Plans & keys. `AppTab` raw values are the persisted identity of a tab, and `AppTab.restored(from:)` maps the five retired ones (`Capture`, `Contributors`, `Usage`, `Connections`, `Connect`) onto the pages that inherited them, so an older selection never traps. Entity logos are cached on disk, and ⌘K opens an Ask panel (G52) that sends a question to `POST /ask` and renders the answer with clickable wikilink citations. Feed's `+`/⌘N sheet (G71, re-layered 2026-09-02) is a family → member → flow catalog: family tiles wear their members' marks; member tiles route either to a `ConnectorSetupPanel` (Connect — Pinterest, Reddit, X) or an export-drop overlay (Import file), both reading live channel state and a real-time `?preview=true` parse preview before the user commits to an import. The bookworm mascot (G107) is one code-defined 24×24 palette sprite set (`MenuBar/BookwormSprites.swift`, nine colours, every state ≥ 2 frames so it is always moving, `error` for a failed cycle) rendered nearest-neighbour in colour by `BookwormRenderer` — the menu bar shows exactly one animated item with the inbox count baked into the sprite, and the same frames drive `BookwormView` on Feed, Connect, Inbox, the import overlay and the Sleep page (where the bracket status line is the caption), holding frame 0 under Reduce Motion.
+A single `Store` holds one `Snapshot` per domain (graph, inbox, sources, channels, contributors, origins, status, banks, feeds, calendars, connections), hydrated instantly from a per-bank on-disk `SnapshotCache` (`~/Library/Application Support/Cicada/cache/<bank>/`) before the first network round-trip, so the app renders real data cold, even with the backend down. A `SyncEngine` holds one long-lived SSE connection to `GET /sync/events`, reconnecting with backoff and falling back to polling `GET /sync/version` while disconnected; each `version` event diffs against the last-seen vector and refreshes only the changed domains, every refresh sending `If-None-Match` so an unchanged domain costs a 304. View models are thin projections over `Store` snapshots (never blank — always the last-known-good data). Writes go through a `Mutation` protocol: optimistic apply to the local snapshot, rollback with a toast on failure. The graph view receives **deltas** (added/updated/removed node ids, each keyed by a `content_hash`) rather than a full re-layout, so d3 node positions are preserved across a Sleep cycle or a live edit. The sidebar is six rows — Graph, Clusters, Feed, Sleep, Inbox, Activity — reachable via ⌘1–6 (with matching accessibility labels); Feed carries the capture channels and the `+`/⌘N add-source sheet, Sleep carries the episode queue, each row wearing its source's mark (`OriginMark`: bundled logo → browser glyph → SF Symbol), and Activity merges consumption and contributor attribution behind a segmented control with the origins strip. Setup lives in a native `Settings{}` scene (⌘, or the sidebar's footer gear, which dots when a subscription login expires) holding Agents and Plans & keys. `AppTab` raw values are the persisted identity of a tab, and `AppTab.restored(from:)` maps the five retired ones (`Capture`, `Contributors`, `Usage`, `Connections`, `Connect`) onto the pages that inherited them, so an older selection never traps. Entity logos are cached on disk, and ⌘K opens an Ask panel (G52) that sends a question to `POST /ask` and renders the answer with clickable wikilink citations. Feed's `+`/⌘N sheet (G71, re-layered 2026-09-02) is a family → member → flow catalog: family tiles wear their members' marks; member tiles route either to a `ConnectorSetupPanel` (Connect — Pinterest, Reddit, X) or an export-drop overlay (Import file), both reading live channel state and a real-time `?preview=true` parse preview before the user commits to an import. The bookworm mascot (G107) is one code-defined 24×24 palette sprite set (`MenuBar/BookwormSprites.swift`, nine colours, every state ≥ 2 frames so it is always moving, `error` for a failed cycle) rendered nearest-neighbour in colour by `BookwormRenderer` — the menu bar shows exactly one animated item with the inbox count baked into the sprite, and the same frames drive `BookwormView` on Feed, Connect, Inbox, the import overlay and the Sleep page (where the bracket status line is the caption), holding frame 0 under Reduce Motion.
 
 ---
 
@@ -743,6 +785,12 @@ POST /sources/poll-feeds                  → on-demand RSS poll
 GET/POST /banks, POST /banks/{name}/activate|duplicate|rename|import → memory-bank management
 GET  /local-ref                           → resolve local device/path references
 POST /capture/telegram                    → token-gated Telegram capture webhook
+POST /capture/transcript                  → Stop-hook session capture (G105): validates the transcript
+                                            path against the harness root, extracts, writes/updates
+                                            ONE episode per session_id; 400 with an enum reason otherwise
+POST /capture/transcript                  → Stop-hook session capture (G105): validates the transcript
+                                            path against the harness root, extracts, writes/updates
+                                            ONE episode per session_id; 400 with an enum reason otherwise
 POST /maintenance/dedup-sweep             → full-graph dedup sweep (G21)
 POST /maintenance/enrich-links?limit=N     → describe + relate N saved links now (G102); 409 while Sleep runs;
                                             {selected, reused, summarized, fetched, failed, skipped, related, remaining, …}
