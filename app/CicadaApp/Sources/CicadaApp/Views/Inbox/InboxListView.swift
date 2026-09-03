@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// The unified Inbox screen. One scrollable list of `InboxCardView`s, sorted by
-/// priority then recency, with a kind filter and the bookworm "all caught up"
-/// empty state. Replaces the separate Nudges + Clarifications tabs.
+/// priority then recency, with a kind filter and the bookworm "nothing pending"
+/// empty state, which states what the backend last did rather than promising a
+/// cycle (G115 R12). Replaces the separate Nudges + Clarifications tabs.
 struct InboxListView: View {
     @Environment(InboxViewModel.self) private var viewModel
     @State private var kindFilter: InboxKind?
@@ -22,7 +23,7 @@ struct InboxListView: View {
 
             // Order matters. Error first: a failed `GET /inbox` leaves `items`
             // empty and would otherwise read as the happy state. Loading
-            // second: an empty snapshot mid-first-fetch is not "all caught up",
+            // second: an empty snapshot mid-first-fetch is not "nothing pending",
             // and claiming it is for a round-trip is the worst possible lie for
             // this page to tell.
             if let err = viewModel.errorMessage, viewModel.items.isEmpty {
@@ -108,18 +109,18 @@ struct InboxListView: View {
         return [.decay, .conflict, .clarification, .mergeSuggestion].filter { present.contains($0) }
     }
 
-    // MARK: - Empty state ("All caught up", featuring the bookworm)
+    // MARK: - Empty state ("Nothing pending" + the truth, featuring the bookworm)
 
     private var emptyState: some View {
         VStack(spacing: CicadaTheme.spacingLG) {
             Spacer()
             BookwormView(state: .happy, pointSize: 96)
 
-            Text("All caught up")
+            Text("Nothing pending")
                 .font(CicadaTheme.headingFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
 
-            Text("Nothing needs your attention right now.\nThe bookworm will surface new items after the next Sleep cycle.")
+            Text(emptyStateDetail)
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .multilineTextAlignment(.center)
@@ -128,6 +129,26 @@ struct InboxListView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// R12: say what is true, not what the bookworm will do. Sleep asks
+    /// questions; if it has not run, nothing has been asked yet. The old copy
+    /// ("the bookworm will surface new items after the next Sleep cycle")
+    /// promised a future that a disabled schedule or a failed cycle never
+    /// delivers.
+    private var emptyStateDetail: String {
+        var lines: [String] = []
+        if let last = viewModel.lastSleepAt,
+           let days = InboxAge.days(since: last, now: .now) {
+            lines.append("Last Sleep cycle \(InboxAge.phrase(days: days)).")
+        } else {
+            lines.append("Sleep has not run yet, so nothing has been asked.")
+        }
+        let queued = viewModel.unprocessedEpisodes
+        if queued > 0 {
+            lines.append("\(queued) episode\(queued == 1 ? "" : "s") waiting for the next cycle.")
+        }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Loading state (first fetch, nothing cached)
@@ -145,7 +166,7 @@ struct InboxListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Error state (load failure — distinct from "All caught up")
+    // MARK: - Error state (load failure — distinct from "Nothing pending")
 
     private func errorState(_ message: String) -> some View {
         VStack(spacing: CicadaTheme.spacingLG) {
