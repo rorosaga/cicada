@@ -1,4 +1,5 @@
-"""``GET /state`` — the live state dictionary as an object (G53).
+"""``GET /state`` — the live state dictionary as an object (G53) — and
+``GET /handshake``, the generated primer built on it (G75).
 
 The on-disk frontmatter of ``<bank>/_state.md`` is the wire shape, verbatim
 and snake_case: one documented schema, read the same way by the API, the MCP
@@ -18,6 +19,12 @@ splits a dirty projection out of any model commit (R3).
 ETag (R9): the same components the file is built from plus the file's own
 mtime, so a 304 is exactly "nothing you would see has changed". Bearer-gated
 like every route outside ``auth._OPEN_PATHS``.
+
+``GET /handshake`` carries no ETag — ≤ 7 KB and self-describing (its
+``as of`` line is the state's ``generated_at``), the same reasoning as
+G118's span endpoint — and, unlike ``/state``, never refreshes the file
+(R4): the primer is what the MCP ``initialize`` response would carry right
+now, stale or not.
 """
 
 from __future__ import annotations
@@ -82,3 +89,25 @@ async def get_state(
     state["stale"] = state.get("inputs_version") != state_dictionary.inputs_version(memory_path)
     state.pop("body", None)
     return state
+
+
+@router.get("/handshake")
+async def get_handshake(
+    client: str | None = Query(None, max_length=64),
+    settings: Settings = Depends(get_settings),
+):
+    """The same primer the MCP `initialize` response carries (G75), for the
+    app and for AGENTS.md / SessionStart-hook pointers. `client` picks the
+    per-harness prelude (R11); the contract never varies. Every delivery is
+    one `handshake` ledger row (R14) so "did any agent ever receive the
+    primer" is answerable the way G105 asked it of capture."""
+    from api.services import handshake
+
+    text, meta = await run_in_threadpool(handshake.load_or_build, settings.memory_path, client)
+    handshake.record("http", meta, bank=settings.memory_path.name, client_name=client)
+    return {
+        "text": text,
+        "variant": meta["variant"],
+        "state_present": meta["state_present"],
+        "hook_pointer": handshake.HOOK_POINTER,
+    }
