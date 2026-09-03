@@ -12,26 +12,38 @@ struct QuestionResolution {
     var mergeSurvivor: String? = nil
 }
 
-/// The single renderer for every question-carrying inbox kind (conflict,
-/// clarification, merge_suggestion) — modelled on Claude Code's
-/// `AskUserQuestion`: the question, an option list with descriptions and a
-/// muted age capsule, an "Other…" free-text row, and a "remind me later" footer.
+/// The single renderer for every question-carrying inbox kind — decay included
+/// since G115 Phase 1 (R5), alongside conflict, clarification and
+/// merge_suggestion — modelled on Claude Code's `AskUserQuestion`: the question,
+/// an option list with descriptions and a muted age capsule, an "Other…"
+/// free-text row, and a "not now" footer.
 ///
-/// Keyboard: ↑/↓ move, ⏎ picks, `o` opens Other. All of that lives in
+/// Keys (G115 §7): `1–4` pick, ⏎ activates the highlighted row (which starts on
+/// `(Recommended)`), `o` Other, `l` = Not now (7-day defer), `Esc` closes Other
+/// then collapses the card with no write. All of that lives in
 /// `QuestionSelection`; this view only paints it.
 struct QuestionView: View {
     let item: InboxItem
     let onResolve: (QuestionResolution) -> Void
+    /// `Esc` on a card with nothing open: collapse it. A no-op default so the
+    /// existing call site — and any future one that has no card to collapse —
+    /// still compiles without passing a closure.
+    let onCollapse: () -> Void
 
     @State private var selection: QuestionSelection
     @State private var otherText = ""
     @FocusState private var otherFocused: Bool
 
-    init(item: InboxItem, onResolve: @escaping (QuestionResolution) -> Void) {
+    init(item: InboxItem,
+         onResolve: @escaping (QuestionResolution) -> Void,
+         onCollapse: @escaping () -> Void = {}) {
         self.item = item
         self.onResolve = onResolve
+        self.onCollapse = onCollapse
         _selection = State(initialValue: QuestionSelection(
-            optionCount: item.options.count, allowOther: item.allowOther
+            optionCount: item.options.count, allowOther: item.allowOther,
+            // R6: ⏎ accepts Sleep's own proposal without hunting for it.
+            initialIndex: item.recommendedIndex
         ))
     }
 
@@ -48,7 +60,8 @@ struct QuestionView: View {
 
             VStack(spacing: CicadaTheme.spacingXS) {
                 ForEach(Array(item.options.enumerated()), id: \.element.id) { pair in
-                    optionRow(pair.element, highlighted: selection.index == pair.offset)
+                    optionRow(pair.element, index: pair.offset,
+                              highlighted: selection.index == pair.offset)
                         .onTapGesture { pick(pair.offset) }
                 }
 
@@ -60,9 +73,13 @@ struct QuestionView: View {
             if item.allowDefer {
                 HStack {
                     Spacer()
-                    InboxActionButton(title: "Not sure — remind me later",
+                    // R5/G113 R6: one defer window for every kind — `defer` with
+                    // 7 days, the same route `remind_later` now takes on the
+                    // server, so a decay card and a conflict card push out by
+                    // the same amount and grade the same way in the ledger.
+                    InboxActionButton(title: "Not now — ask again in 7 days (l)",
                                       icon: "clock", color: CicadaTheme.warning) {
-                        onResolve(QuestionResolution(action: "defer"))
+                        onResolve(QuestionResolution(action: "defer", remindDays: 7))
                     }
                 }
             }
@@ -74,7 +91,6 @@ struct QuestionView: View {
             default: break
             }
         }
-        .onExitCommand { otherFocused = false }
         .focusable()
         .onKeyPress(.return) { activate(); return .handled }
         .onKeyPress(KeyEquivalent("o")) {
@@ -82,6 +98,27 @@ struct QuestionView: View {
             selection.openOther()
             otherFocused = true
             return .handled
+        }
+        // `Esc` is `selection.escape()`'s alone now — the old
+        // `.onExitCommand { otherFocused = false }` closed the text field but
+        // left `otherExpanded` true, so a second Esc did nothing and the card
+        // could not be dismissed from the keyboard at all.
+        .onKeyPress(.escape) {
+            switch selection.escape() {
+            case .closeOther: otherFocused = false; return .handled
+            case .collapse: onCollapse(); return .handled
+            default: return .ignored
+            }
+        }
+        .onKeyPress(KeyEquivalent("l")) {
+            guard !otherFocused, item.allowDefer else { return .ignored }
+            onResolve(QuestionResolution(action: "defer", remindDays: 7))
+            return .handled
+        }
+        .onKeyPress(characters: .decimalDigits) { press in
+            guard !otherFocused, let n = Int(press.characters) else { return .ignored }
+            if case .pick(let i)? = selection.pickNumber(n) { pick(i); return .handled }
+            return .ignored
         }
     }
 
@@ -112,12 +149,24 @@ struct QuestionView: View {
         .padding(.vertical, 2)
     }
 
-    private func optionRow(_ option: InboxOption, highlighted: Bool) -> some View {
+    /// `index` is the 0-based row: the first nine rows wear their number so the
+    /// `1–4` keys are discoverable rather than folklore (G115 §7), and the ONE
+    /// option Sleep proposed wears `(Recommended)` — the marker is read off
+    /// `option.recommended`, computed server-side from the ledger's `_verdict`
+    /// (R6). The view never invents a recommendation.
+    private func optionRow(_ option: InboxOption, index: Int, highlighted: Bool) -> some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(option.label)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(CicadaTheme.textPrimary)
+                HStack(spacing: 6) {
+                    Text(index < 9 ? "\(index + 1). \(option.label)" : option.label)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                    if option.recommended {
+                        Text("(Recommended)")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(CicadaTheme.accent)
+                    }
+                }
                 if let description = option.description, !description.isEmpty {
                     Text(description)
                         .font(CicadaTheme.captionFont)
@@ -208,6 +257,7 @@ struct QuestionView: View {
         switch action {
         case .pick(let i): pick(i)
         case .openOther: otherFocused = true
+        default: break   // `activate()` never yields .closeOther/.collapse
         }
     }
 

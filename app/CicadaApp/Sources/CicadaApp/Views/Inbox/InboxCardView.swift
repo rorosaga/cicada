@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// One unified inbox card. Collapsed: kind-colored leading icon + entity name +
-/// one-line title. Expanded: source-context blockquote + an action row that
-/// switches on `item.requiredInput`:
-///   - `.choice`    → option buttons (decay keep/archive/snooze, conflict options)
-///   - `.freetext`  → TextField + Answer (sends `action:"answer", answer:text`)
-///   - `.merge`     → merge picker (prefilled hint) + Answer/Dismiss/Skip
-///   - `.none`      → simple Dismiss
+/// One unified inbox card. Collapsed (G115 Phase 1): kind-colored leading glyph,
+/// the QUESTION on line 1 and its CAUSE on line 2 — the conversation and age
+/// that raised it (G97) — plus a real chevron button. Expanded: the cause
+/// excerpt with the mention bolded (or the legacy body, collapsed past four
+/// lines), the extractor's guess, and an action row:
+///   - `informational`      → G98: the values listed, nothing to pick, "Got it"
+///   - a question object    → `QuestionView` for EVERY kind, decay included
+///   - `.freetext`/`.merge` → the legacy rows (clarification/merge question
+///                            objects are Phase 2)
+///   - `.none`              → simple Dismiss
 struct InboxCardView: View {
     let item: InboxItem
     /// One resolution value (action + answer/optionKey/remindDays/merge fields),
@@ -22,6 +25,9 @@ struct InboxCardView: View {
     /// (legacy default); `.mention` keeps the clarified mention's cleaner name.
     @State private var mergeSurvivor: MergeSurvivor = .existing
     @State private var resolving = false
+    /// Owner defect 2 (2026-09-03): a long legacy body shows its first three
+    /// lines until this is flipped.
+    @State private var showAllLines = false
 
     private enum MergeSurvivor { case existing, mention }
 
@@ -53,20 +59,26 @@ struct InboxCardView: View {
 
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            LogoImage(entityId: item.entityId, name: item.displayName, size: 28)
-
+            // G97: the kind glyph is the leading mark now — the entity logo used
+            // to sit here, and a name-initial monogram is the wrong metaphor for
+            // a question. What the card asks matters more than whose page it is
+            // about, and the entity is named inside the question anyway.
             Image(systemName: item.kind.icon)
                 .font(.system(size: 16))
                 .foregroundStyle(item.kind.color)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.kind == .conflict ? item.questionText : item.displayName)
+                // Line 1 is the question for EVERY kind (G115 §1), not just
+                // conflict; line 2 is why it exists rather than a second copy
+                // of the entity name (`clarification_manager` used to write the
+                // name into `title`, so the two lines read identically).
+                Text(item.questionText)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(isExpanded ? nil : 1)
 
-                Text(item.kind == .conflict ? item.displayName : item.title)
+                Text(item.causeLine())
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .lineLimit(isExpanded ? nil : 1)
@@ -82,11 +94,22 @@ struct InboxCardView: View {
                 .background(item.kind.color.opacity(0.12))
                 .clipShape(Capsule())
 
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                .animation(.spring(duration: 0.2), value: isExpanded)
+            // Owner defect 1 (2026-09-03): the chevron was a decoration inside a
+            // tappable header and read as a control that did nothing. It is a
+            // real button now, toggling the same state as the header tap.
+            Button {
+                withAnimation(.spring(duration: 0.3, bounce: 0.15)) { isExpanded.toggle() }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isExpanded ? "Collapse" : "Expand")
+            .animation(.spring(duration: 0.2), value: isExpanded)
         }
         .padding(CicadaTheme.spacingLG)
         .padding(.leading, CicadaTheme.spacingXS)
@@ -102,12 +125,17 @@ struct InboxCardView: View {
 
     private var expandedBody: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            if !item.body.isEmpty {
-                sourceContext(item.body)
+            // The cause excerpt REPLACES the legacy body pane whenever one
+            // resolved: it is the same evidence, bounded (±240 chars) and with
+            // the mention marked, where `body` is whatever the generator wrote.
+            if item.hasCause, let cause = item.cause {
+                excerptPane(cause)
+            } else if !item.body.isEmpty {
+                collapsedBody(item.body)
             }
 
-            if let suggestion = item.suggestedClassification, !suggestion.isEmpty {
-                suggestionRow(suggestion)
+            if let model = item.extractorModel ?? (item.extractorConfidence.map { _ in "Cicada" }) {
+                provenanceRow(model: model, confidence: item.extractorConfidence)
             }
 
             actionRow
@@ -140,19 +168,48 @@ struct InboxCardView: View {
         }
     }
 
-    private func suggestionRow(_ suggestion: String) -> some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 11))
-                .foregroundStyle(CicadaTheme.textTertiary)
-            Text(suggestion)
+    /// The cause excerpt with the mention bolded (G97). Bounded by construction
+    /// (±240 chars server-side), so this pane can never become the owner's
+    /// "list of URLs that doesn't end".
+    private func excerptPane(_ cause: InboxCause) -> some View {
+        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
+            RoundedRectangle(cornerRadius: 1.5).fill(CicadaTheme.borderLight).frame(width: 3)
+            Text(ExcerptText.attributed(cause.excerpt, bold: cause.mentionOffsets))
+                .font(.system(size: 12))
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+    }
+
+    /// Legacy body (no cause resolved): owner defect 2 — collapse past four
+    /// lines to the first three plus a count, with "Show all".
+    private func collapsedBody(_ text: String) -> some View {
+        let collapsed = CollapsedLines(text)
+        let shown = showAllLines ? collapsed.lines : collapsed.head
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            sourceContext(shown.joined(separator: "\n"))
+            if collapsed.needsCollapse {
+                Button(showAllLines ? "Show fewer" : "Show all \(collapsed.lines.count)") {
+                    withAnimation(.spring(duration: 0.2)) { showAllLines.toggle() }
+                }
+                .buttonStyle(.plain)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.accent)
+            }
+        }
+    }
+
+    /// `Cicada's guess at 0.42` / `gpt-…'s guess at 0.42` — the extractor's
+    /// side of the question, stated before the person answers (G115 §7). This
+    /// replaced `suggestionRow`, which showed a merge's suggested type; that
+    /// now sits under the name it classifies, in `survivorPicker`.
+    private func provenanceRow(model: String, confidence: Double?) -> some View {
+        HStack(spacing: CicadaTheme.spacingXS) {
+            Image(systemName: "sparkles").font(.system(size: 10)).foregroundStyle(CicadaTheme.textTertiary)
+            Text(confidence.map { String(format: "%@'s guess at %.2f", model, $0) } ?? "\(model)'s guess")
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
-            if let conf = item.suggestedConfidence {
-                Text("(\(Int(conf * 100))% confidence)")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
         }
     }
 
@@ -160,12 +217,17 @@ struct InboxCardView: View {
 
     @ViewBuilder
     private var actionRow: some View {
-        if item.kind == .decay {
-            decayActions
+        if item.informational {
+            informationalRow
         } else if !item.options.isEmpty || item.question != nil {
-            QuestionView(item: item) { resolution in
-                fire(resolution)
-            }
+            // Every kind — decay included (G115 §1) — answers through the one
+            // component. `decayActions` survives only for a cached pre-G115
+            // decay payload that carries no options.
+            QuestionView(item: item, onResolve: { fire($0) }, onCollapse: {
+                withAnimation(.spring(duration: 0.3, bounce: 0.15)) { isExpanded = false }
+            })
+        } else if item.kind == .decay {
+            decayActions
         } else {
             switch item.requiredInput {
             case .freetext: freetextActions
@@ -181,7 +243,34 @@ struct InboxCardView: View {
         }
     }
 
-    /// Decay keeps its three buttons verbatim (out of scope for G60 §3).
+    /// G98 / G115 R4: a conflict on a multi-valued predicate lists its values
+    /// and asks for nothing — a tech stack is a set, not a contradiction. The
+    /// reconciler already left every value open; there is nothing to supersede.
+    private var informationalRow: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text("These can all be true — \(item.predicate ?? "this") holds several values. Nothing to pick.")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+            ForEach(item.options) { option in
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Image(systemName: "checkmark.circle").font(.system(size: 10)).foregroundStyle(CicadaTheme.textTertiary)
+                    Text(option.label).font(.system(size: 12)).foregroundStyle(CicadaTheme.textPrimary)
+                    if let capsule = option.ageCapsule {
+                        Text(capsule).font(.system(size: 10, design: .monospaced)).foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                }
+            }
+            HStack {
+                Spacer()
+                InboxActionButton(title: "Got it", icon: "checkmark", color: CicadaTheme.success) {
+                    fire(QuestionResolution(action: "dismiss"))
+                }
+            }
+        }
+    }
+
+    /// Fallback for a cached pre-G115 decay payload with no options; the live
+    /// path routes decay through `QuestionView` (R5).
     private var decayActions: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             InboxActionButton(title: "Keep Active", icon: "checkmark", color: CicadaTheme.success) {
@@ -190,8 +279,10 @@ struct InboxCardView: View {
             InboxActionButton(title: "Archive", icon: "archivebox", color: CicadaTheme.textSecondary) {
                 fire(QuestionResolution(action: "archive"))
             }
+            // Was `remind_later`, whose server branch wrote a `snooze_until` no
+            // reader honoured; one defer route for every kind now (G113 R6).
             InboxActionButton(title: "Remind Later", icon: "clock", color: CicadaTheme.warning) {
-                fire(QuestionResolution(action: "remind_later"))
+                fire(QuestionResolution(action: "defer", remindDays: 7))
             }
         }
     }
@@ -290,11 +381,21 @@ struct InboxCardView: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.0)
 
-            HStack(spacing: CicadaTheme.spacingSM) {
-                survivorOption(mentionName, isSelected: mergeSurvivor == .mention) {
+            // R10: the two-column preview is the two NAMES with what each one
+            // is under it — the extractor's suggested type for the mention, and
+            // the plain fact that the other side already exists. No per-side
+            // excerpt: that needs each side's own cause and is G103 / Phase 2.
+            // No `(Recommended)` on a merge either (G115 §4) — the server never
+            // sets one, and the view never invents what the server withheld.
+            HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+                survivorColumn(mentionName,
+                               caption: item.suggestedClassification ?? "",
+                               isSelected: mergeSurvivor == .mention) {
                     mergeSurvivor = .mention
                 }
-                survivorOption(existingName, isSelected: mergeSurvivor == .existing) {
+                survivorColumn(existingName,
+                               caption: "existing entity",
+                               isSelected: mergeSurvivor == .existing) {
                     mergeSurvivor = .existing
                 }
             }
@@ -310,6 +411,22 @@ struct InboxCardView: View {
                     Text(survivor).foregroundStyle(CicadaTheme.textSecondary)
                 }
                 .font(.system(size: 10))
+            }
+        }
+    }
+
+    /// One column of the merge preview: the pickable name, with a muted caption
+    /// under it saying what that side is. An empty caption renders nothing.
+    private func survivorColumn(_ name: String, caption: String, isSelected: Bool,
+                                action: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            survivorOption(name, isSelected: isSelected, action: action)
+            if !caption.isEmpty, !name.isEmpty {
+                Text(caption)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(1)
+                    .padding(.horizontal, CicadaTheme.spacingMD)
             }
         }
     }

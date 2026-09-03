@@ -16,7 +16,13 @@ async def list_inbox(
     kind: Optional[str] = Query(None),
     settings: Settings = Depends(get_settings),
 ):
-    etag = sync_service.etag_for(settings.memory_path, "inbox", extra=kind or "")
+    # G97 ship-together trap (G115 R3): the response now embeds entity- and
+    # episode-derived context (cause excerpt, entity type), so an entity edit
+    # or a new episode must move this ETag too. The CLIENT half — `.inbox`
+    # on `VersionVector`'s `entities`/`episodes` mappings — lands in the same
+    # commit; without it SnapshotCache serves stale context until the inbox
+    # itself changes.
+    etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes", extra=kind or "")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     items = inbox_service.load_inbox(settings.memory_path)

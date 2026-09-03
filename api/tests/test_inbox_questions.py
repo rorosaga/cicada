@@ -126,3 +126,97 @@ def test_resolve_request_accepts_option_key_and_remind_days():
     assert req.option_key == "b"
     assert req.remind_days == 14
     assert InboxResolveRequest(action="skip").option_key is None
+
+
+# ---------- G115 Phase 1: decay is a question object, synthesised at read ----------
+
+
+def test_decay_question_shape_and_age_first_descriptions():
+    q = inbox_questions.decay_question("Alpha Project", "2026-02-18", "2026-08-30")
+    assert q["question"] == "Still tracking Alpha Project?"
+    assert [o["key"] for o in q["options"]] == ["archive", "keep"]
+    assert all(o["description"].startswith("Last mentioned 6 months ago") for o in q["options"])
+    assert q["allow_defer"] is True and q["allow_other"] is False
+    assert inbox_questions.validate_question(q["question"], q["options"], recommended_key="archive") == []
+
+
+def test_validate_question_catches_the_copy_rules():
+    v = inbox_questions.validate_question
+    assert "question must end with '?'" in v("Still tracking X", [{"key": "a", "label": "x"}])
+    assert any("recommended" in m for m in v("Q?", [{"key": "neither", "label": "Neither"}], recommended_key="neither"))
+    assert any("marker" in m for m in v("Q?", [{"key": "a", "label": "x (Recommended)"}]))
+    assert any("duplicate" in m for m in v("Q?", [{"key": "a", "label": "x"}, {"key": "a", "label": "y"}]))
+    assert any("Last mentioned" in m for m in v("Q?", [{"key": "a", "label": "x", "observed_at": "2026-01-01",
+                                                          "description": "stale"}]))
+    assert v("Q?", [{"key": "a", "label": "x", "observed_at": "2026-01-01",
+                     "description": "Last mentioned 2026-01-01 · 7 months ago"}]) == []
+
+
+def test_decay_item_is_served_as_a_question_with_archive_recommended(tmp_path):
+    from api.services import bank_index
+    bank_index.invalidate()
+    (tmp_path / "entities").mkdir()
+    markdown_parser.write(tmp_path / "entities" / "alpha-project.md",
+                          {"name": "Alpha Project", "type": "project", "status": "active",
+                           "confidence": 0.3, "last_referenced": "2026-02-18", "source_episodes": []}, "# A\n")
+    _write_item(tmp_path, "inbox-010", {"kind": "decay", "required_input": "choice", "status": "pending",
+                                        "priority": 0.3, "entity_id": "alpha-project",
+                                        "entity_name": "Alpha Project", "title": "No recent mentions of Alpha Project",
+                                        "created_date": "2026-08-01"})
+    [item] = inbox_service.load_inbox(tmp_path)
+    assert item.question == "Still tracking Alpha Project?"
+    assert [o.key for o in item.options] == ["archive", "keep"]
+    assert item.recommended_key == "archive" and item.options[0].recommended is True
+    assert item.options[0].verdict == "agreed" and item.options[1].verdict == "overruled"
+    assert item.allow_defer is True and item.extractor_confidence == 0.3
+    # synthesised at read, never written back (R5)
+    assert markdown_parser.parse(tmp_path / "inbox" / "inbox-010.md").frontmatter.get("options") in (None, [])
+
+
+def _conflict_fm(**over):
+    fm = {"kind": "conflict", "required_input": "choice", "status": "pending", "entity_id": "bob-example",
+          "entity_name": "Bob Example", "title": "q", "question": "Where does Bob Example work now?",
+          "predicate": "works-at", "created_date": "2026-08-01", "claim_id": "clm_new",
+          "options": [{"key": "a", "label": "alpha-corp", "claim_id": "clm_old"},
+                      {"key": "b", "label": "beta-corp", "claim_id": "clm_new"},
+                      {"key": "both", "label": "Both are true (different contexts)"}]}
+    fm.update(over)
+    return fm
+
+
+def test_recommended_is_sleeps_proposal_and_is_served_first():
+    fm = _conflict_fm()
+    opts = inbox_questions.normalize_options(fm["options"])
+    assert inbox_service.recommended_key("conflict", fm, opts) == "b"
+    # wire == ledger (G115 §4): every kind × key grades the same at read and at resolve
+    for kind, key in (("conflict", "a"), ("conflict", "b"), ("conflict", "both"), ("decay", "archive"), ("decay", "keep")):
+        opts_k = opts if kind == "conflict" else inbox_questions.normalize_options(
+            inbox_questions.decay_question("X", None, "2026-08-30")["options"])
+        fm_k = fm if kind == "conflict" else {"kind": "decay"}
+        expected = inbox_service._verdict(
+            kind,
+            inbox_service._action_label(kind, inbox_service._normalize_decay_request(
+                kind, InboxResolveRequest(action="resolve", option_key=key)), opts_k),
+            key, fm_k.get("claim_id"), opts_k)
+        assert inbox_service._option_verdict(kind, key, fm_k, opts_k) == expected, (kind, key)
+
+
+def test_recommended_never_on_neither_entity_path_merge_or_clarification():
+    stale = _conflict_fm(options=[{"key": "neither", "label": "Neither anymore"}] + _conflict_fm()["options"])
+    assert inbox_service.recommended_key("conflict", stale, inbox_questions.normalize_options(stale["options"])) == "b"
+    entity_path = _conflict_fm(claim_id=None, options=[{"key": "a", "label": "x"}, {"key": "b", "label": "y"}])
+    assert inbox_service.recommended_key("conflict", entity_path, inbox_questions.normalize_options(entity_path["options"])) is None
+    assert inbox_service.recommended_key("merge_suggestion", {"kind": "merge_suggestion"}, [{"key": "0", "label": "m"}]) is None
+    assert inbox_service.recommended_key("clarification", {"kind": "clarification"}, [{"key": "0", "label": "c"}]) is None
+
+
+def test_options_are_served_recommended_first(tmp_path):
+    from api.services import bank_index
+    bank_index.invalidate()
+    (tmp_path / "entities").mkdir()
+    markdown_parser.write(tmp_path / "entities" / "bob-example.md",
+                          {"name": "Bob Example", "type": "person", "status": "active", "source_episodes": []}, "# B\n")
+    _write_item(tmp_path, "inbox-011", _conflict_fm())
+    [item] = inbox_service.load_inbox(tmp_path)
+    assert [o.key for o in item.options] == ["b", "a", "both"]
+    assert item.options[0].recommended is True and item.recommended_key == "b"

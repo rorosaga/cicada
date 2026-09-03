@@ -41,6 +41,13 @@ final class InboxViewModel {
         Dictionary(grouping: items, by: \.kind).mapValues(\.count)
     }
 
+    /// For the honest empty state (G115 R12): what the backend last said, so an
+    /// empty inbox can state a fact instead of promising what the bookworm will
+    /// do next. Both read the already-hydrated `status` snapshot — nothing here
+    /// triggers a fetch of its own.
+    var lastSleepAt: String? { store.status.value?.lastSleepAt }
+    var unprocessedEpisodes: Int { store.status.value?.episodes.unprocessed ?? 0 }
+
     func loadInbox() async {
         errorMessage = nil
         await store.refresh([.inbox])

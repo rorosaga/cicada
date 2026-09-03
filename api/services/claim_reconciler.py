@@ -286,6 +286,10 @@ def _conflict_nudge(existing: Claim, new: Claim, today: str) -> dict:
         "action": "conflict_nudge",
         "entity": {"name": name},
         "predicate": new.predicate,
+        # G97/G115: the conversation that raised the question. The freshest
+        # (new) claim's last episode — what `inbox_context` would pick anyway,
+        # persisted so the item stays answerable if the claim is later closed.
+        "source_episode": (new.source_episodes or [None])[-1],
         "question": predicates.predicate_question(new.predicate, name),
         "allow_other": True,
         "allow_defer": True,
@@ -532,6 +536,7 @@ def _decay_claims(
                             "entity": {"name": _entity_name(c)},
                             "new_confidence": new_conf,
                             "claim_id": c.id,
+                            "source_episode": (c.source_episodes or [None])[-1],
                             "trigger": "sleep/decay",
                         })
                     elif new_conf < nudge_threshold:
@@ -541,6 +546,7 @@ def _decay_claims(
                             "entity": {"name": _entity_name(c)},
                             "new_confidence": new_conf,
                             "claim_id": c.id,
+                            "source_episode": (c.source_episodes or [None])[-1],
                             "trigger": "sleep/decay",
                         })
             # Stamp the watermark regardless of whether `amount` moved

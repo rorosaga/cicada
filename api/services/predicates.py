@@ -193,6 +193,47 @@ def is_single_valued(memory_path: Path | None, predicate: str) -> bool:
     return build_cardinality_fn(memory_path)(predicate)
 
 
+def cardinality(memory_path: Path | None, predicate: str) -> str:
+    """``"single"`` / ``"multi"`` / ``"unknown"`` for one canonical predicate.
+
+    G98 / G115 Phase 1 (R4): the inbox must never ask for a winner on a predicate
+    the vocabulary marks multi-valued (a tech stack is a set — seven true ``uses``
+    values rendered as one conflict card on the live bank, 2026-09-03).
+
+    This is NOT :func:`build_cardinality_fn`. That oracle answers "may a second
+    value coexist?" for Stage 3 and collapses unseen → coexist, which is the
+    right reconciler default and the wrong inbox rule: it reads a bank with no
+    ``_predicates.yaml`` (``_read_runtime_map`` → ``{}``) as "every predicate is
+    multi-valued" and would silence every conflict card.
+
+    **Two sources, and ``multi`` wins across them** — deliberately not
+    runtime-first. :func:`install_predicate_map` copies the seed once and then
+    leaves a populated map alone forever, and commit ``e9a7c6b`` moved ``uses``
+    from ``single_valued`` to ``multi_valued`` — so a bank seeded before that
+    commit still asserts the false single-valued reading, on exactly the bank
+    the G98 evidence came from. Letting the stale copy out-vote the committed
+    vocabulary would ship the rule dead. A bank that genuinely wants a
+    seed-multi predicate asked about gets that through Phase 2's
+    ``_inbox_rules.yaml``, not here. Anything in neither list is ``unknown`` —
+    ask as usual, fail open.
+    """
+    p = (predicate or "").strip().lower()
+    if not p:
+        return "unknown"
+    sources = [_read_runtime_map(memory_path)] if memory_path is not None else []
+    sources.append(_load_seed_map())
+    single: set[str] = set()
+    multi: set[str] = set()
+    for data in sources:
+        single |= {str(x).strip().lower() for x in (data.get("single_valued") or [])}
+        multi |= {str(x).strip().lower() for x in (data.get("multi_valued") or [])}
+    if p in multi:
+        return "multi"
+    if p in single:
+        return "single"
+    return "unknown"
+
+
 def normalize_predicate(memory_path: Path, label: str) -> str:
     """One-shot convenience: build the normalizer and apply it to ``label``."""
     return load_normalizer(memory_path)(label)

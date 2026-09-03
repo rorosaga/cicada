@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from api.services import decay_policy, inbox_questions, markdown_parser
+from api.services import decay_policy, inbox_questions, markdown_parser, predicates
 from api.services.conflict_resolver import apply_changes
 from api.services.id_utils import sanitize_id
 
@@ -241,6 +241,10 @@ async def generate(
                 "allow_other": True,
                 "allow_defer": True,
                 "hint": hint,
+                # G97: `conflict_resolver` already puts the raising episode on
+                # the change (`conflict_resolver.py:137`); the entity path used
+                # to drop it at the write, so the card had no cause to show.
+                "source_episode": change.get("source_episode") or None,
             }
             body = change.get("conflict_context", f"New information conflicts with existing data for {entity_name}.")
             markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
@@ -282,20 +286,22 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
     inbox item, **reusing the same ``inbox-NNN`` allocator** so it never collides
     with the legacy entity-path nudges written earlier in the same Stage 5.
 
-    Returns ``{"written": n, "merged": m}`` — ``written`` counts inbox items
-    newly created, ``merged`` counts conflict nudges folded into an
-    already-open item on the same ``(entity, predicate)`` key instead of
-    spawning a duplicate. A subject without an entity page still gets a
-    nudge (the page may be promoted next cycle).
+    Returns ``{"written": n, "merged": m, "skipped_multi_valued": s}`` —
+    ``written`` counts inbox items newly created, ``merged`` counts conflict
+    nudges folded into an already-open item on the same ``(entity, predicate)``
+    key instead of spawning a duplicate, and ``skipped_multi_valued`` counts
+    conflict nudges dropped by the G98 rule below. A subject without an entity
+    page still gets a nudge (the page may be promoted next cycle).
     """
     if not nudges:
-        return {"written": 0, "merged": 0}
+        return {"written": 0, "merged": 0, "skipped_multi_valued": 0}
     inbox_dir = memory_path / "inbox"
     entities_dir = memory_path / "entities"
     inbox_dir.mkdir(parents=True, exist_ok=True)
     next_num = _next_inbox_num(inbox_dir)
     written = 0
     merged = 0
+    skipped_multi = 0
 
     for nudge in nudges:
         action = nudge.get("action", "")
@@ -322,6 +328,14 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
                 hint = fact_sources.hint_for(memory_path, entity_id, predicate)
             except Exception:
                 hint = None
+            # G98 (2026-09-03 evidence): a predicate the vocabulary marks
+            # multi-valued never opens a conflict — seven true `uses` values
+            # are a set, not a contradiction. The reconciler already gates on
+            # its cardinality oracle; this is the belt for a legacy caller or a
+            # bank map that predates the seed. Counted, never silent.
+            if predicates.cardinality(memory_path, predicate) == "multi":
+                skipped_multi += 1
+                continue
             open_path = find_open(memory_path, "conflict", entity_id, predicate)
             if open_path is not None:
                 merge_options_into(open_path, nudge.get("options") or [], str(date.today()))
@@ -364,6 +378,9 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
             # claim provenance so the companion app can resolve a specific belief.
             "claim_id": nudge.get("claim_id"),
             "existing_claim_id": nudge.get("existing_claim_id"),
+            # G97: the conversation that raised this question, persisted so the
+            # card's cause survives the claim being closed later.
+            "source_episode": nudge.get("source_episode"),
             "trigger": nudge.get("trigger", "sleep/conflict_resolution"),
             # G61 — which declared source refreshes this fact, "conflict"-only.
             "hint": hint,
@@ -377,7 +394,7 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
         markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
         written += 1
 
-    return {"written": written, "merged": merged}
+    return {"written": written, "merged": merged, "skipped_multi_valued": skipped_multi}
 
 
 def _write_graph_edges(memory_path: Path, new_edges: list[dict]) -> None:

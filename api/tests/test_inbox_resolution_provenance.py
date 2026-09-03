@@ -164,3 +164,43 @@ def test_commit_resolution_change_keyword_default_unchanged(memory: Path):
     # ``:label`` suffix is inert to it.
     assert "Inbox resolution (clarification)" in body
     assert _head_entry(memory, "alpha-project").change_type == "updated"
+
+
+def test_decay_resolve_with_option_key_keeps_the_r1_labels(memory: Path):
+    """G115 R5: `QuestionView` sends `resolve` + `archive|keep` for a decay item;
+    the commit trigger must be byte-identical to the legacy verb's."""
+    settings = _Settings(memory)
+    run(inbox_service.resolve("inbox-001", InboxResolveRequest(action="resolve", option_key="archive"), settings))
+    # HEAD is G53's `State snapshot`, not the person's commit — see
+    # `_resolution_commit`'s docstring.
+    _, body = _resolution_commit(memory)
+    assert "entities/alpha-project.md: status archived (trigger: inbox/decay/resolved:archive)" in body
+    assert "Cicada-Author: user" in body
+
+
+def test_decay_resolve_keep_alias(memory: Path):
+    settings = _Settings(memory)
+    run(inbox_service.resolve("inbox-001", InboxResolveRequest(action="resolve", option_key="keep"), settings))
+    _, body = _resolution_commit(memory)
+    assert "status active (trigger: inbox/decay/resolved:keep_active)" in body
+
+
+def test_decay_remind_later_is_a_seven_day_defer(memory: Path):
+    """G113 R6, landed by G115 Phase 1: no `snooze_until`, the item hides via
+    `remind_after` and the commit is the deferral commit, not 'entity updated'."""
+    from datetime import date, timedelta
+    from api.services import markdown_parser
+    settings = _Settings(memory)
+    out = run(inbox_service.resolve("inbox-001", InboxResolveRequest(action="remind_later"), settings))
+    assert out["status"] == "deferred"
+    fm = markdown_parser.parse(memory / "inbox" / "inbox-001.md").frontmatter
+    assert fm["remind_after"] == str(date.today() + timedelta(days=7)) and "snooze_until" not in fm
+    assert "inbox/inbox-001.md: deferred until" in _git(memory, "log", "-1", "--format=%B")
+    assert inbox_service.load_inbox(memory) == []
+
+
+def test_decay_unknown_option_key_is_refused(memory: Path):
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc:
+        run(inbox_service.resolve("inbox-001", InboxResolveRequest(action="resolve", option_key="zzz"), _Settings(memory)))
+    assert exc.value.status_code == 400

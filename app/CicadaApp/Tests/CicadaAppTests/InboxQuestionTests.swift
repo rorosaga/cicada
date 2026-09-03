@@ -180,4 +180,30 @@ final class QuestionSelectionTests: XCTestCase {
         XCTAssertEqual(s.index, 0)
         XCTAssertNil(s.activate())
     }
+
+    // MARK: - G115 Phase 1 keys
+
+    func testStartsOnTheRecommendedOption() {
+        let s = QuestionSelection(optionCount: 3, allowOther: true, initialIndex: 2)
+        XCTAssertEqual(s.index, 2)
+        let clamped = QuestionSelection(optionCount: 3, allowOther: false, initialIndex: 9)
+        XCTAssertEqual(clamped.index, 0, "an out-of-range recommendation never highlights a missing row")
+    }
+
+    func testNumberKeysPickWithinTheOptionCount() {
+        var s = QuestionSelection(optionCount: 2, allowOther: true)
+        XCTAssertEqual(s.pickNumber(1), .pick(0))
+        XCTAssertEqual(s.pickNumber(2), .pick(1))
+        XCTAssertNil(s.pickNumber(3), "3 is the Other row, never a numbered pick")
+        XCTAssertNil(s.pickNumber(0))
+        XCTAssertEqual(s.index, 1, "a number key also moves the highlight")
+    }
+
+    func testEscapeClosesOtherFirstThenCollapses() {
+        var s = QuestionSelection(optionCount: 2, allowOther: true)
+        s.openOther()
+        XCTAssertEqual(s.escape(), .closeOther)
+        XCTAssertFalse(s.otherExpanded)
+        XCTAssertEqual(s.escape(), .collapse)
+    }
 }

@@ -14,8 +14,15 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from api.config import Settings
-from api.models.schemas import InboxItem, InboxOption, InboxResolveRequest
-from api.services import decay_policy, inbox_questions, markdown_parser, telemetry
+from api.models.schemas import InboxCause, InboxItem, InboxOption, InboxResolveRequest
+from api.services import (
+    decay_policy,
+    inbox_context,
+    inbox_questions,
+    markdown_parser,
+    predicates,
+    telemetry,
+)
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 logger = logging.getLogger(__name__)
@@ -49,15 +56,64 @@ def _required_input_for(kind: str) -> str:
     return "freetext"
 
 
-def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
+def _item_from_file(
+    filepath: Path, *, today: str | None = None, context: "inbox_context.InboxContext | None" = None
+) -> InboxItem:
+    """One inbox file → ``InboxItem``.
+
+    ``context`` (G115 Phase 1, R2) is the per-``load_inbox`` read cache; with it
+    the item also carries what the OLD read path threw away at the API boundary
+    (G97): the subject's type, the cause (conversation + excerpt), the
+    extractor's confidence/model behind the item, and the G98 ``informational``
+    flag for a conflict on a multi-valued predicate. Without it — every legacy
+    caller and test — the shape is exactly what it was.
+    """
     parsed = markdown_parser.parse(filepath)
     fm = parsed.frontmatter
     kind = str(fm.get("kind", "decay"))
     required_input = str(fm.get("required_input", "") or _required_input_for(kind))
     now = today or str(date.today())
+    entity_id = str(fm.get("entity_id", "") or "")
+    raw_options = inbox_questions.normalize_options(fm.get("options"))
+    question = _opt_str(fm.get("question"))
+    # Conflicts and clarifications always accept a free-text answer and a
+    # deferral on the resolve path, so legacy items (written before G60,
+    # no allow_* keys) must not lock the user into the closed option set.
+    allow_other = bool(fm.get("allow_other", kind in ("conflict", "clarification")))
+    allow_defer = bool(fm.get("allow_defer", kind in ("conflict", "clarification")))
+
+    extra: dict = {}
+    if context is not None:
+        if kind == "decay" and not raw_options:
+            # G115 R5: decay is SERVED as a question object and never written as
+            # one — the age phrase is computed from the subject page's live
+            # `last_referenced`, so a stored copy could only go stale.
+            synthesised = inbox_questions.decay_question(
+                str(fm.get("entity_name", "") or entity_id),
+                context.entity_last_referenced(entity_id),
+                now,
+            )
+            question = synthesised["question"]
+            raw_options = inbox_questions.normalize_options(synthesised["options"])
+            allow_other, allow_defer = synthesised["allow_other"], synthesised["allow_defer"]
+        # G115 R6: Sleep's own proposal is served FIRST so the card's initial
+        # highlight (and `1`) lands on it. The file on disk keeps its order —
+        # this is a read-time projection, like `age_days` and `cause`.
+        rec = recommended_key(kind, fm, raw_options)
+        raw_options = [o for o in raw_options if str(o.get("key")) == rec] + [
+            o for o in raw_options if str(o.get("key")) != rec
+        ]
+        extra["recommended_key"] = rec
+        extra["entity_type"] = context.entity_type(entity_id)
+        extra["cause"] = InboxCause(**context.cause_for(fm, raw_options).to_wire())
+        extra["informational"] = (
+            kind == "conflict"
+            and predicates.cardinality(context.memory_path, str(fm.get("predicate", "") or "")) == "multi"
+        )
+        extra.update(_extractor_refs(fm, kind, context))
 
     options: list[InboxOption] = []
-    for raw in inbox_questions.normalize_options(fm.get("options")):
+    for raw in raw_options:
         observed = _opt_str(raw.get("observed_at"))
         last_ref = _opt_str(raw.get("last_referenced")) or observed
         options.append(
@@ -69,6 +125,14 @@ def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
                 observed_at=observed,
                 last_referenced=last_ref,
                 age_days=inbox_questions.age_days(last_ref, now),
+                # Both derived at read (G115 R6). Without a `context` the item
+                # keeps its pre-G115 shape: no marker, no wire verdict.
+                recommended=(context is not None and str(raw.get("key")) == extra.get("recommended_key")),
+                verdict=(
+                    _option_verdict(kind, str(raw.get("key", "")), fm, raw_options)
+                    if context is not None
+                    else None
+                ),
             )
         )
 
@@ -78,18 +142,15 @@ def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
         required_input=required_input,
         status=str(fm.get("status", "pending") or "pending"),
         priority=float(fm.get("priority", 0.0) or 0.0),
-        entity_id=str(fm.get("entity_id", "") or ""),
+        entity_id=entity_id,
         entity_name=str(fm.get("entity_name", "") or ""),
         title=str(fm.get("title", "") or fm.get("entity_name", "") or ""),
         body=parsed.body,
         options=options,
         created_date=str(fm.get("created_date", "") or ""),
-        question=_opt_str(fm.get("question")),
-        # Conflicts and clarifications always accept a free-text answer and a
-        # deferral on the resolve path, so legacy items (written before G60,
-        # no allow_* keys) must not lock the user into the closed option set.
-        allow_other=bool(fm.get("allow_other", kind in ("conflict", "clarification"))),
-        allow_defer=bool(fm.get("allow_defer", kind in ("conflict", "clarification"))),
+        question=question,
+        allow_other=allow_other,
+        allow_defer=allow_defer,
         predicate=_opt_str(fm.get("predicate")),
         hint=_opt_str(fm.get("hint")),
         remind_after=_opt_str(fm.get("remind_after")),
@@ -98,7 +159,35 @@ def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
         suggested_classification=fm.get("suggested_classification"),
         suggested_confidence=fm.get("suggested_confidence"),
         merge_target_hint=fm.get("merge_target_hint"),
+        source_episode=_opt_str(fm.get("source_episode")),
+        source_episode_timestamp=_opt_str(fm.get("source_episode_timestamp")),
+        claim_id=_opt_str(fm.get("claim_id")),
+        **extra,
     )
+
+
+def _extractor_refs(fm: dict, kind: str, context: "inbox_context.InboxContext") -> dict:
+    """The extractor's side of the item, for the card's provenance line.
+
+    Mirrors what ``_feedback_refs`` records at resolve time (G113) so the app
+    can show ``Cicada's guess at 0.42`` BEFORE the person answers: decay →
+    the item's priority (the decayed confidence), clarification/merge → the
+    extractor's ``suggested_confidence``, conflict → the proposed claim's
+    ``confidence`` and ``authored_by``. Read-only; ids and numbers only.
+    """
+    out: dict = {"extractor_confidence": None, "extractor_model": None}
+    if kind == "decay":
+        out["extractor_confidence"] = _as_float(fm.get("priority"))
+    elif kind in ("clarification", "merge_suggestion"):
+        out["extractor_confidence"] = _as_float(fm.get("suggested_confidence"))
+    else:
+        claim_id = _opt_str(fm.get("claim_id"))
+        if claim_id:
+            claim = next((c for c in context.claims(str(fm.get("entity_id", "") or "")) if c.id == claim_id), None)
+            if claim is not None:
+                out["extractor_confidence"] = _as_float(claim.confidence)
+                out["extractor_model"] = _opt_str(claim.authored_by)
+    return out
 
 
 def _opt_str(value: object) -> str | None:
@@ -160,13 +249,22 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
       FROM an existing page) but kept for ``clarification`` — its subject can
       legitimately not have a page yet, and answering it is what creates one
       (see :func:`_subject_gone`).
+
+    G115 Phase 1: every item served carries its ``cause`` (G97, three tiers,
+    ``[ no source recorded ]`` when none), ``entity_type``, and — for a conflict
+    on a predicate the vocabulary marks multi-valued — ``informational: true``
+    (G98). All three are derived at read from one shared
+    :class:`inbox_context.InboxContext`, never stored.
     """
     inbox_dir = _inbox_dir(memory_path)
     today = str(date.today())
+    # G115 R2: one read cache for the whole inbox — episode + entity frontmatter
+    # through bank_index, claim blocks parsed once per subject.
+    context = inbox_context.InboxContext(memory_path, today=today)
     items: list[InboxItem] = []
     for filepath in sorted(inbox_dir.glob("inbox-*.md")):
         try:
-            item = _item_from_file(filepath, today=today)
+            item = _item_from_file(filepath, today=today, context=context)
         except Exception as exc:
             logger.warning(f"skipping unparseable inbox item {filepath.name}: {exc}")
             continue
@@ -349,6 +447,138 @@ def _verdict(
     return "neutral"
 
 
+# G115 R5 — the keys `QuestionView` sends for a decay item, mapped onto the
+# legacy verbs so the G113 R1 trigger labels stay byte-identical.
+_DECAY_KEY_TO_ACTION = {"archive": "archive", "keep": "keep_active", "keep_active": "keep_active"}
+
+
+def _normalize_decay_request(kind: str, request: InboxResolveRequest) -> InboxResolveRequest:
+    """`resolve` + `option_key` on a decay item → the legacy verb (R5).
+
+    Every question-carrying kind is answered with one verb (``resolve``) and a
+    key; decay's resolver predates that and switches on ``keep_active``/
+    ``archive``. Translating here — before :func:`_action_label` — keeps
+    :func:`_resolve_decay` and the G113 R1 commit labels untouched. An unknown
+    key is a client bug: 400, nothing written, exactly as
+    :func:`_resolve_conflict` treats a typo'd key.
+
+    **Free text on a decay item is refused the same way** (final review H1).
+    ``decay_question`` sets ``allow_other: False`` — there is no free-text
+    answer a decay item can honour — but until this guard an ``answer`` without
+    a recognised key fell through to :func:`_resolve_decay`'s ``else`` branch,
+    which appended the prose to the entity body, left the page ``decaying`` at
+    its decayed confidence and deleted the item: a "yes, still relevant"
+    silently inverted into an archive-shaped outcome. Refusing is the only
+    honest answer — the caller should send ``keep``/``archive``, or ``defer``.
+    """
+    if kind != "decay" or (request.action or "").strip().lower() not in ("resolve", "answer"):
+        return request
+    key = (request.option_key or "").strip().lower()
+    if not key:
+        if (request.answer or "").strip():
+            raise HTTPException(
+                400,
+                "A decay item takes no free-text answer (allow_other is false) — "
+                f"send optionKey one of {sorted(inbox_questions.DECAY_OPTION_KEYS)}, "
+                "or action 'defer'.",
+            )
+        return request
+    if key not in _DECAY_KEY_TO_ACTION:
+        raise HTTPException(
+            400,
+            f"Unknown optionKey {key!r} for a decay item — expected one of "
+            f"{sorted(inbox_questions.DECAY_OPTION_KEYS)}.",
+        )
+    return request.model_copy(update={"action": _DECAY_KEY_TO_ACTION[key]})
+
+
+def _option_verdict(kind: str, key: str, fm: dict, options: list[dict]) -> str:
+    """What picking ``key`` would be graded as — the same table the ledger
+    writes, evaluated once at read so wire == ledger (G115 §4).
+
+    Never raises. :func:`_normalize_decay_request` 400s on a decay key it does
+    not know, which is right on the WRITE path and fatal on the read one: a
+    legacy decay item carrying flat options (keys ``"0"``/``"1"``) would raise
+    inside :func:`_item_from_file`, and ``load_inbox``'s broad ``except`` would
+    then log a warning and drop the card from the inbox entirely. An ungradeable
+    key is ``neutral`` here and stays answerable.
+    """
+    try:
+        request = _normalize_decay_request(kind, InboxResolveRequest(action="resolve", option_key=key))
+    except HTTPException:
+        return "neutral"
+    label = _action_label(kind, request, options)
+    return _verdict(kind, label, key, _opt_str(fm.get("claim_id")), options)
+
+
+def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
+    """The ONE option Sleep proposed (G115 R6) — the key :func:`_verdict` grades
+    ``agreed`` — or ``None``.
+
+    Never ``neither``/``both`` (G121: a stale-escalated question marks Sleep's
+    own claim or nothing), never on a ``merge_suggestion`` (G115 §4 — no initial
+    highlight on a merge) and never on a ``clarification`` (it proposes nothing;
+    every answer grades ``agreed``, so a marker would be freshness dressed as a
+    proposal). An entity-path conflict has no item ``claim_id``, grades every
+    pick ``neutral``, and therefore carries no recommendation — a large share of
+    live conflicts (G98), stated rather than papered over.
+
+    **A decay item's options are synthesised here when the caller has none**
+    (final review H2). R5 serves decay's question at READ time and never writes
+    it to the file, so the two call sites disagreed: ``_item_from_file`` passes
+    the synthesised options and gets ``archive``, while :func:`_emit_resolution`
+    reads the item's on-disk frontmatter — which has no ``options:`` at all —
+    and recorded ``recommended_key: null`` / ``picked_recommended: false`` for
+    the most common inbox kind, even though the card, the MCP blurb and the wire
+    all showed ``archive (Recommended)``. Synthesising the same two options here
+    makes the ledger's R8 signal agree with what the person was actually shown.
+    The name and date are irrelevant to the verdict table (only the KEYS are),
+    so the cheap placeholder question is enough.
+    """
+    if kind in ("merge_suggestion", "clarification"):
+        return None
+    if kind == "decay" and not options:
+        options = inbox_questions.normalize_options(
+            inbox_questions.decay_question("", None, str(date.today()))["options"]
+        )
+    agreed = [
+        str(o.get("key")) for o in options
+        if str(o.get("key") or "") not in _SPECIAL_KEYS and str(o.get("key") or "")
+        # A legacy decay item with flat options ("0"/"1") is not the synthesised
+        # question and has no proposal to mark — `_option_verdict` grades those
+        # `neutral`, so they simply never reach `agreed`.
+        and _option_verdict(kind, str(o.get("key")), fm, options) == "agreed"
+    ]
+    return agreed[0] if len(agreed) == 1 else None
+
+
+def _owner_observer(settings) -> str:
+    """The observer id for a claim the OWNER states from the inbox.
+
+    Portability rail (G115 R7): no owner name in code. ``settings.observer_owner``
+    (``CICADA_OBSERVER_OWNER``, PR #45) names the person's own entity id; until
+    G117's onboarding sets it, an unset value falls back to the literal the
+    claim layer has used since the thesis so existing banks keep ONE observer
+    lineage — flipping the fallback would split every existing bank's claim
+    lineage in two on the next reconciliation.
+
+    TODO(G117): **this is one of five owner-observer sites and the only one that
+    reads the setting today** (final review H5). The other four still hardcode
+    the literal, so a portable install that sets ``CICADA_OBSERVER_OWNER`` gets
+    two lineages in one bank — exactly the split this helper exists to prevent:
+
+    * ``telegram_capture.py`` — the ``saved-because`` claim's ``observer=``
+    * ``agentic_write.write_claim`` — the ``source_trust`` gate (``user_stated``
+      vs ``agent_extracted``) and the ``origin`` gate (``manual_edit`` vs ``mcp``)
+    * ``mcp/server.py`` — the ``cicada_write_claim`` observer enum + its description
+
+    Drop the literal from all five in one change once onboarding writes the
+    setting; migrating a bank's existing claims is part of that change, not of
+    this one.
+    """
+    return str(getattr(settings, "observer_owner", "") or "").strip() or "rodrigo"
+
+
 def _item_age_days(fm: dict, today: date) -> int | None:
     raw = fm.get("created_date")
     if raw in (None, ""):
@@ -453,6 +683,7 @@ def _emit_resolution(
     """
     try:
         options = inbox_questions.normalize_options(fm.get("options") or [])
+        rec = recommended_key(kind, fm, options)
         verdict = _verdict(kind, label, request.option_key, _opt_str(fm.get("claim_id")), options)
         telemetry.record(
             telemetry.UsageEvent(
@@ -474,6 +705,11 @@ def _emit_resolution(
                     "extractor_confidence": extractor_confidence,
                     "extractor_model": extractor_model,
                     "item_age_days": _item_age_days(fm, date.today()),
+                    # G115 R8: was Sleep's proposal the one picked? Key + bool
+                    # only — the ledger never carries a label or an excerpt.
+                    "recommended_key": rec,
+                    "picked_recommended": bool(rec)
+                    and (str(request.option_key or "").strip().lower() == rec or label == rec),
                 },
             )
         )
@@ -491,6 +727,19 @@ async def resolve(
 
     parsed = markdown_parser.parse(path)
     kind = str(parsed.frontmatter.get("kind", "decay"))
+
+    # G115 R5 — a decay item answered through `QuestionView` arrives as
+    # `resolve` + `archive|keep`; translate it into the legacy verb here, before
+    # `_action_label`, so the G113 R1 commit triggers stay byte-identical.
+    request = _normalize_decay_request(kind, request)
+    # G113 R6 (landed by G115 Phase 1): `remind_later` was a snooze nothing
+    # read — it wrote `snooze_until`, left the item visible, and committed
+    # "entity updated" for an entity it never touched. It is a 7-day defer.
+    if kind == "decay" and (request.action or "").strip().lower() == "remind_later":
+        return await _defer(
+            path, parsed, request.model_copy(update={"remind_days": 7}), settings, item_id,
+            label="remind_later",
+        )
 
     # G60 §2.4 — `defer` is kind-agnostic: it never touches claims or the entity
     # page, it just pushes the item out of sight until `remind_after`.
@@ -600,7 +849,14 @@ async def _defer(path, parsed, request, settings, item_id: str, *, label: str = 
 
 
 async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
-    """Port of the nudges.py decay branch (keep / archive / remind_later)."""
+    """Port of the nudges.py decay branch (keep / archive).
+
+    ``remind_later`` is routed to :func:`_defer` by :func:`resolve` (G113 R6,
+    landed by G115 Phase 1) and never reaches here: the branch that used to
+    live here wrote a ``snooze_until`` key no reader consulted, so the item
+    stayed visible and the cycle committed "entity updated" for an entity it
+    had not touched.
+    """
     entity_id = parsed.frontmatter.get("entity_id", "")
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
 
@@ -620,15 +876,13 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
         markdown_parser.write(entity_path, entity.frontmatter, entity.body)
         path.unlink()
 
-    elif request.action == "remind_later":
-        new_date = date.today() + timedelta(days=7)
-        parsed.frontmatter["status"] = "snoozed"
-        parsed.frontmatter["snooze_until"] = str(new_date)
-        markdown_parser.write(path, parsed.frontmatter, parsed.body)
-
     else:
         # Unknown action on a decay item — fall through to deletion so a stray
-        # entity-less decay nudge can still be cleared.
+        # entity-less decay nudge can still be cleared. A `resolve`/`answer`
+        # carrying free text never reaches here any more: decay's question sets
+        # `allow_other: False`, so `_normalize_decay_request` 400s it rather
+        # than letting a "still relevant" answer be appended to the body while
+        # the page stays `decaying` (final review H1).
         if entity_path.exists() and request.answer:
             entity = markdown_parser.parse(entity_path)
             entity.frontmatter["last_referenced"] = str(date.today())
@@ -676,7 +930,6 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     competing claim. A claims block that will not parse aborts the resolve
     (409) with the page untouched and the question kept.
     """
-    from api.services import predicates
     from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
     from api.services.conflict_resolver import _synthesize_entity_update
 
@@ -694,13 +947,23 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     # action="dismiss" with no key and no answer for such an item. Honor it the
     # old way: remove the item, touch no claims. A modern question item (has
     # `options` and/or a `question`) still gets the strict 400 below.
-    if (
-        request.action == "dismiss"
-        and not fm_item.get("options")
-        and not str(fm_item.get("question", "") or "").strip()
-        and not (request.option_key or "").strip()
-        and not (request.answer or "").strip()
+    informational = (
+        predicates.cardinality(settings.memory_path, str(fm_item.get("predicate", "") or "")) == "multi"
+    )
+    if request.action == "dismiss" and (
+        informational
+        or (
+            not fm_item.get("options")
+            and not str(fm_item.get("question", "") or "").strip()
+            and not (request.option_key or "").strip()
+            and not (request.answer or "").strip()
+        )
     ):
+        # Legacy pre-G60 items (above) AND G98/G115 R4 informational items: a
+        # conflict on a multi-valued predicate asked for a winner that does not
+        # exist — Stage 3 already kept every value open, so dismissing touches
+        # no claim. Its G113 R3 grade is `overruled`, and that is right: the
+        # belief overruled is the extractor's "these values conflict".
         path.unlink()
         return entity_id, False, []
 
@@ -826,7 +1089,7 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
                     object=answer,
                     # Keep the SAME belief slot (observer) as the claims being
                     # replaced so future reconciliation sees one lineage.
-                    observer=option_claims[0].observer if option_claims else "rodrigo",
+                    observer=option_claims[0].observer if option_claims else _owner_observer(settings),
                     context=option_claims[0].context if option_claims else "general",
                     source_trust="user_stated",
                     origin="clarification",

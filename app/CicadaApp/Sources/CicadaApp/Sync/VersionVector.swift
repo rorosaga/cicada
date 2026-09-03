@@ -6,9 +6,13 @@ struct VersionVector: Codable, Equatable {
 
     static let mapping: [String: Set<SyncDomain>] = [
         // `sourcesOverview` (G124 R7) rides `entities`, `episodes` and
-        // `sources` — the three components its ETag is computed from.
-        "entities": [.graph, .contributors, .origins, .sourcesOverview], "edges": [.graph, .contributors, .origins], "hubs": [.graph, .contributors, .origins],
-        "inbox": [.inbox, .graph, .status], "episodes": [.status, .origins, .sources, .channels, .sourcesOverview],
+        // `sources` — the three components its ETag is computed from. `.inbox`
+        // rides `entities` and `episodes` too (G97 / G115 R3): `GET /inbox`
+        // embeds the cause excerpt and entity type, and its server ETag is
+        // computed over all three — the two halves ship together or the cache
+        // keeps stale context until the inbox itself moves.
+        "entities": [.graph, .contributors, .origins, .sourcesOverview, .inbox], "edges": [.graph, .contributors, .origins], "hubs": [.graph, .contributors, .origins],
+        "inbox": [.inbox, .graph, .status], "episodes": [.status, .origins, .sources, .channels, .sourcesOverview, .inbox],
         // The `sources` component folds in `feeds.yaml`, `calendars.yaml` and
         // `sync_state.json` (see `sync_service.components`), so the feed,
         // calendar and capture-channel lists all ride it.
