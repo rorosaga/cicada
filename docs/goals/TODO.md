@@ -18,7 +18,7 @@ every new claim carries `evidence` spans (offsets + hash into the stored body, n
 `cicada_write_claim` cites `{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift
 change; legacy claims show no evidence, honestly.
 
-**G105 deterministic capture — `feat/deterministic-capture` (worktree `.worktrees/g105`), PR #TBD against
+**G105 deterministic capture — `feat/deterministic-capture` (worktree `.worktrees/g105`), PR #46 against
 `dev`.** Every Claude Code session is captured by its own `Stop` hook into one episode per session, block-level
 (person's turns + agent's final replies; tool blocks, code and secrets never), updated in place on every later
 Stop. **One manual step for an existing install:** re-run `./install.sh` (idempotent) to register the hook in
@@ -240,7 +240,7 @@ G47 saved-content importer family · G58 sync engine
 **Capture & connectors** — G29 Telegram · G30 browser bookmarks · G50 provider connections ·
 **G71 save-with-reason + Imports catalog** (Pinterest/Reddit/X connectors, export preview,
 LinkedIn/TikTok/Reddit parsers, one adapter registry) · **G105 hook-driven deterministic capture
-(2026-09-03, PR #TBD)** — Claude Code `Stop` hook → `POST /capture/transcript`, block-level extractor
+(2026-09-03, PR #46)** — Claude Code `Stop` hook → `POST /capture/transcript`, block-level extractor
 (person's turns + agent's final replies; tool blocks/code/secrets never), one episode per session
 updated in place, Sleep-queue source marks (`OriginMark`)
 
@@ -360,7 +360,7 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
 4b. **G104** a resumed conversation is consolidated twice — reconsolidation is the likely answer
    (the claim layer's `superseded_by` already models "replaced by a better-informed belief") — M
 4c. ~~**G105** deterministic conversation extraction~~ — **shipped 2026-09-03** (`feat/deterministic-capture`,
-   PR #TBD): the Stop hook, `POST /capture/transcript`, the block-level extractor and the Sleep-queue
+   PR #46): the Stop hook, `POST /capture/transcript`, the block-level extractor and the Sleep-queue
    source marks; the open remainder (Cursor/other harnesses, Codex payload verification) is in the G105 row
 5. **G97** inbox items show the conversation that caused them (43/49 reach an episode in ~100 ms,
    no LLM) — **delivered by G115 Phase 1 (4d above)**; the ETag widening is both halves there. — S/M
