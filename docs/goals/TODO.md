@@ -231,7 +231,7 @@ G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animati
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
 verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii) ·
-**G53 + G75 live state + handshake (2026-09-03, PR #TBD)** — `_state.md` cursor, `initialize.instructions`,
+**G53 + G75 live state + handshake (2026-09-03, PR #45)** — `_state.md` cursor, `initialize.instructions`,
 `cicada_handshake`, `/state`, `/handshake`
 
 **2026-08-31 → 09-01 (PRs #21–#29, merged to dev)**
@@ -368,7 +368,7 @@ verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs 
     the person's text turns + the agent's final reply per turn; tool blocks/code/secrets never; hook-driven)* — moved up (owner, 2026-09-02): G105
     is what makes every write have a cause; G93 is where citations become answers — M each
 10. ~~**G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
-    (G76, G77, G54 all assume it); zero LLM — M~~ — shipped PR #TBD (`feat/state-handshake`); open:
+    (G76, G77, G54 all assume it); zero LLM — M~~ — shipped PR #45 (`feat/state-handshake`); open:
     SessionStart hook (G49/G76), Store fetch of `/state`
 11. ~~G100~~ — absorbed into G118 (slice 1 shipped the write-time citation; the derived-span class and
     the viewer are G118 slice 2)
