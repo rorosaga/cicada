@@ -136,7 +136,7 @@ def _levels(values: dict[str, float]) -> dict[str, int]:
 
 async def calendar(memory_path: Path, *, weeks: int, today: date) -> list[dict]:
     start = today - timedelta(days=weeks * 7 - 1)
-    events = telemetry.read_events(start=start, end=today)
+    events = _activity(telemetry.read_events(start=start, end=today))
     writes = await memory_write_days(memory_path)
     per_day: dict[str, dict] = {}
     for i in range(weeks * 7):
@@ -185,8 +185,19 @@ def _group(events: list[UsageEvent], key: str, label: str) -> list[dict]:
     return rows
 
 
+def _activity(events: list[UsageEvent]) -> list[UsageEvent]:
+    """G105 final review F1: a ``capture`` row is a Stop-hook receipt — one per
+    reply of every Claude Code/Codex session, zero tokens, zero invocations.
+    Counting it as activity made the Usage page's hour-of-day chart, daily
+    series, per-bank invocations and (via ``stage=<harness>``) a spurious
+    ``by_stage`` row track the person's chat cadence instead of Cicada's own
+    work. Feedback kinds (G113 R7) stay — a ``feedback`` stage row is a real
+    user action on the graph; a capture row is not an action on anything."""
+    return [e for e in events if e.kind != "capture"]
+
+
 async def stats(memory_path: Path, *, range_: str, today: date) -> dict:
-    events = _events_in(range_, today)
+    events = _activity(_events_in(range_, today))
     calls = [e for e in events if e.kind in ("llm_call", "ask")]
     hours = [0] * 24
     for e in events:
@@ -210,9 +221,11 @@ async def stats(memory_path: Path, *, range_: str, today: date) -> dict:
     # R7 (G113): feedback rows (and `handshake`, G75) carry no connection and
     # no spend, so grouping them here would invent an "unknown" connection.
     # ``by_stage``/``by_bank`` keep them — a `feedback` or `handshake` stage
-    # row is informative there.
+    # row is informative there. G105 R10 adds the counts-only `capture` row to
+    # the same exclusion (``NON_SPEND_KINDS``); ``_activity`` above already
+    # dropped it from every other view.
     spend = [e for e in events if e.kind not in telemetry.NON_SPEND_KINDS]
-    all_events = telemetry.read_events()
+    all_events = _activity(telemetry.read_events())
     return {
         "by_model": by_model,
         "by_stage": _group(events, "stage", "stage"),

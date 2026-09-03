@@ -46,6 +46,12 @@ enum OriginIconography {
         case "tiktok-saved": "TikTok Saved"
         case "tiktok-history": "TikTok History"
         case "bookmark": "Bookmark"
+        // G105: hook-driven harness capture. Product names, not ids — the
+        // Sleep queue's "Catching up on" block reads these aloud.
+        case "codex": "Codex"
+        case "claude-desktop": "Claude Desktop"
+        case "cursor": "Cursor"
+        case "gemini-cli": "Gemini CLI"
         case "unknown": "Unknown"
         // Defensive aliases only — see the type doc above.
         case "reddit": "Reddit"
@@ -74,6 +80,8 @@ enum OriginIconography {
         case "tiktok-saved": "music.note"
         case "tiktok-history": "clock.arrow.circlepath"
         case "bookmark": "bookmark.fill"
+        case "codex", "cursor", "gemini-cli": "terminal"
+        case "claude-desktop": "bubble.left.and.bubble.right"
         case "unknown": "questionmark.circle"
         default: "tray"
         }
@@ -96,8 +104,45 @@ enum OriginIconography {
         case "x-bookmarks", "x": Color(hex: 0x14171A)
         case "linkedin-saved": Color(hex: 0x0A66C2)
         case "tiktok-saved", "tiktok-history": Color(hex: 0xFE2C55)
+        case "codex", "cursor", "gemini-cli": CicadaTheme.textPrimary
+        case "claude-desktop": CicadaTheme.accent
         case "unknown": CicadaTheme.textTertiary
         default: CicadaTheme.textSecondary
+        }
+    }
+
+    /// The bundled PNG under `Resources/logos/` for an origin, or nil when
+    /// there is none (ChatGPT, RSS, calendar, the browsers — which draw
+    /// their own glyph, `brandGlyph(for:)`). `mcp` shares Claude Code's mark:
+    /// it is the same harness under its legacy id. The map is exhaustive by
+    /// test (`OriginIconographyTests.testEveryDeclaredLogoExistsInTheBundle`),
+    /// so a typo here fails before it ships a blank mark.
+    static func logoName(for origin: String) -> String? {
+        switch origin {
+        case "claude-code", "mcp": "claude-code"
+        case "codex": "codex"
+        case "claude-export", "claude-desktop": "claude-desktop"
+        case "cursor": "cursor"
+        case "gemini-cli": "gemini-cli"
+        case "telegram": "telegram"
+        case "pinterest": "pinterest"
+        case "reddit-saved", "reddit": "reddit"
+        case "x-bookmarks", "x": "x"
+        case "linkedin-saved": "linkedin"
+        case "tiktok-saved", "tiktok-history": "tiktok"
+        case "instagram-saved": "instagram"
+        case "youtube-playlist": "youtube"
+        default: nil
+        }
+    }
+
+    /// Drawn marks for the browsers (no brand asset is downloaded — R7 of
+    /// the Safari import track), same precedence `MemberMark` uses.
+    static func brandGlyph(for origin: String) -> BrandGlyph? {
+        switch origin {
+        case "safari-bookmark", "safari-tab": .safari
+        case "chrome-bookmark": .chrome
+        default: nil
         }
     }
 }

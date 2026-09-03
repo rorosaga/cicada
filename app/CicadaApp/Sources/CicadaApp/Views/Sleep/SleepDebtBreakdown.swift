@@ -147,10 +147,9 @@ struct SleepDebtBreakdown: View {
 
     private func sourceRow(_ row: OriginBucket) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: OriginIconography.symbol(for: row.origin))
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(OriginIconography.color(for: row.origin))
-                .frame(width: 16)
+            // G105 companion: the same mark the queue row wears, so a source
+            // reads identically in the breakdown and in the rows it counts.
+            OriginMark(origin: row.origin, size: 16)
             Text(OriginIconography.label(for: row.origin))
                 .font(.system(size: 12))
                 .foregroundStyle(CicadaTheme.textPrimary)
