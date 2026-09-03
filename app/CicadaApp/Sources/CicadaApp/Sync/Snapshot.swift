@@ -19,4 +19,8 @@ enum SyncDomain: String, CaseIterable, Codable {
     /// no etag, no version-vector mapping — so `Store.refresh`/`refreshAll`
     /// skip it explicitly (see the `case .askHistory: continue` there).
     case askHistory
+    /// G124 — one card per memory source (`GET /sources/overview`). Per-bank;
+    /// rides the `episodes`, `entities` and `sources` version-vector
+    /// components — exactly the files its ETag covers (R7, ship-together).
+    case sourcesOverview
 }

@@ -44,12 +44,14 @@ final class ConversationsViewModel {
     /// decides resumability for itself.
     func canResume(_ id: String) -> Bool { conversation(id: id)?.resumable == true }
 
-    func load(limit: Int = 20) async {
+    /// G124 R5 — `harness`/`origin` are forwarded to the backend, which
+    /// filters before its cap; the view model never filters a capped page.
+    func load(limit: Int = 20, harness: String? = nil, origin: String? = nil) async {
         guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            conversations = try await api.fetchRecentConversations(limit: limit)
+            conversations = try await api.fetchRecentConversations(limit: limit, harness: harness, origin: origin)
             unknownIds = []
             hasLoaded = true
             errorMessage = nil

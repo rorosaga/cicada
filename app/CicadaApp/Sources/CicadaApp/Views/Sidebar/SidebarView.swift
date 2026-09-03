@@ -7,15 +7,16 @@ import SwiftUI
 ///
 /// G68 retired five tabs: Capture merged into Feed, Contributors + Usage
 /// merged into Activity, and Connections + Connect became Settings tabs
-/// (⌘,). Their raw values still sit in some user's defaults, so decode
-/// through `restored(from:)` — never `AppTab(rawValue:)!`.
+/// (⌘,). G124 then replaced Activity with Sources. All six retired raw values
+/// still sit in some user's defaults, so decode through `restored(from:)` —
+/// never `AppTab(rawValue:)!`.
 enum AppTab: String, CaseIterable {
     case graph = "Graph"
     case clusters = "Clusters"
     case feed = "Feed"
     case sleep = "Sleep"
     case inbox = "Inbox"
-    case activity = "Activity"
+    case sources = "Sources"
 
     /// Decodes a persisted selection, mapping every retired tab to whichever
     /// page inherited its content. Anything unrecognised falls back to Graph.
@@ -24,7 +25,7 @@ enum AppTab: String, CaseIterable {
         if let tab = AppTab(rawValue: raw) { return tab }
         switch raw {
         case "Capture": return .feed
-        case "Contributors", "Usage": return .activity
+        case "Activity", "Contributors", "Usage": return .sources   // G124: Activity → Sources
         case "Connections", "Connect": return .graph   // now Settings tabs (⌘,)
         default: return .graph
         }
@@ -37,7 +38,7 @@ enum AppTab: String, CaseIterable {
         case .feed: "photo.stack"
         case .sleep: "moon.fill"
         case .inbox: "tray.full"
-        case .activity: "chart.bar.xaxis"
+        case .sources: "tray.2"
         }
     }
 

@@ -228,7 +228,9 @@ struct FeedView: View {
 
 // MARK: - Feed Row
 
-private struct FeedRow: View {
+/// Internal (not `private`) since G124: a source's page (`ChannelSourceView`)
+/// renders its items with the exact same row the Feed does.
+struct FeedRow: View {
     let item: MediaFeedItem
     let showRelevance: Bool
     @State private var isHovered = false

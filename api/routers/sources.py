@@ -21,6 +21,8 @@ from api.models.schemas import (
     SourceChannel,
     SourceChannelsResponse,
     SourceListResponse,
+    SourceOverview,
+    SourceOverviewResponse,
     SourceRssRequest,
     SourceSaveRequest,
     SourceSaveResponse,
@@ -37,6 +39,7 @@ from api.services import (
     notes_sync,
     safari_tabs,
     saved_at as saved_at_service,
+    source_overview,
     sync_service,
     sync_state,
 )
@@ -499,6 +502,8 @@ async def list_sources(
         channel = None
         description: str | None = None
         about: list[str] = []
+        origin: str | None = None
+        folder: str | None = None
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
@@ -512,6 +517,10 @@ async def list_sources(
                 # `media` raised on an odd page.
                 description = _description_excerpt(parsed.body)
                 about = [str(r) for r in (fm.get("related") or []) if str(r).strip()]
+                # G124 R6 — the Sources page filters these items by source and
+                # groups them by folder/board/device, straight from the page.
+                origin = str(fm.get("origin") or "").strip() or None
+                folder = str(fm.get("folder") or "").strip() or None
                 related_count = len(fm.get("related") or [])
                 status = fm.get("status", "active")
                 tags = fm.get("tags") or []
@@ -547,6 +556,8 @@ async def list_sources(
                 personal_relevance=personal_relevance,
                 description=description,
                 about=about,
+                origin=origin,
+                folder=folder,
             )
         )
 
@@ -565,6 +576,44 @@ async def list_sources(
     else:
         items.sort(key=_recency_key, reverse=True)
     return SourceListResponse(items=items, total=len(items))
+
+
+@router.get("/sources/overview", response_model=SourceOverviewResponse)
+async def sources_overview(
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """One card per memory source (G124) — the Sources page's grid.
+
+    Same ETag recipe as ``/sources/channels`` (R7): the payload is computed
+    from episodes, entities, ``sync_state.json``, the feed/calendar registries
+    and the url index — all inside the ``sources``/``episodes``/``entities``
+    components — plus the Telegram flag and connector credentials, which are
+    config facts no component sees. Off the event loop for the same reason
+    ``/origins`` and ``/sources/channels`` are: a cold ``bank_index`` re-parses
+    every frontmatter.
+    """
+    memory_path = settings.memory_path
+    connectors_connected = {cid: adapter.is_connected() for cid, adapter in ADAPTERS.items()}
+    connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
+    etag = sync_service.etag_for(
+        memory_path, "sources", "episodes", "entities",
+        extra=f"overview|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+
+    def _build() -> list[dict]:
+        channels = channel_registry.build_channels(
+            memory_path,
+            telegram_enabled=settings.telegram_enabled,
+            connectors_connected=connectors_connected,
+        )
+        return source_overview.build_overview(memory_path, channels=channels)
+
+    rows = await run_in_threadpool(_build)
+    return SourceOverviewResponse(sources=[SourceOverview(**r) for r in rows])
 
 
 @router.get("/sources/channels", response_model=SourceChannelsResponse)

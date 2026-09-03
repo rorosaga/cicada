@@ -222,6 +222,12 @@ struct MediaFeedItem: Codable, Identifiable {
     /// decodes; `nil` means "not described / related yet", never a guess.
     let description: String?
     let about: [String]?
+    /// G124 R6 — the media page's own origin / folder (bookmark folder, board,
+    /// device). Optional: an older backend or a pre-origin page has neither.
+    /// The Sources page filters the Feed's items to one source by `origin`
+    /// and groups them by `folder`; nothing else reads them.
+    let origin: String?
+    let folder: String?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -266,6 +272,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case savedAt, tags, status, relatedCount, relevance, personalRelevance
         case contentSavedAt
         case description, about
+        case origin, folder
     }
 
     init(from decoder: Decoder) throws {
@@ -286,6 +293,8 @@ struct MediaFeedItem: Codable, Identifiable {
         contentSavedAt = try c.decodeIfPresent(String.self, forKey: .contentSavedAt)
         description = try c.decodeIfPresent(String.self, forKey: .description)
         about = try c.decodeIfPresent([String].self, forKey: .about)
+        origin = try c.decodeIfPresent(String.self, forKey: .origin)
+        folder = try c.decodeIfPresent(String.self, forKey: .folder)
     }
 }
 
@@ -1160,16 +1169,56 @@ actor APIClient {
         }
     }
 
+    /// G124 R14 — one contributor's memory-write calendar. On demand, like the
+    /// commit drill-down: no Store domain, no ETag on the app side. Same
+    /// author encoding as `fetchContributorCommits` so a `+` in a model id
+    /// never decodes to a space server-side.
+    func fetchContributorCalendar(author: String, weeks: Int = 53) async throws -> ContributorCalendar {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        let a = author.addingPercentEncoding(withAllowedCharacters: allowed) ?? author
+        return try await get("/contributors/calendar?author=\(a)&weeks=\(weeks)")
+    }
+
+    /// G124 — most-written / most-read entity pages, counts only.
+    func fetchTopEntities(limit: Int = 10, range: String = "all") async throws -> TopEntities {
+        try await get("/contributors/top-entities?limit=\(limit)&range=\(range)")
+    }
+
+    /// G124 R11 — the app opened an entity card. Fire-and-forget: a ledger
+    /// miss, a 404 (the page vanished between click and open) or an old
+    /// backend must never surface on the card, so every error is swallowed.
+    /// The body is ids-only — an entity id and the surface enum, never a
+    /// title or body text — by the telemetry rail on the G124 row.
+    func recordEntityRead(id: String) async {
+        _ = try? await post("/entities/\(id)/read", body: ["surface": "app"]) as Data
+    }
+
     // MARK: - Conversations (G48)
 
-    /// `GET /conversations/recent?limit=` — conversations that wrote to
-    /// memory, newest write first. On demand only, like `/contributors/commits`
-    /// — no Store domain, no ETag. A 404 means the backend predates this
-    /// endpoint, not that the fetch failed, so it degrades to an empty list
-    /// rather than throwing.
-    func fetchRecentConversations(limit: Int = 20) async throws -> [ConversationSummary] {
+    /// `GET /conversations/recent?limit=&harness=&origin=` — conversations
+    /// that wrote to memory, newest write first. On demand only, like
+    /// `/contributors/commits` — no Store domain, no ETag. A 404 means the
+    /// backend predates this endpoint, not that the fetch failed, so it
+    /// degrades to an empty list rather than throwing.
+    ///
+    /// G124 R5: the filters are applied by the backend BEFORE its 200-row cap,
+    /// so a harness's page never loses an older conversation to the cap.
+    /// `harness: "unknown"` travels literally — the backend matches it to an
+    /// empty harness. Values are percent-encoded the way
+    /// `fetchContributorCommits` encodes `author`.
+    func fetchRecentConversations(limit: Int = 20, harness: String? = nil, origin: String? = nil) async throws -> [ConversationSummary] {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        var path = "/conversations/recent?limit=\(limit)"
+        if let harness {
+            path += "&harness=\(harness.addingPercentEncoding(withAllowedCharacters: allowed) ?? harness)"
+        }
+        if let origin {
+            path += "&origin=\(origin.addingPercentEncoding(withAllowedCharacters: allowed) ?? origin)"
+        }
         do {
-            return try await get("/conversations/recent?limit=\(limit)")
+            return try await get(path)
         } catch APIError.httpError(404, _) {
             return []
         }
@@ -1918,6 +1967,18 @@ extension APIClient: SyncAPI {
         do {
             let c: Conditional<OriginsResponse> = try await getConditional("/origins", etag: etag)
             return c.map(\.origins)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
+    /// G124 — `GET /sources/overview`. A 404 means the backend predates the
+    /// endpoint: keep whatever snapshot the page already has rather than
+    /// blanking the grid.
+    func fetchSourcesOverview(etag: String?) async throws -> Conditional<[SourceOverview]> {
+        do {
+            let c: Conditional<SourceOverviewResponse> = try await getConditional("/sources/overview", etag: etag)
+            return c.map(\.sources)
         } catch APIError.httpError(404, _) {
             return .unavailable(etag: etag)
         }

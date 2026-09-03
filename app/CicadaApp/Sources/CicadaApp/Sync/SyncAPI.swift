@@ -47,6 +47,8 @@ protocol SyncAPI: Sendable {
     func fetchCalendars(etag: String?) async throws -> Conditional<[CalendarSubscription]>
     func fetchContributors(etag: String?) async throws -> Conditional<[Contributor]>
     func fetchOrigins(etag: String?) async throws -> Conditional<[OriginStat]>
+    /// G124 — `GET /sources/overview`, one row per memory source.
+    func fetchSourcesOverview(etag: String?) async throws -> Conditional<[SourceOverview]>
     func fetchConnections(etag: String?) async throws -> Conditional<[ConnectionStatus]>
     /// Usage dashboard (G51) default view — fans out to all five
     /// `/consumption/*` endpoints and folds them into one bundle. See
@@ -64,7 +66,11 @@ protocol SyncAPI: Sendable {
 
     // G48 — on-demand, like `/contributors/commits`: no SyncDomain, no
     // SnapshotCache entry. On the protocol purely so tests can fake them.
-    func fetchRecentConversations(limit: Int) async throws -> [ConversationSummary]
+    /// G124 R5: `harness`/`origin` filter server-side, BEFORE the cap — a
+    /// client-side filter over a capped page would silently drop an older
+    /// conversation of the selected harness. `harness: "unknown"` matches rows
+    /// whose harness is empty.
+    func fetchRecentConversations(limit: Int, harness: String?, origin: String?) async throws -> [ConversationSummary]
     /// Exact by-id lookup over the whole bank; `nil` = the bank has no episode
     /// carrying that id. NEVER resolve an id inside `fetchRecentConversations`'
     /// capped page — absence there means "not recent", not "not known".

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -240,6 +240,39 @@ class ContributorsResponse(CamelModel):
     contributors: list[Contributor] = []
 
 
+class TopEntityWrite(CamelModel):
+    entity_id: str
+    commits: int = 0
+    last_written: str = ""  # ISO date
+
+
+class TopEntityRead(CamelModel):
+    entity_id: str
+    reads: int = 0
+    last_read: str = ""  # ISO timestamp
+
+
+class TopEntities(CamelModel):
+    """Most-written (git, bounded by ``git_service.TOP_ENTITIES_LOG_WINDOW`` —
+    ``commits_scanned`` says how far back) and most-read (the ids-only ``read``
+    ledger kind) entity pages — G124's read/write stats, all engine-free."""
+
+    written: list[TopEntityWrite] = []
+    read: list[TopEntityRead] = []
+    commits_scanned: int = 0
+    range: str = "all"
+
+
+class EntityReadRequest(CamelModel):
+    # G124 R11: the app's card open. ``mcp``/``mcp-recall`` reads are recorded
+    # by the MCP server itself, never posted through this route.
+    surface: Literal["app", "mcp"] = "app"
+
+
+class EntityReadResponse(CamelModel):
+    recorded: bool
+
+
 # --- Origins (capture-provenance aggregation) ---
 
 
@@ -255,6 +288,45 @@ class OriginStat(CamelModel):
 
 class OriginsResponse(CamelModel):
     origins: list[OriginStat] = []
+
+
+# --- Sources overview (G124 — one card per memory source) ---
+
+
+class SourceOverview(CamelModel):
+    """One memory source as the Sources page shows it.
+
+    ``id`` equals the ``GET /sources/channels`` id where the source is a
+    channel (so the app joins channel state by equality), ``harness:<name>``
+    for an MCP harness, ``origin:<id>`` for an origin the catalog does not
+    know (see ``source_overview.CATALOG``). ``kind`` is one of
+    ``source_overview.KIND_ORDER``. ``mark`` is an ``OriginIconography`` key.
+    Counts are engine-free: episodes/entities from frontmatter (entities via
+    ``source_episodes`` only — R3), conversations = distinct ``session_id`` /
+    ``source_id``, items = the channel's own count. ``origins`` and
+    ``harness`` are the filter values the app sends back (``GET /sources``
+    items by origin; ``GET /conversations/recent?harness=``).
+    """
+
+    id: str
+    label: str
+    kind: str
+    mark: str
+    conversations: int = 0
+    episodes: int = 0
+    entities: int = 0
+    items: int = 0
+    last_activity_at: Optional[str] = None
+    connected: bool = False
+    last_error: Optional[str] = None
+    actions: list[str] = []
+    channel_id: Optional[str] = None
+    origins: list[str] = []
+    harness: Optional[str] = None
+
+
+class SourceOverviewResponse(CamelModel):
+    sources: list[SourceOverview] = []
 
 
 # --- Conversations (G48 conversation-level provenance) ---------------------
@@ -1256,6 +1328,13 @@ class MediaSourceItem(CamelModel):
     # has not been described/related yet, never a guess.
     description: Optional[str] = None
     about: list[str] = []
+    # G124 R6 — the media entity's own `origin:` / `folder:` frontmatter
+    # (written by media_ingestor.write_media_entity) so the Sources page can
+    # filter the Feed's items to one source and group them by bookmark folder,
+    # Pinterest board or iCloud device without a second endpoint. Optional:
+    # a page ingested before origins were stamped simply has neither.
+    origin: Optional[str] = None
+    folder: Optional[str] = None
 
 
 class SourceListResponse(CamelModel):
@@ -1592,6 +1671,16 @@ class CalendarDay(CamelModel):
 class ConsumptionCalendar(CamelModel):
     days: list[CalendarDay]
     weeks: int
+
+
+class ContributorCalendar(CamelModel):
+    """`/consumption/calendar`'s shape for one `Cicada-Author` (G124 R14).
+    ``days`` reuse ``CalendarDay`` with events/tokens/cost at zero so the app
+    renders it with the same heatmap and no new cell type."""
+
+    author: str
+    days: list[CalendarDay] = []
+    weeks: int = 53
 
 
 class ConsumptionStats(CamelModel):

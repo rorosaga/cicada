@@ -490,3 +490,52 @@ def test_by_id_304s_on_an_unchanged_bank(tmp_path, monkeypatch):
     second = client.get(f"/conversations/{UUID_A}", headers={"If-None-Match": etag})
     assert second.status_code == 304
     assert second.content == b""
+
+
+def test_aggregate_conversations_filters_by_harness_before_the_cap(tmp_path):
+    """G124 R5: the filter runs before ``limit`` so a capped page never hides
+    an older conversation of the selected harness."""
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_2026-08-01_001", timestamp="2026-08-01T09:00:00Z",
+             session_id=UUID_A, harness="claude-code", origin="mcp")
+    _episode(memory, "ep_2026-08-02_001", timestamp="2026-08-02T09:00:00Z",
+             session_id=UUID_B, harness="cursor", origin="mcp")
+    _episode(memory, "ep_2026-08-03_001", timestamp="2026-08-03T09:00:00Z",
+             source_id="thread-1", origin="claude-export")
+    bank_index.invalidate()
+    never = lambda project_dir, sid: False  # noqa: E731
+    rows = session_stats.aggregate_conversations(memory, limit=1, transcript_exists=never,
+                                                 harness="claude-code")
+    assert [r["conversation_id"] for r in rows] == [UUID_A]
+    rows = session_stats.aggregate_conversations(memory, limit=5, transcript_exists=never,
+                                                 origin="claude-export")
+    assert [r["conversation_id"] for r in rows] == ["thread-1"]
+
+
+def test_aggregate_conversations_harness_unknown_matches_an_empty_harness(tmp_path):
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_2026-08-01_001", timestamp="2026-08-01T09:00:00Z",
+             session_id=UUID_A, origin="mcp")
+    bank_index.invalidate()
+    rows = session_stats.aggregate_conversations(
+        memory, transcript_exists=lambda p, s: False, harness="unknown")
+    assert [r["conversation_id"] for r in rows] == [UUID_A]
+
+
+def test_recent_endpoint_harness_filter_applies_before_the_cap_and_varies_the_etag(tmp_path, monkeypatch):
+    """G124 R5 on the wire: ``?harness=`` narrows before ``limit`` and folds
+    into the ETag, so a warm client switching source never 304s onto the
+    other harness's rows."""
+    client, memory = _client(tmp_path, monkeypatch)
+    _episode(memory, "ep_1", timestamp="2026-08-01T09:00:00Z", session_id=UUID_A,
+             harness="claude-code", origin="mcp")
+    _episode(memory, "ep_2", timestamp="2026-08-02T09:00:00Z", session_id=UUID_B,
+             harness="cursor", origin="mcp")
+    bank_index.invalidate()
+
+    filtered = client.get("/conversations/recent?limit=1&harness=claude-code")
+    assert [r["conversationId"] for r in filtered.json()] == [UUID_A]
+    unfiltered = client.get("/conversations/recent?limit=1")
+    assert [r["conversationId"] for r in unfiltered.json()] == [UUID_B]
+    assert filtered.headers["ETag"] != unfiltered.headers["ETag"]
+    assert client.get("/conversations/recent?origin=claude-export").json() == []

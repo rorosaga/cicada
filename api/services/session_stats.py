@@ -199,6 +199,8 @@ def aggregate_conversations(
     *,
     limit: int = 20,
     transcript_exists=default_transcript_exists,
+    harness: str | None = None,
+    origin: str | None = None,
 ) -> list[dict]:
     """Recent conversations, newest write first.
 
@@ -206,12 +208,22 @@ def aggregate_conversations(
     names (``CamelModel`` has ``populate_by_name=True``, so
     ``ConversationSummary(**row)`` just works). ``project_dir`` is NOT included
     — only the resume endpoint ever sees it.
+
+    ``harness`` / ``origin`` (G124 R5) filter BEFORE the cap: the Sources
+    page's per-harness list must never lose an older conversation to a page
+    limit. ``harness="unknown"`` matches rows whose harness is empty — the
+    same value the overview reports for them.
     """
     groups = _group(Path(memory_path))
     rows = [
         project_conversation(g, transcript_exists=transcript_exists)
         for g in groups.values()
     ]
+    if harness is not None:
+        wanted = "" if harness == "unknown" else harness
+        rows = [r for r in rows if r["harness"] == wanted]
+    if origin is not None:
+        rows = [r for r in rows if r["origin"] == origin]
     rows.sort(key=lambda r: (r["last_seen"], r["conversation_id"]), reverse=True)
     return rows[: max(1, int(limit or 20))]
 

@@ -92,6 +92,8 @@ async def recent_conversations(
     request: Request,
     response: Response,
     limit: int = Query(20, ge=1, le=200),
+    harness: str | None = Query(None, max_length=64),
+    origin: str | None = Query(None, max_length=64),
     settings: Settings = Depends(get_settings),
 ):
     """Conversations that wrote to memory, newest write first (G48).
@@ -108,9 +110,14 @@ async def recent_conversations(
     This list is capped (``limit`` ≤ 200), so it is NOT a membership test for a
     bank: use ``GET /conversations/{id}`` to answer "does this bank know that
     conversation".
+
+    ``harness`` / ``origin`` (G124 R5) narrow the list to one source BEFORE the
+    cap, so the Sources page's per-harness view is complete up to ``limit``.
+    Both fold into the ETag: they change the body without moving any component.
     """
     etag = sync_service.etag_for(
-        settings.memory_path, "episodes", "entities", extra=f"limit={limit}"
+        settings.memory_path, "episodes", "entities",
+        extra=f"limit={limit}|harness={harness or ''}|origin={origin or ''}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
@@ -120,6 +127,8 @@ async def recent_conversations(
         settings.memory_path,
         limit=limit,
         transcript_exists=transcript_exists,
+        harness=harness,
+        origin=origin,
     )
     return [ConversationSummary(**row) for row in rows]
 

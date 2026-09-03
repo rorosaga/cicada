@@ -27,25 +27,31 @@ def resolve_range(range_: str, today: date) -> date | None:
     return today - timedelta(days=days - 1)
 
 
-async def memory_write_days(memory_path: Path) -> dict[str, int]:
-    """ISO-day -> attributed-commit count, bucketed by **UTC** calendar day.
+async def _commit_days(memory_path: Path) -> list[tuple[str, list[str]]]:
+    """``(utc_day, authors)`` for every commit in the memory repo.
 
-    ``git log --date=short`` (or any ``%ad``-based format) buckets by the
-    author's recorded UTC *offset*, not UTC itself — a commit authored at
-    ``2026-08-27T23:30:00-07:00`` (= ``2026-08-28T06:30Z``) would land on
-    ``2026-08-27`` there, one day off from how the telemetry ledger buckets
-    its explicit-UTC ``ts[:10]`` timestamps. We instead take the strict-ISO
-    author date (``%aI``, includes the offset) and convert to UTC in Python
-    so both sources agree on one calendar-day definition.
+    ``authors`` is the parsed ``Cicada-Author`` trailer list — EMPTY for a
+    legacy untrailered commit, so callers decide what counts: the repo-wide
+    calendar keeps only attributed commits (a memory write is a trailered
+    write), the per-author calendar (G124 R14) selects one author, and the
+    ``"unknown"`` bucket selects exactly the empty lists. One walk, one rule,
+    so the three can never disagree on what a "write" is.
+
+    Buckets by **UTC** calendar day: ``git log --date=short`` (or any
+    ``%ad``-based format) buckets by the author's recorded UTC *offset*, so a
+    commit authored at ``2026-08-27T23:30:00-07:00`` (= ``2026-08-28T06:30Z``)
+    would land on ``08-27`` there, one day off from the ledger's explicit-UTC
+    ``ts[:10]``. Taking ``%aI`` and converting in Python makes both sources
+    agree on one day definition.
     """
     if not (memory_path / ".git").exists():
-        return {}
+        return []
     sep, rec = "\x1f", "\x1e"
     try:
         out = await git_service._run_git(memory_path, "log", f"--format=%aI{sep}%b{rec}")
     except git_service.GitError:
-        return {}
-    days: Counter[str] = Counter()
+        return []
+    commits: list[tuple[str, list[str]]] = []
     for record in out.split(rec):
         if sep not in record:
             continue
@@ -57,8 +63,29 @@ async def memory_write_days(memory_path: Path) -> dict[str, int]:
             day = datetime.fromisoformat(iso_date).astimezone(timezone.utc).date().isoformat()
         except ValueError:
             continue
-        if git_service._parse_authors(body):
-            days[day] += 1
+        commits.append((day, git_service._parse_authors(body)))
+    return commits
+
+
+async def memory_write_days(memory_path: Path) -> dict[str, int]:
+    """ISO-day -> attributed-commit count (every author). See ``_commit_days``
+    for the UTC rule; an untrailered commit is not a memory write."""
+    days: Counter[str] = Counter(
+        day for day, authors in await _commit_days(memory_path) if authors)
+    return dict(days)
+
+
+async def memory_write_days_by_author(memory_path: Path, author: str) -> dict[str, int]:
+    """ISO-day -> commit count for ONE ``Cicada-Author`` (G124 R14).
+
+    ``"unknown"`` selects legacy untrailered commits, matching
+    ``git_service.get_contributors``' bucket for them — the same walk, just
+    the commits whose parsed author list is empty.
+    """
+    if author == git_service.UNKNOWN_AUTHOR:
+        days = Counter(day for day, authors in await _commit_days(memory_path) if not authors)
+    else:
+        days = Counter(day for day, authors in await _commit_days(memory_path) if author in authors)
     return dict(days)
 
 
@@ -164,6 +191,41 @@ async def calendar(memory_path: Path, *, weeks: int, today: date) -> list[dict]:
     return list(per_day.values())
 
 
+async def contributor_calendar(memory_path: Path, *, author: str, weeks: int, today: date) -> list[dict]:
+    """The ``/consumption/calendar`` shape for ONE contributor (G124 R14):
+    memory writes per UTC day, level from writes alone, every other counter
+    zero so ``HeatmapView`` renders it with no new cell type."""
+    start = today - timedelta(days=weeks * 7 - 1)
+    writes = await memory_write_days_by_author(memory_path, author)
+    rows: dict[str, dict] = {}
+    for i in range(weeks * 7):
+        d = (start + timedelta(days=i)).isoformat()
+        rows[d] = {"date": d, "memory_writes": writes.get(d, 0), "events": 0, "tokens": 0,
+                   "cost_usd": 0.0, "equiv_cost_usd": 0.0}
+    levels = _levels({d: float(r["memory_writes"]) for d, r in rows.items()})
+    for d, r in rows.items():
+        r["level"] = levels[d]
+    return list(rows.values())
+
+
+def top_read_entities(*, range_: str, today: date, limit: int) -> list[dict]:
+    """Most-read entity ids from the ``read`` ledger kind (G124 R11) — every
+    surface counted (the surface stays in ``refs`` for a later split, G120),
+    ids only, newest ``last_read`` kept per id."""
+    counts: Counter[str] = Counter()
+    last: dict[str, str] = {}
+    for e in _events_in(range_, today):
+        if e.kind != "read" or not isinstance(e.refs, dict):
+            continue
+        entity_id = str(e.refs.get("entity_id") or "").strip()
+        if not entity_id:
+            continue
+        counts[entity_id] += 1
+        last[entity_id] = max(last.get(entity_id, ""), e.ts)
+    return [{"entity_id": eid, "reads": n, "last_read": last[eid]}
+            for eid, n in counts.most_common(max(1, limit))]
+
+
 def _group(events: list[UsageEvent], key: str, label: str) -> list[dict]:
     groups: dict[str, list[UsageEvent]] = defaultdict(list)
     for e in events:
@@ -218,12 +280,12 @@ async def stats(memory_path: Path, *, range_: str, today: date) -> dict:
     runs = [e for e in events if e.kind == "sleep_run" and e.duration_ms is not None]
     longest = max(runs, key=lambda e: e.duration_ms, default=None)
     by_model = _group(calls, "model", "model")
-    # R7 (G113): feedback rows (and `handshake`, G75) carry no connection and
-    # no spend, so grouping them here would invent an "unknown" connection.
-    # ``by_stage``/``by_bank`` keep them — a `feedback` or `handshake` stage
-    # row is informative there. G105 R10 adds the counts-only `capture` row to
-    # the same exclusion (``NON_SPEND_KINDS``); ``_activity`` above already
-    # dropped it from every other view.
+    # R7 (G113): feedback rows (and `handshake`, G75; `read`, G124 R12) carry no
+    # connection and no spend, so grouping them here would invent an "unknown"
+    # connection. ``by_stage``/``by_bank`` keep them — a `feedback`, `handshake`
+    # or `recall` stage row is informative there. G105 R10 adds the counts-only
+    # `capture` row to the same exclusion (``NON_SPEND_KINDS``); ``_activity``
+    # above already dropped it from every other view.
     spend = [e for e in events if e.kind not in telemetry.NON_SPEND_KINDS]
     all_events = _activity(telemetry.read_events())
     return {

@@ -2,9 +2,10 @@ import SwiftUI
 
 // M3 (backlog A2): "which model authored which belief" — repo-wide attribution
 // parsed from Cicada-Author commit trailers.
-/// The Contributors half of the Activity page: repo-wide model/user
-/// attribution parsed from `Cicada-Author` commit trailers. No page header of
-/// its own — `ActivityView` owns the title.
+/// The Contributors section of the Sources page (G124; the Activity page
+/// before it): repo-wide model/user attribution parsed from `Cicada-Author`
+/// commit trailers. No page header of its own — `SourcesPageView` owns the
+/// title and the section heading.
 struct ContributorsSection: View {
     @Environment(ContributorsViewModel.self) private var viewModel
 
@@ -37,21 +38,21 @@ struct ContributorsSection: View {
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             } else {
-                ScrollView {
-                    VStack(spacing: CicadaTheme.spacingSM) {
-                        ForEach(viewModel.contributors) { c in
-                            ContributorRow(
-                                contributor: c,
-                                totalCommits: viewModel.totalCommits,
-                                isExpanded: expandedAuthor == c.author,
-                                onToggle: { toggle(c.author) }
-                            )
-                        }
+                // A plain stack, not a `ScrollView`: `SourcesPageView` owns
+                // the page's single scroll (G124). Nested scroll views fight
+                // over the wheel, and a trailing `Spacer` inside a scroll
+                // view has nothing to push against.
+                VStack(spacing: CicadaTheme.spacingSM) {
+                    ForEach(viewModel.contributors) { c in
+                        ContributorRow(
+                            contributor: c,
+                            totalCommits: viewModel.totalCommits,
+                            isExpanded: expandedAuthor == c.author,
+                            onToggle: { toggle(c.author) }
+                        )
                     }
                 }
             }
-
-            Spacer()
         }
         .padding(.horizontal, CicadaTheme.spacingXL)
         // No `.task { load() }`: `ContributorsViewModel` is a thin projection
@@ -94,6 +95,14 @@ private struct ContributorRow: View {
     @State private var loadingDiffs: Set<DiffCacheKey> = []
     @State private var diffErrors: Set<DiffCacheKey> = []
 
+    // G124 R14 — when this contributor wrote memory: one 53-week calendar
+    // per `Cicada-Author`, fetched on first expand alongside the commits and
+    // kept for the life of the view. A failure sets `calendarFailed` rather
+    // than caching an empty grid as "never wrote anything".
+    @State private var calendar: ContributorCalendar?
+    @State private var calendarFailed = false
+    @State private var selectedDay: CalendarDay?
+
     // Prefer the backend-derived `kind`; fall back to the author string so the
     // row still classifies correctly against an older backend (no `kind`).
     private var kind: String {
@@ -128,9 +137,25 @@ private struct ContributorRow: View {
         .background(CicadaTheme.surfaceHover.opacity(0.4))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
         .task(id: isExpanded) {
-            // Re-expanding after a failure retries: `commits` is still nil.
-            guard isExpanded, commits == nil else { return }
-            await loadCommits()
+            guard isExpanded else { return }
+            // Re-expanding after a failure retries: `commits` (or `calendar`)
+            // is still nil. The two fetches are independent, so one failing
+            // never blocks the other from rendering.
+            if commits == nil { await loadCommits() }
+            if calendar == nil { await loadCalendar() }
+        }
+    }
+
+    /// G124 R14 — this author's memory-write calendar. Same cancellation
+    /// rule as `loadCommits`: a collapsed row mid-flight is neither a failure
+    /// nor a result, so re-expanding simply fetches again.
+    private func loadCalendar() async {
+        calendarFailed = false
+        do {
+            calendar = try await APIClient.shared.fetchContributorCalendar(author: contributor.author)
+        } catch {
+            guard !Self.isCancellation(error) else { return }
+            calendarFailed = true
         }
     }
 
@@ -205,6 +230,27 @@ private struct ContributorRow: View {
 
     @ViewBuilder
     private var drillDown: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            // G124 R14 — when this contributor wrote memory. The same
+            // `HeatmapView` the old Usage page used, fed per author; levels
+            // come from writes alone, so the tooltip and the selected-day
+            // line never mention tokens or cost.
+            if let calendar {
+                HeatmapView(days: calendar.days, selected: $selectedDay)
+                if let day = selectedDay {
+                    Text("\(day.date) · \(UsageFormat.count(day.memoryWrites)) memory write\(day.memoryWrites == 1 ? "" : "s")")
+                        .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                }
+            } else if calendarFailed {
+                Text("Couldn't load this contributor's calendar")
+                    .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+            }
+            commitsDrillDown
+        }
+    }
+
+    @ViewBuilder
+    private var commitsDrillDown: some View {
         if isLoadingCommits {
             HStack(spacing: CicadaTheme.spacingXS) {
                 ProgressView().controlSize(.small)

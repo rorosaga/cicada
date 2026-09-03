@@ -20,11 +20,17 @@ enum OriginIconography {
     static func label(for origin: String) -> String {
         switch origin {
         // "mcp" is the legacy label, kept byte-for-byte so any existing
-        // OriginPill caller (the Activity origins strip) never silently
-        // renames — "claude-code" is the newer G9-normalized id for the
-        // same source and gets its own, equally legible label.
+        // caller (the Sleep debt breakdown; the Sources grid since G124)
+        // never silently renames — "claude-code" is the newer G9-normalized
+        // id for the same source and gets its own, equally legible label.
         case "mcp": "MCP"
         case "claude-code": "Claude Code"
+        // G124 R17 — harness ids an MCP client stamps (`mcp/server.py`
+        // SESSION) read as the Sources grid's harness cards. Generic on
+        // purpose: an unlisted harness falls through to `capitalized`.
+        case "cursor": "Cursor"
+        case "codex": "Codex"
+        case "claude-desktop": "Claude Desktop"
         case "chrome-bookmark": "Chrome"
         case "safari-bookmark": "Safari"
         // R3 — iCloud tabs are their own origin so a tab and a bookmark from
@@ -62,7 +68,7 @@ enum OriginIconography {
 
     static func symbol(for origin: String) -> String {
         switch origin {
-        case "mcp", "claude-code": "bubble.left.and.bubble.right"
+        case "mcp", "claude-code", "cursor", "codex", "claude-desktop": "bubble.left.and.bubble.right"
         case "chrome-bookmark": "globe"
         case "safari-bookmark", "safari-tab": "safari"
         case "telegram": "paperplane.fill"
@@ -89,7 +95,9 @@ enum OriginIconography {
 
     static func color(for origin: String) -> Color {
         switch origin {
-        case "mcp", "claude-code": CicadaTheme.accent
+        case "mcp", "claude-code", "claude-desktop": CicadaTheme.accent
+        case "cursor": Color(hex: 0x6E56CF)
+        case "codex": Color(hex: 0x10A37F)
         case "chrome-bookmark": Color(hex: 0x4285F4)
         case "safari-bookmark", "safari-tab": Color(hex: 0x00A2E8)
         case "telegram": Color(hex: 0x26A5E4)

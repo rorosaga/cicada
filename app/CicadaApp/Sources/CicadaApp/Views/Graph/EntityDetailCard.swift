@@ -360,6 +360,9 @@ struct EntityDetailCard: View {
         }
         .padding(CicadaTheme.spacingLG)
         .task(id: entity.id) {
+            // G124 R11 — a card open is a read. Fire-and-forget on its own
+            // Task so a slow ledger never delays the sources fetch below.
+            Task { await APIClient.shared.recordEntityRead(id: entity.id) }
             // Reset before (re)fetching so swapping between entities can't show
             // a previous entity's location/repo/sources data. `.task(id:)`
             // already guarantees this runs once per id, so no extra "loaded"
