@@ -160,6 +160,17 @@ def _reinforce(existing: Claim, incoming: Claim) -> None:
         if sid not in merged_sessions:
             merged_sessions.append(sid)
     existing.session_ids = merged_sessions
+    # G118 R8: a later conversation restating the fact adds its span; a
+    # `reasoning` placeholder for a document the claim already cites is noise
+    # (the earlier entry — span or not — already stands for that document).
+    cited = {ev.episode for ev in existing.evidence}
+    for ev in incoming.evidence or []:
+        if ev in existing.evidence:
+            continue
+        if not ev.is_span() and ev.episode in cited:
+            continue
+        existing.evidence.append(ev)
+        cited.add(ev.episode)
 
 
 # --------------------------------------------------------------------------- #

@@ -11,7 +11,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import decay_policy, engine_errors
+from api.services import decay_policy, engine_errors, evidence
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -43,7 +43,8 @@ Output valid JSON with this exact structure:
     {
       "source": "Entity Name A",
       "target": "Entity Name B",
-      "label": "specific relationship verb phrase"
+      "label": "specific relationship verb phrase",
+      "evidence_quote": "the exact words from the transcript this relationship rests on (verbatim, at most 240 characters)"
     }
   ]
 }
@@ -119,7 +120,12 @@ EXTRACTION GUIDELINES:
   and the string is a slash/tilde path, prefer `directory`.
 - Relationships are critical — capture every meaningful connection between entities with a specific
   verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against",
-  "replaced by", "due"). Use short verb phrases, not full sentences or generic "related to"."""
+  "replaced by", "due"). Use short verb phrases, not full sentences or generic "related to".
+- EVIDENCE QUOTE (required on every relationship): copy the shortest passage of the transcript,
+  VERBATIM and at most 240 characters, that states this relationship — the sentence the user or
+  assistant actually wrote, not your paraphrase. If the relationship is your own inference across
+  several passages and no single passage states it, omit evidence_quote entirely. Never invent one:
+  a quote that is not in the transcript is discarded and the relationship is recorded as inference."""
 
 # Max concurrent LLM calls — stay under rate limits
 MAX_CONCURRENCY = 10
@@ -185,11 +191,17 @@ def sanitize_decay_class(entity: dict) -> None:
         entity["decay_class"] = cls.value
 
 
-def _chunk_content(content: str) -> list[str]:
-    """Split long content into overlapping chunks."""
+def _chunk_spans(content: str) -> list[tuple[int, int]]:
+    """Chunk boundaries as ``(start, end)`` offsets into ``content``.
+
+    Boundaries are unchanged from the original ``_chunk_content``; exposing
+    them is what lets G118's evidence verification prefer a quote's
+    occurrence inside the chunk the model actually saw (R11) while recording
+    offsets into the WHOLE body — the stored text a viewer will slice.
+    """
     if len(content) <= CHUNK_SIZE:
-        return [content]
-    chunks = []
+        return [(0, len(content))]
+    spans: list[tuple[int, int]] = []
     start = 0
     while start < len(content):
         end = start + CHUNK_SIZE
@@ -198,9 +210,14 @@ def _chunk_content(content: str) -> list[str]:
             newline_pos = content.rfind("\n", end - 200, end)
             if newline_pos > start:
                 end = newline_pos + 1
-        chunks.append(content[start:end])
+        spans.append((start, end))
         start = end - CHUNK_OVERLAP
-    return chunks
+    return spans
+
+
+def _chunk_content(content: str) -> list[str]:
+    """Split long content into overlapping chunks."""
+    return [content[s:e] for s, e in _chunk_spans(content)]
 
 
 async def _extract_chunk(
@@ -323,7 +340,8 @@ async def extract(
             success += 1
             return
 
-        chunks = _chunk_content(content)
+        spans = _chunk_spans(content)
+        chunks = [content[s:e] for s, e in spans]
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -339,7 +357,13 @@ async def extract(
                 for ci, chunk in enumerate(chunks):
                     parsed = await _extract_chunk(ep_id, chunk, ci, len(chunks), settings)
                     all_entities.extend(parsed.get("entities", []))
-                    all_relationships.extend(parsed.get("relationships", []))
+                    chunk_rels = [r for r in (parsed.get("relationships", []) or []) if isinstance(r, dict)]
+                    # G118: verify the cited passage against the body this
+                    # chunk came from, preferring the chunk window (R11). The
+                    # quote is consumed here — nothing downstream sees it.
+                    for rel in chunk_rels:
+                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci])
+                    all_relationships.extend(chunk_rels)
 
                 ep_origin = episode.get("origin", "unknown")
                 for entity in all_entities:
@@ -470,13 +494,13 @@ def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
     projection idempotent across Sleep cycles.
     """
     from api.services import predicates
-    from api.services.claims import Claim
+    from api.services.claims import Claim, Evidence
     from api.services.id_utils import sanitize_id
 
     normalize = predicates.load_normalizer(memory_path) if memory_path is not None else None
 
     claims: list = []
-    seen_ids: set[str] = set()
+    by_id: dict[str, Claim] = {}
     for extraction in extracted:
         episode_id = str(extraction.get("episode_id", "") or "")
         origin = str(extraction.get("origin") or "unknown")
@@ -497,9 +521,17 @@ def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
             ep = str(rel.get("source_episode", "") or episode_id)
             valid_from = _claim_date(rel.get("source_episode_timestamp"), ep)
             cid = _emit_claim_id(subject, predicate, obj, valid_from)
-            if cid in seen_ids:
+            rel_evidence = [
+                Evidence.from_dict(e) for e in (rel.get("evidence") or []) if isinstance(e, dict)
+            ]
+            if cid in by_id:
+                # Overlapping chunks re-emit the same triple; the first claim
+                # wins and only gains the later chunk's evidence (G118).
+                first = by_id[cid]
+                for ev in rel_evidence:
+                    if ev not in first.evidence:
+                        first.evidence.append(ev)
                 continue
-            seen_ids.add(cid)
             claim = Claim(
                 id=cid,
                 text=f"{source} {raw_label} {target}",
@@ -515,9 +547,11 @@ def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
                 valid_from=valid_from or None,
                 source_episodes=[ep] if ep else [],
                 origin=origin,
+                evidence=rel_evidence,
             )
             # The pre-normalization label (for the Stage-3 normalization audit).
             setattr(claim, "predicate_raw", raw_label)
+            by_id[cid] = claim
             claims.append(claim)
     return claims
 
