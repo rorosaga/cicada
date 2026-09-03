@@ -245,10 +245,20 @@ skills), **G76** (paste-prompt install), **G127** (mascot identity — decide, d
   entity from outside the canvas — if any get added — should call `revealEntity`, never `selectEntity`.
 
 Closed 2026-09-03 (PR #49): the sidebar sun/moon toggle and the two origin-less source cards.
+Closed 2026-09-03 (PR #51): the sidebar settings gear.
 The toggle was not a palette problem — `CicadaTheme.mode` was a plain static, so flipping it changed
 what every colour token returned but invalidated no view; only the two views reading the AppStorage
 key repainted. It is backed by an `@Observable` store now, which also let the `.id()` rebuild go, so
 a theme flip no longer tears down the graph's web view.
+
+The gear next to it had a subtler version of the same shape. It sent the private selector
+`showSettingsWindow:` through `NSApp.sendAction`, which on macOS 26 is **accepted and then ignored**:
+the target is SwiftUI's own AppDelegate, the call returns `true`, and no window is created. The only
+signal available to the caller said success. `SettingsLink` (macOS 14+, the documented way to open a
+`Settings` scene) is what actually opens it — verified by firing the real control through a temporary
+keyboard shortcut and watching the window list gain the scene. **The lesson worth keeping: a private
+AppKit selector that still resolves is not evidence that it still works.** Two rules now have source
+lints in `SettingsEntryPointTests`, because neither failure mode is unit testable.
 
 ---
 
