@@ -213,3 +213,110 @@ def test_relevant_inbox_carries_the_cause(server, tmp_path):
     markdown_parser.write(memory / "inbox" / "inbox-001.md", fm, "ctx")
     [blurb] = server._relevant_inbox(memory, "Bob Example")
     assert 'Cause: “user: Bob Example moved to beta-corp last week.” — from "Jobs"' in blurb
+
+
+# --------------------------------------------------------------------------- #
+# Final review H1 — the `Other / Later` line is gated per flag.
+# --------------------------------------------------------------------------- #
+
+
+def test_decay_card_never_invites_free_text(server):
+    """A decay question sets `allow_other: False`, and the invitation must go
+    with it (final review H1).
+
+    Before this, `render_question` printed "reply with any other answer" on a
+    decay card because the line was gated on `allow_other OR allow_defer`. An
+    agent taking the invitation hit `_resolve_decay`'s `else` branch: the answer
+    prose was appended to the entity body, the page stayed `decaying` at its
+    decayed confidence, and the item was deleted — a "yes, still relevant"
+    inverted with no error. The `defer` half must still print, since decay does
+    allow it.
+    """
+    from api.services import inbox_questions
+
+    q = inbox_questions.decay_question("Alpha Project", "2026-02-18", "2026-08-30")
+    fm = dict(q, kind="decay", entity_id="alpha-project", entity_name="Alpha Project")
+    out = server.render_question(fm, "body", today="2026-08-30")
+    assert "reply with any other answer" not in out
+    assert "Other / Later — ask to be reminded later; skip=true if unanswered" in out
+
+
+def test_conflict_card_still_prints_both_halves(server):
+    """The conflict sentence is byte-identical to v2's — only the gating changed."""
+    out = server.render_question(QUESTION_FM, "ctx", today="2026-08-30")
+    assert (
+        "Other / Later — reply with any other answer, or ask to be reminded later; "
+        "skip=true if unanswered"
+    ) in out
+
+
+def test_render_question_with_neither_flag_prints_no_other_line(server):
+    fm = dict(QUESTION_FM, allow_other=False, allow_defer=False)
+    out = server.render_question(fm, "ctx", today="2026-08-30")
+    assert "Other / Later" not in out
+
+
+# --------------------------------------------------------------------------- #
+# Final review H3 — one InboxContext per reader loop, not one per item.
+# --------------------------------------------------------------------------- #
+
+
+def test_check_nudges_builds_one_inbox_context_for_the_whole_loop(server, tmp_path, monkeypatch):
+    """`InboxContext` scandirs `episodes/` AND `entities/` on first use; one per
+    item put ~400 ms into a call that sits in the conversation loop."""
+    from api.services import bank_index, inbox_context, markdown_parser
+
+    bank_index.invalidate()
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True); (memory / "entities").mkdir(); (memory / "episodes").mkdir()
+    for n in range(4):
+        markdown_parser.write(
+            memory / "entities" / f"alpha-project-{n}.md",
+            {"name": f"Alpha Project {n}", "type": "project", "status": "active",
+             "last_referenced": "2026-02-18", "source_episodes": []}, "# A\n")
+        markdown_parser.write(
+            memory / "inbox" / f"inbox-10{n}.md",
+            {"kind": "decay", "status": "pending", "entity_id": f"alpha-project-{n}",
+             "entity_name": f"Alpha Project {n}", "title": f"No recent mentions {n}",
+             "created_date": "2026-08-01"}, "body")
+
+    built = []
+    real = inbox_context.InboxContext
+
+    class Counting(real):  # type: ignore[misc, valid-type]
+        def __init__(self, *a, **kw):
+            built.append(1)
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(inbox_context, "InboxContext", Counting)
+    monkeypatch.setattr(server, "get_memory_path", lambda: memory)
+    monkeypatch.setattr(server, "_SKIPPED_INBOX_IDS", set())
+    out = server.handle_check_nudges(None)
+    assert out.count("Still tracking") == 4
+    assert len(built) == 1
+
+
+def test_relevant_inbox_builds_one_inbox_context_for_the_whole_loop(server, tmp_path, monkeypatch):
+    from api.services import bank_index, inbox_context, markdown_parser
+
+    bank_index.invalidate()
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True); (memory / "entities").mkdir(); (memory / "episodes").mkdir()
+    for n in range(3):
+        markdown_parser.write(
+            memory / "inbox" / f"inbox-20{n}.md",
+            dict(QUESTION_FM, entity_id="bob-example", entity_name="Bob Example",
+                 title="Where does Bob Example work now?",
+                 question="Where does Bob Example work now?"), "ctx")
+
+    built = []
+    real = inbox_context.InboxContext
+
+    class Counting(real):  # type: ignore[misc, valid-type]
+        def __init__(self, *a, **kw):
+            built.append(1)
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(inbox_context, "InboxContext", Counting)
+    assert len(server._relevant_inbox(memory, "Bob Example")) == 3
+    assert len(built) == 1

@@ -272,3 +272,68 @@ def test_informational_conflict_dismiss_touches_no_claim(home, memory):
     claims = parse_claims(markdown_parser.parse(memory / "entities" / "bob-example.md").body)
     assert all(c.valid_to is None for c in claims)
     assert _events("resolution")[0]["refs"]["action"] == "dismiss"
+
+
+# --------------------------------------------------------------------------- #
+# Final review — decay's read-time question object must reach the ledger too.
+# --------------------------------------------------------------------------- #
+
+DECAY_ITEM = """---
+kind: decay
+required_input: choice
+status: pending
+priority: 0.4
+entity_id: bob-example
+entity_name: Bob Example
+title: No recent mentions of Bob Example
+created_date: 2026-08-02
+---
+Confidence has decayed.
+"""
+
+
+@pytest.fixture
+def decay_memory(memory: Path) -> Path:
+    (memory / "inbox" / "inbox-009.md").write_text(DECAY_ITEM)
+    _git(memory, "add", ".")
+    _git(memory, "commit", "-q", "-m", "decay item")
+    return memory
+
+
+def test_decay_resolution_records_the_recommendation_it_showed(home, decay_memory):
+    """H2: the decay question is synthesised at READ (R5) and never written, so
+    `_emit_resolution` — which reads the item's on-disk frontmatter — used to
+    record `recommended_key: null` for the one kind that always recommends, while
+    the card and the MCP blurb both showed `archive (Recommended)`."""
+    settings = _Settings(decay_memory)
+    run(inbox_service.resolve("inbox-009", InboxResolveRequest(action="archive"), settings))
+    r = _events("resolution")[0]["refs"]
+    assert r["kind"] == "decay" and r["action"] == "archive" and r["verdict"] == "agreed"
+    assert r["recommended_key"] == "archive"
+    assert r["picked_recommended"] is True
+
+
+def test_decay_keep_is_an_overrule_of_the_same_recommendation(home, decay_memory):
+    settings = _Settings(decay_memory)
+    run(inbox_service.resolve("inbox-009", InboxResolveRequest(action="resolve", option_key="keep"), settings))
+    r = _events("resolution")[0]["refs"]
+    assert r["action"] == "keep_active" and r["verdict"] == "overruled"
+    assert r["recommended_key"] == "archive" and r["picked_recommended"] is False
+
+
+def test_free_text_on_a_decay_item_is_refused_not_swallowed(home, decay_memory):
+    """H1: `decay_question` sets `allow_other: False`. Free text used to fall
+    through to `_resolve_decay`'s `else` branch — answer appended to the entity
+    body, page left `decaying`, item deleted — inverting a "still relevant"."""
+    from fastapi import HTTPException
+
+    settings = _Settings(decay_memory)
+    with pytest.raises(HTTPException) as exc:
+        run(inbox_service.resolve(
+            "inbox-009", InboxResolveRequest(action="resolve", answer="yeah still relevant"), settings
+        ))
+    assert exc.value.status_code == 400
+    # Nothing written: the item survives and the entity page is untouched.
+    assert (decay_memory / "inbox" / "inbox-009.md").exists()
+    assert "yeah still relevant" not in (decay_memory / "entities" / "bob-example.md").read_text()
+    assert _events("resolution") == []

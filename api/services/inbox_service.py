@@ -461,11 +461,27 @@ def _normalize_decay_request(kind: str, request: InboxResolveRequest) -> InboxRe
     :func:`_resolve_decay` and the G113 R1 commit labels untouched. An unknown
     key is a client bug: 400, nothing written, exactly as
     :func:`_resolve_conflict` treats a typo'd key.
+
+    **Free text on a decay item is refused the same way** (final review H1).
+    ``decay_question`` sets ``allow_other: False`` — there is no free-text
+    answer a decay item can honour — but until this guard an ``answer`` without
+    a recognised key fell through to :func:`_resolve_decay`'s ``else`` branch,
+    which appended the prose to the entity body, left the page ``decaying`` at
+    its decayed confidence and deleted the item: a "yes, still relevant"
+    silently inverted into an archive-shaped outcome. Refusing is the only
+    honest answer — the caller should send ``keep``/``archive``, or ``defer``.
     """
     if kind != "decay" or (request.action or "").strip().lower() not in ("resolve", "answer"):
         return request
     key = (request.option_key or "").strip().lower()
     if not key:
+        if (request.answer or "").strip():
+            raise HTTPException(
+                400,
+                "A decay item takes no free-text answer (allow_other is false) — "
+                f"send optionKey one of {sorted(inbox_questions.DECAY_OPTION_KEYS)}, "
+                "or action 'defer'.",
+            )
         return request
     if key not in _DECAY_KEY_TO_ACTION:
         raise HTTPException(
@@ -506,9 +522,25 @@ def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
     proposal). An entity-path conflict has no item ``claim_id``, grades every
     pick ``neutral``, and therefore carries no recommendation — a large share of
     live conflicts (G98), stated rather than papered over.
+
+    **A decay item's options are synthesised here when the caller has none**
+    (final review H2). R5 serves decay's question at READ time and never writes
+    it to the file, so the two call sites disagreed: ``_item_from_file`` passes
+    the synthesised options and gets ``archive``, while :func:`_emit_resolution`
+    reads the item's on-disk frontmatter — which has no ``options:`` at all —
+    and recorded ``recommended_key: null`` / ``picked_recommended: false`` for
+    the most common inbox kind, even though the card, the MCP blurb and the wire
+    all showed ``archive (Recommended)``. Synthesising the same two options here
+    makes the ledger's R8 signal agree with what the person was actually shown.
+    The name and date are irrelevant to the verdict table (only the KEYS are),
+    so the cheap placeholder question is enough.
     """
     if kind in ("merge_suggestion", "clarification"):
         return None
+    if kind == "decay" and not options:
+        options = inbox_questions.normalize_options(
+            inbox_questions.decay_question("", None, str(date.today()))["options"]
+        )
     agreed = [
         str(o.get("key")) for o in options
         if str(o.get("key") or "") not in _SPECIAL_KEYS and str(o.get("key") or "")
@@ -528,8 +560,21 @@ def _owner_observer(settings) -> str:
     G117's onboarding sets it, an unset value falls back to the literal the
     claim layer has used since the thesis so existing banks keep ONE observer
     lineage — flipping the fallback would split every existing bank's claim
-    lineage in two on the next reconciliation. TODO(G117): drop the literal once
-    onboarding writes the setting.
+    lineage in two on the next reconciliation.
+
+    TODO(G117): **this is one of five owner-observer sites and the only one that
+    reads the setting today** (final review H5). The other four still hardcode
+    the literal, so a portable install that sets ``CICADA_OBSERVER_OWNER`` gets
+    two lineages in one bank — exactly the split this helper exists to prevent:
+
+    * ``telegram_capture.py`` — the ``saved-because`` claim's ``observer=``
+    * ``agentic_write.write_claim`` — the ``source_trust`` gate (``user_stated``
+      vs ``agent_extracted``) and the ``origin`` gate (``manual_edit`` vs ``mcp``)
+    * ``mcp/server.py`` — the ``cicada_write_claim`` observer enum + its description
+
+    Drop the literal from all five in one change once onboarding writes the
+    setting; migrating a bank's existing claims is part of that change, not of
+    this one.
     """
     return str(getattr(settings, "observer_owner", "") or "").strip() or "rodrigo"
 
@@ -833,7 +878,11 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
 
     else:
         # Unknown action on a decay item — fall through to deletion so a stray
-        # entity-less decay nudge can still be cleared.
+        # entity-less decay nudge can still be cleared. A `resolve`/`answer`
+        # carrying free text never reaches here any more: decay's question sets
+        # `allow_other: False`, so `_normalize_decay_request` 400s it rather
+        # than letting a "still relevant" answer be appended to the body while
+        # the page stays `decaying` (final review H1).
         if entity_path.exists() and request.answer:
             entity = markdown_parser.parse(entity_path)
             entity.frontmatter["last_referenced"] = str(date.today())

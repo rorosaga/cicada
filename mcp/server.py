@@ -1758,6 +1758,16 @@ def render_question(
     nothing else; the ``a) Label — age`` prefix is unchanged so the G60 tests
     still hold. Falls back to the item body when there is no question, so legacy
     items still render something an agent can read out.
+
+    **Each half of the ``Other / Later`` line is gated on its own flag** (final
+    review H1). Decay only started rendering through this function in G115
+    Phase 1, and its question object sets ``allow_other: False`` — offering
+    "reply with any other answer" there invited an agent into a request the
+    resolve path cannot honour: free text on a decay item used to land in
+    ``_resolve_decay``'s ``else`` branch, which appended the prose to the entity
+    body, left the page ``decaying`` at its decayed confidence and deleted the
+    item — silently inverting a "yes, still relevant". A conflict (both flags
+    true) renders the identical sentence it always did.
     """
     from datetime import date as _date
 
@@ -1787,17 +1797,46 @@ def render_question(
         )
         lines.append(f"  {option.get('key')}) {option.get('label')}{suffix}{marker}")
 
-    if fm.get("allow_other") or fm.get("allow_defer"):
+    choices = []
+    if fm.get("allow_other"):
+        choices.append("reply with any other answer")
+    if fm.get("allow_defer"):
+        choices.append("ask to be reminded later")
+    if choices:
         lines.append(
-            "  Other / Later — reply with any other answer, "
-            "or ask to be reminded later; skip=true if unanswered"
+            "  Other / Later — " + ", or ".join(choices) + "; skip=true if unanswered"
         )
     if fm.get("hint"):
         lines.append(f"  Source to check: {fm['hint']}")
     return "\n".join(line for line in lines if line.strip())
 
 
-def _agent_question(memory_path: Path, fm: dict, today: str) -> tuple[dict, dict | None, str | None]:
+def _inbox_ctx(memory_path: Path, today: str):
+    """ONE :class:`InboxContext` per reader loop, not one per item (final review H3).
+
+    ``InboxContext`` is a per-read cache whose first ``episode()``/``entity()``
+    call scandirs and parses ``episodes/`` AND ``entities/`` whole. Constructing
+    one inside the ``for`` in :func:`handle_check_nudges` / :func:`_relevant_inbox`
+    re-ran both scans for every pending item: measured at 425 ms for 40 items on
+    a synthetic 2,000-episode / 1,900-entity bank versus 9.3 ms warm — ~400 ms
+    added to two calls that sit in the conversation loop. ``GET /inbox`` already
+    builds exactly one per ``load_inbox``; this is the MCP half of that rule.
+
+    Returns ``None`` when the api package is not importable (the MCP server runs
+    standalone in harnesses that never installed it); :func:`_agent_question`
+    then builds its own and degrades exactly as it did before.
+    """
+    try:
+        from api.services import inbox_context
+
+        return inbox_context.InboxContext(memory_path, today=today)
+    except Exception:  # noqa: BLE001 — no api package is a supported degrade
+        return None
+
+
+def _agent_question(
+    memory_path: Path, fm: dict, today: str, *, ctx=None
+) -> tuple[dict, dict | None, str | None]:
     """What both MCP readers hand :func:`render_question` (G115 Phase 1, R9).
 
     Synthesises the decay question exactly as ``GET /inbox`` does
@@ -1809,12 +1848,18 @@ def _agent_question(memory_path: Path, fm: dict, today: str) -> tuple[dict, dict
     ``inbox_service.load_inbox`` behind the ask gate is Phase 2, so until then
     this degrades to ``(fm, None, None)`` when the api package is not importable
     (the MCP server runs standalone in harnesses that never installed it).
+
+    ``ctx`` is the caller's :func:`_inbox_ctx` — passed so a loop over N items
+    pays for the episode/entity scan ONCE (final review H3). Omitting it keeps
+    the old per-call behaviour, which is what the standalone degrade path and
+    the single-item tests want.
     """
     try:
         from api.services import inbox_context, inbox_questions, inbox_service
 
         fm = dict(fm)
-        ctx = inbox_context.InboxContext(memory_path, today=today)
+        if ctx is None:
+            ctx = inbox_context.InboxContext(memory_path, today=today)
         entity_id = str(fm.get("entity_id") or "")
         options = inbox_questions.normalize_options(fm.get("options"))
         if str(fm.get("kind") or "") == "decay" and not options:
@@ -1909,6 +1954,9 @@ def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
 
     q = query.lower()
     blurbs: list[str] = []
+    # One read cache and one clock for the whole loop (final review H3).
+    today = str(date.today())
+    ctx = _inbox_ctx(memory_path, today)
     for filepath in _inbox_files(memory_path):
         content = filepath.read_text(encoding="utf-8")
         fm, body = parse_frontmatter(content)
@@ -1924,9 +1972,9 @@ def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
         # A deferred item is hidden everywhere it could be surfaced, the
         # proactive recall block included — the user asked to be reminded
         # later, not on the next unrelated question.
-        if inbox_questions.is_deferred(fm, str(date.today())):
+        if inbox_questions.is_deferred(fm, today):
             continue
-        fm, cause, rec = _agent_question(memory_path, fm, str(date.today()))
+        fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx)
         blurbs.append(_format_inbox_blurb(fm, body, cause=cause, recommended_key=rec))
     return blurbs
 
@@ -2009,6 +2057,9 @@ def handle_check_nudges(topic: str | None, entity_ids: list | None = None) -> st
     memory_path = get_memory_path()
     results = []
     wanted = {str(e).strip() for e in (entity_ids or []) if str(e).strip()}
+    # One read cache and one clock for the whole loop (final review H3).
+    today = str(date.today())
+    ctx = _inbox_ctx(memory_path, today)
 
     for filepath in _inbox_files(memory_path):
         if filepath.stem in _SKIPPED_INBOX_IDS:
@@ -2035,13 +2086,13 @@ def handle_check_nudges(topic: str | None, entity_ids: list | None = None) -> st
 
         from api.services import inbox_questions
 
-        if inbox_questions.is_deferred(fm, str(date.today())):
+        if inbox_questions.is_deferred(fm, today):
             continue
 
         # Decay becomes a question object here, and every question object gains
         # its cause + `(Recommended)` marker, so the agent reads the same card
         # the app shows (G115 Phase 1, R9).
-        fm, cause, rec = _agent_question(memory_path, fm, str(date.today()))
+        fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx)
 
         kind = str(fm.get("kind", fm.get("type", "")) or "")
         ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))

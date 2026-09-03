@@ -940,11 +940,17 @@ used instead and reads `span_kind: asserted`); nothing resolves → `tier: none`
 and `episodes` onto `.inbox` — change one half, change both. **Decay is no longer the special
 case:** it is served as `Still tracking {name}?` with `archive` / `keep` (synthesised at read
 from the page's `last_referenced`, never written; `resolve`+`archive|keep` maps onto the legacy
-verbs so the G113 R1 labels are unchanged; `remind_later` is a 7-day `defer`, G113 R6). Every option
+verbs so the G113 R1 labels are unchanged; `remind_later` is a 7-day `defer`, G113 R6). Decay's
+question sets `allow_other: false` and **the whole stack now means it**: `resolve`/`answer` carrying
+free text is a 400 (it used to be appended to the entity body while the page stayed `decaying` and
+the item was deleted), and MCP's `Other / Later` line prints each half only when its own flag is set.
+Every option
 carries `verdict` and the ONE option Sleep proposed carries `recommended` (`recommended_key` on the
 item) — the key the ledger's `_verdict` grades `agreed`, served first; never `neither`/`both`, never
 on a merge or a clarification, absent on an entity-path conflict (no claim to agree with). The
-`resolution` ledger row gains `recommended_key` + `picked_recommended`. **G98 rule:** a predicate
+`resolution` ledger row gains `recommended_key` + `picked_recommended`, decay included —
+`recommended_key` synthesises decay's read-time options so the ledger records the recommendation the
+person was actually shown rather than `null`. **G98 rule:** a predicate
 the vocabulary marks multi-valued (`predicates.cardinality` — the union of the bank's
 `_predicates.yaml` and the committed seed, `multi` winning, because `install_predicate_map` never
 refreshes a populated map and a bank seeded before `uses` moved lists would otherwise keep asking)
@@ -960,8 +966,11 @@ A `clarification` / `merge_suggestion` keeps its free-text / merge row in this p
 object is Phase 2) but gains the same title-as-question, cause line, excerpt and collapse.
 MCP `render_question` v2 prints `entity_id=<slug> · predicate=<p>`, a `Cause:` line (the same
 excerpt), `(Recommended)`, and the `skip=true` hint; `cicada_resolve_inbox(id, skip=true)` stays
-an in-process no-op. The observer for an owner-stated claim is `settings.observer_owner`
-(`CICADA_OBSERVER_OWNER`; unset falls back to the historical literal — TODO G117). Still open
+an in-process no-op. **On the inbox resolve path only**, the observer for an owner-stated claim is
+`settings.observer_owner` (`CICADA_OBSERVER_OWNER`, via `inbox_service._owner_observer`; unset falls
+back to the historical literal). Telegram capture, `agentic_write`'s trust/origin gate and the MCP
+`cicada_write_claim` observer enum still hardcode that literal, so setting the variable today splits
+a bank's claim lineage in two — **G117 moves the remaining four sites together**. Still open
 (Phases 2–3, G115): the ask gate, `_inbox_rules.yaml`, the suggested-outcome judge, silence clocks,
 grouped cards, and the two G116 rulings.
 
