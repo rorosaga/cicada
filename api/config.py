@@ -202,6 +202,13 @@ class Settings(BaseSettings):
     # CICADA_TELEGRAM_BOT_TOKEN to the token from @BotFather to activate.
     telegram_bot_token: str = ""  # CICADA_TELEGRAM_BOT_TOKEN
 
+    # G105 R7 — the one switch on hook-driven capture. True keeps the person's
+    # turns AND the agent's final reply per turn; false keeps only the
+    # person's turns (the owner's stated fallback if the assistant half
+    # proves noisy). Read by POST /capture/transcript, so flipping it needs
+    # no hook re-registration.
+    capture_assistant_replies: bool = True  # CICADA_CAPTURE_ASSISTANT_REPLIES
+
     model_config = {"env_prefix": "CICADA_", "env_file": ".env", "extra": "ignore"}
 
     @property

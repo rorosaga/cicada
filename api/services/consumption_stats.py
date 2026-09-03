@@ -209,8 +209,9 @@ async def stats(memory_path: Path, *, range_: str, today: date) -> dict:
     by_model = _group(calls, "model", "model")
     # R7 (G113): feedback rows carry no connection and no spend, so grouping
     # them here would invent an "unknown" connection. ``by_stage``/``by_bank``
-    # keep them — a `feedback` stage row is informative there.
-    spend = [e for e in events if e.kind not in telemetry.FEEDBACK_KINDS]
+    # keep them — a `feedback` stage row is informative there. G105 R10 adds
+    # the counts-only `capture` row to the same exclusion (``NON_SPEND_KINDS``).
+    spend = [e for e in events if e.kind not in telemetry.NON_SPEND_KINDS]
     all_events = telemetry.read_events()
     return {
         "by_model": by_model,
