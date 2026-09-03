@@ -211,11 +211,14 @@ brief written from this table over fighting the cache.
    span citations rather than page citations. Partly a DECIDE row: what "smart" adds over today's
    `/ask` is still open.
 
-**Filed 2026-09-03, unqueued:** **G128** — visits and places as a capture channel (photos you already take
-first, in-the-moment notes second, wearable video only as research), grounded in MemPal
-(arXiv:2502.01801), whose transferable result is that *a text diary beat a spatial index*. It answers
-"which artworks influenced me" out of G120 recurrence + G118 provenance + G66 decay rather than a new
-subsystem.
+**Filed 2026-09-03, unqueued:** **G128** — visits and places as a capture channel, grounded in MemPal
+(arXiv:2502.01801), whose transferable result is that *a text diary beat a spatial index*. First step is
+the camera roll, not a wearable: time and GPS give the place, and on-device Vision gives what held you
+there — OCR of the wall label first (in a museum the placard *is* the metadata), then scene labels,
+feature prints for dedup and recurrence, faces detected but never identified. Apple's People API and
+Visual Look Up are not available to third parties, so the equivalent is OCR plus the owner confirming
+through the inbox. "Which artworks influenced me" then falls out of G120 recurrence + G118 provenance +
+G66 decay rather than a new subsystem.
 
 Then the standing bigger rocks, unchanged: **G81 → G95** (contacts, then meetings and human-to-human
 conversations — the largest gap between the vision and the code), **G112 steps 2–4** (portable
