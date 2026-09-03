@@ -143,3 +143,73 @@ def test_relevant_inbox_hides_deferred_items(server, tmp_path):
     blurbs = server._relevant_inbox(memory, "Rodrigo")
     assert len(blurbs) == 1
     assert all("Rodrigo" in b for b in blurbs)
+
+
+# --------------------------------------------------------------------------- #
+# G115 Phase 1 (R9) — render_question v2: the cause, (Recommended), the header
+# line the next `cicada_check_nudges(entity_ids=…)` needs, and the skip hint.
+# --------------------------------------------------------------------------- #
+
+CAUSE = {"tier": "item", "episode_id": "ep_2026-08-20_001", "timestamp": "2026-08-20T10:00:00+00:00",
+         "conversation_id": "ses_x", "harness": "claude-code", "origin": "claude-code",
+         "conversation_title": "Parser planning", "excerpt": "user: Bob Example moved to beta-corp last week.",
+         "mention_offsets": [[6, 17]], "start": 0, "end": 47, "span_kind": "derived"}
+
+
+def test_render_question_v2_header_cause_and_recommended(server):
+    out = server.render_question(QUESTION_FM, "ctx", today="2026-08-30", cause=CAUSE, recommended_key="b")
+    lines = out.splitlines()
+    assert lines[0] == "Where does Rodrigo work now?"
+    assert lines[1].strip() == "entity_id=rodrigo · predicate=works-at"
+    assert lines[2].strip().startswith('Cause: “user: Bob Example moved to beta-corp last week.” — from "Parser planning" · claude-code · ')
+    assert "a) MongoDB — 6 months ago" in out and "(Recommended)" not in lines[3 + 0]
+    assert "b) Supahost — 5 days ago (Recommended)" in out
+    assert "skip=true" in out
+
+
+def test_render_question_no_source_recorded_is_printed_not_dropped(server):
+    out = server.render_question(QUESTION_FM, "ctx", today="2026-08-30", cause={"tier": "none", "excerpt": "[ no source recorded ]"})
+    assert "Cause: [ no source recorded ]" in out
+
+
+def test_check_nudges_renders_decay_as_a_question_with_cause(server, tmp_path, monkeypatch):
+    from api.services import bank_index, markdown_parser
+    bank_index.invalidate()
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True); (memory / "entities").mkdir(); (memory / "episodes").mkdir()
+    markdown_parser.write(memory / "episodes" / "ep_2026-08-20_001.md",
+                          {"id": "ep_2026-08-20_001", "timestamp": "2026-08-20T10:00:00+00:00", "title": "Parser planning"},
+                          "user: alpha-project is mostly the parser.\n")
+    markdown_parser.write(memory / "entities" / "alpha-project.md",
+                          {"name": "Alpha Project", "type": "project", "status": "active", "last_referenced": "2026-02-18",
+                           "source_episodes": ["ep_2026-08-20_001"]}, "# A\n")
+    markdown_parser.write(memory / "inbox" / "inbox-003.md",
+                          {"kind": "decay", "status": "pending", "entity_id": "alpha-project", "entity_name": "Alpha Project",
+                           "title": "No recent mentions of Alpha Project", "created_date": "2026-08-01"}, "body")
+    monkeypatch.setattr(server, "get_memory_path", lambda: memory)
+    monkeypatch.setattr(server, "_SKIPPED_INBOX_IDS", set())
+    out = server.handle_check_nudges(None)
+    assert "Still tracking Alpha Project?" in out
+    assert "archive) Archive" in out and "(Recommended)" in out and "keep) Keep active" in out
+    assert 'Cause: “user: alpha-project is mostly the parser.” — from "Parser planning"' in out
+    assert 'cicada_resolve_inbox(id="inbox-003", option_key=…)' in out
+
+
+def test_relevant_inbox_carries_the_cause(server, tmp_path):
+    """New fixtures use the synthetic names (`bob-example`, `beta-corp`) — the
+    privacy rail: no real name may enter a test this plan adds."""
+    from api.services import bank_index, markdown_parser
+    bank_index.invalidate()
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True); (memory / "entities").mkdir(); (memory / "episodes").mkdir()
+    markdown_parser.write(memory / "episodes" / "ep_2026-08-20_001.md",
+                          {"id": "ep_2026-08-20_001", "timestamp": "2026-08-20T10:00:00+00:00", "title": "Jobs"},
+                          "user: Bob Example moved to beta-corp last week.\n")
+    fm = dict(QUESTION_FM,
+              entity_id="bob-example", entity_name="Bob Example",
+              title="Where does Bob Example work now?",
+              question="Where does Bob Example work now?",
+              source_episode="ep_2026-08-20_001")
+    markdown_parser.write(memory / "inbox" / "inbox-001.md", fm, "ctx")
+    [blurb] = server._relevant_inbox(memory, "Bob Example")
+    assert 'Cause: “user: Bob Example moved to beta-corp last week.” — from "Jobs"' in blurb

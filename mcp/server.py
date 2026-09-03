@@ -1701,11 +1701,20 @@ def _inbox_files(memory_path: Path):
             yield filepath
 
 
-def _format_inbox_blurb(fm: dict, body: str) -> str:
+def _format_inbox_blurb(
+    fm: dict, body: str, *, cause: dict | None = None, recommended_key: str | None = None
+) -> str:
+    """One proactive-recall line per pending item.
+
+    ``cause``/``recommended_key`` are additive (G115 R9): a caller that has not
+    resolved them yet renders exactly what it rendered before.
+    """
     kind = str(fm.get("kind", fm.get("type", "")) or "")
     ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
     if fm.get("question"):
-        return f"- [{kind or 'item'}] **{ename}**\n" + render_question(fm, body)
+        return f"- [{kind or 'item'}] **{ename}**\n" + render_question(
+            fm, body, cause=cause, recommended_key=recommended_key
+        )
     if kind in ("clarification", "merge_suggestion"):
         utype = fm.get("uncertainty_type", "unknown")
         suggestion = fm.get("suggested_classification", "unknown")
@@ -1720,43 +1729,112 @@ def _format_inbox_blurb(fm: dict, body: str) -> str:
     return f"- [{label}] **{ename}** — {title}"
 
 
-def render_question(fm: dict, body: str, today: str | None = None) -> str:
-    """Render an inbox item's question object for an agent to ask in-flow (§2.7).
+def render_question(
+    fm: dict,
+    body: str,
+    today: str | None = None,
+    *,
+    cause: dict | None = None,
+    recommended_key: str | None = None,
+) -> str:
+    """Render an inbox item's question object for an agent to ask in-flow (§2.7, v2 in G115 Phase 1).
 
     Shape:
 
         Where does Rodrigo work now?
+          entity_id=rodrigo · predicate=works-at
+          Cause: “…the sentence that raised it…” — from "Title" · claude-code · 6 months ago
           a) MongoDB — 6 months ago
-          b) Supahost — 5 days ago
+          b) Supahost — 5 days ago (Recommended)
           both) Both are true (different contexts)
-          Other / Later — reply with any other answer, or ask to be reminded later
+          Other / Later — reply with any other answer, or ask to be reminded later; skip=true if unanswered
           Source to check: https://…
 
-    Falls back to the item body when there is no question, so legacy items still
-    render something an agent can read out.
+    The ``entity_id=`` line is what the NEXT ``cicada_check_nudges(entity_ids=…)``
+    call needs (G75 contract item 2). The ``Cause:`` line is printed whenever a
+    cause is passed — ``[ no source recorded ]`` included — so an agent quoting it
+    (the primer's discipline) never quotes silence. ``(Recommended)`` marks the
+    option Sleep proposed (the key ``_verdict`` grades ``agreed``, G115 R6) and
+    nothing else; the ``a) Label — age`` prefix is unchanged so the G60 tests
+    still hold. Falls back to the item body when there is no question, so legacy
+    items still render something an agent can read out.
     """
     from datetime import date as _date
 
-    from api.services import inbox_questions
+    from api.services import inbox_context, inbox_questions
 
     now = today or str(_date.today())
     lines = [str(fm.get("question") or fm.get("title") or "").strip() or (body or "").strip()]
+
+    entity_id = str(fm.get("entity_id") or "").strip()
+    if entity_id:
+        header = f"  entity_id={entity_id}"
+        if fm.get("predicate"):
+            header += f" · predicate={fm['predicate']}"
+        lines.append(header)
+    if cause is not None:
+        lines.append(f"  Cause: {inbox_context.cause_line(cause, now)}")
 
     for option in inbox_questions.normalize_options(fm.get("options")):
         age = inbox_questions.humanize_age(
             option.get("last_referenced") or option.get("observed_at"), now
         )
         suffix = f" — {age}" if age != "unknown" else ""
-        lines.append(f"  {option.get('key')}) {option.get('label')}{suffix}")
+        marker = (
+            " (Recommended)"
+            if recommended_key and str(option.get("key")) == recommended_key
+            else ""
+        )
+        lines.append(f"  {option.get('key')}) {option.get('label')}{suffix}{marker}")
 
     if fm.get("allow_other") or fm.get("allow_defer"):
         lines.append(
             "  Other / Later — reply with any other answer, "
-            "or ask to be reminded later"
+            "or ask to be reminded later; skip=true if unanswered"
         )
     if fm.get("hint"):
         lines.append(f"  Source to check: {fm['hint']}")
     return "\n".join(line for line in lines if line.strip())
+
+
+def _agent_question(memory_path: Path, fm: dict, today: str) -> tuple[dict, dict | None, str | None]:
+    """What both MCP readers hand :func:`render_question` (G115 Phase 1, R9).
+
+    Synthesises the decay question exactly as ``GET /inbox`` does
+    (``decay_question`` over the subject page's ``last_referenced``, never
+    written to the file — R5), resolves the cause through ``inbox_context``
+    (three tiers, engine-free — R1/G74) and computes the recommended key from
+    the shipped ``_verdict`` (R6) — so the agent is shown the same item the app
+    is. Both readers keep today's raw file loop; routing them through
+    ``inbox_service.load_inbox`` behind the ask gate is Phase 2, so until then
+    this degrades to ``(fm, None, None)`` when the api package is not importable
+    (the MCP server runs standalone in harnesses that never installed it).
+    """
+    try:
+        from api.services import inbox_context, inbox_questions, inbox_service
+
+        fm = dict(fm)
+        ctx = inbox_context.InboxContext(memory_path, today=today)
+        entity_id = str(fm.get("entity_id") or "")
+        options = inbox_questions.normalize_options(fm.get("options"))
+        if str(fm.get("kind") or "") == "decay" and not options:
+            question = inbox_questions.decay_question(
+                str(fm.get("entity_name") or entity_id),
+                ctx.entity_last_referenced(entity_id),
+                today,
+            )
+            fm.update(question)
+            options = inbox_questions.normalize_options(fm["options"])
+        rec = inbox_service.recommended_key(str(fm.get("kind") or ""), fm, options)
+        if rec:
+            # Recommended-first on the wire, exactly as `GET /inbox` serves it;
+            # the file on disk keeps its own order (R6).
+            fm["options"] = [o for o in options if str(o.get("key")) == rec] + [
+                o for o in options if str(o.get("key")) != rec
+            ]
+        return fm, ctx.cause_for(fm, options).to_wire(), rec
+    except Exception:
+        return fm, None, None
 
 
 def _backend_post(path: str, payload: dict) -> dict:
@@ -1848,7 +1926,8 @@ def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
         # later, not on the next unrelated question.
         if inbox_questions.is_deferred(fm, str(date.today())):
             continue
-        blurbs.append(_format_inbox_blurb(fm, body))
+        fm, cause, rec = _agent_question(memory_path, fm, str(date.today()))
+        blurbs.append(_format_inbox_blurb(fm, body, cause=cause, recommended_key=rec))
     return blurbs
 
 
@@ -1959,12 +2038,17 @@ def handle_check_nudges(topic: str | None, entity_ids: list | None = None) -> st
         if inbox_questions.is_deferred(fm, str(date.today())):
             continue
 
+        # Decay becomes a question object here, and every question object gains
+        # its cause + `(Recommended)` marker, so the agent reads the same card
+        # the app shows (G115 Phase 1, R9).
+        fm, cause, rec = _agent_question(memory_path, fm, str(date.today()))
+
         kind = str(fm.get("kind", fm.get("type", "")) or "")
         ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
         if fm.get("question"):
             results.append(
                 f"**{(kind or 'Item').title()}** `{filepath.stem}`: {ename}\n"
-                + render_question(fm, body)
+                + render_question(fm, body, cause=cause, recommended_key=rec)
                 + f"\n  Resolve with cicada_resolve_inbox(id=\"{filepath.stem}\", option_key=…)"
             )
         elif kind in ("clarification", "merge_suggestion") or (
