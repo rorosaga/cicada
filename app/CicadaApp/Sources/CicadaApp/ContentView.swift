@@ -28,8 +28,7 @@ struct ContentView: View {
                 selectedTab: $selectedTab,
                 inboxCount: inboxVM.pendingCount,
                 isSleeping: store.status.value?.sleep.status == "running" || sleepVM.isRunning,
-                needsAttention: connectionsVM.needsAttention,
-                onOpenSettings: openSettings
+                needsAttention: connectionsVM.needsAttention
             )
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
         } detail: {
@@ -165,12 +164,6 @@ struct ContentView: View {
                 graphVM.revealEntity(id: entityId)
             }
         }
-    }
-
-    /// SwiftUI has no API for opening the `Settings` scene programmatically,
-    /// so the footer gear posts the same AppKit action ⌘, does.
-    private func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 }
 

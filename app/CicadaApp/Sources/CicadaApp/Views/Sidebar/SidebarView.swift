@@ -54,7 +54,6 @@ struct SidebarView: View {
     var isSleeping: Bool
     /// Raises the gear's attention dot when a subscription login has expired.
     var needsAttention: Bool
-    var onOpenSettings: () -> Void
 
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     private var colorScheme: AppColorScheme { AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }
@@ -76,7 +75,7 @@ struct SidebarView: View {
 
                 Spacer()
 
-                SettingsGearButton(needsAttention: needsAttention, action: onOpenSettings)
+                SettingsGearButton(needsAttention: needsAttention)
 
                 ThemeToggleButton(colorScheme: colorScheme) {
                     colorSchemeRaw = (colorScheme == .dark ? AppColorScheme.light : AppColorScheme.dark).rawValue
@@ -208,13 +207,24 @@ private struct ThemeToggleButton: View {
 /// Footer gear → the native Settings window (⌘,). The dot means a
 /// subscription is installed but signed out, which is the one connection
 /// problem that silently degrades every other page.
+///
+/// `SettingsLink` (macOS 14+) rather than a `Button` calling an action. The gear
+/// used to send the private AppKit selector `showSettingsWindow:` through
+/// `NSApp.sendAction`, and measured on macOS 26 that call is *accepted and then
+/// ignored*: `sendAction` returns `true`, SwiftUI's own AppDelegate is the
+/// target, and no window is created — the window list is identical either side
+/// of the call. So the one signal a caller could have checked, the return value,
+/// said success while nothing happened, which is why this looked like a dead
+/// button rather than a bug. The menu bar's own "Settings…" item does not use
+/// that selector at all; it carries a SwiftUI `menuAction:` callback.
+/// `SettingsLink` is the documented way to open a `Settings` scene, and firing
+/// it is what actually produces the window.
 private struct SettingsGearButton: View {
     let needsAttention: Bool
-    let action: () -> Void
     @State private var isHovered = false
 
     var body: some View {
-        Button(action: action) {
+        SettingsLink {
             Image(systemName: "gearshape")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
