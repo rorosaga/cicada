@@ -308,7 +308,21 @@ def _write_saved_because_claim(
     Never raises — ``write_claim`` returns an error dict rather than throwing,
     and a failed claim must never lose the save that already succeeded.
     """
+    from api.services import evidence as evidence_mod
     from api.services.agentic_write import write_claim
+
+    # G118 R13: the reason lives in the episode's `## Saved because` section
+    # (baked in by media_ingestor._episode_body on a fresh save), so the claim
+    # cites it as a `user` span, windowed to that section — the title or the
+    # site's own `## Description` blurb can repeat the reason's words ABOVE
+    # it, and first-occurrence order would point at the wrong author. On the
+    # repeat-save path the section is appended AFTER this call and the quote
+    # resolves to `reasoning` — honest, and cheaper than reordering the L3
+    # logic.
+    window = None
+    text = evidence_mod.source_text(memory_path, episode_id) if episode_id else None
+    if text is not None and "## Saved because" in text:
+        window = [text.index("## Saved because"), len(text)]
 
     result = write_claim(
         memory_path,
@@ -320,6 +334,9 @@ def _write_saved_because_claim(
         confidence=0.9,
         source_episode=episode_id or None,
         origin="telegram",
+        evidence=(
+            [{"episode": episode_id, "quote": reason, "window": window}] if episode_id else None
+        ),
     )
     if result.get("action") in {"error", "ambiguous_subject", "corrupt_claims_block"}:
         logger.warning(

@@ -313,6 +313,24 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": "Optional 'where to check this fact' references the user gave you — a URL, a file path, or a plain-English instruction ('ask me, I announce job changes'). Stored on the subject's entity page, attributed to you.",
                 },
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "episode": {
+                                "type": "string",
+                                "description": "The episode the words are in — the id cicada_save_episode returned, or one listed by cicada_pending.",
+                            },
+                            "quote": {
+                                "type": "string",
+                                "description": "The exact words, copied verbatim from that episode (at most 240 characters). Never a paraphrase.",
+                            },
+                        },
+                        "required": ["episode", "quote"],
+                    },
+                    "description": "Optional. WHERE this fact comes from: the passage(s) in a saved episode that state it. Cicada verifies each quote against the stored episode and records only its offsets (G118 — spans, not copies). Omit it when the claim is your own inference: it is then recorded as reasoning, never as an invented span. If you saved the conversation with cicada_save_episode, cite that episode.",
+                },
             },
             "required": ["subject", "predicate", "object"],
         },
@@ -541,6 +559,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("source_episode"),
             bool(arguments.get("force_new_entity", False)),
             arguments.get("sources"),
+            arguments.get("evidence"),
         )
     elif name == "cicada_pending":
         return handle_pending(arguments.get("limit"))
@@ -1093,8 +1112,15 @@ def handle_write_claim(
     source_episode: str | None,
     force_new_entity: bool = False,
     sources: list | None = None,
+    evidence: list | None = None,
 ) -> str:
-    """Write one atomic fact as an observer-tagged claim (agentic write path)."""
+    """Write one atomic fact as an observer-tagged claim (agentic write path).
+
+    ``evidence`` (G118 slice 1) is the agent's ``[{episode, quote}]`` citation
+    list; the reply names what happened to it — how many quotes verified into
+    spans, and which episode a missed quote was NOT found in — so the agent
+    can re-cite the exact words instead of silently leaving ``reasoning``.
+    """
     result = agentic_write.write_claim(
         get_memory_path(),
         subject,
@@ -1106,6 +1132,7 @@ def handle_write_claim(
         source_episode=source_episode,
         force_new_entity=force_new_entity,
         sources=sources,
+        evidence=evidence,
         # PR #20 review fix: stamp the writing session on the claim itself so
         # an episode-less write (no source_episode) still records which
         # conversation touched this entity — see agentic_write.write_claim's
@@ -1154,10 +1181,26 @@ def handle_write_claim(
         "superseded": "NOT written — an existing higher-trust claim already covers this",
     }.get(action, "Recorded")
 
+    # G118: say what became of the citation. A verified span is the point of
+    # the parameter; a missed quote is named by episode so the agent can fix
+    # it; no quote at all is stated plainly as reasoning, never hidden.
+    spans = result.get("evidence") or []
+    verified = [e for e in spans if e.get("kind") != "reasoning"]
+    if verified:
+        ev_note = f"evidence: {len(verified)} span verified" + ("s" if len(verified) > 1 else "")
+        if len(verified) < len(spans):
+            missed = ", ".join(e.get("episode") or "?" for e in spans if e.get("kind") == "reasoning")
+            ev_note += f"; quote not found in {missed}, recorded as reasoning"
+    elif evidence:
+        missed = ", ".join(e.get("episode") or "?" for e in spans) or "the named episode"
+        ev_note = f"evidence: reasoning (quote not found in {missed} — cite the exact words, or omit evidence)"
+    else:
+        ev_note = "evidence: reasoning (no quote given)"
+
     return (
         f"{verb}: {subject} {predicate} {object_} "
         f"(entity `{result.get('entity_id')}`, claim `{result.get('claim_id')}`, "
-        f"observer={result.get('observer')}, action={action})."
+        f"observer={result.get('observer')}, action={action}; {ev_note})."
     )
 
 

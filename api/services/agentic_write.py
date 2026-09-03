@@ -36,6 +36,10 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.services import decay_policy, entity_body, markdown_parser, telemetry
+# Aliased on purpose: `write_claim` takes a keyword argument named `evidence`
+# (the MCP schema, the tests and the docs all use that name), and a bare
+# `from api.services import evidence` would be shadowed inside the function.
+from api.services import evidence as evidence_mod
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.id_utils import resolve_entity_file, sanitize_id
@@ -245,6 +249,7 @@ def write_claim(
     sources: list[str] | None = None,
     session_id: str | None = None,
     origin: str | None = None,
+    evidence: list[dict] | None = None,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
@@ -264,7 +269,15 @@ def write_claim(
     A connector/webhook write passes its own tag (``"telegram"``) so the claim
     reads as user-stated without claiming manual-assertion immunity.
 
-    Returns ``{subject, entity_id, claim_id, action, observer}`` on success,
+    ``evidence`` (G118 slice 1): ``[{"episode": <id>, "quote": <verbatim words>}]``
+    — the passages that state this fact. Each quote is verified against the
+    stored episode body by ``evidence.verify`` (exact → whitespace-normalised
+    → case-insensitive, never fuzzy) and recorded as OFFSETS, never as the
+    quote; one that cannot be located is recorded as ``reasoning`` and the
+    claim is still written. Omitted, the claim carries a single ``reasoning``
+    entry on ``source_episode`` (R6) — an agent's own inference, said so.
+
+    Returns ``{subject, entity_id, claim_id, action, observer, evidence}`` on success,
     or ``{subject, entity_id: None, claim_id: None, action: "error", observer,
     error}`` on any failure/bad input — the caller (MCP tool handler) can
     render either shape without a try/except of its own.
@@ -333,6 +346,15 @@ def write_claim(
         )
 
         claim_id = _claim_id(entity_id, predicate_slug, object_raw, observer)
+        spans = evidence_mod.verify_many(memory_path, evidence)
+        if not spans:
+            # R6: no citation → one `reasoning` entry on the source episode.
+            # `verify` with an empty quote never locates, but it still reads
+            # the episode so the hash is kept when the document exists.
+            spans = [
+                evidence_mod.verify(memory_path, source_episode, "")
+                if source_episode else evidence_mod.reasoning("")
+            ]
         new_claim = Claim(
             id=claim_id,
             text=text or f"{subject_raw} {predicate_raw} {object_raw}",
@@ -349,6 +371,7 @@ def write_claim(
             source_episodes=[source_episode] if source_episode else [],
             origin=claim_origin,
             session_id=(session_id or "").strip() or None,
+            evidence=spans,
         )
 
         parsed = markdown_parser.parse(page)
@@ -408,6 +431,7 @@ def write_claim(
             "claim_id": claim_id,
             "action": action,
             "observer": observer,
+            "evidence": [e.to_dict() for e in spans],
         }
     except Exception as exc:  # never raise on a normal input
         logger.warning(
