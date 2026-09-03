@@ -144,6 +144,27 @@ Continuous episode capture during conversations. Raw timestamped chunks go to `e
 
 **Input sources:**
 - **MCP-native clients** (Claude Code, Cursor): Cicada MCP server is directly in the conversation loop. Episodes captured automatically. This is the primary deployment model.
+- **Hook-driven session capture (G105, deterministic):** every Claude Code session — and every
+  Codex session when the CLI is installed — is captured by the harness's own `Stop` hook
+  (`api/hooks/capture.py`, registered by `install.sh` in `~/.claude/settings.json` /
+  `~/.codex/hooks.json`, merged never clobbered, `make doctor` reports it). The hook forwards the
+  harness's stdin fields to the bearer-authed `POST /capture/transcript`; **the backend reads the
+  transcript**, and only after the path resolves under the harness root as `<session_id>.jsonl`
+  within the size cap — anything else is refused unread. `api/services/transcript_extract.py` keeps
+  exactly (a) the person's turns (`user` messages whose blocks are `text`; a `tool_result` wearing
+  the user role is dropped) and (b) the agent's **final reply per turn** (the last assistant `text`
+  after the last `tool_use`); interstitial narration, `tool_use`/`tool_result`/thinking blocks, file
+  dumps, harness-injected `<task-notification>`/`<command-…>`/`<system-reminder>` text are skipped by
+  construction. On what survives: code fences stripped, secrets scrubbed, a 2,000-char per-turn cap
+  and a head-stable 100,000-char session cap. **One episode per session** (`capture_kind:
+  transcript`, `origin: claude-code|codex`, `session_id`, `harness`, `project_dir`), body as
+  `role: text` lines exactly like the importer so G118 spans cite it; every later Stop on the same
+  session rewrites that episode in place and flips `processed: false` (`processed_by` popped) —
+  never two episodes for one conversation (G104). `CICADA_CAPTURE_ASSISTANT_REPLIES=false` keeps only
+  the person's turns. Cicada's own `claude -p` spawns run with `CICADA_CAPTURE=off` and are never
+  captured. A counts-only `capture` ledger row per firing; the hook logs one line per firing to
+  `~/.cicada/logs/capture.log`. Claude Desktop / ChatGPT stay export-based; Cursor and other
+  harnesses have no hook yet.
 - **Export-based ingestion** (ChatGPT, Claude Desktop/iOS): Periodic import from conversation exports (`/banks/{name}/import`). ChatGPT and Claude both give JSON/HTML exports parsed by dedicated import parsers.
 - **Telegram bot** (`/save`, `/note`, `/remind`): On-the-go capture of links, voice notes, text snippets, via `POST /capture/telegram`. `/save <url> <reason…>` also captures *why* — see Save-with-reason (G71) below.
 - **Browsers (G30 + 2026-09-02):** Safari bookmarks (by folder — Favorites, Bookmarks Menu, Reading List —
@@ -185,15 +206,18 @@ Continuous episode capture during conversations. Raw timestamped chunks go to `e
   state. Arrows move, Enter opens, Esc backs out (`CatalogFocus`). `AddSourceTile` stays the leaf every
   flow keys on.
 
-**Episode tracking (G114):** Each episode has a unique ID (`ep_YYYY-MM-DD_NNN`), a timestamp, and a `processed: false` flag. Every writer — importer, MCP, media, Telegram, calendar, notes — mints the id through the one rule in `api/services/episode_ids.py`: `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap, and `markdown_parser.write` overwrites on collision), and stamps the timestamp as aware UTC from `episode_ids.utc_now_iso` (`+00:00` — never a naive local time with a `Z` appended). Legacy files are not migrated: readers accept both shapes and the Sleep queue sorts by `episode_ids.timestamp_sort_key`, so the mix still orders by instant. A Telegram episode is stamped with the message's own `date`, not receipt time. When an episode is marked processed it also carries `processed_by`: `sleep` for a Sleep cycle, `agent` (or the harness name) for `cicada_mark_processed`, so a flipped flag is distinguishable from a consolidation. Sleep cycle processes all unprocessed episodes regardless of source — the pipeline is source-agnostic. Its engine-independent tail also polls subscribed RSS feeds and ICS calendars, opt-in via `CICADA_ALLOW_FEED_FETCH=1` (a fresh install's LaunchAgent plist sets it — `install.sh` never rewrites a plist behind an already-running backend, so an older plist needs the key added by hand, see TODO.md's Live environment; the test suite never does), in the same clean-tree-guarded slot as the connector poll.
+**Episode tracking (G114):** Each episode has a unique ID (`ep_YYYY-MM-DD_NNN`), a timestamp, and a `processed: false` flag. Every writer — importer, MCP, media, Telegram, calendar, notes, the G105 transcript capture — mints the id through the one rule in `api/services/episode_ids.py`: `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap, and `markdown_parser.write` overwrites on collision), and stamps the timestamp as aware UTC from `episode_ids.utc_now_iso` (`+00:00` — never a naive local time with a `Z` appended). Legacy files are not migrated: readers accept both shapes and the Sleep queue sorts by `episode_ids.timestamp_sort_key`, so the mix still orders by instant. A Telegram episode is stamped with the message's own `date`, not receipt time. When an episode is marked processed it also carries `processed_by`: `sleep` for a Sleep cycle, `agent` (or the harness name) for `cicada_mark_processed`, so a flipped flag is distinguishable from a consolidation. Sleep cycle processes all unprocessed episodes regardless of source — the pipeline is source-agnostic. Its engine-independent tail also polls subscribed RSS feeds and ICS calendars, opt-in via `CICADA_ALLOW_FEED_FETCH=1` (a fresh install's LaunchAgent plist sets it — `install.sh` never rewrites a plist behind an already-running backend, so an older plist needs the key added by hand, see TODO.md's Live environment; the test suite never does), in the same clean-tree-guarded slot as the connector poll.
 
 **Conversation identity (G48).** An episode captured through MCP also carries `session_id`
 (the client conversation), plus `harness` and `project_dir` when the client exposes them —
 minted once per MCP process from `CLAUDE_CODE_SESSION_ID` → `CICADA_SESSION_ID` → a
 `ses_YYYY-MM-DD_xxxxxxxx` fallback that groups but never resumes. Entities credit to
 conversations transitively via `source_episodes`, exactly as they do for `origin`.
-**Transcripts under `~/.claude/` are never read** — the only contact is an `isfile()` check
-answering "is this session still resumable", computed per request and never persisted.
+**Transcripts under `~/.claude/` are never read by the MCP seam or the resume path** — their only
+contact is an `isfile()` check answering "is this session still resumable", computed per request
+and never persisted. The one read anywhere in Cicada is G105's Stop-hook capture of the session
+that just ended (`POST /capture/transcript`), and only after the path resolves under the harness
+root as `<session_id>.jsonl`.
 A conversation row's `model` is **reserved — always null**, and will be populated once engine
 calls carry session refs (G49); nothing that writes memory records a model against a
 conversation id today, so the row states that rather than joining a ledger that can't answer.
@@ -391,6 +415,65 @@ slices the evidence text back out, engine-free, with `stale` and the derived `ki
 either (the span response validates itself; no new `sync_service` component). Out of scope until
 the later slices: the highlight viewer, trigger traces, rationale, backfill.
 
+### Live state + handshake (G53 / G75)
+**`<bank>/_state.md` is the live state dictionary** — a *cursor* into the graph, never a copy of it:
+YAML frontmatter (`type: state`, `schema_version`, `generated_at`, `inputs_version`, `bank`, optional `owner_id`
+(only when `CICADA_OBSERVER_OWNER` / `settings.observer_owner` names an entity id whose page exists — never a name
+in code), `engine {mode, engine, model, connected}`, `sleep {last_at, queue_depth}`, `inbox {pending,
+by_kind}`, `projects[] {id, name, one_liner, confidence, last_referenced, repos[] {path, branch, dirty,
+ahead_behind, state}}`, `people[]`, `conversations[] {id, harness, title, last_seen, episode_count}`,
+`preferences[]` (top skill entities), `repos_probed_at`, `world_facts_note`) plus a short wikilinked body. Written
+only by `api/services/state_dictionary.refresh` — zero LLM, ≤ 6 KB, deterministic (a digest of the
+`entities`/`inbox`/`episodes`/`bank` sync components — never `git_head`, whose own `State snapshot` commit would
+self-invalidate — is stored as `inputs_version`; unchanged inputs mean no write, and even a forced rebuild writes
+only when the content differs with `generated_at`/`repos_probed_at`/`inputs_version` masked), repo probes
+read-only under a 2 s total budget (`state: unavailable` past it). Ranking is
+`confidence × 1/(1 + days_since_last_referenced/30)`, archived/dropped excluded, top-N from
+`Settings.state_projects|state_people|state_preferences|state_conversations` (7/7/5/5); rows are trimmed
+people → preferences → conversations → projects to fit the cap, so the projects list is given up last.
+**Who regenerates it:** every regeneration that touches disk goes through the one helper
+`state_dictionary.refresh_and_commit`, which writes only when the content changed and then commits `_state.md`
+ALONE as `State snapshot <date>` / `Cicada-Author: cicada` / trigger `sleep/state` (no engine trailer — no LLM
+ran; `commit_paths`, never `git add -A`). Sleep's engine-independent tail runs it first, on every exit path,
+`force=True` (the one place the file pays for live repo probes); `GET /state` runs it lazily (no repo probes,
+previous repo blocks carried over) and `?refresh=true` forces live probes; an inbox resolution runs it
+best-effort after its own commit. **The read path commits too, on purpose (final review 2026-09-03):** a
+projection left dirty "for Sleep's tail" was reproduced riding in the NEXT `git add -A` writer's commit — an
+`Inbox resolution` under `Cicada-Author: user` (Telegram capture, notes sync, `PATCH /entities/{id}/repos` and
+`POST /sources/poll-feeds` all commit the same way) — the G85-class smear on the read path. `_finalize` still
+splits a dirty `_state.md` out of the main commit the way G85 splits decay, for the failed-commit case. The MCP
+server only ever *reads* it. Never persisted, added per request by `GET /state`: `resumable` (G48), `stale`
+(digest no longer matches the bank), and `sleep.next_at` — a clock, not a belief: in the file it advanced every
+day on a bank with a schedule and made every idle night commit, breaking R1; it is computed on the local clock
+the schedule is expressed in, exactly as `/status` does.
+A reader that finds the file stale or absent must still work: every field has a live twin (`/status`, `/inbox`,
+`/conversations/recent`, `cicada_repo_context`).
+
+**The handshake (`api/services/handshake.py`)** turns `_state.md` + a fixed contract into ≤ 1,800 tokens
+(measured as chars/4 — no tokenizer, the suite is offline) of primer: what Cicada is, a 2–3 line per-harness
+prelude keyed off `clientInfo.name` (`claude-code` / `codex` / `generic` via `handshake.variant_for`; the
+contract never varies), the contract (recall first; `cicada_check_nudges(entity_ids=…)` after recall with the
+G115 discipline — every argument it names exists in the tool schema: `entity_ids` filters `cicada_check_nudges`,
+which also never returns `normalization` items or an id skipped this session, and `cicada_resolve_inbox(id,
+skip=true)` is an in-process no-op that writes nothing (R12: a primer naming an argument the schema rejects is
+a bug — before the final review an agent hitting that error could fall back to `defer=true`, a real write); the
+Cause line and `(Recommended)` marker are stated as "when the item shows them" because they are G115 Phase 1
+card work not yet on the inbox files; save episodes as you learn; `cicada_write_claim` with `evidence` and `sources`; the
+G121 sentence from `state_dictionary.WORLD_FACTS_NOTE`, the single source for both files; ask before assuming;
+never hand-edit pages), the now-view, and capability notes (resume availability — never "this transcript
+exists", decay classes, the span endpoint, repo context, hub walking). Cached at
+`$CICADA_HOME/handshake/<bank>.<variant>.json`, keyed on `CONTRACT_VERSION` + variant + the state file's
+mtime and size; the cache is a convenience, never a dependency. **Delivered three ways:** the MCP `initialize`
+result's `instructions` field (`mcp/server.py::initialize_result` — never refreshes the file, degrades to no
+`instructions` rather than a failed connect), the `cicada_handshake` tool (harnesses that drop
+`instructions`), and `GET /handshake?client=`. Recall's `cicada-hints` also carries a compact `state` block
+once per MCP process, and only inside a hints block that was going to be emitted anyway. `handshake.HOOK_POINTER`
+is the one line a SessionStart hook or AGENTS.md injects (the hook itself is G49/G76). A `handshake` telemetry
+row (ids/enums only — delivery, variant, `state_present`, `state_age_hours`, harness, client name;
+`stage="handshake"`, `billing="free"`, in `telemetry.NON_SPEND_KINDS` so it never shows as an unknown
+connection) records each delivery, answering for the primer what G105 asked of capture. `SKILL.md` points at
+the generated text rather than restating the contract — one prose source.
+
 ### Save-with-reason (G71)
 A Telegram `/save <url> <reason…>` writes the reason twice: verbatim as a
 `## Saved because` section on the media episode (so Stage-1 extraction mines its
@@ -515,7 +598,7 @@ Cicada-Author: gpt-5.4-mini
 Cicada-Author: gpt-5.4-nano
 ```
 
-**Trigger types:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`
+**Trigger types:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`, `sleep/state`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`
 
 **Commit-author trailers (`Cicada-Author:`).** Every Cicada write records *which agent
 authored it* as one or more `Cicada-Author:` git trailers appended after a blank line at the
@@ -526,7 +609,8 @@ are attributed to **`unknown`**. A third literal, **`cicada`**, is reserved for 
 maintenance* writes the system performs on its own behalf with no model and no user in the
 loop — the one-shot inbox dedup migration (`inbox_migration._commit_dedup`, trigger
 `inbox/dedup`), the one-shot decay-class backfill (`decay_migration.backfill_decay_classes`),
-and, every Sleep cycle, the split-out decay-only commit (G85, below). It classifies as an
+and, every Sleep cycle, the split-out decay-only commit (G85, below) and the `State snapshot` commit
+of `_state.md` (G53, above). It classifies as an
 author like any other, so it shows up in
 `GET /contributors` as a distinct, provider-less contributor. The trailer carries no entity id, so it is **inert to the
 entity-line parsing** above — extend it, don't break it. Built by
@@ -594,6 +678,8 @@ No changelog in frontmatter — git handles all history. Zero storage overhead, 
 
 ## MCP "Bookworm" Tool
 Interface between any LLM and the memory system. On query:
+0. On `initialize` the server returns `instructions` — the G75 handshake (`_state.md` + the contract, see
+   Live state + handshake above) — and `cicada_handshake` returns the same text on demand
 1. Checks `memory/inbox/` for relevant pending items
 2. Searches the sqlite-vec index for semantically similar chunks
 3. Searches markdown graph for structurally related entities
@@ -704,6 +790,11 @@ GET  /transclude                          → transclusion payload for embedding
 GET  /episodes/{id}/span                  → slice a stored document's evidence text at [start,end) with
                                             context (default 240, max 2000); `hash=` → `stale`; `kind`
                                             derived; 404 unknown doc, 422 bad range (G118 slice 1)
+GET  /state                               → the parsed _state.md (snake_case, the on-disk schema) + per-request
+                                            `resumable` and `stale`; lazy refresh; `?refresh=true` probes repos;
+                                            ETag over entities/inbox/episodes/git_head + the file mtime (G53)
+GET  /handshake?client=                   → {text, variant, state_present, hook_pointer} — the primer (G75);
+                                            no ETag, never refreshes the file
 GET  /contributors                        → repo-wide per-author (model/user) commit/file/entity counts + last-active
 GET  /contributors/commits?author=&limit= → one author's recent commits (+ entities touched) for the diff drill-down
 GET  /contributors/calendar?author=&weeks=  → one Cicada-Author's memory writes per UTC day (the /consumption/calendar
@@ -754,6 +845,9 @@ POST /sources/poll-feeds                  → on-demand RSS poll
 GET/POST /banks, POST /banks/{name}/activate|duplicate|rename|import → memory-bank management
 GET  /local-ref                           → resolve local device/path references
 POST /capture/telegram                    → token-gated Telegram capture webhook
+POST /capture/transcript                  → Stop-hook session capture (G105): validates the transcript
+                                            path against the harness root, extracts, writes/updates
+                                            ONE episode per session_id; 400 with an enum reason otherwise
 POST /maintenance/dedup-sweep             → full-graph dedup sweep (G21)
 POST /maintenance/enrich-links?limit=N     → describe + relate N saved links now (G102); 409 while Sleep runs;
                                             {selected, reused, summarized, fetched, failed, skipped, related, remaining, …}

@@ -1,7 +1,7 @@
 # Cicada — TODO & handoff
 
 > **If you are an agent picking this project up cold, read this section first.** It is the
-> compacted context of the 2026-08-31 → 09-02 sessions: what is true right now, what is in flight,
+> compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
 ## Where things stand (2026-09-03)
@@ -28,6 +28,26 @@ Advanced on → no `$`.
 show no evidence, honestly.
 
 **Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`) — then #40 (`feat/link-summaries`, the G102 cheap slice, see the G102 paragraph below) and #44 (`feat/provenance-spans`, G118 slice 1). **No open PRs** other than the pending `feat/sources-page` one (G124).
+
+**G118 slice 1 — evidence spans — merged to `dev` as PR #44 (2026-09-03, from `feat/provenance-spans`):**
+every new claim carries `evidence` spans (offsets + hash into the stored body, never copies),
+`cicada_write_claim` cites `{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift
+change; legacy claims show no evidence, honestly.
+
+**G105 deterministic capture — `feat/deterministic-capture` (worktree `.worktrees/g105`), PR #46 against
+`dev`.** Every Claude Code session is captured by its own `Stop` hook into one episode per session, block-level
+(person's turns + agent's final replies; tool blocks, code and secrets never), updated in place on every later
+Stop. **One manual step for an existing install:** re-run `./install.sh` (idempotent) to register the hook in
+`~/.claude/settings.json`; `make doctor` check 12 says whether it is there. Then open any Claude Code session,
+say one sentence, and `tail ~/.cicada/logs/capture.log` shows `claude-code <id> http 200 created`; the Sleep
+page lists the episode with the Claude Code mark. Codex: registered when the CLI is present, payload not yet
+verified — the same log line says `skipped: no transcript_path` if Codex's Stop hook does not pass one.
+
+**G53 + G75 (live state + handshake) merged as PR #45 (2026-09-03):** `_state.md`, `GET /state`, `GET /handshake`,
+`initialize.instructions`, `cicada_handshake`; first check on the live bank: `curl -s -H "Authorization: Bearer $(cat ~/.cicada/api_token)" 'http://127.0.0.1:8000/state?refresh=true' | head -c 600`
+— the owner should eyeball that the projects list is the right seven.
+
+**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`). **No open PRs** other than G105's `feat/deterministic-capture` (above); `feat/link-summaries` merged as PR #40 (see the G102 paragraph below).
 
 **G102 cheap slice (merged as PR #40 from `feat/link-summaries`):** saved links get descriptions + `about` edges nightly (20/night, oldest first) and on demand. **One-time warm-up the owner can run now:** `curl -s -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" "http://127.0.0.1:8000/maintenance/enrich-links?limit=50"` — repeat until `remaining` is 0 (each run: ≤ 50 fetches + summaries on the resolved engine, ~7 extraction calls); the response's `engine` says whether the plan or the API key paid.
 The big one is **#25 — the agent engine (G74a)**: Sleep can now run on the user's Claude Max plan
@@ -93,7 +113,8 @@ plist when no backend answers `/healthz`, so this pre-G114 plist lacks the feed-
 `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to its `EnvironmentVariables` dict, then
 `launchctl bootout gui/$(id -u)/com.cicada.backend && launchctl bootstrap gui/$(id -u)
 ~/Library/LaunchAgents/com.cicada.backend.plist`; until then the nightly feed/calendar poll logs
-`skipped: CICADA_ALLOW_FEED_FETCH is not "1"` every cycle.
+`skipped: CICADA_ALLOW_FEED_FETCH is not "1"` every cycle. `install.sh` now also writes `hooks.Stop`
+into `~/.claude/settings.json` (merge, never clobber); `--uninstall` removes only Cicada's entry.
 
 **2026-09-02:** **PR #30 (G114 capture-writer hygiene) and PR #31 (G113 slices 1–2, the feedback ledger:
 `_verdict`, the `resolution` event, R1 trigger labels) merged to `dev` at `09a4b66`.** G109 phase 1 is in
@@ -122,7 +143,14 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 5. **Raw storage does not replace Sleep** (G101). Text cannot decay — only a belief can go stale or
    be contradicted — so "time as a signal" needs a belief object.
 6. **Capture is agent-judgment and that is a measured problem** (G105): 0 MCP invocations in 12
-   days; 4 episodes from one very long session.
+   days; 4 episodes from one very long session. **Answered by the G105 hook (2026-09-03):** capture
+   is now a property of the harness's Stop hook, not of a model's tool call — the MCP
+   `cicada_save_episode` path stays as the deliberate, agent-chosen episode.
+7. **The Stop hook, not SessionEnd, is the capture trigger** (G105 R1) — SessionEnd never fires for
+   a closed window or a killed process and shares a 1.5 s budget; the endpoint's content-hash
+   short-circuit makes per-turn firing idempotent. Revisit only if `capture.log` starts showing
+   timeout `error:` lines (the hook's 3 s budget, `TIMEOUT_S` in `api/hooks/capture.py`) on the live
+   bank — the hook logs no timing, so a blown budget surfaces as an `error:` line, not a latency figure.
 
 ## How work is run here
 
@@ -145,8 +173,10 @@ whose window never becomes *key*, which silently breaks graph clicks and text-fi
 ## Pick up here
 
 **Nothing is broken; one branch is awaiting a PR: `feat/sources-page` (G124 — the Sources page,
-worktree `.worktrees/g124`). `feat/provenance-spans` (G118 slice 1 — evidence spans) merged as PR #44;
-`feat/link-summaries` (G102 cheap slice) merged as PR #40.**
+worktree `.worktrees/g124`). Merged 2026-09-03: `feat/provenance-spans` (G118 slice 1, PR #44),
+`feat/state-handshake` (G53 + G75, PR #45), `feat/deterministic-capture` (G105, PR #46 — the `Stop` hook is
+registered on the owner's install; `make doctor` check 12 confirms it); `feat/link-summaries` (G102 cheap slice)
+merged as PR #40.**
 `feat/mascot` merged as PR #36.
 Its last unchecked box is the visual pass on the installed app — menu bar in light and dark, the
 Sleep page at 120 pt, Reduce Motion holding frame 0 — which needs `make install-app` and Rodrigo at
@@ -161,7 +191,8 @@ three-lens judge → decision memo) rather than a blind re-tune.
    grant — the launchd backend never gets it, only the app bundle does).
 0b. **Owner priorities (2026-09-02):** after the three in-flight tracks (mascot, Safari import, link
    summaries) land, the order was **G118 slice 1 → G105 → G93 → G53+G75 → G81→G95**; slice 1 is done (`feat/provenance-spans`),
-   so it now reads **G118 slice 2 (viewer) → G105 → G93 → G53+G75 → G81→G95**, with G113 s3–7,
+   so it now reads **G118 slice 2 (viewer) → ~~G105~~ (shipped, `feat/deterministic-capture`) → G93 → G81→G95**
+   (G53+G75 merged as PR #45), with G113 s3–7,
    G115 p1 and G117 interleaved as app polish. Provenance is the vision, not a feature.
 0c. **G102 cheap slice merged as PR #40** (`feat/link-summaries`); what is left is the owner running the
    warm-up curl above and eyeballing the Feed (descriptions on rows, `about` pills on a link's entity card).
@@ -179,17 +210,19 @@ three-lens judge → decision memo) rather than a blind re-tune.
    halves, `render_question` v2. Delivers G97. Parallel to G113 in its own worktree — disjoint
    functions of `inbox_service.py`. The two rulings it needs for Phase 3 are G116.
 4. **G112 step 1** is a bug fix, not a feature — do it when passing.
-5. **G53 + G75**, then **G105**, then **G115 Phase 2** — the same order the waves give.
+5. **G115 Phase 2** — G105 (`feat/deterministic-capture`) and G53 + G75 (PR #45) both shipped — the same order
+   the waves give.
 6. **G110 is RESEARCH, deliberately not started.** Its own cheapest-first ruling: build G53/G75 and
-   see whether the fork want survives. Second data point to read first: Cursor's "Import from Claude
-   Code".
+   see whether the fork want survives — G53/G75 shipped; re-read G110 against the handshake before
+   starting it. Second data point to read first: Cursor's "Import from Claude Code".
 7. **G7 is open again, on purpose.** The hygiene pass could not find the measurement TODO.md claimed
    ("premise measured false") anywhere in tracked history. Re-measure it or delete the claim.
 8. **G90 README screenshots** wait for Rodrigo to be at the machine (demo bank or frame-by-frame
    review — the live bank holds real people). Same for any `macos-harness` verification that
    needs a permission prompt accepted.
 
-**Worktrees:** `.worktrees/g124` holds `feat/sources-page` (G124) until its PR merges;
+**Worktrees:** `.worktrees/g124` holds `feat/sources-page` (G124) until its PR merges; `.worktrees/g118`,
+`.worktrees/handshake` and `.worktrees/g105` were removed after PRs #44, #45 and #46 merged;
 `.worktrees/safari-import` holds `feat/safari-import` until its PR merges;
 `.worktrees/g118` (`feat/provenance-spans`, merged as PR #44), `.worktrees/g113` (`feat/feedback-ledger`),
 `.worktrees/link-summaries` and `.worktrees/mascot` are other in-flight or already-merged branches —
@@ -206,7 +239,7 @@ the full reasoning, evidence and file:line for every row. This file answers one 
 
 **Rule:** every row here is a pointer. Add detail to the backlog row, not to this file.
 
-_Last synced: 2026-09-03 (G124 on `feat/sources-page`, PR pending; G118 slice 1 merged as PR #44); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
+_Last synced: 2026-09-03 (G124 on `feat/sources-page`, PR pending; G105 merged as PR #46; G53+G75 merged as PR #45; G118 slice 1 merged as PR #44); 2026-09-02 late (PRs #21–#37 merged — #30 G114, #31 G113 slices 1–2, #32 G109 phase 1, #33/#34 install + CLI-discovery fixes, #35 Safari import + catalog; G107 pixel mascot on `feat/mascot`, PR #36; G118 (provenance) and G119 (Arc/Firefox/Brave) filed; G102 cheap slice merged as PR #40)._
 
 ---
 
@@ -220,7 +253,10 @@ G47 saved-content importer family · G58 sync engine
 
 **Capture & connectors** — G29 Telegram · G30 browser bookmarks · G50 provider connections ·
 **G71 save-with-reason + Imports catalog** (Pinterest/Reddit/X connectors, export preview,
-LinkedIn/TikTok/Reddit parsers, one adapter registry)
+LinkedIn/TikTok/Reddit parsers, one adapter registry) · **G105 hook-driven deterministic capture
+(2026-09-03, PR #46)** — Claude Code `Stop` hook → `POST /capture/transcript`, block-level extractor
+(person's turns + agent's final replies; tool blocks/code/secrets never), one episode per session
+updated in place, Sleep-queue source marks (`OriginMark`)
 
 **Memory model** — G60 conflict resolution with time-aware questions · G61 fact sources ·
 G66 decay classes · A5 gap analysis
@@ -235,6 +271,8 @@ trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)*
 verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii) ·
 **G124 Sources page (2026-09-03, PR #TBD)** — Activity → Sources: card grid from /sources/overview,
 per-source pages with Resume, contributors calendar per model, Advanced counts; prices/tokens out of the app
+**G53 + G75 live state + handshake (2026-09-03, PR #45)** — `_state.md` cursor, `initialize.instructions`,
+`cicada_handshake`, `/state`, `/handshake`
 
 **2026-08-31 → 09-01 (PRs #21–#29, merged to dev)**
 - #21 diff context lines with line numbers, merge-commit handling
@@ -337,9 +375,9 @@ per-source pages with Resume, contributors calendar per model, Advanced counts; 
 4. **G98 remainder** — the predicate/entity-resolution half (~15 of 27 conflicts are artifacts) — M
 4b. **G104** a resumed conversation is consolidated twice — reconsolidation is the likely answer
    (the claim layer's `superseded_by` already models "replaced by a better-informed belief") — M
-4c. **G105** deterministic conversation extraction — stop capture depending on a model choosing to
-   call a tool (measured: 4 episodes from one long session, 0 MCP calls in 12 days). Includes
-   source logos in the Sleep queue — S/M
+4c. ~~**G105** deterministic conversation extraction~~ — **shipped 2026-09-03** (`feat/deterministic-capture`,
+   PR #46): the Stop hook, `POST /capture/transcript`, the block-level extractor and the Sleep-queue
+   source marks; the open remainder (Cursor/other harnesses, Codex payload verification) is in the G105 row
 5. **G97** inbox items show the conversation that caused them (43/49 reach an episode in ~100 ms,
    no LLM) — **delivered by G115 Phase 1 (4d above)**; the ETag widening is both halves there. — S/M
 6. **G82** hub pages are unaddressable — your "Couldn't load history"; 15 sites hardcode
@@ -358,7 +396,8 @@ per-source pages with Resume, contributors calendar per model, Advanced counts; 
     citable source, the prompt/turn that triggered every agent write, and a raw-source viewer with the
     cited passage highlighted (NotebookLM, but bi-temporal and attributed). Owner-marked central to
     the vision (2026-09-02). Slice 1 shipped (spans + agent citations + span endpoint, PR #44); next:
-    slice 2 viewer (Swift `Evidence` model, chips → raw pane with highlight), then triggers (needs G105),
+    slice 2 viewer (Swift `Evidence` model, chips → raw pane with highlight), then triggers (G105 shipped —
+    unblocked),
     then rationale — L
 9e. **G122 Sleep engine & model picker** — `GET/PUT /sleep/engine`, an Engine card on the Sleep page
     (Auto · Claude plan · Codex · Ollama · Key, live state + model, next-cycle preview), Ollama guided as a
@@ -366,11 +405,13 @@ per-source pages with Resume, contributors calendar per model, Advanced counts; 
 9d. **G121 world facts vs personal facts** — `source_trust: model_knowledge` + volatile decay for anything not
     grounded in an episode, two-tier entity card ("why it's in your memory" / "context as of <date>, verify"), the
     rule in the G75 handshake; a dry-run backfill count on the live bank first — M
-9c. **G93 cross-stream ask** and **G105 deterministic capture** *(ruled 2026-09-03: block-level extraction —
-    the person's text turns + the agent's final reply per turn; tool blocks/code/secrets never; hook-driven)* — moved up (owner, 2026-09-02): G105
-    is what makes every write have a cause; G93 is where citations become answers — M each
-10. **G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
-    (G76, G77, G54 all assume it); zero LLM — M
+9c. **G93 cross-stream ask** — moved up (owner, 2026-09-02) beside G105, which has now shipped (4c above;
+    ruled 2026-09-03: block-level extraction — the person's text turns + the agent's final reply per turn; tool
+    blocks/code/secrets never; hook-driven): G105 is what makes every write have a cause; G93 is where citations
+    become answers — M
+10. ~~**G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
+    (G76, G77, G54 all assume it); zero LLM — M~~ — shipped PR #45 (`feat/state-handshake`); open:
+    SessionStart hook (G49/G76), Store fetch of `/state`
 11. ~~G100~~ — absorbed into G118 (slice 1 shipped the write-time citation; the derived-span class and
     the viewer are G118 slice 2)
 12. **G103** observer model in the UI — whose belief, who was in the room — S
@@ -417,6 +458,9 @@ per-source pages with Resume, contributors calendar per model, Advanced counts; 
 25. **G54** onboarding interview · **G55** executable skills · **G13** tasks/ideas backlog
 
 ### Research / decisions (not builds)
+- **G127** mascot identity — bookworm vs a friendly WALL·E-*inspired* librarian robot (never a copy of the
+  character); prototype = three states behind a `mascot` setting, live with it a week, then rule — owner
+  said document only for now (2026-09-03)
 - **G99** relational tier — **DECLINED**; revisit only on a named trigger (warm p50 > 250 ms,
   claims > 25k, or a merged G94 adapter retaining raw samples). G99a (bank `.gitignore` for the
   vector index) has shipped; absorbs G96 (vector-as-entryway — validated, its storage question

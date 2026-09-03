@@ -132,3 +132,26 @@ def test_per_connection_pricing(env):
     assert rows["claude-plan"]["equiv_cost_usd"] == pytest.approx(0.4)
     assert rows["byok-openai"]["cost_usd"] == pytest.approx(0.512)
     assert {m["model"] for m in rows["byok-openai"]["by_model"]} == {"gpt-5.4-mini", "gpt-5.4-nano"}
+
+
+def test_capture_rows_are_not_activity(env):
+    """G105 final review F1: a Stop hook fires after every reply of every
+    session. Its `capture` ledger row must not inflate any Usage view — no
+    `by_stage` row, no per-bank invocations, no hour-histogram bar, no daily
+    series point, no calendar event — else the page charts the person's chat
+    cadence instead of Cicada's work."""
+    before = asyncio.run(cs.stats(env, range_="all", today=TODAY))
+    cal_before = asyncio.run(cs.calendar(env, weeks=2, today=TODAY))
+    for i in range(5):
+        tm.record(tm.UsageEvent(ts=f"2026-08-26T1{i}:00:00.000Z", kind="capture", stage="capture", bank="test-bank",
+                                billing="free", invocations=0, refs={"harness": "claude-code", "status": "created"}))
+    after = asyncio.run(cs.stats(env, range_="all", today=TODAY))
+    assert "capture" not in {s["stage"] for s in after["by_stage"]}
+    assert "claude-code" not in {s["stage"] for s in after["by_stage"]}
+    assert "test-bank" not in {b["bank"] for b in after["by_bank"]}
+    assert after["hour_histogram"] == before["hour_histogram"]
+    assert after["series"] == before["series"]
+    assert after["by_stage"] == before["by_stage"] and after["by_bank"] == before["by_bank"]
+    assert after["first_event"] == before["first_event"]
+    cal_after = asyncio.run(cs.calendar(env, weeks=2, today=TODAY))
+    assert cal_after == cal_before

@@ -9,6 +9,7 @@
 #   CICADA_REPO          repo root           (default: parent of scripts/)
 #   CLAUDE_CLI           claude binary name  (default: claude)
 #   CICADA_PORT          backend port        (default: 8000)
+#   CLAUDE_SETTINGS      Claude Code settings (default: ~/.claude/settings.json)
 
 REPO="${CICADA_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 MEMORY_PATH="${CICADA_MEMORY_PATH:-$HOME/cicada/memory}"
@@ -174,6 +175,19 @@ if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   note "subprocesses scrub it, but a shell export still misleads anything you run by hand)"
 else
   pass "No ANTHROPIC_API_KEY in the environment"
+fi
+
+# 12. Session-capture hook registered (G105). `install.sh` registers it under
+#     hooks.Stop; a moved repo shows as "stale" (exit 2) and is fixed by
+#     re-running ./install.sh. Doctor is the loop-until-green target (G76).
+CLAUDE_SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
+HOOK_CMD=$(printf '"%s" "%s" --harness claude-code' "$VENV_PY" "$REPO/api/hooks/capture.py")
+if [ -x "$VENV_PY" ] && "$VENV_PY" "$REPO/api/hooks/registry.py" status \
+      --settings "$CLAUDE_SETTINGS" --event Stop --command "$HOOK_CMD" >/dev/null 2>&1; then
+  pass "Session-capture Stop hook registered in $CLAUDE_SETTINGS"
+else
+  fail "Session-capture Stop hook not registered (or stale) in $CLAUDE_SETTINGS"
+  note "run ./install.sh to register it — sessions are not captured until then"
 fi
 
 echo

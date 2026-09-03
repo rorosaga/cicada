@@ -1,23 +1,30 @@
 """Inbound capture connectors — webhooks that stage episodes/media without
 going through MCP or the companion app's own upload flow.
 
-Currently just Telegram. The parse+route logic lives in
+Two today: the Telegram webhook (parse+route logic in
 ``api/services/telegram_capture.py``; this router is only the token gate +
-HTTP surface.
+HTTP surface) and the G105 session-capture endpoint the harness's Stop hook
+posts to (``api/services/transcript_capture.py`` does the validation, the
+extraction and the write).
 """
 
+import asyncio
 import os
 import secrets as _secrets_mod
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from loguru import logger
+from pydantic import BaseModel
 
 from api.config import Settings, get_settings
+from api.services import telemetry
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
     ensure_webhook_secret,
     ingest_telegram_update,
 )
+from api.services.transcript_capture import capture_transcript
 
 router = APIRouter()
 
@@ -124,3 +131,54 @@ async def capture_telegram(
     if ack and chat_id is not None:
         return {**result, "method": "sendMessage", "chat_id": chat_id, "text": ack}
     return result
+
+
+class TranscriptCaptureRequest(BaseModel):
+    """What the Stop hook forwards — the harness's own stdin fields, nothing
+    computed client-side. Snake_case on purpose: the sender is a stdlib
+    script, not the app."""
+
+    harness: Literal["claude-code", "codex"]
+    session_id: str
+    transcript_path: str
+    cwd: str | None = None
+    hook_event: str | None = None
+
+
+@router.post("/capture/transcript")
+async def capture_transcript_endpoint(
+    req: TranscriptCaptureRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """G105: deterministic session capture from the harness's Stop hook.
+
+    Bearer-authed like every other write path — the hook reads
+    ``~/.cicada/api_token`` (the file the app and MCP server already use), so
+    nothing is added to ``auth._STATIC_OPEN_PATHS``. The backend, not the
+    hook, opens the transcript (R2): the path is validated against the
+    harness root before a byte is read, and a refusal is a 400 carrying the
+    enum reason plus a ledger row, never a partial write. One episode per
+    session, updated in place on every later firing (R3); ``status`` says
+    which of ``created | updated | unchanged | empty`` happened. Runs the
+    read + parse off the event loop — an 85 MB transcript takes real time
+    and must not stall SSE or the app.
+    """
+    result = await asyncio.to_thread(
+        capture_transcript,
+        settings.memory_path,
+        harness=req.harness,
+        session_id=req.session_id,
+        transcript_path=req.transcript_path,
+        cwd=req.cwd,
+        keep_assistant=settings.capture_assistant_replies,
+        bank=telemetry.bank_name(settings),
+    )
+    if result.status == "refused":
+        raise HTTPException(status_code=400, detail=result.reason)
+    return {
+        "status": result.status,
+        "episodeId": result.episode_id,
+        "turnsUser": result.turns_user,
+        "turnsAssistant": result.turns_assistant,
+        "summary": result.summary,
+    }

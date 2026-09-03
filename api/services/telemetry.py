@@ -21,7 +21,7 @@ from api.services.auth import cicada_home
 
 KINDS = (
     "llm_call", "sleep_run", "agentic_write", "ask", "import", "throttle",
-    "resolution", "audit", "dedup_verdict", "read",
+    "resolution", "audit", "dedup_verdict", "capture", "handshake", "read",
 )
 # G113: grounded-feedback rows — a user's verdict on an inbox item, a reconcile
 # supersede/reject, a dedup judgement. Ids/enums/numbers only, never claim text
@@ -30,11 +30,14 @@ KINDS = (
 # they carry no spend: a ``resolution`` has ``connection=None`` and would
 # otherwise surface as an "unknown" connection.
 FEEDBACK_KINDS = ("resolution", "audit", "dedup_verdict")
-# G124 R12: kinds that carry no spend. ``read`` (an entity page opened by the
-# app or served to an agent by cicada_recall/recall_detail) joins the feedback
-# kinds in being excluded from connection rollups — a `connection=None` row
-# would otherwise surface as an "unknown" connection in ``/consumption/stats``.
-NON_SPEND_KINDS = FEEDBACK_KINDS + ("read",)
+# G105 R10: a `capture` row (hook-driven transcript capture) is counts only
+# and carries no spend or connection. G75: a `handshake` row (whether an agent
+# ever RECEIVED the primer — ids/enums only) likewise carries no spend. G124
+# R12: a `read` row (an entity page opened by the app or served to an agent by
+# cicada_recall/recall_detail) is the same class. All join the feedback kinds
+# in being excluded from connection/cost rollups so they never surface as an
+# "unknown" connection.
+NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture", "handshake", "read")
 
 
 def now_iso() -> str:

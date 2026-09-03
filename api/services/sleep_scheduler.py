@@ -62,6 +62,27 @@ def save_schedule(memory_path: Path, cfg: ScheduleConfig) -> None:
     path.write_text(yaml.safe_dump(payload, sort_keys=True), encoding="utf-8")
 
 
+def next_run_at(memory_path: Path, now: datetime | None = None) -> str | None:
+    """Next occurrence of the persisted schedule as a naive local ISO string,
+    or ``None`` when the schedule is disabled.
+
+    Lived in ``api/routers/status.py`` until G53: the state dictionary (a
+    service) needs the same answer and a service must not import a router.
+    ``now`` is injectable so the state builder's determinism tests are
+    date-stable.
+    """
+    from datetime import timedelta
+
+    cfg = load_schedule(memory_path)
+    if not cfg.enabled:
+        return None
+    current = now or datetime.now()
+    candidate = current.replace(hour=cfg.hour, minute=cfg.minute, second=0, microsecond=0)
+    if candidate <= current:
+        candidate += timedelta(days=1)
+    return candidate.isoformat()
+
+
 def register_job(
     scheduler: AsyncIOScheduler, settings: Settings, cfg: ScheduleConfig
 ) -> None:

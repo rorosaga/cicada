@@ -1,5 +1,4 @@
 from collections import Counter
-from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
@@ -180,12 +179,10 @@ async def _last_sleep_at(memory_path: Path) -> str | None:
 
 
 def _next_sleep_at(memory_path: Path) -> str | None:
-    """Next occurrence of the persisted schedule, or None when disabled."""
-    cfg = sleep_scheduler.load_schedule(memory_path)
-    if not cfg.enabled:
-        return None
-    now = datetime.now()
-    candidate = now.replace(hour=cfg.hour, minute=cfg.minute, second=0, microsecond=0)
-    if candidate <= now:
-        candidate += timedelta(days=1)
-    return candidate.isoformat()
+    """Next occurrence of the persisted schedule, or None when disabled.
+
+    Delegates to ``sleep_scheduler.next_run_at`` (moved there for G53 so the
+    state dictionary can share it without a service importing a router);
+    kept as a function because the status route and its tests call it.
+    """
+    return sleep_scheduler.next_run_at(memory_path)

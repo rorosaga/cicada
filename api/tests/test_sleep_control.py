@@ -168,9 +168,12 @@ def test_cancel_before_writes_leaves_bank_clean_queue_untouched_status_idle_and_
     assert "Cancelled" in (state.progress or "")
     assert state.error is None
 
-    # The bank is clean: no dirty files, nothing new committed.
+    # The bank is clean: no dirty files, and the only new commit is the
+    # tail's own `_state.md` projection (G53 R2 — it lands on every exit path
+    # through `commit_paths`, so it never stages a cycle's writes).
     assert _git(memory, "status", "--porcelain").strip() == ""
-    assert len(_git(memory, "log", "--oneline").strip().splitlines()) == 1
+    assert len(_git(memory, "log", "--oneline").strip().splitlines()) == 2
+    assert _git(memory, "log", "-1", "--format=%s").startswith("State snapshot ")
 
     # Unprocessed episodes are untouched.
     remaining_ids = {e["id"] for e in sleep_cycle._get_unprocessed_episodes(memory)}

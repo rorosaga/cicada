@@ -669,6 +669,13 @@ private struct EpisodeRow: View {
                 .frame(width: 8, height: 8)
                 .padding(.top, 6)
 
+            // G105 companion: the source's mark sits between the status dot
+            // and the text so the dot keeps meaning "queued vs processed"
+            // and the row still answers "where did this come from" at a
+            // glance — the same mark the import catalog tile wears.
+            OriginMark(origin: item.origin, size: 16)
+                .padding(.top, 2)
+
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     Text(item.title ?? item.id)

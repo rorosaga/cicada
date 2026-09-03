@@ -193,6 +193,22 @@ class Settings(BaseSettings):
     hub_tag_max_hubs: int = 30       # cap on tag-cluster hubs
     hub_member_cap: int = 150        # max members listed per hub file
 
+    # G53 — live state dictionary (`<bank>/_state.md`): how many of each
+    # list the cursor carries. Small on purpose: the file is a pointer into
+    # the graph (ids + one-liners), never a copy of it, and is capped at
+    # `state_dictionary.MAX_BYTES` regardless of these.
+    state_projects: int = 7           # CICADA_STATE_PROJECTS
+    state_people: int = 7             # CICADA_STATE_PEOPLE
+    state_preferences: int = 5        # CICADA_STATE_PREFERENCES
+    state_conversations: int = 5      # CICADA_STATE_CONVERSATIONS
+    # G53 — the owner's own entity id (e.g. `bob-example`), so `_state.md` can
+    # point an agent at "the person's page" without a name in code (the
+    # portability rail: no owner name anywhere). Empty = unset; the builder
+    # additionally requires `entities/<id>.md` to exist before it writes
+    # `owner_id`. Distinct from the claim layer's `observer=` seam in
+    # `agentic_write` — that names who asserted a claim, not whose bank it is.
+    observer_owner: str = ""          # CICADA_OBSERVER_OWNER
+
     # Telegram capture connector (Wave B ingestion) — a message forwarded/sent
     # to the user's own bot, POSTed by Telegram to `POST /capture/telegram`,
     # becomes a staged episode or media item (see
@@ -201,6 +217,13 @@ class Settings(BaseSettings):
     # accepted, so an unconfigured install gets zero added surface area. Set
     # CICADA_TELEGRAM_BOT_TOKEN to the token from @BotFather to activate.
     telegram_bot_token: str = ""  # CICADA_TELEGRAM_BOT_TOKEN
+
+    # G105 R7 — the one switch on hook-driven capture. True keeps the person's
+    # turns AND the agent's final reply per turn; false keeps only the
+    # person's turns (the owner's stated fallback if the assistant half
+    # proves noisy). Read by POST /capture/transcript, so flipping it needs
+    # no hook re-registration.
+    capture_assistant_replies: bool = True  # CICADA_CAPTURE_ASSISTANT_REPLIES
 
     model_config = {"env_prefix": "CICADA_", "env_file": ".env", "extra": "ignore"}
 

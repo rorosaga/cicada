@@ -115,10 +115,19 @@ def test_action_label_clarification_and_merge():
 # ---------- resolve() -> commit_resolution ----------
 
 
+def _resolution_commit(memory: Path) -> tuple[str, str]:
+    """(hash, body) of the newest ``Inbox resolution`` commit. Not HEAD: since
+    G53's final review ``resolve()`` commits the regenerated ``_state.md`` as
+    ``cicada`` right after the person's commit, so HEAD is the projection."""
+    out = _git(memory, "log", "-1", "--grep=^Inbox resolution", "--format=%H%n%B")
+    sha, _, body = out.partition("\n")
+    return sha.strip(), body
+
+
 def _head_entry(memory: Path, entity_id: str):
-    head = _git(memory, "rev-parse", "HEAD").strip()
+    sha, _ = _resolution_commit(memory)
     hist = run(git_service.get_entity_history(entity_id, memory))
-    matches = [e for e in hist if e.commit_hash == head]
+    matches = [e for e in hist if e.commit_hash == sha]
     assert matches, "resolution commit missing from entity history"
     return matches[0]
 
@@ -127,7 +136,7 @@ def test_decay_archive_commit_trigger_and_status_change(memory: Path):
     settings = _Settings(memory)
     out = run(inbox_service.resolve("inbox-001", InboxResolveRequest(action="archive"), settings))
     assert out["status"] == "resolved"
-    body = _git(memory, "log", "-1", "--format=%B")
+    _, body = _resolution_commit(memory)
     assert "entities/alpha-project.md: status archived (trigger: inbox/decay/resolved:archive)" in body
     assert "Inbox resolution (decay)" in body
     assert "Cicada-Author: user" in body
@@ -139,7 +148,7 @@ def test_decay_archive_commit_trigger_and_status_change(memory: Path):
 def test_decay_keep_active_commit_trigger(memory: Path):
     settings = _Settings(memory)
     run(inbox_service.resolve("inbox-001", InboxResolveRequest(action="keep_active"), settings))
-    body = _git(memory, "log", "-1", "--format=%B")
+    _, body = _resolution_commit(memory)
     assert "status active (trigger: inbox/decay/resolved:keep_active)" in body
     assert _head_entry(memory, "alpha-project").change_type == "statusChange"
 
