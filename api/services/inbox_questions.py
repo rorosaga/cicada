@@ -315,3 +315,99 @@ def _really_superseded(options: list[dict], by_id: dict) -> bool:
             continue  # same value, later id — nothing was answered
         return True
     return False
+
+
+# --------------------------------------------------------------------------- #
+# G115 Phase 1 — decay as a question object, and the copy rules
+# --------------------------------------------------------------------------- #
+
+DECAY_OPTION_KEYS = ("archive", "keep")
+
+
+def decay_question(name: str, last_referenced: str | None, today: str) -> dict:
+    """The question object a decay item is SERVED as (never written).
+
+    G115 §1: decay used to be the one kind outside the component G60 built —
+    three bespoke buttons and an ``else`` branch that deleted the file. Now it
+    is a question like every other kind: ``Still tracking {name}?``, ``archive``
+    first (it is Sleep's proposal — the option the ledger grades ``agreed``, so
+    it is the one ``(Recommended)``), ``keep`` second, both descriptions led by
+    the age so staleness is visible before choosing (G60 copy rule). Synthesised
+    at read from the subject page's ``last_referenced`` so the phrase never goes
+    stale-by-arithmetic in a file (R5).
+    """
+    age = humanize_age(last_referenced, today)
+    lead = f"Last mentioned {age}" if age != _UNKNOWN_AGE else "Last mention unknown"
+    return {
+        "question": f"Still tracking {name}?",
+        "options": [
+            {
+                "key": "archive",
+                "label": "Archive",
+                "description": f"{lead} · move it to the archive; it comes back on the next mention",
+                "claim_id": None,
+                "observed_at": last_referenced,
+                "last_referenced": last_referenced,
+            },
+            {
+                "key": "keep",
+                "label": "Keep active",
+                "description": f"{lead} · still relevant; confidence restored to at least 0.6",
+                "claim_id": None,
+                "observed_at": last_referenced,
+                "last_referenced": last_referenced,
+            },
+        ],
+        "allow_other": False,
+        "allow_defer": True,
+    }
+
+
+_RECOMMENDED_MARKER = "(Recommended)"
+
+
+def validate_question(
+    question: str | None, options: list[dict], *, recommended_key: str | None = None
+) -> list[str]:
+    """The card copy rules (G115 §7), as a list of violations — ``[]`` is valid.
+
+    Used by tests against every generator (``_conflict_nudge``,
+    ``build_entity_question``, :func:`decay_question`) so a template regression
+    is a failing test, not a card the owner has to notice: one question ending
+    in ``?`` and ≤ 160 chars; unique non-empty keys and labels ≤ 80 chars; a
+    dated option's description leads with ``Last mentioned`` (age first, G60);
+    the ``(Recommended)`` marker is RENDERED, never stored in a label; and the
+    recommended key is never ``neither``/``both`` (G121/G115 C1) and always an
+    option.
+    """
+    problems: list[str] = []
+    q = (question or "").strip()
+    if not q:
+        problems.append("question is empty")
+    elif not q.endswith("?"):
+        problems.append("question must end with '?'")
+    if len(q) > 160:
+        problems.append("question longer than 160 chars")
+    seen: set[str] = set()
+    for o in normalize_options(options):
+        key = str(o.get("key") or "")
+        label = str(o.get("label") or "")
+        if not key or not label:
+            problems.append(f"option {key!r} has an empty key or label")
+        if key in seen:
+            problems.append(f"duplicate option key {key!r}")
+        seen.add(key)
+        if len(label) > 80:
+            problems.append(f"option {key!r} label longer than 80 chars")
+        if _RECOMMENDED_MARKER.lower() in label.lower():
+            problems.append(f"option {key!r} stores the {_RECOMMENDED_MARKER} marker in its label")
+        dated = o.get("observed_at") or o.get("last_referenced")
+        desc = str(o.get("description") or "")
+        if dated and desc and not desc.startswith("Last mention"):
+            problems.append(f"option {key!r} description must lead with 'Last mentioned <age>'")
+    if recommended_key is not None:
+        if recommended_key in ("neither", "both"):
+            problems.append("recommended key must never be 'neither' or 'both'")
+        elif recommended_key not in seen:
+            problems.append(f"recommended key {recommended_key!r} is not an option")
+    return problems

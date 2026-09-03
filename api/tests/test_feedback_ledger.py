@@ -248,3 +248,27 @@ def test_stats_by_connection_excludes_feedback_rows(home):
     names = [row["connection"] for row in out["by_connection"]]
     assert names == ["anthropic"]
     assert any(row["stage"] == "feedback" for row in out["by_stage"])
+
+
+def test_resolution_event_records_recommended_key_and_whether_it_was_picked(home, memory):
+    settings = _Settings(memory)
+    run(inbox_service.resolve("inbox-007", InboxResolveRequest(action="resolve", option_key="1"), settings))
+    r = _events("resolution")[0]["refs"]
+    assert r["recommended_key"] == "1" and r["picked_recommended"] is True
+
+
+def test_informational_conflict_dismiss_touches_no_claim(home, memory):
+    """G98/G115 R4: a conflict on a multi-valued predicate is shown, not asked;
+    dismissing it removes the item and leaves every claim open."""
+    from api.services import markdown_parser
+    from api.services.claims import parse_claims
+    item = memory / "inbox" / "inbox-007.md"
+    parsed = markdown_parser.parse(item)
+    parsed.frontmatter["predicate"] = "uses"
+    markdown_parser.write(item, parsed.frontmatter, parsed.body)
+    settings = _Settings(memory)
+    out = run(inbox_service.resolve("inbox-007", InboxResolveRequest(action="dismiss"), settings))
+    assert out["status"] == "resolved" and not item.exists()
+    claims = parse_claims(markdown_parser.parse(memory / "entities" / "bob-example.md").body)
+    assert all(c.valid_to is None for c in claims)
+    assert _events("resolution")[0]["refs"]["action"] == "dismiss"
