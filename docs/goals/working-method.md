@@ -203,6 +203,16 @@ brief written from this table over fighting the cache.
 
 #### The rest, in order
 
+0. **G129 slice 2 — bookmark deletions.** Slice 1 shipped (PR #52): browsers are watched, a save
+   reaches the queue in seconds, and each browser row has a status light. Slice 2 is the other
+   direction — an unbookmark proposes a removal and waits for a keep/remove answer. Two rails are
+   written on the row and both are correctness, not polish: the diff is only valid **inside the
+   folder scope that was synced** (with `folders:` selection everything outside the chosen prefixes
+   looks deleted), and it must be **browser-then vs browser-now, never browser vs memory**, or a
+   bookmark the person chose to keep is re-proposed after every sync forever. That needs one small
+   per-channel seen-set beside `url_index.json`. Removal is a proposal: an inbox item, rendered
+   again as a Deletions subsection on the browser's page — one write path, two views.
+
 2. **G125 — Sleep page as the study desk.** A `reading` mascot state while intake is being consumed,
    the queue as a per-category study list (Claude Code conversations · Safari tabs · saved links…),
    breakdowns moved to Sources/Settings, a schedule frequency picker, the deprecated toolbar buttons
