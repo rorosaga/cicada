@@ -1,18 +1,21 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with code in this repository.
+Guidance for Claude Code working in this repository.
+
+**This file is the philosophy and the rails. The detail lives in
+[`docs/goals/`](docs/goals/) — read it before proposing work.**
+
+---
 
 ## Project
 
 **Cicada** — Author: Rodrigo Sagastegui.
 
-Cicada started as a BSc capstone thesis at IE University — *A Cognitive Agent Architecture for
-Personal Knowledge Evolution via Structured Memory Consolidation* — and has since evolved into a
-personal project with a larger goal: **capture the human experience seamlessly, and make it
-something you can hold a conversation over — with agents that can understand it, contribute to it,
-and draw their own relations across it.**
+The goal: **capture the human experience seamlessly, and make it something you can hold a
+conversation over — with agents that can understand it, contribute to it, and draw their own
+relations across it.**
 
-Concretely, that means Cicada aims to span:
+Concretely, Cicada aims to span:
 
 - **Every kind of media ingestion** — links, articles, papers, videos, images, bookmarks, RSS,
   files, saved collections exported from the platforms where they pile up.
@@ -22,9 +25,9 @@ Concretely, that means Cicada aims to span:
 - **The moving parts of a life** — projects, ideas, current interests, the things being decided and
   the things quietly going stale.
 
-The design principle that follows from that goal: memory must be **legible to an agent without
-ceremony**. An agent should be able to arrive, be told what Cicada is and how to use it, read the
-graph, contribute beliefs with provenance, and leave the store better than it found it. The
+The design principle that follows: memory must be **legible to an agent without ceremony**. An
+agent should be able to arrive, be told what Cicada is and how to use it, read the graph,
+contribute beliefs with provenance, and leave the store better than it found it. The
 markdown-and-git substrate, the claim layer, the author/session trailers and the MCP surface all
 exist to make that true.
 
@@ -44,10 +47,9 @@ row should be readable against them.
 
 **Silver & Sutton, *Welcome to the Era of Experience* (2025).** Their claim: the next generation of
 agents will learn predominantly from *streams* of experience rather than snippets of human data,
-with actions and observations grounded in an environment, rewards grounded in that environment
-(the human being part of it), and reasoning that is not confined to human terms. Cicada's reading:
-**the person's life is the environment, and Cicada is the instrument that turns it into a stream an
-agent can inhabit.** Four correspondences, each a design constraint:
+grounded in an environment, with rewards from that environment and reasoning not confined to human
+terms. Cicada's reading: **the person's life is the environment, and Cicada is the instrument that
+turns it into a stream an agent can inhabit.** Four correspondences, each a design constraint:
 
 1. **Streams, not sessions.** A conversation is a snippet; a life is a stream. Awake capture is the
    stream's intake, Sleep is what makes it more than a transcript pile, and decay is the stream's
@@ -58,28 +60,27 @@ agent can inhabit.** Four correspondences, each a design constraint:
    provenance — a claim, a `Cicada-Author:` trailer, an inbox resolution — is an action on the
    shared record. The port is two-way or it is a diary.
 3. **Grounded rewards.** When the person answers a nudge, overrules a claim, keeps or archives an
-   entity, that is a reward signal *from the environment*, not a prejudgement of the agent's
-   output. Cicada should treat these resolutions as the signal it learns from, not just as edits to
-   apply (G113).
+   entity, that is a reward signal *from the environment*. Cicada should treat these resolutions as
+   the signal it learns from, not just as edits to apply (G113).
 4. **Reasoning beyond prose.** The claim layer — typed predicates, bi-temporal validity, observer
    and trust — exists so an agent can reason over the record structurally. Prose is for humans;
    claims are the machine-legible half.
 
-**Tang et al., *WikiSkill: Compiling Agent Experience into Persistent Knowledge for Skill
-Evolution* (2026, arXiv:2608.27454).** Their result: separating *raw experience* from a
+**Tang et al., *WikiSkill* (2026, arXiv:2608.27454).** Separating *raw experience* from a
 *persistent wiki* from *executable skills* is what makes skill evolution work (the wiki is worth
 +15 points to the skill proposer in ablation), and evolved skills **transfer across models and
-model families** — a skill evolved by a stronger model can beat one the target model evolved for
-itself. Cicada already holds the first two layers: `episodes/` is the raw layer and the
-entity-plus-claim graph, with its provenance trailers, is the wiki. The third layer — compiling what
-the graph knows about *how this person works* into portable, agent-loadable skills — is **G112**.
-The bar it sets: **a skill compiled from one person's experience should load into any harness on
-any plan, with Cicada being nothing more than its provenance.**
+model families**. Cicada holds the first two layers: `episodes/` is the raw layer, the
+entity-plus-claim graph is the wiki. The third — compiling what the graph knows about *how this
+person works* into portable, agent-loadable skills — is **G112**. The bar: **a skill compiled from
+one person's experience should load into any harness on any plan, with Cicada being nothing more
+than its provenance.**
 
 **Portability is the point, not a feature.** The goal is other people running this on their own
 plans and harnesses (G50 connections, G76 install, G92 onboarding). A hardcoded owner name, a path
 that only exists on the author's machine, a bank that cannot be handed over intact — each is a bug
 against the mission, not a polish item.
+
+---
 
 ## Branches
 
@@ -92,925 +93,453 @@ PRs open against `dev`. Promotion to `main` is a manual, deliberate step — nev
 
 ## Backlog and handoff (`docs/goals/`)
 
-Two files, one split: **why** something is worth doing lives apart from **what to do next**.
-Read both before proposing work; a proposal that duplicates a `G` row or re-opens a settled
-ruling is wasted effort.
+**Read these before proposing work.** A proposal that duplicates a `G` row or re-opens a settled
+ruling is wasted effort. Detail belongs in the backlog; state belongs in TODO.md. After finishing
+work, update both.
 
-**[`docs/goals/memory-evolution.md`](docs/goals/memory-evolution.md) — the backlog (reference).**
-One row per idea, `G<n>`, numbered in the order it was raised and never renumbered — a `G` id is
-a permanent address, so cite `G74a` in commits, PR bodies, and specs the way you would cite a
-ticket. A row carries the *reasoning*: the problem, the evidence for it (file:line, a measured
-number, a reproduction), and the design constraint any fix must respect. Rows are triaged
-**APPLY** / **RESEARCH** / **DECIDE**, and the 💸 flag marks anything needing paid LLM spend.
-When you learn something that changes a row's argument, edit the row — do not open a second one.
+- **[`memory-evolution.md`](docs/goals/memory-evolution.md) — the backlog.** One row per idea,
+  `G<n>`, numbered in the order raised and never renumbered, so a `G` id is a permanent address:
+  cite `G74a` in commits and PR bodies the way you would cite a ticket. A row carries the
+  *reasoning* — the problem, the evidence (file:line, a measured number, a reproduction), and the
+  design constraint any fix must respect. Triaged **APPLY** / **RESEARCH** / **DECIDE**; 💸 marks
+  paid LLM spend. When you learn something that changes a row's argument, edit the row — never open
+  a second one.
+- **[`TODO.md`](docs/goals/TODO.md) — execution view + handoff.** Same work ordered by what to do
+  next. Its header is written for an agent picking the project up cold: current state, open PRs,
+  the verified live environment, and a "Pick up here" line. Above all it carries the **rulings** —
+  decisions that cost real measurement, each with the evidence that settled it. **A ruling is
+  binding.** Revisit one only on the trigger its row names, and only after reading why it was made:
+  several were reached by disproving the obvious answer, so re-deriving them from first principles
+  reliably gets them wrong.
+- **[`working-method.md`](docs/goals/working-method.md) — how the work is run.** The bar a change
+  clears (plan → critic → per-task implement+review → two-lens final review → verify yourself → PR
+  to `dev`), the test baselines that are *not* failures, the rails that override convenience, and
+  the paused queue with the reasoning for its order.
 
-**[`docs/goals/TODO.md`](docs/goals/TODO.md) — the execution view + handoff.** Same work,
-ordered by what to do next: Shipped / In progress / Next / To close / Known-broken. Its header
-is a **handoff document written for an agent picking the project up cold** — current state,
-open PRs, the verified live environment (how the backend runs, where secrets live, which bank is
-active, the one correct way to launch the app), the working agreements, and a "Pick up here"
-line. Above all it carries the **rulings**: decisions that cost real measurement to reach, each
-with the evidence that settled it. Treat a ruling as binding. Revisit one only on the trigger its
-row names, and only after reading why it was made — several were reached by disproving the
-obvious answer, so re-deriving them from first principles reliably gets them wrong.
-
-**Privacy rule for both files (standing, from 2026-09-02).** Nothing personal about the owner
-or anyone in their life goes into `docs/goals/`, `CLAUDE.md`, a plan, a commit message, or a PR
-body: no names of other people, employers, clients, or companies from the bank; no episode or
-inbox titles; no quoted conversation or claim text; no URLs, handles, or contact details. The
-owner's own *thoughts and ideas* are fine to quote — a row that starts "Rodrigo 2026-09-01: …"
-and carries a design opinion is the intended voice of the backlog. When a row needs an example to
-make its argument, use placeholders (`<surname-a>`, `alpha-project`, `bob-example`) exactly as
-the test fixtures do, and say "real values redacted". The repo is public; the bank is not, and
-the line between them is this rule.
-
-**[`docs/goals/working-method.md`](docs/goals/working-method.md) — how the work is run.** The bar a
-change has to clear (plan → critic → per-task implement+review → two-lens final review → verify
-yourself → PR to `dev`), the test baselines that are *not* failures, the rails that override
-convenience, the Workflow track machinery (how to start, resume and land one), and the **paused
-queue** with the reasoning for its order. Read it before starting or resuming any track.
-
-Keep the split honest: **add detail to the backlog, track state in TODO.md.** After finishing
-work, update both — mark the `G` row done and move its TODO entry to Shipped — and refresh the
-handoff header if anything it asserts about the environment or the in-flight PRs has changed. A
-handoff header that is stale is worse than none, because it is trusted.
+**Privacy rule (standing, 2026-09-02).** Nothing personal about the owner or anyone in their life
+goes into `docs/goals/`, this file, a plan, a commit message, or a PR body: no names of other
+people, employers, clients or companies from the bank; no episode or inbox titles; no quoted
+conversation or claim text; no URLs, handles or contact details. The owner's own *thoughts and
+ideas* are fine to quote — a row starting "Rodrigo 2026-09-01: …" carrying a design opinion is the
+intended voice. When a row needs an example, use placeholders (`<surname-a>`, `alpha-project`,
+`bob-example`) and say "real values redacted". **The repo is public; the bank is not, and the line
+between them is this rule.**
 
 ---
 
 ## Repository Structure
 
-`api/` FastAPI backend, `app/` SwiftUI macOS app, `mcp/` the MCP server, `memory/` the runtime
-bank (gitignored), `benchmarks/` thesis tooling, `docs/goals/` the backlog. Read the tree with
-`ls` — it is not duplicated here.
+`api/` FastAPI backend, `app/` SwiftUI macOS app, `mcp/` the MCP server, `memory/` the runtime bank
+(gitignored), `docs/goals/` the backlog. Read the tree with `ls` — it is not duplicated here.
+
+---
 
 ## Core Architecture: Awake/Sleep
 
-### Awake Cycle
-Continuous episode capture during conversations. Raw timestamped chunks go to `episodes/` inbox. **No LLM processing at capture time** — just logging. This is cheap (just file I/O).
+### Awake — capture
+Continuous episode capture. Raw timestamped chunks go to the `episodes/` inbox. **No LLM
+processing at capture time** — just file I/O.
 
-**Input sources:**
-- **MCP-native clients** (Claude Code, Cursor): Cicada MCP server is directly in the conversation loop. Episodes captured automatically. This is the primary deployment model.
-- **Hook-driven session capture (G105, deterministic):** every Claude Code session — and every
-  Codex session when the CLI is installed — is captured by the harness's own `Stop` hook
-  (`api/hooks/capture.py`, registered by `install.sh` in `~/.claude/settings.json` /
-  `~/.codex/hooks.json`, merged never clobbered, `make doctor` reports it). The hook forwards the
-  harness's stdin fields to the bearer-authed `POST /capture/transcript`; **the backend reads the
-  transcript**, and only after the path resolves under the harness root as `<session_id>.jsonl`
-  within the size cap — anything else is refused unread. `api/services/transcript_extract.py` keeps
-  exactly (a) the person's turns (`user` messages whose blocks are `text`; a `tool_result` wearing
-  the user role is dropped) and (b) the agent's **final reply per turn** (the last assistant `text`
-  after the last `tool_use`); interstitial narration, `tool_use`/`tool_result`/thinking blocks, file
-  dumps, harness-injected `<task-notification>`/`<command-…>`/`<system-reminder>` text are skipped by
-  construction. On what survives: code fences stripped, secrets scrubbed, a 2,000-char per-turn cap
-  and a head-stable 100,000-char session cap. **One episode per session** (`capture_kind:
-  transcript`, `origin: claude-code|codex`, `session_id`, `harness`, `project_dir`), body as
-  `role: text` lines exactly like the importer so G118 spans cite it; every later Stop on the same
-  session rewrites that episode in place and flips `processed: false` (`processed_by` popped) —
-  never two episodes for one conversation (G104). `CICADA_CAPTURE_ASSISTANT_REPLIES=false` keeps only
-  the person's turns. Cicada's own `claude -p` spawns run with `CICADA_CAPTURE=off` and are never
-  captured. A counts-only `capture` ledger row per firing; the hook logs one line per firing to
-  `~/.cicada/logs/capture.log`. Claude Desktop / ChatGPT stay export-based; Cursor and other
-  harnesses have no hook yet.
-- **Export-based ingestion** (ChatGPT, Claude Desktop/iOS): Periodic import from conversation exports (`/banks/{name}/import`). ChatGPT and Claude both give JSON/HTML exports parsed by dedicated import parsers.
-- **Telegram bot** (`/save`, `/note`, `/remind`): On-the-go capture of links, voice notes, text snippets, via `POST /capture/telegram`. `/save <url> <reason…>` also captures *why* — see Save-with-reason (G71) below.
-- **Browsers (G30 + 2026-09-02):** Safari bookmarks (by folder — Favorites, Bookmarks Menu, Reading List —
-  via `folders:` on `POST /sources/sync-bookmarks`, tree preview with `?preview=true`), **Safari iCloud
-  tabs** (`POST /sources/sync-safari-tabs`, `api/services/safari_tabs.py`: CloudTabs.db bytes → one item
-  per open tab, `origin: safari-tab`, folder = device name, per-device preview), and Chrome bookmarks (by
-  folder). **The app reads the files under `~/Library` and the backend parses bytes** — the launchd
-  backend has no Full Disk Access and never opens those paths itself; an unreadable file shows the exact
-  fix in the app. Channels are per browser (`chrome-bookmarks`, `safari-bookmarks`, `safari-tabs`; the
-  legacy `bookmarks` sync_state entry is read as a fallback, never written). Plus saved links, RSS feeds,
-  PDFs, repos — all indexed in the sqlite-vec vector index.
-- **Direct saved-content connectors** (G71): **Pinterest** (v5, BYO OAuth app, `boards:read`/`pins:read`
-  — board name becomes the item folder), **Reddit** (script app, `/user/{me}/saved`, newest-first to
-  the previously-seen fullname; the GDPR `saved_posts.csv` export backfills past the ~1,000-item listing
-  cap), and **X/Twitter** (OAuth 2.0 + PKCE, `/2/users/:id/bookmarks`, pay-per-use "owned reads" billing
-  — the sync summary surfaces `resources_read` so a cost is never hidden behind a plain "connected"
-  checkbox). Credentials live in `~/.cicada/secrets.env` (0600), never in a bank. Polled at the tail of
-  every Sleep cycle — after `_finalize`'s own commit, so the poll's `git add -A` sweeps only its own
-  files instead of the cycle's still-uncommitted entity writes (G71 final review H1) — including an idle
-  cycle, and on demand via `POST /sources/connectors/{id}/sync`. `CICADA_ALLOW_CONNECTOR_FETCH` gates
-  ONLY that unattended nightly poll's default transport — opt-OUT (on by default, mirroring
-  `CICADA_ALLOW_LOGO_FETCH`; `=off` disables it, which is what the test suite sets). A user-initiated
-  `sync_now` and every OAuth `authorize_url`/`exchange_code` call are never gated by it — they always
-  need the network to do what the user just asked (G71 final review H2). A failed poll is recorded
-  per-channel (`sync_state.record_error`) and surfaces on `GET /sources/channels` as `lastError`; a
-  gate-skipped poll is recorded too (`sync_state.record_skip`) and surfaces as a skip, distinctly from
-  both a failure and a stale success.
-- **Export parsers** (`media_ingestor.parse_upload`): Instagram saved, YouTube playlist export, Google
-  Takeout (JSON/CSV/zip), Chrome/Safari bookmarks, **LinkedIn saved items** (URL + date only — post bodies
-  are deliberately never fetched, so these stay thin, `origin: linkedin-saved`), **TikTok favourites/likes**
-  (`origin: tiktok-saved`; Browsing History is opt-in via `?include_history=true` and keeps a distinct
-  `tiktok-history` origin), and the **Reddit GDPR export** (`origin: reddit-saved`). Non-Takeout archives
-  must be unzipped first — the app's step-path copy says so and the preview reports it.
-  `POST /sources/upload?preview=true` runs the identical sniff/parse but stages nothing, returning a
-  per-collection item breakdown so the import overlay can show what it's about to import before Confirm.
-- **Import catalog (Feed `+`/⌘N):** logo-first and two-level — one tile per family (Browsers, Websites &
-  apps, Chat exports, Feeds & calendars, Files) opening to its members, each with its own mark (bundled
-  PNGs; Safari/Chrome are drawn glyphs, `BrandGlyph`), its import routes and its live `/sources/channels`
-  state. Arrows move, Enter opens, Esc backs out (`CatalogFocus`). `AddSourceTile` stays the leaf every
-  flow keys on.
+Sources are many and the pipeline is **source-agnostic**: MCP-native clients, hook-driven session
+capture, chat exports, browsers (bookmarks and Safari tabs), Telegram, direct saved-content
+connectors (Pinterest/Reddit/X), RSS, calendars, files. The per-channel detail lives in
+`api/services/` and in the backlog rows that introduced each one — read the code, not a list here.
+Four rails hold across all of them:
 
-**Episode tracking (G114):** Each episode has a unique ID (`ep_YYYY-MM-DD_NNN`), a timestamp, and a `processed: false` flag. Every writer — importer, MCP, media, Telegram, calendar, notes, the G105 transcript capture — mints the id through the one rule in `api/services/episode_ids.py`: `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap, and `markdown_parser.write` overwrites on collision), and stamps the timestamp as aware UTC from `episode_ids.utc_now_iso` (`+00:00` — never a naive local time with a `Z` appended). Legacy files are not migrated: readers accept both shapes and the Sleep queue sorts by `episode_ids.timestamp_sort_key`, so the mix still orders by instant. A Telegram episode is stamped with the message's own `date`, not receipt time. When an episode is marked processed it also carries `processed_by`: `sleep` for a Sleep cycle, `agent` (or the harness name) for `cicada_mark_processed`, so a flipped flag is distinguishable from a consolidation. Sleep cycle processes all unprocessed episodes regardless of source — the pipeline is source-agnostic. Its engine-independent tail also polls subscribed RSS feeds and ICS calendars, opt-in via `CICADA_ALLOW_FEED_FETCH=1` (a fresh install's LaunchAgent plist sets it — `install.sh` never rewrites a plist behind an already-running backend, so an older plist needs the key added by hand, see TODO.md's Live environment; the test suite never does), in the same clean-tree-guarded slot as the connector poll.
+- **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk
+  Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
+- **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
+  Codex session is captured by the harness's own `Stop` hook
+  (`api/hooks/capture.py` → `POST /capture/transcript`). **The backend reads the transcript**, and
+  only after the path resolves under the harness root as `<session_id>.jsonl` within the size cap —
+  anything else is refused unread. `transcript_extract.py` keeps only the person's turns and the
+  agent's final reply per turn; tool calls, thinking, file dumps and harness-injected text are
+  skipped by construction. Secrets scrubbed, per-turn and per-session caps applied. **One episode
+  per session** — a later Stop rewrites it in place and flips `processed: false`, never two
+  episodes for one conversation (G104). Cicada's own `claude -p` spawns run with
+  `CICADA_CAPTURE=off`.
+- **Transcripts under `~/.claude/` are never read anywhere else.** The MCP seam and the resume path
+  only ever `isfile()` them to answer "is this session still resumable"; that answer is computed
+  per request and never persisted.
+- **Every writer mints ids through one rule** (G114, `api/services/episode_ids.py`):
+  `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap, and
+  `markdown_parser.write` overwrites on collision), and timestamps are aware UTC from
+  `episode_ids.utc_now_iso` — never a naive local time with a `Z` appended. Legacy files are not
+  migrated: readers accept both shapes and the queue sorts by `timestamp_sort_key`. A processed
+  episode carries `processed_by` (`sleep` vs `agent`) so a flipped flag is distinguishable from a
+  consolidation.
 
-**Conversation identity (G48).** An episode captured through MCP also carries `session_id`
-(the client conversation), plus `harness` and `project_dir` when the client exposes them —
-minted once per MCP process from `CLAUDE_CODE_SESSION_ID` → `CICADA_SESSION_ID` → a
-`ses_YYYY-MM-DD_xxxxxxxx` fallback that groups but never resumes. Entities credit to
-conversations transitively via `source_episodes`, exactly as they do for `origin`.
-**Transcripts under `~/.claude/` are never read by the MCP seam or the resume path** — their only
-contact is an `isfile()` check answering "is this session still resumable", computed per request
-and never persisted. The one read anywhere in Cicada is G105's Stop-hook capture of the session
-that just ended (`POST /capture/transcript`), and only after the path resolves under the harness
-root as `<session_id>.jsonl`.
-A conversation row's `model` is **reserved — always null**, and will be populated once engine
-calls carry session refs (G49); nothing that writes memory records a model against a
-conversation id today, so the row states that rather than joining a ledger that can't answer.
+**Conversation identity (G48).** An MCP episode carries `session_id` plus `harness` and
+`project_dir` when exposed — minted once per MCP process from `CLAUDE_CODE_SESSION_ID` →
+`CICADA_SESSION_ID` → a `ses_*` fallback that groups but never resumes. Entities credit to
+conversations transitively via `source_episodes`. A conversation row's `model` is **reserved —
+always null** until engine calls carry session refs (G49); nothing that writes memory records a
+model against a conversation id today, so the row says so rather than joining a ledger that can't
+answer.
 
-### Sleep Cycle (5-Stage Nightly Batch Pipeline)
-Triggered by cron or manual command:
+### Sleep — 5-stage nightly batch
+1. **Entity & relationship extraction** — LLM over episode chunks, structured output.
+2. **Entity resolution & dedup** — fuzzy match, embedding similarity, LLM disambiguation.
+3. **Conflict resolution & pruning** — contradictions detected, recency wins, old state archived;
+   temporal decay applied.
+4. **Pattern detection & skill extraction** — recurring patterns distilled into skill entities.
+5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
-1. **Entity & Relationship Extraction**: LLM processes episode chunks with structured extraction prompts. Outputs typed entities and relationships as JSON.
-2. **Entity Resolution & Deduplication**: Reconciles against existing graph via fuzzy matching, embedding similarity, LLM disambiguation. "Mongo" → "MongoDB", "the project" → which project?
-3. **Conflict Resolution & Pruning**: Detects contradictions ("switched from Postgres to SQLite"). Recency wins, old state archived in version history. Temporal decay: absence of mention triggers confidence drop.
-4. **Pattern Detection & Skill Extraction**: Scans for recurring interaction patterns across cycles. Distills into procedural skills (preferences, routines, workflows) stored as skill-type entities.
-5. **Nudge Generation, Clarification Queue & Versioning**: Generates three nudge types (decay, conflict, clarification). Creates versioned snapshot. Commits to git.
+An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
+refresh, the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
+enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s own commit so the poll's
+`git add -A` sweeps only its own files.
 
-### Entity Promotion Model
-Entities are NOT extracted upfront from every mention. The promotion model avoids graph pollution:
-1. First mention → raw chunk stays in the sqlite-vec index only
-2. Second mention across a different conversation → Sleep cycle notices recurrence
-3. Promotion threshold met → create entity page with backfilled context
+### Entity promotion
+Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
+vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
+exchanges) in one, OR an explicit link to an existing high-confidence entity.
 
-Thresholds: referenced in 2+ separate conversations, OR discussed substantively (>3 exchanges) in a single conversation, OR explicitly linked to an existing high-confidence entity.
-
-### Temporal Decay
-Absence of mention IS a signal. If you talked about Salesforce daily for a week then stopped for two weeks, that silence is informative.
-- Every entity has `last_referenced` and `decay_rate` in frontmatter
-- Sleep drops confidence for unreferenced entities proportional to how frequently they USED to be referenced
-- Below archive threshold (0.2): entity moves to `archive/`
-- Below nudge threshold (0.4): generates decay nudge
-- If mentioned again: promoted back with `confidence = max(current, 0.6)` (recovery promotion, see Decay classes)
-- Evergreen entities (media/bookmarks, user-pinned) skip all decay math and decay nudges
+### Temporal decay
+Absence of mention IS a signal. Every entity carries `last_referenced` and `decay_rate`; Sleep drops
+confidence proportional to how frequently it *used* to be referenced. Below 0.2 → `archive/`; below
+0.4 → a decay nudge. Mentioned again → promoted back at `confidence = max(current, 0.6)`. Evergreen
+entities skip all decay math.
 
 ---
 
 ## Storage Layer
 
-### Structured Markdown Folder (Knowledge Graph)
-Wikilinked `.md` files with YAML frontmatter. LLM reads and writes. Git-versioned. Zero infrastructure — just a folder.
+### Markdown, not a database
+Wikilinked `.md` files with YAML frontmatter, git-versioned. **The filesystem is the single source
+of truth** — the API reads and writes the same files the Sleep cycle does. At personal scale
+(hundreds of entities) the LLM follows wikilinks; it doesn't need Cypher. Zero infrastructure,
+human-readable, portable, Obsidian-compatible.
 
-**Why markdown over Neo4j:** At personal scale (hundreds of entities, not millions), the LLM can read markdown and follow wikilinks — it doesn't need Cypher. Zero infrastructure, human-readable, git-versioned, portable, Obsidian-compatible.
-
-### Entity Schema
-Every entity page uses this YAML frontmatter:
+### Entity schema
 
 ```yaml
 ---
 type: person | project | company | concept | tool | deadline | skill | location | media | directory
 status: active | decaying | archived | dropped
-confidence: 0.85          # 0.0–1.0
+confidence: 0.85
 created: 2026-01-10
 last_referenced: 2026-03-22
 decay_rate: 0.05           # per-entity, not global
 decay_class: active        # evergreen | durable | active | volatile (G66)
-source_episodes:
-  - ep_2026-01-10_001
-  - ep_2026-03-22_002
-tags:                       # open set, freeform labels for cross-cutting concerns
-  - career
-  - robotics
-related:                    # duplicates wikilinks for programmatic access
-  - Recruiting
-  - Career Planning
+source_episodes: [ep_2026-01-10_001]
+tags: []                   # open set, freeform
+related: []                # duplicates wikilinks for programmatic access
 version: 3
 ---
 ```
 
-**Entity types (closed set of 10, `api/models/schemas.py::EntityType`):**
+**Entity types are a closed set of 10** (`api/models/schemas.py::EntityType`): `person`, `project`,
+`company`, `concept`, `tool`, `deadline`, `skill` (procedural memory / preferences), `location`,
+`media` (ingested item with an agent-generated summary), `directory` (a filesystem path, split out
+from `location` in G18).
 
-| Type | Description | Examples |
-|------|-------------|---------|
-| `person` | Named individual | supervisor, teammate, recruiter |
-| `project` | Active or past work | capstone, startup prototype, side project |
-| `company` | Organization | university partner, internship host, startup |
-| `concept` | Idea, topic, knowledge area | Knowledge Graphs, Context Engineering |
-| `tool` | Technology, framework, software | sqlite-vec, EmbeddingGemma, FastAPI |
-| `deadline` | Time-bound commitment | final submission deadline |
-| `skill` | Procedural memory, preferences | "Prefers concise summaries" |
-| `location` | Place | home city, conference city |
-| `media` | Ingested image/video/audio with agent-generated summary | saved video, image mood-board item |
-| `directory` | A filesystem folder/path, split out from `location` (G18) | `~/Documents/roros_lab/cicada` |
+**Two exclusions matter (G17).** `deadline` still renders for legacy pages but is **no longer
+produced by Stage-1 extraction** — `PRODUCIBLE_ENTITY_TYPES` excludes it; due-dates attach as a
+`due` claim on the relevant project instead of spawning a standalone entity. `media` is likewise
+excluded — it comes from the ingestion path, not conversation extraction.
 
-**Note (G17):** `deadline` is still a valid, renderable type (legacy pages keep working) but is **no longer produced by Stage-1 extraction** — `PRODUCIBLE_ENTITY_TYPES` in `schemas.py` excludes it; due-dates are attached as a `due` claim/relationship on the relevant project instead of spawning a standalone deadline entity. `media` is likewise excluded from Stage-1's producible set — it's produced by the media-ingestion path, not conversation extraction.
-
-**Status lifecycle:** `active` → `decaying` → `archived` → `dropped` (user-dismissed, never resurfaced)
+**Status lifecycle:** `active` → `decaying` → `archived` → `dropped` (user-dismissed, never
+resurfaced).
 
 ### Decay classes (G66)
-Every entity carries a semantic `decay_class:` beside the numeric `decay_rate:`,
-resolved by the one resolver `api/services/decay_policy.py`:
+One resolver, `api/services/decay_policy.py`. `resolve(fm)` returns `(class, rate)`: an explicit
+`decay_class:` wins; otherwise inferred from `type` (`media` → evergreen, `skill` → durable, else
+active) so legacy pages keep working. An explicit numeric `decay_rate:` still wins for the three
+decaying classes; `evergreen` pins its rate to `0.0` unconditionally.
 
 | Class | Entity rate/wk | Claim multiplier | Meaning |
 |---|---|---|---|
 | `evergreen` | 0.0 | 0.0 | Never fades. Artifacts (media/bookmarks) + anything the user pins. |
-| `durable` | 0.02 | 0.5 | Fades slowly. Stable preferences, skills, long-lived concepts. |
-| `active` | 0.05 | 1.0 | The default for a belief about the user's life. |
+| `durable` | 0.02 | 0.5 | Stable preferences, skills, long-lived concepts. |
+| `active` | 0.05 | 1.0 | Default for a belief about the user's life. |
 | `volatile` | 0.15 | 2.0 | Expected to change within weeks (role, status, current focus). |
 
-`decay_policy.resolve(fm)` returns `(class, rate)`: an explicit `decay_class:`
-wins; otherwise the class is inferred from `type` (`media` → evergreen, `skill`
-→ durable, everything else → active) so legacy pages keep working untouched. An
-explicit numeric `decay_rate:` that differs from the class map still wins for
-the three decaying classes (the class stays as the label); `evergreen` pins its
-rate to `0.0` unconditionally.
+**Anti-pollution rail** (mirrors `PRODUCIBLE_ENTITY_TYPES`): Stage-1 may propose
+`durable|active|volatile` and **never `evergreen`** (`AGENT_PRODUCIBLE_DECAY_CLASSES`, enforced at
+extraction AND again in the create branch). Evergreen is reserved for ingest writers and the user,
+so an over-eager extractor can never stop the graph from archiving.
 
-**Anti-pollution rail (mirrors `PRODUCIBLE_ENTITY_TYPES`):** Stage-1 extraction
-may PROPOSE `durable|active|volatile` and **never `evergreen`**
-(`AGENT_PRODUCIBLE_DECAY_CLASSES` in `schemas.py`, enforced by
-`decay_policy.agent_class` at extraction AND again in the create branch).
-Evergreen is reserved for the ingest writers and the user, so an over-eager
-extractor can never stop the graph from archiving.
+**Both engines honor it.** `conflict_resolver.resolve_and_prune` skips evergreen entities outright —
+no decay math, no nudge, never auto-archived, so a bookmark can't generate a "still interested?"
+question. `claim_reconciler._decay_claims` multiplies its per-epistemic × source_trust rate by the
+SUBJECT's class multiplier.
 
-**Both engines honor it.** The entity engine
-(`conflict_resolver.resolve_and_prune`) takes its rate from the resolver and
-skips evergreen entities outright — no decay math, no decay nudge, never
-auto-archived, so a bookmark can no longer generate a "still interested?"
-question. The claim engine (`claim_reconciler._decay_claims`) multiplies its
-per-epistemic × source_trust rate by the SUBJECT's class multiplier, supplied by
-an injected `decay_class_fn` (default: `decay_policy.class_lookup(memory_path)`).
+### Claims, evidence and provenance
 
-**Recovery.** A `decaying`/`archived` entity mentioned again is promoted back to
-`active` with `confidence = max(current, 0.6)` — the counter-signal half of
-"time as a signal", promised in this file long before it existed. `dropped` is
-never resurrected.
+**Claims** are the machine-legible half: typed predicates, bi-temporal validity, observer and trust.
+A predicate the vocabulary marks multi-valued (`predicates.cardinality`) never opens a conflict.
 
-**Migration.** `api/services/decay_migration.backfill_decay_classes` runs once
-per bank (marker `.decay_classed`, author `cicada`, trigger
-`maintenance/decay_class_backfill`): media → evergreen/0.0 with any
-wrongly-faded page restored to `active` at confidence ≥ 0.7, skills → durable.
-Its commit names **exactly the pages it rewrote** — never a `entities/`
-directory pathspec — so a pre-existing dirty edit or a concurrent Sleep write is
-never mis-attributed to `cicada`. It runs from
-`api/services/bank_migrations.run_bank_migrations`, the shared set of one-shot
-per-bank migrations (this plus the two inbox ones) invoked both from API startup
-for the boot-time bank and from `POST /banks/{name}/activate` for a bank
-switched to at runtime.
+**Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
+`evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source
+document's *evidence text* (the body as `markdown_parser.parse` returns it, with the ```claims fence
+stripped for an entity page, so writing a claim never stales its own span); `hash` is
+`sha256[:12]` of that text, and a mismatch reads as `stale` rather than mis-highlighting. `kind` is
+`user` | `assistant` | `page` | `reasoning` (the contributor's own inference: `start == end == -1`,
+never a faked span). One module, `api/services/evidence.py`, does the work for every writer: locate
+is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an unlocatable quote
+becomes `reasoning` and **the claim is still written — provenance never blocks memory**. Legacy
+claims carry no `evidence` and `to_dict` omits the empty key; there is no backfill.
 
-### Repo links
-Project/directory entities may carry an optional `repos:` frontmatter key linking them to local git checkouts:
+**Optional frontmatter keys**, each with a narrow meaning — don't conflate them:
 
-```yaml
-repos:
-  - path: ~/Documents/roros_lab/cicada        # tilde-style declared path
-    device: rorosaga-mbp                       # optional
-    remote: git@github.com:rorosaga/cicada.git # optional
-    default_branch: main                       # optional declared hint
-    worktrees:                                 # optional declared list
-      - path: ~/Documents/roros_lab/cicada
-        branch: feat/memory-evolution
-        primary: true
-```
-
-`GET /entities/{id}/repos` and `PATCH /entities/{id}/repos` read/write only this key. The live git context (current branch, ahead/behind, dirty files, worktree state) is resolved **on demand, never cached** — the entity page only ever declares which repos it's linked to; `git_service` shells out fresh on every call to answer "what's the state of this repo right now." Surfaced in the graph as a synthetic `repo:<slug>` node per distinct path, and via the `cicada_repo_context` MCP tool.
-
-### Fact sources (G61)
-Entity pages may carry an optional `sources:` frontmatter key — *where to look a fact up*,
-distinct from `source_episodes` (where a belief came from) and from the body's `## Links`:
-
-```yaml
-sources:
-  - ref: https://www.linkedin.com/in/rodrigosagastegui
-    kind: url            # url | path | note (inferred from `ref` when not given)
-    predicate: works-at  # optional — which fact this source refreshes
-    added_by: user       # model id, or "user"
-    added_at: '2026-08-30'
-```
-
-Read/written by `api/services/fact_sources.py` behind `GET/POST/DELETE /entities/{id}/sources`
-(note: `api/services/entity_sources.py` is a *different* module — it resolves an entity's episodes
-back to whole conversations). `cicada_write_claim` accepts `sources: [str]`, attributed to the
-model that wrote the claim. Conflict generation consults them: a matching source becomes the
-card's "Source to check" hint. Nothing is fetched in this slice.
-
-### Evidence spans (G118 slice 1)
-Every claim written since this slice carries `evidence: [{episode, start, end, kind, hash}]` —
-**spans, not copies**. `episode` is a source-document id (`ep_*` → `episodes/<id>.md`; anything
-else → `entities/<id>.md`, so a `kind: page` span cites the media entity whose stored description
-it points into); `start`/`end` are character offsets into that document's *evidence text* — the
-body exactly as `markdown_parser.parse` returns it, with the ```claims fence stripped for an entity
-page, so writing a claim never stales its own span; `hash` is `sha256[:12]` of that text, and a
-mismatch reads as `stale` rather than mis-highlighting. `kind` is `user` | `assistant` (by the
-last `<role>:` turn marker at or before the span — no marker means `user`, since every marker-less
-writer captures the person's own input) | `page` | `reasoning` (the contributor's own inference:
-`start == end == -1`, never a faked span). One module, `api/services/evidence.py`, does the work
-for every writer — locate is exact → whitespace-normalised → case-insensitive and **never fuzzy**;
-an unlocatable quote becomes `reasoning` and **the claim is still written** (provenance never blocks
-memory). Writers: Stage-1 extraction asks for a verbatim `evidence_quote` per relationship and
-`extract` verifies it against the body it chunked (chunk window preferred, offsets into the whole
-body, quote consumed — nothing downstream sees it); `cicada_write_claim` / `agentic_write.write_claim`
-take `evidence: [{episode, quote}]` and record `reasoning` on the source episode when omitted; link
-recon cites the surface form it grounded on as a `page` span; the Telegram `saved-because` claim
-cites its `## Saved because` section. `claim_reconciler._reinforce` merges a later conversation's
-spans onto the existing claim. **Legacy claims carry no `evidence` and `to_dict` omits the empty
-key** — an empty list means "written before evidence existed", a `reasoning` entry means "no source
-text"; no backfill (G100's derived-span class, if it ever ships, is a distinct kind). Read path:
-`evidence` rides `GET /entities/{id}/claims`, `/timeline` and `/transclude` (camelCase, additive —
-the app's `Claim` decoder ignores unknown keys), and `GET /episodes/{id}/span?start=&end=&context=&hash=`
-slices the evidence text back out, engine-free, with `stale` and the derived `kind`. No ETag on
-either (the span response validates itself; no new `sync_service` component). Out of scope until
-the later slices: the highlight viewer, trigger traces, rationale, backfill.
+- `repos:` — links a project/directory entity to local git checkouts. The page only ever *declares*
+  which repos; live git context (branch, ahead/behind, dirty, worktrees) is resolved **on demand,
+  never cached** — `git_service` shells out fresh on every call.
+- `sources:` (G61) — *where to look a fact up*, distinct from `source_episodes` (where a belief came
+  from) and from the body's `## Links`. Conflict generation consults them for a "Source to check"
+  hint. Nothing is fetched.
+- `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
+  **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
 
 ### Live state + handshake (G53 / G75)
-**`<bank>/_state.md` is the live state dictionary** — a *cursor* into the graph, never a copy of it:
-YAML frontmatter (`type: state`, `schema_version`, `generated_at`, `inputs_version`, `bank`, optional `owner_id`
-(only when `CICADA_OBSERVER_OWNER` / `settings.observer_owner` names an entity id whose page exists — never a name
-in code), `engine {mode, engine, model, connected}`, `sleep {last_at, queue_depth}`, `inbox {pending,
-by_kind}`, `projects[] {id, name, one_liner, confidence, last_referenced, repos[] {path, branch, dirty,
-ahead_behind, state}}`, `people[]`, `conversations[] {id, harness, title, last_seen, episode_count}`,
-`preferences[]` (top skill entities), `repos_probed_at`, `world_facts_note`) plus a short wikilinked body. Written
-only by `api/services/state_dictionary.refresh` — zero LLM, ≤ 6 KB, deterministic (a digest of the
-`entities`/`inbox`/`episodes`/`bank` sync components — never `git_head`, whose own `State snapshot` commit would
-self-invalidate — is stored as `inputs_version`; unchanged inputs mean no write, and even a forced rebuild writes
-only when the content differs with `generated_at`/`repos_probed_at`/`inputs_version` masked), repo probes
-read-only under a 2 s total budget (`state: unavailable` past it). Ranking is
-`confidence × 1/(1 + days_since_last_referenced/30)`, archived/dropped excluded, top-N from
-`Settings.state_projects|state_people|state_preferences|state_conversations` (7/7/5/5); rows are trimmed
-people → preferences → conversations → projects to fit the cap, so the projects list is given up last.
-**Who regenerates it:** every regeneration that touches disk goes through the one helper
-`state_dictionary.refresh_and_commit`, which writes only when the content changed and then commits `_state.md`
-ALONE as `State snapshot <date>` / `Cicada-Author: cicada` / trigger `sleep/state` (no engine trailer — no LLM
-ran; `commit_paths`, never `git add -A`). Sleep's engine-independent tail runs it first, on every exit path,
-`force=True` (the one place the file pays for live repo probes); `GET /state` runs it lazily (no repo probes,
-previous repo blocks carried over) and `?refresh=true` forces live probes; an inbox resolution runs it
-best-effort after its own commit. **The read path commits too, on purpose (final review 2026-09-03):** a
-projection left dirty "for Sleep's tail" was reproduced riding in the NEXT `git add -A` writer's commit — an
-`Inbox resolution` under `Cicada-Author: user` (Telegram capture, notes sync, `PATCH /entities/{id}/repos` and
-`POST /sources/poll-feeds` all commit the same way) — the G85-class smear on the read path. `_finalize` still
-splits a dirty `_state.md` out of the main commit the way G85 splits decay, for the failed-commit case. The MCP
-server only ever *reads* it. Never persisted, added per request by `GET /state`: `resumable` (G48), `stale`
-(digest no longer matches the bank), and `sleep.next_at` — a clock, not a belief: in the file it advanced every
-day on a bank with a schedule and made every idle night commit, breaking R1; it is computed on the local clock
-the schedule is expressed in, exactly as `/status` does.
-A reader that finds the file stale or absent must still work: every field has a live twin (`/status`, `/inbox`,
-`/conversations/recent`, `cicada_repo_context`).
 
-**The handshake (`api/services/handshake.py`)** turns `_state.md` + a fixed contract into ≤ 1,800 tokens
-(measured as chars/4 — no tokenizer, the suite is offline) of primer: what Cicada is, a 2–3 line per-harness
-prelude keyed off `clientInfo.name` (`claude-code` / `codex` / `generic` via `handshake.variant_for`; the
-contract never varies), the contract (recall first; `cicada_check_nudges(entity_ids=…)` after recall with the
-G115 discipline — every argument it names exists in the tool schema: `entity_ids` filters `cicada_check_nudges`,
-which also never returns `normalization` items or an id skipped this session, and `cicada_resolve_inbox(id,
-skip=true)` is an in-process no-op that writes nothing (R12: a primer naming an argument the schema rejects is
-a bug — before the final review an agent hitting that error could fall back to `defer=true`, a real write); the
-Cause line and `(Recommended)` marker are stated as "when the item shows them" because they are G115 Phase 1
-card work not yet on the inbox files; save episodes as you learn; `cicada_write_claim` with `evidence` and `sources`; the
-G121 sentence from `state_dictionary.WORLD_FACTS_NOTE`, the single source for both files; ask before assuming;
-never hand-edit pages), the now-view, and capability notes (resume availability — never "this transcript
-exists", decay classes, the span endpoint, repo context, hub walking). Cached at
-`$CICADA_HOME/handshake/<bank>.<variant>.json`, keyed on `CONTRACT_VERSION` + variant + the state file's
-mtime and size; the cache is a convenience, never a dependency. **Delivered three ways:** the MCP `initialize`
-result's `instructions` field (`mcp/server.py::initialize_result` — never refreshes the file, degrades to no
-`instructions` rather than a failed connect), the `cicada_handshake` tool (harnesses that drop
-`instructions`), and `GET /handshake?client=`. Recall's `cicada-hints` also carries a compact `state` block
-once per MCP process, and only inside a hints block that was going to be emitted anyway. `handshake.HOOK_POINTER`
-is the one line a SessionStart hook or AGENTS.md injects (the hook itself is G49/G76). A `handshake` telemetry
-row (ids/enums only — delivery, variant, `state_present`, `state_age_hours`, harness, client name;
-`stage="handshake"`, `billing="free"`, in `telemetry.NON_SPEND_KINDS` so it never shows as an unknown
-connection) records each delivery, answering for the primer what G105 asked of capture. `SKILL.md` points at
-the generated text rather than restating the contract — one prose source.
+**`<bank>/_state.md` is a *cursor* into the graph, never a copy of it** — YAML frontmatter plus a
+short wikilinked body, ≤ 6 KB, zero LLM, deterministic. Written only by
+`state_dictionary.refresh`. A digest of the `entities`/`inbox`/`episodes`/`bank` sync components is
+stored as `inputs_version`; unchanged inputs mean no write. **Never `git_head`** — its own
+`State snapshot` commit would self-invalidate.
 
-### Save-with-reason (G71)
-A Telegram `/save <url> <reason…>` writes the reason twice: verbatim as a
-`## Saved because` section on the media episode (so Stage-1 extraction mines its
-concepts exactly as it would conversation text), and as a `saved-because` claim on
-the media entity — `observer: rodrigo`, `source_trust: user_stated`,
-`object_kind: literal`, `origin: telegram`. `literal` keeps it out of the graph:
-Stage 5.7 projects only node-object claims into edges. `telegram` is deliberately
-**not** in `claim_reconciler.is_human`'s manual-assertion channel set, so the claim
-reads as user-stated without inheriting manual-edit overwrite protection — a bot
-webhook is not an authenticated manual-assertion channel. `agentic_write.write_claim`
-gained an optional `origin=` for exactly this; omitting it is unchanged (falls back
-to `manual_edit` for `observer="rodrigo"`, else `mcp`).
+Every regeneration that touches disk goes through `state_dictionary.refresh_and_commit`, which
+commits `_state.md` ALONE (`commit_paths`, never `git add -A`) as `State snapshot <date>` /
+`Cicada-Author: cicada`. **The read path commits too, on purpose:** a projection left dirty "for
+Sleep's tail" gets swept into the next `git add -A` writer's commit under the wrong author — the
+G85-class smear. `sleep.next_at` is computed per request, never persisted: in the file it advanced
+every day and made every idle night commit.
 
-### Link enrichment & site recon (Stage 5.57 + the nightly backfill, G102)
-Two passes describe and relate saved links, both in `api/services/link_enrichment.py`
-(+ `link_recon.py`). **In-cycle Stage 5.57** (`enrich_media_links`, after Stage 5 on a night
-with episodes) handles the cycle's fresh media: §2a promotes a substantive stored
-`## Description` (≥ `link_enrich_min_desc_len`, a sentence end) into a `describes` claim with
-zero LLM; §2b fetches + summarizes a thin one, capped at `link_enrich_max_per_cycle`; plus
-`recommends` claims and transclusion for a person sharing the episode. **The backfill**
-(`link_enrichment.backfill`) exists because that pass only ever ran after Stage 5, took the 20
-most-recent pages, and never retried an `enrichment_attempted` page — a bulk-imported bank
-measured 603 media pages, 370 with a description, 210 substantive, zero `describes` claims. It
-runs on the engine-independent Sleep tail (idle nights too, in the connector poll's
-clean-tree-guarded branch, `link_enrich_backfill_per_cycle`/night, oldest-imported first) and
-on demand via `POST /maintenance/enrich-links?limit=N` (409 while Sleep runs). *Done* is a
-`describes` claim on the page; a failed/blocked fetch is `fetch_status` + `fetch_attempted_at`
-and retried after `link_enrich_fetch_retry_days` (30); consent interstitials and login walls
-(`classify_page`, G86 + the ToS rail) are retired as `enrichment_status: junk` without a byte
-fetched; a fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth, and a block is
-never retried with different headers. A §2b summary lands in the body's `## Description`
-(`description_source: summary`) so the Feed preview and entity card render it, AND in the claim
-(`authored_by: <model>`); a §2a reuse claim is `authored_by: cicada`. **Recon (the G102 cheap
-slice)** runs in the same driver: the EXISTING Stage-1 prompt over `title + ## Description`,
-`link_recon_batch_size` (8) links per call, each entity attributed to the links whose card text
-contains its name/alias (ungrounded names are dropped), routed through the EXISTING Stage-2
-judgment alone (`entity_resolver.match_existing` — direct/fuzzy then the LLM judge; never
-`resolve()`, which would create pages and open clarifications from bookmark blurbs). A `same`
-verdict against an on-disk entity writes an `about` claim on the **media page** (`object_kind:
-node`, `origin: sleep/link_recon`) + the id in its `related:`; Stage 5.7 projects it into
-`graph_edges.yaml`; the target page is never touched (a blurb mentioning a tool is not the
-user referencing it — bumping it would defeat decay). An unmatched mention becomes a pending
-candidate (promotion rung 1), never a page. Each run is one `commit_paths` commit —
-`Link enrichment <date>`, `Cicada-Author: cicada` when no model ran, else the models used
-(the judge model is added only when `judge_calls` > 0, which is counted by watching the
-Stage-2 judge cache grow — change that cache contract and the trailer silently drops).
-Engine failures abort the LLM tiers and leave pages unmarked (R9); on the scheduled tail the
-engine resolves byok before the registry is touched (ruling 4), and
-`CICADA_ALLOW_CONNECTOR_FETCH` gates only the tail's default fetch. Media pages are evergreen,
-and `about` is multi-valued, so nothing here decays or conflicts. `GET /sources` rows carry
-`description` (280-char excerpt) and `about` (the ids). Progress marker (report only):
-`$CICADA_HOME/link_enrich/<bank>.json`. The endpoint returns `409` both while a Sleep cycle is
-running (R11) and while another `enrich-links` call is still running (a process-local
-`asyncio.Lock` — two overlapping clicks would stage each other's half-written pages under their
-own trailers). `GET /sources`'s excerpt and the backfill's own description read both go through
-`_extract_description_section`, which strips the ```claims fence first — `parse_sections`
-ends a section at EOF, and `## Description` is the last H2 on every backfilled page. Recon
-never overwrites an existing pending candidate (`pending_by_name` is consulted first): a
-conversation-originated entry carries provenance Stage 2 merges on promotion, and the blurb's
-thinner version must not erase it. `llm_calls` counts answered calls only — an engine abort on
-the first recon batch leaves the run's reuse-tier writes `cicada`-authored, engine-less.
+**The handshake** (`api/services/handshake.py`) turns `_state.md` + a fixed contract into ≤ 1,800
+tokens of primer: what Cicada is, a per-harness prelude (the contract never varies), the contract
+itself, the now-view, and capability notes. Delivered three ways — the MCP `initialize` result's
+`instructions`, the `cicada_handshake` tool, and `GET /handshake`. **R12: a primer naming an
+argument the schema rejects is a bug** — every argument it names must exist in the tool schema.
+`SKILL.md` points at the generated text rather than restating the contract — one prose source.
 
-### Connector seam (G71)
-Pinterest, Reddit, and X (Twitter) each get a peer adapter module under
-`api/services/connectors/` — not one bespoke integration per platform, but a
-documented module-as-adapter contract (the required surface is spelled out in
-`api/services/connectors/__init__.py`'s docstring: `CHANNEL_ID`, `LABEL`,
-`FIELDS`, `LOGIN_MODE`, `CHANNEL_NOUN`, `SECRET_NAMES`, `is_connected()`,
-`credential_fields()`, `forget()`, `sync()`, plus `authorize_url()` /
-`exchange_code()` for an OAuth adapter). `ADAPTERS` — keyed by `CHANNEL_ID` — is
-the single roster every consumer (the `connectors` router, `channel_registry`'s
-`CHANNEL_IDS` splice, and the Sleep-tail poll) iterates instead of re-declaring
-its own copy of "which connectors exist." `base.run_sync` is the shared driver
-every adapter's `sync()` delegates to: the not-connected skip, the
-`CICADA_ALLOW_CONNECTOR_FETCH` background-fetch gate (opt-OUT, on by default —
-gates only an unattended Sleep-tail poll, never a user-initiated `sync_now`/OAuth
-call), the try/except that turns any failure into a recorded-not-raised error
-(`sync_state.record_error`; a gate-skipped poll is recorded distinctly via
-`sync_state.record_skip`), and the `media_ingestor.ingest_batch` call
-(chunked in `MAX_BATCH`-sized slices so a >2,000-item pull is never silently
-truncated) all live there once. Credentials are stored under `SECRET_NAMES` in
-`~/.cicada/secrets.env` (0600) and removed by the shared `base.forget()`, so a
-FIELDS-vs-what's-actually-stored drift can never orphan a secret on disconnect.
-A credential save, a disconnect, and a completed OAuth exchange all call
-`sync_state.record_credentials_changed` so the `sources` SSE component ticks
-even though the change itself landed outside `memory_path`. X is billed
-pay-per-use ("owned reads" at ~$0.001/read, no subscription tier) — its sync
-result carries an additional `resources_read` count so the cost is stated
-plainly rather than hidden behind a plain "connected" checkbox.
+**A reader that finds `_state.md` stale or absent must still work:** every field has a live twin
+(`/status`, `/inbox`, `/conversations/recent`, `cicada_repo_context`).
 
-### sqlite-vec (Vector Index)
-Lightweight on-device semantic search (`api/services/vector_index.py`, replaces the earlier LEANN wrapper — `leann_indexer.py` has been deleted). Embeddings are stored, not recomputed at query time, so search is a single in-process ANN lookup with no latency tax. Default backend is **EmbeddingGemma-300M** (768-dim, on-device, gated HF model) with asymmetric query/document embedding prompts; the index is *derived and disposable* — rebuilt from entity/episode markdown by the Sleep cycle, and can be deleted and regenerated at any time. Runs locally, zero cloud costs for the default backend.
+### sqlite-vec (vector index)
+`api/services/vector_index.py`. Embeddings are **stored, not recomputed at query time**, so search
+is one in-process ANN lookup. Default backend is EmbeddingGemma-300M (768-dim, on-device) with
+asymmetric query/document prompts. The index is **derived and disposable** — rebuilt by Sleep from
+markdown, safe to delete at any time.
 
 ### Telemetry ledger (`~/.cicada/telemetry/`)
-Append-only JSONL under `~/.cicada/telemetry/events-YYYY-MM.jsonl` (machine-global, never in a bank or git), fed by `providers.resolve_llm_fn` (every LLM call is now routed through it), Sleep `_finalize`, and MCP `cicada_write_claim`. `CICADA_TELEMETRY=off` disables recording. The `read` kind (G124) records an entity id and a surface enum (`app`, `mcp`, `mcp-recall`) when a page is opened in the app or served/suggested by `cicada_recall_detail`/`cicada_recall` — never a query or page text — and is excluded from connection rollups like the G113 feedback kinds (`telemetry.NON_SPEND_KINDS`). It is filed in the sibling `reads-YYYY-MM.jsonl` (`telemetry.ledger_file`), which `sync_service.components["telemetry"]` deliberately does not stat: the app maps that component onto its `.consumption` domain and refetches every `/consumption/*` endpoint on a tick, so a card open must not move it; `read_events` reads both prefixes as one ledger and `GET /contributors/top-entities` folds the reads file's mtime into its own ETag.
+Append-only JSONL, machine-global, **never in a bank or git**. `CICADA_TELEMETRY=off` disables it.
+**IDs and enums only — never claim text, query text or answer text.** The `read` kind (G124) records
+an entity id and a surface enum, filed in a sibling `reads-*.jsonl` that
+`sync_service.components["telemetry"]` deliberately does not stat — the app maps that component onto
+its consumption domain, so a card open must not move it.
 
-### Entity logos (`~/.cicada/logos/<bank>/`)
-`api/services/logo_service.py` resolves an entity page to a domain (explicit
-`logo:` frontmatter → a `url`-kind `sources:` entry → the first `## Links` URL →
-`media.url` → a `website` claim or a single-token-name `.com` guess, and never
-for a `person`), fetches an icon keylessly (`apple-touch-icon` → the homepage's
-`<link rel=icon>` → DuckDuckGo's icon service, 4 s, ≤ 512 KB, ≥ 16 px), and
-caches the result — hits for 30 days, misses for 7 — under
-`$CICADA_HOME/logos/<bank>/` with a `meta.json` index. **Never inside a bank:**
-a logo is a derived artifact of the outside world, not versioned memory.
-`GET /entities/{id}/logo` serves it (first request fetches, bounded by a
-semaphore of 4); `GET /graph` only reads the index to set `has_logo` and never
-touches the network. `CICADA_ALLOW_LOGO_FETCH=off` disables fetching entirely —
-the test suite runs that way and injects fetchers instead.
+### Git — versioning and provenance
 
-### Git (Versioning & Provenance)
-Every Sleep cycle commits with **structured commit messages** for machine-parseable provenance:
+Every Sleep cycle commits with a **machine-parseable message**:
 
 ```
 Sleep cycle 2026-03-20
 
 entities/recruiting-thread.md: updated (source: ep_2026-03-20_002, trigger: sleep/extraction)
-entities/recruiter-contact.md: created (source: ep_2026-03-20_002, trigger: clarification/resolved)
 nudges/nudge_005.md: resolved (trigger: user/companion_app)
 
 Cicada-Author: gpt-5.4-mini
-Cicada-Author: gpt-5.4-nano
+Cicada-Engine: claude-cli
+Cicada-Session: <id>
 ```
 
-**Trigger types:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`, `sleep/state`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`
+**Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
+`sleep/state`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`.
 
-**Commit-author trailers (`Cicada-Author:`).** Every Cicada write records *which agent
-authored it* as one or more `Cicada-Author:` git trailers appended after a blank line at the
-end of the commit body. The value is a **model id** (e.g. `gpt-5.4-mini`; the Stage-2
-disambiguation model is recorded too when distinct) for sleep-cycle/agent writes, or the
-literal **`user`** for manual/companion-app/media-save writes; legacy untrailered commits
-are attributed to **`unknown`**. A third literal, **`cicada`**, is reserved for *system
-maintenance* writes the system performs on its own behalf with no model and no user in the
-loop — the one-shot inbox dedup migration (`inbox_migration._commit_dedup`, trigger
-`inbox/dedup`), the one-shot decay-class backfill (`decay_migration.backfill_decay_classes`),
-and, every Sleep cycle, the split-out decay-only commit (G85, below) and the `State snapshot` commit
-of `_state.md` (G53, above). It classifies as an
-author like any other, so it shows up in
-`GET /contributors` as a distinct, provider-less contributor. The trailer carries no entity id, so it is **inert to the
-entity-line parsing** above — extend it, don't break it. Built by
-`git_service.build_commit_message(subject, body_lines, authors=...)` and parsed by
-`git_service._parse_authors`. This powers `GET /contributors` (repo-wide per-author
-commit/file/entity counts + last-active) and the per-commit `author` field on
-`GET /entities/{id}/history` — a memory system honest about which model authored each belief.
+**Three trailer families, all inert to entity-line parsing — extend them, don't break them:**
 
-**G85 — decay changes get their own `cicada`-authored commit.** `conflict_resolver`'s
-temporal-decay math (`trigger: sleep/decay` — the `archive`/`decay_nudge`/`decay` actions) runs
-over EXISTING entities a Sleep cycle never referenced: no LLM call, no source episode, pure
-confidence arithmetic. Folding it into the same commit as everything else stamped it with
-whichever model happened to run Stage 1/2 that cycle, inflating that model's `GET /contributors`
-counts for arithmetic it never touched. `sleep_cycle._finalize` now splits any `sleep/decay`
-entity lines into their OWN commit — subject `Sleep cycle <date> (decay)`, `Cicada-Author: cicada`,
-touching only the entity files those changes wrote — committed *before* the cycle's main commit so
-the main commit's `git status` scan never sees them. Everything a decay change indirectly causes
-(e.g. a `decay_nudge`'s own new inbox item) still rides in the main commit; only the
-entity-frontmatter line itself moves. A decay change that can't be split out for any reason (its
-entity file is missing on disk, or the split commit itself fails) degrades — folds back into the
-main commit exactly as it would have before this fix — rather than aborting the whole cycle.
-**Known asymmetry (disclosed, not fixed):** the split is path-granular, not hunk-granular —
-`commit_paths` stages the whole entity file — so if Stage 5.56's claim write-back also touches that
-same file this cycle (a subject can be claim-touched independently of `referenced_ids`), the whole
-file, claim content included, lands in the `cicada` commit. This is the inverse of the bug being
-fixed; narrow in practice (needs a subject to be both decay-eligible and claim-touched in the same
-cycle) and accepted rather than fixed, since doing better needs hunk-level rather than file-level
+- **`Cicada-Author:`** — *which agent authored this*. A model id for agent writes, the literal
+  **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits, and
+  **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
+  migrations, the split-out decay commit, the `State snapshot` commit). Built by
+  `git_service.build_commit_message(...)`, parsed by `_parse_authors`. Powers `GET /contributors`.
+- **`Cicada-Engine:`** — exactly one per main commit (`claude-cli|ollama|litellm`), **omitted
+  entirely rather than guessed** when no LLM ran. Read back via git's own
+  `%(trailers:key=…,valueonly)` directive, not a Python parse of `%b` — pulling the whole body to
+  extract one line grew the endpoint from 787 B to 378 KB for 8 commits on the live bank.
+- **`Cicada-Session:`** — one line per distinct conversation consolidated, capped at
+  `MAX_SESSION_TRAILERS` (50) by the call site, not the builder. User-action commits stay
+  session-less.
+
+**G85 — decay gets its own `cicada`-authored commit.** Temporal decay runs over entities a cycle
+never referenced: no LLM, no source episode, pure arithmetic. Folding it into the main commit
+stamped it with whichever model happened to run Stage 1/2, inflating that model's contributor counts
+for work it never did. `_finalize` splits `sleep/decay` entity lines into their own commit —
+`Sleep cycle <date> (decay)`, `Cicada-Author: cicada` — committed *before* the main commit so the
+main commit's `git status` scan never sees them. A split that can't happen degrades back to the old
+behavior rather than aborting the cycle. **Known asymmetry, disclosed not fixed:** the split is
+path-granular, not hunk-granular, so a subject that is both decay-eligible and claim-touched in the
+same cycle lands whole in the `cicada` commit. Narrow in practice; fixing it needs hunk-level
 staging.
 
-**Commit-engine trailer (`Cicada-Engine:`).** A Sleep cycle's main commit also carries exactly one
-`Cicada-Engine: claude-cli|ollama|litellm` line — which engine drove that cycle's extraction/
-resolution/conflict/skills pipeline, mirroring `/sleep/status`'s `lastEngine` field into git history
-so `GET /sleep/history` can report it too. Singular (a commit has one engine, unlike the
-author/session lists) and omitted entirely — never a guessed value — when no LLM engine ran at all,
-which is always true of the `cicada`-authored decay-only commit above. Built by
-`git_service.build_commit_message(..., engine=...)`. Read back by `get_sleep_history` via git's own
-`%(trailers:key=Cicada-Engine,valueonly,separator=)` pretty-format directive rather than a Python-side
-parse of the full body (`%b`) — pulling the whole body just to extract one line grew the endpoint's
-payload with the size of every commit message ever written (measured on the live bank: 787 B -> 378 KB
-for 8 commits). Inert to entity-line parsing by the same contract as the other two trailers.
-
-**Commit-session trailers (`Cicada-Session:`).** Alongside *which model* wrote a belief,
-a Sleep commit records *which conversations* it consolidated: one `Cicada-Session: <id>`
-line per distinct id, in the same trailer block, after the `Cicada-Author:` lines. The id
-is a Claude Code session uuid (stamped at capture by the MCP seam) or G20's `source_id`
-for an imported chat thread. Built by `git_service.build_commit_message(..., sessions=...)`
-and parsed by `git_service._parse_sessions`; capped at `MAX_SESSION_TRAILERS` (50) by the
-`sleep_cycle._finalize` call site, not by the builder. Inert to entity-line parsing by the
-same contract as `Cicada-Author:` — it carries no entity id. Surfaced as `sessions` on
-`GET /entities/{id}/history` entries and `GET /contributors/commits` rows. User-action
-commits stay session-less: they are `Cicada-Author: user` writes with no conversation.
-
-**Entity-level provenance** uses `git blame`:
-- `git blame entities/recruiting-thread.md` → which commit wrote each current line
-- Each commit's structured message provides: source episode, trigger type, timestamp
-- The API enriches blame output with parsed commit metadata to produce a per-field timeline
-
-**Repo-level history** uses `git log`:
-- `git log` on the whole repo → chronological history of all Sleep cycles (for Sleep Cycle Dashboard)
-- This is repo-wide, not per-entity
-
-No changelog in frontmatter — git handles all history. Zero storage overhead, no growing fields.
+**Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
+history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
+overhead, no growing fields.
 
 ---
 
 ## MCP "Bookworm" Tool
-Interface between any LLM and the memory system. On query:
-0. On `initialize` the server returns `instructions` — the G75 handshake (`_state.md` + the contract, see
-   Live state + handshake above) — and `cicada_handshake` returns the same text on demand
-1. Checks `memory/inbox/` for relevant pending items
-2. Searches the sqlite-vec index for semantically similar chunks
-3. Searches markdown graph for structurally related entities
-4. LLM follows wikilinks for relational depth
-5. Progressive disclosure: cluster pages → entity pages → episodic sources
 
-### Proactive Behaviors (Awake Phase)
-When a new conversation starts, Bookworm checks:
-1. **Pending nudges**: Surfaces relevant decay or conflict nudges based on conversation context (only topic-related, not all)
-2. **Clarification queue**: If conversation touches an entity with a pending clarification, the agent asks naturally within the flow
-3. **Related saved resources**: sqlite-vec search over ingested bookmarks, links, papers
-4. **Relational inference**: LLM follows wikilinks across entity pages for deeper connections
+The interface between any LLM and the memory system. On `initialize` the server returns the G75
+handshake as `instructions`. On query: check `memory/inbox/` for relevant pending items → search the
+vector index → search the markdown graph → follow wikilinks for relational depth → progressive
+disclosure (cluster pages → entity pages → episodic sources).
+
+**Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
+clarification naturally in the flow when the conversation touches its entity, and offer related
+saved resources.
 
 ---
 
 ## Companion App
 
-### What It Is
-The user-facing interface for inspecting, managing, and curating the knowledge graph. Makes the memory system observable rather than a black box. The user sees exactly what the agent "knows," corrects errors, resolves ambiguities, and manages entity lifecycles.
+The user-facing management layer for inspecting and curating the graph — it makes the system
+observable rather than a black box. **The app is NOT the primary interaction surface** — that's the
+chat, via MCP.
 
-**The app is NOT the primary interaction surface** — that's the chat (via MCP). The app is the management layer.
+**Stack:** native SwiftUI macOS app; FastAPI backend at `localhost:8000` spawned as a child process
+on launch (`Process()`) and terminated on quit; graph rendered with d3-force in a `WKWebView`.
+SwiftUI→d3 via `evaluateJavaScript()`, d3→SwiftUI via `postMessage()`.
 
-### Technical Stack
-- **Frontend**: Native macOS app in SwiftUI
-- **Backend**: FastAPI (Python), running locally at `localhost:8000`
-- **Graph rendering**: d3-force, embedded in a `WKWebView` inside the SwiftUI app
+**Ruling (G109, 2026-09-02) — d3-force stays.** Evaluated against sigma.js/ForceAtlas2, Pixi,
+cosmos, ngraph and d3-force-3d at ~1,900 nodes: the two G109 symptoms were three local bugs in how
+`graph.js` drove d3-force, not a library problem. The only flip trigger is an in-app p95 frame time
+above 16.7 ms on the live bank, or a graph well past ~10k nodes. **Two rules follow:**
 
-**Why d3-force:** Best ecosystem for node coloring, edge labels, zoom/pan, click handlers. More than sufficient for personal-scale graphs (hundreds of nodes). Obsidian uses Pixi.js for large scale — not a concern here. **Ruling (G109, 2026-09-02):** evaluated against sigma.js/ForceAtlas2, Pixi, cosmos, ngraph and d3-force-3d (sigma, ngraph and d3-force-3d measured; Pixi and cosmos assessed from source) at ~1,900 nodes, the two G109 symptoms were three local bugs in how `graph.js` drove d3-force (an un-alpha-scaled custom force, a release-path reheat, nothing opposing charge on degree-0 nodes), so d3-force stays; the only flip trigger is an in-app p95 frame time above 16.7 ms on the live bank after the phase-2 loop and phase-3 isolate exclusion, or a graph well past ~10k nodes. Two rules follow: **every custom force multiplies by the `alpha` d3 passes it** (a guard that only removes energy is the one exception), and **the release path never bumps alpha** — a throw coasts on velocity, not on a hot graph. `app/CicadaApp/Tests/graph/graph-physics.test.js` (real d3, real `graph.js`) is the regression net; a KE/node plateau at tick 400 is the signature of a force that broke the first rule.
+1. **Every custom force multiplies by the `alpha` d3 passes it** (a guard that only removes energy
+   is the one exception).
+2. **The release path never bumps alpha** — a throw coasts on velocity, not on a hot graph.
 
-### Communication Patterns
-- **Backend↔SwiftUI**: Standard HTTP via `URLSession` / Swift `async`/`await`. Views backed by `@Observable` ViewModels that call FastAPI endpoints.
-- **SwiftUI→d3**: `WKWebView.evaluateJavaScript()` to push graph data or trigger actions
-- **d3→SwiftUI**: `window.webkit.messageHandlers.<handler>.postMessage()` for node tap events etc.
+`app/CicadaApp/Tests/graph/graph-physics.test.js` (real d3, real `graph.js`) is the regression net;
+a KE/node plateau at tick 400 is the signature of a force that broke rule 1.
 
-### Backend Process Management
-SwiftUI app spawns the FastAPI server as a child process on launch using Swift's `Process()` API (`uvicorn api.main:app --port 8000`). User never manually starts the backend. On app quit, child process is terminated.
+**Sync engine.** One `Store` holds a `Snapshot` per domain, hydrated instantly from a per-bank
+on-disk cache before the first network round-trip, so the app renders real data cold even with the
+backend down. A `SyncEngine` holds one SSE connection to `GET /sync/events`, reconnecting with
+backoff and falling back to polling while disconnected; each `version` event refreshes only the
+changed domains, always with `If-None-Match` so an unchanged domain costs a 304. View models are
+thin projections and **never blank** — always last-known-good. Writes go through a `Mutation`:
+optimistic apply, rollback with a toast on failure. **The graph receives deltas, not a full
+re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
 
-### Sync engine
-A single `Store` holds one `Snapshot` per domain (graph, inbox, sources, sourcesOverview, channels, contributors, origins, status, banks, feeds, calendars, connections), hydrated instantly from a per-bank on-disk `SnapshotCache` (`~/Library/Application Support/Cicada/cache/<bank>/`) before the first network round-trip, so the app renders real data cold, even with the backend down. A `SyncEngine` holds one long-lived SSE connection to `GET /sync/events`, reconnecting with backoff and falling back to polling `GET /sync/version` while disconnected; each `version` event diffs against the last-seen vector and refreshes only the changed domains, every refresh sending `If-None-Match` so an unchanged domain costs a 304. View models are thin projections over `Store` snapshots (never blank — always the last-known-good data). Writes go through a `Mutation` protocol: optimistic apply to the local snapshot, rollback with a toast on failure. The graph view receives **deltas** (added/updated/removed node ids, each keyed by a `content_hash`) rather than a full re-layout, so d3 node positions are preserved across a Sleep cycle or a live edit. The sidebar is six rows — Graph, Clusters, Feed, Sleep, Inbox, **Sources** — reachable via ⌘1–6 (with matching accessibility labels); Feed carries the capture channels and the `+`/⌘N add-source sheet, Sleep carries the episode queue, and **Sources (G124, replaced Activity 2026-09-03)** opens on *where memory comes from*: a grid of clickable cards from `GET /sources/overview` (one per harness, chat export, browser, social/feed/messaging channel or unknown origin — conversations, items and credited entities, last activity, connected state), each opening a per-source page (a harness's conversations with a title filter and a **Resume** button when the backend says `resumable` — `POST /conversations/{id}/resume`, transcripts never read; a channel's state, Sync/Poll now, folder/device counts and its Feed items), then Contributors (the attribution table plus a GitHub-style calendar per `Cicada-Author` from `GET /contributors/calendar`), then a persisted **Advanced** toggle holding counts only — memory writes, sleep runs, in-session writes, streak, most-written (git) and most-read (the ids-only `read` ledger kind) entities. **Ruling (2026-09-03): prices and token usage are not shown anywhere in the app** — no cost tiles, `$`/token columns or cost-per-day chart; the `/consumption/*` endpoints and the telemetry ledger are unchanged for future use. Sections are headers on one scrolling page; there is no segmented control and no horizontal origins strip. Setup lives in a native `Settings{}` scene (⌘, or the sidebar's footer gear, which dots when a subscription login expires) holding Agents and Plans & keys. `AppTab` raw values are the persisted identity of a tab, and `AppTab.restored(from:)` maps the six retired ones (`Capture`, `Contributors`, `Usage`, `Activity`, `Connections`, `Connect`) onto the pages that inherited them, so an older selection never traps. Entity logos are cached on disk, and ⌘K opens an Ask panel (G52) that sends a question to `POST /ask` and renders the answer with clickable wikilink citations. Feed's `+`/⌘N sheet (G71, re-layered 2026-09-02) is a family → member → flow catalog: family tiles wear their members' marks; member tiles route either to a `ConnectorSetupPanel` (Connect — Pinterest, Reddit, X) or an export-drop overlay (Import file), both reading live channel state and a real-time `?preview=true` parse preview before the user commits to an import. The bookworm mascot (G107) is one code-defined 24×24 palette sprite set (`MenuBar/BookwormSprites.swift`, nine colours, every state ≥ 2 frames so it is always moving, `error` for a failed cycle) rendered nearest-neighbour in colour by `BookwormRenderer` — the menu bar shows exactly one animated item with the inbox count baked into the sprite, and the same frames drive `BookwormView` on Feed, Connect, Inbox, the import overlay and the Sleep page (where the bracket status line is the caption), holding frame 0 under Reduce Motion.
+**Ruling (2026-09-03): prices and token usage are not shown anywhere in the app** — no cost tiles,
+no `$`/token columns, no cost-per-day chart. The `/consumption/*` endpoints and the ledger are
+unchanged for future use.
+
+**Navigation.** Six sidebar rows (⌘1–6): Graph, Clusters, Feed, Sleep, Inbox, Sources. Setup lives
+in a native `Settings{}` scene (⌘,). ⌘K opens the Ask panel. `AppTab` raw values are the persisted
+identity of a tab, and `AppTab.restored(from:)` maps retired ones onto the pages that inherited
+them, so an older selection never traps.
 
 ---
 
 ## API Design
 
-Grew past "one endpoint per screen" as the companion app matured. 20 routers currently mounted
-in `api/main.py` (`graph`, `search`, `ask`, `inbox`, `status`, `nudges`, `clarifications`,
-`entities`, `claims`, `contributors`, `origins`, `sleep`, `conversations`, `sources`, `banks`,
-`local_refs`, `capture`, `connectors`, `connections`, `sync`), plus repo-context and maintenance endpoints:
+20 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
-Every endpoint except `GET /healthz`, `POST /capture/telegram`, and `GET /sources/connectors/{id}/callback`
-for an OAuth adapter (Pinterest and X today; Reddit is credentials-only and has no callback route) requires
-`Authorization: Bearer <token>` — the token lives at `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides;
-`CICADA_API_AUTH=off` for tests). The Telegram webhook is exempt because Telegram's servers cannot send the
-header; today it is gated only by Telegram being configured (`CICADA_TELEGRAM_BOT_TOKEN`), not by a
-per-request secret — see G57. Each OAuth callback lands in the user's own browser, which likewise cannot
-send the header, so it is gated instead by its own single-use, 10-minute `state` nonce minted by
-`POST /sources/connectors/{id}/authorize` (`api/services/auth.py::_is_oauth_callback_path` resolves the
-exemption live against the connectors registry rather than hardcoding one literal per adapter).
+**Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, and an OAuth adapter's
+`GET /sources/connectors/{id}/callback` requires `Authorization: Bearer <token>`, from
+`~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests). The Telegram
+webhook is exempt because Telegram's servers cannot send the header — today it is gated only by
+Telegram being configured, not by a per-request secret (**see G57**). Each OAuth callback lands in
+the user's browser, which likewise cannot send the header, so it is gated by its own single-use,
+10-minute `state` nonce; `auth.py::_is_oauth_callback_path` resolves the exemption live against the
+connectors registry rather than hardcoding a literal per adapter.
 
-`/graph`, `/inbox`, `/contributors`, `/sources`, `/sources/channels`, `/origins`, and `/banks` all support ETags: each response carries an `ETag` header, and a request sent with `If-None-Match` gets back a `304 Not Modified` (empty body) whenever nothing in that domain changed, letting the app skip re-parsing and re-rendering large payloads (`/graph` on the live bank is ~1.8 MB).
+**ETags.** `/graph`, `/inbox`, `/contributors`, `/sources`, `/sources/channels`, `/origins` and
+`/banks` all return an `ETag` and honor `If-None-Match` with a `304`. This matters: `/graph` on the
+live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET /inbox` ETags over
+`inbox`+`entities`+`episodes`, and `VersionVector.swift` maps `entities` and `episodes` onto
+`.inbox`; change one half, change both.
 
-```
-GET  /graph                               → nodes + edges JSON for d3 (incl. synthetic repo: nodes, has_logo)
-GET  /search                              → cross-graph search (entities + episodes)
-POST /ask                                 → grounded NL answer over the graph, with citations + gap analysis
-GET  /inbox                               → unified pending-item queue (nudges + clarifications + merge suggestions)
-POST /inbox/{id}/resolve                  → resolve a pending inbox item (accepts optionKey / answer / remindDays; action "defer" hides it until remind_after)
-GET  /nudges                              → DEPRECATED thin projection over /inbox (kept for compat)
-POST /nudges/{id}/resolve                 → DEPRECATED — see /inbox/{id}/resolve
-GET  /clarifications                      → DEPRECATED thin projection over /inbox (kept for compat)
-POST /clarifications/{id}                 → DEPRECATED — see /inbox/{id}/resolve
-GET  /healthz, GET /status                → backend health + summary status
-GET  /entities/{id}                       → single entity page
-GET  /entities/{id}/history               → git blame on entity file, enriched with structured commit metadata
-                                            (+ per-commit author from Cicada-Author trailer; ?include_diff=true inlines diffs)
-GET  /entities/{id}/history/{commit}/diff → unified diff for that entity file at that commit (G69):
-                                            ordered `lines: [{kind: context|add|remove|hunk, oldLine,
-                                            newLine, text}]` from `git show -U4 --first-parent`, so
-                                            unchanged context is shown with line numbers, GitHub-style.
-                                            A file's FIRST commit has no parent — `git show` diffs it
-                                            against the empty tree, so it comes back as all-adds; a MERGE
-                                            commit needs `--first-parent`, else git emits a combined
-                                            (`--cc`) `@@@` diff the parser can't read and the endpoint
-                                            silently returns nothing. `added`/`removed`/`truncated` are
-                                            kept alongside for back-compat (an older app build, or a
-                                            payload cached pre-G69, falls back to those two blocks).
-                                            Capped: DIFF_MAX_LINES (400) per flat side,
-                                            DIFF_MAX_CONTEXT_LINES (2000) for `lines`. `truncated` is the
-                                            UNION of the three caps; `linesTruncated` is specifically
-                                            "the ordered list was cut" and is what a client rendering
-                                            `lines` shows its "diff clipped" banner on.
-                                            (rendered inline by the app's shared DiffView — entity History rows
-                                             and the Contributors drill-down both expand into it)
-GET  /entities/{id}/location              → directory-entity listing
-GET  /entities/{id}/context               → entity + related context bundle
-GET  /entities/{id}/repos                 → declared repos: frontmatter + live-resolved git context per repo
-PATCH /entities/{id}/repos                → rewrite the repos: frontmatter key
-PUT  /entities/{id}/decay                 → set decay class {decayClass: evergreen|durable|active|volatile}
-GET  /entities/{id}/logo                  → cached entity logo image (ETag, max-age=86400; 404 = draw a monogram)
-GET  /entities/{id}/sources               → declared "where to check this fact" sources (G61)
-POST /entities/{id}/sources               → append a source {ref, kind?, predicate?}; kind inferred
-POST /entities/{id}/read                  → record an ids-only `read` ledger event {surface: app|mcp} (G124);
-                                            404 for an unknown page; nothing written to the bank
-DELETE /entities/{id}/sources/{index}     → remove one source
-GET  /entities/{id}/claims                → claim layer for an entity (+ evidence spans, G118)
-GET  /entities/{id}/timeline              → bi-temporal claim timeline (+ evidence spans, G118)
-GET  /transclude                          → transclusion payload for embedding one page inside another
-GET  /episodes/{id}/span                  → slice a stored document's evidence text at [start,end) with
-                                            context (default 240, max 2000); `hash=` → `stale`; `kind`
-                                            derived; 404 unknown doc, 422 bad range (G118 slice 1)
-GET  /state                               → the parsed _state.md (snake_case, the on-disk schema) + per-request
-                                            `resumable` and `stale`; lazy refresh; `?refresh=true` probes repos;
-                                            ETag over entities/inbox/episodes/git_head + the file mtime (G53)
-GET  /handshake?client=                   → {text, variant, state_present, hook_pointer} — the primer (G75);
-                                            no ETag, never refreshes the file
-GET  /contributors                        → repo-wide per-author (model/user) commit/file/entity counts + last-active
-GET  /contributors/commits?author=&limit= → one author's recent commits (+ entities touched) for the diff drill-down
-GET  /contributors/calendar?author=&weeks=  → one Cicada-Author's memory writes per UTC day (the /consumption/calendar
-                                            shape, levels from writes alone) — the per-model GitHub calendar (G124)
-GET  /contributors/top-entities?limit=&range= → most-written entity pages (git, last 2,000 commits — `commitsScanned`
-                                            says so) + most-read (ids-only `read` ledger events) — counts only (G124)
-GET  /origins                             → origin-harness provenance aggregation (G9)
-POST /sleep/trigger                       → manually trigger the sleep cycle
-GET  /sleep/status, /sleep/history,
-     /sleep/episodes, /sleep/schedule     → sleep status/history/queue/schedule
-PUT  /sleep/schedule                      → update the sleep-cycle schedule
-POST /conversations/upload                → ingest a conversation export file
-GET  /conversations/recent                → conversations that wrote to memory (MCP sessions +
-                                            imports), newest first; ETag'd; `resumable` per-request.
-                                            CAPPED (limit ≤ 200) — never a membership test;
-                                            `?harness=`/`?origin=` filter BEFORE the cap (G124)
-GET  /conversations/{id}                  → one conversation by exact id, resolved against the
-                                            whole bank (404 = the bank truly has no episode for it)
-POST /conversations/{id}/resume           → validated `claude --resume` descriptor (400 bad id /
-                                            404 unknown / 409 transcript_gone). Transcripts are
-                                            never read — isfile() only.
-POST /sources/save, /sources/upload,
-     /sources/rss, /sources/sync-bookmarks → capture links/files/RSS/bookmarks into memory
-                                            (sync-bookmarks: `folders: [str]` path prefixes; `?preview=true`
-                                             returns the folder tree with leaf counts, stages nothing)
-POST /sources/sync-safari-tabs            → Safari iCloud tabs from CloudTabs.db bytes the app read
-                                            (`safariTabsDbB64`, optional `safariTabsWalB64`, `devices`);
-                                            `?preview=true` → per-device counts, stages nothing
-POST /sources/upload?preview=true         → parse an export WITHOUT staging anything:
-                                            {recognized, platform, total,
-                                             collections:[{name,kind,count}], warnings}
-                                            (+ ?include_history=true opts TikTok browsing history in)
-GET  /sources/connectors                  → connector status (pinterest/reddit/x): fields present, never values
-PUT/DELETE /sources/connectors/{id}/credentials → store/forget creds in ~/.cicada/secrets.env (0600)
-POST /sources/connectors/{id}/authorize   → mint the vendor consent URL (oauth adapters; single-use state)
-GET  /sources/connectors/{id}/callback    → generalized OAuth redirect target, one route for every
-                                            oauth adapter (Pinterest, X today); auth-exempt only for
-                                            an id whose LOGIN_MODE is oauth
-POST /sources/connectors/{id}/sync        → run one poll now
-GET  /sources                             → list ingested sources (+ description excerpt, about ids — G102)
-GET  /sources/channels                    → capture channels + whether each is actually connected (G62)
-GET  /sources/overview                    → one row per memory source (harness / chat export / browser / social /
-                                            feed / messaging / import): conversations, episodes, entities credited,
-                                            items, lastActivityAt, connected, lastError; ETag = sources+episodes+
-                                            entities + the Telegram/connector tags, like /sources/channels (G124)
-GET/POST/DELETE /sources/feeds            → RSS feed subscription management
-POST /sources/poll-feeds                  → on-demand RSS poll
-GET/POST /banks, POST /banks/{name}/activate|duplicate|rename|import → memory-bank management
-GET  /local-ref                           → resolve local device/path references
-POST /capture/telegram                    → token-gated Telegram capture webhook
-POST /capture/transcript                  → Stop-hook session capture (G105): validates the transcript
-                                            path against the harness root, extracts, writes/updates
-                                            ONE episode per session_id; 400 with an enum reason otherwise
-POST /maintenance/dedup-sweep             → full-graph dedup sweep (G21)
-POST /maintenance/enrich-links?limit=N     → describe + relate N saved links now (G102); 409 while Sleep runs;
-                                            {selected, reused, summarized, fetched, failed, skipped, related, remaining, …}
-GET  /connections, GET /connections/{id}   → provider connections (plan, price, connected) — probed via vendor CLIs
-POST /connections/{id}/login|logout        → start the vendor CLI's own login flow / sign out
-GET  /connections/{id}/login/{sid}         → device-code login progress (ChatGPT/Codex)
-PUT/DELETE /connections/{id}/key           → BYOK key into ~/.cicada/secrets.env (0600)
-PUT  /connections/{id}/prefs               → tier override (Claude Max 5x/20x), enabled flag
-GET  /sync/version                        → mtime + git-HEAD version vector for change detection (<10 ms)
-GET  /sync/events                         → SSE stream of `version` (on change, polled server-side every 1 s), `sleep` (sleep state on change), and `ping` (every 15 s) events
-GET  /consumption/summary|calendar|stats|connections|harness → consumption/traceability dashboard (G51);
-                                            ledger at ~/.cicada/telemetry/events-YYYY-MM.jsonl (CICADA_TELEMETRY=off disables)
-```
+**Endpoint traps worth knowing before you touch them:**
 
-The API reads and writes the same markdown files and git repo that the Sleep cycle operates on. **There's no separate database — the filesystem is the single source of truth.**
-
-### Data Flow
-```
-Sleep cycle generates pending items → writes to memory/inbox/
-User opens companion app → SwiftUI calls FastAPI → FastAPI reads memory/inbox/ via GET /inbox
-User responds to an inbox item → POST /inbox/{id}/resolve → FastAPI writes resolution to entity page or creates new entity
-Next Sleep cycle picks up manual changes → integrates into consolidation
-```
+- `GET /entities/{id}/history/{commit}/diff` — a file's FIRST commit has no parent, so `git show`
+  diffs it against the empty tree and it comes back all-adds; a MERGE commit needs `--first-parent`,
+  else git emits a combined (`--cc`) `@@@` diff the parser can't read and the endpoint silently
+  returns nothing. `truncated` is the UNION of three caps; `linesTruncated` specifically means "the
+  ordered list was cut" and is what a client renders its banner on.
+- `GET /conversations/recent` is **CAPPED** (limit ≤ 200) and is never a membership test; filters
+  apply BEFORE the cap. Use `GET /conversations/{id}` to resolve one id against the whole bank.
+- `POST /conversations/{id}/resume` returns a validated descriptor — **transcripts are never read,
+  `isfile()` only**.
+- `POST /maintenance/enrich-links` returns `409` both while a Sleep cycle runs and while another
+  call is still running (a process-local lock — two overlapping clicks would stage each other's
+  half-written pages under their own trailers).
+- `GET /sync/version` is the cheap change-detector (<10 ms); `GET /sync/events` is the SSE stream.
 
 ---
 
-## MVP Features (Thesis Scope, Priority Order)
+## Features
 
 ### 1. Graph Explorer
+Force-directed d3 graph: node color by type, size by confidence, edge labels, cluster detection,
+decay/clarification indicators. Open ideas live in the backlog.
 
-Force-directed d3 graph in a WKWebView: node color by entity type, size by confidence, edge
-labels, cluster detection, decay/clarification indicators. Feature detail and open ideas live in
-[`docs/goals/memory-evolution.md`](docs/goals/memory-evolution.md).
+### 2/3. Unified inbox (`memory/inbox/`)
+Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, each with a `kind`
+discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`), behind `GET /inbox` /
+`POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
+shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`.
 
-### 2. Nudge Inbox & 3. Clarification Queue — unified `memory/inbox/`
-Nudges and clarifications now live in **one unified store**: `memory/inbox/inbox-NNN.md`, each with
-a `kind` discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`), loaded and
-resolved by `api/services/inbox_service.py` behind `GET /inbox` / `POST /inbox/{id}/resolve`.
-`api/routers/nudges.py` and `api/routers/clarifications.py` are now thin **deprecated** shims
-(they set a `Deprecation: true` response header and project the unified store into the old
-response shapes) kept only so the SwiftUI app and any external caller keep working mid-migration
-— the app itself calls `/inbox` directly.
+**Question object (G60).** Every item carries `question`, `options: [{key, label, description, …}]`,
+`allow_other`, `allow_defer`, `predicate` and an optional `hint`. Descriptions lead with the age
+phrase ("6 months ago") so staleness is visible before choosing; `age_days` is derived at read time,
+never stored. Legacy flat `options: [str]` still render.
 
-- List view sorted by priority/recency across all pending kinds
-- Each item shows: entity involved, kind, question, relevant context
-- Quick-action buttons per kind:
-  - **Decay** ("Still interested in Salesforce?"): `Yes, keep active` / `No, archive it` / `Remind me later`
-  - **Clarification** ("Who is Francesco?"): free-text answer, dismiss, merge into an existing entity, or skip
-  - **Merge suggestion**: confirm or reject a proposed entity merge
-- Responding writes the resolution back to the entity page (or creates a new entity)
-- Items resolved organically by later conversation are automatically removed
-- Badge count on the inbox icon
+**Dedup + time.** Items are keyed `(entity_id, predicate)`. A second competing value **merges** into
+the open item as another option instead of writing a duplicate. Each Sleep,
+`inbox_questions.refresh_open_questions` bumps re-mentioned options, auto-resolves questions the
+user answered organically, escalates a question whose every option has been silent for
+`inbox_stale_after_days` (90) by inserting "Neither anymore", and keeps deferred items out of
+`GET /inbox`.
 
-**Question object (G60):** every `decay` (synthesised at read) / `conflict` / `clarification` /
-  `merge_suggestion` item carries `question` (one sentence), `options: [{key, label, description,
-  claim_id, observed_at, last_referenced}]`, `allow_other`, `allow_defer`, `predicate`, and an optional `hint`
-  (from the entity's `sources:`). Descriptions lead with the age phrase ("6 months ago") so
-  staleness is visible before choosing; `age_days` is derived at read time, never stored.
-  Legacy flat `options: [str]` items still render — they are upgraded to `{key, label}` on read.
+**Resolve is claim-aware.** Picking an option supersedes every losing claim (`valid_to` +
+`superseded_by`); "both" keeps them open with a `context` qualifier; "neither"/free text writes a
+`user_stated` claim that closes them; `defer` writes `remind_after`. All commit with
+`Cicada-Author: user`.
 
-**Dedup + time:** items are keyed `(entity_id, predicate)` (clarifications by
-  `(entity_id, uncertainty_type)`, merges by the sorted entity pair). A second competing value
-  **merges** into the open item as another option instead of writing a duplicate file. Each Sleep,
-  `inbox_questions.refresh_open_questions` bumps re-mentioned options, auto-resolves a question the
-  user answered organically in conversation, escalates a question every option of which has been
-  silent for `inbox_stale_after_days` (default 90) by inserting a "Neither anymore" option, and
-  keeps deferred items (`remind_after` in the future) out of `GET /inbox` and `cicada_check_nudges`.
+**Cause (G115 Phase 1, delivers G97).** Every item carries its `cause` — episode, timestamp,
+conversation, harness, excerpt, offsets — resolved **at read** by `api/services/inbox_context.py` in
+three tiers (item → claim → entity), engine-free. The excerpt is ±240 chars around the mention, cut
+on word boundaries, **offsets recomputed on every read and never stored**. Nothing resolves →
+`tier: none` and a literal `[ no source recorded ]`, served — never a hidden card.
 
-**Resolve is claim-aware:** picking an option supersedes every losing claim (`valid_to` +
-  `superseded_by`); "both" keeps them open with a `context` qualifier; "neither"/free text writes a
-  `user_stated` claim that closes them; `defer` writes `remind_after`. All four commit with
-  `Cicada-Author: user`.
+**Decay is no longer the special case.** Served as `Still tracking {name}?` with `archive` / `keep`,
+synthesised at read from the page's `last_referenced`, never written. Its question sets
+`allow_other: false` and **the whole stack now means it**: free text on resolve is a `400`.
 
-**Three resolution paths for clarifications:**
-1. **Organic**: User naturally provides context in later conversation → next Sleep cycle promotes
-2. **Agent-initiated**: Agent detects current topic relates to a pending clarification, asks in conversation flow
-3. **Manual**: User answers in the companion app's inbox
+**G98 rule.** A multi-valued predicate never opens a conflict; an existing one is served
+`informational: true` — the card lists the values and offers `Got it`, which removes the item and
+touches no claim.
 
-**Phase 1 shipped (G115, 2026-09-03; delivers G97).** Every item `GET /inbox` serves carries its
-**cause** — `cause: {episode_id, timestamp, conversation_id, harness, origin, conversation_title,
-excerpt, mention_offsets, start, end, tier, span_kind}` — resolved at read by
-`api/services/inbox_context.py` in three tiers (`item`: the item's own `source_episode` → `claim`:
-the freshest option claim's last episode → `entity`: the subject page's last `source_episodes`
-entry), engine-free through `bank_index`; the excerpt is ±240 chars around the mention, cut on
-word boundaries, offsets recomputed on every read and never stored (a G118 span on the claim is
-used instead and reads `span_kind: asserted`); nothing resolves → `tier: none` and the literal
-`[ no source recorded ]`, served, never a hidden card. Writers now persist `source_episode`
-(`write_claim_nudges`, the entity-path conflict, the reconciler's nudges). **ETag ship-together:**
-`GET /inbox` ETags over `inbox`+`entities`+`episodes` AND `VersionVector.swift` maps `entities`
-and `episodes` onto `.inbox` — change one half, change both. **Decay is no longer the special
-case:** it is served as `Still tracking {name}?` with `archive` / `keep` (synthesised at read
-from the page's `last_referenced`, never written; `resolve`+`archive|keep` maps onto the legacy
-verbs so the G113 R1 labels are unchanged; `remind_later` is a 7-day `defer`, G113 R6). Decay's
-question sets `allow_other: false` and **the whole stack now means it**: `resolve`/`answer` carrying
-free text is a 400 (it used to be appended to the entity body while the page stayed `decaying` and
-the item was deleted), and MCP's `Other / Later` line prints each half only when its own flag is set.
-Every option
-carries `verdict` and the ONE option Sleep proposed carries `recommended` (`recommended_key` on the
-item) — the key the ledger's `_verdict` grades `agreed`, served first; never `neither`/`both`, never
-on a merge or a clarification, absent on an entity-path conflict (no claim to agree with). The
-`resolution` ledger row gains `recommended_key` + `picked_recommended`, decay included —
-`recommended_key` synthesises decay's read-time options so the ledger records the recommendation the
-person was actually shown rather than `null`. **G98 rule:** a predicate
-the vocabulary marks multi-valued (`predicates.cardinality` — the union of the bank's
-`_predicates.yaml` and the committed seed, `multi` winning, because `install_predicate_map` never
-refreshes a populated map and a bank seeded before `uses` moved lists would otherwise keep asking)
-never opens a conflict (`write_claim_nudges` counts `skipped_multi_valued`),
-and an existing one is served `informational: true` — the card lists the values and offers
-`Got it` (`dismiss`: item removed, no claim touched). The card: kind icon (no monogram), line 1 the
-question, line 2 the cause (`From “<title>” · <harness> · <age>`), the excerpt with the mention
-bolded, and — for the two kinds that carry a question object (decay and conflict) — options through
-`QuestionView` with `(Recommended)` first; keys `1–4` pick, `⏎`
-activates the highlighted (recommended) row, `o` Other, `l` Not now (7 days), `Esc` collapses with
-no write; bodies over four lines collapse to three + `Show all N`; the chevron is a real button.
-A `clarification` / `merge_suggestion` keeps its free-text / merge row in this phase (its question
-object is Phase 2) but gains the same title-as-question, cause line, excerpt and collapse.
-MCP `render_question` v2 prints `entity_id=<slug> · predicate=<p>`, a `Cause:` line (the same
-excerpt), `(Recommended)`, and the `skip=true` hint; `cicada_resolve_inbox(id, skip=true)` stays
-an in-process no-op. **On the inbox resolve path only**, the observer for an owner-stated claim is
-`settings.observer_owner` (`CICADA_OBSERVER_OWNER`, via `inbox_service._owner_observer`; unset falls
-back to the historical literal). Telegram capture, `agentic_write`'s trust/origin gate and the MCP
-`cicada_write_claim` observer enum still hardcode that literal, so setting the variable today splits
-a bank's claim lineage in two — **G117 moves the remaining four sites together**. Still open
-(Phases 2–3, G115): the ask gate, `_inbox_rules.yaml`, the suggested-outcome judge, silence clocks,
-grouped cards, and the two G116 rulings.
+**Three resolution paths for a clarification:** organic (the user provides context later, Sleep
+promotes it), agent-initiated (the agent asks in flow when the topic comes up), manual (the app).
 
-### 4. Manual Sleep Trigger
-Button to run the Sleep cycle on demand.
+**Open observer inconsistency:** on the inbox resolve path the observer for an owner-stated claim is
+`settings.observer_owner`; Telegram capture, `agentic_write`'s trust/origin gate and MCP
+`cicada_write_claim` still hardcode the historical literal. Setting the variable today splits a
+bank's claim lineage in two — **G117 moves the remaining four sites together.**
 
-- "Run Sleep cycle now" button
-- Status indicator: next scheduled Sleep cycle time
-- Full dashboard (per-cycle summaries, diff views) is nice-to-have
+### 4. Manual Sleep trigger
+"Run Sleep cycle now" + next-scheduled indicator.
 
-### 5. Conversation Upload
-Manual ingestion of exports from non-MCP sources (ChatGPT, Claude Desktop/iOS).
-
-- File picker accepting JSON and HTML exports
-- Upload triggers parsing and staging into `episodes/` inbox
-- Status feedback: episodes extracted, queued for next Sleep cycle
-- Deduplication: skip already-ingested episodes (timestamp + content hash)
+### 5. Conversation upload
+File picker for JSON/HTML exports; parses and stages into `episodes/`; dedups on timestamp +
+content hash.
 
 ---
-
-## Post-MVP Features
-
-Tracked in [`docs/goals/memory-evolution.md`](docs/goals/memory-evolution.md) (G-rows), not here.
-
-## Installation & Setup
-
-`install.sh` is the source of truth; the paste-prompt install story is G76 in the backlog.
 
 ## UX Principles
 
-1. **Minimal friction**: Responding to a nudge = one tap. Reviewing the graph = immediate. Never require "memory maintenance."
-2. **Transparency over magic**: User sees WHY the agent knows something (provenance), WHEN it learned it (timestamps), HOW confident it is (confidence score).
-3. **User authority**: Agent proposes, user disposes. Every automated action can be overridden.
-4. **Non-intrusive nudging**: Nudges available when wanted, not pushed as notifications (unless enabled). Inbox is there when you want it.
+1. **Minimal friction**: responding to a nudge = one tap. Never require "memory maintenance".
+2. **Transparency over magic**: the user sees WHY the agent knows something (provenance), WHEN it
+   learned it, HOW confident it is.
+3. **User authority**: agent proposes, user disposes. Every automated action can be overridden.
+4. **Non-intrusive nudging**: available when wanted, not pushed. The inbox is there when you want it.
 
 ---
 
@@ -1018,67 +547,50 @@ Tracked in [`docs/goals/memory-evolution.md`](docs/goals/memory-evolution.md) (G
 
 | Decision | Rationale |
 |----------|-----------|
-| Markdown over Neo4j | Same relational expressiveness at personal scale. Zero infrastructure. Portable. LLM is the query engine. |
-| sqlite-vec over LEANN/FAISS | Started on LEANN for its storage savings; replaced by a derived, disposable sqlite-vec index (`api/services/vector_index.py`) with EmbeddingGemma on-device embeddings — stored (not recomputed) vectors give single-lookup query latency with no cloud dependency. |
-| Batch over real-time consolidation | Conversations don't have clean endings. Batch sees patterns across full day. Clean evaluation. |
-| Entity promotion over upfront extraction | Avoids polluting graph with noise from single mentions. |
-| Temporal decay as active signal | Absence of mention is informative. No other system does this. |
+| Markdown over Neo4j | Same relational expressiveness at personal scale. Zero infrastructure. Portable. The LLM is the query engine. |
+| sqlite-vec over LEANN/FAISS | Stored (not recomputed) vectors give single-lookup latency with no cloud dependency; the index is derived and disposable. |
+| Batch over real-time consolidation | Conversations don't have clean endings. Batch sees patterns across a full day. Clean evaluation. |
+| Entity promotion over upfront extraction | Avoids polluting the graph with noise from single mentions. |
+| Temporal decay as an active signal | Absence of mention is informative. No other system does this. |
 | Clarification queue over silent drops | Ask rather than guess or discard. Prevents cascading hallucination. |
 | MCP-native + export fallback | MCP for real-time, export for ChatGPT/Claude. Source-agnostic pipeline. |
-| SwiftUI + FastAPI | Native macOS feel. Python backend for LLM/ML ecosystem access. |
-| d3-force in WKWebView | Best graph visualization ecosystem. Sufficient for personal scale. |
-| Filesystem as single source of truth | No separate database. API reads/writes same files as Sleep cycle. |
-| Decay class over a bare per-writer rate | A hardcoded `decay_rate` float was invisible to the agent and unchangeable by the user, and it decayed bookmarks — artifacts that never become less true. A four-value class the agent estimates, both engines honor and the user overrides makes the policy legible and correctable. |
+| SwiftUI + FastAPI | Native macOS feel. Python backend for the LLM/ML ecosystem. |
+| d3-force in WKWebView | Best graph-visualization ecosystem. Sufficient at personal scale (G109). |
+| Filesystem as single source of truth | No separate database. The API reads/writes the same files as Sleep. |
+| Decay class over a bare per-writer rate | A hardcoded float was invisible to the agent, unchangeable by the user, and decayed bookmarks — artifacts that never become less true. |
 
 ---
 
-## Thesis Benchmarks (`benchmarks/` package)
+## Reaching the outside world
 
-Benchmark tooling for the thesis `Results` section lives in `benchmarks/`. Three runnable scripts plus a shared fresh-workspace scaffold, all at repo root. Runbook is `benchmarks/README.md`.
+Three gates, and they do **not** mean the same thing — read the difference before adding a fourth:
 
-### Scripts and safety rails
+- **`CICADA_ALLOW_CONNECTOR_FETCH`** gates ONLY the unattended nightly connector poll's default
+  transport. It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite
+  sets). A user-initiated `sync_now` and every OAuth `authorize_url`/`exchange_code` call are
+  **never** gated by it — they always need the network to do what the user just asked.
+- **`CICADA_ALLOW_FEED_FETCH`** gates RSS/ICS polling and is **opt-IN** (`=1`). A fresh install's
+  LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
+  older plist needs the key added by hand.
+- **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely. The test suite runs that way
+  and injects fetchers instead.
 
-Three runnable scripts plus a shared fresh-workspace scaffold; the runbook is
-[`benchmarks/README.md`](benchmarks/README.md) and the how-to-run detail lives in the
-`thesis-benchmarks` skill. Two rails that are NOT derivable: no runner ever mutates the live
-`memory/` directory (sleep-cycle runs happen in `/tmp/cicada_bench_*` workspaces), and
-`workspace.destroy_workspace` refuses any path whose name lacks `cicada_bench_`.
+**A failed poll is recorded, not raised** (`sync_state.record_error`) and surfaces per-channel as
+`lastError`; a gate-skipped poll is recorded distinctly (`record_skip`) so a skip never reads as a
+failure or as a stale success.
 
-### CRITICAL: Personal-data privacy pattern
+**The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
+behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a
+byte fetched**. **A block is never retried with different headers.** No scraping behind
+authentication, ever.
 
-**`benchmarks/questions.example.yaml` and `benchmarks/queries.example.txt` are TEMPLATE files with placeholder content only. Never commit real personal questions or queries to them.**
+**Credentials** live in `~/.cicada/secrets.env` (0600) — **never in a bank, never logged**. The
+shared `base.forget()` removes them on disconnect, so a fields-vs-stored drift can't orphan a
+secret. Where a vendor bills per request (X's "owned reads"), the sync result carries the count so a
+cost is stated plainly rather than hidden behind a "connected" checkbox.
 
-The repo's `.gitignore` automatically excludes three paths:
+---
 
-```
-benchmarks/*.local.*
-benchmarks/questions.yaml
-benchmarks/queries.txt
-```
+## Installation & Setup
 
-The recommended workflow is the `.local.` copy pattern:
-
-```sh
-cp benchmarks/questions.example.yaml benchmarks/questions.local.yaml
-cp benchmarks/queries.example.txt     benchmarks/queries.local.txt
-# Fill the .local files with real content grounded in personal memory.
-# They are gitignored; they will never end up in a commit.
-
-api/.venv/bin/python -m benchmarks.run_table1 \
-    --questions benchmarks/questions.local.yaml \
-    --memory memory \
-    --out benchmark_results/table1
-
-api/.venv/bin/python -m benchmarks.run_table3 \
-    --memory memory \
-    --queries benchmarks/queries.local.txt \
-    --out benchmark_results/table3
-```
-
-Rules for any future Claude session that touches the benchmark tooling:
-
-1. **Never paste real personal names, projects, or organizations into `benchmarks/questions.example.yaml` or `benchmarks/queries.example.txt`.** These are committed templates. Neutral but plausible thesis-shaped examples are fine (a generic capstone, "the supervisor", "the university", an unnamed internship, the thesis deadline) — anything that could be true of any final-year project. No real names, no real companies, no real episode IDs, no anything you would not want a stranger reading.
-2. **Never add new files under `benchmarks/` that contain real personal content** unless they use the `*.local.*` suffix (or are under `benchmark_results/`, which is also gitignored).
-3. **`benchmark_results/` is gitignored** — raw retrieval dumps, scoring sheets, and workspace metadata live there. Safe to write to, never safe to commit.
-4. **If you are drafting a new question or query for demonstration purposes in a commit message, PR description, or README**, use generic placeholders (`<placeholder fact question>`, `placeholder query one`), never real entities from `memory/`.
-5. **The `run_table1` scoring sheet contains the retrieved context and final answer verbatim** — that content will include personal data from real queries. It is written to `benchmark_results/` by default. Never move it out of that directory into a committed path.
+`install.sh` is the source of truth; the paste-prompt install story is G76 in the backlog.
