@@ -12,6 +12,7 @@ struct ChannelSourceView: View {
     let source: SourceOverview
 
     @Environment(Store.self) private var store
+    @Environment(BrowserWatcher.self) private var watcher
     @State private var busy = false
     @State private var feedback: ChannelFeedback?
 
@@ -50,9 +51,16 @@ struct ChannelSourceView: View {
 
     private func stateCard(_ channel: SourceChannel) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            HStack {
-                Text(channel.connected ? "Connected" : "Not connected")
-                    .font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
+            HStack(alignment: .top) {
+                // A watched browser reports what its watch is doing (G129); a
+                // channel with no watch keeps the plain connected/not line,
+                // because a light nobody updates is worse than no light.
+                if let watchState = watcher.state(for: channel.id) {
+                    BrowserStatusLight(state: watchState, error: watcher.error(for: channel.id))
+                } else {
+                    Text(channel.connected ? "Connected" : "Not connected")
+                        .font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
+                }
                 Spacer()
                 if channel.actions.contains("sync") {
                     actionButton("Sync now") { try await BrowserImportActions.syncChannel(channel.id, store: store) }

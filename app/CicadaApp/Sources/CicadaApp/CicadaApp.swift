@@ -32,6 +32,10 @@ struct CicadaApp: App {
     @State private var usageVM: UsageViewModel
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
+    /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
+    /// without a button. App-side because the launchd backend has no Full Disk
+    /// Access — see `BrowserWatch.swift`.
+    @State private var browserWatcher = BrowserWatcher()
 
     // Theme: persisted mode driving both the SwiftUI environment
     // (`.preferredColorScheme`, so system materials/controls follow) and the
@@ -80,6 +84,7 @@ struct CicadaApp: App {
                 .environment(connectionsVM)
                 .environment(usageVM)
                 .environment(store)
+                .environment(browserWatcher)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, newValue in
                     let mode = AppColorScheme(rawValue: newValue) ?? .dark
@@ -90,6 +95,9 @@ struct CicadaApp: App {
                 }
                 .onAppear {
                     backend.start()
+                    // Arms the per-browser watches and catches up on anything
+                    // saved while the app was closed.
+                    browserWatcher.start(store: store)
                     // When SleepViewModel observes a cycle finish (running ->
                     // idle, no error), refresh the graph/topics layer in
                     // place. Without this, Sleep finishes successfully but
