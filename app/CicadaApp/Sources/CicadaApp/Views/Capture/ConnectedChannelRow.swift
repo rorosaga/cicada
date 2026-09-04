@@ -33,6 +33,7 @@ struct ConnectedChannelRow: View {
     /// row itself is activated.
     let onAction: (String) -> Void
 
+    @Environment(BrowserWatcher.self) private var watcher
     @State private var isHovered = false
 
     var body: some View {
@@ -95,9 +96,20 @@ struct ConnectedChannelRow: View {
                     rowIcon
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(channel.label)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(CicadaTheme.textPrimary)
+                        HStack(spacing: CicadaTheme.spacingXS) {
+                            Text(channel.label)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(CicadaTheme.textPrimary)
+                            // G129: a watched browser wears its light here
+                            // too, so "is this live" is answerable from the
+                            // Feed without opening the source page. Compact —
+                            // the dot only; the sentence lives on that page.
+                            if let watchState = watcher.state(for: channel.id) {
+                                BrowserStatusLight(state: watchState,
+                                                   error: watcher.error(for: channel.id),
+                                                   compact: true)
+                            }
+                        }
                             .lineLimit(1)
                         if let detail = channel.detail {
                             Text(detail)
