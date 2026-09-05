@@ -36,6 +36,11 @@ struct CicadaApp: App {
     /// without a button. App-side because the launchd backend has no Full Disk
     /// Access — see `BrowserWatch.swift`.
     @State private var browserWatcher = BrowserWatcher()
+    /// G130: the local key monitor that routes ⌘⇧= to `CicadaTheme.zoomIn()`
+    /// (see `ZoomKeyRouter`). Held so `.onAppear` (which can fire again —
+    /// see `enableFirstMouseAcceptance`'s own idempotence note below) never
+    /// installs a second monitor and double-fires every zoom keystroke.
+    @State private var zoomMonitor: Any?
 
     // Theme: persisted mode driving both the SwiftUI environment
     // (`.preferredColorScheme`, so system materials/controls follow) and the
@@ -94,6 +99,28 @@ struct CicadaApp: App {
                     }
                 }
                 .onAppear {
+                    // G130 R5: the View menu's CommandGroup below already
+                    // owns bare ⌘=/⌘−/⌘0; this monitor exists only to catch
+                    // ⌘⇧= (what a US keyboard sends for "⌘+"), which no
+                    // single `keyboardShortcut` can express alongside ⌘=
+                    // without two "Zoom In" menu rows. Guarded so a second
+                    // `.onAppear` (e.g. the window closing and reopening —
+                    // see `enableFirstMouseAcceptance`'s own precedent a few
+                    // lines below) never stacks a second monitor.
+                    if zoomMonitor == nil {
+                        zoomMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                            guard let action = ZoomKeyRouter.action(
+                                characters: event.charactersIgnoringModifiers ?? "",
+                                modifiers: event.modifierFlags
+                            ) else { return event }
+                            switch action {
+                            case .zoomIn: CicadaTheme.zoomIn()
+                            case .zoomOut: CicadaTheme.zoomOut()
+                            case .reset: CicadaTheme.resetZoom()
+                            }
+                            return nil
+                        }
+                    }
                     backend.start()
                     // Arms the per-browser watches and catches up on anything
                     // saved while the app was closed.
@@ -159,6 +186,25 @@ struct CicadaApp: App {
                 // and the bookworm is fed by the Store's status snapshot.
         }
         .defaultSize(width: 1200, height: 800)
+        // G130 R5: the View menu — ⌘+/⌘−/⌘0 scale the whole SwiftUI chrome
+        // through the one persisted `CicadaTheme.uiScale` (Task 1). Placed
+        // `after: .sidebar` so it lands right after macOS's own "Enter Full
+        // Screen" section in the View menu, the natural home for view-scale
+        // controls. `.keyboardShortcut("=", modifiers: .command)` is what a
+        // US keyboard reports for bare ⌘=; ⌘⇧= (what people actually type
+        // for "⌘+") is covered by the local key monitor above via
+        // `ZoomKeyRouter`, since SwiftUI cannot give one menu item two key
+        // equivalents.
+        .commands {
+            CommandGroup(after: .sidebar) {
+                Button("Zoom In") { CicadaTheme.zoomIn() }
+                    .keyboardShortcut("=", modifiers: .command)
+                Button("Zoom Out") { CicadaTheme.zoomOut() }
+                    .keyboardShortcut("-", modifiers: .command)
+                Button("Actual Size") { CicadaTheme.resetZoom() }
+                    .keyboardShortcut("0", modifiers: .command)
+            }
+        }
 
         // ⌘, and the sidebar's footer gear. Gets the same environment as the
         // main window — `ConnectionsView` is a projection over the same Store.

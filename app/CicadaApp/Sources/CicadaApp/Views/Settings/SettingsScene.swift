@@ -8,6 +8,10 @@ import SwiftUI
 struct SettingsScene: View {
     var body: some View {
         TabView {
+            SettingsGeneralView()
+                .tabItem { Label(Copy.general, systemImage: "gearshape") }
+                .accessibilityLabel(Copy.general)
+
             ConnectView()
                 .tabItem { Label(Copy.agents, systemImage: "cable.connector") }
                 .accessibilityLabel(Copy.agents)
