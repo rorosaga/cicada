@@ -45,6 +45,29 @@ final class SleepNumbersLintTests: XCTestCase {
         }
     }
 
+    /// **One number, one place** (R-A5) — the round-2 live check's finding.
+    /// The hero's labelled meter drew `Rested n%` and `SleepView`'s
+    /// `moodDetailLine` drew `Rested n% — volume v%, age a%` two rows below
+    /// it, so a reader saw the same percentage twice and had to work out
+    /// whether they were the same reading. The breakdown moved to the meter
+    /// label's hover text (`heroMeterHelp`), and this pins the number's one
+    /// home the same way the `%`-with-a-noun lint pins its wording: the word
+    /// may appear in prose anywhere, but only `SleepHero.swift` may spell it
+    /// in code.
+    func testTheRestedPercentageIsSpelledByExactlyOneFile() throws {
+        var spelling: [String] = []
+        for file in try Self.sleepSources() {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let hit = text.components(separatedBy: .newlines).contains { line in
+                let code = line.trimmingCharacters(in: .whitespaces)
+                return !code.hasPrefix("//") && code.contains("Rested")
+            }
+            if hit { spelling.append(file.lastPathComponent) }
+        }
+        XCTAssertEqual(spelling.sorted(), ["SleepHero.swift"],
+                       "`Rested n%` belongs to the hero meter's label and nowhere else (R-A5)")
+    }
+
     // MARK: The motion budget (R-A13)
 
     /// Nothing on this page animates longer than 400 ms except the stage

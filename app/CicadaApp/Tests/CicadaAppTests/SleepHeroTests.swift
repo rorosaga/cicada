@@ -171,6 +171,40 @@ final class SleepHeroTests: XCTestCase {
         XCTAssertEqual(HeroMeter.reading(read: 5, total: 0).filledBlocks, 0)
     }
 
+    // MARK: heroMeterHelp — the breakdown that used to be a second line
+
+    /// Round-2 live check (R-A5): the page printed `Rested n%` in the hero's
+    /// labelled meter and printed it AGAIN under the stage strip as
+    /// `Rested n% — volume v%, age a%`. The duplicate is gone; the volume/age
+    /// split it carried survives as the meter label's hover text, so nothing
+    /// the page knew was lost — it just stopped being said twice.
+    func test_heroMeterHelp_carriesTheVolumeAndAgeSplit() {
+        let debt = debtView(restedPct: 42, volumePct: 30, agePct: 12)
+        let meter = heroMeter(mood: .curious(count: 8), debt: debt, read: 0, total: 0)
+        XCTAssertEqual(meter, .rested(pct: 42))
+        XCTAssertEqual(heroMeterHelp(meter!, debt: debt),
+                       "Volume 30% · age 12% of the way to a full backlog")
+    }
+
+    /// Every percentage names its noun, in a tooltip exactly as on the page
+    /// (R-A5/R-A15) — a hover that read "30% · 12%" would be the same defect
+    /// one layer down.
+    func test_heroMeterHelp_namesWhatEachPercentageIsOf() {
+        let help = Copy.restedBreakdown(volumePct: 0, agePct: 100)
+        XCTAssertTrue(help.contains("Volume 0%"))
+        XCTAssertTrue(help.contains("age 100%"))
+        XCTAssertTrue(help.contains("backlog"), "a percentage with no noun is what R-A5 refuses")
+    }
+
+    /// `Read a of b` already shows both of its numbers, so there is nothing
+    /// left for a tooltip to explain — and a debt that never loaded has no
+    /// breakdown to state rather than a fabricated `0% · 0%`.
+    func test_heroMeterHelp_isNilWhenThereIsNothingToExplain() {
+        let running = HeroMeter.reading(read: 138, total: 203)
+        XCTAssertNil(heroMeterHelp(running, debt: debtView(volumePct: 30, agePct: 12)))
+        XCTAssertNil(heroMeterHelp(.rested(pct: 42), debt: nil))
+    }
+
     // MARK: heroTiles — R-A6: present tense or measured, never a forecast
 
     func test_heroTiles_areAlwaysThree_andMeasured() {
