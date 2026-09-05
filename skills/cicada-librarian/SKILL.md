@@ -64,12 +64,12 @@ This is what gives the graph real perspective diversity — get it right:
 
 | observer | when |
 |---|---|
-| `rodrigo` | the **user** stated/asserted this themselves. Trust-protected — a later `agent` claim can never silently overwrite it. |
+| `owner` | the **user** stated/asserted this themselves. Trust-protected — a later `agent` claim can never silently overwrite it. (A bank created before the owner was named resolves to its own legacy value instead; the schema still accepts it, so an older caller keeps working. Cicada resolves this for you — write `owner`.) |
 | `agent` | **you** inferred, deduced, or noticed this — not something the user said outright. |
 | `external:<name>` | a claim attributed to a **third party** (someone else's stated belief, quoted or paraphrased). Name the source when known. |
 
 Default is `agent` if omitted — don't rely on the default when the user
-clearly stated the fact themselves; tag `rodrigo` explicitly.
+clearly stated the fact themselves; tag `owner` explicitly.
 
 ## Grounding
 

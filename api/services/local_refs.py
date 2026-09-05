@@ -67,7 +67,7 @@ def current_device_id() -> str:
     Uses ``socket.gethostname()`` — the machine's configured hostname. It's
     stable across reboots and process restarts, requires no extra permissions
     or persisted state (unlike, say, generating and storing a random UUID on
-    first run), and is something a user actually recognizes ("rodrigos-mbp"
+    first run), and is something a user actually recognizes ("alex-mbp"
     vs. an opaque UUID). Falls back to ``platform.node()`` (rarely different,
     but covers the edge case where ``gethostname()`` returns an empty string
     in some sandboxed/containerized environments), and finally to a fixed

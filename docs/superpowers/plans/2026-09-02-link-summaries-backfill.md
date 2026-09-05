@@ -22,10 +22,10 @@ The brief says Stage 5.57 "only looks at entities touched in the current cycle".
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries` (branch `feat/link-summaries`, based on `dev` @ `bad8461`). Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never `grep --include=*.ext` (zsh globbing breaks it).
-- NEVER read `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`, `~/Library/Safari`, or `~/.claude/projects` — real personal data. Fixtures are synthetic: `alpha-project`, `bob-example`, `example.com`, `robotics.example`.
-- Python tests: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Full suite `api/tests`: the baseline has exactly 8 date-dependent failures in `test_calendar_registry.py` plus `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent, pre-existing). Everything else must be green after every task.
-- Swift tests (Task 5 only): `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries/app/CicadaApp && swift test --filter FeedIdentityTests`.
+- Work ONLY in `<worktree>/` (branch `feat/link-summaries`, based on `dev` @ `bad8461`). Every shell command is `cd <worktree>/ && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never `grep --include=*.ext` (zsh globbing breaks it).
+- NEVER read `<repo>/memory` (any bank), `~/.cicada`, `~/Library/Safari`, or `~/.claude/projects` — real personal data. Fixtures are synthetic: `alpha-project`, `bob-example`, `example.com`, `robotics.example`.
+- Python tests: `cd <worktree>/ && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Full suite `api/tests`: the baseline has exactly 8 date-dependent failures in `test_calendar_registry.py` plus `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent, pre-existing). Everything else must be green after every task.
+- Swift tests (Task 5 only): `cd <worktree>/app/CicadaApp && swift test --filter FeedIdentityTests`.
 - Never `git add -A`; stage named files only. Never commit `memory/`, `logs/`, `.claude/settings.json`, `api/.venv`, `*-report.md`. No push, no new branches/worktrees, no subagents. Ignore Devin/PR comments.
 - **No network in tests.** `conftest.py` already sets `CICADA_API_AUTH=off`, `CICADA_ALLOW_LOGO_FETCH=off`, `CICADA_ALLOW_CONNECTOR_FETCH=off`, `CICADA_TELEMETRY=off` and makes a real `claude` spawn an `AssertionError`. Every test injects `fetch_fn` / `summarize_fn` / `extract_fn` / `match_fn` / `indexer_factory`; the default (network, LLM, embedding) seams are never reached from a test.
 - **Sleep-safety (G80 ruling):** nothing in this plan runs at capture time; the read paths (`GET /sources`, `GET /entities/{id}`) stay engine-free; the only LLM call sites are the backfill's §2b summarizer, the recon extraction and the Stage-2 judge, all reached only from the maintenance endpoint or the Sleep tail.
@@ -448,7 +448,7 @@ def test_in_cycle_candidates_now_skip_junk(tmp_path):
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests/test_link_backfill.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_link_backfill.py -q -p no:cacheprovider`
 Expected: FAIL — `AttributeError: module 'api.services.link_enrichment' has no attribute 'classify_page'` (and the rest).
 
 - [ ] **Step 4: Implement**
@@ -1000,13 +1000,13 @@ The `report.selected -= 1` on an engine abort keeps `selected` honest (that page
 
 - [ ] **Step 5: Run the new tests plus the existing enrichment/sleep tests**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests/test_link_backfill.py api/tests/test_link_enrichment.py api/tests/test_sleep_connector_poll.py api/tests/test_sleep_cycle_logo_warmup.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_link_backfill.py api/tests/test_link_enrichment.py api/tests/test_sleep_connector_poll.py api/tests/test_sleep_cycle_logo_warmup.py -q -p no:cacheprovider`
 Expected: all PASS. If `test_upsert_description_preserves_claims_block_and_other_sections` fails on whitespace, fix `_upsert_description`, not the test: the invariant is order + one claims fence + every other section intact.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && git add api/config.py api/services/link_enrichment.py api/tests/test_link_backfill.py && git commit -m "feat(links): backfill describes claims over existing media pages — oldest-first, junk-aware, dated fetch backoff, one scoped commit (G102 cheap slice, part 1)"
+cd <worktree>/ && git add api/config.py api/services/link_enrichment.py api/tests/test_link_backfill.py && git commit -m "feat(links): backfill describes claims over existing media pages — oldest-first, junk-aware, dated fetch backoff, one scoped commit (G102 cheap slice, part 1)"
 ```
 
 ---
@@ -1251,7 +1251,7 @@ def test_match_existing_uses_direct_then_llm_and_never_creates(tmp_path, monkeyp
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests/test_link_recon.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_link_recon.py -q -p no:cacheprovider`
 Expected: FAIL — `ModuleNotFoundError: No module named 'api.services.link_recon'`.
 
 - [ ] **Step 3: Add the public matcher to `entity_resolver.py`**
@@ -1630,13 +1630,13 @@ Note the `judge_calls` accounting piggybacks on the judge cache growing by one e
 
 - [ ] **Step 5: Run the tests**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests/test_link_recon.py api/tests/test_link_backfill.py api/tests/test_entity_resolver_transactional.py api/tests/test_claim_edge_regen.py api/tests/test_graph_claim_overlay.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_link_recon.py api/tests/test_link_backfill.py api/tests/test_entity_resolver_transactional.py api/tests/test_claim_edge_regen.py api/tests/test_graph_claim_overlay.py -q -p no:cacheprovider`
 Expected: all PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && git add api/services/link_recon.py api/services/entity_resolver.py api/services/link_enrichment.py api/tests/test_link_recon.py && git commit -m "feat(links): G102 recon — batched Stage-1 extraction over stored title+description, Stage-2 match, about claims → edges; unmatched mentions become pending candidates"
+cd <worktree>/ && git add api/services/link_recon.py api/services/entity_resolver.py api/services/link_enrichment.py api/tests/test_link_recon.py && git commit -m "feat(links): G102 recon — batched Stage-1 extraction over stored title+description, Stage-2 match, about claims → edges; unmatched mentions become pending candidates"
 ```
 
 ---
@@ -1751,7 +1751,7 @@ def test_kill_switch_short_circuits_before_engine_resolution(tmp_path, monkeypat
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests/test_maintenance_enrich_links.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_maintenance_enrich_links.py -q -p no:cacheprovider`
 Expected: FAIL — `404` from the first request (no route), then the rest.
 
 - [ ] **Step 3: Implement**
@@ -1828,13 +1828,13 @@ Also add the module docstring line: "...plus `enrich-links`, the on-demand twin 
 
 - [ ] **Step 4: Run the tests**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests/test_maintenance_enrich_links.py api/tests/test_maintenance_dedup_sweep.py api/tests/test_auth.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_maintenance_enrich_links.py api/tests/test_maintenance_dedup_sweep.py api/tests/test_auth.py -q -p no:cacheprovider`
 Expected: all PASS (`test_auth.py` proves the new route is bearer-gated like every other non-exempt path — `auth.py`'s exemption list is untouched).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && git add api/models/schemas.py api/routers/maintenance.py api/tests/test_maintenance_enrich_links.py && git commit -m "feat(api): POST /maintenance/enrich-links — on-demand link backfill with live counts, 409 while Sleep runs (G102)"
+cd <worktree>/ && git add api/models/schemas.py api/routers/maintenance.py api/tests/test_maintenance_enrich_links.py && git commit -m "feat(api): POST /maintenance/enrich-links — on-demand link backfill with live counts, 409 while Sleep runs (G102)"
 ```
 
 ---
@@ -2030,7 +2030,7 @@ def test_nothing_owed_never_calls_the_driver_or_touches_cicada_home(tmp_path, mo
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests/test_sleep_link_backfill.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_sleep_link_backfill.py -q -p no:cacheprovider`
 Expected: FAIL — `AttributeError: module 'api.services.sleep_cycle' has no attribute '_backfill_links_safely'`.
 
 - [ ] **Step 3: Implement**
@@ -2114,13 +2114,13 @@ In `_run_engine_independent_tail` (line 548): add `*, user_triggered: bool = Tru
 
 - [ ] **Step 4: Run the tests + every Sleep suite**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests/test_sleep_link_backfill.py api/tests/test_sleep_connector_poll.py api/tests/test_sleep_feed_poll.py api/tests/test_sleep_cycle_logo_warmup.py api/tests/test_sleep_control.py api/tests/test_sleep_resumable.py api/tests/test_sleep_engine_state.py api/tests/test_agent_provenance.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_sleep_link_backfill.py api/tests/test_sleep_connector_poll.py api/tests/test_sleep_feed_poll.py api/tests/test_sleep_cycle_logo_warmup.py api/tests/test_sleep_control.py api/tests/test_sleep_resumable.py api/tests/test_sleep_engine_state.py api/tests/test_agent_provenance.py -q -p no:cacheprovider`
 Expected: all PASS except the known order-dependent `test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` when run in this subset — re-run it alone to confirm it passes in isolation. If an existing tail test asserts the exact `else:` warning string, update that assertion (the wording change is deliberate). Tail tests that use `SimpleNamespace` settings without the new keys must still pass — the `getattr` defaults above guarantee it; on those (with a real bank of zero media pages) the scan is empty and nothing is resolved.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && git add api/services/sleep_cycle.py api/tests/test_sleep_link_backfill.py && git commit -m "feat(sleep): drain the link backfill on the engine-independent tail — idle nights too, connector-gated fetch, scheduled cycles never resolve the plan (G102)"
+cd <worktree>/ && git add api/services/sleep_cycle.py api/tests/test_sleep_link_backfill.py && git commit -m "feat(sleep): drain the link backfill on the engine-independent tail — idle nights too, connector-gated fetch, scheduled cycles never resolve the plan (G102)"
 ```
 
 ---
@@ -2237,9 +2237,9 @@ Swift, appended inside `FeedIdentityTests` (`app/CicadaApp/Tests/CicadaAppTests/
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests/test_sources_about.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_sources_about.py -q -p no:cacheprovider`
 Expected: FAIL — `KeyError: 'about'`.
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries/app/CicadaApp && swift test --filter FeedIdentityTests`
+Run: `cd <worktree>/app/CicadaApp && swift test --filter FeedIdentityTests`
 Expected: compile error — `value of type 'MediaFeedItem' has no member 'about'`.
 
 - [ ] **Step 3: Implement the server side**
@@ -2319,15 +2319,15 @@ Also rewrite the sheet's header comment (`FeedView.swift:330-336`), which curren
 
 - [ ] **Step 5: Run both test suites**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests/test_sources_about.py api/tests/test_sources.py api/tests/test_sync.py api/tests/test_mcp_sources_tool.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_sources_about.py api/tests/test_sources.py api/tests/test_sync.py api/tests/test_mcp_sources_tool.py -q -p no:cacheprovider`
 Expected: all PASS.
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries/app/CicadaApp && swift test --filter FeedIdentityTests`
+Run: `cd <worktree>/app/CicadaApp && swift test --filter FeedIdentityTests`
 Expected: PASS (and the full `swift test` must still build — run it once here; it is the only task touching Swift).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && git add api/models/schemas.py api/routers/sources.py api/tests/test_sources_about.py app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/Views/Feed/FeedView.swift app/CicadaApp/Tests/CicadaAppTests/FeedIdentityTests.swift && git commit -m "feat(feed): GET /sources carries each link's description excerpt and about neighbours; preview seeded from the row (G102)"
+cd <worktree>/ && git add api/models/schemas.py api/routers/sources.py api/tests/test_sources_about.py app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/Views/Feed/FeedView.swift app/CicadaApp/Tests/CicadaAppTests/FeedIdentityTests.swift && git commit -m "feat(feed): GET /sources carries each link's description excerpt and about neighbours; preview seeded from the row (G102)"
 ```
 
 ---
@@ -2413,10 +2413,10 @@ Append to the G102 row's third column (before the closing `|`), and change the s
 
 - [ ] **Step 4: Verify the docs privacy rule and commit**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && git diff --stat && git diff CLAUDE.md docs/goals/ | grep -n -i "rorosaga\|/Users/\|claude-chats" ; echo "expect no matches above (the ~/.cicada path in the curl is the documented secret location, not a bank)"`
+Run: `cd <worktree>/ && git diff --stat && git diff CLAUDE.md docs/goals/ | grep -n -i "rorosaga\|/Users/\|claude-chats" ; echo "expect no matches above (the ~/.cicada path in the curl is the documented secret location, not a bank)"`
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "docs: Stage 5.57 backfill + recon in CLAUDE.md, G102 cheap slice shipped, TODO handoff + warm-up note"
+cd <worktree>/ && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "docs: Stage 5.57 backfill + recon in CLAUDE.md, G102 cheap slice shipped, TODO handoff + warm-up note"
 ```
 
 ---
@@ -2435,30 +2435,30 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && git a
 ## Verification the orchestrator runs at the end
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && git log --oneline bad8461..HEAD
+cd <worktree>/ && git log --oneline bad8461..HEAD
 # expect 6 commits, one per task, in order
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests/test_link_backfill.py api/tests/test_link_recon.py api/tests/test_maintenance_enrich_links.py api/tests/test_sleep_link_backfill.py api/tests/test_sources_about.py -q -p no:cacheprovider
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_link_backfill.py api/tests/test_link_recon.py api/tests/test_maintenance_enrich_links.py api/tests/test_sleep_link_backfill.py api/tests/test_sources_about.py -q -p no:cacheprovider
 # expect: all pass
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15
 # expect: exactly the baseline failures — 8 in test_calendar_registry.py, plus
 # test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit
 # (order-dependent; passes alone). Nothing else red.
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries/app/CicadaApp && swift test 2>&1 | tail -5
+cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -5
 # expect: all pass (FeedIdentityTests gained one test)
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && git status --porcelain
+cd <worktree>/ && git status --porcelain
 # expect: clean, or only untracked api/.venv / *-report.md — never staged
 
 # Rails grep — nothing in the new code reaches the network by default from a test,
 # nothing hardcodes an owner or a machine path, no LLM at capture time:
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && grep -n "rorosaga\|/Users/" api/services/link_enrichment.py api/services/link_recon.py api/routers/maintenance.py api/tests/test_link_backfill.py api/tests/test_link_recon.py api/tests/test_sleep_link_backfill.py api/tests/test_maintenance_enrich_links.py api/tests/test_sources_about.py ; echo "expect no output"
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && grep -n "link_enrichment\|link_recon" api/routers/capture.py api/services/telegram_capture.py api/services/media_ingestor.py mcp/server.py ; echo "expect no output (no capture-time hook)"
+cd <worktree>/ && grep -n "rorosaga\|/Users/" api/services/link_enrichment.py api/services/link_recon.py api/routers/maintenance.py api/tests/test_link_backfill.py api/tests/test_link_recon.py api/tests/test_sleep_link_backfill.py api/tests/test_maintenance_enrich_links.py api/tests/test_sources_about.py ; echo "expect no output"
+cd <worktree>/ && grep -n "link_enrichment\|link_recon" api/routers/capture.py api/services/telegram_capture.py api/services/media_ingestor.py mcp/server.py ; echo "expect no output (no capture-time hook)"
 
 # Diff read: every task's docstrings cite the G-row / ruling (R-numbers or G-ids) that motivated the rule.
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/link-summaries && git diff bad8461..HEAD --stat
+cd <worktree>/ && git diff bad8461..HEAD --stat
 ```
 
 Live check (owner, after merge — not the orchestrator, the bank holds real people): `POST /maintenance/enrich-links?limit=50` against the running backend, confirm the response's `engine` and counts, then `git -C <bank> log -1 --format=%B` shows `Link enrichment <date>` with the expected trailer, and a described link's Feed row shows its excerpt.

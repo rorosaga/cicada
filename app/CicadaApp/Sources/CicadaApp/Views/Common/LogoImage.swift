@@ -50,7 +50,12 @@ struct LogoImage: View {
 
     private var taskKey: String {
         switch source {
-        case let .bundled(name): "bundled:\(name)"
+        // R-L5: reading `CicadaTheme.mode` (through `resolvedName`) HERE is
+        // what subscribes the view to the theme and what changes the task id
+        // on a flip, so the mark reloads its `-dark` sibling. Keying on the
+        // bare name repaints nothing — the `.task` never re-runs and the
+        // previous theme's `NSImage` stays on screen.
+        case let .bundled(name): "bundled:\(Self.resolvedName(for: name) ?? name)"
         case let .entity(id, _, _): "entity:\(id):\(store.bank)"
         }
     }
@@ -112,11 +117,53 @@ struct LogoImage: View {
         return initials.isEmpty ? "?" : String(initials).uppercased()
     }
 
+    /// The file to load for `name` under the active theme (R-L5): a
+    /// `<name>-dark` sibling when the theme is dark and one is bundled, else
+    /// `<name>`, else nil. Only monochrome marks ship a sibling (R4 of the
+    /// Track L plan) — a coloured mark reads in both themes and is never
+    /// recoloured, so `chrome` resolves to `chrome` in either.
+    ///
+    /// Reading `CicadaTheme.mode` inside a SwiftUI `body` subscribes the view
+    /// to the theme, so a light/dark flip repaints the mark with no extra
+    /// wiring — the same mechanism every `CicadaTheme.<token>` call site uses.
+    /// `taskKey` is where that read happens for the bundled path.
+    ///
+    /// A name that already carries the suffix is returned untouched: the
+    /// sibling is a file in its own right and asking for it by name must never
+    /// look for `x-dark-dark`.
+    static func resolvedName(for name: String) -> String? {
+        if CicadaTheme.mode == .dark, !name.hasSuffix("-dark"), exists(name: "\(name)-dark") {
+            return "\(name)-dark"
+        }
+        return exists(name: name) ? name : nil
+    }
+
     /// Cheap synchronous existence check for a *bundled* logo (a bundle
     /// resource lookup, not a file read) so callers can pick a fallback layout
     /// without waiting on the async PNG decode.
+    ///
+    /// Deliberately still asks about the BASE file: it is the layout gate every
+    /// caller uses, and the pairing invariant `LogoAssetTests
+    /// .testEveryDarkSiblingHasABaseMark` holds means a `-dark` never exists
+    /// without one, so a dark-mode caller can never be gated out of a mark it
+    /// actually ships.
+    ///
+    /// **The empty-name guard is load-bearing.** Foundation resolves an EMPTY
+    /// resource name to the FIRST matching file in the directory — measured
+    /// against the built bundle, `url(forResource: "", withExtension: "png",
+    /// subdirectory: "Resources/logos")` returns `rss.png`. Three call sites
+    /// pass `logoName ?? ""` because R6 makes them take the tile whenever
+    /// EITHER rung exists (`ConnectedChannelRow.rowIcon`,
+    /// `IntegrationsView.mark`, `MemberMark`), so a channel that has only the
+    /// installed-app rung — Safari, Apple Notes, whose PNGs R2 forbids — would
+    /// fall through to the PNG rung on a Mac where that app is absent and draw
+    /// an unrelated brand mark instead of its SF Symbol. One guard here fixes
+    /// every caller: this is the single lookup that answers "is there a mark".
     static func exists(name: String) -> Bool {
-        Bundle.cicadaResources.url(forResource: name, withExtension: "png", subdirectory: "Resources/logos") != nil
+        guard !name.isEmpty else { return false }
+        return Bundle.cicadaResources.url(
+            forResource: name, withExtension: "png", subdirectory: "Resources/logos"
+        ) != nil
     }
 
     // MARK: - Bundled cache
@@ -124,24 +171,34 @@ struct LogoImage: View {
     @MainActor
     private static var cache: [String: NSImage] = [:]
 
+    /// R-L5: the cache key is the **resolved** name, not the requested one. A
+    /// theme flip must not serve the other theme's cached bytes — `chatgpt` and
+    /// `chatgpt-dark` are two different files and two different entries.
     private static func bundledImage(for name: String) async -> NSImage? {
-        if let cached = await MainActor.run(body: { cache[name] }) { return cached }
+        // `?? name` used to sit here and it re-opened the empty-name hole
+        // `exists(name:)` closes: `resolvedName("")` is nil, the fallback fed
+        // `""` straight back into the bundle lookup, and Foundation answered
+        // with the directory's first file. A nil resolution means no such mark
+        // ships — the second lookup could only ever fail or lie.
+        guard let file = resolvedName(for: name) else { return nil }
+        if let cached = await MainActor.run(body: { cache[file] }) { return cached }
         let loaded = await Task.detached(priority: .utility) {
             guard let url = Bundle.cicadaResources.url(
-                forResource: name, withExtension: "png", subdirectory: "Resources/logos"
+                forResource: file, withExtension: "png", subdirectory: "Resources/logos"
             ) else { return nil as NSImage? }
             return NSImage(contentsOf: url)
         }.value
-        if let loaded { await MainActor.run { cache[name] = loaded } }
+        if let loaded { await MainActor.run { cache[file] = loaded } }
         return loaded
     }
 
     // MARK: - Platform tile (Task 13)
 
     /// Linear-style "Connected accounts" tile: a rounded-square card with a
-    /// subtle background and a hairline border, the brand mark centered and
-    /// inset so a full-bleed source PNG (X's plain black square, same deal as
-    /// the existing `codex.png`) and a transparent-cornered one (Instagram,
+    /// subtle background and a hairline border, the brand mark centered, inset
+    /// and clipped to the card's curvature so a full-bleed source PNG
+    /// (`claude-code`, `claude-desktop`, `hermes` — the three rasters whose
+    /// background IS the mark) and a transparent-cornered one (Instagram,
     /// Reddit, …) read the same. Radius scales proportionally with `size` (8pt
     /// at the reference 40pt).
     ///
@@ -151,32 +208,28 @@ struct LogoImage: View {
     /// existed, so a platform with no fetched PNG (or, vanishingly rarely, a
     /// corrupt one `LogoImage`'s own decode falls back on) never renders
     /// blank.
-    static func platformTile(name: String, size: CGFloat = 40, systemFallback: String = "app") -> some View {
-        PlatformTile<EmptyView>(name: name, size: size, systemFallback: systemFallback, glyph: nil)
-    }
-
-    /// Same tile with a DRAWN mark between the PNG and the SF Symbol (R7,
-    /// Task 4): a bundled PNG still wins — so the owner can switch a
-    /// browser to an official mark by dropping a file in and flipping its
-    /// `logoName` — then the glyph, then `systemFallback`. `glyph` receives
-    /// the mark size the PNG would have been drawn at, so a glyph and a PNG
-    /// sit identically inside the card.
-    static func platformTile<Glyph: View>(
-        name: String, size: CGFloat = 40, systemFallback: String = "app",
-        @ViewBuilder glyph: (CGFloat) -> Glyph
-    ) -> some View {
-        PlatformTile(name: name, size: size, systemFallback: systemFallback,
-                     glyph: glyph(PlatformTile<Glyph>.markSize(for: size)))
+    ///
+    /// `bundleId` is the R-L1 rung and wins over the PNG: an app installed on
+    /// this Mac carries a mark that is by definition current, and R2 forbids
+    /// ever committing one for Safari or Apple Notes. It defaults to `nil` so
+    /// the call sites that have no app behind them (the platform rows) read
+    /// exactly as before. R6 — this is the SAME precedence `OriginMark` runs,
+    /// deliberately: the Sleep desk, the Sources grid, the `+` catalog and
+    /// Settings → Integrations must not disagree about what Safari looks like.
+    static func platformTile(name: String, bundleId: String? = nil, size: CGFloat = 40,
+                             systemFallback: String = "app") -> some View {
+        PlatformTile(name: name, bundleId: bundleId, size: size, systemFallback: systemFallback)
     }
 }
 
-private struct PlatformTile<Glyph: View>: View {
+private struct PlatformTile: View {
     let name: String
+    /// The installed app whose icon is this tile's mark, when there is one
+    /// (R-L1). Nil on every machine where that app is absent, which is why
+    /// the PNG and SF Symbol rungs below it stay.
+    var bundleId: String?
     let size: CGFloat
     let systemFallback: String
-    /// A drawn mark used only when no bundled PNG exists under `name`;
-    /// `nil` falls through to `systemFallback`.
-    let glyph: Glyph?
 
     /// 8pt at the reference 40pt size, scaling proportionally either way.
     private var cornerRadius: CGFloat { size * 0.2 }
@@ -190,11 +243,31 @@ private struct PlatformTile<Glyph: View>: View {
                 .fill(CicadaTheme.surfaceElevated)
             RoundedRectangle(cornerRadius: cornerRadius)
                 .stroke(CicadaTheme.border, lineWidth: 1)
-            if LogoImage.exists(name: name) {
+            if let bundleId, let icon = InstalledAppIcon.image(bundleId: bundleId, size: markSize) {
+                Image(nsImage: icon)
+                    .resizable().interpolation(.high).scaledToFit()
+                    .frame(width: markSize, height: markSize)
+            } else if LogoImage.exists(name: name) {
+                // The clip stays, at the CARD's own curvature scaled to the
+                // mark (`cornerRadius * markSize / size` — a constant 0.2 of
+                // whatever it is drawn at). R-L5 dropped it on a premise that
+                // measurement disproved: recutting `x` and `codex` with alpha
+                // did not leave "no full-bleed square", because `claude-code`
+                // and `claude-desktop` are 256 px rasters whose every pixel is
+                // opaque (corners 0.996, sampled minimum 1.00) and `hermes` is
+                // a black plate with only a 1-px feathered edge (corner 0.02,
+                // 0.91 one pixel in). All three reach here — `claude-desktop`
+                // through `chat-export:claude` on the Feed strip and Settings →
+                // Integrations, `claude-code` through `claude-plan` — and drew
+                // hard corners inside a rounded card. The old radius was
+                // `cornerRadius * 0.5`, which read SQUARER than the card
+                // because 0.5 is not the card's ratio; this one is, so the mark
+                // and the card curve alike. It is a no-op for every mark whose
+                // corners are already transparent (25 of the 27 bundled), which
+                // is why it costs nothing to apply unconditionally rather than
+                // maintaining a list of which rasters are opaque.
                 LogoImage(name: name, size: markSize)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius * 0.5))
-            } else if let glyph {
-                glyph
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius * (markSize / size)))
             } else {
                 Image(systemName: systemFallback)
                     .font(CicadaTheme.font(size: size * 0.42, weight: .medium))

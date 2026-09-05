@@ -192,6 +192,15 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
         channel=media.get("channel") or None,
         thumbnail=media.get("thumbnail") or None,
         description=description,
+        # Track V — both written by `write_media_entity` only when set, so an
+        # older page simply has neither. `duration_s` is type-checked rather
+        # than coerced: a hand-edited page could carry a string, and R17 says
+        # absent beats a guess.
+        provider=media.get("provider") or None,
+        duration_s=(
+            media.get("duration_s") if isinstance(media.get("duration_s"), int)
+            and not isinstance(media.get("duration_s"), bool) else None
+        ),
     )
 
 

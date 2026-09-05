@@ -558,15 +558,28 @@ struct MediaBlock: Codable, Equatable {
     var thumbnail: String?
     var savedAt: String?
     var urlHash: String?
+    /// Track V / R-V2: the ingestor's own name for the provider it enriched
+    /// through (`vimeo | tiktok | loom | …`). **Redundant with what
+    /// `VideoRef.resolve(url)` derives** — nothing in this app dispatches on
+    /// it — and carried only so a non-Swift reader of the wire (or of the
+    /// page's `media:` block) can see which provider answered. Never trusted
+    /// over the url: `mediaType` taught that lesson (R-V1).
+    var provider: String?
+    /// The clip's length in seconds, as the provider's oEmbed reported it.
+    /// **The one thing a url cannot tell you**, which is why it is stored at
+    /// all. Absent means absent — nothing renders, never an estimate (R17).
+    var durationS: Int?
 
     enum CodingKeys: String, CodingKey {
         case url, mediaType, site, channel, thumbnail, savedAt, urlHash
+        case provider, durationS
     }
 
     init(
         url: String, mediaType: String, site: String? = nil,
         channel: String? = nil, thumbnail: String? = nil,
-        savedAt: String? = nil, urlHash: String? = nil
+        savedAt: String? = nil, urlHash: String? = nil,
+        provider: String? = nil, durationS: Int? = nil
     ) {
         self.url = url
         self.mediaType = mediaType
@@ -575,6 +588,8 @@ struct MediaBlock: Codable, Equatable {
         self.thumbnail = thumbnail
         self.savedAt = savedAt
         self.urlHash = urlHash
+        self.provider = provider
+        self.durationS = durationS
     }
 
     init(from decoder: Decoder) throws {
@@ -586,6 +601,12 @@ struct MediaBlock: Codable, Equatable {
         thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail)
         savedAt = try c.decodeIfPresent(String.self, forKey: .savedAt)
         urlHash = try c.decodeIfPresent(String.self, forKey: .urlHash)
+        // R16: the client decodes these BEFORE the backend produces them, so
+        // absence has to be the normal case — every page written before the
+        // Track V backend slice, and every non-video page after it, arrives
+        // without either key.
+        provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
     }
 
     /// True when there's a real url to preview. A media entity whose frontmatter
@@ -748,7 +769,14 @@ struct Entity: Identifiable, Codable {
             channel: fields["channel"],
             thumbnail: fields["thumbnail"],
             savedAt: fields["saved_at"],
-            urlHash: fields["url_hash"]
+            urlHash: fields["url_hash"],
+            // Track V: the page's own `media:` block spells these snake_case
+            // (`write_media_entity` writes each only when it has a value —
+            // plan R15), so a bookmark with neither key parses exactly as it
+            // did before. A `duration_s` that isn't an integer degrades to
+            // nil rather than to a zero that would render as "0:00" (R17).
+            provider: fields["provider"],
+            durationS: Int(fields["duration_s"] ?? "")
         )
     }
 

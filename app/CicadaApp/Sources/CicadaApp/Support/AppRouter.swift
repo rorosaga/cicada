@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// G126 R9 — the Feed hand-off. CLAUDE.md's Companion App section confirms
@@ -26,6 +27,53 @@ final class AppRouter {
     func routeToFeedAddSource(_ tile: AddSourceTile) {
         pendingTab = .feed
         pendingAddSource = tile
+        activateMainWindow()
+    }
+
+    /// Track P R7 — every Settings → main-window hand-off goes through the
+    /// router, so no view can stage a flag and forget to bring the window
+    /// forward. Staging alone left the person looking at Settings while the
+    /// tab switched on a window behind it, and the button read as broken.
+    ///
+    /// The app's existing "first window that can become key"
+    /// (`CicadaApp.swift`'s menu-bar activation) is not good enough here: the
+    /// Settings window satisfies it, and Settings is exactly the window we are
+    /// trying to leave.
+    func activateMainWindow() {
+        // `AppRouterTests.testRouteToFeedStagesTileAndTab` and
+        // `testConsumeClearsAfterOneRead` already call
+        // `routeToFeedAddSource`, which now reaches this method — and
+        // `NSApplication.shared` INSTANTIATES NSApp on first touch, which a
+        // headless `swift test` process must never be made to do. Reading the
+        // `NSApp` global does not create it, so this guard makes the method a
+        // no-op in the suite while staying a straight-line call in the app,
+        // where the launch path has already brought NSApp up.
+        guard let app = NSApp else { return }
+        app.activate(ignoringOtherApps: true)
+        let target = app.windows.first {
+            Self.isMainWindow(identifier: $0.identifier?.rawValue, title: $0.title, canBecomeKey: $0.canBecomeKey)
+        }
+        target?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Pure so it can be tested — an `NSWindow` cannot be stood up in the
+    /// XCTest target. SwiftUI stamps its Settings scene's window with the
+    /// `com_apple_SwiftUI_Settings_window` identifier and the localised title
+    /// "Settings"; both are checked because neither is contractual.
+    static func isMainWindow(identifier: String?, title: String, canBecomeKey: Bool) -> Bool {
+        guard canBecomeKey else { return false }
+        if (identifier ?? "").localizedCaseInsensitiveContains("settings") { return false }
+        if title.localizedCaseInsensitiveCompare("settings") == .orderedSame { return false }
+        return true
+    }
+
+    /// G117's "Run setup again" hand-off, paired with its activation for the
+    /// same reason `routeToFeedAddSource` is: `ContentView` presents the sheet
+    /// on the MAIN window, so staging the flag from Settings without ordering
+    /// that window front shows the sheet behind the window you are looking at.
+    func requestFirstRun() {
+        pendingFirstRun = true
+        activateMainWindow()
     }
 
     /// Reads then clears in one call so a caller (`FeedView.onAppear` AND

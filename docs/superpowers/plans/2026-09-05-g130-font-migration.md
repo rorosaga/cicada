@@ -25,7 +25,7 @@
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/font-migration` (branch `feat/font-migration`, based on `dev` @ `b5a02ff`). Absolute paths; `cd <worktree> && …` for every command.
+- Work ONLY in `<worktree>/` (branch `feat/font-migration`, based on `dev` @ `b5a02ff`). Absolute paths; `cd <worktree> && …` for every command.
 - NEVER read the bank (`memory/`), `~/.cicada`, `~/Library`, `~/.claude/projects`.
 - Swift: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5`; `swift test 2>&1 | tail -20` → 0 failures. NEVER `make dev`/`install-app`/`swift run`/launch the app.
 - Named files only in `git add`; never `memory/`, `logs/`, `.claude/`, `api/.venv`, `*-report.md`. No push, no subagents.

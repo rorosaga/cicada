@@ -23,4 +23,31 @@ final class AppRouterTests: XCTestCase {
         XCTAssertNil(router.pendingAddSource)
         XCTAssertNil(router.consumeAddSource())
     }
+
+    /// recent-work #8 — both Settings → main-window hand-offs only mutated a
+    /// flag. `ContentView` consumes it on the MAIN window, but nothing
+    /// activated the app or ordered that window front, so Settings stayed key
+    /// and the button read as broken. Worse inside onboarding, where
+    /// `FirstRunSheet` embeds `IntegrationsView` whole: the hand-off fired
+    /// from inside a modal sheet that never dismissed.
+    ///
+    /// Which window is "main" is a pure predicate so it can be tested at all —
+    /// an NSWindow cannot be stood up in this suite, and the app's existing
+    /// `windows.first(where: { $0.canBecomeKey })` (`CicadaApp.swift:162`)
+    /// happily returns the Settings window.
+    func testIsMainWindowRejectsTheSettingsWindowAndAnythingUnkeyable() {
+        XCTAssertTrue(AppRouter.isMainWindow(identifier: "SwiftUI-Window-1", title: "Cicada", canBecomeKey: true))
+        XCTAssertFalse(AppRouter.isMainWindow(identifier: "com_apple_SwiftUI_Settings_window", title: "Settings", canBecomeKey: true))
+        XCTAssertFalse(AppRouter.isMainWindow(identifier: nil, title: "Settings", canBecomeKey: true))
+        XCTAssertFalse(AppRouter.isMainWindow(identifier: "SwiftUI-Window-1", title: "Cicada", canBecomeKey: false))
+    }
+
+    /// `requestFirstRun` exists so BOTH hand-offs go through the router and
+    /// neither view can forget to bring the window forward (R7).
+    func testRequestFirstRunStagesTheSheet() {
+        let router = AppRouter()
+        XCTAssertFalse(router.pendingFirstRun)
+        router.requestFirstRun()
+        XCTAssertTrue(router.pendingFirstRun)
+    }
 }

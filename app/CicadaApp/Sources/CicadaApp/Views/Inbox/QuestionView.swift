@@ -12,6 +12,23 @@ struct QuestionResolution {
     var mergeSurvivor: String? = nil
 }
 
+/// "Keep separate" on a merge suggestion — a REMEMBERED verdict, not a
+/// dismissal (G113 slice 3b: the backend records the pair in
+/// `_merge_rejected.yaml` so neither `clarification_manager` nor the dedup
+/// sweep proposes it again). `inbox_service.resolve` needs the other side of
+/// the pair, taking `merge_target_hint` OR `mergeTarget`; the hint is absent
+/// for a hintless "Possible duplicate" and for every migrated item, so the
+/// view has to send what the person has in the target field. `nil` here means
+/// "there is no pair yet" — the caller disables the button rather than firing
+/// a request the backend must 400.
+enum MergeReject {
+    static func resolution(existingName: String) -> QuestionResolution? {
+        let target = existingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else { return nil }
+        return QuestionResolution(action: "reject", mergeTarget: target)
+    }
+}
+
 /// The single renderer for every question-carrying inbox kind — decay included
 /// since G115 Phase 1 (R5), alongside conflict, clarification and
 /// merge_suggestion — modelled on Claude Code's `AskUserQuestion`: the question,

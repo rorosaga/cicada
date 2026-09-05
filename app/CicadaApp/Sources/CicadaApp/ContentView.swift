@@ -64,22 +64,24 @@ struct ContentView: View {
         // pick up every subsequent change reactively (`GraphViewModel`'s
         // `observeStore()`; `InboxViewModel.items` reads the snapshot
         // directly), so there's nothing left for ContentView to kick off.
+        // R6 — still reads Store snapshots only, no extra fetch. But it can no
+        // longer decide on `.onAppear` alone: `store.bootstrap()` is async, so
+        // at this point `store.bank` is usually still the placeholder
+        // `"default"` and `store.graph` is unloaded. Deciding there asked
+        // `isOnboarded` about the wrong bank and read "not loaded" as "empty",
+        // which put the sheet on top of an onboarded bank's real data on every
+        // cold launch. `FirstRunGate` holds the rule (unknown is never empty);
+        // this view just re-asks it whenever an input lands.
         .onAppear {
             selectedTab = AppTab.restored(from: selectedTabRaw)
-            // R6 — reads Store snapshots only, no extra fetch: `store.graph`
-            // is already hydrated (from the on-disk cache, then the network)
-            // by `store.bootstrap()`, called from `CicadaApp`'s own
-            // `.onAppear` before this view's tree is even built. `?? true`
-            // treats "graph not loaded yet" the same as "empty" — the sheet
-            // showing once on a slow first load and then never again (once
-            // `OnboardingState.markOnboarded` fires) is the safe failure
-            // direction; the alternative (treating unloaded as non-empty)
-            // would silently skip onboarding on a fresh bank whose first
-            // fetch just hasn't landed yet.
-            if !OnboardingState.isOnboarded(bank: store.bank) && (store.graph.value?.nodes.isEmpty ?? true) {
-                showFirstRun = true
-            }
+            evaluateFirstRun()
         }
+        // The roster resolving the active bank, and the graph snapshot landing
+        // (from the on-disk cache or the network), are the two events that turn
+        // an unknown input into a known one.
+        .onChange(of: store.bank) { _, _ in evaluateFirstRun() }
+        .onChange(of: store.banks.loadedAt) { _, _ in evaluateFirstRun() }
+        .onChange(of: store.graph.loadedAt) { _, _ in evaluateFirstRun() }
         .onChange(of: selectedTab) { _, newValue in
             selectedTabRaw = newValue.rawValue
             // Bug 3 / G108 — a different tab drops the entity card's stale
@@ -129,6 +131,28 @@ struct ContentView: View {
                 graphVM.revealEntity(id: entityId)
                 showAskPanel = false
             }
+        }
+    }
+
+    /// G117 — the one place the first-run sheet is raised automatically.
+    /// `store.banks.value != nil` is the honest "the bank is resolved" signal:
+    /// `Store` has no `hydrated` flag, and `hydrate()` sets `bank` from the
+    /// roster it just read (`Store.swift`, `roster.value.active`), so the
+    /// roster snapshot having a value is exactly the moment `store.bank` stops
+    /// being the placeholder. A hydrated on-disk cache counts as loaded for
+    /// both roster and graph — rendering the first frame from disk is the
+    /// point of that cache. Never lowers `showFirstRun`: dismissal belongs to
+    /// `FirstRunSheet`'s own completion and to the `pendingFirstRun` hand-off,
+    /// and a re-evaluation firing under an open sheet must not close it.
+    private func evaluateFirstRun() {
+        guard !showFirstRun else { return }
+        if FirstRunGate.shouldShow(
+            bankResolved: store.banks.value != nil,
+            isOnboarded: OnboardingState.isOnboarded(bank: store.bank),
+            graphLoaded: store.graph.value != nil,
+            graphIsEmpty: store.graph.value?.nodes.isEmpty ?? false
+        ) {
+            showFirstRun = true
         }
     }
 
@@ -216,7 +240,6 @@ struct GraphContainerView: View {
     @Binding var showAskPanel: Bool
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(BanksViewModel.self) private var banksVM
-    @State private var showUploadOverlay = false
 
     var body: some View {
         ZStack {
@@ -238,7 +261,8 @@ struct GraphContainerView: View {
                 )
             }
 
-            // Top-right: Ask + Sleep + Upload + Help buttons
+            // Top-right: Ask + Help (Track P: the audit removed Sleep/Upload —
+            // a cycle starts on the Sleep page, an import behind the Feed's +)
             VStack {
                 HStack {
                     Spacer()
@@ -246,7 +270,7 @@ struct GraphContainerView: View {
                         AskButton(showAskPanel: $showAskPanel)
                         TopBarControls(
                             selectedTab: $selectedTab,
-                            showUploadOverlay: $showUploadOverlay
+                            showUploadOverlay: .constant(false)
                         )
                     }
                     .padding(CicadaTheme.spacingLG)
@@ -314,15 +338,8 @@ struct GraphContainerView: View {
                     .padding(CicadaTheme.spacingXL)
                     .transition(.scale(scale: 0.97).combined(with: .opacity))
             }
-
-            // Upload overlay
-            if showUploadOverlay {
-                UploadOverlay(isPresented: $showUploadOverlay)
-                    .transition(.opacity)
-            }
         }
         .animation(.spring(duration: 0.3), value: graphVM.selectedEntity?.id)
-        .animation(.spring(duration: 0.3), value: showUploadOverlay)
     }
 }
 

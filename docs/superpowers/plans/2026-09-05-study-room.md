@@ -53,10 +53,10 @@
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/study-room` (branch `feat/study-room`, based on `dev` @ `53885a1`). Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/study-room && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never an unquoted `--include=*.ext` (zsh globbing breaks it) — quote it or use `rg`.
-- NEVER read `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`, `~/Library`, or `~/.claude/projects`. Fixtures are synthetic: `alpha-project`, `bob-example`, `example.com`, `ep_2026-09-01_001`, origins `claude-code` / `safari-tab` / `telegram`.
-- Python: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/study-room && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`; the full `api/tests` suite must report **0 failures**. `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` is order-dependent and pre-existing — if it is the ONLY red, re-run it alone and report both results.
-- Swift: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/study-room/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report **0 failures** (SourceKit diagnostics naming OTHER worktrees are noise). NEVER run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live; the orchestrator installs at the end.
+- Work ONLY in `<worktree>/` (branch `feat/study-room`, based on `dev` @ `53885a1`). Every shell command is `cd <worktree>/ && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never an unquoted `--include=*.ext` (zsh globbing breaks it) — quote it or use `rg`.
+- NEVER read `<repo>/memory` (any bank), `~/.cicada`, `~/Library`, or `~/.claude/projects`. Fixtures are synthetic: `alpha-project`, `bob-example`, `example.com`, `ep_2026-09-01_001`, origins `claude-code` / `safari-tab` / `telegram`.
+- Python: `cd <worktree>/ && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`; the full `api/tests` suite must report **0 failures**. `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` is order-dependent and pre-existing — if it is the ONLY red, re-run it alone and report both results.
+- Swift: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report **0 failures** (SourceKit diagnostics naming OTHER worktrees are noise). NEVER run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live; the orchestrator installs at the end.
 - Never `git add -A`; stage named files only. Never commit `memory/`, `logs/`, `.claude/`, `api/.venv`, or `*-report.md`. Do not push, do not create branches or worktrees, do not dispatch subagents. Ignore Devin/PR comments.
 - **Ownership fences (other tracks are live in parallel worktrees).** Do **not** edit `Views/Common/TopBarControls.swift` or `ContentView`'s toolbar (Track P). Do **not** edit `Views/Sources/*` (Track S) — the only Sources-side file this track touches is `Models/SourceOverview.swift`. Do **not** edit `Views/Capture/OriginIconography.swift`, `Views/Common/LogoImage.swift` or `OriginMark` (Track L) — call them, never change them.
 - **Sleep-safety:** every new read path is engine-free; nothing on this page costs an LLM call; no capture-time processing is introduced.
@@ -317,8 +317,8 @@ func testTimeTextIsADashForALegacyDateOnlyValue() {
 
 Run them — every one must fail for the right reason:
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/study-room && api/.venv/bin/python -m pytest api/tests/test_source_overview.py api/tests/test_sleep_history_detail.py -q -p no:cacheprovider
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/study-room/app/CicadaApp && swift test --filter SleepHistory 2>&1 | tail -20
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_source_overview.py api/tests/test_sleep_history_detail.py -q -p no:cacheprovider
+cd <worktree>/app/CicadaApp && swift test --filter SleepHistory 2>&1 | tail -20
 ```
 
 - [ ] **Step 2: Implement**
@@ -458,9 +458,9 @@ Add to `get_sleep_history`'s docstring: *"``--date=iso-strict`` (R-A11): the row
 - [ ] **Step 3: Verify + commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/study-room && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/study-room/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/study-room && git add api/services/source_overview.py api/models/schemas.py api/services/git_service.py api/tests/test_source_overview.py api/tests/test_sleep_history_detail.py app/CicadaApp/Sources/CicadaApp/Models/SourceOverview.swift app/CicadaApp/Sources/CicadaApp/Sync/SyncAPI.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/ConsolidationHistoryCard.swift app/CicadaApp/Tests/CicadaAppTests/SleepHistoryDecodeTests.swift app/CicadaApp/Tests/CicadaAppTests/SleepHistoryPresentationTests.swift && git commit
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
+cd <worktree>/ && git add api/services/source_overview.py api/models/schemas.py api/services/git_service.py api/tests/test_source_overview.py api/tests/test_sleep_history_detail.py app/CicadaApp/Sources/CicadaApp/Models/SourceOverview.swift app/CicadaApp/Sources/CicadaApp/Sync/SyncAPI.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/ConsolidationHistoryCard.swift app/CicadaApp/Tests/CicadaAppTests/SleepHistoryDecodeTests.swift app/CicadaApp/Tests/CicadaAppTests/SleepHistoryPresentationTests.swift && git commit
 ```
 
 Commit message: `feat(G125 v3): per-source daily activity, a time of day on history rows, and the SSE progress sentence the app never decoded` — body naming R-A16/R-A11, P1/P3/P4, the unchanged ETag recipe, and the two verified traps (`date.fromisoformat` on an offset stamp; the UTC-pinned formatter).
@@ -812,8 +812,8 @@ func testNoBarePercentReachesATextInTheSleepFolder() throws {
 
 1. **Both suites, from this worktree.**
    ```
-   cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/study-room && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
-   cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/study-room/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
+   cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
+   cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
    ```
    Both must report **0 failures**. If `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` is the ONLY red, re-run it alone and report both results.
 2. **`make dev`**, then the live page at **1200, 950 and 800 pt** of content width — two columns above 1000, stacked below, no horizontal scroll, no card reflow between idle and running.

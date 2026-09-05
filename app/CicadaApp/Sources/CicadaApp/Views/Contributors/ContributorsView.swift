@@ -108,8 +108,18 @@ private struct ContributorRow: View {
     private var kind: String {
         if let k = contributor.kind, !k.isEmpty { return k }
         if contributor.author == "user" { return "user" }
+        // R-L6 — a backend that already says "system" wins above; this is the
+        // fallback for one that predates the kind, where `cicada` would
+        // otherwise classify as a model and draw the grey "?".
+        if contributor.author == ContributorIdentity.systemAuthor { return "system" }
         if contributor.author == "unknown" { return "unknown" }
         return "model"
+    }
+
+    /// One name for the row, its accessibility label and anything else that
+    /// speaks this contributor aloud (R8).
+    private var displayName: String {
+        ContributorIdentity.displayName(author: contributor.author, kind: kind)
     }
 
     private var accent: Color {
@@ -129,7 +139,7 @@ private struct ContributorRow: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Button(action: onToggle) { summary }
                 .buttonStyle(.cicadaPlain)
-                .accessibilityLabel("\(contributor.author), \(contributor.commitCount) commits")
+                .accessibilityLabel("\(displayName), \(contributor.commitCount) commits")
 
             if isExpanded { drillDown }
         }
@@ -194,7 +204,7 @@ private struct ContributorRow: View {
                     .font(CicadaTheme.font(size: 9, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textTertiary)
                 ContributorAvatar(contributor: contributor, kind: kind)
-                Text(contributor.author)
+                Text(displayName)
                     .font(CicadaTheme.headingFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Spacer()
@@ -408,10 +418,15 @@ private struct ContributorRow: View {
 // G15 — a per-contributor avatar (GitHub-repo-contributors style).
 //   user    -> the user's GitHub profile picture (rounded), falling back to a
 //              person glyph if there's no URL or the image fails to load.
-//   model   -> a provider badge: a colored circle with a 1-letter monogram
-//              (provider brand-ish colors; "other" neutral). Real logo assets
-//              are a follow-up; the monogram badge is the v1.
-//   unknown -> a muted question-mark glyph.
+//   system  -> the bookworm itself (Track L R8): Cicada's own maintenance
+//              commits are neither a model nor a person, and drawing them as
+//              an unknown model was the loudest instance of the "?" bug.
+//   model   -> the provider's REAL mark when one is bundled (R-L6), else a
+//              coloured circle carrying the author's initials. The "logo
+//              assets are a follow-up" note this comment used to carry is
+//              what Track L delivered.
+//   unknown -> a muted question-mark glyph — the ONE place a "?" is honest,
+//              because a legacy untrailered commit genuinely has no author.
 private struct ContributorAvatar: View {
     let contributor: Contributor
     let kind: String
@@ -422,6 +437,8 @@ private struct ContributorAvatar: View {
         switch kind {
         case "user":
             userAvatar
+        case "system":
+            systemAvatar
         case "unknown":
             Image(systemName: "questionmark.circle.fill")
                 .font(CicadaTheme.font(size: Self.size))
@@ -430,6 +447,19 @@ private struct ContributorAvatar: View {
         default:
             providerBadge
         }
+    }
+
+    /// A STATIC frame 0 of the bookworm, not a `BookwormView` (R8): a 22 pt
+    /// sprite animating inside a scrolling table is motion nobody asked for,
+    /// and frame 0 at this size is a `BookwormRenderer` cache hit the menu bar
+    /// has usually already paid for. `.interpolation(.none)` keeps the pixel
+    /// grid hard at a non-multiple scale, exactly as the menu bar draws it.
+    private var systemAvatar: some View {
+        Image(nsImage: BookwormRenderer.cachedImage(state: .happy, frameIndex: 0, pointSize: 24))
+            .interpolation(.none)
+            .resizable()
+            .frame(width: Self.size, height: Self.size)
+            .clipShape(Circle())
     }
 
     @ViewBuilder
@@ -459,34 +489,39 @@ private struct ContributorAvatar: View {
             .frame(width: Self.size, height: Self.size)
     }
 
+    /// R8 — the real mark when the provider ships one, else the provider's
+    /// colour carrying the AUTHOR's initials. Initials, not a per-provider
+    /// letter: `openrouter/z-ai/glm-5.2` and a bare `glm-5.2` are two
+    /// different authors and must not collapse into one badge.
+    @ViewBuilder
     private var providerBadge: some View {
-        Circle()
-            .fill(Self.providerColor(contributor.provider))
-            .frame(width: Self.size, height: Self.size)
-            .overlay(
-                Text(Self.monogram(contributor.provider))
-                    .font(CicadaTheme.font(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
-            )
+        if let logo = ContributorIdentity.logoName(provider: contributor.provider) {
+            LogoImage(name: logo, size: Self.size)
+        } else {
+            Circle()
+                .fill(Self.providerColor(contributor.provider))
+                .frame(width: Self.size, height: Self.size)
+                .overlay(
+                    Text(ContributorIdentity.monogram(for: contributor.author))
+                        .font(CicadaTheme.font(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                )
+        }
     }
 
     /// Brand-ish color per provider; "other"/unknown -> a neutral tone.
+    ///
+    /// The R-L6 providers that have no bundled mark deliberately stay neutral:
+    /// a router (`openrouter`, `ollama`) did not make the model, and painting
+    /// an open-weight family in a vendor's colour would claim a brand the id
+    /// does not carry. Colour here means "we know whose model this was", and
+    /// the initials carry the rest. Still used by `ContributorRow.accent`.
     static func providerColor(_ provider: String?) -> Color {
         switch provider {
         case "anthropic": Color(hex: 0xD97757)  // Anthropic clay/terracotta
         case "openai": Color(hex: 0x10A37F)      // OpenAI teal-green
         case "google": Color(hex: 0x4285F4)      // Google blue
-        default: CicadaTheme.textTertiary        // "other" / unknown — neutral
-        }
-    }
-
-    /// 1-letter monogram per provider.
-    static func monogram(_ provider: String?) -> String {
-        switch provider {
-        case "anthropic": "A"
-        case "openai": "O"
-        case "google": "G"
-        default: "?"
+        default: CicadaTheme.textTertiary        // router / open-weight / "other" — neutral
         }
     }
 }

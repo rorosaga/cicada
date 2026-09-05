@@ -140,15 +140,22 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The bundled brand-mark PNG for this tile (Task 13), when the
-    /// maintainers fetched one — `nil` for a tile whose row isn't a single
-    /// platform's logo: multi-vendor exports, local file/paste actions, or a
-    /// row with no single brand mark (Apple Notes, RSS, Calendar all kept
-    /// their SF Symbol — no sensible single logo exists for any of them).
-    /// Safari and Chrome are `nil` too: their marks are DRAWN (R7 —
-    /// `brandGlyph`, Task 4), not downloaded; the owner can drop
-    /// `Resources/logos/safari.png` / `chrome.png` in and flip these two to
-    /// prefer the PNG.
+    /// The bundled brand-mark PNG for this tile, when the maintainers fetched
+    /// one (`scripts/fetch-logos.sh`, declared in `logos.manifest.json`).
+    ///
+    /// **Track L took R7's escape hatch.** That ruling said the browsers' marks
+    /// are drawn in-app so nothing is downloaded, and named this exact way out:
+    /// drop the PNG in and flip the tile's `logoName`. Chrome's official mark
+    /// now ships from Wikimedia Commons with its licence line, so `.chrome`
+    /// points at it and the hand-drawn approximation is deleted — it was wrong
+    /// on four independent axes. RSS likewise (the Mozilla feed icon).
+    ///
+    /// Still `nil`, each for its own reason: multi-vendor exports and the local
+    /// file/paste actions are not one platform; `.calendar` is any ICS
+    /// publisher, and the only available mark is *Google* Calendar's, which
+    /// would be a lie about the vendor (R3); `.safari` and `.appleNotes` are
+    /// Apple's marks, which R-L3 forbids redistributing — those two resolve
+    /// through `appBundleId` instead and never gain a file here.
     var logoName: String? {
         switch self {
         case .instagram: "instagram"
@@ -159,9 +166,29 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .linkedin: "linkedin"
         case .x: "x"
         case .telegram: "telegram"
-        case .chatExport, .bookmarksFile, .pasteLink, .rssFeed, .calendar,
-             .safari, .chrome, .appleNotes:
+        case .chrome: "chrome"
+        case .rssFeed: "rss"
+        case .chatExport, .bookmarksFile, .pasteLink, .calendar,
+             .safari, .appleNotes:
             nil
+        }
+    }
+
+    /// The app installed on THIS Mac whose icon is this tile's mark (R-L1),
+    /// or nil for a row that is not a local app.
+    ///
+    /// Delegates nothing to `OriginIconography` on purpose: a tile is a
+    /// catalog row (`safari` owns both of its channels), an origin is what an
+    /// episode was stamped with, and the two id spaces are not the same. The
+    /// two maps agree by test, not by construction
+    /// (`ImportCatalogTests.testBrowserAndAppleTilesDeclareTheirBundleId`
+    /// alongside `OriginIconographyTests`).
+    var appBundleId: String? {
+        switch self {
+        case .safari: "com.apple.Safari"
+        case .chrome: "com.google.Chrome"
+        case .appleNotes: "com.apple.Notes"
+        default: nil
         }
     }
 

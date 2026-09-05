@@ -58,6 +58,37 @@ final class CopyConstantsTests: XCTestCase {
         }
     }
 
+    /// Track P — the `?` popover is reachable from Graph, Clusters and Feed,
+    /// so every sentence in it has to be true on all three. Two things it
+    /// used to get wrong: capture was described as an MCP-client property
+    /// (G105 replaced that with the harness's own Stop hook) and
+    /// consolidation was described as automatic (a fresh install's schedule
+    /// is `manual` — `api/services/sleep_scheduler.py::_DEFAULT`).
+    func testTheAboutPopoverDoesNotClaimAutomaticConsolidationOrMCPCapture() {
+        let sleep = Copy.aboutCicadaSleep
+        XCTAssertFalse(sleep.lowercased().contains("automatically"))
+        XCTAssertFalse(sleep.lowercased().contains("mcp client"))
+        XCTAssertTrue(sleep.contains(Copy.settingsSleep), "it must point at the place a schedule is set")
+        XCTAssertFalse(Copy.aboutCicadaCapture.lowercased().contains("mcp client"))
+    }
+
+    /// Track P R3/R4 — the label must name the schedule `OnboardingSchedule.
+    /// toggled(on: true, current: manual)` actually writes, or the toggle
+    /// promises one thing and does another. `03:00` is
+    /// `sleep_scheduler._DEFAULT`'s hour.
+    func testTheOnboardingToggleLabelNamesTheScheduleItWrites() {
+        XCTAssertTrue(Copy.onboardingRunNightly.contains("3:00"))
+        XCTAssertEqual(OnboardingSchedule.toggled(on: true,
+                                                  current: ScheduleConfig(mode: "manual", hour: 3, minute: 0)).hour, 3)
+    }
+
+    /// Track P — the empty state must say what to DO, not just that there is
+    /// nothing (the same bar `emptyGraphMessage` set for G117).
+    func testIntegrationsEmptyStateNamesTheThingToCheck() {
+        XCTAssertFalse(Copy.integrationsEmpty.isEmpty)
+        XCTAssertTrue(Copy.integrationsEmpty.lowercased().contains("backend"))
+    }
+
     /// CI-style grep: these literals exist once, in Copy.swift. The whole file
     /// is scanned, comments included — a comment that repeats a label is
     /// exactly how these strings drifted in the first place. "on the Capture

@@ -42,9 +42,9 @@ not implement it under Tasks 3–7.
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113` (branch `feat/feedback-ledger`). Every shell command uses absolute paths (`zoxide` hijacks relative `cd`).
-- Python tests: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. The full suite has **8 pre-existing calendar failures** (`test_calendar*` / `test_sources_calendars*` — network-gated); those are baseline, not yours.
-- Swift tests: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113/app/CicadaApp && swift test` (Tasks 3, 4, 6 touch Swift; every other task must not).
+- Work ONLY in `<worktree>/` (branch `feat/feedback-ledger`). Every shell command uses absolute paths (`zoxide` hijacks relative `cd`).
+- Python tests: `cd <worktree>/ && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. The full suite has **8 pre-existing calendar failures** (`test_calendar*` / `test_sources_calendars*` — network-gated); those are baseline, not yours.
+- Swift tests: `cd <worktree>/app/CicadaApp && swift test` (Tasks 3, 4, 6 touch Swift; every other task must not).
 - Never `git add -A`. Stage named files only. Never commit `memory/`, `logs/`, `.claude/settings.json`, `api/.venv`, `*-report.md`.
 - No push, no new branches, no PR — the controller does that.
 - **Ledger privacy rail:** a telemetry event records ids, enums, counts and confidences ONLY — never a claim's `text`/`object`, an entity's prose, an answer string, or a person's name. `refs` values are ids (`clm_…`, `inbox-NNN`, entity slugs), action labels, or numbers. Test fixtures use neutral placeholder names (`alpha-project`, `bob-example`) — no real people, projects or organisations.
@@ -218,7 +218,7 @@ Check `git_service.get_entity_history`'s exact name and return shape at `api/ser
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_inbox_resolution_provenance.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_inbox_resolution_provenance.py -q -p no:cacheprovider`
 Expected: FAIL — `AttributeError: module 'api.services.inbox_service' has no attribute '_action_label'`.
 
 - [ ] **Step 3: Implement `_action_label` and thread it into `resolve`**
@@ -279,13 +279,13 @@ In `api/services/git_service.py` `commit_resolution`, change the signature to `a
 
 - [ ] **Step 5: Run the new tests and the existing inbox tests**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_inbox_resolution_provenance.py api/tests/test_inbox_resolve_claims.py api/tests/test_claim_inbox.py api/tests/test_inbox_dedup.py api/tests/test_inbox_questions.py api/tests/test_mcp_inbox_questions.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_inbox_resolution_provenance.py api/tests/test_inbox_resolve_claims.py api/tests/test_claim_inbox.py api/tests/test_inbox_dedup.py api/tests/test_inbox_questions.py api/tests/test_mcp_inbox_questions.py -q -p no:cacheprovider`
 Expected: all PASS. If an existing test asserts the old literal `trigger: inbox/conflict/resolved)` string, update that assertion to the new `:label` form — it is the behaviour this task changes on purpose.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/services/inbox_service.py api/services/git_service.py api/tests/test_inbox_resolution_provenance.py && git commit -m "feat(inbox): resolution commits name the action taken (G113 slice 1)"
+cd <worktree>/ && git add api/services/inbox_service.py api/services/git_service.py api/tests/test_inbox_resolution_provenance.py && git commit -m "feat(inbox): resolution commits name the action taken (G113 slice 1)"
 ```
 
 ---
@@ -587,7 +587,7 @@ def test_stats_by_connection_excludes_feedback_rows(home):
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_feedback_ledger.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_feedback_ledger.py -q -p no:cacheprovider`
 Expected: FAIL — `FEEDBACK_KINDS` missing / `_verdict` missing.
 
 - [ ] **Step 3: `telemetry.py` — kinds and `record_audit`**
@@ -717,13 +717,13 @@ Build `by_connection` from `[e for e in events if e.get("kind") not in telemetry
 
 - [ ] **Step 8: Run tests**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_feedback_ledger.py api/tests/test_telemetry.py api/tests/test_consumption_stats.py api/tests/test_consumption_api.py api/tests/test_dedup_sweep.py api/tests/test_maintenance_dedup_sweep.py api/tests/test_inbox_resolve_claims.py api/tests/test_claim_pipeline.py api/tests/test_agentic_write.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_feedback_ledger.py api/tests/test_telemetry.py api/tests/test_consumption_stats.py api/tests/test_consumption_api.py api/tests/test_dedup_sweep.py api/tests/test_maintenance_dedup_sweep.py api/tests/test_inbox_resolve_claims.py api/tests/test_claim_pipeline.py api/tests/test_agentic_write.py -q -p no:cacheprovider`
 Expected: PASS (if `test_claim_pipeline.py`/`test_agentic_write.py` don't exist, drop them; find the reconcile tests with `ls api/tests | grep -i -e reconcile -e claim`).
 
 - [ ] **Step 9: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/services/telemetry.py api/services/inbox_service.py api/services/claim_pipeline.py api/services/agentic_write.py api/services/dedup_sweep.py api/services/consumption_stats.py api/tests/test_feedback_ledger.py && git commit -m "feat(telemetry): resolution, audit and dedup_verdict feedback events (G113 slice 2)"
+cd <worktree>/ && git add api/services/telemetry.py api/services/inbox_service.py api/services/claim_pipeline.py api/services/agentic_write.py api/services/dedup_sweep.py api/services/consumption_stats.py api/tests/test_feedback_ledger.py && git commit -m "feat(telemetry): resolution, audit and dedup_verdict feedback events (G113 slice 2)"
 ```
 
 ---
@@ -979,7 +979,7 @@ Check the `Claim` dataclass's required constructor fields in `api/services/claim
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_inbox_divergence_normalization.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_inbox_divergence_normalization.py -q -p no:cacheprovider`
 Expected: FAIL — `ValueError: 'divergence' is not a valid InboxKind`.
 
 - [ ] **Step 3: Schema + `_required_input_for`**
@@ -1180,15 +1180,15 @@ Read `InboxItem.init(from:)` first and match the required JSON keys exactly (cam
 
 - [ ] **Step 8: Run both suites**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_inbox_divergence_normalization.py api/tests/test_inbox_resolve_claims.py api/tests/test_claim_inbox.py api/tests/test_inbox_questions.py api/tests/test_claim_reconciler.py api/tests/test_feedback_ledger.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_inbox_divergence_normalization.py api/tests/test_inbox_resolve_claims.py api/tests/test_claim_inbox.py api/tests/test_inbox_questions.py api/tests/test_claim_reconciler.py api/tests/test_feedback_ledger.py -q -p no:cacheprovider`
 Expected: PASS (drop a test file from the list only if it does not exist).
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113/app/CicadaApp && swift test 2>&1 | tail -20`
+Run: `cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -20`
 Expected: all tests pass, including `InboxKindDecodingTests`.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/models/schemas.py api/services/inbox_service.py api/services/claim_reconciler.py api/services/inbox_generator.py api/tests/test_inbox_divergence_normalization.py app/CicadaApp/Sources/CicadaApp/Models/InboxItem.swift app/CicadaApp/Sources/CicadaApp/Theme/CicadaTheme.swift app/CicadaApp/Tests/CicadaAppTests/InboxKindDecodingTests.swift && git commit -m "feat(inbox): divergence and normalization are resolvable kinds (G113 slice 3)"
+cd <worktree>/ && git add api/models/schemas.py api/services/inbox_service.py api/services/claim_reconciler.py api/services/inbox_generator.py api/tests/test_inbox_divergence_normalization.py app/CicadaApp/Sources/CicadaApp/Models/InboxItem.swift app/CicadaApp/Sources/CicadaApp/Theme/CicadaTheme.swift app/CicadaApp/Tests/CicadaAppTests/InboxKindDecodingTests.swift && git commit -m "feat(inbox): divergence and normalization are resolvable kinds (G113 slice 3)"
 ```
 
 ---
@@ -1364,7 +1364,7 @@ def test_dedup_sweep_skips_rejected_pair(memory):
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_merge_rejections.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_merge_rejections.py -q -p no:cacheprovider`
 Expected: FAIL — `ImportError: cannot import name 'merge_rejections'`.
 
 - [ ] **Step 3: `merge_rejections.py`**
@@ -1520,13 +1520,13 @@ In `InboxCardView.swift`'s `mergeActions` (:324-366), the Dismiss button is the 
 
 - [ ] **Step 9: Run**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_merge_rejections.py api/tests/test_dedup_sweep.py api/tests/test_maintenance_dedup_sweep.py api/tests/test_mcp_inbox_questions.py api/tests/test_inbox_resolve_claims.py api/tests/test_inbox_dedup.py api/tests/test_feedback_ledger.py -q -p no:cacheprovider` → PASS.
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113/app/CicadaApp && swift build 2>&1 | tail -5` → builds.
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_merge_rejections.py api/tests/test_dedup_sweep.py api/tests/test_maintenance_dedup_sweep.py api/tests/test_mcp_inbox_questions.py api/tests/test_inbox_resolve_claims.py api/tests/test_inbox_dedup.py api/tests/test_feedback_ledger.py -q -p no:cacheprovider` → PASS.
+Run: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5` → builds.
 
 - [ ] **Step 10: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/services/merge_rejections.py api/services/inbox_service.py api/services/clarification_manager.py api/services/dedup_sweep.py api/models/schemas.py api/routers/maintenance.py mcp/server.py api/tests/test_merge_rejections.py api/tests/test_mcp_inbox_questions.py app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxCardView.swift && git commit -m "feat(inbox): reject a merge suggestion and remember it (G113 slice 3)"
+cd <worktree>/ && git add api/services/merge_rejections.py api/services/inbox_service.py api/services/clarification_manager.py api/services/dedup_sweep.py api/models/schemas.py api/routers/maintenance.py mcp/server.py api/tests/test_merge_rejections.py api/tests/test_mcp_inbox_questions.py app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxCardView.swift && git commit -m "feat(inbox): reject a merge suggestion and remember it (G113 slice 3)"
 ```
 
 ---
@@ -1739,7 +1739,7 @@ Check the `Claim` dataclass (`api/services/claims.py`) for the exact attribute n
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_inbox_claim_writeback.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_inbox_claim_writeback.py -q -p no:cacheprovider`
 Expected: **4 of the 5 tests FAIL** (`test_keep_active_refreshes_claim`,
 `test_keep_active_never_reopens_a_superseded_claim`,
 `test_clarification_answer_writes_user_claim`,
@@ -1846,12 +1846,12 @@ needed.
 
 - [ ] **Step 5: Run**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_inbox_claim_writeback.py api/tests/test_inbox_resolve_claims.py api/tests/test_inbox_questions.py api/tests/test_inbox_resolution_provenance.py api/tests/test_feedback_ledger.py api/tests/test_inbox_service.py -q -p no:cacheprovider` → PASS (drop a listed file only if it does not exist). `test_nudges.py` no longer exists on `dev` (the deprecated `/nudges` shim has its own coverage under a different name — `grep -l "nudges" api/tests/*.py` to find it if you want extra confidence, but it is not required for this task). There is no `snooze_until` contract left to update — that behaviour was already replaced by the `remind_later` → `_defer` routing that shipped with G115 Phase 1, before this task started.
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_inbox_claim_writeback.py api/tests/test_inbox_resolve_claims.py api/tests/test_inbox_questions.py api/tests/test_inbox_resolution_provenance.py api/tests/test_feedback_ledger.py api/tests/test_inbox_service.py -q -p no:cacheprovider` → PASS (drop a listed file only if it does not exist). `test_nudges.py` no longer exists on `dev` (the deprecated `/nudges` shim has its own coverage under a different name — `grep -l "nudges" api/tests/*.py` to find it if you want extra confidence, but it is not required for this task). There is no `snooze_until` contract left to update — that behaviour was already replaced by the `remind_later` → `_defer` routing that shipped with G115 Phase 1, before this task started.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/services/inbox_service.py api/tests/test_inbox_claim_writeback.py $(cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git diff --name-only -- api/tests) && git commit -m "feat(inbox): decay keep_active and clarification answers reach the claim layer (G113 slice 3)"
+cd <worktree>/ && git add api/services/inbox_service.py api/tests/test_inbox_claim_writeback.py $(cd <worktree>/ && git diff --name-only -- api/tests) && git commit -m "feat(inbox): decay keep_active and clarification answers reach the claim layer (G113 slice 3)"
 ```
 
 ---
@@ -2032,7 +2032,7 @@ Note for the implementer: the API test's `client` fixture does not stub `Registr
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_consumption_feedback.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_consumption_feedback.py -q -p no:cacheprovider`
 Expected: FAIL — `AttributeError: module 'api.services.consumption_stats' has no attribute 'feedback'`.
 
 - [ ] **Step 3: `consumption_stats.feedback`**
@@ -2170,7 +2170,7 @@ async def feedback(
 
 - [ ] **Step 5: Run the API tests**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_consumption_feedback.py api/tests/test_consumption_api.py api/tests/test_consumption_stats.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_consumption_feedback.py api/tests/test_consumption_api.py api/tests/test_consumption_stats.py -q -p no:cacheprovider`
 Expected: PASS.
 
 - [ ] **Step 6: Write the failing Swift tests**
@@ -2251,7 +2251,7 @@ and to the all-fresh test's assertions: `XCTAssertEqual(result.value?.feedback?.
 
 - [ ] **Step 7: Run Swift tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113/app/CicadaApp && swift test --filter 'ConsumptionDecodingTests|ConsumptionFetchTests' 2>&1 | tail -20`
+Run: `cd <worktree>/app/CicadaApp && swift test --filter 'ConsumptionDecodingTests|ConsumptionFetchTests' 2>&1 | tail -20`
 Expected: build FAILS — `ConsumptionFeedback` / `feedback` undefined.
 
 - [ ] **Step 8: Swift model**
@@ -2407,13 +2407,13 @@ rendered inline with the four summary tiles inside an `HStack` (:69-74:
 
 - [ ] **Step 11: Run the Swift tests**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113/app/CicadaApp && swift test 2>&1 | tail -15`
+Run: `cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -15`
 Expected: all tests pass (the full suite, not just the filter — `UsageRangeTests` and the `SnapshotCache` tests exercise the memberwise init and the disk round-trip).
 
 - [ ] **Step 12: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/services/consumption_stats.py api/models/schemas.py api/routers/consumption.py api/tests/test_consumption_feedback.py app/CicadaApp/Sources/CicadaApp/Models/Consumption.swift app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/ViewModels/UsageViewModel.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/AdvancedStatsView.swift app/CicadaApp/Tests/CicadaAppTests/ConsumptionFetchTests.swift app/CicadaApp/Tests/CicadaAppTests/ConsumptionDecodingTests.swift && git commit -m "feat(usage): GET /consumption/feedback + Feedback tile — the grounded-reward ledger as a number (G113 slice 4)"
+cd <worktree>/ && git add api/services/consumption_stats.py api/models/schemas.py api/routers/consumption.py api/tests/test_consumption_feedback.py app/CicadaApp/Sources/CicadaApp/Models/Consumption.swift app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/ViewModels/UsageViewModel.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/AdvancedStatsView.swift app/CicadaApp/Tests/CicadaAppTests/ConsumptionFetchTests.swift app/CicadaApp/Tests/CicadaAppTests/ConsumptionDecodingTests.swift && git commit -m "feat(usage): GET /consumption/feedback + Feedback tile — the grounded-reward ledger as a number (G113 slice 4)"
 ```
 
 ---
@@ -2464,7 +2464,7 @@ unbuilt; slice 5 (rates → prompts) also stays open under G78. Append a THIRD
 annotation instead, leaving the row `🔲`:
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python - <<'PY'
+cd <worktree>/ && api/.venv/bin/python - <<'PY'
 from pathlib import Path
 p = Path("docs/goals/memory-evolution.md")
 s = p.read_text()
@@ -2496,13 +2496,13 @@ are current as of `dev` @ 7933de1 but this file changes often.
 
 - [ ] **Step 4: Verify nothing else references the old kind set**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && grep -rn "merge_suggestion\`)" CLAUDE.md docs/goals/TODO.md; grep -rn "snooze_until" CLAUDE.md docs/goals/`
+Run: `cd <worktree>/ && grep -rn "merge_suggestion\`)" CLAUDE.md docs/goals/TODO.md; grep -rn "snooze_until" CLAUDE.md docs/goals/`
 Expected: no output (the four-kind tuple is gone from prose; `snooze_until` is not documented anywhere as the remind-later contract).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "docs(G113): feedback ledger, six inbox kinds, /consumption/feedback; backlog row shipped, TODO handoff refreshed"
+cd <worktree>/ && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "docs(G113): feedback ledger, six inbox kinds, /consumption/feedback; backlog row shipped, TODO handoff refreshed"
 ```
 
 ---

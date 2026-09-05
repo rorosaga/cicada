@@ -61,11 +61,19 @@ struct ConnectedChannelRow: View {
 
     /// The row's leading 28pt icon. A busy row always shows the plain
     /// circle+spinner (a platform tile mid-spin would look like a broken
-    /// logo load, not "working"); otherwise a channel with a bundled brand
-    /// mark (Task 13) gets the Linear-style tile, and everything else keeps
-    /// the original tint-circle + SF Symbol treatment.
+    /// logo load, not "working"); otherwise a channel with a brand mark gets
+    /// the Linear-style tile, and everything else keeps the original
+    /// tint-circle + SF Symbol treatment.
+    ///
+    /// R6 — one precedence, three surfaces: the tile is taken when EITHER
+    /// rung exists, because Safari and Apple Notes have an installed-app icon
+    /// and no bundled PNG (R2 forbids theirs). Keying only on `logoName`
+    /// would draw a tint circle here where the Sleep desk draws the app's own
+    /// icon.
     @ViewBuilder
     private var rowIcon: some View {
+        let logoName = Self.logoName(for: channel.id)
+        let bundleId = OriginIconography.appBundleId(for: Self.origin(forChannel: channel.id))
         if isBusy {
             ZStack {
                 Circle()
@@ -74,8 +82,9 @@ struct ConnectedChannelRow: View {
                 ProgressView().controlSize(.small)
             }
             .frame(width: 28, height: 28)
-        } else if let logoName = Self.logoName(for: channel.id) {
-            LogoImage.platformTile(name: logoName, size: 28, systemFallback: Self.icon(for: channel.id))
+        } else if logoName != nil || bundleId != nil {
+            LogoImage.platformTile(name: logoName ?? "", bundleId: bundleId, size: 28,
+                                   systemFallback: Self.icon(for: channel.id))
         } else {
             ZStack {
                 Circle()
@@ -178,6 +187,13 @@ struct ConnectedChannelRow: View {
 
     /// Icons/tints mirror `OriginPill` so a channel and its origin pill read as
     /// the same thing on the same page.
+    ///
+    /// R7 — `icon`/`tint` deliberately do NOT delegate to `OriginIconography`
+    /// the way `logoName` now does. They are the fallback circle's own
+    /// palette, already non-`tray` for every channel id
+    /// (`ChannelMarkTests.testNoChannelFallsThroughToTheGenericTray`), and
+    /// routing them through the origin map would silently change `files` from
+    /// `link` to `bookmark.fill` for no gain.
     static func icon(for id: String) -> String {
         switch id {
         case "rss": "dot.radiowaves.up.forward"
@@ -212,18 +228,44 @@ struct ConnectedChannelRow: View {
         }
     }
 
-    /// Task 13 — the bundled brand-mark PNG for a connector-backed channel
-    /// (Pinterest, Reddit, X, Telegram; `AddSourceTile.logoName` is the same
-    /// mapping on the catalog side). Every other channel id keeps its SF
-    /// Symbol circle — no single brand mark exists for a bookmarks sync that
-    /// reads both Chrome and Safari, or for a multi-vendor chat export.
-    static func logoName(for id: String) -> String? {
+    /// The origin id the backend's own catalog gives this channel —
+    /// `source_overview.SourceSpec.mark`, mirrored (R-L4). The channel id
+    /// space (`chrome-bookmarks`, what the user connects) and the origin id
+    /// space (`chrome-bookmark`, what an episode is stamped with) are not the
+    /// same strings, so this function is the seam that lets one map answer
+    /// both.
+    ///
+    /// Total on purpose: an id the backend adds before this switch does
+    /// resolves to itself rather than trapping, and
+    /// `ChannelMarkTests.testNoChannelFallsThroughToTheGenericTray` is what
+    /// makes the missing row loud instead of silent.
+    static func origin(forChannel id: String) -> String {
         switch id {
-        case "pinterest": "pinterest"
-        case "reddit": "reddit"
-        case "x": "x"
-        case "telegram": "telegram"
-        default: nil
+        case "chat-export:claude": "claude-export"
+        case "chat-export:chatgpt": "chatgpt-export"
+        case "chrome-bookmarks": "chrome-bookmark"
+        case "safari-bookmarks": "safari-bookmark"
+        case "safari-tabs": "safari-tab"
+        case "notes": "apple-notes"
+        case "reddit": "reddit-saved"
+        case "x": "x-bookmarks"
+        // `files` is `bookmark`, not `saved-link`: `saved-link` is in that
+        // row's `origins` tuple, while `mark` — the column the app reads — is
+        // `bookmark`.
+        case "files": "bookmark"
+        // `rss`, `calendar`, `pinterest`, `telegram` name themselves.
+        default: id
         }
+    }
+
+    /// The bundled brand mark for a channel — one line, because
+    /// `OriginIconography.logoName` is the only id → asset map there is
+    /// (R-L4). This used to be a second, shorter switch returning only
+    /// `pinterest|reddit|x|telegram`, which is why Chrome was a plain blue
+    /// globe in Settings → Integrations while being a drawn glyph on the
+    /// Sleep desk, and why the two chat exports rendered as one shared SF
+    /// bubble: one source, three pictures.
+    static func logoName(for id: String) -> String? {
+        OriginIconography.logoName(for: origin(forChannel: id))
     }
 }

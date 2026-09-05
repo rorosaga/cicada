@@ -283,8 +283,8 @@ def predicate_question(predicate: str, name: str) -> str:
 
 
 # Hand-written grammatical sentence templates for the same canonical predicates,
-# used to render a resolved claim as a plain-English sentence ("Rodrigo
-# Sagastegui works at MongoDB") rather than a raw (subject, predicate, object)
+# used to render a resolved claim as a plain-English sentence ("Bob Example
+# works at Acme") rather than a raw (subject, predicate, object)
 # triple. Keyed the same way as ``PREDICATE_QUESTIONS``; unknown predicates fall
 # back to a generic "{name} — {predicate}: {object}" rendering.
 PREDICATE_PHRASES: dict[str, str] = {
@@ -309,8 +309,8 @@ PREDICATE_PHRASES: dict[str, str] = {
 def predicate_phrase(predicate: str, name: str, obj: str) -> str:
     """A grammatical sentence for a resolved ``(name, predicate, obj)`` claim.
 
-    E.g. ``predicate_phrase("works-at", "Rodrigo Sagastegui", "MongoDB")`` ->
-    ``"Rodrigo Sagastegui works at MongoDB"``. An unknown predicate falls back
+    E.g. ``predicate_phrase("works-at", "Bob Example", "Acme")`` ->
+    ``"Bob Example works at Acme"``. An unknown predicate falls back
     to a generic, still-readable rendering rather than guessing a verb.
     """
     key = (predicate or "").strip().lower()

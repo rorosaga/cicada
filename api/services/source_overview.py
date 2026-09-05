@@ -104,6 +104,26 @@ _BY_ID = {spec.id: spec for spec in CATALOG}
 _ORIGIN_TO_ID = {origin: spec.id for spec in CATALOG for origin in spec.origins}
 _FILES_ORIGINS = frozenset(_BY_ID["files"].origins)
 
+# Final review F6 — the ONE predicate for "this media page is hidden from
+# every read path". `GET /sources/{id}` filters its item list on it (a
+# `remove` resolution from G129 slice 2 archives the page; `dropped` is
+# never resurfaced; `junk` is a consent wall or login page that was retired
+# without a byte fetched), and the `files` card's headline count is computed
+# HERE, on a different walk — so the two must share the rule or the card
+# reads "400 items" over a page listing 3. That count-vs-list mismatch is
+# exactly what the "Final review M1" comment below already exists to
+# prevent; `api/routers/sources.py` imports these rather than re-typing them.
+HIDDEN_STATUSES = frozenset({"archived", "dropped"})
+HIDDEN_ENRICHMENT = "junk"
+
+
+def is_hidden(fm: dict) -> bool:
+    """True when a media page must not be counted or listed anywhere."""
+    return (
+        str(fm.get("status", "active")) in HIDDEN_STATUSES
+        or str(fm.get("enrichment_status") or "") == HIDDEN_ENRICHMENT
+    )
+
 # Display names for harness ids an MCP client stamps (mcp/server.py SESSION).
 # Generic on purpose — portability means no owner-specific client here; an
 # unlisted harness reads as its id.
@@ -211,7 +231,9 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         origin = str(fm.get("origin") or "").strip()
         # Nil-origin OR `saved-link`: the writers stamp an origin now, but every
         # link saved before they did carries none, and both are the same card.
-        if fm.get("type") == "media" and (not origin or origin in _FILES_ORIGINS):
+        # F6: skipping the hidden ones is what keeps this count equal to the
+        # list `GET /sources/{id}` renders — the same predicate, one module.
+        if fm.get("type") == "media" and (not origin or origin in _FILES_ORIGINS) and not is_hidden(fm):
             files_media += 1
         for ep_id in fm.get("source_episodes", []) or []:
             key = episode_key.get(str(ep_id))

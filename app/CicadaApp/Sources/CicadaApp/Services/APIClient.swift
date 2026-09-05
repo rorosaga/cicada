@@ -228,6 +228,17 @@ struct MediaFeedItem: Codable, Identifiable {
     /// and groups them by `folder`; nothing else reads them.
     let origin: String?
     let folder: String?
+    /// Track V / R-V2 — the two video keys, decoded here BEFORE the backend
+    /// emits them (plan R16): an older `/sources` payload carries neither and
+    /// the row must still decode, which is what `MediaBlockDecodeTests` pins.
+    ///
+    /// `provider` is **redundant** with what `VideoRef.resolve(url)` derives
+    /// and nothing in the app dispatches on it — it rides the wire only so a
+    /// non-Swift reader can see which provider's oEmbed answered. `durationS`
+    /// is the one thing a url cannot tell you, which is why the Feed row's
+    /// duration pill reads it; absent means absent, never an estimate (R17).
+    let provider: String?
+    let durationS: Int?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -273,6 +284,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case contentSavedAt
         case description, about
         case origin, folder
+        case provider, durationS
     }
 
     init(from decoder: Decoder) throws {
@@ -295,6 +307,8 @@ struct MediaFeedItem: Codable, Identifiable {
         about = try c.decodeIfPresent([String].self, forKey: .about)
         origin = try c.decodeIfPresent(String.self, forKey: .origin)
         folder = try c.decodeIfPresent(String.self, forKey: .folder)
+        provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
     }
 }
 

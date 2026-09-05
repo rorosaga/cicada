@@ -36,15 +36,15 @@ they are; this plan does not re-derive them.
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources` (branch
+- Work ONLY in `<worktree>/` (branch
   `feat/sources-redesign`, based on `dev` @ `96df878`). Every shell command is
-  `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources && <cmd>` with the ABSOLUTE
+  `cd <worktree>/ && <cmd>` with the ABSOLUTE
   path (`zoxide` hijacks relative `cd`; ignore its stderr banner). No unquoted
   `grep --include=*.ext` (zsh globbing breaks it) — quote it or grep a directory instead.
-- **NEVER read** `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`,
+- **NEVER read** `<repo>/memory` (any bank), `~/.cicada`,
   `~/Library`, or `~/.claude/projects` — real personal data. This track touches no fixtures that
   read the filesystem at all; every test here is a pure Swift value test.
-- Swift: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources/app/CicadaApp && swift build 2>&1 | tail -5`
+- Swift: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5`
   must succeed and `swift test 2>&1 | tail -20` must report **0 failures**. SourceKit diagnostics
   naming OTHER worktrees are noise. **NEVER** run `make dev`, `make install-app`, `swift run`, or
   launch/kill the Cicada app — the owner's installed app is live; the orchestrator installs at the
@@ -213,7 +213,7 @@ they are; this plan does not re-derive them.
 - [ ] **Step 2: Run the tests to confirm they fail**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources/app/CicadaApp && swift build 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -20
 ```
 Expected: a compile error — `SourceSections` does not exist yet.
 
@@ -362,14 +362,14 @@ byte-identical to the version on `dev`.)
 - [ ] **Step 5: Run the tests until green**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
 ```
 Expected: build succeeds, 0 failures.
 
 - [ ] **Step 6: Commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources && git add -- app/CicadaApp/Sources/CicadaApp/Models/SourceOverview.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceCardGrid.swift app/CicadaApp/Tests/CicadaAppTests/SourcesPageTests.swift && git commit -q -m "feat(app): Sources grid groups by kind and draws real marks (G124 Track D)
+cd <worktree>/ && git add -- app/CicadaApp/Sources/CicadaApp/Models/SourceOverview.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceCardGrid.swift app/CicadaApp/Tests/CicadaAppTests/SourcesPageTests.swift && git commit -q -m "feat(app): Sources grid groups by kind and draws real marks (G124 Track D)
 
 SourceSections.group orders rows the way the backend's KIND_ORDER already
 does, skipping any kind with no evidence (R2 extended to sections); each
@@ -423,7 +423,7 @@ Claude-Session: https://claude.ai/code/session_01RHX6oujZ79siqkHAqkP7CC"
 - [ ] **Step 2: Run the tests to confirm they fail**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources/app/CicadaApp && swift build 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -20
 ```
 Expected: compile error — `SourceCard.quickAction`/`accessibilityLabel` don't exist yet.
 
@@ -662,14 +662,14 @@ struct SourceCard: View {
 - [ ] **Step 6: Run the tests until green**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
 ```
 Expected: build succeeds, 0 failures.
 
 - [ ] **Step 7: Commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources && git add -- app/CicadaApp/Sources/CicadaApp/Views/Sources/ChannelActions.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/ChannelSourceView.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceCardGrid.swift app/CicadaApp/Tests/CicadaAppTests/SourcesPageTests.swift && git commit -q -m "feat(app): status light + hover quick action on the source card (G124 Track D)
+cd <worktree>/ && git add -- app/CicadaApp/Sources/CicadaApp/Views/Sources/ChannelActions.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/ChannelSourceView.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceCardGrid.swift app/CicadaApp/Tests/CicadaAppTests/SourcesPageTests.swift && git commit -q -m "feat(app): status light + hover quick action on the source card (G124 Track D)
 
 A watched channel's card now shows the same BrowserStatusLight its own page
 does (compact), instead of a dot that only ever says connected/not; a hover
@@ -732,7 +732,7 @@ Claude-Session: https://claude.ai/code/session_01RHX6oujZ79siqkHAqkP7CC"
 - [ ] **Step 2: Run the tests to confirm they fail**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources/app/CicadaApp && swift build 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -20
 ```
 Expected: compile error — `SourceBlurb` doesn't exist yet.
 
@@ -904,14 +904,14 @@ struct SourceDetailView: View {
 - [ ] **Step 6: Run the tests until green**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
 ```
 Expected: build succeeds, 0 failures.
 
 - [ ] **Step 7: Commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources && git add -- app/CicadaApp/Sources/CicadaApp/Views/Common/PageHeader.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceBlurb.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceDetailView.swift app/CicadaApp/Tests/CicadaAppTests/SourcesPageTests.swift && git commit -q -m "feat(app): per-source page opens with its mark + what Cicada reads from it (G124 Track D)
+cd <worktree>/ && git add -- app/CicadaApp/Sources/CicadaApp/Views/Common/PageHeader.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceBlurb.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceDetailView.swift app/CicadaApp/Tests/CicadaAppTests/SourcesPageTests.swift && git commit -q -m "feat(app): per-source page opens with its mark + what Cicada reads from it (G124 Track D)
 
 PageHeader gains an optional, default-nil leading slot (R-D1 — every other
 page's header is unaffected) so the per-source page can lead with OriginMark;
@@ -992,7 +992,7 @@ Claude-Session: https://claude.ai/code/session_01RHX6oujZ79siqkHAqkP7CC"
 - [ ] **Step 2: Run the tests to confirm they fail**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources/app/CicadaApp && swift build 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -20
 ```
 Expected: compile error — `ownedQueue`/`SourceQueueLabels` don't exist yet.
 
@@ -1182,14 +1182,14 @@ struct SourceDetailView: View {
 - [ ] **Step 6: Run the tests until green**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
 ```
 Expected: build succeeds, 0 failures.
 
 - [ ] **Step 7: Commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources && git add -- app/CicadaApp/Sources/CicadaApp/Models/SourceOverview.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceQueueStrip.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceDetailView.swift app/CicadaApp/Tests/CicadaAppTests/SourcesPageTests.swift && git commit -q -m "feat(app): the per-source page shows its own queue + Consolidate now (G124 Track D)
+cd <worktree>/ && git add -- app/CicadaApp/Sources/CicadaApp/Models/SourceOverview.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceQueueStrip.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/SourceDetailView.swift app/CicadaApp/Tests/CicadaAppTests/SourcesPageTests.swift && git commit -q -m "feat(app): the per-source page shows its own queue + Consolidate now (G124 Track D)
 
 SourceOverview.ownedQueue filters SleepViewModel.queuedEpisodes to this
 source's episodes (harness id + the legacy mcp alias for claude-code only;
@@ -1236,14 +1236,14 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
   entity, or a URL from the live bank (the standing 2026-09-02 privacy rule):
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources && git diff -- docs/goals/memory-evolution.md docs/goals/TODO.md
+cd <worktree>/ && git diff -- docs/goals/memory-evolution.md docs/goals/TODO.md
 ```
 Expected: both hunks are generic feature/architecture language only — no names, no bank content.
 
 - [ ] **Step 4: Commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources && git add -- docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -q -m "docs: record the G124 Track D shipped shape
+cd <worktree>/ && git add -- docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -q -m "docs: record the G124 Track D shipped shape
 
 Grouped-by-kind grid, G129 status lights + hover quick actions on the card,
 per-source blurbs and the queue strip — recorded on the G124 row and in
@@ -1273,24 +1273,24 @@ Claude-Session: https://claude.ai/code/session_01RHX6oujZ79siqkHAqkP7CC"
 ## Verification (run by the orchestrator at the end)
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -30
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -30
 ```
 Expected: build succeeds, **0 test failures**.
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources && git status --porcelain -uall
+cd <worktree>/ && git status --porcelain -uall
 ```
 Expected: clean (everything from the five tasks committed; no stray `*-report.md`, no `api/.venv`
 changes, `memory/` untouched).
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources && git diff --stat 96df878..HEAD -- api/ mcp/
+cd <worktree>/ && git diff --stat 96df878..HEAD -- api/ mcp/
 ```
 Expected: **empty** — confirms this track never touched the backend or the MCP server (the
 APP-ONLY constraint).
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/sources && grep -rn '\$[0-9]\|costUsd\|token' app/CicadaApp/Sources/CicadaApp/Views/Sources/ app/CicadaApp/Sources/CicadaApp/Views/Common/PageHeader.swift
+cd <worktree>/ && grep -rn '\$[0-9]\|costUsd\|token' app/CicadaApp/Sources/CicadaApp/Views/Sources/ app/CicadaApp/Sources/CicadaApp/Views/Common/PageHeader.swift
 ```
 Expected: no matches (no price/token surface introduced — the 2026-09-03 ruling).
 
