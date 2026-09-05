@@ -121,7 +121,7 @@ The queue there, in order: **G118 slice 2** (the provenance viewer) → **G93** 
 Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a
 build. Shipped 2026-09-05 and no longer queued: G125 (PR #55), G113 slices 3–7 (PR #59), G122 + the
 G126 page (Track C, PR #60), G129 slice 2 (bookmark deletions, PR #61), **G117** first-run onboarding
-(PR #TBD).
+(PR #62).
 
 **Track C (G122 engine/model picker + G126 Integrations page) shipped** on `feat/settings-redesign`
 (PR #60) — a `GET/PUT /sleep/engine` prefs-first endpoint, the five-section Settings sidebar, the
