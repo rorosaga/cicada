@@ -34,8 +34,13 @@ enum ZoomKeyRouter {
         // Strip caps-lock/function/etc. noise so only the modifiers that
         // matter to a shortcut are compared.
         let mods = modifiers.intersection(.deviceIndependentFlagsMask)
-        let shiftEquals = characters == "=" && mods == [.command, .shift]
+        // `NSEvent.characters` (not `charactersIgnoringModifiers`) already
+        // applies Shift's effect on the key it's paired with — a real
+        // Shift+Command+= keydown on a US keyboard reports "+", never "=".
+        // Checking "=" here with `.shift` in mods matches an event macOS
+        // never sends, which silently defeated this router's one job.
+        let plusViaShift = characters == "+" && mods == [.command, .shift]
         let plusDirect = characters == "+" && mods == [.command]
-        return (shiftEquals || plusDirect) ? .zoomIn : nil
+        return (plusViaShift || plusDirect) ? .zoomIn : nil
     }
 }

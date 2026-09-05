@@ -12,7 +12,11 @@ import XCTest
 /// up a window or synthesize a real `NSEvent` to prove it works.
 final class ZoomKeyRouterTests: XCTestCase {
     func test_shiftEquals_isZoomIn() {
-        XCTAssertEqual(ZoomKeyRouter.action(characters: "=", modifiers: [.command, .shift]), .zoomIn)
+        // A real Shift+Command+= keydown reports characters == "+", not "="
+        // — `charactersIgnoringModifiers` still applies Shift's effect per
+        // Apple's own docs, so this must match what macOS actually sends,
+        // not a self-consistent-but-fictional "=" + shift pairing.
+        XCTAssertEqual(ZoomKeyRouter.action(characters: "+", modifiers: [.command, .shift]), .zoomIn)
     }
 
     func test_plusCharacter_withCommand_isZoomIn() {
