@@ -37,7 +37,15 @@ struct SleepStageStrip: View {
     static let timelineOrigin = Date(timeIntervalSinceReferenceDate: 0)
 
     /// The icons' requested point size, before `uiScale` and the 16-cell snap.
-    static let iconPointSize: CGFloat = 32
+    ///
+    /// Round-2 live check: at 32 the five icons read as grey smudges,
+    /// especially on the light theme where a two-hue pixel drawing has almost
+    /// no ground to sit against. 40 is a REQUEST — `snappedPointSize` still
+    /// has the last word, and with a 16-cell grid it rounds 40 up to 48 (three
+    /// device points per cell) and 40 × 1.4 up to 64 (four). That is the point
+    /// of asking through the snap rather than setting a literal: every zoom
+    /// step lands on a whole number of cells, so no icon is ever resampled.
+    static let iconPointSize: CGFloat = 40
     /// The caught-up worm's, before `uiScale` and the 24-cell snap.
     static let wormPointSize: CGFloat = 48
 
@@ -94,6 +102,9 @@ struct SleepStageStrip: View {
     private func stageCell(_ stage: SleepStage, pip: StagePip, pulse: Double) -> some View {
         let iconPt = PixelRenderer.snappedPointSize(Self.iconPointSize * CicadaTheme.uiScale,
                                                     gridSize: StageIconSprites.size)
+        // The tile the icon sits on, so the cell's width follows the art
+        // instead of clipping it.
+        let tilePt = iconPt + CicadaTheme.spacingXS * 2
         return VStack(spacing: CicadaTheme.spacingXS) {
             Image(nsImage: PixelRenderer.cachedImage(
                 key: Self.iconCacheKey(stage, pointSize: iconPt),
@@ -106,6 +117,17 @@ struct SleepStageStrip: View {
                 // A stage that never ran is dimmed, not hidden: the pipeline
                 // is the same five steps whether or not tonight reached them.
                 .opacity(isLive(pip) ? 1 : 0.45)
+                .padding(CicadaTheme.spacingXS)
+                // Round-2 live check: `DeskPalette` is one set of art hues for
+                // both themes (its docstring: deliberately mode-independent),
+                // and a grey pixel icon on the light theme's near-white ground
+                // had nothing to read against. The tile is the ground — a
+                // theme token, so it follows the mode the palette cannot.
+                // State stays where it was: the tile never changes with the
+                // pip, so it adds no second encoding of what is running.
+                .background(
+                    RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                        .fill(CicadaTheme.surfaceHover))
 
             Text(stage.shortLabel)
                 .font(CicadaTheme.font(size: 10, weight: .semibold))
@@ -113,7 +135,7 @@ struct SleepStageStrip: View {
 
             pipBar(pip, pulse: pulse)
         }
-        .frame(width: max(iconPt, 44))
+        .frame(width: max(tilePt, 44))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(stage.title) — \(pip.accessibilityWord)")
     }
