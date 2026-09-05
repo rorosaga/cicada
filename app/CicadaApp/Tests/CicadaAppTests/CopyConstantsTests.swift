@@ -82,6 +82,13 @@ final class CopyConstantsTests: XCTestCase {
                                                   current: ScheduleConfig(mode: "manual", hour: 3, minute: 0)).hour, 3)
     }
 
+    /// Track P — the empty state must say what to DO, not just that there is
+    /// nothing (the same bar `emptyGraphMessage` set for G117).
+    func testIntegrationsEmptyStateNamesTheThingToCheck() {
+        XCTAssertFalse(Copy.integrationsEmpty.isEmpty)
+        XCTAssertTrue(Copy.integrationsEmpty.lowercased().contains("backend"))
+    }
+
     /// CI-style grep: these literals exist once, in Copy.swift. The whole file
     /// is scanned, comments included — a comment that repeats a label is
     /// exactly how these strings drifted in the first place. "on the Capture

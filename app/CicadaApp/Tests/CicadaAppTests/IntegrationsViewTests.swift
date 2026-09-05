@@ -34,10 +34,41 @@ final class IntegrationsViewTests: XCTestCase {
         }
     }
 
-    func testHarnessRowsComeFromSourcesOverview() {
-        let overview = [SourceOverview(id: "claude-code", label: "Claude Code", kind: .harness),
-                         SourceOverview(id: "chrome-bookmarks", label: "Chrome", kind: .browser)]
+    /// Test gap 1 — the OLD fixture defaulted `channelId` to nil, which is
+    /// the one shape that hides the bug. `api/services/source_overview.py:50`
+    /// gives `chat-export:claude` BOTH `kind = "harness"` AND a channel id, so
+    /// the page rendered "Claude export" as an informational harness row and
+    /// "Claude chat export" as a real channel row — and the harness copy said
+    /// "Captured automatically — no setup needed", which is false for a
+    /// one-shot file drop.
+    func testHarnessRowsDropAnythingThatIsAlsoAChannel() {
+        let overview = [
+            SourceOverview(id: "claude-code", label: "Claude Code", kind: .harness),
+            SourceOverview(id: "chat-export:claude", label: "Claude export", kind: .harness,
+                           channelId: "chat-export:claude"),
+            SourceOverview(id: "chrome-bookmarks", label: "Chrome", kind: .browser),
+        ]
         XCTAssertEqual(IntegrationHarnessRows.rows(from: overview).map(\.id), ["claude-code"])
+    }
+
+    /// recent-work #12 — Integrations is also onboarding STEP 3, so the worst
+    /// case is a brand-new install on the step whose whole purpose is "connect
+    /// one channel", staring at a PageHeader over blank space while the
+    /// backend is still starting. Same three-state shape
+    /// `ConnectedChannelsStrip.loadState` already uses.
+    func testLoadStateDistinguishesLoadingFromFailedFromEmpty() {
+        XCTAssertEqual(IntegrationsView.loadState(channels: nil, overview: nil, isLoading: true, error: nil), .loading)
+        XCTAssertEqual(IntegrationsView.loadState(channels: nil, overview: nil, isLoading: false, error: nil), .loading,
+                       "no snapshot, not refreshing, no error = the fetch has not started")
+        XCTAssertEqual(IntegrationsView.loadState(channels: nil, overview: nil, isLoading: false, error: "Connection refused"),
+                       .failed("Connection refused"))
+        XCTAssertEqual(IntegrationsView.loadState(channels: [], overview: [], isLoading: false, error: nil), .empty)
+        // A latched error never hides rows the app already has.
+        XCTAssertEqual(
+            IntegrationsView.loadState(channels: [SourceChannel(id: "rss", label: "RSS", connected: true)],
+                                       overview: [], isLoading: false, error: "Connection refused"),
+            .loaded
+        )
     }
 
     func testRowStateLine() {

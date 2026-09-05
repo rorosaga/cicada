@@ -10,6 +10,13 @@ import SwiftUI
 ///
 /// This is Task 2's stub fleshed out in place, not a second file.
 struct IntegrationsView: View {
+    /// Fired after a row hands off to the main window. The default is a no-op
+    /// — in Settings → Integrations the window activation (`AppRouter`
+    /// R7) IS the whole hand-off — but `FirstRunSheet` passes `finish`, so a
+    /// hand-off from inside onboarding dismisses the sheet instead of routing
+    /// to a Feed the person cannot see behind a modal (recent-work #8).
+    var onHandOff: () -> Void = {}
+
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
 
@@ -25,26 +32,100 @@ struct IntegrationsView: View {
         IntegrationHarnessRows.rows(from: store.sourcesOverview.value ?? [])
     }
 
+    /// recent-work #12 — this page is also onboarding STEP 3, so its worst
+    /// case is a brand-new install on the step whose whole purpose is
+    /// "connect one channel", staring at a `PageHeader` over blank space
+    /// while the backend is still starting. Four states, not two: a fetch in
+    /// flight, a fetch that failed and left nothing behind, a confirmed-empty
+    /// roster, and rows. Pure and static so the precedence is unit-testable
+    /// without standing up a view — the same shape
+    /// `ConnectedChannelsStrip.loadState` already uses, widened to the two
+    /// domains this page reads.
+    enum LoadState: Equatable { case loading, failed(String), empty, loaded }
+
+    /// A latched error never hides rows the app already has: last known good
+    /// beats a blank page (the Store's own "view models never blank" rule),
+    /// so a snapshot on BOTH domains wins over `error` and `isLoading`.
+    static func loadState(channels: [SourceChannel]?, overview: [SourceOverview]?,
+                          isLoading: Bool, error: String?) -> LoadState {
+        if let channels, let overview {
+            return channels.isEmpty && overview.isEmpty ? .empty : .loaded
+        }
+        if isLoading { return .loading }
+        if let error { return .failed(error) }
+        // No snapshot, not refreshing, no latched failure — the fetch simply
+        // has not started yet. Treat like loading rather than guessing.
+        return .loading
+    }
+
+    private var isLoading: Bool {
+        (store.channels.isEmpty && store.channels.isRefreshing)
+            || (store.sourcesOverview.isEmpty && store.sourcesOverview.isRefreshing)
+    }
+
+    private var loadError: String? { store.domainErrors[.channels] ?? store.domainErrors[.sourcesOverview] }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
                 PageHeader(title: Copy.integrations, subtitle: Copy.integrationsSubtitle) {}
 
-                ForEach(IntegrationCategory.allCases) { category in
-                    let rows = channels.filter { IntegrationCategory.of(channelId: $0.id) == category }
-                    let extraRows = category == .chatAndAgents ? harnessRows.count
-                        : category == .socialAndSaved ? Self.exportOnlyTiles.count : 0
-                    // A section renders only when it has evidence (mirrors
-                    // `SourceSections.group`'s own rule) — an empty category
-                    // reads as a broken page, not a completeness signal.
-                    if !rows.isEmpty || extraRows > 0 {
-                        categorySection(category, rows: rows)
+                switch Self.loadState(channels: store.channels.value, overview: store.sourcesOverview.value,
+                                      isLoading: isLoading, error: loadError) {
+                case .loading:
+                    loadingPlaceholder
+                case .failed(let message):
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(CicadaTheme.font(size: 12))
+                            .foregroundStyle(CicadaTheme.danger)
+                        Text(message)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                case .empty:
+                    Text(Copy.integrationsEmpty)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                case .loaded:
+                    ForEach(IntegrationCategory.allCases) { category in
+                        let rows = channels.filter { IntegrationCategory.of(channelId: $0.id) == category }
+                        let extraRows = category == .chatAndAgents ? harnessRows.count
+                            : category == .socialAndSaved ? Self.exportOnlyTiles.count : 0
+                        // A section renders only when it has evidence (mirrors
+                        // `SourceSections.group`'s own rule) — an empty category
+                        // reads as a broken page, not a completeness signal.
+                        if !rows.isEmpty || extraRows > 0 {
+                            categorySection(category, rows: rows)
+                        }
                     }
                 }
             }
             .padding(CicadaTheme.spacingXL)
         }
         .background(CicadaTheme.background)
+    }
+
+    /// Three grey rows under a spinner rather than a bare spinner: the page's
+    /// own shape, so the layout does not jump when the real categories land.
+    private var loadingPlaceholder: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                ProgressView().controlSize(.small)
+                Text("Checking your integrations…")
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            VStack(spacing: 2) {
+                ForEach(0..<3, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                        .fill(CicadaTheme.surface)
+                        .frame(height: CicadaTheme.scaled(44))
+                }
+            }
+            .padding(CicadaTheme.spacingSM)
+            .glassCard()
+        }
     }
 
     @ViewBuilder
@@ -71,7 +152,10 @@ struct IntegrationsView: View {
                 }
                 if category == .socialAndSaved {
                     ForEach(Self.exportOnlyTiles) { tile in
-                        IntegrationExportOnlyRow(tile: tile) { router.routeToFeedAddSource(tile) }
+                        IntegrationExportOnlyRow(tile: tile) {
+                            router.routeToFeedAddSource(tile)
+                            onHandOff()
+                        }
                     }
                 }
             }

@@ -110,7 +110,7 @@ struct SettingsGeneralView: View {
                 .tracking(1.2)
             Button("Run setup again") {
                 OnboardingState.reset(bank: store.bank)
-                router.pendingFirstRun = true
+                router.requestFirstRun()
             }
             .buttonStyle(.cicadaPlain)
             .foregroundStyle(CicadaTheme.accent)

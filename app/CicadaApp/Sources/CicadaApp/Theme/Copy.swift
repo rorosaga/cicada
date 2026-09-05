@@ -276,4 +276,11 @@ enum Copy {
     static let emptyInboxMessage = "Questions appear here after a Sleep cycle."
     static let emptyFeedMessage = "Save a link or add a source to get started."
     static let emptySourcesMessage = "Nothing has fed this memory yet."
+
+    /// Settings → Integrations with BOTH domains loaded and both empty —
+    /// which on a working install means the backend is not answering, since
+    /// `channel_registry` always yields thirteen rows. Never shown while a
+    /// fetch is in flight or an error is latched (`IntegrationsView.
+    /// loadState`), so it can only ever mean "confirmed nothing".
+    static let integrationsEmpty = "No integrations found — is the Cicada backend running?"
 }
