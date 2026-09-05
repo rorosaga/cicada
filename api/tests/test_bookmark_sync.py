@@ -22,6 +22,7 @@ from __future__ import annotations
 import base64
 import json
 import plistlib
+import subprocess
 
 from api.services import bookmark_sync, markdown_parser
 from api.services.media_ingestor import RawItem
@@ -298,6 +299,26 @@ def _offline_enrich(monkeypatch):
     monkeypatch.setattr(media_ingestor, "enrich", fake_enrich)
 
 
+def _git_init(memory):
+    """A real (bare-minimum) git repo, mirroring test_link_backfill.py's
+    ``_bank(..., git=True)`` — this finding's whole point is provenance a
+    fake ``git_service`` monkeypatch cannot demonstrate."""
+    for args in (("init", "-q"), ("config", "user.email", "t@example.com"), ("config", "user.name", "t")):
+        subprocess.run(["git", "-C", str(memory), *args], check=True, capture_output=True)
+
+
+def _git_log(memory):
+    return subprocess.run(
+        ["git", "-C", str(memory), "log", "-1", "--format=%B"], check=True, capture_output=True, text=True,
+    ).stdout
+
+
+def _git_porcelain(memory):
+    return subprocess.run(
+        ["git", "-C", str(memory), "status", "--porcelain"], check=True, capture_output=True, text=True,
+    ).stdout
+
+
 def test_sync_bookmarks_endpoint_inline_chrome_data(tmp_path, monkeypatch):
     _offline_enrich(monkeypatch)
     client, memory = _make_client(tmp_path, monkeypatch)
@@ -504,6 +525,46 @@ def test_sync_bookmarks_proposes_removal_when_a_url_drops_out(tmp_path, monkeypa
     r3 = run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(_one_url_chrome_json()).encode()))
     assert r3["removals_proposed"] == 0
     assert len(list((memory / "inbox").glob("inbox-*.md"))) == 1
+
+
+def test_removal_proposal_and_seen_set_are_committed_scoped_and_cicada_authored(tmp_path, monkeypatch):
+    """Finding 1 (G129 slice-2 final review): the removal item + the
+    ``bookmark_seen.json`` write must land in their OWN commit — never sit
+    dirty for some unrelated later ``git add -A`` writer to absorb under the
+    wrong author/trigger — and that commit must never sweep up a pre-existing
+    dirty file elsewhere in the bank (the same scoping guarantee
+    ``media_ingestor._commit_media`` gives ``sources/url_index.json``)."""
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    memory.mkdir(parents=True)
+    _git_init(memory)
+
+    run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(CHROME_BOOKMARKS_JSON).encode()))
+    # The first sync's own commit(s) — `_commit_media` plus this finding's
+    # `_commit_removals` — already leave the tree clean; nothing left for a
+    # separate "seed" commit to pick up, which is itself evidence the fix
+    # works (before the fix, `sources/bookmark_seen.json` sat dirty here).
+    assert _git_porcelain(memory) == ""
+
+    # A dirty file this sync must NEVER touch (e.g. a hand-edit in progress).
+    unrelated = memory / "entities" / "untouched-note.md"
+    unrelated.parent.mkdir(parents=True, exist_ok=True)
+    unrelated.write_text("dirty and unrelated", encoding="utf-8")
+
+    r2 = run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(_one_url_chrome_json()).encode()))
+    assert r2["removals_proposed"] == 1
+
+    log = _git_log(memory)
+    assert "Cicada-Author: cicada" in log
+    assert "sync/bookmark_removal" in log
+    assert "sources/bookmark_seen.json" in log
+    inbox_files = sorted((memory / "inbox").glob("inbox-*.md"))
+    assert len(inbox_files) == 1
+    assert f"inbox/{inbox_files[0].name}" in log
+
+    # The unrelated dirty file is still dirty — the commit was scoped, not `-A`.
+    porcelain = _git_porcelain(memory)
+    assert "untouched-note.md" in porcelain
 
 
 def test_removed_url_is_never_reproposed_once_it_stays_gone(tmp_path, monkeypatch):

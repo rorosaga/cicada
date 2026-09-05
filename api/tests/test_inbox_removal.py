@@ -158,6 +158,22 @@ def test_removal_remove_archives_never_deletes(memory):
     assert "Cicada-Author: user" in body
 
 
+def test_removal_skip_leaves_everything_untouched(memory):
+    """Finding 2 (G129 slice-2 final review): ``skip`` on a removal item is a
+    graceful item-preserving no-op, like every sibling choice kind
+    (``divergence``/``normalization``, and `test_inbox_resolve_claims.py`'s
+    identically-named test for ``conflict``) — not the 400 a missing branch
+    gave it before this fix, even though ``_action_label`` already computed
+    ``label == "skip"`` for exactly this input."""
+    out = run(inbox_service.resolve(
+        "inbox-001", InboxResolveRequest(action="skip"), _Settings(memory)
+    ))
+    assert out["status"] == "skipped"
+    assert (memory / "inbox" / "inbox-001.md").exists()
+    fm = parse(memory / "entities" / "example-article.md").frontmatter
+    assert fm["status"] == "active"  # untouched
+
+
 def test_removal_bad_option_key_400s(memory):
     with pytest.raises(HTTPException):
         run(inbox_service.resolve(

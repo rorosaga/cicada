@@ -947,11 +947,24 @@ async def _resolve_removal(path, parsed, request: InboxResolveRequest, settings)
     browser's own diff produced this ask, not a belief to walk back. ``remove``
     archives the media entity: NEVER deletes the page (G129 row rule) — it may
     be claim-linked, and git keeps every version regardless of status.
+
+    Finding 2 (G129 slice-2 final review): ``skip`` is an item-preserving
+    no-op, like every sibling choice kind gives it (``_resolve_divergence``,
+    ``_resolve_normalization``) — the item file is left on disk (unlinked
+    nowhere below) so it is asked again later, and ``resolve()`` reports
+    ``{"status": "skipped"}`` instead of committing anything.
+    ``_action_label`` already computes ``label == "skip"`` for exactly this
+    input; without this branch that label was never reachable — the request
+    fell through to the "got an unrecognised optionKey/action" 400 below.
     """
     entity_id = str(parsed.frontmatter.get("entity_id", "") or "")
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     action = (request.action or "").strip().lower()
     key = (request.option_key or "").strip().lower()
+
+    if action == "skip":
+        return entity_id, True
+
     verb = key if key in ("keep", "remove") else (action if action in ("keep", "remove") else "")
 
     if not verb:

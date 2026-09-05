@@ -231,7 +231,7 @@ def preview_bookmarks(*, chrome_data: bytes | None = None, safari_data: bytes | 
 
 def _propose_removals(
     memory_path: Path, *, origin: str, channel: str, removed_hashes: list[str], at: str,
-) -> int:
+) -> list[str]:
     """One ``removal`` inbox item per hash in ``removed_hashes`` that still
     names a live, non-archived media entity and has no open removal item
     already (idempotency — a second sync before the person answers must not
@@ -239,15 +239,19 @@ def _propose_removals(
     existing ``(entity_id, "")`` dedup key, unchanged, already covers this).
 
     ``remove`` never deletes the page (G129 row rule) — that happens on
-    resolve, not here; this function only ever proposes. Returns the count of
-    items actually written.
+    resolve, not here; this function only ever proposes. Returns the
+    memory-relative paths of the inbox items actually written (e.g.
+    ``["inbox/inbox-005.md"]``) so the caller can commit exactly those files
+    rather than ``git add -A`` (finding 1, G129 slice-2 final review) — a
+    dirty unrelated file elsewhere in the bank must never ride along under
+    this sync's ``cicada``/``sync/bookmark_removal`` provenance.
     """
     idx = media_ingestor.load_url_index(memory_path)
     inbox_dir = memory_path / "inbox"
     inbox_dir.mkdir(parents=True, exist_ok=True)
     next_num = inbox_service.next_inbox_num(inbox_dir)
     browser = _BROWSER_LABEL.get(origin, origin)
-    written = 0
+    written: list[str] = []
     for h in removed_hashes:
         entry = idx.get(h)
         entity_id = str((entry or {}).get("media_entity_id") or "")
@@ -301,7 +305,7 @@ def _propose_removals(
             inbox_dir / f"{item_id}.md", frontmatter,
             f"{entity_name} was removed from {browser}.",
         )
-        written += 1
+        written.append(f"inbox/{item_id}.md")
     return written
 
 
@@ -350,6 +354,14 @@ async def sync_bookmarks(
     ...], "removals_proposed": <total removal items written>,
     "removals_skipped": <"; "-joined per-channel reasons, or None>}`` —
     ``channel`` is the ``sync_state`` key the router stamps (R4).
+
+    Every ``removal`` item this call wrote, plus a touched
+    ``sources/bookmark_seen.json``, are committed together at the end
+    (``_commit_removals``) — scoped to exactly those paths, never
+    ``git add -A``, mirroring ``media_ingestor._commit_media``'s pattern one
+    call earlier in this same path (finding 1, G129 slice-2 final review):
+    without it, both files sat dirty until some unrelated later writer's
+    broad commit silently absorbed them under the wrong author/trigger.
     """
     fn: IngestFn = ingest_fn or media_ingestor.ingest_batch
     memory_path = Path(memory_path)
@@ -359,6 +371,8 @@ async def sync_bookmarks(
     total_skipped = 0
     total_removals_proposed = 0
     removals_skip_reasons: list[str] = []
+    removal_paths: list[str] = []
+    seen_touched = False
 
     at = episode_ids.utc_now_iso()
     prev_seen = bookmark_seen.read_seen(memory_path) if propose_removals else {}
@@ -392,10 +406,16 @@ async def sync_bookmarks(
                 if prev_entry is not None:  # R6: silent on a channel's first-ever sync
                     removals_skip_reasons.append(f"{channel}: folder scope changed since the last sync")
             elif removed:
-                total_removals_proposed += _propose_removals(
+                new_paths = _propose_removals(
                     memory_path, origin=origin, channel=channel, removed_hashes=removed, at=at,
                 )
+                total_removals_proposed += len(new_paths)
+                removal_paths.extend(new_paths)
             bookmark_seen.write_channel_seen(memory_path, channel, folders=folders, hashes=current_hashes, at=at)
+            seen_touched = True
+
+    if removal_paths or seen_touched:
+        await _commit_removals(memory_path, removal_paths, seen_touched)
 
     return {
         "new": total_new,
@@ -404,6 +424,35 @@ async def sync_bookmarks(
         "removals_proposed": total_removals_proposed,
         "removals_skipped": "; ".join(removals_skip_reasons) or None,
     }
+
+
+async def _commit_removals(memory_path: Path, removal_paths: list[str], seen_touched: bool) -> None:
+    """Commit scoped to exactly the removal items written this call plus a
+    touched ``sources/bookmark_seen.json`` — never ``git add -A`` (finding 1,
+    G129 slice-2 final review), mirroring ``media_ingestor._commit_media``.
+
+    ``Cicada-Author: cicada`` — no LLM ran and no user made a choice; this is
+    pure bookkeeping (a removal *proposal*, not a resolution) exactly like the
+    G85 decay-only commit and the idle inbox-refresh commit
+    (``sleep_cycle._run_idle_question_refresh``), both of which use the same
+    author for the same reason. Best-effort: a non-git memory dir (most unit
+    tests use a bare ``tmp_path``) must not fail the sync itself, so failures
+    are logged and swallowed, matching every other scoped-commit call site in
+    this codebase (``_commit_media``, the idle refresh above).
+    """
+    from api.services import git_service
+
+    paths = sorted(set(removal_paths) | ({"sources/bookmark_seen.json"} if seen_touched else set()))
+    lines = [f"{p}: created (trigger: sync/bookmark_removal)" for p in sorted(removal_paths)]
+    if seen_touched:
+        lines.append("sources/bookmark_seen.json: updated (trigger: sync/bookmark_removal)")
+    message = git_service.build_commit_message(
+        f"Bookmark removal sync {date.today()}", lines, authors=["cicada"],
+    )
+    try:
+        await git_service.commit_paths(memory_path, message, paths)
+    except Exception as e:  # pragma: no cover - non-git workspace (most unit tests)
+        logger.warning(f"Bookmark removal commit failed: {type(e).__name__}: {e}")
 
 
 async def sync_from_local_files(memory_path: Path) -> dict[str, Any]:
