@@ -156,7 +156,7 @@ G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 enti
 G62 capture redesign · G63 connections clarity · G64 import walkthroughs · G67 commit-diff views ·
 G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars ·
 G107 pixel mascot + single menu-bar Tamagotchi · **G130 slice 1a app-wide zoom (2026-09-05,
-PR #TBD)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
+PR #54)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
 (⌘=/⌘−/⌘0, plus a ⌘⇧= key monitor), a Settings *General* tab with a text-size slider; the graph
 canvas keeps its own zoom (slice 2 stays open on a measured need; slice 1b, the literal-font
 migration + lint, is its own follow-up)
