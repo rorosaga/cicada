@@ -47,8 +47,16 @@ struct FirstRunSheet: View {
             Divider()
             footer
         }
-        .frame(width: 780, height: 640)
+        .frame(minWidth: Self.sheetWidth, minHeight: Self.sheetHeight)
     }
+
+    /// G130 — the same fixed-frame-vs-scaled-contents problem
+    /// `SettingsScene.windowWidth` documents, and worse here: the footer
+    /// (Back / demo bank / Skip / Next) sits OUTSIDE each step's ScrollView,
+    /// so at the top of `ThemeStore.scaleRange` it is the first thing to
+    /// clip — and it holds the only way forward.
+    static var sheetWidth: CGFloat { CicadaTheme.scaled(780) }
+    static var sheetHeight: CGFloat { CicadaTheme.scaled(640) }
 
     @ViewBuilder private var content: some View {
         switch step {
@@ -62,7 +70,11 @@ struct FirstRunSheet: View {
                     Text(Copy.onboardingChannelCaption)
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
-                    IntegrationsView()
+                    // R7 — a row that hands off to the Feed's `+` sheet must
+                    // first close this modal, or the person is routed to a
+                    // page they cannot see. `finish` is the same "setup is
+                    // done" exit "Skip setup" takes.
+                    IntegrationsView(onHandOff: finish)
                 }
                 .padding(CicadaTheme.spacingXL)
             }

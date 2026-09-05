@@ -38,11 +38,13 @@ now, stale or not.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.services import sleep_scheduler, state_dictionary, sync_service
+from api.services import sleep_debt, sleep_scheduler, state_dictionary, sync_service
 from api.services.repo_context import resolve_repo_context
 
 router = APIRouter()
@@ -97,14 +99,29 @@ async def get_state(
     for row in state.get("conversations", []) or []:
         row["resumable"] = bool(conv.transcript_exists(project_dirs.get(row["id"]), row["id"]))
     # Per request, local clock — never in the file (see the module docstring).
-    # Disclosed gap (G125 TODO.md): no `last_cycle_at`/`newest_unprocessed_at`
-    # is threaded through here, unlike `GET /status`'s calibrated call — so
-    # `interval` reads "N hours from now" and `after_import` always reads
-    # `null`. Feeds the MCP handshake's now-view, not the app's own "Next
-    # run" text, so a brief primer imprecision right after a schedule-mode
-    # change was judged not worth a second `sleep_debt.compute` scan on this
-    # engine-free read path.
-    state.setdefault("sleep", {})["next_at"] = sleep_scheduler.next_run_at(memory_path)
+    # Track P R6: the SAME inputs `GET /status` computes
+    # (`api/routers/status.py`'s one `sleep_debt.compute` call, with
+    # `last_cycle_at` derived from `hours_since_last_cycle` rather than
+    # exposing `sleep_debt`'s private cached datetime) — one formula, two
+    # callers, so the primer's now-view and the app's own "Next run" line
+    # cannot disagree. Without them `interval` anchored on `now` and read "N
+    # hours from now" on every request regardless of when the last cycle ran,
+    # and `after_import` returned `null` — "no next run" — exactly when the
+    # settle probe was about to fire; only an agent reading /state directly
+    # ever saw it, which is worse, not better. `compute` is engine-free and
+    # internally cached ("no LLM, no subprocess beyond the one bounded `git
+    # log`", and that log is keyed on `git_head`), so this read path stays
+    # engine-free and costs no second bank scan.
+    debt = await sleep_debt.compute(memory_path, settings)
+    last_cycle_at = (
+        datetime.now() - timedelta(hours=debt.hours_since_last_cycle)
+        if debt.hours_since_last_cycle is not None else None
+    )
+    state.setdefault("sleep", {})["next_at"] = sleep_scheduler.next_run_at(
+        memory_path,
+        last_cycle_at=last_cycle_at,
+        newest_unprocessed_at=debt.newest_unprocessed_at,
+    )
     state["stale"] = state.get("inputs_version") != state_dictionary.inputs_version(memory_path)
     state.pop("body", None)
     return state

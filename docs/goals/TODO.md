@@ -140,13 +140,18 @@ build. Shipped 2026-09-05 and no longer queued: G125 (PR #55), G113 slices 3–7
 G126 page (Track C, PR #60), G129 slice 2 (bookmark deletions, PR #61), **G117** first-run onboarding
 (PR #62).
 
-**Small polish left behind by the 2026-09-05 tracks, none blocking:** Settings → Integrations lists
-both the harness "Claude export" overview row and the "Claude chat export" channel (dedupe by
-origin) and draws the generic bubble symbol where `OriginMark` would show the logo; the Sleep page's
-toolbar audit on Graph/Clusters (G125 (5)) is still open; a merge suggestion with no target hint has
-no Reject control (dismiss still works); `GET /state`'s `sleep.next_at` is uncalibrated for the
-`interval`/`after_import` schedule modes (the app's own next-run line is); the Settings sidebar
-cannot be driven by a synthetic `click at` (select its rows through the accessibility API).
+**Small polish left behind by the 2026-09-05 tracks, none blocking:** Settings → Integrations draws
+the generic bubble symbol where `OriginMark` would show the logo (the mark pipeline is Track L's, so
+joining channel rows to it belongs with that row, not with a polish pass); the Settings sidebar
+cannot be driven by a synthetic `click at` (select its rows through the accessibility API); and a
+Sources card whose count comes from `channel_registry` (every row but `files`) still counts items
+its own page now hides — the archived/dropped/junk filter reached the item list and the `files`
+count, but a channel's own `count` is computed per adapter and was not re-derived.
+
+Track P (2026-09-05) closed the rest of that list: the Graph/Clusters toolbar audit (G125 (5)),
+the duplicated chat-export row in Integrations, the missing Reject control on a hintless merge
+suggestion, and `GET /state`'s uncalibrated `sleep.next_at` — plus `TODO(G26)`'s last piece, the
+d3 canvas, which now takes the app's colour scheme instead of staying dark-locked in Light mode.
 
 Owner-present checks still unticked, none blocking: the mascot visual pass in light and dark, the G109
 graph eyeball at fit-zoom, the G124 and G115 checks in the paragraphs above, and the README screenshots

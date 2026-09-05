@@ -359,11 +359,18 @@ struct InboxCardView: View {
                                             mergeSurvivor: survivor))
                 }
                 Spacer()
-                InboxActionButton(title: "Keep separate", icon: "xmark", color: CicadaTheme.textSecondary) {
-                    // G113 slice 3b: unlike a plain dismiss, this is a
-                    // remembered verdict — the backend records the pair so
-                    // it is never re-proposed by Sleep or the dedup sweep.
-                    fire(QuestionResolution(action: "reject"))
+                // G113 slice 3b: unlike a plain dismiss, this is a remembered
+                // verdict — the backend records the pair so it is never
+                // re-proposed by Sleep or the dedup sweep. WHICH pair is what
+                // the request has to carry: `inbox_service.resolve` reads
+                // `merge_target_hint` OR `mergeTarget` and 400s when both are
+                // empty, and the hint is absent for a hintless "Possible
+                // duplicate" and for every migrated item. So send the entity
+                // already sitting in the field above, and disable rather than
+                // fire a request the backend must refuse.
+                InboxActionButton(title: "Keep separate", icon: "xmark", color: CicadaTheme.textSecondary,
+                                  disabled: MergeReject.resolution(existingName: existingName) == nil) {
+                    if let resolution = MergeReject.resolution(existingName: existingName) { fire(resolution) }
                 }
                 InboxActionButton(title: "Skip", icon: "arrow.right", color: CicadaTheme.textTertiary) {
                     fire(QuestionResolution(action: "skip"))

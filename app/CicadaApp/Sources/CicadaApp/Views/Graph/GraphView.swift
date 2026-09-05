@@ -15,6 +15,7 @@ final class ClickableWebView: WKWebView {
 
 struct GraphView: NSViewRepresentable {
     @Environment(GraphViewModel.self) private var viewModel
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -26,14 +27,6 @@ struct GraphView: NSViewRepresentable {
         webView.layer?.backgroundColor = .clear
 
         // Load bundled HTML
-        // TODO(G26): theme graph.js webview. The SwiftUI chrome is now
-        // light/dark switchable (CicadaTheme.mode), but this WKWebView loads
-        // a static graph/index.html + graph.js that hard-codes the dark d3
-        // canvas palette. Follow-up: either postMessage the active
-        // AppColorScheme into the page (bridge already exists via
-        // `cicada` in WKUserContentController, see Coordinator below) and
-        // have graph.js swap its color constants, or accept the graph
-        // staying dark for now as scoped.
         if let resourceURL = Bundle.cicadaResources.url(forResource: "graph/index", withExtension: "html") {
             webView.loadFileURL(resourceURL, allowingReadAccessTo: resourceURL.deletingLastPathComponent())
         }
@@ -56,6 +49,21 @@ struct GraphView: NSViewRepresentable {
         if viewModel.isGraphReady, context.coordinator.lastHoverSuppressed != cardOpen {
             context.coordinator.lastHoverSuppressed = cardOpen
             webView.evaluateJavaScript("setHoverSuppressed(\(cardOpen))", completionHandler: nil)
+        }
+
+        // Track P R11 — the canvas follows the app's colour scheme.
+        // `@Environment(\.colorScheme)` rather than a static `CicadaTheme.mode`
+        // read: `CicadaApp.swift` sets `.preferredColorScheme` from the
+        // persisted mode, so the environment value tracks it exactly — AND an
+        // environment change is what reliably re-runs `updateNSView` on an
+        // NSViewRepresentable, which reading an @Observable static in here
+        // would not. Guarded on `isGraphReady` like every other push (before
+        // that, graph.js has no `setTheme` yet) and latched on the
+        // coordinator so an unrelated update never re-sends.
+        let theme = colorScheme == .light ? "light" : "dark"
+        if viewModel.isGraphReady, context.coordinator.lastTheme != theme {
+            context.coordinator.lastTheme = theme
+            webView.evaluateJavaScript("setTheme(\"\(theme)\")", completionHandler: nil)
         }
 
         // G123: land on a searched node. JSON-encode the id so a quote in a
@@ -134,6 +142,9 @@ struct GraphView: NSViewRepresentable {
     class Coordinator: NSObject, WKScriptMessageHandler {
         var lastPanMode = false
         var lastHoverSuppressed = false
+        /// Latched so a theme push happens once per actual flip, never on
+        /// every unrelated `updateNSView` (R11).
+        var lastTheme: String?
         let viewModel: GraphViewModel
         var webView: WKWebView?
         var isGraphReady = false

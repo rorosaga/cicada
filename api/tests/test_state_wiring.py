@@ -203,12 +203,64 @@ def test_get_state_adds_next_at_per_request_and_never_persists_it(api_bank):
     from api.models.schemas import ScheduleConfig
     from api.services import sleep_scheduler
 
-    sleep_scheduler.save_schedule(api_bank, ScheduleConfig(enabled=True, hour=3, minute=0))
+    sleep_scheduler.save_schedule(api_bank, ScheduleConfig(mode="daily", hour=3, minute=0))
     with TestClient(main.app) as client:
         data = client.get("/state").json()
+    # `daily` needs no calibration inputs, so the bare call IS the right
+    # answer here — unlike the two modes below, which is exactly why this
+    # assertion alone used to hide the bug (it asserted the UNCALIBRATED
+    # call, i.e. a regression net pointed backwards).
     assert data["sleep"]["next_at"] == sleep_scheduler.next_run_at(api_bank)
     assert data["sleep"]["next_at"].startswith("20")
     assert "next_at" not in (api_bank / "_state.md").read_text()
+
+
+def test_interval_next_at_is_anchored_on_the_last_cycle_not_on_now(api_bank):
+    """The uncalibrated call made `interval` read "N hours from now" on EVERY
+    request, no matter when the last cycle ran, so an agent reading /state
+    could never tell a schedule that just fired from one about to.
+    `GET /status` already threads `last_cycle_at`; this makes the two agree
+    (Track P R6 — one formula, two callers).
+
+    `_bank` seeds one plain "seed" commit, so the fixture has NO cycle to
+    anchor on and both calls would agree by accident. An aged, empty
+    `Sleep cycle …` commit is what `sleep_debt._last_cycle_at` looks for
+    (`--format=%aI`, subject `sleep cycle*`, `(decay)` excluded) — hence
+    `--date`, which sets the AUTHOR date the scan reads.
+    """
+    from api.models.schemas import ScheduleConfig
+    from api.services import sleep_scheduler
+
+    _git(api_bank, "commit", "-q", "--allow-empty", "--date", "2026-09-01T00:00:00+00:00",
+         "-m", "Sleep cycle 2026-09-01")
+    sleep_scheduler.save_schedule(
+        api_bank, ScheduleConfig(mode="interval", hour=3, minute=0, interval_hours=6)
+    )
+    with TestClient(main.app) as client:
+        got = datetime.fromisoformat(client.get("/state").json()["sleep"]["next_at"])
+    uncalibrated = datetime.fromisoformat(sleep_scheduler.next_run_at(api_bank))
+    # Anchored on a cycle long past, `next_run_at` floors at `now`
+    # (`max(candidate, current)`); the bare call anchors on `now` and returns
+    # `now + 6 h`. Five hours of slack so a slow machine can't flake it.
+    assert got < uncalibrated - timedelta(hours=5)
+
+
+def test_after_import_next_at_is_an_instant_when_the_queue_is_not_empty(api_bank):
+    """The uncalibrated call returns `None` for `after_import` — i.e. "no next
+    run" — precisely when the settle probe is about to fire."""
+    from api.models.schemas import ScheduleConfig
+    from api.services import episode_ids, sleep_scheduler
+
+    markdown_parser.write(
+        api_bank / "episodes" / "ep_2026-09-01_001.md",
+        {"id": "ep_2026-09-01_001", "timestamp": episode_ids.utc_now_iso(),
+         "processed": False, "origin": "claude-code", "title": "Alpha project sync"},
+        "user: ship alpha-project",
+    )
+    sleep_scheduler.save_schedule(api_bank, ScheduleConfig(mode="after_import", hour=3, minute=0))
+    assert sleep_scheduler.next_run_at(api_bank) is None
+    with TestClient(main.app) as client:
+        assert client.get("/state").json()["sleep"]["next_at"] is not None
 
 
 def test_get_state_adds_resumable_per_request_and_never_persists_it(api_bank, monkeypatch):

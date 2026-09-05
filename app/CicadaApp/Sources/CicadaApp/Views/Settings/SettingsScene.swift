@@ -30,10 +30,23 @@ struct SettingsScene: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CicadaTheme.background)
         }
-        .frame(width: 900, height: 640)
+        .frame(minWidth: Self.windowWidth, minHeight: Self.windowHeight)
         .onAppear { selection = SettingsSection.restored(from: sectionRaw) }
         .onChange(of: selection) { _, newValue in sectionRaw = newValue.rawValue }
+        // recent-work #9 — `onAppear` fires once per view lifetime, and this
+        // is a separate window that is usually ALREADY open when
+        // `EmptyStateView`'s "Open Integrations" seeds the key. Mirroring the
+        // stored value back onto `selection` makes the pair symmetric: the
+        // `onChange(of: selection)` above writes, this one reads.
+        .onChange(of: sectionRaw) { _, raw in selection = SettingsSection.restored(from: raw) }
     }
+
+    /// G130 — every font and spacing token inside this window scales with
+    /// `CicadaTheme.uiScale`, so a fixed frame clips at the top of
+    /// `ThemeStore.scaleRange` (1.4). `minWidth`/`minHeight` rather than a
+    /// hard `frame` so the person can still make the window bigger.
+    static var windowWidth: CGFloat { CicadaTheme.scaled(900) }
+    static var windowHeight: CGFloat { CicadaTheme.scaled(640) }
 
     @ViewBuilder private var detailView: some View {
         switch selection {

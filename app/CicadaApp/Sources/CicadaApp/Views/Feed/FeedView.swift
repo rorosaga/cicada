@@ -61,9 +61,24 @@ struct FeedView: View {
                     Spacer()
                     HStack(spacing: CicadaTheme.spacingSM) {
                         addButton
+                        // Final review F1 — Feed is the ONE page that opts
+                        // back into the Upload button. Track P R1 flipped
+                        // `showsUpload` to default-false on the reasoning
+                        // that "a one-shot import lives behind the `+`",
+                        // which is true for `UploadMode.conversations`
+                        // (`AddSourceTile.chatExport`) but NOT for
+                        // `UploadMode.project` — importing an export into a
+                        // chosen or newly created memory bank has no tile in
+                        // `AddSourceSheet`, so the flip stranded the only
+                        // route to it. It also stranded the only writer of
+                        // `store.intakeInFlight`, which is what lets the
+                        // Sleep page's bookworm read `.reading` during an
+                        // import (G125 R2). Opt in here, explicitly; the
+                        // default stays "`?` only" for every other page.
                         TopBarControls(
                             selectedTab: $selectedTab,
-                            showUploadOverlay: $showUploadOverlay
+                            showUploadOverlay: $showUploadOverlay,
+                            showsUpload: true
                         )
                     }
                     .padding(CicadaTheme.spacingLG)

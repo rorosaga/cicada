@@ -8,7 +8,7 @@ The ladder, cheapest first, never guessing where a guess would be wrong:
 4. ``media.url`` (a saved link's own site);
 5. a heuristic, and **only** for ``company``/``tool`` pages: a ``website``
    claim's host if one exists, else ``<slug>.com`` when the name is a single
-   token. Never for a ``person`` — "Rodrigo" is not rodrigo.com.
+   token. Never for a ``person`` — a surname is not a domain.
 
 Fetching is keyless (apple-touch-icon → the homepage's ``<link rel=icon>`` →
 DuckDuckGo's icon service) behind an injectable ``fetcher`` so tests never
