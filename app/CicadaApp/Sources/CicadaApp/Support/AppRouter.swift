@@ -13,6 +13,12 @@ import Foundation
 final class AppRouter {
     var pendingTab: AppTab?
     var pendingAddSource: AddSourceTile?
+    /// G117 — Settings → General's "Run setup again" hand-off. Settings is a
+    /// separate window/scene from the main one (same reason `pendingTab`
+    /// exists for G126 R9's Feed hand-off — Settings cannot just flip
+    /// `showFirstRun` on `ContentView` itself), so it stages a flag here and
+    /// `ContentView` is the one that actually presents the sheet.
+    var pendingFirstRun = false
 
     /// Sets both fields together — a `pendingAddSource` with no matching
     /// tab-switch would stage a sheet nobody ever sees, since `FeedView`

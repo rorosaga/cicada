@@ -119,6 +119,10 @@ make dev              # build the app, install to ~/Applications, launch
 the backend as a `launchd` agent that starts on login, and registers the `cicada` MCP server with
 Claude Code. Check health any time with `make doctor`.
 
+First launch opens a four-step sheet — your name, a consolidation engine, one capture channel, and
+your first Sleep cycle — or "try a demo bank first" if you'd rather look around before wiring in
+your own life. Re-open it any time from Settings → General → "Run setup again".
+
 Pick a consolidation engine in `api/.env`:
 
 ```sh
@@ -135,7 +139,7 @@ Day-to-day commands:
 | `make dev` | Rebuild debug, reinstall over `~/Applications/Cicada.app`, relaunch |
 | `make install-app` | Release build, install without relaunch |
 | `make doctor` | Backend, MCP, and environment health checks |
-| `curl -X POST localhost:8000/sleep/trigger` | Run a Sleep cycle now (also a button in the app) |
+| `curl -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" localhost:8000/sleep/trigger` | Run a Sleep cycle now (also a button in the app) |
 | `api/.venv/bin/python -m pytest api/tests -q` | Backend suite |
 | `cd app/CicadaApp && swift test` | App suite |
 

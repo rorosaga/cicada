@@ -385,6 +385,14 @@ final class GraphViewModel {
         guard let wire else { filter.observers = []; return }
         if wire == "external" {
             filter.observers = Set(observerRoster.filter { $0.hasPrefix("external:") })
+        } else if wire == "__owner__" {
+            // G117 R2 — mirrors the "external" branch immediately above: the
+            // roster scan is the same not-agent/not-external rule
+            // Observer.init now applies, kept in sync deliberately (both
+            // read the SAME three-keyword protocol) so the "You" segment
+            // selects every observer the backend resolved as the owner,
+            // whatever slug that turned out to be.
+            filter.observers = Set(observerRoster.filter { $0 != "agent" && !$0.hasPrefix("external:") })
         } else {
             filter.observers = [wire]
         }

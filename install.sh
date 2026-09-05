@@ -282,6 +282,7 @@ if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
   else
     step "Registering 'cicada' via claude mcp add"
     run "$CLAUDE_CLI" mcp add cicada \
+      -s user \
       --env "CICADA_MEMORY_PATH=$MEMORY_PATH" \
       -- "$VENV_PY" "$MCP_SERVER"
     ok "MCP server registered"

@@ -58,6 +58,23 @@ def _forget_the_developers_dotenv():
 
 
 @pytest.fixture(autouse=True)
+def _default_cicada_home(tmp_path, monkeypatch):
+    """G117: `owner_identity.resolve_observer` now sits on the observer/
+    claim-write hot path (`agentic_write.write_claim`, `telegram_capture`,
+    `inbox_service._owner_observer`), so it calls `cicada_home()` — reading
+    `~/.cicada/owner.json` — on every claim write those functions make.
+    Without a default here, any test exercising those call sites without
+    setting `CICADA_HOME` itself would read (and `cicada_home()`'s own
+    ``mkdir`` would touch) the developer's REAL ``~/.cicada`` — the same
+    class of leak `_disable_connector_fetch` below already guards against
+    for `secrets.env`. A test that wants a specific `CICADA_HOME` still
+    wins: `monkeypatch.setenv` inside the test body runs after fixture
+    setup and simply overwrites this default.
+    """
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "_default_cicada_home"))
+
+
+@pytest.fixture(autouse=True)
 def _disable_api_auth(monkeypatch):
     monkeypatch.setenv("CICADA_API_AUTH", "off")
 

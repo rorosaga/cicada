@@ -112,23 +112,12 @@ struct InboxListView: View {
     // MARK: - Empty state ("Nothing pending" + the truth, featuring the bookworm)
 
     private var emptyState: some View {
-        VStack(spacing: CicadaTheme.spacingLG) {
-            Spacer()
-            BookwormView(state: .happy, pointSize: 96)
-
-            Text("Nothing pending")
-                .font(CicadaTheme.headingFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
-
-            Text(emptyStateDetail)
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer()
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // G117: same shared shell as Graph/Feed/Sources, but `emptyStateDetail`
+        // — the R12-honest, possibly two-line "what Sleep actually did" text —
+        // stays exactly as computed. "Nothing pending" is a GOOD state, not a
+        // deficiency to fix, so it carries no action (unlike a graph or a
+        // sources list with nothing in it, where Integrations is the fix).
+        EmptyStateView(title: "Nothing pending", message: emptyStateDetail)
     }
 
     /// R12: say what is true, not what the bookworm will do. Sleep asks

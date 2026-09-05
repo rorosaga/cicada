@@ -1090,6 +1090,17 @@ actor APIClient {
         return expectedSlug
     }
 
+    /// `POST /banks/demo` (G117) → one click, a populated synthetic bank
+    /// (`api/services/demo_bank.py`), already ACTIVATED server-side. The
+    /// echoed roster is what the first-run sheet's demo button hands to
+    /// `store.refresh([.banks])`, which notices `active` moved and re-hydrates
+    /// on its own (`Store.refresh`'s bank-switch fan-out) — no second
+    /// activate call needed.
+    @discardableResult
+    func createDemoBank() async throws -> BanksResponse {
+        try await post("/banks/demo")
+    }
+
     /// `POST /banks/{name}/activate` → switch the active bank.
     func activateBank(name: String) async throws {
         try await post("/banks/\(encodedBank(name))/activate")
@@ -1941,6 +1952,32 @@ actor APIClient {
     func fetchSleepCycleDetail(_ commit: String) async throws -> SleepCycleDetail {
         let encoded = commit.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? commit
         return try await get("/sleep/history/\(encoded)")
+    }
+
+    /// `GET /settings/owner` — the first-run sheet's identity step reads
+    /// this to pre-fill the name field when "Run setup again" reopens it
+    /// (G117).
+    func fetchOwnerSettings() async throws -> OwnerSettings {
+        return try await get("/settings/owner")
+    }
+
+    /// `PUT /settings/owner`. `handle`/`email` are omitted from the body
+    /// entirely when `nil` rather than sent as JSON `null` — the same
+    /// conditional-assignment shape `updateSleepEngine` uses just above,
+    /// for the same reason: boxing a `nil` optional as `Any` inside a
+    /// `[String: Any]` is not JSON-null, it's an
+    /// `Optional<Any>.some(Optional<String>.none)`, which
+    /// `JSONSerialization.data(withJSONObject:)` (`put`'s own
+    /// implementation, below) cannot serialize and throws at runtime —
+    /// exactly what happens every time the person leaves handle/email
+    /// blank, the common case.
+    func updateOwnerSettings(
+        name: String, handle: String? = nil, email: String? = nil
+    ) async throws -> OwnerSettings {
+        var body: [String: Any] = ["name": name]
+        if let handle { body["handle"] = handle }
+        if let email { body["email"] = email }
+        return try await put("/settings/owner", body: body)
     }
 
     // MARK: - Upload

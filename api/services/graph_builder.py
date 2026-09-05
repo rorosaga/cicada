@@ -173,6 +173,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 content_hash=content_hash(fm, body),
                 has_logo=eid in logo_ids,
                 decay_class=decay_policy.resolve(fm)[0],
+                is_owner=bool(fm.get("owner")),
             )
         )
         for repo_decl in fm.get("repos") or []:

@@ -10,6 +10,12 @@ import SwiftUI
 /// this stays its own file/tab now instead of folding into an existing one.
 struct SettingsGeneralView: View {
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
+    // G117 — "Run setup again" needs the active bank (to clear the right
+    // per-bank `OnboardingState` flag) and the cross-scene hand-off
+    // (Settings is its own window, same reasoning as every other
+    // `AppRouter` use — see that type's own doc comment).
+    @Environment(AppRouter.self) private var router
+    @Environment(Store.self) private var store
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -19,6 +25,7 @@ struct SettingsGeneralView: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     appearanceCard
                     textSizeCard
+                    onboardingCard
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, CicadaTheme.spacingXL)
@@ -84,6 +91,29 @@ struct SettingsGeneralView: View {
             Text("⌘+ and ⌘− do the same from any page.")
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
+        }
+        .padding(CicadaTheme.spacingLG)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    /// G117 — reopens the first-run sheet for the ACTIVE bank. Clearing
+    /// `OnboardingState` first (rather than after) means a person who
+    /// closes the sheet immediately still sees it again next launch, the
+    /// same "did it actually take" guarantee every other settings toggle
+    /// here gives.
+    private var onboardingCard: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text("SETUP")
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.2)
+            Button("Run setup again") {
+                OnboardingState.reset(bank: store.bank)
+                router.pendingFirstRun = true
+            }
+            .buttonStyle(.cicadaPlain)
+            .foregroundStyle(CicadaTheme.accent)
         }
         .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, alignment: .leading)

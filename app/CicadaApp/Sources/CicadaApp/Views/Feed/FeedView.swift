@@ -193,7 +193,7 @@ struct FeedView: View {
             emptyState(
                 symbol: "tray",
                 title: "Nothing saved yet",
-                subtitle: "Save bookmarks, paste URLs, or add an RSS feed.\nThey appear here sorted by relevance.",
+                subtitle: Copy.emptyFeedMessage,
                 useBookworm: true
             )
         } else {
@@ -209,36 +209,45 @@ struct FeedView: View {
         }
     }
 
+    /// G117: the truly-empty case (`useBookworm`) delegates to the shared
+    /// `EmptyStateView` — one component, one action path. The error case
+    /// (`errorMessage` non-nil) keeps its own symbol-based rendering: it is
+    /// not "nothing here yet", it is "something went wrong", and offering
+    /// the same "Open Integrations" action there would point at a fix that
+    /// has nothing to do with a load failure.
+    @ViewBuilder
     private func emptyState(
         symbol: String,
         title: String,
         subtitle: String,
         useBookworm: Bool = false
     ) -> some View {
-        VStack(spacing: CicadaTheme.spacingMD) {
-            Spacer()
-            if useBookworm {
-                // The animated mascot greets the empty ingestion area — the same
-                // colour sprites as the menu bar, the Inbox "all caught up" worm
-                // and the upload overlay (G107; 96 = four whole cells, R3).
-                BookwormView(state: .awake, pointSize: 96)
-            } else {
+        if useBookworm {
+            EmptyStateView(
+                title: title,
+                message: subtitle,
+                actionLabel: "Open Integrations",
+                settingsSection: .integrations
+            )
+        } else {
+            VStack(spacing: CicadaTheme.spacingMD) {
+                Spacer()
                 Image(systemName: symbol)
                     .font(CicadaTheme.font(size: 40))
                     .foregroundStyle(CicadaTheme.textTertiary)
+                Text(title)
+                    .font(CicadaTheme.headingFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text(subtitle)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Spacer()
             }
-            Text(title)
-                .font(CicadaTheme.headingFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
-            Text(subtitle)
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer()
-            Spacer()
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
     }
 }
 

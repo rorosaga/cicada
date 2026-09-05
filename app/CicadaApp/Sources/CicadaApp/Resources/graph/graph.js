@@ -84,9 +84,15 @@ function contextColor(context) {
     return `hsl(${hashHue(context)}, 55%, 68%)`;
 }
 function observerBadgeColor(wire) {
-    if (!wire) return OBSERVER_BADGE_COLORS.agent;
+    if (!wire || wire === "agent") return OBSERVER_BADGE_COLORS.agent;
     if (wire.startsWith("external:")) return OBSERVER_BADGE_COLORS.external;
-    return OBSERVER_BADGE_COLORS[wire] || OBSERVER_BADGE_COLORS.external;
+    // G117 R2: the wire protocol reserves exactly "agent" and "external:" —
+    // anything else is the owner, whatever slug onboarding resolved (the
+    // legacy "rodrigo", the fresh-bank keyword "owner", or a name-derived
+    // slug like "bob-example"). A dictionary-miss fallback to "external"
+    // used to mislabel every one of those as External the moment the
+    // resolved value stopped being the bare literal "rodrigo".
+    return OBSERVER_BADGE_COLORS.rodrigo;
 }
 
 const MIN_ZOOM = 0.2;

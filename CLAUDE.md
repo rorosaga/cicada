@@ -291,6 +291,9 @@ claims carry no `evidence` and `to_dict` omits the empty key; there is no backfi
   hint. Nothing is fetched.
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
+- `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
+  resolve_observer` is what decides which page gets it, and every user-stated claim's `observer`
+  field is that resolved value.
 
 ### Live state + handshake (G53 / G75)
 
@@ -590,10 +593,10 @@ touches no claim.
 **Three resolution paths for a clarification:** organic (the user provides context later, Sleep
 promotes it), agent-initiated (the agent asks in flow when the topic comes up), manual (the app).
 
-**Open observer inconsistency:** on the inbox resolve path the observer for an owner-stated claim is
-`settings.observer_owner`; Telegram capture, `agentic_write`'s trust/origin gate and MCP
-`cicada_write_claim` still hardcode the historical literal. Setting the variable today splits a
-bank's claim lineage in two — **G117 moves the remaining four sites together.**
+**Observer inconsistency — resolved (G117).** All five sites (the inbox resolve path, Telegram
+capture, `agentic_write`'s trust/origin gate, and MCP `cicada_write_claim`'s schema/description) now
+read `owner_identity.resolve_observer` instead of a hardcoded literal, so a bank's claim lineage
+never forks across writers.
 
 ### 4. Manual Sleep trigger
 "Run Sleep cycle now" + next-scheduled indicator.

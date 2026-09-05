@@ -41,7 +41,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import episode_ids, markdown_parser
+from api.services import episode_ids, markdown_parser, owner_identity
 
 # Telegram doesn't ship its own "find URLs in free text" primitive, and
 # media_ingestor's URL handling assumes a URL is already the whole field
@@ -308,6 +308,7 @@ def _write_saved_because_claim(
     Never raises — ``write_claim`` returns an error dict rather than throwing,
     and a failed claim must never lose the save that already succeeded.
     """
+    from api.config import get_settings
     from api.services import evidence as evidence_mod
     from api.services.agentic_write import write_claim
 
@@ -329,7 +330,11 @@ def _write_saved_because_claim(
         media_entity_id,
         "saved-because",
         reason,
-        observer="rodrigo",
+        # `get_settings()`, not `None` — findings review, G117 follow-up:
+        # this was the one CLAUDE.md names as still hardcoding the resolution
+        # without a live `Settings`, so a `CICADA_OBSERVER_OWNER` override
+        # never reached the Telegram capture path.
+        observer=owner_identity.resolve_observer(memory_path, get_settings()),
         object_kind="literal",
         confidence=0.9,
         source_episode=episode_id or None,

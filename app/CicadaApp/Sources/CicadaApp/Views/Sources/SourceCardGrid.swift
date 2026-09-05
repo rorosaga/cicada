@@ -23,8 +23,12 @@ struct SourceCardGrid: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
             } else if rows.isEmpty {
-                Text("Nothing has fed this memory yet. Add a source from the Feed's + button.")
-                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
+                EmptyStateView(
+                    title: "Nothing here yet",
+                    message: Copy.emptySourcesMessage,
+                    actionLabel: "Add a source",
+                    settingsSection: .integrations
+                )
             } else {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     ForEach(SourceSections.group(rows), id: \.kind) { section in

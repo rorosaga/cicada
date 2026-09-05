@@ -207,4 +207,38 @@ enum Copy {
     static let connectorExportBackfill =
         "The API only reaches your most recent ~1,000 saves. A one-off data "
         + "export backfills everything older."
+
+    // MARK: - First-run sheet (G117)
+
+    /// Step 2's caption above the embedded `IntegrationsView` — R4's
+    /// justification made visible: the whole Integrations page is shown, not
+    /// a hand-picked subset, and this line is what tells the reader they
+    /// only need to pick ONE row here, not connect everything before moving
+    /// on.
+    static let onboardingChannelCaption =
+        "Connect one thing to get started — add the rest anytime in Settings → Integrations."
+
+    /// The footer's demo-bank shortcut (Task 5, G117) — skips the remaining
+    /// steps entirely since `POST /banks/demo` ships pre-populated.
+    static let onboardingTryDemoBank = "Try it on a demo bank first"
+    static let onboardingCreatingDemoBank = "Creating demo bank…"
+
+    /// One title per `OnboardingStep`, shown in the sheet's header.
+    static func onboardingStepTitle(_ step: OnboardingStep) -> String {
+        switch step {
+        case .identity: return "Who's using Cicada?"
+        case .engine: return "Choose a Sleep engine"
+        case .channel: return "Connect a source"
+        case .sleep: return "Run your first Sleep cycle"
+        }
+    }
+
+    // MARK: - Empty states (G117) — `EmptyStateView`'s honest one-sentence copy
+
+    /// Graph's own blank canvas — the G117 row's opening evidence — finally
+    /// says why it's empty and names the one thing to do about it.
+    static let emptyGraphMessage = "Nothing here yet. Connect a source or import."
+    static let emptyInboxMessage = "Questions appear here after a Sleep cycle."
+    static let emptyFeedMessage = "Save a link or add a source to get started."
+    static let emptySourcesMessage = "Nothing has fed this memory yet."
 }

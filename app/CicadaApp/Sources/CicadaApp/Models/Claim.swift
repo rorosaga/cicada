@@ -23,11 +23,15 @@ enum Observer: Codable, Hashable, Identifiable {
     init(wire: String) {
         switch wire {
         case "agent": self = .agent
-        case "rodrigo": self = .rodrigo
         default:
+            // G117 R2: the wire protocol reserves exactly "agent" and the
+            // "external:" prefix. Everything else — the legacy literal
+            // "rodrigo", the fresh-bank keyword "owner", or a name-derived
+            // slug like "bob-example" — is the owner's own entity id by
+            // construction, whatever this bank's onboarding resolved it to.
             self = wire.hasPrefix("external:")
                 ? .external(String(wire.dropFirst("external:".count)))
-                : .external(wire)
+                : .rodrigo
         }
     }
 

@@ -263,11 +263,14 @@ def write_claim(
     brand-new subject page only) the entity's own frontmatter list.
 
     ``origin`` (G71) overrides the derived G9 provenance tag. Omitted, behavior
-    is byte-identical to before it existed: ``manual_edit`` for
-    ``observer="rodrigo"`` (the manual-assertion channel, and the only one that
-    earns ``claim_reconciler.is_human`` overwrite protection), else ``mcp``.
-    A connector/webhook write passes its own tag (``"telegram"``) so the claim
-    reads as user-stated without claiming manual-assertion immunity.
+    is byte-identical to before it existed: ``manual_edit`` for an observer
+    that resolves to the owner (G117: ``owner_identity.resolve_observer`` —
+    the caller may pass the portable keyword ``"owner"``, the legacy literal
+    ``"rodrigo"``, or the already-resolved slug; all three normalize to one
+    value before this check runs), the manual-assertion channel and the only
+    one that earns ``claim_reconciler.is_human`` overwrite protection, else
+    ``mcp``. A connector/webhook write passes its own tag (``"telegram"``) so
+    the claim reads as user-stated without claiming manual-assertion immunity.
 
     ``evidence`` (G118 slice 1): ``[{"episode": <id>, "quote": <verbatim words>}]``
     — the passages that state this fact. Each quote is verified against the
@@ -292,6 +295,23 @@ def write_claim(
     predicate_raw = (predicate or "").strip()
     object_raw = (object or "").strip()
     observer = (observer or "agent").strip() or "agent"
+    from api.config import get_settings
+    from api.services import owner_identity
+    # `get_settings()` (not `None`) so a `CICADA_OBSERVER_OWNER` power-user
+    # override reaches this, the MCP `cicada_write_claim` path — findings
+    # review, G117 follow-up: passing `None` here meant rung 1 of
+    # `resolve_observer`'s own documented precedence was unreachable from
+    # every write_claim caller (MCP, telegram) except `inbox_service`, which
+    # is the only site that already threaded a live `Settings` through.
+    resolved_owner = owner_identity.resolve_observer(memory_path, get_settings())
+    # G117: the caller may pass either the actual resolved value (every
+    # in-process caller that already called `resolve_observer` itself, e.g.
+    # `inbox_service`) or one of the two portable keywords an MCP/agent
+    # caller uses without knowing the person's slug — both normalize to the
+    # same stored value, so a claim's `observer` field never carries a
+    # keyword, only the real owner id.
+    if observer in (owner_identity.DEFAULT_OBSERVER, owner_identity.LEGACY_OBSERVER):
+        observer = resolved_owner
 
     if not subject_raw or not predicate_raw or not object_raw:
         return {
@@ -335,14 +355,14 @@ def write_claim(
             confidence = 0.7
         confidence = max(0.0, min(1.0, confidence))
 
-        source_trust = "user_stated" if observer == "rodrigo" else "agent_extracted"
+        source_trust = "user_stated" if observer == resolved_owner else "agent_extracted"
         # Origin-gated human protection (claim_reconciler.is_human): only a
         # manual/clarification origin makes a user_stated claim overwrite-
         # protected. An explicit observer=rodrigo write through this tool IS
         # that manual-assertion channel — unless the caller names a different
         # origin (a webhook, a connector), which by construction is not.
         claim_origin = (origin or "").strip() or (
-            "manual_edit" if observer == "rodrigo" else "mcp"
+            "manual_edit" if observer == resolved_owner else "mcp"
         )
 
         claim_id = _claim_id(entity_id, predicate_slug, object_raw, observer)
