@@ -330,6 +330,16 @@ an entity id and a surface enum, filed in a sibling `reads-*.jsonl` that
 `sync_service.components["telemetry"]` deliberately does not stat — the app maps that component onto
 its consumption domain, so a card open must not move it.
 
+**Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,
+`refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`,
+winner/loser claim ids, the extractor's confidence and model — ids and enums only, never claim
+text), Stage-3 reconcile emits one `audit` event per supersede/reject, and the dedup sweep emits one
+`dedup_verdict` per judged pair. `telemetry.FEEDBACK_KINDS` names the three (a superset,
+`NON_SPEND_KINDS`, also excludes `capture`/`handshake`/`read`); `consumption_stats.stats()` excludes
+them from `by_connection` so they never show as an "unknown" connection. Nothing learned from the
+ledger is auto-applied — `GET /consumption/feedback` shows the rates; feeding them back into
+prompts is G78.
+
 ### Git — versioning and provenance
 
 Every Sleep cycle commits with a **machine-parseable message**:
@@ -508,7 +518,9 @@ decay/clarification indicators. Open ideas live in the backlog.
 
 ### 2/3. Unified inbox (`memory/inbox/`)
 Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, each with a `kind`
-discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`), behind `GET /inbox` /
+discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`, `divergence`,
+`normalization` — the last two were written by Sleep since G49/G98 but only became loadable and
+resolvable kinds with G113), behind `GET /inbox` /
 `POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
 shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`.
 
@@ -528,6 +540,14 @@ user answered organically, escalates a question whose every option has been sile
 `superseded_by`); "both" keeps them open with a `context` qualifier; "neither"/free text writes a
 `user_stated` claim that closes them; `defer` writes `remind_after`. All commit with
 `Cicada-Author: user`.
+
+**Every resolution is a verdict (G113).** The commit trigger names the action taken
+(`inbox/<kind>/resolved:<label>`; a deferral stays `inbox/deferred`), decay `archive`/`keep_active`
+land as `statusChange` history entries, a decay `keep_active` and a clarification free-text answer
+write back to the claim layer, a rejected merge is remembered in `<bank>/_merge_rejected.yaml` so
+neither `clarification_manager` nor the dedup sweep proposes the pair again, and `remind_later` is a
+7-day defer (shipped with G115 Phase 1). Each of these also records a `resolution` telemetry event —
+see Telemetry ledger.
 
 **Cause (G115 Phase 1, delivers G97).** Every item carries its `cause` — episode, timestamp,
 conversation, harness, excerpt, offsets — resolved **at read** by `api/services/inbox_context.py` in
