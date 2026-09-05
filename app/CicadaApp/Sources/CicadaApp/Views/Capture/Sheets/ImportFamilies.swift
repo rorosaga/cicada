@@ -67,33 +67,18 @@ enum ImportFamily: String, CaseIterable, Identifiable {
     }
 
     /// The marks the family tile wears: up to four members, in listed order,
-    /// preferring ones with a logo or glyph. A family whose members have
-    /// only SF Symbols (Files) still shows them — never an empty cluster.
+    /// preferring ones with a bundled PNG or an installed app's icon (R-L1 —
+    /// Apple Notes has no PNG and never will, but it does have a bundle id,
+    /// so it is the Files family's one branded member). A family whose
+    /// members have neither (chat exports) still shows their SF Symbols —
+    /// never an empty cluster.
     var previewMarks: [AddSourceTile] {
-        let branded = members.filter { $0.logoName != nil || $0.brandGlyph != nil }
+        let branded = members.filter { $0.logoName != nil || $0.appBundleId != nil }
         return Array((branded.isEmpty ? members : branded).prefix(4))
     }
 }
 
-/// Marks drawn in-app for the browsers (R7): no brand asset is downloaded.
-/// Drop `Resources/logos/safari.png` / `chrome.png` in and set the tile's
-/// `logoName` to switch to an official mark — `PlatformTile` prefers a
-/// bundled PNG over a glyph, so nothing else needs to change.
-enum BrandGlyph: Equatable { case safari, chrome }
-
 extension AddSourceTile {
-    /// The drawn mark, when this tile has one. Mutually exclusive with
-    /// `logoName` by construction (`ImportCatalogTests
-    /// .testAGlyphAndAPngAreNeverBothDeclared`): a tile carrying both would
-    /// leave `MemberMark` to pick one silently.
-    var brandGlyph: BrandGlyph? {
-        switch self {
-        case .safari: .safari
-        case .chrome: .chrome
-        default: nil
-        }
-    }
-
     /// Every way this member can import — the line under its name at the
     /// members level, so the user can tell "folders" from "tabs" before
     /// opening it. Distinct from `route`, which is the ONE badge verb: a
@@ -157,69 +142,17 @@ struct CatalogFocus: Equatable {
     }
 }
 
-/// Chrome's mark: three 120° arcs (red, yellow, green) around a blue disc.
-/// Drawn with `Canvas` rather than shipped as a PNG (R7) so the app carries
-/// no downloaded brand asset for a browser it merely reads a file from.
-struct ChromeGlyph: View {
-    var size: CGFloat = 24
-    var body: some View {
-        Canvas { ctx, sz in
-            let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
-            let r = min(sz.width, sz.height) / 2
-            let colors: [Color] = [Color(hex: 0xDB4437), Color(hex: 0xF4B400), Color(hex: 0x0F9D58)]
-            for (i, color) in colors.enumerated() {
-                var p = Path()
-                p.move(to: c)
-                p.addArc(center: c, radius: r,
-                         startAngle: .degrees(-90 + Double(i) * 120),
-                         endAngle: .degrees(30 + Double(i) * 120),
-                         clockwise: false)
-                p.closeSubpath()
-                ctx.fill(p, with: .color(color))
-            }
-            let inner = CGRect(x: c.x - r * 0.42, y: c.y - r * 0.42, width: r * 0.84, height: r * 0.84)
-            ctx.fill(Path(ellipseIn: inner), with: .color(.white))
-            let core = inner.insetBy(dx: r * 0.08, dy: r * 0.08)
-            ctx.fill(Path(ellipseIn: core), with: .color(Color(hex: 0x4285F4)))
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
-
-/// Safari's mark is Apple's own compass symbol, tinted Safari blue — the
-/// same glyph `OriginIconography` already uses for `safari-bookmark`.
-struct SafariGlyph: View {
-    var size: CGFloat = 24
-    var body: some View {
-        Image(systemName: "safari")
-            .resizable().scaledToFit()
-            .foregroundStyle(Color(hex: 0x00A2E8))
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
-    }
-}
-
-/// One member's mark: PNG when bundled, else its drawn glyph, else its SF
-/// Symbol. The precedence lives in `LogoImage.platformTile(glyph:)`, not
-/// here, so a browser PNG dropped into `Resources/logos/` later wins with
-/// no code change beyond the tile's `logoName` (R7).
+/// One member's mark. The three-way switch over a drawn glyph is gone with
+/// the glyphs themselves (R-L1): the whole precedence — installed app icon →
+/// bundled PNG → SF Symbol — now lives in `PlatformTile`, so this view has
+/// nothing left to decide and the `+` catalog cannot disagree with the Sleep
+/// desk about what a browser looks like (R6).
 struct MemberMark: View {
     let tile: AddSourceTile
     var size: CGFloat = 32
     var body: some View {
-        // Pick the overload per glyph rather than passing an `EmptyView`
-        // through the glyph slot: conditional content is never type-equal to
-        // `EmptyView`, so the un-glyphed tiles would have rendered an empty
-        // card instead of falling through to their SF Symbol.
-        switch tile.brandGlyph {
-        case .safari:
-            LogoImage.platformTile(name: tile.logoName ?? "", size: size, systemFallback: tile.icon) { SafariGlyph(size: $0) }
-        case .chrome:
-            LogoImage.platformTile(name: tile.logoName ?? "", size: size, systemFallback: tile.icon) { ChromeGlyph(size: $0) }
-        case nil:
-            LogoImage.platformTile(name: tile.logoName ?? "", size: size, systemFallback: tile.icon)
-        }
+        LogoImage.platformTile(name: tile.logoName ?? "", bundleId: tile.appBundleId,
+                               size: size, systemFallback: tile.icon)
     }
 }
 

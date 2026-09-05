@@ -21,13 +21,14 @@ final class OriginIconographyTests: XCTestCase {
         XCTAssertEqual(OriginIconography.logoName(for: "youtube-playlist"), "youtube")
     }
 
-    /// No `chatgpt.png` is bundled — the export origin must fall through to
-    /// its SF Symbol rather than name an asset that does not exist.
-    func testOriginsWithoutABundledLogoReturnNil() {
-        XCTAssertNil(OriginIconography.logoName(for: "chatgpt-export"))
-        XCTAssertNil(OriginIconography.logoName(for: "rss"))
-        XCTAssertNil(OriginIconography.logoName(for: "unknown"))
+    /// R2/R-L3 — Apple's marks are never redistributed, so these two origins
+    /// resolve *installed app icon → SF Symbol* with no PNG rung at all. A
+    /// `logoName` here would demand a file the ruling forbids.
+    func testAppleOriginsNeverNameABundledLogo() {
         XCTAssertNil(OriginIconography.logoName(for: "safari-bookmark"))
+        XCTAssertNil(OriginIconography.logoName(for: "safari-tab"))
+        XCTAssertNil(OriginIconography.logoName(for: "apple-notes"))
+        XCTAssertNil(OriginIconography.logoName(for: "unknown"))
     }
 
     /// Every name the map returns must exist in the bundle — the map is the
@@ -42,11 +43,18 @@ final class OriginIconographyTests: XCTestCase {
         }
     }
 
-    func testBrowsersUseDrawnGlyphs() {
-        XCTAssertEqual(OriginIconography.brandGlyph(for: "safari-bookmark"), .safari)
-        XCTAssertEqual(OriginIconography.brandGlyph(for: "safari-tab"), .safari)
-        XCTAssertEqual(OriginIconography.brandGlyph(for: "chrome-bookmark"), .chrome)
-        XCTAssertNil(OriginIconography.brandGlyph(for: "claude-code"))
+    /// R-L1 — the mark for a browser/Apple-app origin is the icon of the app
+    /// actually installed on this Mac. Sound by construction: Cicada only
+    /// lists these channels because it reads that app's files off this Mac.
+    /// The MAP is asserted, never the resolution — the suite must pass on a
+    /// machine with no Chrome (R6).
+    func testOriginsBackedByAnInstalledAppDeclareItsBundleId() {
+        XCTAssertEqual(OriginIconography.appBundleId(for: "chrome-bookmark"), "com.google.Chrome")
+        XCTAssertEqual(OriginIconography.appBundleId(for: "safari-bookmark"), "com.apple.Safari")
+        XCTAssertEqual(OriginIconography.appBundleId(for: "safari-tab"), "com.apple.Safari")
+        XCTAssertEqual(OriginIconography.appBundleId(for: "apple-notes"), "com.apple.Notes")
+        XCTAssertNil(OriginIconography.appBundleId(for: "claude-code"))
+        XCTAssertNil(OriginIconography.appBundleId(for: "telegram"))
     }
 
     func testProductLabelsForHarnessOrigins() {

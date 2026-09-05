@@ -120,8 +120,10 @@ enum OriginIconography {
     }
 
     /// The bundled PNG under `Resources/logos/` for an origin, or nil when
-    /// there is none (ChatGPT, RSS, calendar, the browsers — which draw
-    /// their own glyph, `brandGlyph(for:)`). `mcp` shares Claude Code's mark:
+    /// there is none (calendar — R3, a Google mark on a generic ICS row is a
+    /// lie about the vendor; Safari and Apple Notes — R2/R-L3, whose marks
+    /// are never redistributed and resolve through `appBundleId` instead).
+    /// `mcp` shares Claude Code's mark:
     /// it is the same harness under its legacy id. The map is exhaustive by
     /// test (`OriginIconographyTests.testEveryDeclaredLogoExistsInTheBundle`),
     /// so a typo here fails before it ships a blank mark.
@@ -144,12 +146,22 @@ enum OriginIconography {
         }
     }
 
-    /// Drawn marks for the browsers (no brand asset is downloaded — R7 of
-    /// the Safari import track), same precedence `MemberMark` uses.
-    static func brandGlyph(for origin: String) -> BrandGlyph? {
+    /// The app installed on THIS Mac whose icon is this origin's mark (R-L1),
+    /// or nil when the origin is not a local app Cicada reads files from.
+    ///
+    /// Sound by construction: Cicada only offers a Chrome / Safari / Apple
+    /// Notes channel because it reads that app's own files off this Mac, so
+    /// the app is present and its icon is already on disk. This rung sits in
+    /// FRONT of the bundled PNG in `OriginMark` and `PlatformTile` — it can
+    /// never go stale when a vendor rebrands, and it is the only mark Safari
+    /// and Apple Notes will ever have (R2/R-L3 forbid committing Apple's).
+    /// The drawn glyphs this replaced were wrong on four axes for Chrome and
+    /// an invented tint for Safari.
+    static func appBundleId(for origin: String) -> String? {
         switch origin {
-        case "safari-bookmark", "safari-tab": .safari
-        case "chrome-bookmark": .chrome
+        case "safari-bookmark", "safari-tab": "com.apple.Safari"
+        case "chrome-bookmark": "com.google.Chrome"
+        case "apple-notes": "com.apple.Notes"
         default: nil
         }
     }
