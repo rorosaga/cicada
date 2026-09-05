@@ -11,11 +11,14 @@ import MapKit
 // entity gets a single-pin MapKit map.
 //
 // Reuses the existing media machinery rather than reinventing it:
-//   • `MediaPreviewModel` / `MediaURLHelpers` (MediaPreview.swift) for the
-//     url → kind dispatch and YouTube id/embed-url extraction.
-//   • `WebView` (WebView.swift) for the embedded player — the ONLY url ever
-//     loaded is the entity's own media url (or the embed url derived from
-//     it), mirroring the "only the media's url" invariant elsewhere.
+//   • `MediaPreviewModel` (MediaPreview.swift) for the url → kind dispatch,
+//     and `VideoRef` (VideoRef.swift) for the provider and its embed url —
+//     derived from the entity's own saved url, never fetched (R-V1/R-V4).
+//   • `WebView` (WebView.swift) for a provider's embedded player and
+//     `VideoPlayerView` (VideoPlayerView.swift) for a direct/local file — the
+//     ONLY url ever loaded is the entity's own media url (or the embed url
+//     derived from it), mirroring the "only the media's url" invariant
+//     elsewhere.
 //   • `ImageLightbox` (ImageLightbox.swift) for tap-to-enlarge.
 //
 // Renders NOTHING when the entity has no previewable asset — no empty card,
@@ -41,7 +44,7 @@ struct HeroPreview: View {
         guard let media = entity.media, media.hasURL else { return false }
         let model = MediaPreviewModel(block: media, title: entity.name)
         switch model.kind {
-        case .youtube, .image:
+        case .embedVideo, .fileVideo, .image:
             return true
         case .instagram:
             return model.thumbnailURL != nil
@@ -61,8 +64,22 @@ struct HeroPreview: View {
     @ViewBuilder
     private func content(for model: MediaPreviewModel) -> some View {
         switch model.kind {
-        case .youtube:
-            YouTubeHero(model: model)
+        case .embedVideo(let ref):
+            YouTubeHero(model: model, ref: ref)
+
+        case .fileVideo(let ref):
+            // A direct or local clip: a real transport-controlled player, not
+            // a thumbnail. `VideoPlayerView` decides for itself whether the
+            // file is readable and shows the fix if it is not (R9), so this
+            // slot is never a black rectangle.
+            VideoPlayerView(url: ref.watchURL)
+                .frame(maxWidth: .infinity)
+                .frame(height: HeroPreview.maxHeight)
+                .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+                .overlay(
+                    RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                        .stroke(CicadaTheme.border, lineWidth: 1)
+                )
 
         case .image:
             if let url = model.resolvedURL {
@@ -86,13 +103,20 @@ struct HeroPreview: View {
     }
 }
 
-// MARK: - YouTube hero (in-app playback)
+// MARK: - Embed-provider hero (in-app playback)
 
+/// Still named for YouTube because that is all it played before Track V; the
+/// rename lands with the hero's own task. What changed here is only where the
+/// embed url comes from: `VideoRef`, so Vimeo/TikTok/Loom reach the same
+/// player. It reads `ref.embedURL` and never `ref.autoplayURL` — a hero
+/// renders on every visit to the page, so autoplaying would be surprising
+/// (R11); the user presses play in-page.
 private struct YouTubeHero: View {
     let model: MediaPreviewModel
+    let ref: VideoRef
 
     var body: some View {
-        if let embedURL = MediaURLHelpers.youtubeHeroEmbedURL(from: model.url) {
+        if let embedURL = ref.embedURL {
             WebView(url: embedURL)
                 .frame(maxWidth: .infinity)
                 .frame(height: HeroPreview.maxHeight)

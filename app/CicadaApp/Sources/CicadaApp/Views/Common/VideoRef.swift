@@ -64,9 +64,10 @@ struct VideoRef: Equatable {
     /// `URLComponents` so Vimeo's unlisted `?h=<hash>` survives as
     /// `?h=<hash>&autoplay=1` rather than being overwritten.
     ///
-    /// The HERO never uses this (the deliberate rule at `MediaPreview`'s
-    /// `youtubeHeroEmbedURL`): a hero renders on every visit, so it uses
-    /// `embedURL` directly.
+    /// The HERO never uses this: a hero renders on every visit to the entity
+    /// page rather than behind an explicit tap, so autoplaying there would be
+    /// surprising. `HeroPreview` reads `embedURL` directly — the rule the
+    /// YouTube-only `youtubeHeroEmbedURL` used to carry, now stated once.
     var autoplayURL: URL? {
         guard kind == .embed, let embedURL else { return nil }
         switch provider {

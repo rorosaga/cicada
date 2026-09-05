@@ -24,7 +24,7 @@ final class AVPlaybackController: VideoPlaybackController {
         self.url = url
         // Starts PAUSED on purpose: a player that begins the moment an entity
         // page renders is the same surprise the hero embed deliberately avoids
-        // (`MediaURLHelpers.youtubeHeroEmbedURL` — the hero never autoplays).
+        // (`HeroPreview` uses `VideoRef.embedURL`, never `autoplayURL` — R11).
         self.player = AVPlayer(url: url)
     }
 
