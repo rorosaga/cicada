@@ -223,6 +223,21 @@ struct GraphContainerView: View {
             GraphView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+            // G117 — a fresh bank's graph used to be a literal blank canvas
+            // (the row's own opening evidence). `isLoading` gates on the
+            // Store's cache being empty AND a fetch in flight, so this never
+            // flashes on top of the instant on-disk-cache hydrate that
+            // `Store` already does — only a bank that is genuinely empty
+            // shows it.
+            if !graphVM.isLoading && graphVM.nodes.isEmpty {
+                EmptyStateView(
+                    title: "Nothing here yet",
+                    message: Copy.emptyGraphMessage,
+                    actionLabel: "Open Integrations",
+                    settingsSection: .integrations
+                )
+            }
+
             // Top-right: Ask + Sleep + Upload + Help buttons
             VStack {
                 HStack {
