@@ -160,7 +160,9 @@ G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animati
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
 verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii) ·
 **G124 Sources page (2026-09-03, PR #47)** — Activity → Sources: card grid from /sources/overview,
-per-source pages with Resume, contributors calendar per model, Advanced counts; prices/tokens out of the app
+per-source pages with Resume, contributors calendar per model, Advanced counts; prices/tokens out
+of the app; **Track D (2026-09-05, PR #TBD)** — grouped-by-kind grid with real logos, G129 status
+lights + hover quick actions, per-source blurbs, and a queue strip with Consolidate now
 **G53 + G75 live state + handshake (2026-09-03, PR #45)** — `_state.md` cursor, `initialize.instructions`,
 `cicada_handshake`, `/state`, `/handshake`
 
