@@ -1,6 +1,68 @@
 {
   "assets": [
     {
+      "artist": "Brave Software, Inc.",
+      "commonsFile": "Brave lion icon.svg",
+      "commonsRestrictions": "trademarked",
+      "file": "brave.png",
+      "id": "brave",
+      "licence": "MPL 2",
+      "origin": "commons",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "da27e45f2cfdd9cb7d521b798a0f991e488a323f2495a730617c5dc8c00174bd",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Brave_lion_icon.svg",
+      "svgSha256": "41b5844c210771d077f35798135ad7d08ac395cc7253556b503586f81e749c41"
+    },
+    {
+      "artist": "OpenAI",
+      "commonsFile": "ChatGPT-Logo.svg",
+      "commonsRestrictions": "trademarked",
+      "file": "chatgpt.png",
+      "id": "chatgpt",
+      "licence": "Public domain",
+      "origin": "commons",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "de33e9fc314be41c28c86a27869dc9a860d50339f27ba5966fde9a24981b5231",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:ChatGPT-Logo.svg",
+      "svgSha256": "a66ba245fc68677ae1a47a5f726d60d691e4c8d5942028328dc2beb3b8ceb4dc"
+    },
+    {
+      "artist": "OpenAI",
+      "derivedFrom": "chatgpt.png (this manifest) — monoflip chatgpt.png chatgpt-dark.png",
+      "file": "chatgpt-dark.png",
+      "id": "chatgpt-dark",
+      "licence": "Public domain",
+      "origin": "recut",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "735be17ba79b23681fc3e9eed1fa315f9b7e1ab3acfeaa3aaa7497c2d2f0a6aa",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:ChatGPT-Logo.svg"
+    },
+    {
+      "artist": "Google",
+      "commonsFile": "Google Chrome icon (February 2022).svg",
+      "commonsRestrictions": "trademarked",
+      "file": "chrome.png",
+      "id": "chrome",
+      "licence": "Public domain",
+      "origin": "commons",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "f11b6588df133f85c1070d65d5128568daf44e4bf273f8c14c0a989bf78c2596",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Google_Chrome_icon_(February_2022).svg",
+      "svgSha256": "2bb1a2c9b9ae4d36f62ea53811554636cf3c5b74d9845e1dbacca0ce62dc7880"
+    },
+    {
+      "artist": "Claude Logo Symbol",
+      "commonsFile": "Claude AI symbol.svg",
+      "file": "claude.png",
+      "id": "claude",
+      "licence": "CC0",
+      "origin": "commons",
+      "restrictions": "Nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "81f72f58588797589cfff3c3dbd2e33f357eb741eb8582ef3f47ab0877b73c0b",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Claude_AI_symbol.svg",
+      "svgSha256": "5de1221c77cc91e748066fd642ad0eee1c1fa65328814f5178166f901e599709"
+    },
+    {
       "file": "claude-code.png",
       "id": "claude-code",
       "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
@@ -17,12 +79,22 @@
       "sha256": "91f02260c48c86ddb34e30014eec84c132e2e5d9fe623506bb7898d249809db0"
     },
     {
+      "derivedFrom": "1a4811d:app/CicadaApp/Sources/CicadaApp/Resources/logos/codex.png — alphakey <src> codex.png light",
       "file": "codex.png",
       "id": "codex",
       "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
-      "origin": "legacy",
+      "origin": "recut",
       "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
-      "sha256": "43de3b748faf9d6b75ac3f6a73efc94d3a2a876ce004339e6c7f11169f4098ef"
+      "sha256": "5ba8b366da4e39e06087f51b96e2e82881a19f2a35f1448e1cc9edb375e94f85"
+    },
+    {
+      "derivedFrom": "1a4811d:app/CicadaApp/Sources/CicadaApp/Resources/logos/codex.png — alphakey <src> codex.rgba.png light; monoflip codex.rgba.png codex-dark.png",
+      "file": "codex-dark.png",
+      "id": "codex-dark",
+      "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
+      "origin": "recut",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "37548bfe383a1d4e9cfd8106d28c63977acdc91f6bc9bcd0b1566f623ab64612"
     },
     {
       "file": "cursor.png",
@@ -31,6 +103,32 @@
       "origin": "legacy",
       "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
       "sha256": "675d7c36838e365515e13c6294fff4e9b0f5484b542d81275b3f8c54bd1dc8c5"
+    },
+    {
+      "artist": "Mozilla Corporation",
+      "commonsFile": "Firefox logo, 2019.svg",
+      "commonsRestrictions": "trademarked",
+      "file": "firefox.png",
+      "id": "firefox",
+      "licence": "MPL 2",
+      "origin": "commons",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "2c35a0f66f1ed7b158d94fb2db13d261dcb8fc386f02257d194cede59ea29f6d",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Firefox_logo,_2019.svg",
+      "svgSha256": "f31b10673f2e62510a18cb79c32555d88aa806ede13b128e3e7e3072bfc05cbc"
+    },
+    {
+      "artist": "Google",
+      "commonsFile": "Gemini sparkle v002.svg",
+      "commonsRestrictions": "trademarked",
+      "file": "gemini.png",
+      "id": "gemini",
+      "licence": "Public domain",
+      "origin": "commons",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "b16778489501f2997a960e72b60030ed630265d4fd4ceb4410b3b3136f246032",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Gemini_sparkle_v002.svg",
+      "svgSha256": "01821494593b81ffd7da0e08287d4735304ff6292a6903453328b9d17cf38799"
     },
     {
       "file": "gemini-cli.png",
@@ -65,6 +163,29 @@
       "sha256": "6b57a92bd4a1817b4a68e11ea7f6cb758a6ce0418db24b9d6459190c7973193e"
     },
     {
+      "artist": "ParthSareen on ollama",
+      "commonsFile": "Ollama-logo.svg",
+      "file": "ollama.png",
+      "id": "ollama",
+      "licence": "MIT",
+      "origin": "commons",
+      "restrictions": "Nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "fb8dd3756c31add81c1b789ad2f132661484438dc881abd3d44316e3cc6bce4b",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Ollama-logo.svg",
+      "svgSha256": "397a6ee071cce1496edd8a86dd1c91ce005712ec161690e411b3dc7f151181f5"
+    },
+    {
+      "artist": "ParthSareen on ollama",
+      "derivedFrom": "ollama.png (this manifest) — monoflip ollama.png ollama-dark.png",
+      "file": "ollama-dark.png",
+      "id": "ollama-dark",
+      "licence": "MIT",
+      "origin": "recut",
+      "restrictions": "Nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "1c19fdefca12f420f8dd9f2d22092bb4f7a3371a329f07f0a7bcf9e83ee6ae6a",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Ollama-logo.svg"
+    },
+    {
       "file": "openclaw.png",
       "id": "openclaw",
       "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
@@ -89,12 +210,29 @@
       "sha256": "9e19560d3d807f102434d8390242ed4a45e3c1e8349dc1554debd16fdf5edc30"
     },
     {
+      "artist": "unnamed (Mozilla Foundation)",
+      "commonsFile": "Feed-icon.svg",
+      "file": "rss.png",
+      "id": "rss",
+      "licence": "MPL 1.1",
+      "origin": "commons",
+      "restrictions": "Nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "027e883394334ad9983de5bc56f90e78ef7f99d91a02d494c7b4761bdce27d1a",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Feed-icon.svg",
+      "svgSha256": "6382e9f44fbafd0d9079d2c742f716c9bd74e67174fae7f8909f2189e63c5844"
+    },
+    {
+      "artist": "Telegram FZ LLC",
+      "commonsFile": "Telegram 2019 Logo.svg",
+      "commonsRestrictions": "trademarked",
       "file": "telegram.png",
       "id": "telegram",
-      "licence": "Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449)",
-      "origin": "legacy",
+      "licence": "Public domain",
+      "origin": "commons",
       "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
-      "sha256": "fad34029b64abec586716c73f4ab6bd5d6e3b006f64f4d2a7f6ac466d21c82c7"
+      "sha256": "918e1423c97e45cde8c38f5852825e05a24e45a19ae55f78afd27a9d2f70c03f",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Telegram_2019_Logo.svg",
+      "svgSha256": "cc8d6bdef9130e535595e0d8e418a753a0db1d44e93516b6e58ae6174cd0b2e8"
     },
     {
       "file": "tiktok.png",
@@ -105,12 +243,22 @@
       "sha256": "7693361260f450ceba9b0a5c081d752d3a6bbdbb0394168affe3380257bc03b2"
     },
     {
+      "derivedFrom": "cf2c449:app/CicadaApp/Sources/CicadaApp/Resources/logos/x.png — alphakey <src> x-dark.png dark; monoflip x-dark.png x.png",
       "file": "x.png",
       "id": "x",
       "licence": "Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449)",
-      "origin": "legacy",
+      "origin": "recut",
       "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
-      "sha256": "8076970932553c523728f4c0422d182815016acef02fe757fb818b071b761d6c"
+      "sha256": "895a7041f8829205ed93a628a3c793c98155583c9fe374b27e97c4ab9ae68ed9"
+    },
+    {
+      "derivedFrom": "cf2c449:app/CicadaApp/Sources/CicadaApp/Resources/logos/x.png — alphakey <src> x-dark.png dark",
+      "file": "x-dark.png",
+      "id": "x-dark",
+      "licence": "Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449)",
+      "origin": "recut",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "d48bb62387277c2f035d328e5a93e7b54b00de0c97c1b3808da56657692b4fe9"
     },
     {
       "file": "youtube.png",
