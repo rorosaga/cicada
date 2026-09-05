@@ -1,20 +1,30 @@
 import SwiftUI
 
-// MARK: - MediaPreview (G11)
+// MARK: - MediaPreview (G11, Track V)
 //
-// Renders a rich, in-app preview of a saved media item, dispatching on
-// `media_type`:
-//   • image    → inline `ImageThumbnail` + tap-to-enlarge `ImageLightbox`
-//   • youtube  → thumbnail with a play affordance → embedded `WebView` player
-//                (YouTube embed url DERIVED from the entity's own watch url)
-//   • instagram→ thumbnail/placeholder + "Open in Instagram" (login-walled,
-//                no in-app embed)
+// Renders a rich, in-app preview of a saved media item, dispatching on the
+// item's URL first and its stored `media_type` only afterwards (R-V1 — see
+// `MediaPreviewModel.Kind`):
+//   • image      → inline `ImageThumbnail` + tap-to-enlarge `ImageLightbox`
+//   • embedVideo → thumbnail with a play affordance → embedded `WebView`
+//                  running the provider's own player (YouTube, Vimeo, TikTok,
+//                  Loom), at an embed url DERIVED from the entity's own saved
+//                  url by `VideoRef` — never fetched, never lifted out of a
+//                  provider's HTML (R-V4).
+//   • fileVideo  → a real AVKit player in place (`VideoPlayerView`) for a
+//                  direct `.mp4/.m4v/.mov/.webm/.m3u8` url or a `file://`
+//                  clip the user saved themselves.
+//   • instagram  → thumbnail/placeholder + "Open in Instagram" (login-walled,
+//                  no in-app embed)
 //   • url/bookmark (website) → an Open-Graph preview card (thumbnail + title +
-//                site + description) + a "Preview site" button → `WebView`
-//                loading ONLY the entity's stored url.
-// A global "Open externally" affordance is always present as the robust
-// fallback. The view is fed a normalized `MediaPreviewModel` so it works
-// identically from an entity's `MediaBlock` and from a Feed `MediaFeedItem`.
+//                  site + description) + a "Preview site" button → `WebView`
+//                  loading ONLY the entity's stored url. A video we recognise
+//                  but deliberately do not play (Twitch, a TikTok shortlink)
+//                  lands here too, and honestly (R6).
+// An "Open externally" affordance is always present as the robust fallback —
+// for a local file that means Finder, not a browser (R9). The view is fed a
+// normalized `MediaPreviewModel` so it works identically from an entity's
+// `MediaBlock` and from a Feed `MediaFeedItem`.
 
 /// Normalized input for `MediaPreview`. Built from a `MediaBlock` (entity
 /// detail) or a `MediaFeedItem` (Feed). `description` is only available from the
@@ -48,13 +58,35 @@ struct MediaPreviewModel {
         self.description = nil
     }
 
-    /// The kind of preview to render. Centralizes the heuristic so the view body
-    /// stays declarative.
-    enum Kind { case image, youtube, instagram, website }
+    /// The kind of preview to render.
+    ///
+    /// R-V1: the **URL** decides. `mediaType` is a hint consulted only after
+    /// the URL has been asked, because it is not trustworthy for video: the
+    /// browser-sync path stamps `bookmark` on everything it imports and the
+    /// TikTok export path stamps `url`, so a page's stored type says nothing
+    /// about whether it is playable. Deriving at read is also what lets every
+    /// item already on a bank start playing with no bank rewrite and no
+    /// `url_index.json` migration (plan R1 / R15).
+    ///
+    /// An `external` ref (Twitch, a TikTok shortlink) deliberately gets **no
+    /// new case** — there is nothing new to offer a video we have decided not
+    /// to play, so it falls through to the website card it already was (R6).
+    enum Kind: Equatable { case image, embedVideo(VideoRef), fileVideo(VideoRef), instagram, website }
+
+    /// The resolved video reference for this item's url, if any. `nil` means
+    /// "not a video" — never an error, never a network call (R2).
+    var videoRef: VideoRef? { VideoRef.resolve(url) }
 
     var kind: Kind {
+        if let ref = videoRef {
+            switch ref.kind {
+            case .embed: return .embedVideo(ref)
+            case .file:  return .fileVideo(ref)
+            case .external: break   // R6 — fall through to the legacy branches
+            }
+        }
+        if (resolvedURL?.host ?? "").contains("instagram.com") { return .instagram }
         switch mediaType.lowercased() {
-        case "youtube": return .youtube
         case "instagram": return .instagram
         default:
             // For url/bookmark, treat as an image if the url itself points at an
@@ -70,52 +102,22 @@ struct MediaPreviewModel {
 
 // MARK: - URL helpers
 
+/// What is left here after Track V: the image heuristic, and nothing else.
+///
+/// The three YouTube helpers this enum used to carry (`youtubeID`,
+/// `youtubeEmbedURL`, `youtubeHeroEmbedURL`) are gone — `VideoRef` parses
+/// every provider's id, including the `/live/` and `playlist?list=` shapes
+/// they never handled, and a second YouTube id parser living beside it is
+/// precisely the drift R-V8 exists to prevent. Their autoplay rule survives
+/// as `VideoRef.autoplayURL` (R11) and their deliberate hero exception —
+/// a hero renders on every visit, so it never autoplays — survives as the
+/// hero reading `embedURL` directly.
 enum MediaURLHelpers {
     /// Heuristic: does this url point directly at an image file?
     static func isImageURL(_ raw: String) -> Bool {
         guard let url = URL(string: raw) else { return false }
         let ext = url.pathExtension.lowercased()
         return ["jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "svg", "avif"].contains(ext)
-    }
-
-    /// Extract a YouTube video id from a watch / youtu.be / embed url, then build
-    /// the privacy-preserving embed url. Returns nil if no id is found. The id is
-    /// derived ONLY from the entity's own stored url (security rule).
-    static func youtubeEmbedURL(from raw: String) -> URL? {
-        guard let id = youtubeID(from: raw) else { return nil }
-        // autoplay=1: the user already tapped the play affordance to open the
-        // player sheet, so starting playback immediately matches their intent.
-        return URL(string: "https://www.youtube-nocookie.com/embed/\(id)?autoplay=1")
-    }
-
-    /// Embed url for the HERO player (G23/G25) — same id-extraction as
-    /// `youtubeEmbedURL` above, but WITHOUT `autoplay=1`. The hero renders
-    /// inline at the top of the entity page on every visit (not behind an
-    /// explicit tap like the sheet player), so autoplaying would be
-    /// surprising; the user presses play in-page instead.
-    static func youtubeHeroEmbedURL(from raw: String) -> URL? {
-        guard let id = youtubeID(from: raw) else { return nil }
-        return URL(string: "https://www.youtube-nocookie.com/embed/\(id)")
-    }
-
-    static func youtubeID(from raw: String) -> String? {
-        guard let comps = URLComponents(string: raw) else { return nil }
-        // youtu.be/<id>
-        if let host = comps.host, host.contains("youtu.be") {
-            let id = comps.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            return id.isEmpty ? nil : id
-        }
-        // youtube.com/watch?v=<id>
-        if let v = comps.queryItems?.first(where: { $0.name == "v" })?.value, !v.isEmpty {
-            return v
-        }
-        // youtube.com/embed/<id>  or  /shorts/<id>
-        let parts = comps.path.split(separator: "/").map(String.init)
-        if let idx = parts.firstIndex(where: { $0 == "embed" || $0 == "shorts" }),
-           idx + 1 < parts.count {
-            return parts[idx + 1]
-        }
-        return nil
     }
 }
 
@@ -130,10 +132,11 @@ struct MediaPreview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             switch model.kind {
-            case .image:    imagePreview
-            case .youtube:  youtubePreview
-            case .instagram: instagramPreview
-            case .website:  websitePreview
+            case .image:                imagePreview
+            case .embedVideo(let ref):  embedVideoPreview(ref)
+            case .fileVideo(let ref):   fileVideoPreview(ref)
+            case .instagram:            instagramPreview
+            case .website:              websitePreview
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -152,15 +155,20 @@ struct MediaPreview: View {
         }
     }
 
-    // MARK: youtube
+    // MARK: embed video (YouTube, Vimeo, TikTok, Loom)
 
+    /// Thumbnail + play badge → the provider's own player in a sheet. Reaching
+    /// the sheet requires an `autoplayURL`; without one there is nothing to
+    /// play in-app and the tap hands the watch url to the browser, which is
+    /// what the YouTube-only version of this branch already did for a url
+    /// whose id would not parse.
     @ViewBuilder
-    private var youtubePreview: some View {
+    private func embedVideoPreview(_ ref: VideoRef) -> some View {
         Button {
-            if MediaURLHelpers.youtubeEmbedURL(from: model.url) != nil {
+            if ref.autoplayURL != nil {
                 showVideoPlayer = true
-            } else if let url = model.resolvedURL {
-                NSWorkspace.shared.open(url)
+            } else {
+                NSWorkspace.shared.open(ref.watchURL)
             }
         } label: {
             ZStack {
@@ -198,6 +206,40 @@ struct MediaPreview: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
         openExternallyButton
+    }
+
+    // MARK: file video (a direct url or a local clip)
+
+    /// A real player in place — no thumbnail, no sheet. A file the user saved
+    /// as a direct url is the one video Cicada can hand straight to AVKit
+    /// (R-V4: never a stream Cicada resolved itself), so there is nothing to
+    /// gain from making them tap through to it.
+    ///
+    /// Width is `maxWidth: .infinity`, not the `360` the thumbnail branches
+    /// use: R-V5 widens the Feed sheet for video precisely because a small
+    /// player in a big sheet reads as a regression, and a player pinned to 360
+    /// would leave that widening doing nothing. No `.aspectRatio` either — an
+    /// `NSViewRepresentable` has no intrinsic size, so a ratio here would be
+    /// computed from the proposal rather than from the clip; `AVPlayerView`'s
+    /// own `videoGravity = .resizeAspect` already letterboxes the real picture
+    /// inside whatever box it is given, which is what keeps a portrait clip
+    /// correct.
+    @ViewBuilder
+    private func fileVideoPreview(_ ref: VideoRef) -> some View {
+        VideoPlayerView(url: ref.watchURL)
+            .frame(maxWidth: .infinity, minHeight: 202, maxHeight: 360)
+            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                    .stroke(CicadaTheme.border, lineWidth: 1)
+            )
+
+        if let channel = model.channel, !channel.isEmpty {
+            Label(channel, systemImage: "person.crop.circle")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        }
+        externalAffordance(for: ref)
     }
 
     // MARK: instagram
@@ -313,6 +355,29 @@ struct MediaPreview: View {
 
     // MARK: shared affordances
 
+    /// R9: a local file's "external" is Finder, not a browser. Handing a
+    /// `file://` url to `NSWorkspace.open` launches whatever app claims the
+    /// extension, which is a different (and often unwanted) action from "show
+    /// me where this lives"; for every other provider the browser is still the
+    /// right answer. "Open externally" is present on every video branch (R-V5)
+    /// — this only decides *which* external.
+    @ViewBuilder
+    private func externalAffordance(for ref: VideoRef) -> some View {
+        if ref.provider == .local {
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([ref.watchURL])
+            } label: {
+                Label("Reveal in Finder", systemImage: "folder")
+                    .font(CicadaTheme.font(size: 12))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+            .buttonStyle(.cicadaPlain)
+            .help("Show the file in Finder")
+        } else {
+            openExternallyButton
+        }
+    }
+
     private var openExternallyButton: some View {
         Button {
             if let url = model.resolvedURL { NSWorkspace.shared.open(url) }
@@ -348,14 +413,22 @@ struct MediaPreview: View {
         }
     }
 
+    /// The provider's own player, opened by the embed branch's play badge.
+    ///
+    /// An `if let`, never `ref.embedURL!`: a force-unwrap in a sheet builder
+    /// would turn a classification bug into a crash, which is why the
+    /// YouTube-only version of this sheet was already written as a
+    /// conditional. `autoplayURL` first because the user just tapped play
+    /// (R11); `embedURL` is the fallback for a provider where autoplay is not
+    /// a documented param. "Open externally" lands on `watchURL` — the real
+    /// page, never the embed.
     @ViewBuilder
     private var videoPlayerSheet: some View {
-        if let embed = MediaURLHelpers.youtubeEmbedURL(from: model.url),
-           let external = model.resolvedURL {
+        if let ref = model.videoRef, let playerURL = ref.autoplayURL ?? ref.embedURL {
             WebPreviewSheet(
                 title: model.title.isEmpty ? "Video" : model.title,
-                url: embed,
-                externalURL: external
+                url: playerURL,
+                externalURL: ref.watchURL
             )
         }
     }
