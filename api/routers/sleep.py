@@ -9,11 +9,14 @@ from api.models.schemas import (
     SleepCancelResponse,
     SleepCycleDetail,
     SleepDebtResponse,
+    SleepEngineChoice,
+    SleepEngineResponse,
     SleepHistoryEntry,
     SleepStatusResponse,
     SleepTriggerResponse,
 )
-from api.services import git_service, sleep_debt, sleep_scheduler
+from api.services import git_service, sleep_debt, sleep_engine_prefs, sleep_scheduler
+from api.services.connections.registry import get_registry
 from api.services.sleep_cycle import (
     cancelled_is_visible,
     get_sleep_state,
@@ -186,3 +189,21 @@ async def put_schedule(
     if scheduler is not None:
         sleep_scheduler.register_job(scheduler, settings, cfg)
     return cfg
+
+
+@router.get("/sleep/engine", response_model=SleepEngineResponse)
+async def get_sleep_engine(settings: Settings = Depends(get_settings)):
+    """G122 — Settings → Sleep's engine & model picker: what's configured
+    now, every candidate's live state, and both trigger-source previews
+    (ruling 4 made visible, not hidden — see `SleepEnginePreviews`)."""
+    return await sleep_engine_prefs.build_response(settings, get_registry(settings))
+
+
+@router.put("/sleep/engine", response_model=SleepEngineResponse)
+async def put_sleep_engine(body: SleepEngineChoice, settings: Settings = Depends(get_settings)):
+    """Validates and persists the choice, then re-reads through the same
+    `build_response` a GET would use — the echoed body can never drift from
+    what a follow-up GET reports."""
+    reg = get_registry(settings)
+    sleep_engine_prefs.validate_and_write(body, reg)
+    return await sleep_engine_prefs.build_response(settings, reg)
