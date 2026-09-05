@@ -30,6 +30,13 @@ enum Copy {
     /// Ditto, for the new Schedule tab.
     static let settingsSchedule = "\(settings) → \(schedule)"
 
+    /// The study list's footer line (G125) when `ScheduleConfig.mode` is
+    /// `"manual"` — there is no next run to name, only the button.
+    static let nextRunManual = "Manual only"
+    /// The study list's pointer to where the schedule itself is edited —
+    /// built from `settingsSchedule` so a rename can't desync the two halves.
+    static let changeInSettingsSchedule = "Change in \(settingsSchedule)"
+
     // MARK: Shared action verbs
     //
     // One verb per action, app-wide. The Sleep page used to say "Run now" /

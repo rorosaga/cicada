@@ -36,6 +36,17 @@ struct SleepView: View {
     // `.onChange` instead of contending for either slot.
     @State private var justFinishedAt: Date?
 
+    /// G125 Task 6 — minimal wiring for `StudyListCard` (Task 7 replaces this
+    /// with SSE-preferred `resolveOriginCounts`, mirroring `resolveSleepDebt`).
+    private var studyListRows: [StudyRow] {
+        studyRows(
+            queued: sleepVM.queuedEpisodes,
+            queueByOrigin: sleepVM.status?.queueByOrigin ?? [:],
+            readByOrigin: sleepVM.status?.readByOrigin ?? [:],
+            running: sleepVM.isRunning
+        )
+    }
+
     private var sortedQueuedEpisodes: [EpisodeQueueItem] {
         let base = sleepVM.queuedEpisodes
         return sortAscending ? base : base.reversed()
@@ -70,9 +81,16 @@ struct SleepView: View {
                     if let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty {
                         errorBanner(error)
                     }
-                    SleepQueueCard()
+                    // G125 Task 6 (minimal wiring — the full desk/history
+                    // rewrite is Task 7): the retired `SleepQueueCard` +
+                    // `SleepDebtBreakdown` pair is now one per-source study
+                    // list. `studyRows` reads straight off `sleepVM.status`
+                    // here rather than the SSE-preferred `resolveSleepDebt`
+                    // precedence Task 7's `resolveOriginCounts` adds — good
+                    // enough to keep the build green; not yet the final
+                    // wiring.
+                    StudyListCard(rows: studyListRows, episodes: sleepVM.queuedEpisodes)
                     pauseCard
-                    SleepDebtBreakdown(episodes: sleepVM.queuedEpisodes)
                     progressCard
                     queueCard
                 }
@@ -655,83 +673,4 @@ struct SleepView: View {
         .background(CicadaTheme.danger.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
     }
-}
-
-// MARK: - Episode Row
-
-private struct EpisodeRow: View {
-    let item: EpisodeQueueItem
-
-    var body: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            Circle()
-                .fill(item.processed ? CicadaTheme.textTertiary : CicadaTheme.accent)
-                .frame(width: 8, height: 8)
-                .padding(.top, 6)
-
-            // G105 companion: the source's mark sits between the status dot
-            // and the text so the dot keeps meaning "queued vs processed"
-            // and the row still answers "where did this come from" at a
-            // glance — the same mark the import catalog tile wears.
-            OriginMark(origin: item.origin, size: 16)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(item.title ?? item.id)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .lineLimit(1)
-
-                    Text(item.source)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(CicadaTheme.surfaceHover)
-                        .clipShape(Capsule())
-
-                    Spacer()
-
-                    Text(shortTimestamp(item.timestamp))
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-
-                if !item.preview.isEmpty {
-                    Text(item.preview)
-                        .font(.system(size: 11))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .lineLimit(2)
-                }
-            }
-        }
-        .padding(.horizontal, CicadaTheme.spacingMD)
-        .padding(.vertical, CicadaTheme.spacingSM)
-        .background(CicadaTheme.surfaceHover.opacity(0.35))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    private func shortTimestamp(_ raw: String) -> String {
-        guard !raw.isEmpty else { return "—" }
-        // Accept both ISO-8601 and plain dates; fall back to raw on parse failure.
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: raw) {
-            return Self.display.string(from: date)
-        }
-        formatter.formatOptions = [.withInternetDateTime]
-        if let date = formatter.date(from: raw) {
-            return Self.display.string(from: date)
-        }
-        return String(raw.prefix(16))
-    }
-
-    private static let display: DateFormatter = {
-        let f = DateFormatter()
-        // Include the year — the queue can span multiple years after a bulk
-        // import and a bare "Nov 3" is ambiguous without it.
-        f.dateFormat = "MMM d, yyyy HH:mm"
-        return f
-    }()
 }
