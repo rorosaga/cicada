@@ -123,7 +123,7 @@ viewer) → **G93** (cross-stream ask). Then the bigger rocks: **G81 → G95**, 
 (PR #55), G113 slices 3–7 (PR #59), G122 + the G126 page (Track C, PR #60).
 
 **Track C (G122 engine/model picker + G126 Integrations page) shipped** on `feat/settings-redesign`
-(PR #TBD) — a `GET/PUT /sleep/engine` prefs-first endpoint, the five-section Settings sidebar, the
+(PR #60) — a `GET/PUT /sleep/engine` prefs-first endpoint, the five-section Settings sidebar, the
 Sleep section's `EngineCard`, and the Integrations page over the existing channel registry. G126's
 adapter rows (Strava, Todoist/Reminders, YouTube subscriptions, Garmin/Apple Health) stay queued —
 see the G126 backlog row and `working-method.md` §3.
