@@ -30,6 +30,10 @@ struct CicadaApp: App {
     /// observes this domain) — constructed bare, unlike every view model
     /// above it.
     @State private var sleepEngineVM = SleepEngineViewModel()
+    /// G126 R9 — the Feed hand-off. No `Store` dependency, same reasoning
+    /// as `sleepEngineVM` above: nothing but `FeedView`/`ContentView`
+    /// (main window) and `IntegrationsView` (Settings) observes this.
+    @State private var appRouter = AppRouter()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
@@ -89,6 +93,7 @@ struct CicadaApp: App {
                 .environment(inboxVM)
                 .environment(sleepVM)
                 .environment(sleepEngineVM)
+                .environment(appRouter)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)
@@ -223,6 +228,7 @@ struct CicadaApp: App {
                 .environment(connectionsVM)
                 .environment(sleepVM)
                 .environment(sleepEngineVM)
+                .environment(appRouter)
                 .environment(store)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 // The `.id(colorSchemeRaw)` that used to be here is gone with

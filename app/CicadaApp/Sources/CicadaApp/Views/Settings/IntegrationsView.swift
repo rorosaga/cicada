@@ -1,16 +1,262 @@
 import SwiftUI
 
 /// Settings → Integrations (G126) — a categorized, logo-first page over the
-/// existing `GET /sources/channels` registry, reusing `ChannelActions` and
-/// `AddSourceTile` rather than adding a second sync path.
+/// existing `GET /sources/channels` / `GET /sources/overview` registry,
+/// reusing `ChannelActions` (the same sync/poll implementation the Feed's
+/// `ConnectedChannelsStrip` already calls) and `AddSourceTile` (the Feed's
+/// own catalog) rather than adding a second sync path or a second catalog.
+/// **No new adapter, no new backend field** — this page only reads and
+/// routes into what already exists (G126's own scope note: "page only").
 ///
-/// This is Task 2's minimal stub, just enough for the five-section sidebar
-/// (Task 2) to build and route to a real page. Task 4 fleshes out this same
-/// file in place — categorized rows (`IntegrationCategory`), state lines
-/// (`IntegrationRowState`), and the `ConnectorSetupPanel` popover — rather
-/// than creating a second `IntegrationsView.swift`.
+/// This is Task 2's stub fleshed out in place, not a second file.
 struct IntegrationsView: View {
+    @Environment(Store.self) private var store
+    @Environment(AppRouter.self) private var router
+
+    /// One row per export-only social platform: no persisted backend
+    /// channel exists for these (`AddSourceTile.channelIds` is `[]` for all
+    /// four — the walkthrough sheet is the only way in today), so they can
+    /// only ever appear here as a pointer into the Feed's `+` sheet, never
+    /// as a connected/disconnected row like the thirteen real channels.
+    private static let exportOnlyTiles: [AddSourceTile] = [.instagram, .youtube, .linkedin, .tiktok]
+
+    private var channels: [SourceChannel] { store.channels.value ?? [] }
+    private var harnessRows: [SourceOverview] {
+        IntegrationHarnessRows.rows(from: store.sourcesOverview.value ?? [])
+    }
+
     var body: some View {
-        PageHeader(title: Copy.integrations, subtitle: Copy.integrationsSubtitle) {}
+        ScrollView {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
+                PageHeader(title: Copy.integrations, subtitle: Copy.integrationsSubtitle) {}
+
+                ForEach(IntegrationCategory.allCases) { category in
+                    let rows = channels.filter { IntegrationCategory.of(channelId: $0.id) == category }
+                    let extraRows = category == .chatAndAgents ? harnessRows.count
+                        : category == .socialAndSaved ? Self.exportOnlyTiles.count : 0
+                    // A section renders only when it has evidence (mirrors
+                    // `SourceSections.group`'s own rule) — an empty category
+                    // reads as a broken page, not a completeness signal.
+                    if !rows.isEmpty || extraRows > 0 {
+                        categorySection(category, rows: rows)
+                    }
+                }
+            }
+            .padding(CicadaTheme.spacingXL)
+        }
+        .background(CicadaTheme.background)
+    }
+
+    @ViewBuilder
+    private func categorySection(_ category: IntegrationCategory, rows: [SourceChannel]) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text(category.title.uppercased())
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.2)
+
+            VStack(spacing: 2) {
+                // Chat & agents also carries the informational harness rows
+                // (Claude Code, Cursor, …) — the same `kind == .harness` rows
+                // the Sources grid already shows, so "how does an agent
+                // conversation get in" reads as one list instead of a
+                // channel-only half.
+                if category == .chatAndAgents {
+                    ForEach(harnessRows) { row in
+                        IntegrationHarnessRow(source: row)
+                    }
+                }
+                ForEach(rows) { channel in
+                    IntegrationChannelRow(channel: channel)
+                }
+                if category == .socialAndSaved {
+                    ForEach(Self.exportOnlyTiles) { tile in
+                        IntegrationExportOnlyRow(tile: tile) { router.routeToFeedAddSource(tile) }
+                    }
+                }
+            }
+            .padding(CicadaTheme.spacingSM)
+            .glassCard()
+        }
+    }
+}
+
+/// One real, backend-tracked channel: a 28pt mark, its label, the R8 state
+/// line, and at most one trailing action.
+///
+/// `@State` can only live on a `View`, so this is its own child view rather
+/// than inline state inside `IntegrationsView`'s `ForEach` — neither
+/// existing `ConnectorSetupPanel` call site (`AddSourceSheet`'s own
+/// `@State`, `ConnectedChannelsStrip`'s full-sheet hand-off) hands the panel
+/// a `vendor` binding from outside, so a per-row binding is new plumbing
+/// (verified against `dev` @ `2312887` — see the plan's own file-map note).
+private struct IntegrationChannelRow: View {
+    let channel: SourceChannel
+    @Environment(Store.self) private var store
+    @State private var vendor: WalkthroughVendor = .claude
+    @State private var showConnectorPopover = false
+    @State private var busy = false
+    @State private var feedback: String?
+
+    private var tile: AddSourceTile? { AddSourceTile.forChannel(channel.id) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: CicadaTheme.spacingMD) {
+                mark
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(channel.label)
+                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                    Text(IntegrationRowState.line(channel))
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(channel.lastError != nil ? CicadaTheme.danger : CicadaTheme.textSecondary)
+                }
+                Spacer()
+                trailingAction
+            }
+            if let feedback {
+                Text(feedback)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+    }
+
+    @ViewBuilder
+    private var mark: some View {
+        if let logoName = ConnectedChannelRow.logoName(for: channel.id) {
+            LogoImage.platformTile(name: logoName, size: 28, systemFallback: ConnectedChannelRow.icon(for: channel.id))
+        } else {
+            ZStack {
+                Circle()
+                    .fill(ConnectedChannelRow.tint(for: channel.id).opacity(0.12))
+                    .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
+                Image(systemName: ConnectedChannelRow.icon(for: channel.id))
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .foregroundStyle(ConnectedChannelRow.tint(for: channel.id))
+            }
+            .frame(width: 28, height: 28)
+        }
+    }
+
+    /// One control per row, chosen by priority over `channel.actions`
+    /// (R-order below), never more than one: "connect" is the only action
+    /// `channel_registry` ever pairs with a bare, unconnected connector row
+    /// (`_connector_channel`'s `["connect"]` branch), so it's checked first
+    /// and opens the same `ConnectorSetupPanel` the Feed's catalog uses.
+    /// Once connected, a connector's actions become `["sync", "disconnect"]`
+    /// — "sync" is checked next and renders as a plain button exactly like a
+    /// browser sync row, and "disconnect" deliberately gets no button of its
+    /// own here: full disconnect UI already lives in the Feed's "Manage…"
+    /// sheet (`ConnectorSetupPanel` there), and duplicating it as a second
+    /// control on this page is out of scope for a page-only pass (G126).
+    @ViewBuilder
+    private var trailingAction: some View {
+        if channel.actions.contains("connect") {
+            Button("Connect") { showConnectorPopover = true }
+                .buttonStyle(.bordered)
+                .popover(isPresented: $showConnectorPopover, arrowEdge: .trailing) {
+                    ConnectorSetupPanel(connectorId: channel.id, vendors: tile?.vendors ?? [], vendor: $vendor)
+                        .padding(CicadaTheme.spacingLG)
+                        .frame(width: 320)
+                }
+        } else if channel.actions.contains("sync") {
+            actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store) }
+        } else if channel.actions.contains("poll") {
+            actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
+        }
+    }
+
+    private func actionButton(_ title: String, _ work: @escaping () async throws -> String) -> some View {
+        Button(title) {
+            Task {
+                busy = true
+                defer { busy = false }
+                do {
+                    feedback = try await work()
+                } catch {
+                    feedback = AddSourceSheet.friendlyError(error)
+                }
+            }
+        }
+        .buttonStyle(.bordered)
+        .disabled(busy)
+    }
+}
+
+/// An informational row for a captured harness (Claude Code, Cursor, …) —
+/// `SourceOverview` rows carrying `kind == .harness`. No action: a harness
+/// isn't something you connect or disconnect from here, capture is the
+/// Stop hook / MCP tool call itself (G105) — this row only answers "is this
+/// one of the things Cicada listens to".
+private struct IntegrationHarnessRow: View {
+    let source: SourceOverview
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            ZStack {
+                Circle()
+                    .fill(CicadaTheme.accent.opacity(0.12))
+                    .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .foregroundStyle(CicadaTheme.accent)
+            }
+            .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(source.label)
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text("Captured automatically — no setup needed")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+    }
+}
+
+/// A platform with no persisted channel yet (Instagram, YouTube, LinkedIn,
+/// TikTok) — the only route in is a one-shot export walkthrough in the
+/// Feed's `+` sheet, so this row's one action hands off there via
+/// `AppRouter` (R9) instead of pretending to be a standing connection.
+private struct IntegrationExportOnlyRow: View {
+    let tile: AddSourceTile
+    let onImport: () -> Void
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            if let logoName = tile.logoName {
+                LogoImage.platformTile(name: logoName, size: 28, systemFallback: tile.icon)
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(CicadaTheme.textSecondary.opacity(0.12))
+                        .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
+                    Image(systemName: tile.icon)
+                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
+                .frame(width: 28, height: 28)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tile.title)
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text("Import only — no standing connection")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+            Spacer()
+            Button("Import in Feed →", action: onImport)
+                .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
     }
 }
