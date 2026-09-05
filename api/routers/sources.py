@@ -510,6 +510,8 @@ async def list_sources(
         about: list[str] = []
         origin: str | None = None
         folder: str | None = None
+        provider: str | None = None
+        duration_s: int | None = None
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
@@ -542,6 +544,14 @@ async def list_sources(
                     site = s if isinstance(s, str) and s else None
                     c = media.get("channel")
                     channel = c if isinstance(c, str) and c else None
+                    # Track V (R15) — same rule as site/channel: the two video
+                    # keys live on the page, never in `url_index.json`, so the
+                    # Feed row can show a play badge and a duration pill
+                    # without a second index to migrate.
+                    pv = media.get("provider")
+                    provider = pv if isinstance(pv, str) and pv else None
+                    d = media.get("duration_s")
+                    duration_s = d if isinstance(d, int) and not isinstance(d, bool) and d > 0 else None
             except Exception:
                 pass
         items.append(
@@ -564,6 +574,8 @@ async def list_sources(
                 about=about,
                 origin=origin,
                 folder=folder,
+                provider=provider,
+                duration_s=duration_s,
             )
         )
 
