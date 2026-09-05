@@ -23,6 +23,13 @@ drops anything already present — that IS the diff. This module only adds:
    from, without staging anything;
 5. (R4) ``CHANNEL_BY_ORIGIN`` — one ``sync_state.json`` key per browser, so
    the catalog's per-browser tiles each have exactly one channel.
+6. (G129 slice 2) removal proposals — a URL that dropped out of a channel's
+   browser file since the previous sync becomes one ``removal`` inbox item
+   (``keep``/``remove``; ``remove`` archives, never deletes). Diffed against
+   ``bookmark_seen.py``'s own per-channel seen-set, NEVER against
+   ``url_index.json`` (a kept URL has already left the browser, and a
+   memory-based diff would re-propose it forever — see that module's
+   docstring for both correctness rails).
 
 Nothing here reads a real file path unless ``sync_from_local_files`` is
 called explicitly, and that function is best-effort/offline-safe: a missing
@@ -32,12 +39,13 @@ or unreadable bookmark file is silently excluded, never raised.
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
-from api.services import media_ingestor
+from api.services import bookmark_seen, episode_ids, inbox_generator, inbox_service, markdown_parser, media_ingestor
 from api.services.media_ingestor import RawItem
 
 # (items, memory_path, from_bookmark_file) -> (created, duplicates), matching
@@ -112,6 +120,10 @@ def _tag_origin(items: list[RawItem], origin: str) -> list[RawItem]:
 # `channel_registry._sync_channel` and never written again: the catalog has
 # one tile per browser, and a channel must map to exactly one tile.
 CHANNEL_BY_ORIGIN = {"chrome-bookmark": "chrome-bookmarks", "safari-bookmark": "safari-bookmarks"}
+
+# Display label for a removal item's question text and its hint (R2) — the
+# same two origins `_tag_origin` ever stamps.
+_BROWSER_LABEL = {"chrome-bookmark": "Chrome", "safari-bookmark": "Safari"}
 
 # Safari's plist names its top-level folders by internal key; the preview
 # shows the names the user sees in Safari while the PATH keeps the raw key
@@ -217,6 +229,82 @@ def preview_bookmarks(*, chrome_data: bytes | None = None, safari_data: bytes | 
     ]}
 
 
+def _propose_removals(
+    memory_path: Path, *, origin: str, channel: str, removed_hashes: list[str], at: str,
+) -> int:
+    """One ``removal`` inbox item per hash in ``removed_hashes`` that still
+    names a live, non-archived media entity and has no open removal item
+    already (idempotency — a second sync before the person answers must not
+    spawn a second question for the same URL; ``inbox_generator.find_open``'s
+    existing ``(entity_id, "")`` dedup key, unchanged, already covers this).
+
+    ``remove`` never deletes the page (G129 row rule) — that happens on
+    resolve, not here; this function only ever proposes. Returns the count of
+    items actually written.
+    """
+    idx = media_ingestor.load_url_index(memory_path)
+    inbox_dir = memory_path / "inbox"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    next_num = inbox_service.next_inbox_num(inbox_dir)
+    browser = _BROWSER_LABEL.get(origin, origin)
+    written = 0
+    for h in removed_hashes:
+        entry = idx.get(h)
+        entity_id = str((entry or {}).get("media_entity_id") or "")
+        if not entity_id:
+            continue  # never ingested, or the index entry is gone — nothing to ask about
+        entity_path = memory_path / "entities" / f"{entity_id}.md"
+        if not entity_path.exists():
+            continue
+        try:
+            efm = markdown_parser.parse(entity_path).frontmatter
+        except Exception:
+            continue
+        if str(efm.get("status", "active") or "active") in ("archived", "dropped"):
+            continue  # already gone — nothing left to ask
+        if inbox_generator.find_open(memory_path, "removal", entity_id) is not None:
+            continue  # already asked, still pending
+        entity_name = str(efm.get("name") or entry.get("title") or entity_id)
+        # R2: the entity's own first-save origin vs THIS sync's origin — a
+        # mismatch means some other path (a manual save, the other browser)
+        # is where it actually came from, worth surfacing on the card.
+        entity_origin = str(efm.get("origin") or "") or None
+        hint = f"Also saved via {entity_origin}" if entity_origin and entity_origin != origin else None
+        item_id = f"inbox-{next_num:03d}"
+        next_num += 1
+        frontmatter = {
+            "kind": "removal",
+            "required_input": "choice",
+            "status": "pending",
+            "priority": 0.4,
+            "entity_id": entity_id,
+            "entity_name": entity_name,
+            "title": f"Still keep {entity_name}?",
+            "created_date": str(date.today()),
+            "question": f"It was removed from {browser}.",
+            # R4: keep first — QuestionSelection's documented no-recommendation
+            # fallback highlights index 0.
+            "options": [
+                {"key": "keep", "label": "Keep"},
+                {"key": "remove", "label": "Remove"},
+            ],
+            "allow_other": False,
+            "allow_defer": True,
+            "channel": channel,
+            "browser": browser,
+            "url": str(entry.get("url") or ""),
+            "synced_at": at,
+            "hint": hint,
+            "trigger": "sync/bookmark_removal",
+        }
+        markdown_parser.write(
+            inbox_dir / f"{item_id}.md", frontmatter,
+            f"{entity_name} was removed from {browser}.",
+        )
+        written += 1
+    return written
+
+
 async def sync_bookmarks(
     memory_path: Path,
     *,
@@ -224,6 +312,7 @@ async def sync_bookmarks(
     safari_data: bytes | None = None,
     folders: list[str] | None = None,
     ingest_fn: IngestFn | None = None,
+    propose_removals: bool = True,
 ) -> dict[str, Any]:
     """Parse whichever bookmark data is provided and ingest only the new URLs.
 
@@ -239,9 +328,28 @@ async def sync_bookmarks(
     existed. ``found`` then counts the items that survived the filter — the
     number the channel row reports as "N bookmarks".
 
+    ``propose_removals`` (G129 slice 2, default on) additionally diffs each
+    synced channel's CURRENT url-hash set against its PREVIOUS one, read from
+    ``bookmark_seen.py``'s own per-channel seen-set — never against
+    ``url_index.json`` (Rail 2: a kept URL has already left the browser, and
+    a memory-based diff would re-propose it after every subsequent sync
+    forever). A URL missing from the current set becomes one ``removal``
+    inbox item (``_propose_removals``). The diff is refused (Rail 1) — and
+    recorded as a skip reason, never silently guessed — when the current
+    sync's folder scope differs from the previous one's, because everything
+    outside a changed selection was never looked at this pass and would look
+    deleted for the wrong reason; a channel's very first sync (no previous
+    seen-set at all) refuses the same way but silently (R6 — that case is
+    expected, not an error). The seen-set is then advanced to the CURRENT
+    sync's hashes regardless of what was proposed or answered (Rail 2's
+    "always advance" half) — this is what makes "a kept URL is never
+    re-proposed" hold with no bookkeeping of the person's eventual answer.
+
     Returns ``{"new": <total newly-ingested>, "skipped": <total already
     present>, "sources": [{"origin", "channel", "found", "new", "skipped"},
-    ...]}`` — ``channel`` is the ``sync_state`` key the router stamps (R4).
+    ...], "removals_proposed": <total removal items written>,
+    "removals_skipped": <"; "-joined per-channel reasons, or None>}`` —
+    ``channel`` is the ``sync_state`` key the router stamps (R4).
     """
     fn: IngestFn = ingest_fn or media_ingestor.ingest_batch
     memory_path = Path(memory_path)
@@ -249,25 +357,53 @@ async def sync_bookmarks(
     sources: list[dict[str, Any]] = []
     total_new = 0
     total_skipped = 0
+    total_removals_proposed = 0
+    removals_skip_reasons: list[str] = []
+
+    at = episode_ids.utc_now_iso()
+    prev_seen = bookmark_seen.read_seen(memory_path) if propose_removals else {}
 
     for origin, items in _batches(chrome_data, safari_data):
         items = filter_by_folders(items, folders) if folders else items
         channel = CHANNEL_BY_ORIGIN[origin]
         if not items:
             sources.append({"origin": origin, "channel": channel, "found": 0, "new": 0, "skipped": 0})
-            continue
-        created, duplicates = await fn(items, memory_path, from_bookmark_file=True)
-        total_new += created
-        total_skipped += duplicates
-        sources.append({
-            "origin": origin,
-            "channel": channel,
-            "found": len(items),
-            "new": created,
-            "skipped": duplicates,
-        })
+        else:
+            created, duplicates = await fn(items, memory_path, from_bookmark_file=True)
+            total_new += created
+            total_skipped += duplicates
+            sources.append({
+                "origin": origin,
+                "channel": channel,
+                "found": len(items),
+                "new": created,
+                "skipped": duplicates,
+            })
 
-    return {"new": total_new, "skipped": total_skipped, "sources": sources}
+        if propose_removals:
+            current_hashes = sorted({media_ingestor.url_hash(i.url) for i in items})
+            prev_entry = prev_seen.get(channel)
+            removed = bookmark_seen.diff_removed(
+                prev_entry, current_hashes,
+                previous_folders=(prev_entry or {}).get("folders"),
+                current_folders=folders,
+            )
+            if removed is None:
+                if prev_entry is not None:  # R6: silent on a channel's first-ever sync
+                    removals_skip_reasons.append(f"{channel}: folder scope changed since the last sync")
+            elif removed:
+                total_removals_proposed += _propose_removals(
+                    memory_path, origin=origin, channel=channel, removed_hashes=removed, at=at,
+                )
+            bookmark_seen.write_channel_seen(memory_path, channel, folders=folders, hashes=current_hashes, at=at)
+
+    return {
+        "new": total_new,
+        "skipped": total_skipped,
+        "sources": sources,
+        "removals_proposed": total_removals_proposed,
+        "removals_skipped": "; ".join(removals_skip_reasons) or None,
+    }
 
 
 async def sync_from_local_files(memory_path: Path) -> dict[str, Any]:
