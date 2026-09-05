@@ -2,29 +2,46 @@ import SwiftUI
 
 /// The native Settings window — ⌘, and the sidebar's footer gear (G68 §1).
 ///
-/// Hosts the two setup pages that used to be sidebar rows. They are setup, not
-/// workspace: you visit them once and then never again, which is exactly what
-/// a Settings window is for.
+/// Track C: a `NavigationSplitView` sidebar over `SettingsSection`, replacing
+/// the old four-tab `TabView` — five sections now that Integrations (G126)
+/// joins General, Sleep, Agents and Plans & keys. Every section is setup, not
+/// workspace: you visit it once and then rarely again, but a sidebar scales
+/// to a fifth row better than a `TabView`'s row of tab items does, and it
+/// gives Integrations room to grow its own categorized list without
+/// squeezing the tab bar.
+///
+/// `selection` mirrors `sectionRaw` rather than binding `List` directly to
+/// the `@AppStorage` string — `SettingsSection.restored(from:)` needs to run
+/// once on appear so a retired/bogus persisted value falls back to
+/// `.general` (the same tolerant-restore shape `AppTab.restored(from:)`
+/// already uses for the main sidebar) instead of `List` selecting nothing.
 struct SettingsScene: View {
+    @AppStorage("cicada.settingsSection") private var sectionRaw = SettingsSection.general.rawValue
+    @State private var selection: SettingsSection = .general
+
     var body: some View {
-        TabView {
-            SettingsGeneralView()
-                .tabItem { Label(Copy.general, systemImage: "gearshape") }
-                .accessibilityLabel(Copy.general)
-
-            ConnectView()
-                .tabItem { Label(Copy.agents, systemImage: "cable.connector") }
-                .accessibilityLabel(Copy.agents)
-
-            ConnectionsView()
-                .tabItem { Label(Copy.plansAndKeys, systemImage: "creditcard") }
-                .accessibilityLabel(Copy.plansAndKeys)
-
-            SettingsSleepView()
-                .tabItem { Label(Copy.schedule, systemImage: "moon.zzz") }
-                .accessibilityLabel(Copy.schedule)
+        NavigationSplitView {
+            List(SettingsSection.allCases, selection: $selection) { section in
+                Label(section.title, systemImage: section.icon).tag(section)
+            }
+            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
+        } detail: {
+            detailView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(CicadaTheme.background)
         }
-        .frame(width: 820, height: 620)
-        .background(CicadaTheme.background)
+        .frame(width: 900, height: 640)
+        .onAppear { selection = SettingsSection.restored(from: sectionRaw) }
+        .onChange(of: selection) { _, newValue in sectionRaw = newValue.rawValue }
+    }
+
+    @ViewBuilder private var detailView: some View {
+        switch selection {
+        case .general: SettingsGeneralView()
+        case .sleep: SettingsSleepView()
+        case .integrations: IntegrationsView()
+        case .agents: ConnectView()
+        case .plansAndKeys: ConnectionsView()
+        }
     }
 }

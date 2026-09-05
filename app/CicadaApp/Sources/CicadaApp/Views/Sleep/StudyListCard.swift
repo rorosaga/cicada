@@ -213,7 +213,7 @@ struct StudyListCard: View {
     // MARK: Footer — next run + the one Consolidate/Cancel pair (R10)
 
     /// "Manual only" / "Next run …" / "… after the next import", with a
-    /// pointer to Settings → Schedule — the one place the time/interval
+    /// pointer to Settings → Sleep — the one place the time/interval
     /// itself is edited (no picker duplicated here).
     private var nextRunLine: some View {
         HStack(spacing: CicadaTheme.spacingXS) {
@@ -221,7 +221,7 @@ struct StudyListCard: View {
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
             SettingsLink {
-                Text(Copy.changeInSettingsSchedule)
+                Text(Copy.changeInSettingsSleep)
             }
             .buttonStyle(.cicadaPlain)
             .font(CicadaTheme.captionFont)
