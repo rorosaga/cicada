@@ -344,7 +344,10 @@ def test_sync_bookmarks_endpoint_no_body_reads_local_files_best_effort(tmp_path,
     resp = client.post("/sources/sync-bookmarks")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body == {"new": 0, "skipped": 0, "sources": []}
+    assert body == {
+        "new": 0, "skipped": 0, "sources": [],
+        "removalsProposed": 0, "removalsSkipped": None,
+    }
 
 
 def test_sync_bookmarks_endpoint_invalid_base64_rejected(tmp_path, monkeypatch):
