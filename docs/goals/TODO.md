@@ -4,11 +4,13 @@
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (2026-09-05)
+## Where things stand (end of 2026-09-05)
 
-**Only `.worktrees/g113` (`feat/feedback-ledger`) is in flight, with G113 slices 3–7 now committed
-on it and awaiting PR + merge.** The owner paused the wider queue on 2026-09-03; it is still paused
-deliberately beyond finishing this one branch.
+**Nothing is running and no worktree is in flight.** The owner un-paused the queue on 2026-09-05 with
+a build brief (the study desk, real logos, zoom, Sources + Settings redesigns, "tackle any other
+pending tickets", small models only for workflows); ten PRs landed that day on sonnet/haiku Workflow
+tracks, each verified by the orchestrator (both suites re-run, the diff read, the live app checked).
+The spec that ties them together: `docs/superpowers/specs/2026-09-05-study-desk-zoom-settings-sources-design.md`.
 
 **`dev` is ahead of `main`.** `main` was promoted at `381cfd3` (evening 2026-09-02); everything
 since is on `dev` only. Merged since that promotion: **#40** G102 link summaries · **#44** G118
@@ -16,10 +18,14 @@ slice 1 (evidence spans) · **#45** G53+G75 (live state + handshake) · **#46** 
 capture) · **#47** G124 (Sources page) · **#48** G115 Phase 1 (inbox cause + Recommended) ·
 **#49** theme toggle + `saved-link`/`rss` origins · **#50** the backend suite is green ·
 **#51** the sidebar Settings gear · **#52** G129 slice 1 (browser bookmark watch) ·
-**#53** Track D (Sources grid + status lights) · **#54** G130 slice 1a (app-wide zoom) ·
-**#55** G125 (the study desk) · **#56** a Sleep-history-window fix · **#58** the font-literal
-migration (G130 slice 1b) · **#TBD** G129 slice 2 (bookmark deletions, `feat/bookmark-deletions`,
-not yet merged).
+**#53** Track D (Sources grid by kind, real marks, status lights, per-source blurb + queue strip) ·
+**#54** G130 slice 1a (app-wide zoom) · **#55** G125 (the study desk) · **#56** the Sleep-history
+window uses git `--grep` · **#57** the pile stacks fattest at the bottom · **#58** the font-literal
+migration + lint (G130 slice 1b) · **#59** G113 slices 3–7 (six inbox kinds, merge rejection that
+sticks, claim write-back, the Feedback rate) · **#60** Track C (Settings sidebar, the G122 engine &
+model picker with both previews, the G126 Integrations page) · **#61** G129 slice 2 (bookmark
+deletions as keep/remove proposals) · **#62** G117 (owner identity, the first-run sheet, empty
+states, a one-click demo bank, three install fixes).
 **Per-PR detail is in git — `git log --oneline 381cfd3..dev` — not here.**
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
@@ -104,18 +110,20 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   disclosed spawning a fork that wrote concurrently into a shared worktree; a test fixture encoded
   the same timezone bug as the code it tested; and a review predicted "0 deletions" that a sloppy
   `awk` made me briefly misread as 1,851. Independent checks caught all three.
-- **Baseline:** 8 date-dependent `test_calendar_registry.py` failures are pre-existing on `dev`.
-  Everything else must be green.
+- **Baseline:** every suite is green (PR #50 removed the last expected failures). Anything red is
+  yours. Backend 2119 passed and Swift 763 passed at the end of 2026-09-05 — re-measure, never trust
+  a remembered count.
 - Reports and briefs live in `.superpowers/sdd/<plan>/` (gitignored).
 
 ## Pick up here
 
-**Nothing is running and nothing is queued to start.** The owner paused the queue on 2026-09-03 after
-G115 Phase 1 landed. Everything about *what to do next and why* now lives in one place:
+**Nothing is running.** The 2026-09-05 brief has been worked through (see "Where things stand");
+the queue continues at G118 slice 2. Everything about *what to do next and why* lives in one place:
 
 > **[`working-method.md`](working-method.md)** — the bar a change has to clear, the test baselines that
-> are not failures, the rails, how to start / resume / land a Workflow track, and the paused queue with
-> the reasoning for its order.
+> are not failures, the rails, how to start / resume / land a Workflow track, and the queue with the
+> reasoning for its order. Workflow agents run on sonnet/haiku only (owner, 2026-09-05); the
+> orchestrator plans, verifies and merges.
 
 The queue there, in order: **G118 slice 2** (the provenance viewer) → **G93** (cross-stream ask).
 Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a
@@ -123,11 +131,13 @@ build. Shipped 2026-09-05 and no longer queued: G125 (PR #55), G113 slices 3–7
 G126 page (Track C, PR #60), G129 slice 2 (bookmark deletions, PR #61), **G117** first-run onboarding
 (PR #62).
 
-**Track C (G122 engine/model picker + G126 Integrations page) shipped** on `feat/settings-redesign`
-(PR #60) — a `GET/PUT /sleep/engine` prefs-first endpoint, the five-section Settings sidebar, the
-Sleep section's `EngineCard`, and the Integrations page over the existing channel registry. G126's
-adapter rows (Strava, Todoist/Reminders, YouTube subscriptions, Garmin/Apple Health) stay queued —
-see the G126 backlog row and `working-method.md` §3.
+**Small polish left behind by the 2026-09-05 tracks, none blocking:** Settings → Integrations lists
+both the harness "Claude export" overview row and the "Claude chat export" channel (dedupe by
+origin) and draws the generic bubble symbol where `OriginMark` would show the logo; the Sleep page's
+toolbar audit on Graph/Clusters (G125 (5)) is still open; a merge suggestion with no target hint has
+no Reject control (dismiss still works); `GET /state`'s `sleep.next_at` is uncalibrated for the
+`interval`/`after_import` schedule modes (the app's own next-run line is); the Settings sidebar
+cannot be driven by a synthetic `click at` (select its rows through the accessibility API).
 
 Owner-present checks still unticked, none blocking: the mascot visual pass in light and dark, the G109
 graph eyeball at fit-zoom, the G124 and G115 checks in the paragraphs above, and the README screenshots
@@ -276,7 +286,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 
 | What | State | Next action |
 |---|---|---|
-| **G129 bookmarks** | **Both slices shipped** — slice 1 (PR #52): file watch, catch-up sync, six-state light. Slice 2 (this branch): seen-set, removal proposals, Deletions subsection. | G119 (Arc/Brave/Firefox) generalizes for free once added to `CHANNEL_BY_ORIGIN`. |
+| **G129 bookmarks** | **Both slices shipped** — slice 1 (PR #52): file watch, catch-up sync, six-state light. Slice 2 (PR #61): seen-set, removal proposals, Deletions subsection. | G119 (Arc/Brave/Firefox) generalizes for free once added to `CHANNEL_BY_ORIGIN`. |
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
 | **G109 graph physics** | **Phase 1 in PR #32** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
 

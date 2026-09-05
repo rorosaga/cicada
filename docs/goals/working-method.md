@@ -136,74 +136,34 @@ where two tracks each added a kind — take the **union**) → push → `gh pr c
 
 ### Running now
 
-**Nothing.** G115 Phase 1 merged as PR #48 on 2026-09-03 and the owner paused the queue there. The last
-five tracks landed the same day: #44 evidence spans (G118 slice 1), #45 live state + handshake (G53/G75),
-#46 deterministic capture (G105), #47 the Sources page (G124), #48 the inbox's first slice (G115).
+**Nothing.** The owner un-paused the queue on 2026-09-05 with a build brief, and ten tracks landed that
+day (PRs #53–#62 — see `TODO.md` "Where things stand"). Every one ran on the sonnet/haiku track script
+(`track-small.js` in the session scratchpad: the same plan → critic → implement/review → two-lens
+shape as the original script, with `model: 'sonnet'` / `'haiku'` on every agent, a `planExists`
+switch for a plan the orchestrator wrote, and a `taskOffset` for resuming a plan mid-way). **Workflow
+agents run on small models only (owner, 2026-09-05); the orchestrator plans, verifies and merges.**
 
 ### Next
 
-**Nothing is scheduled.** The queue below is paused on the owner's instruction; each entry carries enough
-to restart it cold. Start one by writing a brief from its entry and following §2.
+**G118 slice 2 — the provenance viewer** (item 6 below), then **G93** (item 7), then the bigger rocks.
+Start one by writing a brief from its entry and following §2.
 
-### Paused, in the order they should resume
+### Done on 2026-09-05, kept here for the reasoning
 
-#### 1. G113 slices 3–7 — the grounded-reward ledger, half-built
+#### 1. ~~G113 slices 3–7 — the grounded-reward ledger, half-built~~ — **shipped as PR #59**
 
-**What shipped** (PR #31, `feat/feedback-ledger`): slice 1, every inbox resolution's commit trigger
-names the action taken (`inbox/<kind>/resolved:<label>`, deferral stays `inbox/deferred`, decay
-archive/keep land as `statusChange`); slice 2, a `resolution` telemetry event per resolve/defer with
-the R3 verdict table (`agreed|overruled|neutral`), plus `audit` events from Stage-3 reconcile and
-`dedup_verdict` per judged pair, all ids/enums only, all excluded from spend rollups
-(`telemetry.FEEDBACK_KINDS`). So the system records verdicts today — and nothing reads them back.
-
-**What remains, verified against `dev` on 2026-09-03** (do not trust the plan's own prose here, it
-predates three merged tracks):
-
-| Task | Still to do | Verified state |
-|---|---|---|
-| 3 | `divergence` + `normalization` become real inbox kinds, API **and** the Swift `InboxKind` enum in the same commit | **Not started.** `InboxKind` on `dev` is still `decay·conflict·clarification·merge_suggestion`; Sleep writes the other two and `load_inbox` silently drops them. |
-| 4 | A rejected merge suggestion stays rejected — `<bank>/_merge_rejected.yaml` read by `clarification_manager.create` and `dedup_sweep`, plus a `reject` action and `cicada_resolve_inbox(reject=true)` | **Not started.** `api/services/merge_rejections.py` does not exist. |
-| 5 | Decay `keep_active` and clarification free-text answers write back to the claim layer | **Half superseded.** G115 Phase 1 moves `remind_later` onto a real 7-day defer (the plan's `_defer(days=…, label=…)` half). What remains is only the claim write-back. |
-| 6 | `consumption_stats.feedback()`, `ConsumptionFeedback` schema, `GET /consumption/feedback`, and the tile | **Not started, and its UI target moved.** The plan says "a fifth Usage tile"; G124 deleted `UsageView`/`UsageAdvancedView` and every price surface. The tile now goes in the named slot that already exists for it: `Views/Sources/AdvancedStatsView.swift` → `feedbackTileSlot` (currently `EmptyView()`), showing a **rate and counts, never a price**. |
-| 7 | Docs: CLAUDE.md inbox kinds (six, not four), the ledger paragraph, the endpoint; G113 row shipped; TODO handoff | Follows 3–6. |
-
-**Why it is worth finishing:** the ledger is the measurement half of "does extraction actually agree
-with the person" (G78's prerequisite, G98's live number, and what makes a compiled skill's evidence
-trustworthy in G112). Right now every verdict is written and none is legible.
-
-**How to resume it.** The plan is already written and committed on the branch
-(`docs/superpowers/plans/2026-09-02-g113-feedback-ledger.md`, tasks 1–7, rulings R1–R7 — R3 is the
-verdict table, R5 puts merge rejection in a bank file, R7 keeps feedback rows out of connection
-rollups). The worktree still exists at `.worktrees/g113` on `feat/feedback-ledger`, sitting where
-PR #31 left it.
-
-```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113
-git merge --no-edit origin/dev          # it is several tracks behind; expect doc + telemetry-tuple conflicts
-```
-
-then resume the run — tasks 1–2 replay from cache, work restarts at task 3:
-
-```
-Workflow({
-  scriptPath: "~/.claude/projects/-Users-rorosaga-Documents-roros-lab-cicada--worktrees-g113/1d742a99-90a0-46a2-a0d9-4642052335bf/workflows/scripts/g113-feedback-ledger-wf_a38168f3-39b.js",
-  resumeFromRunId: "wf_a38168f3-39b",
-  args: { worktree: ".../.worktrees/g113",
-          plan: ".../.worktrees/g113/docs/superpowers/plans/2026-09-02-g113-feedback-ledger.md",
-          out: "<scratchpad>/g113",
-          base: "78e9873" }
-})
-```
-
-**Before restarting, patch the plan** (the critic pass is cached, so nobody will catch these for you):
-task 6's Swift steps must target `AdvancedStatsView.feedbackTileSlot` rather than the deleted
-`UsageView`, and task 5 must check what G115 already did to `_defer` instead of re-implementing it.
-If a resumed cached task looks wrong against today's `dev`, prefer starting a fresh track with a
-brief written from this table over fighting the cache.
+Resumed from the committed plan with the stale anchors patched by the critic (task 5's
+`remind_later` half had shipped with G115, task 6's tile target moved to `AdvancedStatsView.
+feedbackTileSlot`). Six inbox kinds now load and resolve, a rejected merge stays rejected
+(`<bank>/_merge_rejected.yaml`), decay `keep_active` and clarification answers reach the claim layer,
+and `GET /consumption/feedback` + the Feedback tile make the ledger legible — rates and counts, never
+a price. Slice 5 (feeding rates back into prompts) stays 💸 DECIDE under G78. The old resume-from-cache
+instructions are gone with the worktree: a fresh track from the plan is the way to continue anything
+here.
 
 #### The rest, in order
 
-0. ~~**G129 slice 2 — bookmark deletions.**~~ — **shipped 2026-09-05** (branch
+0. ~~**G129 slice 2 — bookmark deletions.**~~ — **shipped 2026-09-05** (PR #61,
    `feat/bookmark-deletions`): the seen-set + diff, the `removal` inbox kind (`keep`/`remove`,
    always `neutral` — the proposal is the browser's), and the browser page's own Deletions
    subsection. Open remainder, not this row: G119 (more browsers).
@@ -216,20 +176,20 @@ brief written from this table over fighting the cache.
    row: the same toolbar audit on Graph/Clusters. **G122** (engine/model picker) shipped separately,
    below.
 3. ~~**G122 — engine and model picker on the Sleep page**, with Ollama guided as a first-class
-   option.~~ — **shipped 2026-09-05** on `feat/settings-redesign` (Track C, PR pending): the prefs-first
+   option.~~ — **shipped 2026-09-05** on `feat/settings-redesign` (Track C, PR #60): the prefs-first
    `GET/PUT /sleep/engine` ladder rung, the Sleep page's `EngineCard` (segmented picker over Claude
    plan / Ollama / a key, Codex disabled), and both `preview.manual`/`preview.scheduled` lines shown
    rather than hiding ruling 4. Codex as a selectable engine stays open under G49.
 4. ~~**G117 — first-run onboarding**, including capturing the owner's identity so the owner entity
    renders as *Name (you)* and replaces the last hardcoded observer literal.~~ — **shipped
-   2026-09-05** on `feat/onboarding` (PR pending): `owner_identity.resolve_observer` replaces the
+   2026-09-05** on `feat/onboarding` (PR #62): `owner_identity.resolve_observer` replaces the
    hardcoded literal at all five sites, `GET/PUT /settings/owner` + the owner entity page, the
    four-step first-run sheet (reusing G122's `EngineCard` and G126's `IntegrationsView` as steps 1
    and 2), honest empty states per tab, a deterministic demo bank, and the three install/copy gaps
    named below. Open remainder: the onboarding *interview* (G54); entity-merge-across-identity-change
    (R3's disclosed gap).
 5. **G126 — Settings → Integrations by category.** ~~The page over the existing channel registry
-   first~~ — **page shipped 2026-09-05** on `feat/settings-redesign` (Track C, PR pending):
+   first~~ — **page shipped 2026-09-05** on `feat/settings-redesign` (Track C, PR #60):
    categorized, logo-first rows over `GET /sources/channels`, connect/disconnect via a
    `ConnectorSetupPanel` popover, and a one-shot import still routed to the Feed's `+`. **Adapters
    remain open**, in order: YouTube subscriptions (Takeout, no key) → Strava (weekly aggregates
