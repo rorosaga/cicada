@@ -252,3 +252,62 @@ def test_the_prefs_round_trip_through_the_api(api_client):
 
     rejected = api_client.put("/connections/byok-openai/prefs", json={"useForSleep": True})
     assert rejected.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# G122 — the prefs rung. Precedence table (highest wins):
+#
+#   1. `CICADA_LLM_MODE` explicitly set (`env_explicit`)        -> that mode, zero registry touch for the mode itself
+#   2. a real Settings, env NOT explicit, `sleep-engine` pref set -> the pref's mode (R2's shape gate)
+#   3. a duck-typed Settings stand-in (no `model_fields_set`)   -> byok, zero registry touch (unchanged, R2)
+#   4. real Settings, no pref, nothing configured                -> byok/auto probe path (unchanged)
+#
+# Ruling 4/R3 still applies ON TOP of rung 2: a prefs-chosen "agent" degrades
+# to byok on a scheduled cycle exactly like an "auto"-resolved "agent" would.
+# --------------------------------------------------------------------------- #
+
+def test_prefs_mode_applies_when_env_is_not_explicit():
+    reg = _FakeRegistry(prefs={engine_select.SLEEP_ENGINE_PREF_KEY: {"mode": "local"}})
+    mode, why = _resolve(Settings(), reg)
+    assert mode == "local"
+    assert "Settings" in why
+
+
+def test_prefs_agent_still_degrades_to_byok_on_a_scheduled_cycle():
+    reg = _FakeRegistry(prefs={engine_select.SLEEP_ENGINE_PREF_KEY: {"mode": "agent"}})
+    mode, why = asyncio.run(
+        engine_select.resolve_llm_mode(Settings(), reg, user_triggered=False)
+    )
+    assert mode == "byok"
+
+
+def test_prefs_agent_wins_on_a_user_triggered_cycle_when_claude_is_connected():
+    reg = _FakeRegistry(
+        prefs={engine_select.SLEEP_ENGINE_PREF_KEY: {"mode": "agent"}},
+        connected={engine_select.CLAUDE_CONNECTION_ID},
+    )
+    mode, why = asyncio.run(
+        engine_select.resolve_llm_mode(Settings(), reg, user_triggered=True)
+    )
+    assert mode == "agent"
+
+
+def test_explicit_env_ignores_prefs_entirely():
+    reg = _FakeRegistry(prefs={engine_select.SLEEP_ENGINE_PREF_KEY: {"mode": "agent"}})
+    mode, _why = _resolve(Settings(llm_mode="byok"), reg)
+    # An explicit env pin runs the normal byok/auto probe path — no prefs
+    # short-circuit to "agent" from the pref, no probe of claude-plan either
+    # (byok with no `use_for_sleep` toggle degrades straight to byok).
+    assert mode == "byok"
+
+
+def test_duck_typed_settings_never_touches_the_registry_for_prefs():
+    from types import SimpleNamespace
+
+    class _Boom:
+        def prefs(self):
+            raise AssertionError("probed a duck-typed Settings stand-in for prefs")
+
+    stand_in = SimpleNamespace(llm_mode=None)  # no model_fields_set
+    mode, why = _resolve(stand_in, _Boom())
+    assert mode == "byok"

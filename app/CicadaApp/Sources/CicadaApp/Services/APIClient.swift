@@ -1904,6 +1904,31 @@ actor APIClient {
         ])
     }
 
+    /// `GET /sleep/engine` — the G122 picker's current mode/model and both
+    /// ruling-4 previews (`manual`/`scheduled`).
+    func fetchSleepEngine() async throws -> SleepEngineResponse {
+        return try await get("/sleep/engine")
+    }
+
+    /// `PUT /sleep/engine`. Hand-builds the body (same reasoning as
+    /// `updateSchedule`'s own doc comment: the `put<T>` helper takes
+    /// `[String: Any]`, not `Encodable`) and — unlike `updateSchedule`,
+    /// which always sends every field — omits `model`/`disambiguationModel`
+    /// from the dict entirely when `nil` rather than sending JSON `null`.
+    /// The backend tells "omitted" from "explicitly cleared" via
+    /// `SleepEngineChoice.model_fields_set` (`sleep_engine_prefs.
+    /// validate_and_write`'s cross-mode staleness guard), so sending a
+    /// `null` here would read as "clear this field" instead of "leave it
+    /// alone".
+    func updateSleepEngine(
+        mode: String, model: String? = nil, disambiguationModel: String? = nil
+    ) async throws -> SleepEngineResponse {
+        var body: [String: Any] = ["mode": mode]
+        if let model { body["model"] = model }
+        if let disambiguationModel { body["disambiguationModel"] = disambiguationModel }
+        return try await put("/sleep/engine", body: body)
+    }
+
     /// `GET /sleep/history?limit=` — the consolidation history the Sleep
     /// page's history card lists, newest first (G125 R4).
     func fetchSleepHistory(limit: Int = 15) async throws -> [SleepHistoryEntry] {
