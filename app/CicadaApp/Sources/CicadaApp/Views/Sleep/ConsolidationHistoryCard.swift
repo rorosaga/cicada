@@ -35,9 +35,33 @@ enum SleepHistoryPresentation {
     /// "+N new · M updated" would credit an LLM for work it never did. Every
     /// other kind counts entities the manifest actually attributes to
     /// `sleep/extraction`/`sleep/promotion`/etc.
+    ///
+    /// G125 v3 Task 7 (budget row #18): a real cycle now leads with what it
+    /// READ — "2 episodes → +12 new · 8 updated" answers "where did those
+    /// entities come from" in the same glance. The prefix is drawn **only when
+    /// there is a count** (P18): `episodes` decodes to its default zero on an
+    /// older backend, a cached snapshot or an inbox commit, and "0 episodes →"
+    /// would be a fabricated zero standing in for an unknown.
     static func summaryLine(_ e: SleepHistoryEntry) -> String {
         if e.kind == "decay" { return "decay pass" }
-        return "+\(e.entitiesCreated) new · \(e.entitiesUpdated) updated"
+        let written = "+\(e.entitiesCreated) new · \(e.entitiesUpdated) updated"
+        guard e.episodes > 0 else { return written }
+        return "\(e.episodes) episode\(e.episodes == 1 ? "" : "s") → \(written)"
+    }
+
+    /// The row's badge slot (G125 v3 Task 7): which engine ran the cycle, and
+    /// who authored its writes — both already parsed server-side, neither
+    /// invented.
+    ///
+    /// An absent engine drops the pill's LEFT half rather than defaulting to
+    /// one: `Cicada-Engine:` is "omitted entirely rather than guessed" when no
+    /// LLM ran (CLAUDE.md), which is exactly the case for a decay or
+    /// state-snapshot commit. Only the first author is named — the expanded
+    /// detail below already lists every one of them, and a badge is one fact
+    /// wide. Both halves missing → no pill at all, never an empty badge.
+    static func enginePill(_ e: SleepHistoryEntry) -> String? {
+        let parts = [e.engine.map(Copy.engineLabel), e.authors.first.map(authorLabel)].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// `date` arrives as git's `--date=iso-strict` (`2026-09-05T21:41:00+00:00`)
@@ -156,26 +180,30 @@ struct ConsolidationHistoryCard: View {
             onToggle(entry.commitHash)
         } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
-                Text(SleepHistoryPresentation.dateText(entry.date))
-                    .font(CicadaTheme.font(size: 11, design: .monospaced))
-                    .foregroundStyle(tone)
-                    .frame(width: 44, alignment: .leading)
+                // Date over time (budget row #16). The time exists only since
+                // `--date=iso-strict` (Task 1); a legacy `yyyy-MM-dd` row reads
+                // "—" rather than a fabricated midnight (R-A14).
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(SleepHistoryPresentation.dateText(entry.date))
+                        .font(CicadaTheme.font(size: 11, design: .monospaced))
+                        .foregroundStyle(tone)
+                    Text(SleepHistoryPresentation.timeText(entry.date))
+                        .font(CicadaTheme.font(size: 9, design: .monospaced))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                .frame(width: 58, alignment: .leading)
 
-                Image(systemName: SleepHistoryPresentation.engineSymbol(entry.engine))
-                    .font(CicadaTheme.font(size: 11))
-                    .foregroundStyle(isDecay || entry.engine == nil ? CicadaTheme.textTertiary : CicadaTheme.accent)
-                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(SleepHistoryPresentation.summaryLine(entry))
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.textPrimary)
+                        .lineLimit(1)
+                    enginePill(entry, isDecay: isDecay)
+                }
 
-                Text(SleepHistoryPresentation.summaryLine(entry))
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.textPrimary)
-                    .lineLimit(1)
+                Spacer(minLength: CicadaTheme.spacingSM)
 
-                Spacer()
-
-                Text(SleepHistoryPresentation.durationText(ms: entry.durationMs))
-                    .font(CicadaTheme.font(size: 11, design: .monospaced))
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                durationText(entry)
 
                 Image(systemName: expanded == entry.commitHash ? "chevron.down" : "chevron.right")
                     .font(CicadaTheme.font(size: 9, weight: .semibold))
@@ -184,7 +212,49 @@ struct ConsolidationHistoryCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .accessibilityLabel("\(SleepHistoryPresentation.dateText(entry.date)), \(SleepHistoryPresentation.summaryLine(entry))")
+        .accessibilityLabel(Self.rowAccessibilityLabel(entry))
+    }
+
+    /// Everything the row draws, in words — the pill and the `—` are both
+    /// silent marks otherwise.
+    static func rowAccessibilityLabel(_ entry: SleepHistoryEntry) -> String {
+        var parts = [SleepHistoryPresentation.dateText(entry.date)]
+        let time = SleepHistoryPresentation.timeText(entry.date)
+        if time != "—" { parts.append(time) }
+        parts.append(SleepHistoryPresentation.summaryLine(entry))
+        if let pill = SleepHistoryPresentation.enginePill(entry) { parts.append(pill) }
+        return parts.joined(separator: ", ")
+    }
+
+    /// The engine·author badge. An absent engine drops the mark with the label
+    /// it belonged to rather than showing a placeholder icon next to an author
+    /// — the icon means "this engine", and there is no engine to mean.
+    @ViewBuilder
+    private func enginePill(_ entry: SleepHistoryEntry, isDecay: Bool) -> some View {
+        if let pill = SleepHistoryPresentation.enginePill(entry) {
+            HStack(spacing: 3) {
+                if entry.engine != nil {
+                    Image(systemName: SleepHistoryPresentation.engineSymbol(entry.engine))
+                        .font(CicadaTheme.font(size: 9))
+                        .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.accent)
+                }
+                Text(pill)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+    }
+
+    /// P18 — a `—` is a value with a reason, and the reason is on hover: the
+    /// duration is joined from the `sleep_run` telemetry ledger by commit hash,
+    /// and there is simply no row to join when telemetry was off (R5).
+    private func durationText(_ entry: SleepHistoryEntry) -> some View {
+        Text(SleepHistoryPresentation.durationText(ms: entry.durationMs))
+            .font(CicadaTheme.font(size: 11, design: .monospaced))
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .help(entry.durationMs == nil ? Copy.noTimingRecorded : "")
     }
 
     @ViewBuilder

@@ -1,5 +1,55 @@
 import SwiftUI
 
+// MARK: - The page's arrangement (G125 v3 Task 7)
+
+/// How the Sleep page lays itself out at a given width — a value, so the
+/// reflow boundary is a named constant a test can assert rather than a `>`
+/// buried in a `body`.
+///
+/// `maxContentWidth` is part of the layout for a reason: the page pinned a
+/// literal `.frame(maxWidth: 760)`, which no two-column arrangement can fit
+/// inside. Below the boundary the stacked page keeps exactly that 760 pt
+/// column — unchanged behaviour on a small window — and above it the cap opens
+/// far enough that the LEFT column alone is still about as wide as the old
+/// single column, so the hero and the room do not reflow when the second
+/// column appears.
+struct SleepLayout: Equatable {
+    let isTwoColumn: Bool
+    let maxContentWidth: CGFloat
+    /// The left column's share of the content width; `1.0` when stacked, so a
+    /// caller can multiply unconditionally.
+    let leftFraction: Double
+
+    /// Inclusive: at exactly this width the page is already two columns.
+    static let twoColumnMinWidth: CGFloat = 1000
+    static let stackedContentWidth: CGFloat = 760
+    /// 2/3 of this is ~773 pt — the width the single column has always had.
+    static let twoColumnContentWidth: CGFloat = 1160
+    static let twoColumnLeftFraction: Double = 2.0 / 3.0
+
+    /// The left column's width inside `available`, after the page's own
+    /// padding and the gutter between the columns. `nil` when stacked: there is
+    /// one column and it takes the whole width.
+    func leftColumnWidth(available: CGFloat, padding: CGFloat, gutter: CGFloat) -> CGFloat? {
+        guard isTwoColumn else { return nil }
+        let content = min(available, maxContentWidth) - padding * 2 - gutter
+        return max(0, content) * leftFraction
+    }
+}
+
+/// A width of zero arrives on a window's first layout pass; it stacks, because
+/// a two-column split of nothing would divide a zero.
+func sleepLayout(width: CGFloat) -> SleepLayout {
+    guard width >= SleepLayout.twoColumnMinWidth else {
+        return SleepLayout(isTwoColumn: false,
+                           maxContentWidth: SleepLayout.stackedContentWidth,
+                           leftFraction: 1.0)
+    }
+    return SleepLayout(isTwoColumn: true,
+                       maxContentWidth: SleepLayout.twoColumnContentWidth,
+                       leftFraction: SleepLayout.twoColumnLeftFraction)
+}
+
 // MARK: - Sleep Dashboard — the study desk (G125)
 
 struct SleepView: View {
@@ -61,25 +111,12 @@ struct SleepView: View {
             // bar and stretched the window to full screen height.
             CicadaTheme.background
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                    headerRow
-                    deskCard
-                    if let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty {
-                        errorBanner(error)
-                    }
-                    StudyListCard(rows: studyListRows, episodes: sleepVM.queuedEpisodes, onSelectEntity: onSelectEntity)
-                    ConsolidationHistoryCard(
-                        entries: sleepVM.history,
-                        details: sleepVM.details,
-                        expanded: sleepVM.expanded,
-                        onToggle: toggleHistory,
-                        onSelectEntity: onSelectEntity
-                    )
-                }
-                .padding(CicadaTheme.spacingXL)
-                .frame(maxWidth: 760)
-                .frame(maxWidth: .infinity, alignment: .top)
+            // The page asks its own width what arrangement it is in, once, and
+            // hands the answer down (`sleepLayout`). The GeometryReader wraps
+            // the ScrollView rather than sitting inside it: inside, it would
+            // measure the scroll content it is itself sizing.
+            GeometryReader { geo in
+                scrollContent(width: geo.size.width, layout: sleepLayout(width: geo.size.width))
             }
 
             // Top-right: just the `?` button now (R10 — the Sleep/Upload
@@ -136,6 +173,76 @@ struct SleepView: View {
                 reconcileTask = Task { @MainActor in await runReconcile() }
             }
         }
+    }
+
+    // MARK: Composition — two columns above 1000 pt, stacked below (Task 7)
+
+    /// The scrolling body. Two columns side by side when there is room; the
+    /// SAME two groups stacked when there is not, in the same order — a reflow
+    /// must never reorder what the reader was looking at.
+    private func scrollContent(width: CGFloat, layout: SleepLayout) -> some View {
+        let leftWidth = layout.leftColumnWidth(available: width,
+                                               padding: CicadaTheme.spacingXL,
+                                               gutter: CicadaTheme.spacingLG)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                headerRow
+                if layout.isTwoColumn {
+                    HStack(alignment: .top, spacing: CicadaTheme.spacingLG) {
+                        leftColumn.frame(width: leftWidth)
+                        rightColumn
+                    }
+                } else {
+                    leftColumn
+                    rightColumn
+                }
+            }
+            .padding(CicadaTheme.spacingXL)
+            .frame(maxWidth: layout.maxContentWidth)
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+    }
+
+    /// The page's subject: the room, what the cycle is doing, and what is
+    /// waiting for it. The error banner keeps its place between the two — it is
+    /// news about the cycle the desk card is describing.
+    @ViewBuilder
+    private var leftColumn: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            deskCard
+            if let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty {
+                errorBanner(error)
+            }
+            StudyListCard(rows: studyListRows, episodes: sleepVM.queuedEpisodes, onSelectEntity: onSelectEntity)
+        }
+    }
+
+    /// The page's margin: where memory came from, and what past cycles did with
+    /// it. Both are projections of domains the caller already holds — neither
+    /// card fetches anything (R-A10).
+    private var rightColumn: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            MemorySourcesCard(rows: memoryRows) { selectedTab = .sources }
+            ConsolidationHistoryCard(
+                entries: sleepVM.history,
+                details: sleepVM.details,
+                expanded: sleepVM.expanded,
+                onToggle: toggleHistory,
+                onSelectEntity: onSelectEntity
+            )
+        }
+    }
+
+    /// A projection of `store.sourcesOverview` — the SAME domain the hero's
+    /// "N sources feeding it" tile counts, read once more rather than fetched
+    /// again (R-A10: no new endpoint, no new freshness model).
+    ///
+    /// `Date()` is read here because the activity window has to start
+    /// somewhere; it moves once a day, which is the only granularity the UTC
+    /// day keys have. That is not the R8 clock-flicker case the speech bubble
+    /// forbids — nothing here changes between two renders a second apart.
+    private var memoryRows: [MemorySourceRow] {
+        memorySourceRows(overview: store.sourcesOverview.value ?? [], today: Date())
     }
 
     /// PR #19 round-4 review: a single `sleepVM.load()` was fired per live
