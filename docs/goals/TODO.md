@@ -172,7 +172,7 @@ engine-free read path on a late pass — fold in alongside the next `/state` tou
 · **G130 slice 1a+1b app-wide zoom (2026-09-05,
 PR #54, PR #TBD)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
 (⌘=/⌘−/⌘0, plus a ⌘⇧= key monitor), a Settings *General* tab with a text-size slider; the graph
-canvas keeps its own zoom (slice 2 stays open on a measured need); **slice 1b (2026-09-05, PR #TBD)**
+canvas keeps its own zoom (slice 2 stays open on a measured need); **slice 1b (2026-09-05, PR #58)**
 did the mechanical literal-font migration plus a source lint (`FontLiteralLintTests`) that keeps new
 ones out
 
