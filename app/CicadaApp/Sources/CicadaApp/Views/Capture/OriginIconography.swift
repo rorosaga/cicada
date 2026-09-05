@@ -17,6 +17,26 @@ import SwiftUI
 /// the `-saved`/`-bookmarks` forms) — and get their own, intentionally
 /// shorter labels since they aren't standing in for an existing behavior.
 enum OriginIconography {
+    /// Every origin id a writer stamps today, plus the defensive aliases. The
+    /// bundle test drives off this list, so the list and the switches cannot
+    /// drift — adding a case without adding it here is the bug (T1,
+    /// `OriginIconographyTests.testEveryDeclaredLogoExistsInTheBundle`), and
+    /// `LogoAssetTests`' T2 sweeps the same list in the other direction to
+    /// catch a bundled PNG nothing claims.
+    ///
+    /// Verified against the backend by
+    /// `grep -rhoE '"origin": *"[a-z0-9:_-]+"|origin *= *"[a-z0-9:_-]+"' api mcp --include='*.py'`
+    /// (quote the `--include`; zsh globs it otherwise) and against
+    /// `api/services/source_overview.py::CATALOG`'s `mark`/`origins` columns.
+    static let allKnownOrigins: [String] = [
+        "mcp", "claude-code", "claude-desktop", "cursor", "codex", "gemini-cli",
+        "claude-export", "chatgpt-export", "gemini-export",
+        "chrome-bookmark", "safari-bookmark", "safari-tab", "apple-notes",
+        "telegram", "rss", "calendar", "share-sheet", "bookmark", "saved-link",
+        "instagram-saved", "youtube-playlist", "pinterest", "reddit-saved", "reddit",
+        "x-bookmarks", "x", "linkedin-saved", "tiktok-saved", "tiktok-history", "unknown",
+    ]
+
     static func label(for origin: String) -> String {
         switch origin {
         // "mcp" is the legacy label, kept byte-for-byte so any existing
@@ -39,6 +59,10 @@ enum OriginIconography {
         case "telegram": "Telegram"
         case "claude-export": "Claude export"
         case "chatgpt-export": "ChatGPT export"
+        // The Gemini Takeout importer's origin (`conversations.py`). The
+        // backend has shipped a Sources card for it since G124 while the app
+        // had no case, so the card read "Gemini-export" under a generic tray.
+        case "gemini-export": "Gemini export"
         case "rss": "RSS"
         case "calendar": "Calendar"
         case "apple-notes": "Apple Notes"
@@ -52,11 +76,16 @@ enum OriginIconography {
         case "tiktok-saved": "TikTok Saved"
         case "tiktok-history": "TikTok History"
         case "bookmark": "Bookmark"
+        // The `files` row's own origin (`source_overview.CATALOG`): what
+        // `POST /sources/save` and `cicada_save_url`'s backend-down path
+        // stamp. It had no case at all, so it read as "Saved-link" — a
+        // `.capitalized` id, visibly not a product name.
+        case "saved-link": "Saved link"
         // G105: hook-driven harness capture. Product names, not ids — the
-        // Sleep queue's "Catching up on" block reads these aloud.
-        case "codex": "Codex"
-        case "claude-desktop": "Claude Desktop"
-        case "cursor": "Cursor"
+        // Sleep queue's "Catching up on" block reads these aloud. `codex`,
+        // `claude-desktop` and `cursor` belong to this group too and are
+        // spelled once, above: a second copy here was unreachable (Swift takes
+        // the first match) and told the next editor a lie about where to edit.
         case "gemini-cli": "Gemini CLI"
         case "unknown": "Unknown"
         // Defensive aliases only — see the type doc above.
@@ -72,7 +101,7 @@ enum OriginIconography {
         case "chrome-bookmark": "globe"
         case "safari-bookmark", "safari-tab": "safari"
         case "telegram": "paperplane.fill"
-        case "claude-export", "chatgpt-export": "square.and.arrow.down"
+        case "claude-export", "chatgpt-export", "gemini-export": "square.and.arrow.down"
         case "rss": "dot.radiowaves.up.forward"
         case "calendar": "calendar"
         case "apple-notes": "note.text"
@@ -86,8 +115,13 @@ enum OriginIconography {
         case "tiktok-saved": "music.note"
         case "tiktok-history": "clock.arrow.circlepath"
         case "bookmark": "bookmark.fill"
-        case "codex", "cursor", "gemini-cli": "terminal"
-        case "claude-desktop": "bubble.left.and.bubble.right"
+        case "saved-link": "link"
+        // `gemini-cli` ALONE: `codex`, `cursor` and `claude-desktop` are
+        // already matched by the first case above, so this case never answered
+        // `terminal` for them. `gemini-cli` is the one id here that is not
+        // shadowed, and `terminal` is its live answer — narrowing the case,
+        // not deleting it, is what keeps that true.
+        case "gemini-cli": "terminal"
         case "unknown": "questionmark.circle"
         default: "tray"
         }
@@ -112,19 +146,36 @@ enum OriginIconography {
         case "x-bookmarks", "x": Color(hex: 0x14171A)
         case "linkedin-saved": Color(hex: 0x0A66C2)
         case "tiktok-saved", "tiktok-history": Color(hex: 0xFE2C55)
-        case "codex", "cursor", "gemini-cli": CicadaTheme.textPrimary
-        case "claude-desktop": CicadaTheme.accent
+        // Google blue, the same swatch the Chrome row carries — same vendor,
+        // and this tint is only ever seen when the bundled mark is missing.
+        case "gemini-export": Color(hex: 0x4285F4)
+        // Matches `ConnectedChannelRow.tint(for: "files")`: `saved-link` is
+        // that row's origin, and R-L4's whole point is that one source is one
+        // picture wherever it is drawn.
+        case "saved-link": Color(hex: 0x8896FF)
+        // `gemini-cli` alone — see the same narrowing in `symbol` above.
+        case "gemini-cli": CicadaTheme.textPrimary
         case "unknown": CicadaTheme.textTertiary
         default: CicadaTheme.textSecondary
         }
     }
 
-    /// The bundled PNG under `Resources/logos/` for an origin, or nil when
-    /// there is none (ChatGPT, RSS, calendar, the browsers — which draw
-    /// their own glyph, `brandGlyph(for:)`). `mcp` shares Claude Code's mark:
-    /// it is the same harness under its legacy id. The map is exhaustive by
-    /// test (`OriginIconographyTests.testEveryDeclaredLogoExistsInTheBundle`),
-    /// so a typo here fails before it ships a blank mark.
+    /// The bundled PNG under `Resources/logos/` for an origin — the ONE id →
+    /// asset map (R-L4). `ConnectedChannelRow.logoName` delegates here through
+    /// `origin(forChannel:)`, and `source_overview.SourceSpec.mark` is already
+    /// an origin id, so the Sleep desk, the Sources grid, the `+` catalog and
+    /// Settings → Integrations cannot disagree about what a source looks like.
+    ///
+    /// `mcp` shares Claude Code's mark: it is the same harness under its
+    /// legacy id. Safari and Apple Notes are deliberately absent — R-L3
+    /// forbids redistributing Apple's marks, so they resolve through
+    /// `appBundleId` and then their own SF Symbol. Calendar is absent for a
+    /// different reason (R3): the only freely-licensed calendar mark is
+    /// *Google* Calendar and this origin is any ICS publisher.
+    ///
+    /// Exhaustive by test over `allKnownOrigins`
+    /// (`OriginIconographyTests.testEveryDeclaredLogoExistsInTheBundle`), so a
+    /// typo fails before it ships a blank mark.
     static func logoName(for origin: String) -> String? {
         switch origin {
         case "claude-code", "mcp": "claude-code"
@@ -132,6 +183,10 @@ enum OriginIconography {
         case "claude-export", "claude-desktop": "claude-desktop"
         case "cursor": "cursor"
         case "gemini-cli": "gemini-cli"
+        case "chatgpt-export": "chatgpt"
+        case "gemini-export": "gemini"
+        case "chrome-bookmark": "chrome"
+        case "rss": "rss"
         case "telegram": "telegram"
         case "pinterest": "pinterest"
         case "reddit-saved", "reddit": "reddit"
@@ -144,12 +199,22 @@ enum OriginIconography {
         }
     }
 
-    /// Drawn marks for the browsers (no brand asset is downloaded — R7 of
-    /// the Safari import track), same precedence `MemberMark` uses.
-    static func brandGlyph(for origin: String) -> BrandGlyph? {
+    /// The app installed on THIS Mac whose icon is this origin's mark (R-L1),
+    /// or nil when the origin is not a local app Cicada reads files from.
+    ///
+    /// Sound by construction: Cicada only offers a Chrome / Safari / Apple
+    /// Notes channel because it reads that app's own files off this Mac, so
+    /// the app is present and its icon is already on disk. This rung sits in
+    /// FRONT of the bundled PNG in `OriginMark` and `PlatformTile` — it can
+    /// never go stale when a vendor rebrands, and it is the only mark Safari
+    /// and Apple Notes will ever have (R2/R-L3 forbid committing Apple's).
+    /// The drawn glyphs this replaced were wrong on four axes for Chrome and
+    /// an invented tint for Safari.
+    static func appBundleId(for origin: String) -> String? {
         switch origin {
-        case "safari-bookmark", "safari-tab": .safari
-        case "chrome-bookmark": .chrome
+        case "safari-bookmark", "safari-tab": "com.apple.Safari"
+        case "chrome-bookmark": "com.google.Chrome"
+        case "apple-notes": "com.apple.Notes"
         default: nil
         }
     }

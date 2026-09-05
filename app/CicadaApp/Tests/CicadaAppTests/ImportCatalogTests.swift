@@ -178,29 +178,32 @@ final class ImportCatalogTests: XCTestCase {
         }
     }
 
-    /// Apple Notes, RSS, and Calendar have no single sensible brand mark and
-    /// deliberately kept their SF Symbol (Task 13 controller amendment) —
-    /// same for the non-platform rows (chat export's two vendors, a local
-    /// file pick, pasting a link). Safari and Chrome declare no PNG either:
-    /// their marks are drawn (R7 — `brandGlyph`, Task 4), so `logoName`
-    /// stays nil until the owner drops an official PNG in.
-    func testNonBrandedTilesDeclareNoLogo() {
-        for tile in [AddSourceTile.chatExport, .bookmarksFile, .pasteLink, .rssFeed,
-                     .calendar, .safari, .chrome, .appleNotes] {
+    /// Chat export (two vendors), a local file pick, a pasted link and the
+    /// calendar keep their SF Symbol — no single brand mark exists for any of
+    /// them (R3: the Commons calendar icon is *Google* Calendar, and this row
+    /// is any ICS publisher). Safari and Apple Notes are nil for a different
+    /// reason: R-L3 forbids redistributing Apple's marks, so they resolve
+    /// through `appBundleId` instead.
+    func testTilesWithNoSingleBrandMarkDeclareNoLogo() {
+        for tile in [AddSourceTile.chatExport, .bookmarksFile, .pasteLink, .calendar,
+                     .safari, .appleNotes] {
             XCTAssertNil(tile.logoName, tile.rawValue)
         }
+        XCTAssertEqual(AddSourceTile.chrome.logoName, "chrome")
+        XCTAssertEqual(AddSourceTile.rssFeed.logoName, "rss")
     }
 
-    // MARK: - Glyphs (R7, Task 4)
+    // MARK: - Installed app icons (R-L1, Track L)
 
-    /// A PNG and a drawn glyph are two ways of carrying the same brand mark;
-    /// a tile declaring both would leave `MemberMark` to pick one silently.
-    /// Exactly the two browsers draw theirs, and nothing else does.
-    func testAGlyphAndAPngAreNeverBothDeclared() {
-        for tile in AddSourceTile.allCases {
-            XCTAssertFalse(tile.logoName != nil && tile.brandGlyph != nil,
-                           "\(tile.rawValue) declares both a PNG and a drawn glyph")
-        }
-        XCTAssertEqual(AddSourceTile.allCases.filter { $0.brandGlyph != nil }, [.safari, .chrome])
+    /// R-L1 — the browsers and Apple Notes wear the installed app's icon in
+    /// the catalog too, so the `+` sheet, Integrations and the Sleep desk
+    /// cannot disagree about what Safari looks like. The MAP is asserted,
+    /// never the resolution: the suite must pass on a machine with no Chrome
+    /// (R6).
+    func testBrowserAndAppleTilesDeclareTheirBundleId() {
+        XCTAssertEqual(AddSourceTile.safari.appBundleId, "com.apple.Safari")
+        XCTAssertEqual(AddSourceTile.chrome.appBundleId, "com.google.Chrome")
+        XCTAssertEqual(AddSourceTile.appleNotes.appBundleId, "com.apple.Notes")
+        XCTAssertNil(AddSourceTile.telegram.appBundleId)
     }
 }

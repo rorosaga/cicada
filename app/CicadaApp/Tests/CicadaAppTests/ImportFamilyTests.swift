@@ -27,16 +27,13 @@ final class ImportFamilyTests: XCTestCase {
         XCTAssertEqual(ImportFamily.allCases.map(\.title), ["Browsers", "Websites & apps", "Chat exports", "Feeds & calendars", "Files"])
     }
 
-    /// R7 — no brand asset is downloaded for the browsers: Safari is Apple's
-    /// own SF Symbol, Chrome is a `Canvas` drawing. `logoName` stays nil so
-    /// `testEveryDeclaredLogoNameResolvesToABundledImage` keeps its meaning.
-    func testBrowserTilesCarryDrawnGlyphsNotDownloadedPNGs() {
-        XCTAssertEqual(AddSourceTile.safari.brandGlyph, .safari)
-        XCTAssertEqual(AddSourceTile.chrome.brandGlyph, .chrome)
-        XCTAssertNil(AddSourceTile.safari.logoName)
-        XCTAssertNil(AddSourceTile.chrome.logoName)
-        for tile in AddSourceTile.allCases where tile.brandGlyph == nil && tile.logoName == nil {
-            XCTAssertFalse(tile.icon.isEmpty, "\(tile.rawValue) has no mark at all")
+    /// R-L1 — no tile is markless: a PNG, an installed app's icon, or its own
+    /// SF Symbol. The drawn glyphs are gone (they were wrong on four axes for
+    /// Chrome and an invented tint for Safari).
+    func testEveryTileCarriesSomeMark() {
+        for tile in AddSourceTile.allCases {
+            XCTAssertTrue(tile.logoName != nil || tile.appBundleId != nil || !tile.icon.isEmpty,
+                          "\(tile.rawValue) has no mark at all")
         }
     }
 
@@ -46,10 +43,15 @@ final class ImportFamilyTests: XCTestCase {
         XCTAssertEqual(ImportFamily.chatExports.previewMarks, [.chatExport])
     }
 
-    /// A family whose members carry only SF Symbols (Files) still wears
-    /// marks — never an empty cluster on the top-level tile.
-    func testAnUnbrandedFamilyStillWearsItsMembersSymbols() {
-        XCTAssertEqual(ImportFamily.files.previewMarks, ImportFamily.files.members)
+    /// A family whose members carry no PNG and no installed-app icon still
+    /// wears marks — never an empty cluster on the top-level tile. Files
+    /// stopped being that family in Track L (R-L1 gave Apple Notes a bundle
+    /// id, so it is the family's one branded member); `chatExports` is, and
+    /// `testFamilyPreviewMarksAreItsFirstBrandedMembers` pins it. What is
+    /// asserted here is the shape every family must hold.
+    func testEveryFamilyWearsBetweenOneAndFourMarks() {
+        XCTAssertEqual(ImportFamily.files.previewMarks, [.appleNotes],
+                       "Apple Notes is the Files family's only branded member (R-L1)")
         for family in ImportFamily.allCases {
             XCTAssertFalse(family.previewMarks.isEmpty, family.rawValue)
             XCTAssertLessThanOrEqual(family.previewMarks.count, 4, family.rawValue)

@@ -496,6 +496,21 @@ size slider) alongside Agents, Plans & keys and Schedule. Slice 1b (PR #58) fini
 every literal `.font(.system(size:))` / `Font.system(size:)` in `Sources/` now goes through
 `CicadaTheme.font(size:...)`, and `FontLiteralLintTests` fails the build on a new one.
 
+**Brand marks (Track L).** One map, `OriginIconography.logoName(for:)`, and one precedence:
+**installed app icon → bundled PNG → SF Symbol**. Apple's marks are never committed (Safari and
+Apple Notes resolve through `NSWorkspace` by bundle id, then their own SF Symbol); every other mark
+is fetched once by a maintainer with `scripts/fetch-logos.sh`, declared in
+`Resources/logos/logos.manifest.json` (source, licence, trademark restriction, sha256) and
+attributed in `Resources/logos/LOGOS.md` — marks committed before the pipeline are declared
+`legacy` (12 of the 27): the script never fetches them, their sha256 is verified on every run, and
+their licence line records the commit that introduced them rather than an upstream grant. **No
+runtime network:** none of the three outbound gates is involved. A raster whose background IS the
+mark (`claude-code`, `claude-desktop`, `hermes`) is never recut — every surface that draws one
+clips it to its own curvature instead, and `LogoAssetTests` names them so a fourth cannot arrive
+unnoticed. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
+transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
+`LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
+
 **Video (Track V).** A saved video plays where the user already is — the Feed sheet, the entity
 Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — and the provider is
 derived from the URL at read time (`VideoRef.resolve`), never read out of the page, so a bank never

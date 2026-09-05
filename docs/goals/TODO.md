@@ -138,11 +138,10 @@ The queue there, in order: **G118 slice 2** (the provenance viewer) → **G93** 
 Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a
 build. Shipped 2026-09-05 and no longer queued: G125 (PR #55), G113 slices 3–7 (PR #59), G122 + the
 G126 page (Track C, PR #60), G129 slice 2 (bookmark deletions, PR #61), **G117** first-run onboarding
-(PR #62).
+(PR #62), and **Track L** — real brand marks, one id → mark map, `cicada` as a system contributor
+(PR #TBD, on `feat/real-marks`).
 
-**Small polish left behind by the 2026-09-05 tracks, none blocking:** Settings → Integrations draws
-the generic bubble symbol where `OriginMark` would show the logo (the mark pipeline is Track L's, so
-joining channel rows to it belongs with that row, not with a polish pass); the Settings sidebar
+**Small polish left behind by the 2026-09-05 tracks, none blocking:** the Settings sidebar
 cannot be driven by a synthetic `click at` (select its rows through the accessibility API); and a
 Sources card whose count comes from `channel_registry` (every row but `files`) still counts items
 its own page now hides — the archived/dropped/junk filter reached the item list and the `files`
