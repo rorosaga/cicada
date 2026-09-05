@@ -36,6 +36,7 @@ final class UsageFormatTests: XCTestCase {
     /// string passes through, a missing value is an em dash. `LooseValue.text`
     /// alone rendered "1284" and "—" inconsistently across the panel.
     func testHarnessValue() {
+        let en = Locale(identifier: "en_US")
         XCTAssertEqual(UsageFormat.harnessValue(nil), "—")
         XCTAssertEqual(UsageFormat.harnessValue(.null), "—")
         // Compared against `count`'s own output rather than a literal: the
@@ -43,5 +44,11 @@ final class UsageFormatTests: XCTestCase {
         // and since R-S17 that answer is the reader's locale, not "en_US".
         XCTAssertEqual(UsageFormat.harnessValue(.number(1284)), UsageFormat.count(1284))
         XCTAssertEqual(UsageFormat.harnessValue(.string("2026-01-04")), "2026-01-04")
+        // R-S17's "one formatter, one locale, no second door": `harnessValue`
+        // takes and FORWARDS the same defaulted `locale:`, so a harness tile
+        // can never be the one number on screen grouped a different way.
+        XCTAssertEqual(UsageFormat.harnessValue(.number(1284), locale: Locale(identifier: "de_DE")),
+                       "1.284")
+        XCTAssertEqual(UsageFormat.harnessValue(.number(1284), locale: en), "1,284")
     }
 }

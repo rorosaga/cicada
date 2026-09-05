@@ -208,16 +208,16 @@ private struct ContributorRow: View {
                     .font(CicadaTheme.headingFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Spacer()
-                Text("\(contributor.commitCount) commits")
+                Text("\(UsageFormat.count(contributor.commitCount)) commits")
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
 
             HStack(spacing: CicadaTheme.spacingMD) {
-                Text("\(contributor.entityCount) entities")
-                Text("\(contributor.fileCount) files")
+                Text("\(UsageFormat.count(contributor.entityCount)) entities")
+                Text("\(UsageFormat.count(contributor.fileCount)) files")
                 if !contributor.lastActive.isEmpty {
-                    Text("last \(contributor.lastActive)")
+                    Text("last \(contributor.lastActive)")  // count-lint:ok — a formatted date string, not a count
                 }
             }
             .font(CicadaTheme.captionFont)
@@ -309,7 +309,7 @@ private struct ContributorRow: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .lineLimit(1)
                 Spacer()
-                Text("\(commit.filesChanged) files")
+                Text("\(UsageFormat.count(commit.filesChanged)) files")
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                 FromConversationButton(sessionIds: commit.sessions)
@@ -354,7 +354,7 @@ private struct ContributorRow: View {
     /// "+N more" — a non-interactive sibling of `entityChip`, styled as muted
     /// so it doesn't read as a tappable entity.
     private func moreEntitiesCapsule(_ hidden: Int) -> some View {
-        Text("+\(hidden) more")
+        Text("+\(UsageFormat.count(hidden)) more")
             .font(CicadaTheme.font(size: 11))
             .lineLimit(1)
             .padding(.horizontal, 8)
@@ -362,7 +362,7 @@ private struct ContributorRow: View {
             .background(CicadaTheme.surfaceHover)
             .foregroundStyle(CicadaTheme.textTertiary)
             .clipShape(Capsule())
-            .help("\(hidden) more entity page(s) changed in this commit")
+            .help("\(UsageFormat.count(hidden)) more entity page(s) changed in this commit")
             .accessibilityLabel("\(hidden) more entities changed, not shown")
     }
 

@@ -45,10 +45,17 @@ enum UsageFormat {
     /// trims, a string passes through, nothing renders as an em dash. The
     /// panel used to interpolate `LooseValue.text` and `Int(_)` directly, so
     /// the same figure formatted differently in two tiles.
-    static func harnessValue(_ value: LooseValue?) -> String {
+    ///
+    /// R-S17 — the `locale:` is taken and FORWARDED rather than left to
+    /// `count`'s default. The default would give the same answer today, but a
+    /// caller that has already resolved a locale (a test asserting `es_ES` on a
+    /// US host, a view formatting a whole panel) must be able to reach every
+    /// number through one door. A formatter that swallows the parameter its
+    /// callee accepts is exactly the second door B1 was.
+    static func harnessValue(_ value: LooseValue?, locale: Locale = .autoupdatingCurrent) -> String {
         guard let value else { return "—" }
         if let n = value.number {
-            return n == n.rounded() ? count(Int(n)) : trim(n, digits: 2)
+            return n == n.rounded() ? count(Int(n), locale: locale) : trim(n, digits: 2)
         }
         return value.text
     }

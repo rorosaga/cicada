@@ -151,4 +151,54 @@ final class SourcesV2Tests: XCTestCase {
                                             locale: en),
                        "Nothing captured yet")
     }
+
+    // MARK: UsageFormat.count (R-S5/R-S17 — one formatter, the reader's locale)
+
+    /// B1 — three formatting conventions shared one window: the card grid said
+    /// "1,035 entities" (`UsageFormat.count` pinned `en_US_POSIX`) while
+    /// Contributors, eight inches below, said "1.035 files" (a
+    /// `LocalizedStringKey` interpolation, grouped in the VIEWER's locale).
+    /// Neither half was right: one was consistent and locale-wrong, the other
+    /// locale-right and inconsistent. One formatter, the viewer's locale,
+    /// everywhere — and an explicit parameter so both answers are assertable on
+    /// any host rather than asserting the tester's own Mac.
+    ///
+    /// **The second locale is `de_DE`, not the `es_ES` the ruling sketched, and
+    /// that is deliberate.** CLDR gives `es_ES` `minimumGroupingDigits = 2`, so
+    /// Spanish does not group a FOUR-digit number at all: `count(1927, es_ES)`
+    /// is "1927", and asserting "1.927" there fails against ICU, not against
+    /// this code. The defect R-S17 names is real — it is just German and French
+    /// readers who saw the wrong separator on a four-digit count, not Spanish
+    /// ones. Both rules are pinned below so the next reader does not "correct"
+    /// the surprising one back into a bug report.
+    func testCountFollowsTheViewersLocaleAndIsAssertableInBoth() {
+        XCTAssertEqual(UsageFormat.count(1927, locale: Locale(identifier: "en_US")), "1,927")
+        XCTAssertEqual(UsageFormat.count(1927, locale: Locale(identifier: "de_DE")), "1.927")
+        XCTAssertEqual(UsageFormat.count(0, locale: Locale(identifier: "en_US")), "0")
+        // es_ES: four digits ungrouped, seven digits grouped — the formatter
+        // follows the locale's own rule instead of imposing one.
+        XCTAssertEqual(UsageFormat.count(1927, locale: Locale(identifier: "es_ES")), "1927")
+        XCTAssertEqual(UsageFormat.count(1_284_000, locale: Locale(identifier: "es_ES")), "1.284.000")
+        // A card and a contributor row must produce the IDENTICAL string.
+        let card = SourceOverview(id: "x", label: "X", kind: .browser, items: 1927)
+        XCTAssertEqual(UsageFormat.count(card.headline!.count, locale: Locale(identifier: "de_DE")),
+                       UsageFormat.count(1927, locale: Locale(identifier: "de_DE")))
+    }
+
+    /// `IntegrationRowState.line` is a `parts.append("...")`, not a `Text("...")`,
+    /// so R-S18's needle cannot see it — this is the assertion that holds it
+    /// instead. Settings → Integrations composes the same count as the Sources
+    /// grid, and the two must group identically or B1 is back one tab over.
+    func testTheIntegrationsRowCountsInTheSameFormatterAsTheGrid() {
+        let channel = SourceChannel(id: "chrome-bookmarks", label: "Chrome bookmarks",
+                                    connected: true, count: 1927)
+        let de = Locale(identifier: "de_DE")
+        XCTAssertTrue(IntegrationRowState.line(channel, locale: de).contains("1.927 items"),
+                      "the Integrations row groups exactly as the grid does")
+        XCTAssertTrue(IntegrationRowState.line(channel, locale: de)
+                        .contains("\(UsageFormat.count(1927, locale: de)) items"))
+        let one = SourceChannel(id: "rss", label: "RSS", connected: true, count: 1)
+        XCTAssertTrue(IntegrationRowState.line(one, locale: de).contains("1 item"),
+                      "the singular keeps its noun singular")
+    }
 }
