@@ -126,7 +126,7 @@ afterwards — it is a half-written task the resumed agent redoes from scratch.
 Verify both suites yourself → `git merge --no-edit origin/dev` in the worktree and resolve conflicts
 (they are almost always `CLAUDE.md`, `TODO.md`, `memory-evolution.md`, and the telemetry kind tuples
 where two tracks each added a kind — take the **union**) → push → `gh pr create --base dev` →
-`gh pr merge --merge` → pull `dev` → replace `PR #55` in the docs → restart the backend
+`gh pr merge --merge` → pull `dev` → replace `PR #TBD` in the docs → restart the backend
 (`launchctl kickstart -k gui/$(id -u)/com.cicada.backend`) → `make dev` if Swift changed →
 `git worktree remove` → update the handoff.
 
