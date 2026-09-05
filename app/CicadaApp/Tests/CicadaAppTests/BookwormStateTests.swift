@@ -53,6 +53,18 @@ final class BookwormStateTests: XCTestCase {
         XCTAssertEqual(BookwormState.error.badgeCount, 0)
     }
 
+    /// G125 Task 5: `.reading` copy/identity — the badge/stage accessors
+    /// treat it like every other non-curious/non-sleeping case (0 for both),
+    /// and `spriteKey` falls to `caseName` alone (no baked count or stage).
+    func testReadingCopyAndIdentity() {
+        XCTAssertEqual(BookwormState.reading.title, "Reading")
+        XCTAssertEqual(BookwormState.reading.detail, "reading what's waiting")
+        XCTAssertEqual(BookwormState.reading.caseName, "reading")
+        XCTAssertEqual(BookwormState.reading.spriteKey, "reading")
+        XCTAssertEqual(BookwormState.reading.badgeCount, 0)
+        XCTAssertEqual(BookwormState.reading.stageNumber, 0)
+    }
+
     func testErrorFramesHaveRedPupilsAndMove() {
         let (frames, interval) = BookwormSprites.frames(for: .error)
         XCTAssertEqual(frames.count, 2)

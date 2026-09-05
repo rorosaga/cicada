@@ -17,6 +17,13 @@ enum BookwormState: Equatable {
     case curious(count: Int)
     /// No episode ingested in 48h (or never).
     case hungry
+    /// Shown on the Sleep page (never the menu bar — R2) while intake is
+    /// being consumed (an upload/import is in flight, `Store.intakeInFlight`)
+    /// or the queue is non-empty and Sleep is idle. `deriveSleepPageMood`
+    /// returns this where it used to return `.curious(count:)`;
+    /// `deriveBookwormState` (menu bar) is byte-for-byte unchanged and
+    /// `.curious` keeps meaning "inbox items" there (G125 R2).
+    case reading
     /// The last Sleep cycle failed (`/status.sleep.error` is set). Red pupils
     /// and a glitch frame. Outranks everything but a running cycle (R6): the
     /// Store stamps `justFinishedAt` on ANY running→idle edge, so without
@@ -32,6 +39,7 @@ enum BookwormState: Equatable {
         case .happy: "Happy"
         case .curious: "Curious"
         case .hungry: "Hungry"
+        case .reading: "Reading"
         case .error: "Error"
         }
     }
@@ -44,6 +52,7 @@ enum BookwormState: Equatable {
         case .digesting: "chewing on new memories…"
         case .curious(let n): "\(n) item\(n == 1 ? "" : "s") waiting"
         case .hungry: "no episodes in 48h"
+        case .reading: "reading what's waiting"
         case .error: "last sleep cycle failed"
         case .happy: "inbox clear"
         }
@@ -61,6 +70,7 @@ enum BookwormState: Equatable {
         case .happy: "happy"
         case .curious: "curious"
         case .hungry: "hungry"
+        case .reading: "reading"
         case .error: "error"
         }
     }

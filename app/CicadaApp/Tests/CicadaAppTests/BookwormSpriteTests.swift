@@ -11,10 +11,10 @@ final class BookwormSpriteTests: XCTestCase {
 
     /// Every state the renderer can be asked for, with both a one- and a
     /// two-digit count and both ends of the stage range. Task 2 appends
-    /// `.error` here.
+    /// `.error` here; Task 5 (G125) appends `.reading`.
     static var states: [BookwormState] {
         [.awake, .sleeping(stage: 1), .sleeping(stage: 5), .digesting, .happy,
-         .curious(count: 1), .curious(count: 47), .curious(count: 250), .hungry, .error]
+         .curious(count: 1), .curious(count: 47), .curious(count: 250), .hungry, .reading, .error]
     }
 
     private var allowed: Set<Character> {
@@ -65,7 +65,7 @@ final class BookwormSpriteTests: XCTestCase {
     func testGlassesRimIsIdenticalAcrossStates() {
         let rim = String(BookwormSprites.awakeBase[5].prefix(21))
         XCTAssertEqual(rim, "....obaaaaaaaaaaaaabo")
-        for state in [BookwormState.happy, .digesting, .hungry, .curious(count: 3), .sleeping(stage: 2)] {
+        for state in [BookwormState.happy, .digesting, .hungry, .curious(count: 3), .sleeping(stage: 2), .reading] {
             XCTAssertEqual(String(BookwormSprites.frames(for: state).frames[0][5].prefix(21)), rim, state.caseName)
         }
     }

@@ -33,7 +33,7 @@ enum BookwormPalette {
 }
 
 /// Code-defined 24×24 pixel bookworm — G107's "real art". One character,
-/// seven moods, every mood ≥ 2 frames so it is always moving (the owner's
+/// eight moods, every mood ≥ 2 frames so it is always moving (the owner's
 /// 2026-09-02 ask). Frames are COMPOSED from shared fragments (head top,
 /// glasses, mouth, body) plus small overlay glyphs, so the silhouette is
 /// identical across states by construction and the head/glasses row is
@@ -337,6 +337,27 @@ enum BookwormSprites {
                 merge(shift(hungryBase, dy: 1), glyph(drop, top: 5, left: 21)),
                 merge(shift(hungryBase, dy: 1), glyph(drop, top: 8, left: 21)),
             ], 0.7)
+        case .reading:
+            // An open book held low in front of the belly (rows 15–18, cols 8–16);
+            // the eyes track left, centre, right; the third frame flicks the
+            // right-hand page. Reduce Motion holding frame 0 is `BookwormView`'s
+            // OWN general rule (its doc comment cites "ruling R7" from the
+            // ORIGINAL 2026-09-02 mascot plan — a different plan's R7 than this
+            // one's; do not confuse it with G125 R7, "after imports"). Nothing
+            // state-specific needed here — it applies to every state already.
+            //
+            // `glyph` requires each row of `shape` to be the same width (a
+            // ragged row still renders, just non-rectangular) — both grids
+            // below are 9 columns per row:
+            let bookOpen  = ["aaaaaaaaa", "awwwawwwa", "awwwawwwa", "aaaaaaaaa"]
+            let bookFlick = ["aaaaaaaaa", "awwwaww.a", "awwwaw..a", "aaaaaaaaa"]
+            let base = compose(eyes(), mouthSmile)
+            return ([
+                merge(shiftRows(base, 6..<9, dx: -1), glyph(bookOpen, top: 15, left: 8)),
+                merge(base, glyph(bookOpen, top: 15, left: 8)),
+                merge(shiftRows(base, 6..<9, dx: 1), glyph(bookFlick, top: 15, left: 8)),
+                merge(base, glyph(bookOpen, top: 15, left: 8)),
+            ], 0.5)
         case .error:
             // Red pupils, flat mouth; the second frame is a one-cell tear
             // between glasses and body — a glitch, not a bob.

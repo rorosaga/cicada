@@ -343,7 +343,7 @@ extension MenuBarManager {
     /// Overlays are already baked into the frame (R2), so nothing is merged.
     static func debugRenderAllStates() -> [(String, NSImage)] {
         let states: [BookwormState] = [
-            .awake, .sleeping(stage: 3), .digesting, .happy, .curious(count: 7), .hungry, .error,
+            .awake, .sleeping(stage: 3), .digesting, .happy, .curious(count: 7), .hungry, .reading, .error,
         ]
         return states.map { st in
             (st.caseName, BookwormRenderer.image(grid: BookwormSprites.frames(for: st).frames[0], pointSize: spritePointSize))
