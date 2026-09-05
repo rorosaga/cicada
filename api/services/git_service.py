@@ -876,7 +876,6 @@ async def top_written_entities(memory_path: Path, *, limit: int = 10) -> tuple[l
 _MANIFEST_LINE_RE = re.compile(r"^(?P<path>[^:\s][^:]*?):\s+(?P<action>\w+)\s*\((?P<rest>.*)\)\s*$")
 _ENTITY_PATH_RE = re.compile(r"^entities/(?P<id>.+)\.md$")
 MAX_DETAIL_ENTITIES = 200
-HISTORY_LOG_MULTIPLIER = 3
 
 
 @dataclass
@@ -960,11 +959,18 @@ _history_cache: dict[tuple[str, str, int], list[SleepHistoryEntry]] = {}
 async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHistoryEntry]:
     """The last ``limit`` consolidations, newest first (G125 R4).
 
-    One ``git log -n limit*3`` with bodies, parsed HERE — the body never
-    leaves the process (the M1 lesson in the 2026-09-01 review: ``%b`` over
-    the wire grew this endpoint to 378 KB for eight commits). Cached per
-    ``(memory_path, HEAD, limit)`` so a Sleep page poll costs no subprocess
-    until HEAD moves. Durations are joined from the ledger (R5).
+    One ``git log -n <limit>`` filtered by git's own ``--grep`` (the two
+    subjects a consolidation can carry), with bodies parsed HERE — the body
+    never leaves the process (the M1 lesson in the 2026-09-01 review: ``%b``
+    over the wire grew this endpoint to 378 KB for eight commits). The
+    filter lives in git, not in a Python pass over a ``limit * k`` window:
+    measured on the live bank 2026-09-05, the top of history was a run of
+    State-snapshot / inbox / docs commits longer than ``limit * 3``, so
+    ``?limit=2`` answered ``[]`` while ``?limit=15`` found cycles — a bounded
+    window that is not a *matching* window is a wrong answer, not a cheap
+    one. ``-n`` now counts only matching commits, so the window is exact.
+    Cached per ``(memory_path, HEAD, limit)`` so a Sleep page poll costs no
+    subprocess until HEAD moves. Durations are joined from the ledger (R5).
     """
     from api.services import sleep_history, sync_service, telemetry
 
@@ -975,7 +981,8 @@ async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHis
         sep, rec = "\x1f", "\x1e"
         try:
             output = await _run_git(
-                memory_path, "log", f"-n{limit * HISTORY_LOG_MULTIPLIER}",
+                memory_path, "log", f"-n{limit}",
+                "--regexp-ignore-case", "--grep=^Sleep cycle", "--grep=^Inbox resolution",
                 f"--format=%H{sep}%ad{sep}%s{sep}%b{rec}", "--date=short",
             )
         except GitError:
