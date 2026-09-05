@@ -218,16 +218,23 @@ brief written from this table over fighting the cache.
    queued characters per source, the study list replacing the old queue card + debt breakdown, a
    server-parsed consolidation history with a per-cycle detail and telemetry-joined duration, and
    four schedule modes (manual · daily · every N hours · after imports). Open remainder, not this
-   row: the same toolbar audit on Graph/Clusters, and **G122** (engine/model picker).
-3. **G122 — engine and model picker on the Sleep page**, with Ollama guided as a first-class option.
-   *Why here:* the ladder exists and works (`CICADA_LLM_MODE=auto` → Claude Max), but choosing it
-   means editing `api/.env`. It is also step 1 of onboarding.
+   row: the same toolbar audit on Graph/Clusters. **G122** (engine/model picker) shipped separately,
+   below.
+3. ~~**G122 — engine and model picker on the Sleep page**, with Ollama guided as a first-class
+   option.~~ — **shipped 2026-09-05** on `feat/settings-redesign` (Track C, PR pending): the prefs-first
+   `GET/PUT /sleep/engine` ladder rung, the Sleep page's `EngineCard` (segmented picker over Claude
+   plan / Ollama / a key, Codex disabled), and both `preview.manual`/`preview.scheduled` lines shown
+   rather than hiding ruling 4. Codex as a selectable engine stays open under G49.
 4. **G117 — first-run onboarding**, including capturing the owner's identity so the owner entity
    renders as *Name (you)* and replaces the last hardcoded observer literal. *Why here:* release
-   blocker, and the owner plans a clean-install run to watch a new user's first hour.
-5. **G126 — Settings → Integrations by category.** The page over the existing channel registry
-   first, then adapters: YouTube subscriptions (Takeout, no key) → Strava (weekly aggregates only)
-   → Todoist/Reminders → Garmin/Apple Health exports.
+   blocker, and the owner plans a clean-install run to watch a new user's first hour. Reuses this
+   track's `EngineCard` (G122) and `IntegrationsView` (G126) as its steps 1 and 2.
+5. **G126 — Settings → Integrations by category.** ~~The page over the existing channel registry
+   first~~ — **page shipped 2026-09-05** on `feat/settings-redesign` (Track C, PR pending):
+   categorized, logo-first rows over `GET /sources/channels`, connect/disconnect via a
+   `ConnectorSetupPanel` popover, and a one-shot import still routed to the Feed's `+`. **Adapters
+   remain open**, in order: YouTube subscriptions (Takeout, no key) → Strava (weekly aggregates
+   only) → Todoist/Reminders → Garmin/Apple Health exports.
 6. **G118 slice 2 — the provenance viewer.** Slice 1 shipped (PR #44): claims carry verified spans
    and `GET /episodes/{id}/span` serves the passage. The viewer is the half the owner actually asked
    for: click a belief, see the conversation with the cited sentence highlighted. *Why not sooner:*
