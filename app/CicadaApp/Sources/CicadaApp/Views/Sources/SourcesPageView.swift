@@ -40,8 +40,12 @@ struct SourcesPageView: View {
                 }
                 ScrollView {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
-                        SourceCardGrid(rows: rows, hasLoaded: store.sourcesOverview.value != nil,
-                                       isRefreshing: store.sourcesOverview.isRefreshing) { route = .detail($0) }
+                        // R-S10: no `isRefreshing`. The grid never blanks —
+                        // it shows last-known-good through a refresh — so a
+                        // line that blinked on every SSE version bump was
+                        // motion nobody asked for.
+                        SourceCardGrid(rows: rows,
+                                       hasLoaded: store.sourcesOverview.value != nil) { route = .detail($0) }
                         sectionHeader("Contributors")
                         ContributorsSection()
                         if usageVM.mode == .advanced {
