@@ -25,6 +25,11 @@ struct CicadaApp: App {
     @State private var graphVM: GraphViewModel
     @State private var inboxVM: InboxViewModel
     @State private var sleepVM: SleepViewModel
+    /// G122: Settings → Sleep's engine-and-model picker. No `Store`
+    /// dependency (ruling 6 — a plain `APIClient` round trip, nothing else
+    /// observes this domain) — constructed bare, unlike every view model
+    /// above it.
+    @State private var sleepEngineVM = SleepEngineViewModel()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
@@ -83,6 +88,7 @@ struct CicadaApp: App {
                 .environment(graphVM)
                 .environment(inboxVM)
                 .environment(sleepVM)
+                .environment(sleepEngineVM)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)
@@ -216,6 +222,7 @@ struct CicadaApp: App {
             SettingsScene()
                 .environment(connectionsVM)
                 .environment(sleepVM)
+                .environment(sleepEngineVM)
                 .environment(store)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 // The `.id(colorSchemeRaw)` that used to be here is gone with
