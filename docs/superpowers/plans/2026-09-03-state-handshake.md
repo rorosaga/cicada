@@ -12,9 +12,9 @@
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake` (branch `feat/state-handshake`, based on `dev @ 076bb8c`). Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && …` with the absolute path (`zoxide` hijacks relative `cd`; ignore its stderr warning). No `grep --include=*.ext` (zsh globbing breaks it).
-- NEVER read `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`, `~/Library/Safari`, or `~/.claude/projects` — real personal data. Every fixture in this plan is synthetic (`alpha-project`, `bob-example`, `example.com`).
-- Python tests: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Full suite baseline: exactly 8 date-dependent failures in `test_calendar_registry.py` plus `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent, pre-existing). Everything else must be green after every task.
+- Work ONLY in `<worktree>/` (branch `feat/state-handshake`, based on `dev @ 076bb8c`). Every shell command is `cd <worktree>/ && …` with the absolute path (`zoxide` hijacks relative `cd`; ignore its stderr warning). No `grep --include=*.ext` (zsh globbing breaks it).
+- NEVER read `<repo>/memory` (any bank), `~/.cicada`, `~/Library/Safari`, or `~/.claude/projects` — real personal data. Every fixture in this plan is synthetic (`alpha-project`, `bob-example`, `example.com`).
+- Python tests: `cd <worktree>/ && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Full suite baseline: exactly 8 date-dependent failures in `test_calendar_registry.py` plus `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent, pre-existing). Everything else must be green after every task.
 - Never `git add -A`. Stage named files only. Never commit `memory/`, `logs/`, `.claude/settings.json`, `api/.venv`, `*-report.md`. No push, no new branches/worktrees, no subagents, ignore Devin/PR comments.
 - **Zero LLM anywhere in this track.** Nothing here imports `providers`, `agent_engine`, or `litellm`; a test in Task 1 monkeypatches `providers.resolve_llm_fn` to raise and runs the builder.
 - **Privacy rails.** `_state.md` carries ids, names already on entity pages, one-liners derived from entity bodies (`hub_builder._one_line_summary`), conversation titles (bank-internal), counts and enums — never claim text, never transcript content, never a secret (engine *model names* and connection *ids* only: no keys, no account emails). Repo probes are read-only `git` under a total 2 s budget. The telemetry `handshake` event is ids/enums only.
@@ -364,7 +364,7 @@ def test_next_run_at_moved_to_scheduler(tmp_path):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python -m pytest api/tests/test_state_dictionary.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_state_dictionary.py -q -p no:cacheprovider`
 Expected: FAIL — `ImportError: cannot import name 'state_dictionary'`.
 
 - [ ] **Step 3: Settings + scheduler**
@@ -877,13 +877,13 @@ def _sleep_for_tests(seconds: float) -> None:  # pragma: no cover - a test seam
 
 - [ ] **Step 5: Run the tests**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python -m pytest api/tests/test_state_dictionary.py api/tests/test_sleep_scheduler.py api/tests/test_healthz_memory_root.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_state_dictionary.py api/tests/test_sleep_scheduler.py api/tests/test_healthz_memory_root.py -q -p no:cacheprovider`
 Expected: all PASS. If `test_size_cap_trims_deterministically` finds the file already under the cap with 60 people, raise the person count in the fixture until the trim engages (the assertion is about the ORDER, and `projects == 2` proves projects survived).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && git add api/services/state_dictionary.py api/services/sleep_scheduler.py api/routers/status.py api/config.py api/tests/_synthetic_bank.py api/tests/test_state_dictionary.py && git commit -m "feat(state): _state.md live state dictionary — deterministic, bounded, zero-LLM (G53)"
+cd <worktree>/ && git add api/services/state_dictionary.py api/services/sleep_scheduler.py api/routers/status.py api/config.py api/tests/_synthetic_bank.py api/tests/test_state_dictionary.py && git commit -m "feat(state): _state.md live state dictionary — deterministic, bounded, zero-LLM (G53)"
 ```
 
 ---
@@ -1100,7 +1100,7 @@ def test_inbox_resolution_refreshes_the_state_best_effort(api_bank, monkeypatch)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python -m pytest api/tests/test_state_wiring.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_state_wiring.py -q -p no:cacheprovider`
 Expected: FAIL — `AttributeError: module 'api.services.sleep_cycle' has no attribute '_refresh_state_safely'` on the first test; the `/state` tests 404.
 
 - [ ] **Step 3: Sleep tail + `_finalize` split + trigger**
@@ -1300,7 +1300,7 @@ In `api/services/inbox_service.py` `resolve`, after the `await git_service.commi
 
 - [ ] **Step 6: Run the new tests, then every Sleep/provenance/inbox suite that inspects commits**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python -m pytest api/tests/test_state_wiring.py api/tests/test_state_dictionary.py api/tests/test_sleep_connector_poll.py api/tests/test_sleep_feed_poll.py api/tests/test_sleep_cycle_logo_warmup.py api/tests/test_sleep_engine_state.py api/tests/test_sleep_link_backfill.py api/tests/test_agent_provenance.py api/tests/test_sleep_control.py api/tests/test_sleep_resumable.py api/tests/test_inbox_resolve_claims.py api/tests/test_inbox_resolution_provenance.py api/tests/test_feedback_ledger.py api/tests/test_sync.py api/tests/test_auth.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_state_wiring.py api/tests/test_state_dictionary.py api/tests/test_sleep_connector_poll.py api/tests/test_sleep_feed_poll.py api/tests/test_sleep_cycle_logo_warmup.py api/tests/test_sleep_engine_state.py api/tests/test_sleep_link_backfill.py api/tests/test_agent_provenance.py api/tests/test_sleep_control.py api/tests/test_sleep_resumable.py api/tests/test_inbox_resolve_claims.py api/tests/test_inbox_resolution_provenance.py api/tests/test_feedback_ledger.py api/tests/test_sync.py api/tests/test_auth.py -q -p no:cacheprovider`
 Expected: all PASS except the one pre-existing order-dependent `test_agent_provenance` failure (confirm it fails identically on `git stash`; it must not be a new failure). Exactly two existing tests assert an EXACT commit count after a full `sleep_cycle.run` on a real-git bank and now see one extra `State snapshot` commit — the intended behaviour change; update these two (and only these) and say so in the commit body:
 - `api/tests/test_sleep_control.py:173` (a cancelled cycle): `== 1` → `== 2`, and add `assert _git(memory, "log", "-1", "--format=%s").startswith("State snapshot ")` — the tree stays clean because `commit_paths` stages only the projection, so the `status --porcelain` assertion above it is unchanged.
 - `api/tests/test_sleep_connector_poll.py:240-241`: `== 3` → `== 4` (message: `seed + Sleep cycle + State snapshot + Sources ingest`) and unpack `_seed_hash, sleep_hash, _state_hash, sources_hash = hashes` — the snapshot lands between the Sleep commit and the connector's because the tail refreshes FIRST (R2); the later `sleep_message`/`sources_message` assertions are untouched.
@@ -1309,7 +1309,7 @@ Expected: all PASS except the one pre-existing order-dependent `test_agent_prove
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && git add api/services/sleep_cycle.py api/routers/state.py api/main.py api/services/inbox_service.py api/tests/test_state_wiring.py && git commit -m "feat(state): Sleep tail regenerates+commits _state.md as cicada, _finalize split, GET /state with lazy refresh (G53)"
+cd <worktree>/ && git add api/services/sleep_cycle.py api/routers/state.py api/main.py api/services/inbox_service.py api/tests/test_state_wiring.py && git commit -m "feat(state): Sleep tail regenerates+commits _state.md as cicada, _finalize split, GET /state with lazy refresh (G53)"
 ```
 
 ---
@@ -1502,7 +1502,7 @@ def test_get_handshake_route(api_bank):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python -m pytest api/tests/test_handshake.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_handshake.py -q -p no:cacheprovider`
 Expected: FAIL — `ImportError: cannot import name 'handshake'`.
 
 - [ ] **Step 3: Telemetry kind**
@@ -1789,13 +1789,13 @@ async def get_handshake(
 
 - [ ] **Step 5: Run the tests**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python -m pytest api/tests/test_handshake.py api/tests/test_state_wiring.py api/tests/test_telemetry.py api/tests/test_consumption_stats.py api/tests/test_consumption_api.py api/tests/test_feedback_ledger.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_handshake.py api/tests/test_state_wiring.py api/tests/test_telemetry.py api/tests/test_consumption_stats.py api/tests/test_consumption_api.py api/tests/test_feedback_ledger.py -q -p no:cacheprovider`
 Expected: all PASS. If `test_build_carries_contract_state_and_capabilities` fails the ≤ 1,800-token check, shorten `_WHAT`/`_CAPABILITIES` copy — never the G115 paragraph, which is verbatim by ruling.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && git add api/services/handshake.py api/services/telemetry.py api/services/consumption_stats.py api/routers/state.py api/tests/test_handshake.py && git commit -m "feat(handshake): generated primer from _state.md + the contract, GET /handshake, handshake ledger kind (G75)"
+cd <worktree>/ && git add api/services/handshake.py api/services/telemetry.py api/services/consumption_stats.py api/routers/state.py api/tests/test_handshake.py && git commit -m "feat(handshake): generated primer from _state.md + the contract, GET /handshake, handshake ledger kind (G75)"
 ```
 
 ---
@@ -1922,7 +1922,7 @@ def test_check_nudges_accepts_entity_ids(server, bank):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python -m pytest api/tests/test_mcp_handshake.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_mcp_handshake.py -q -p no:cacheprovider`
 Expected: FAIL — `AttributeError: module has no attribute 'initialize_result'`.
 
 - [ ] **Step 3: Implement**
@@ -2044,20 +2044,20 @@ In `handle_recall` (`:864-870`), replace the two hint lines with:
 
 - [ ] **Step 4: Run the MCP suites**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python -m pytest api/tests/test_mcp_handshake.py api/tests/test_mcp_inbox_questions.py api/tests/test_mcp_tool_descriptions.py api/tests/test_mcp_recall_fusion.py api/tests/test_mcp_recall_episode_fallback.py api/tests/test_mcp_sources_tool.py api/tests/test_mcp_perspective.py api/tests/test_session_identity.py api/tests/test_evidence_agent_writes.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_mcp_handshake.py api/tests/test_mcp_inbox_questions.py api/tests/test_mcp_tool_descriptions.py api/tests/test_mcp_recall_fusion.py api/tests/test_mcp_recall_episode_fallback.py api/tests/test_mcp_sources_tool.py api/tests/test_mcp_perspective.py api/tests/test_session_identity.py api/tests/test_evidence_agent_writes.py -q -p no:cacheprovider`
 Expected: all PASS. `test_mcp_recall_fusion` asserts on the hints JSON — a `state` key is additive; if a test compares the whole payload for equality, its bank has no `_state.md`, so `state` is absent and the comparison still holds.
 
 - [ ] **Step 5: Smoke the real stdio loop once (no bank read: an empty tmp bank)**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && mkdir -p "$TMPDIR/cicada-hs-smoke/entities" && CICADA_MEMORY_PATH="$TMPDIR/cicada-hs-smoke" CICADA_HOME="$TMPDIR/cicada-hs-home" CICADA_TELEMETRY=off printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}' | api/.venv/bin/python mcp/server.py | api/.venv/bin/python -c "import json,sys; r=json.loads(sys.stdin.readline())['result']; assert r['instructions'].startswith('# Cicada'), r; print('instructions ok', len(r['instructions'])//4, 'tokens')"
+cd <worktree>/ && mkdir -p "$TMPDIR/cicada-hs-smoke/entities" && CICADA_MEMORY_PATH="$TMPDIR/cicada-hs-smoke" CICADA_HOME="$TMPDIR/cicada-hs-home" CICADA_TELEMETRY=off printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}' | api/.venv/bin/python mcp/server.py | api/.venv/bin/python -c "import json,sys; r=json.loads(sys.stdin.readline())['result']; assert r['instructions'].startswith('# Cicada'), r; print('instructions ok', len(r['instructions'])//4, 'tokens')"
 ```
 Expected: `instructions ok <n> tokens` with `n ≤ 1800`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && git add mcp/server.py api/tests/test_mcp_handshake.py && git commit -m "feat(mcp): initialize returns instructions, cicada_handshake tool, one-shot state cursor in recall hints, entity_ids on check_nudges (G75)"
+cd <worktree>/ && git add mcp/server.py api/tests/test_mcp_handshake.py && git commit -m "feat(mcp): initialize returns instructions, cicada_handshake tool, one-shot state cursor in recall hints, entity_ids on check_nudges (G75)"
 ```
 
 ---
@@ -2129,7 +2129,7 @@ GET  /handshake?client=                   → {text, variant, state_present, hoo
 - [ ] **Step 2: Backlog rows**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python - <<'PY'
+cd <worktree>/ && api/.venv/bin/python - <<'PY'
 from pathlib import Path
 p = Path("docs/goals/memory-evolution.md")
 s = p.read_text()
@@ -2181,13 +2181,13 @@ Keep the rest (two-pass recall, grounding, hubs, saving, never hand-edit, layout
 
 - [ ] **Step 5: Verify the privacy rule and the pointers**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && grep -rn "rorosaga\|/Users/" api/services/state_dictionary.py api/services/handshake.py api/routers/state.py api/tests/test_state_dictionary.py api/tests/test_state_wiring.py api/tests/test_handshake.py api/tests/test_mcp_handshake.py SKILL.md; grep -n "cicada_handshake" SKILL.md skills/cicada-librarian/SKILL.md CLAUDE.md | head`
+Run: `cd <worktree>/ && grep -rn "rorosaga\|/Users/" api/services/state_dictionary.py api/services/handshake.py api/routers/state.py api/tests/test_state_dictionary.py api/tests/test_state_wiring.py api/tests/test_handshake.py api/tests/test_mcp_handshake.py SKILL.md; grep -n "cicada_handshake" SKILL.md skills/cicada-librarian/SKILL.md CLAUDE.md | head`
 Expected: the first grep prints nothing; the second prints at least one hit per file.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md SKILL.md skills/cicada-librarian/SKILL.md && git commit -m "docs(G53/G75): live state + handshake section, rows shipped, TODO handoff, SKILL.md points at the generated contract"
+cd <worktree>/ && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md SKILL.md skills/cicada-librarian/SKILL.md && git commit -m "docs(G53/G75): live state + handshake section, rows shipped, TODO handoff, SKILL.md points at the generated contract"
 ```
 
 ---
@@ -2204,24 +2204,24 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && git add CL
 ## Verification (the orchestrator runs this at the end)
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && git status --porcelain -uall
+cd <worktree>/ && git status --porcelain -uall
 # expect: nothing tracked-and-dirty; only the pre-existing untracked api/.venv symlink (never staged)
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && git log --oneline dev..HEAD
+cd <worktree>/ && git log --oneline dev..HEAD
 # expect: exactly 5 commits, Task 1 → Task 5
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15
 # expect: only the 8 date-dependent test_calendar_registry.py failures plus
 # test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit (order-dependent, pre-existing);
 # everything else green, including the four new files (test_state_dictionary, test_state_wiring, test_handshake, test_mcp_handshake)
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && api/.venv/bin/python -m pytest api/tests/test_state_dictionary.py api/tests/test_state_wiring.py api/tests/test_handshake.py api/tests/test_mcp_handshake.py -q -p no:cacheprovider
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_state_dictionary.py api/tests/test_state_wiring.py api/tests/test_handshake.py api/tests/test_mcp_handshake.py -q -p no:cacheprovider
 # expect: all pass, twice in a row (determinism), under ~20 s
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && grep -rn "resolve_llm_fn\|litellm\|agent_engine" api/services/state_dictionary.py api/services/handshake.py api/routers/state.py
+cd <worktree>/ && grep -rn "resolve_llm_fn\|litellm\|agent_engine" api/services/state_dictionary.py api/services/handshake.py api/routers/state.py
 # expect: no output — zero LLM in the track
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/handshake && git diff dev..HEAD --stat -- app/ memory/ .claude/ | cat
+cd <worktree>/ && git diff dev..HEAD --stat -- app/ memory/ .claude/ | cat
 # expect: empty — no Swift, no bank, no settings touched
 
 # MCP stdio smoke (Task 4 Step 5) — instructions present and ≤ 1800 tokens on an empty tmp bank.

@@ -172,12 +172,12 @@ in Global Constraints below), `docs/superpowers/plans/2026-09-02-g113-feedback-l
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions` (branch
+- Work ONLY in `<worktree>/` (branch
   `feat/bookmark-deletions`, based on `dev` @ `9149781`). Every shell command is
-  `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && <cmd>` with
+  `cd <worktree>/ && <cmd>` with
   absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never an unquoted
   `--include=*.ext` (zsh globbing) — quote it or use `rg`.
-- NEVER read `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`,
+- NEVER read `<repo>/memory` (any bank), `~/.cicada`,
   `~/Library`, or `~/.claude/projects`. Fixtures are synthetic: `example.com`/`example.org` URLs,
   `bob-example`/`alpha-project`-style entity ids.
 - Python: `api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`; full `api/tests` must be
@@ -552,7 +552,7 @@ def test_read_seen_corrupt_file_degrades_to_empty(tmp_path: Path):
 
 - [ ] **Step 3: Run to verify green (this is a new module — nothing to fail-then-fix, but confirm no import errors)**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && api/.venv/bin/python -m pytest api/tests/test_bookmark_seen.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_bookmark_seen.py -q -p no:cacheprovider`
 Expected: 8 passed.
 
 - [ ] **Step 4: Wire `sync_bookmarks` — read the module docstring + `sync_bookmarks` (`api/services/bookmark_sync.py`) before editing.** Add imports:
@@ -718,7 +718,7 @@ docstring's language — don't restate it differently).
 
 - [ ] **Step 8: Run the full existing file to confirm nothing else broke**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && api/.venv/bin/python -m pytest api/tests/test_bookmark_sync.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_bookmark_sync.py -q -p no:cacheprovider`
 Expected: all passing (same count as before, plus the 3 fixed assertions still pass).
 
 - [ ] **Step 9: Add the new integration tests to `api/tests/test_bookmark_sync.py`** — append at the
@@ -832,16 +832,16 @@ Add `from api.services import markdown_parser` to the test file's imports (not y
 
 - [ ] **Step 10: Run the full file, then the full suite**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && api/.venv/bin/python -m pytest api/tests/test_bookmark_sync.py api/tests/test_bookmark_seen.py api/tests/test_backfill_bookmark_origins.py api/tests/test_bookmarks_safari.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_bookmark_sync.py api/tests/test_bookmark_seen.py api/tests/test_backfill_bookmark_origins.py api/tests/test_bookmarks_safari.py -q -p no:cacheprovider`
 Expected: all passing.
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider`
 Expected: 0 failures beyond the disclosed baseline (8 pre-existing `test_calendar*` failures per
 `working-method.md`; report the exact count).
 
 - [ ] **Step 11: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && git add api/services/bookmark_seen.py api/services/bookmark_sync.py api/tests/test_bookmark_seen.py api/tests/test_bookmark_sync.py && git commit -m "feat(bookmarks): a removed URL proposes keep/remove, never re-asked once gone (G129 slice 2 part 1)"
+cd <worktree>/ && git add api/services/bookmark_seen.py api/services/bookmark_sync.py api/tests/test_bookmark_seen.py api/tests/test_bookmark_sync.py && git commit -m "feat(bookmarks): a removed URL proposes keep/remove, never re-asked once gone (G129 slice 2 part 1)"
 ```
 
 ---
@@ -1048,7 +1048,7 @@ def test_removal_hint_passes_through_when_saved_elsewhere(tmp_path):
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && api/.venv/bin/python -m pytest api/tests/test_inbox_removal.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_inbox_removal.py -q -p no:cacheprovider`
 Expected: FAIL — `ValueError: 'removal' is not a valid InboxKind`.
 
 - [ ] **Step 3: Schema — `api/models/schemas.py`**
@@ -1241,14 +1241,14 @@ def test_resolve_inbox_posts_removal_keys_unchanged(server, monkeypatch):
 
 - [ ] **Step 11: Run**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && api/.venv/bin/python -m pytest api/tests/test_inbox_removal.py api/tests/test_mcp_inbox_questions.py api/tests/test_inbox_divergence_normalization.py api/tests/test_inbox_resolve_claims.py api/tests/test_claim_inbox.py api/tests/test_inbox_questions.py api/tests/test_feedback_ledger.py api/tests/test_inbox_context.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_inbox_removal.py api/tests/test_mcp_inbox_questions.py api/tests/test_inbox_divergence_normalization.py api/tests/test_inbox_resolve_claims.py api/tests/test_claim_inbox.py api/tests/test_inbox_questions.py api/tests/test_feedback_ledger.py api/tests/test_inbox_context.py -q -p no:cacheprovider`
 Expected: all passing.
 Run the full suite as in Task 1 Step 10.
 
 - [ ] **Step 12: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && git add api/models/schemas.py api/services/inbox_service.py api/services/inbox_context.py api/tests/test_inbox_removal.py api/tests/test_mcp_inbox_questions.py && git commit -m "feat(inbox): removal is a resolvable kind — keep or archive, never delete (G129 slice 2 part 2)"
+cd <worktree>/ && git add api/models/schemas.py api/services/inbox_service.py api/services/inbox_context.py api/tests/test_inbox_removal.py api/tests/test_mcp_inbox_questions.py && git commit -m "feat(inbox): removal is a resolvable kind — keep or archive, never delete (G129 slice 2 part 2)"
 ```
 
 ---
@@ -1452,7 +1452,7 @@ final class InboxRemovalTests: XCTestCase {
 
 - [ ] **Step 8: Build + test**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions/app/CicadaApp && swift build 2>&1 | tail -5`
+Run: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5`
 Expected: success. (If it fails on the two exhaustive `inboxColor` switches, you missed a case — the
 compiler names the exact switch.)
 Run: `swift test 2>&1 | tail -30`
@@ -1461,7 +1461,7 @@ Expected: 0 failures, including the new `InboxKindDecodingTests`/`InboxRemovalTe
 - [ ] **Step 9: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && git add app/CicadaApp/Sources/CicadaApp/Models/InboxItem.swift app/CicadaApp/Sources/CicadaApp/Theme/CicadaTheme.swift app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxListView.swift app/CicadaApp/Tests/CicadaAppTests/InboxKindDecodingTests.swift app/CicadaApp/Tests/CicadaAppTests/InboxRemovalTests.swift && git commit -m "feat(inbox): removal kind on Swift, plus a forward-compat fallback for future kinds (G129 slice 2 part 3)"
+cd <worktree>/ && git add app/CicadaApp/Sources/CicadaApp/Models/InboxItem.swift app/CicadaApp/Sources/CicadaApp/Theme/CicadaTheme.swift app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxListView.swift app/CicadaApp/Tests/CicadaAppTests/InboxKindDecodingTests.swift app/CicadaApp/Tests/CicadaAppTests/InboxRemovalTests.swift && git commit -m "feat(inbox): removal kind on Swift, plus a forward-compat fallback for future kinds (G129 slice 2 part 3)"
 ```
 
 ---
@@ -1621,14 +1621,14 @@ maintain here.
 
 - [ ] **Step 6: Build + test**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions/app/CicadaApp && swift build 2>&1 | tail -5`
+Run: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5`
 Run: `swift test 2>&1 | tail -30`
 Expected: 0 failures.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && git add app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/Models/BrowserImport.swift app/CicadaApp/Sources/CicadaApp/Sync/Mutations.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/ChannelSourceView.swift app/CicadaApp/Tests/CicadaAppTests/BrowserImportModelTests.swift && git commit -m "feat(sources): a browser's page shows its own pending removals (G129 slice 2 part 4)"
+cd <worktree>/ && git add app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/Models/BrowserImport.swift app/CicadaApp/Sources/CicadaApp/Sync/Mutations.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/ChannelSourceView.swift app/CicadaApp/Tests/CicadaAppTests/BrowserImportModelTests.swift && git commit -m "feat(sources): a browser's page shows its own pending removals (G129 slice 2 part 4)"
 ```
 
 ---
@@ -1723,14 +1723,14 @@ expect no hits beyond `example.com`/`example.org` and the repo's own path.
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && git add docs/goals/memory-evolution.md docs/goals/TODO.md docs/goals/working-method.md CLAUDE.md && git commit -m "docs(G129): slice 2 shipped — removal proposals, Deletions subsection, queue advanced"
+cd <worktree>/ && git add docs/goals/memory-evolution.md docs/goals/TODO.md docs/goals/working-method.md CLAUDE.md && git commit -m "docs(G129): slice 2 shipped — removal proposals, Deletions subsection, queue advanced"
 ```
 
 ---
 
 ## Verification (run at the end, by the orchestrator)
 
-1. Full Python suite: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/bookmark-deletions && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider`. Expect 0 failures beyond the
+1. Full Python suite: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider`. Expect 0 failures beyond the
    disclosed 8 pre-existing `test_calendar*`/`test_sources_calendars*` failures. If
    `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` is
    the ONLY other red, re-run it alone (`-k

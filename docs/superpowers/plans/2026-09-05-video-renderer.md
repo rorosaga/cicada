@@ -44,8 +44,8 @@
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video` (branch `feat/video-renderer`, based on `dev` @ `53885a1`). Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video && <cmd>` with absolute paths (zoxide hijacks relative `cd`; ignore its stderr warning). Never an unquoted `--include=*.ext` (zsh globbing breaks it) — quote it or use `rg`.
-- NEVER read `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`, `~/Library` or `~/.claude/projects`. Every fixture URL in this plan is synthetic: `example.com`, `file:///Users/example/...`, ids like `vid00000001`.
+- Work ONLY in `<worktree>/` (branch `feat/video-renderer`, based on `dev` @ `53885a1`). Every shell command is `cd <worktree>/ && <cmd>` with absolute paths (zoxide hijacks relative `cd`; ignore its stderr warning). Never an unquoted `--include=*.ext` (zsh globbing breaks it) — quote it or use `rg`.
+- NEVER read `<repo>/memory` (any bank), `~/.cicada`, `~/Library` or `~/.claude/projects`. Every fixture URL in this plan is synthetic: `example.com`, `file:///Users/example/...`, ids like `vid00000001`.
 - Python: `api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`; the full suite `api/tests` must report **0 failures** (2119 passed on 2026-09-05). `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` is order-dependent and pre-existing — if it is the ONLY red, re-run it alone and report both results.
 - Swift: `cd app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report **0 failures** (SourceKit diagnostics naming OTHER worktrees are noise). NEVER run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live; the orchestrator installs at the end.
 - Never `git add -A`; stage named files. Never commit `memory/`, `logs/`, `.claude/`, `api/.venv`, or `*-report.md`. No push, no new branches/worktrees, no subagents. Ignore Devin/PR comments.
@@ -271,7 +271,7 @@ def test_is_direct_file_agrees_with_resolve():
         assert video_urls.is_direct_file(case["url"]) is expected, case["url"]
 ```
 
-Run it: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video && api/.venv/bin/python -m pytest api/tests/test_video_urls.py -q -p no:cacheprovider` → collection error (no module). That is the red.
+Run it: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_video_urls.py -q -p no:cacheprovider` → collection error (no module). That is the red.
 
 - [ ] **Step 3: `api/services/video_urls.py`.**
 
@@ -609,8 +609,8 @@ final class VideoRefTests: XCTestCase {
 - [ ] **Step 6: green + commit.**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video && api/.venv/bin/python -m pytest api/tests/test_video_urls.py -q -p no:cacheprovider
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video/app/CicadaApp && swift build 2>&1 | tail -5 && swift test --filter VideoRefTests 2>&1 | tail -20
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_video_urls.py -q -p no:cacheprovider
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test --filter VideoRefTests 2>&1 | tail -20
 ```
 
 Commit (stage named files only):
@@ -829,7 +829,7 @@ struct AVPlayerSurface: NSViewRepresentable {
 - [ ] **Step 4: green + commit.**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video/app/CicadaApp && swift build 2>&1 | tail -5 && swift test --filter "VideoPlayerTests|AVImportLintTests" 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test --filter "VideoPlayerTests|AVImportLintTests" 2>&1 | tail -20
 ```
 
 ```
@@ -997,8 +997,8 @@ final class MediaPreviewKindTests: XCTestCase {
 - [ ] **Step 6: green + commit.**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video && grep -rn "youtubeEmbedURL\|youtubeHeroEmbedURL\|youtubeID" app/CicadaApp/Sources || echo "no survivors"
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
+cd <worktree>/ && grep -rn "youtubeEmbedURL\|youtubeHeroEmbedURL\|youtubeID" app/CicadaApp/Sources || echo "no survivors"
 ```
 
 ```
@@ -1139,7 +1139,7 @@ enum FeedPreviewLayout {
 - [ ] **Step 6: green + commit.**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
 ```
 
 ```
@@ -1548,8 +1548,8 @@ async def _enrich_oembed(provider: str, url: str, client, fallback: MediaMeta) -
 - [ ] **Step 3: green.**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video && api/.venv/bin/python -m pytest api/tests/test_video_enrichment.py api/tests/test_video_urls.py api/tests/test_sources.py api/tests/test_entity_media.py api/tests/test_link_enrichment.py -q -p no:cacheprovider
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_video_enrichment.py api/tests/test_video_urls.py api/tests/test_sources.py api/tests/test_entity_media.py api/tests/test_link_enrichment.py -q -p no:cacheprovider
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider
 ```
 
 Full suite must be 0 failures (2119 + the new cases). Commit:
@@ -1614,11 +1614,11 @@ docs: in-app video — the G11 preview half, the ToS lines, the queued follow-up
 
 ## Verification the orchestrator runs
 
-1. `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` → **0 failures** (baseline 2119 passed). If `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` is the only red, re-run it alone and report both results.
-2. `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20` → build succeeds, **0 failures**.
+1. `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` → **0 failures** (baseline 2119 passed). If `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` is the only red, re-run it alone and report both results.
+2. `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20` → build succeeds, **0 failures**.
 3. Drift check — the fixture is the contract:
-   `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video && api/.venv/bin/python -m pytest api/tests/test_video_urls.py -q -p no:cacheprovider && cd app/CicadaApp && swift test --filter VideoRefTests 2>&1 | tail -5` → both green over the same file.
-4. Seam check: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/video && rg -n "import AVKit|import AVFoundation" app/CicadaApp/Sources` → exactly two files (`AVPlaybackController.swift`, `WalkthroughPanel.swift`).
+   `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_video_urls.py -q -p no:cacheprovider && cd app/CicadaApp && swift test --filter VideoRefTests 2>&1 | tail -5` → both green over the same file.
+4. Seam check: `cd <worktree>/ && rg -n "import AVKit|import AVFoundation" app/CicadaApp/Sources` → exactly two files (`AVPlaybackController.swift`, `WalkthroughPanel.swift`).
 5. On the live app (the orchestrator installs at the end): save a YouTube link, a Vimeo link and a direct `.mp4`; each plays in the Feed sheet **and** in the entity hero, and the Feed row shows a play badge. A YouTube `/live/` URL and a playlist URL now play where they previously opened the browser. On the entity page, confirm the known double surface (`MediaPreview` card + hero, `EntityDetailCard.swift:333` and `:841`) renders **two paused players, neither starting on its own** — the disclosed consequence in Task 4 Step 2, not a regression to fix here.
 6. Save a `file:///…/clip.mov` that exists → it plays inline with transport controls and **space toggles play**; then save a `file://` path that does not exist → the card names the path and offers Reveal in Finder, **never a black rectangle**.
 7. Codec reality check (the manual half of R8, stated rather than mocked): the `.mp4` and the local `.mov` actually decode and show a picture. A green unit suite proves the dispatch, not the codec.

@@ -12,12 +12,12 @@
 
 ## Global Constraints
 
-- Work ONLY inside the git worktree `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109` (branch `feat/graph-physics`, based on `dev` @ `b690b66`). Never edit files under `/Users/rorosaga/Documents/roros_lab/cicada` outside that path.
-- **NEVER read** `/Users/rorosaga/Documents/roros_lab/cicada/memory` or `~/.cicada` (real people). **NEVER open or quote** the research run's live-graph export (`eg.json`, never committed) — it holds personal data. Synthetic graphs only; the bench and test below carry no names, only `h0`/`c12`/`i3` ids.
-- Every shell command: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && <cmd>` with the ABSOLUTE path (`zoxide` hijacks a relative `cd`; ignore its stderr "configuration issue" warning). No `grep --include=*.ext`.
-- The file under change is `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109/app/CicadaApp/Sources/CicadaApp/Resources/graph/graph.js` (1,661 lines at `b690b66`; loaded by `index.html` next to it after `d3.v7.min.js`). It runs inside a `WKWebView`; Swift pushes data via `evaluateJavaScript` and receives events through `window.webkit.messageHandlers.cicada`. **Phase 1 is `graph.js` ONLY:** no Swift changes, no new dependency, no `index.html` change (this plan lists none).
+- Work ONLY inside the git worktree `<worktree>/` (branch `feat/graph-physics`, based on `dev` @ `b690b66`). Never edit files under `<repo>/` outside that path.
+- **NEVER read** `<repo>/memory` or `~/.cicada` (real people). **NEVER open or quote** the research run's live-graph export (`eg.json`, never committed) — it holds personal data. Synthetic graphs only; the bench and test below carry no names, only `h0`/`c12`/`i3` ids.
+- Every shell command: `cd <worktree>/ && <cmd>` with the ABSOLUTE path (`zoxide` hijacks a relative `cd`; ignore its stderr "configuration issue" warning). No `grep --include=*.ext`.
+- The file under change is `<worktree>/app/CicadaApp/Sources/CicadaApp/Resources/graph/graph.js` (1,661 lines at `b690b66`; loaded by `index.html` next to it after `d3.v7.min.js`). It runs inside a `WKWebView`; Swift pushes data via `evaluateJavaScript` and receives events through `window.webkit.messageHandlers.cicada`. **Phase 1 is `graph.js` ONLY:** no Swift changes, no new dependency, no `index.html` change (this plan lists none).
 - Node is available for the headless bench: `node` (v25.9.0 verified) `require`s the bundled `d3.v7.min.js` directly (UMD exports under CommonJS — the research benches did the same). No `npm install`, no `package.json`.
-- Swift tests must stay green and unchanged: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109/app/CicadaApp && swift test 2>&1 | tail -20` (`GraphDiffTests`/`GraphPushTests` exercise the JS bridge contract from the Swift side; they must not change).
+- Swift tests must stay green and unchanged: `cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -20` (`GraphDiffTests`/`GraphPushTests` exercise the JS bridge contract from the Swift side; they must not change).
 - The four existing JS tests must stay green and unchanged: `node app/CicadaApp/Tests/graph/graph-delta.test.js`, `graph-drag-velocity.test.js`, `graph-logo.test.js`, `graph-mindegree-default.test.js` (they mock d3 with a chainable no-op Proxy; every new custom force is a plain function so the Proxy tolerates it — verified against the patched source while writing this plan).
 - Never `git add -A`; stage named files only. Never commit `memory/`, `logs/`, `.claude/settings.json`, `api/.venv`, bench scratch under the scratchpad, or `*-report.md`. Do not push. Do not create branches or worktrees. Do not dispatch subagents. Ignore Devin/PR comments.
 - Every earned behaviour in the memo's "How every earned behaviour is preserved" table is a hard constraint, preserved verbatim: delta updates keyed on `content_hash` with positions preserved (`updateGraphDelta` :501-618), `prevPositions` carry (:199, :462-499), new-node seeding (`seedPositionFor` :701-719 — **untouched**, see R12), hub index + ring R=400 (:647-699), pinning/drag + throw seeding (:1391-1527; only :1404 and :1517 change), cluster hulls / hub ring / labels / pulse / observer dim (draw, :978-1329, reads x/y only), selection + click-vs-drag + double-click (:1360-1470, :1529+), hub gravity's intent (members orbit their hub; nominal 0.05 kept), focus/ego pinning (:873-935), filter reheat only on set-affecting axes (:1597-1637), `simulation.find` pick (:1365-1374), zoom-to-fit (`fitGraph`/`transformForNodes` :420-451), and the Swift message contract (no new entry points in either direction).
@@ -67,7 +67,7 @@
 - [ ] **Step 1: Confirm the bench's home is outside the bundle and outside SwiftPM**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && cat app/CicadaApp/Package.swift && ls app/CicadaApp/Tests/graph
+cd <worktree>/ && cat app/CicadaApp/Package.swift && ls app/CicadaApp/Tests/graph
 ```
 Expected: `resources: [.copy("Resources")]` on the executable target (so nothing under `Resources/` may hold the bench), one `testTarget` named `CicadaAppTests`, and the four existing `graph-*.test.js` scripts in `Tests/graph/`.
 
@@ -383,7 +383,7 @@ for (const c of COLUMNS) {
 - [ ] **Step 4: Run the bench twice on the unchanged `graph.js` and confirm determinism**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && SCRATCH=<your scratch dir> && node app/CicadaApp/Tests/graph/graph-physics.bench.js > $SCRATCH/bench-before-1.txt && node app/CicadaApp/Tests/graph/graph-physics.bench.js > $SCRATCH/bench-before-2.txt && diff <(grep -v msPerTick $SCRATCH/bench-before-1.txt) <(grep -v msPerTick $SCRATCH/bench-before-2.txt) && echo DETERMINISTIC && tail -30 $SCRATCH/bench-before-1.txt
+cd <worktree>/ && SCRATCH=<your scratch dir> && node app/CicadaApp/Tests/graph/graph-physics.bench.js > $SCRATCH/bench-before-1.txt && node app/CicadaApp/Tests/graph/graph-physics.bench.js > $SCRATCH/bench-before-2.txt && diff <(grep -v msPerTick $SCRATCH/bench-before-1.txt) <(grep -v msPerTick $SCRATCH/bench-before-2.txt) && echo DETERMINISTIC && tail -30 $SCRATCH/bench-before-1.txt
 ```
 Expected: `DETERMINISTIC`, and (msPerTick aside, ~0.7 / ~6.7 / ~6.9 on an M-series Mac) exactly this **baseline** table — measured on `b690b66` while writing this plan:
 
@@ -422,15 +422,15 @@ Reading it: `ke400` 13–23 with alpha at 1e-9 is the plateau (the unscaled hub 
 - [ ] **Step 5: Run the existing suites (nothing changed, they must be green)**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && for t in graph-delta graph-drag-velocity graph-logo graph-mindegree-default; do node app/CicadaApp/Tests/graph/$t.test.js | tail -1; done
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109/app/CicadaApp && swift test 2>&1 | tail -20
+cd <worktree>/ && for t in graph-delta graph-drag-velocity graph-logo graph-mindegree-default; do node app/CicadaApp/Tests/graph/$t.test.js | tail -1; done
+cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -20
 ```
 Expected: four "All … checks passed." lines; `swift test`'s tail contains the XCTest line `Executed 530 tests, with 0 failures` (count as of `b690b66`, re-run by the plan critic). The very last lines are swift-testing's `Test run with 0 tests in 0 suites passed` — that block is expected (the suite is XCTest), not a failure.
 
 - [ ] **Step 6: Commit**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && git add app/CicadaApp/Tests/graph/graph-physics-harness.js app/CicadaApp/Tests/graph/graph-physics.bench.js && git commit -m "$(cat <<'EOF'
+cd <worktree>/ && git add app/CicadaApp/Tests/graph/graph-physics-harness.js app/CicadaApp/Tests/graph/graph-physics.bench.js && git commit -m "$(cat <<'EOF'
 test(graph): G109 headless physics bench — real graph.js under real d3
 
 A Node harness that loads Resources/graph/graph.js into a vm context with the
@@ -542,7 +542,7 @@ if (failures) {
 console.log("All graph physics checks passed.");
 ```
 
-Run it: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && node app/CicadaApp/Tests/graph/graph-physics.test.js | grep -c FAIL`
+Run it: `cd <worktree>/ && node app/CicadaApp/Tests/graph/graph-physics.test.js | grep -c FAIL`
 Expected: **21** FAIL lines (verified on the unchanged file: the 15 per-size checks, the 3 displacement checks, `initialize()` missing on today's bare-function force, `alphaMin` 0.05, and `hubGravity at alpha 0` moving the member because it ignores alpha; only `hubGravity at alpha 1 pulls` passes).
 
 - [ ] **Step 2: Alpha-scale `hubGravityForce` and hoist the id map (graph.js:774-790)**
@@ -687,7 +687,7 @@ with:
 - [ ] **Step 6: Run the physics test and the bench**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && node app/CicadaApp/Tests/graph/graph-physics.test.js | tail -3 && node app/CicadaApp/Tests/graph/graph-physics.bench.js | tail -30
+cd <worktree>/ && node app/CicadaApp/Tests/graph/graph-physics.test.js | tail -3 && node app/CicadaApp/Tests/graph/graph-physics.bench.js | tail -30
 ```
 Expected: `All graph physics checks passed.` and exactly this table (the `msPerTick` row is omitted here — it is the one non-deterministic value, ~0.6 / 6.3 / 6.7) — measured with these edits while writing the plan and independently re-run by the plan critic:
 
@@ -726,15 +726,15 @@ Direction: `ke400` 20 → 6e-4 (the plateau is gone), the core settles to a 470-
 - [ ] **Step 7: Run the existing suites**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && for t in graph-delta graph-drag-velocity graph-logo graph-mindegree-default; do node app/CicadaApp/Tests/graph/$t.test.js | tail -1; done
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109/app/CicadaApp && swift test 2>&1 | tail -20
+cd <worktree>/ && for t in graph-delta graph-drag-velocity graph-logo graph-mindegree-default; do node app/CicadaApp/Tests/graph/$t.test.js | tail -1; done
+cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -20
 ```
 Expected: four "All … checks passed."; `swift test` 0 failures.
 
 - [ ] **Step 8: Commit**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && git add app/CicadaApp/Sources/CicadaApp/Resources/graph/graph.js app/CicadaApp/Tests/graph/graph-physics.test.js && git commit -m "$(cat <<'EOF'
+cd <worktree>/ && git add app/CicadaApp/Sources/CicadaApp/Resources/graph/graph.js app/CicadaApp/Tests/graph/graph-physics.test.js && git commit -m "$(cat <<'EOF'
 fix(graph): G109 phase 1a — alpha-scale hub gravity, no reheat on release, alphaMin 0.001
 
 hubGravityForce ignored the alpha d3 passes every force, so it was a permanent
@@ -842,7 +842,7 @@ for (const [size, before] of Object.entries(CORE_MEDIAN_BEFORE_CONTAINMENT)) {
 
 ```
 
-Run it: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && node app/CicadaApp/Tests/graph/graph-physics.test.js 2>&1 | grep -c "^FAIL"; node app/CicadaApp/Tests/graph/graph-physics.test.js 2>&1 | grep -m1 ReferenceError`
+Run it: `cd <worktree>/ && node app/CicadaApp/Tests/graph/graph-physics.test.js 2>&1 | grep -c "^FAIL"; node app/CicadaApp/Tests/graph/graph-physics.test.js 2>&1 | grep -m1 ReferenceError`
 Expected: 16 FAIL lines from the first Task-3 loop (measured on the Task-2 file), then `ReferenceError: isolateSlots is not defined` from the slot block — the file exits non-zero either way.
 
 - [ ] **Step 2: Insert the isolate block above `startSimulation`**
@@ -1054,7 +1054,7 @@ function anchorStrength(d) {
 - [ ] **Step 5: Run the physics test and the bench**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && node app/CicadaApp/Tests/graph/graph-physics.test.js | tail -3 && node app/CicadaApp/Tests/graph/graph-physics.bench.js | tail -30
+cd <worktree>/ && node app/CicadaApp/Tests/graph/graph-physics.test.js | tail -3 && node app/CicadaApp/Tests/graph/graph-physics.bench.js | tail -30
 ```
 Expected: `All graph physics checks passed.` and exactly this table (`msPerTick` omitted, ~0.6 / 6.5 / 6.8) — measured with these edits while writing the plan and independently re-run by the plan critic (both the 21-FAIL Task-2 baseline count and the 16-FAIL + `ReferenceError` Task-3 count were re-verified too):
 
@@ -1093,15 +1093,15 @@ Direction vs Task 2: flick from rest 6 → 12–13 ticks, 34 → 63–100 wu; is
 - [ ] **Step 6: Run the existing suites**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && for t in graph-delta graph-drag-velocity graph-logo graph-mindegree-default; do node app/CicadaApp/Tests/graph/$t.test.js | tail -1; done
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109/app/CicadaApp && swift test 2>&1 | tail -20
+cd <worktree>/ && for t in graph-delta graph-drag-velocity graph-logo graph-mindegree-default; do node app/CicadaApp/Tests/graph/$t.test.js | tail -1; done
+cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -20
 ```
 Expected: four "All … checks passed." (verified against this exact patch set while writing the plan); `swift test` 0 failures.
 
 - [ ] **Step 7: Commit**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && git add app/CicadaApp/Sources/CicadaApp/Resources/graph/graph.js app/CicadaApp/Tests/graph/graph-physics.test.js && git commit -m "$(cat <<'EOF'
+cd <worktree>/ && git add app/CicadaApp/Sources/CicadaApp/Resources/graph/graph.js app/CicadaApp/Tests/graph/graph-physics.test.js && git commit -m "$(cat <<'EOF'
 fix(graph): G109 phase 1b — velocityDecay 0.2, isolate discs, speed clamp
 
 velocityDecay 0.45 -> 0.2 now that the unscaled hub-gravity bounce is gone
@@ -1260,14 +1260,14 @@ with:
 - [ ] **Step 5: Verify the docs edits landed and nothing else moved**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && git diff --stat && for f in CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md; do printf '%s %s\n' "$f" "$(grep -o 'PR #TBD' "$f" | wc -l | tr -d ' ')"; done && grep -n "^| G109 |" docs/goals/memory-evolution.md | tail -c 80
+cd <worktree>/ && git diff --stat && for f in CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md; do printf '%s %s\n' "$f" "$(grep -o 'PR #TBD' "$f" | wc -l | tr -d ' ')"; done && grep -n "^| G109 |" docs/goals/memory-evolution.md | tail -c 80
 ```
 Expected: exactly three files in the stat (`CLAUDE.md`, `docs/goals/memory-evolution.md`, `docs/goals/TODO.md`); `CLAUDE.md 0`, `docs/goals/memory-evolution.md 2`, `docs/goals/TODO.md 5` (occurrences, not lines — the G109 row is ONE line holding both of its `PR #TBD`s, which is why `grep -c` would say 1 there); the last 80 bytes of the row end `phases 2–3 + Swift track open** |`.
 
 - [ ] **Step 6: Commit**
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "$(cat <<'EOF'
+cd <worktree>/ && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "$(cat <<'EOF'
 docs(goals): G109 phase 1 shipped — ruling, measured numbers, handoff
 
 CLAUDE.md's "Why d3-force" carries the ruling (keep d3-force, fix graph.js; flip
@@ -1291,9 +1291,9 @@ EOF
 Run after Task 4, from a clean state, before handing the branch back:
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && git status --porcelain -uall | grep -v '^?? api/.venv' ; git log --oneline dev..HEAD
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109 && node app/CicadaApp/Tests/graph/graph-physics.test.js | tail -1 && for t in graph-delta graph-drag-velocity graph-logo graph-mindegree-default; do node app/CicadaApp/Tests/graph/$t.test.js | tail -1; done && node app/CicadaApp/Tests/graph/graph-physics.bench.js | tail -30
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g109/app/CicadaApp && swift test 2>&1 | tail -20
+cd <worktree>/ && git status --porcelain -uall | grep -v '^?? api/.venv' ; git log --oneline dev..HEAD
+cd <worktree>/ && node app/CicadaApp/Tests/graph/graph-physics.test.js | tail -1 && for t in graph-delta graph-drag-velocity graph-logo graph-mindegree-default; do node app/CicadaApp/Tests/graph/$t.test.js | tail -1; done && node app/CicadaApp/Tests/graph/graph-physics.bench.js | tail -30
+cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -20
 ```
 Expected: the status shows nothing (`api/.venv` is gitignored so the `grep -v` is only a belt-and-braces), the plan commit plus four commits on top of `b690b66`, five "passed" lines, the Task-3 table, `swift test` with 0 failures.
 

@@ -12,9 +12,9 @@
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118` (branch `feat/provenance-spans`, based on `dev @ c6d22d0`). Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && <cmd>` with the absolute path. Ignore zoxide's stderr warning. No `grep --include=*.ext` (zsh globbing).
-- **Never read** `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`, `~/Library/Safari`, or `~/.claude/projects`. Every fixture in this plan is synthetic (`alpha-project`, `bob-example`, `example.com`).
-- Python tests: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Baseline on the full `api/tests` run: exactly 8 date-dependent failures in `test_calendar_registry.py` plus `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent, pre-existing). Everything else must be green after every task.
+- Work ONLY in `<worktree>/` (branch `feat/provenance-spans`, based on `dev @ c6d22d0`). Every shell command is `cd <worktree>/ && <cmd>` with the absolute path. Ignore zoxide's stderr warning. No `grep --include=*.ext` (zsh globbing).
+- **Never read** `<repo>/memory` (any bank), `~/.cicada`, `~/Library/Safari`, or `~/.claude/projects`. Every fixture in this plan is synthetic (`alpha-project`, `bob-example`, `example.com`).
+- Python tests: `cd <worktree>/ && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Baseline on the full `api/tests` run: exactly 8 date-dependent failures in `test_calendar_registry.py` plus `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent, pre-existing). Everything else must be green after every task.
 - Never `git add -A`. Stage named files only. Never commit `memory/`, `logs/`, `.claude/settings.json`, `api/.venv`, `*-report.md`. No push, no new branches/worktrees, no subagents. Ignore Devin/PR comments.
 - **Spans, not copies.** No claim field, no ledger event, no API response written by this plan carries a quoted copy of source text *as provenance* — offsets + hash only. (The span endpoint returns text because the viewer asks for it by offset; that is a read of the bank, not a copy stored anywhere.) The only in-flight quote is `evidence_quote` on a Stage-1 relationship dict, which `attach_relationship_evidence` pops before the dict reaches Stage 2.
 - **Provenance never blocks memory.** A quote that cannot be located becomes `kind: reasoning` and the claim is still written. `verify` never raises on any input.
@@ -319,7 +319,7 @@ def test_attach_relationship_evidence_pops_the_quote_and_records_offsets():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests/test_claims_evidence.py api/tests/test_evidence.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_claims_evidence.py api/tests/test_evidence.py -q -p no:cacheprovider`
 Expected: FAIL — `ImportError: cannot import name 'EVIDENCE_KINDS' from 'api.services.claims'` and `ModuleNotFoundError`/`ImportError` for `api.services.evidence`.
 
 - [ ] **Step 3: Add `Evidence` and `Claim.evidence` to `api/services/claims.py`**
@@ -690,13 +690,13 @@ def attach_relationship_evidence(
 
 - [ ] **Step 5: Run the new tests and the claim-layer regression set**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests/test_claims_evidence.py api/tests/test_evidence.py api/tests/test_claims.py api/tests/test_claims_corruption_guard.py api/tests/test_claim_reconciler.py api/tests/test_claim_pipeline.py api/tests/test_decay_watermark_migration.py api/tests/test_claim_endpoints.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_claims_evidence.py api/tests/test_evidence.py api/tests/test_claims.py api/tests/test_claims_corruption_guard.py api/tests/test_claim_reconciler.py api/tests/test_claim_pipeline.py api/tests/test_decay_watermark_migration.py api/tests/test_claim_endpoints.py -q -p no:cacheprovider`
 Expected: all PASS. `test_claims.py::…to_dict…` still passes because an empty `evidence` is omitted (R7) and `from_dict` restores the default.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && git add api/services/claims.py api/services/evidence.py api/tests/test_claims_evidence.py api/tests/test_evidence.py && git commit -m "feat(claims): evidence spans on Claim — offsets + hash into stored bodies, never copies (G118 slice 1)"
+cd <worktree>/ && git add api/services/claims.py api/services/evidence.py api/tests/test_claims_evidence.py api/tests/test_evidence.py && git commit -m "feat(claims): evidence spans on Claim — offsets + hash into stored bodies, never copies (G118 slice 1)"
 ```
 
 ---
@@ -872,7 +872,7 @@ def test_reinforce_merges_spans_and_drops_a_redundant_reasoning_entry():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests/test_evidence_extraction.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_evidence_extraction.py -q -p no:cacheprovider`
 Expected: FAIL — the prompt assertion (`'"evidence_quote"' in prompt`), `AttributeError: module … has no attribute '_chunk_spans'`, and `KeyError: 'evidence'`.
 
 - [ ] **Step 3: Extend the prompt in `api/services/entity_extractor.py`**
@@ -1018,13 +1018,13 @@ In `api/services/claim_reconciler.py:143-162`, after the `session_ids` merge (en
 
 - [ ] **Step 7: Run the new tests and the Stage-1/claim regression set**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests/test_evidence_extraction.py api/tests/test_extractor_robustness.py api/tests/test_claim_emission.py api/tests/test_m5_prep_consolidation.py api/tests/test_decay_writers.py api/tests/test_claim_reconciler.py api/tests/test_claim_pipeline.py api/tests/test_sleep_cycle_claims_wired.py api/tests/test_link_recon.py api/tests/test_agent_engine.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_evidence_extraction.py api/tests/test_extractor_robustness.py api/tests/test_claim_emission.py api/tests/test_m5_prep_consolidation.py api/tests/test_decay_writers.py api/tests/test_claim_reconciler.py api/tests/test_claim_pipeline.py api/tests/test_sleep_cycle_claims_wired.py api/tests/test_link_recon.py api/tests/test_agent_engine.py -q -p no:cacheprovider`
 Expected: all PASS. `test_decay_writers.py:55` and `test_m5_prep_consolidation.py:53,95` assert on prompt substrings that this edit leaves intact.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && git add api/services/entity_extractor.py api/services/claim_reconciler.py api/tests/test_evidence_extraction.py && git commit -m "feat(extraction): Stage 1 cites a verbatim passage; the pipeline verifies it into an evidence span (G118 slice 1)"
+cd <worktree>/ && git add api/services/entity_extractor.py api/services/claim_reconciler.py api/tests/test_evidence_extraction.py && git commit -m "feat(extraction): Stage 1 cites a verbatim passage; the pipeline verifies it into an evidence span (G118 slice 1)"
 ```
 
 ---
@@ -1091,7 +1091,7 @@ Verified against the file: `link_enrichment.BackfillReport` (`link_enrichment.py
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests/test_link_recon.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_link_recon.py -q -p no:cacheprovider`
 Expected: FAIL — `AttributeError: module 'api.services.link_recon' has no attribute '_page_evidence'`; the first test fails on `about.evidence == []`.
 
 - [ ] **Step 3: Implement**
@@ -1167,13 +1167,13 @@ and change the claim construction (`:337-338`) to:
 
 - [ ] **Step 4: Run the recon tests and the enrichment neighbours**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests/test_link_recon.py api/tests/test_link_enrichment.py api/tests/test_link_backfill.py api/tests/test_sleep_link_backfill.py api/tests/test_maintenance_enrich_links.py api/tests/test_sources_about.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_link_recon.py api/tests/test_link_enrichment.py api/tests/test_link_backfill.py api/tests/test_sleep_link_backfill.py api/tests/test_maintenance_enrich_links.py api/tests/test_sources_about.py -q -p no:cacheprovider`
 Expected: all PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && git add api/services/link_recon.py api/tests/test_link_recon.py && git commit -m "feat(link-recon): about claims cite the surface form as a page span on the media entity (G118 slice 1)"
+cd <worktree>/ && git add api/services/link_recon.py api/tests/test_link_recon.py && git commit -m "feat(link-recon): about claims cite the surface form as a page span on the media entity (G118 slice 1)"
 ```
 
 ---
@@ -1351,7 +1351,7 @@ def test_telegram_saved_because_claim_cites_its_own_section(tmp_path, monkeypatc
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests/test_evidence_agent_writes.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_evidence_agent_writes.py -q -p no:cacheprovider`
 Expected: FAIL — `TypeError: write_claim() got an unexpected keyword argument 'evidence'`, `KeyError: 'evidence'` on the tool schema.
 
 - [ ] **Step 3: `agentic_write.write_claim`**
@@ -1489,13 +1489,13 @@ Keep the existing warning branch below the call unchanged.
 
 - [ ] **Step 6: Run the new tests and every agentic/MCP/Telegram neighbour**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests/test_evidence_agent_writes.py api/tests/test_evidence.py api/tests/test_agentic_write.py api/tests/test_agentic_subject_resolution.py api/tests/test_mcp_tool_descriptions.py api/tests/test_mcp_sources_tool.py api/tests/test_mcp_perspective.py api/tests/test_mcp_inbox_questions.py api/tests/test_session_identity.py api/tests/test_telegram_capture.py api/tests/test_fact_sources.py api/tests/test_inbox_resolve_claims.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_evidence_agent_writes.py api/tests/test_evidence.py api/tests/test_agentic_write.py api/tests/test_agentic_subject_resolution.py api/tests/test_mcp_tool_descriptions.py api/tests/test_mcp_sources_tool.py api/tests/test_mcp_perspective.py api/tests/test_mcp_inbox_questions.py api/tests/test_session_identity.py api/tests/test_telegram_capture.py api/tests/test_fact_sources.py api/tests/test_inbox_resolve_claims.py -q -p no:cacheprovider`
 Expected: all PASS. `test_agentic_write.py::test_cicada_write_claim_dispatches_via_handle_tool` asserts `"Recorded" in out` — still true with the appended clause.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && git add api/services/agentic_write.py api/services/telegram_capture.py mcp/server.py api/tests/test_evidence_agent_writes.py && git commit -m "feat(agentic-write): cicada_write_claim cites {episode, quote} → verified span; Telegram saved-because cites its section (G118 slice 1)"
+cd <worktree>/ && git add api/services/agentic_write.py api/services/telegram_capture.py mcp/server.py api/tests/test_evidence_agent_writes.py && git commit -m "feat(agentic-write): cicada_write_claim cites {episode, quote} → verified span; Telegram saved-because cites its section (G118 slice 1)"
 ```
 
 ---
@@ -1668,7 +1668,7 @@ def test_span_endpoint_is_bearer_gated_like_every_other_route(memory, monkeypatc
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests/test_episode_span_endpoint.py api/tests/test_claim_endpoints.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_episode_span_endpoint.py api/tests/test_claim_endpoints.py -q -p no:cacheprovider`
 Expected: FAIL — `AttributeError: 'ClaimModel' object has no attribute 'evidence'`; every span request returns 404 (no route).
 
 - [ ] **Step 3: Schemas**
@@ -1806,13 +1806,13 @@ app.include_router(episodes.router, tags=["episodes"])
 
 - [ ] **Step 6: Run the new tests, the endpoint neighbours, and the auth suite**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests/test_episode_span_endpoint.py api/tests/test_claim_endpoints.py api/tests/test_auth.py api/tests/test_healthz_memory_root.py api/tests/test_graph_claim_overlay.py api/tests/test_ask_claim_retrieval.py api/tests/test_sync.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_episode_span_endpoint.py api/tests/test_claim_endpoints.py api/tests/test_auth.py api/tests/test_healthz_memory_root.py api/tests/test_graph_claim_overlay.py api/tests/test_ask_claim_retrieval.py api/tests/test_sync.py -q -p no:cacheprovider`
 Expected: all PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && git add api/models/schemas.py api/routers/claims.py api/services/transclusion_resolver.py api/routers/episodes.py api/main.py api/tests/test_episode_span_endpoint.py api/tests/test_claim_endpoints.py && git commit -m "feat(api): evidence on the claim projections + GET /episodes/{id}/span, engine-free with a stale flag (G118 slice 1)"
+cd <worktree>/ && git add api/models/schemas.py api/routers/claims.py api/services/transclusion_resolver.py api/routers/episodes.py api/main.py api/tests/test_episode_span_endpoint.py api/tests/test_claim_endpoints.py && git commit -m "feat(api): evidence on the claim projections + GET /episodes/{id}/span, engine-free with a stale flag (G118 slice 1)"
 ```
 
 ---
@@ -1873,7 +1873,7 @@ GET  /episodes/{id}/span                  → slice a stored document's evidence
 - [ ] **Step 2: Backlog rows** — run from the worktree root:
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python - <<'PY'
+cd <worktree>/ && api/.venv/bin/python - <<'PY'
 from pathlib import Path
 p = Path("docs/goals/memory-evolution.md")
 s = p.read_text()
@@ -1915,13 +1915,13 @@ PY
 
 - [ ] **Step 4: Verify the docs say nothing personal and nothing stale**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && grep -n "evidence_quote\|/episodes/{id}/span\|Evidence spans (G118" CLAUDE.md | head; grep -c "PR #TBD" docs/goals/memory-evolution.md docs/goals/TODO.md; grep -n "G118 slice 1 → G105" docs/goals/TODO.md`
+Run: `cd <worktree>/ && grep -n "evidence_quote\|/episodes/{id}/span\|Evidence spans (G118" CLAUDE.md | head; grep -c "PR #TBD" docs/goals/memory-evolution.md docs/goals/TODO.md; grep -n "G118 slice 1 → G105" docs/goals/TODO.md`
 Expected: the three CLAUDE.md hits; `PR #TBD` counted ≥ 1 in each goals file (the merge step fixes the number); no hit for the old `G118 slice 1 → G105` ordering.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md docs/superpowers/plans/2026-09-03-g118-evidence-spans.md && git commit -m "docs(G118): evidence spans slice 1 — CLAUDE.md section, G118/G100 rows, TODO handoff"
+cd <worktree>/ && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md docs/superpowers/plans/2026-09-03-g118-evidence-spans.md && git commit -m "docs(G118): evidence spans slice 1 — CLAUDE.md section, G118/G100 rows, TODO handoff"
 ```
 
 ---
@@ -1940,29 +1940,29 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && git add CLAUDE.
 ## Verification the orchestrator runs at the end
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && git log --oneline dev..HEAD
+cd <worktree>/ && git log --oneline dev..HEAD
 # expected: six commits, one per task, in order
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && git status --porcelain -uall
+cd <worktree>/ && git status --porcelain -uall
 # expected: empty apart from the untracked api/.venv symlink and any pre-existing untracked scratch — no memory/, logs/, *-report.md staged
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests/test_claims_evidence.py api/tests/test_evidence.py api/tests/test_evidence_extraction.py api/tests/test_evidence_agent_writes.py api/tests/test_episode_span_endpoint.py api/tests/test_link_recon.py api/tests/test_claim_endpoints.py -q -p no:cacheprovider
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_claims_evidence.py api/tests/test_evidence.py api/tests/test_evidence_extraction.py api/tests/test_evidence_agent_writes.py api/tests/test_episode_span_endpoint.py api/tests/test_link_recon.py api/tests/test_claim_endpoints.py -q -p no:cacheprovider
 # expected: all pass
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15
 # expected: only the baseline — 8 failures in test_calendar_registry.py and
 # test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit
 
 # Rails, mechanically:
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && grep -n "litellm\|providers\|agent_engine" api/services/evidence.py api/routers/episodes.py
+cd <worktree>/ && grep -n "litellm\|providers\|agent_engine" api/services/evidence.py api/routers/episodes.py
 # expected: no output (engine-free)
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && grep -rn "\.claude" api/services/evidence.py api/routers/episodes.py
+cd <worktree>/ && grep -rn "\.claude" api/services/evidence.py api/routers/episodes.py
 # expected: no output (G48 rail)
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && grep -n "quote" api/services/claims.py
+cd <worktree>/ && grep -n "quote" api/services/claims.py
 # expected: no field named quote on Claim or Evidence (spans, not copies)
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && git diff dev..HEAD --stat -- app/
+cd <worktree>/ && git diff dev..HEAD --stat -- app/
 # expected: no output (no Swift edit, R10)
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g118 && git diff dev..HEAD -- api/tests docs CLAUDE.md | grep -n "rodrigo" | grep -vi "rorosaga\|observer\|Rodrigo 2026\|rodrigo/" 
+cd <worktree>/ && git diff dev..HEAD -- api/tests docs CLAUDE.md | grep -n "rodrigo" | grep -vi "rorosaga\|observer\|Rodrigo 2026\|rodrigo/" 
 # expected: only the pre-existing observer literal `rodrigo` (the claim vocabulary), never a person, employer or bank title
 ```
 

@@ -12,10 +12,10 @@
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105` (branch `feat/deterministic-capture`). Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr banner). No `grep --include=*.ext` (zsh globbing breaks it). In zsh `echo =====` is an `=cmd` expansion — never use a bare `=`-prefixed word.
-- Python tests: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Full suite `api/tests`: the baseline has **exactly 8 date-dependent failures in `test_calendar_registry.py`** plus `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent, pre-existing). Everything else must be green.
-- Swift: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report 0 failures (SourceKit diagnostics naming OTHER worktrees are noise). Only Task 4 touches Swift. NEVER run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live.
-- **Never read** `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`, `~/Library/Safari`, `~/.claude/projects`, or `~/.codex/sessions`. The schema peek that informed this plan is already done and recorded below; the implementation reads NO real transcript. All fixtures are synthetic (`alpha-project`, `bob-example`, `example.com`).
+- Work ONLY in `<worktree>/` (branch `feat/deterministic-capture`). Every shell command is `cd <worktree>/ && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr banner). No `grep --include=*.ext` (zsh globbing breaks it). In zsh `echo =====` is an `=cmd` expansion — never use a bare `=`-prefixed word.
+- Python tests: `cd <worktree>/ && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Full suite `api/tests`: the baseline has **exactly 8 date-dependent failures in `test_calendar_registry.py`** plus `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent, pre-existing). Everything else must be green.
+- Swift: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report 0 failures (SourceKit diagnostics naming OTHER worktrees are noise). Only Task 4 touches Swift. NEVER run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live.
+- **Never read** `<repo>/memory` (any bank), `~/.cicada`, `~/Library/Safari`, `~/.claude/projects`, or `~/.codex/sessions`. The schema peek that informed this plan is already done and recorded below; the implementation reads NO real transcript. All fixtures are synthetic (`alpha-project`, `bob-example`, `example.com`).
 - Never `git add -A`; stage named files only. Never commit `memory/`, `logs/`, `.claude/settings.json`, `api/.venv`, `*-report.md`. No push, no new branches/worktrees, no subagents. Ignore Devin / PR comments.
 - **Privacy rule for docs (CLAUDE.md, standing 2026-09-02):** nothing personal in `docs/goals/`, `CLAUDE.md`, this plan, commit messages or PR bodies — placeholders only.
 - **Sleep-safety:** no LLM anywhere in this track; every new read path is engine-free. **Secrets** only ever in `~/.cicada/secrets.env` / `~/.cicada/api_token`; the hook reads the token file, never an env-embedded key. **Portability:** no owner name, no author-machine path in code or docs — every path is derived from `$HOME`, `$CICADA_HOME`, or the repo root at install time.
@@ -419,7 +419,7 @@ def test_extract_dispatch_and_unknown_harness():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && api/.venv/bin/python -m pytest api/tests/test_transcript_extract.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_transcript_extract.py -q -p no:cacheprovider`
 Expected: FAIL — `ModuleNotFoundError: No module named 'api.services.transcript_extract'`.
 
 - [ ] **Step 3: Implement `api/services/transcript_extract.py`**
@@ -860,13 +860,13 @@ def extract(harness: str, lines: Iterable[str], **kw) -> Conversation:
 
 - [ ] **Step 4: Run the tests until green**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && api/.venv/bin/python -m pytest api/tests/test_transcript_extract.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_transcript_extract.py -q -p no:cacheprovider`
 Expected: all 33 pass (verified by the plan critic on 2026-09-03 with these exact files). Two traps if a fixture is edited: a long single-character run (`"x" * 5000`, `"a" * 60`) is a base64 / hex secret to the scrubber and comes back as `[redacted]` — cap tests must use word runs; and if `test_secrets_inside_code_fences_never_survive_and_scrub_runs_before_cap` fails on `scrubbed == 1`, the fence was not stripped BEFORE scrubbing (the fenced key must not be counted).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && git add api/services/transcript_extract.py api/tests/test_transcript_extract.py && git commit -m "feat(capture): block-level transcript extractor — person's turns + agent's final replies, tool blocks/code/secrets never (G105 R4–R6)
+cd <worktree>/ && git add api/services/transcript_extract.py api/tests/test_transcript_extract.py && git commit -m "feat(capture): block-level transcript extractor — person's turns + agent's final replies, tool blocks/code/secrets never (G105 R4–R6)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -1163,7 +1163,7 @@ def test_endpoint_requires_bearer_token(memory, monkeypatch, tmp_path):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && api/.venv/bin/python -m pytest api/tests/test_capture_transcript.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_capture_transcript.py -q -p no:cacheprovider`
 Expected: FAIL — `ModuleNotFoundError: No module named 'api.services.transcript_capture'`.
 
 - [ ] **Step 3: Settings flag, telemetry kind, spend filter**
@@ -1526,13 +1526,13 @@ Verify `telemetry.bank_name(settings)` at `api/services/telemetry.py:266` accept
 
 - [ ] **Step 6: Run the new tests, then the neighbours**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && api/.venv/bin/python -m pytest api/tests/test_capture_transcript.py api/tests/test_transcript_extract.py api/tests/test_telemetry.py api/tests/test_consumption_stats.py api/tests/test_auth.py api/tests/test_telegram_capture.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_capture_transcript.py api/tests/test_transcript_extract.py api/tests/test_telemetry.py api/tests/test_consumption_stats.py api/tests/test_auth.py api/tests/test_telegram_capture.py -q -p no:cacheprovider`
 Expected: all pass (verified by the plan critic on 2026-09-03 against a scratch copy of `api/` with these exact files: 60/60 across the four new suites, and `test_auth`, `test_telemetry`, `test_consumption_stats`, `test_telegram_capture`, `test_feedback_ledger`, `test_connections_base` unchanged). `test_endpoint_requires_bearer_token` gets a 401, not a 422: `require_token` is an app-wide dependency (`api/main.py:134`, `dependencies=[Depends(require_token)]`) and FastAPI resolves dependencies before it validates the body.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && git add api/services/transcript_capture.py api/routers/capture.py api/config.py api/services/telemetry.py api/services/consumption_stats.py api/tests/test_capture_transcript.py && git commit -m "feat(capture): POST /capture/transcript — path-validated, one episode per session, updated in place, counts-only ledger row (G105 R2/R3/R10)
+cd <worktree>/ && git add api/services/transcript_capture.py api/routers/capture.py api/config.py api/services/telemetry.py api/services/consumption_stats.py api/tests/test_capture_transcript.py && git commit -m "feat(capture): POST /capture/transcript — path-validated, one episode per session, updated in place, counts-only ledger row (G105 R2/R3/R10)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -1744,7 +1744,7 @@ def test_registry_module_imports_nothing_from_api():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && api/.venv/bin/python -m pytest api/tests/test_capture_hook.py api/tests/test_hooks_registry.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_capture_hook.py api/tests/test_hooks_registry.py -q -p no:cacheprovider`
 Expected: FAIL — `ModuleNotFoundError: No module named 'api.hooks'`.
 
 - [ ] **Step 3: `api/hooks/__init__.py`**
@@ -2086,7 +2086,7 @@ def scrubbed_env() -> dict[str, str]:
     return env
 ```
 
-Run `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && api/.venv/bin/python -m pytest api/tests/test_connections_base.py api/tests/test_agent_engine.py -q -p no:cacheprovider` — `test_scrubbed_env_drops_provider_keys` (`:13-17`) asserts on absence only, so it must still pass.
+Run `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_connections_base.py api/tests/test_agent_engine.py -q -p no:cacheprovider` — `test_scrubbed_env_drops_provider_keys` (`:13-17`) asserts on absence only, so it must still pass.
 
 - [ ] **Step 7: `install.sh`**
 
@@ -2168,7 +2168,7 @@ In the summary (`:352-369`), after the `MCP:` lines:
 echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop → api/hooks/capture.py)"
 ```
 
-Dry-run check: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && bash -n install.sh && CICADA_MEMORY_PATH=/tmp/x LAUNCH_AGENTS_DIR=/tmp/x CLAUDE_SETTINGS=/tmp/x/settings.json CODEX_HOOKS=/tmp/x/hooks.json ./install.sh --dry-run 2>&1 | grep -n "5b\|registry.py" ` — expect the `5b.` header and a printed `$ …registry.py install …` line; nothing is written under `--dry-run`. (`/tmp` here is a dry-run target only; no file is created.)
+Dry-run check: `cd <worktree>/ && bash -n install.sh && CICADA_MEMORY_PATH=/tmp/x LAUNCH_AGENTS_DIR=/tmp/x CLAUDE_SETTINGS=/tmp/x/settings.json CODEX_HOOKS=/tmp/x/hooks.json ./install.sh --dry-run 2>&1 | grep -n "5b\|registry.py" ` — expect the `5b.` header and a printed `$ …registry.py install …` line; nothing is written under `--dry-run`. (`/tmp` here is a dry-run target only; no file is created.)
 
 - [ ] **Step 8: `scripts/doctor.sh` — check 12**
 
@@ -2199,13 +2199,13 @@ fi
 
 - [ ] **Step 9: Run the tests**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && api/.venv/bin/python -m pytest api/tests/test_capture_hook.py api/tests/test_hooks_registry.py api/tests/test_connections_base.py -q -p no:cacheprovider && bash -n install.sh && bash -n scripts/doctor.sh && api/.venv/bin/python api/hooks/registry.py status --settings /nonexistent/settings.json --event Stop --command x; echo "exit=$?"`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_capture_hook.py api/tests/test_hooks_registry.py api/tests/test_connections_base.py -q -p no:cacheprovider && bash -n install.sh && bash -n scripts/doctor.sh && api/.venv/bin/python api/hooks/registry.py status --settings /nonexistent/settings.json --event Stop --command x; echo "exit=$?"`
 Expected: tests pass (the two hook suites — 13 cases — and `scrubbed_env` were verified green by the plan critic with these exact files; `printf '{}' | python api/hooks/capture.py` exits 0, prints nothing, and appends `claude-code ? skipped: no transcript_path` to the log); both `bash -n` silent; the last line prints `absent: /nonexistent/settings.json` then `exit=1`.
 
 - [ ] **Step 10: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && git add api/hooks/__init__.py api/hooks/capture.py api/hooks/registry.py api/services/connections/base.py install.sh scripts/doctor.sh api/tests/test_capture_hook.py api/tests/test_hooks_registry.py && git commit -m "feat(capture): Stop hook + idempotent settings.json registration; install.sh/--uninstall/doctor wire it; Cicada's own CLI spawns never capture (G105 R1/R8/R14)
+cd <worktree>/ && git add api/hooks/__init__.py api/hooks/capture.py api/hooks/registry.py api/services/connections/base.py install.sh scripts/doctor.sh api/tests/test_capture_hook.py api/tests/test_hooks_registry.py && git commit -m "feat(capture): Stop hook + idempotent settings.json registration; install.sh/--uninstall/doctor wire it; Cicada's own CLI spawns never capture (G105 R1/R8/R14)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -2296,7 +2296,7 @@ final class OriginIconographyTests: XCTestCase {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105/app/CicadaApp && swift build --build-tests 2>&1 | tail -5`
+Run: `cd <worktree>/app/CicadaApp && swift build --build-tests 2>&1 | tail -5`
 Expected: compile error — `type 'OriginIconography' has no member 'logoName'`.
 
 - [ ] **Step 3: Extend `OriginIconography`**
@@ -2410,13 +2410,13 @@ Verified against the code (plan critic, 2026-09-03): `LogoImage`'s `bundledBody`
 
 - [ ] **Step 6: Build and test**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20`
+Run: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20`
 Expected: build succeeds; `swift test` reports 0 failures (`OriginIconographyTests` 5 cases green — verified in a scratch copy of the package by the plan critic, `Build complete!` + `Executed 5 tests, with 0 failures`; `SleepDebtBreakdownTests`, `ImportCatalogTests`, `ResourceBundleTests` unchanged).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && git add app/CicadaApp/Sources/CicadaApp/Views/Capture/OriginIconography.swift app/CicadaApp/Sources/CicadaApp/Views/Common/OriginMark.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepView.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepDebtBreakdown.swift app/CicadaApp/Tests/CicadaAppTests/OriginIconographyTests.swift && git commit -m "feat(app): Sleep queue rows and Catching-up block wear the source mark; codex/claude-desktop/cursor/gemini-cli product labels (G105 companion, R11)
+cd <worktree>/ && git add app/CicadaApp/Sources/CicadaApp/Views/Capture/OriginIconography.swift app/CicadaApp/Sources/CicadaApp/Views/Common/OriginMark.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepView.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepDebtBreakdown.swift app/CicadaApp/Tests/CicadaAppTests/OriginIconographyTests.swift && git commit -m "feat(app): Sleep queue rows and Catching-up block wear the source mark; codex/claude-desktop/cursor/gemini-cli product labels (G105 companion, R11)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -2506,13 +2506,13 @@ Update **Pick up here** to name this branch and the manual step.
 
 - [ ] **Step 4: Privacy scan of everything staged**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && git diff --cached --name-only; git diff dev --stat | tail -3; git diff dev -- CLAUDE.md docs/goals/ api/ app/ install.sh scripts/ | grep -n -i "rorosaga\|/Users/\|rodrigo" || echo "no owner name / author path in the diff"`
+Run: `cd <worktree>/ && git diff --cached --name-only; git diff dev --stat | tail -3; git diff dev -- CLAUDE.md docs/goals/ api/ app/ install.sh scripts/ | grep -n -i "rorosaga\|/Users/\|rodrigo" || echo "no owner name / author path in the diff"`
 Expected: the final line `no owner name / author path in the diff`. (The G-row voice "Rodrigo 2026-09-01: …" pre-exists in `memory-evolution.md` and is not in this diff.)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "docs(goals): G105 shipped — hook-driven deterministic capture; CLAUDE.md input-sources + API; TODO.md handoff with the one re-run-install step
+cd <worktree>/ && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "docs(goals): G105 shipped — hook-driven deterministic capture; CLAUDE.md input-sources + API; TODO.md handoff with the one re-run-install step
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -2522,8 +2522,8 @@ Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
 
 ## Verification the orchestrator runs at the end
 
-1. **Python, full suite:** `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105 && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15` — expect only the 8 `test_calendar_registry.py` failures plus the one order-dependent `test_agent_provenance.py` case; every `test_transcript_extract`, `test_capture_transcript`, `test_capture_hook`, `test_hooks_registry`, `test_auth`, `test_telemetry`, `test_consumption_stats`, `test_connections_base` case green.
-2. **Swift:** `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g105/app/CicadaApp && swift build 2>&1 | tail -3 && swift test 2>&1 | grep -E "Executed|failed" | tail -3` — 0 failures.
+1. **Python, full suite:** `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15` — expect only the 8 `test_calendar_registry.py` failures plus the one order-dependent `test_agent_provenance.py` case; every `test_transcript_extract`, `test_capture_transcript`, `test_capture_hook`, `test_hooks_registry`, `test_auth`, `test_telemetry`, `test_consumption_stats`, `test_connections_base` case green.
+2. **Swift:** `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -3 && swift test 2>&1 | grep -E "Executed|failed" | tail -3` — 0 failures.
 3. **Scripts:** `bash -n install.sh && bash -n scripts/doctor.sh`; `CICADA_MEMORY_PATH=/tmp/x LAUNCH_AGENTS_DIR=/tmp/x CLAUDE_SETTINGS=/tmp/x/s.json CODEX_HOOKS=/tmp/x/h.json ./install.sh --dry-run | grep -c registry.py` ≥ 1 and nothing created under `/tmp/x`.
 4. **Registry on a scratch file:** `api/.venv/bin/python api/hooks/registry.py install --settings /private/tmp/claude-501/-Users-rorosaga-Documents-roros-lab-cicada/1d742a99-90a0-46a2-a0d9-4642052335bf/scratchpad/s.json --event Stop --command 'x api/hooks/capture.py'` → `added`; again → `present`; `status` → exit 0; `uninstall` → file is `{}`.
 5. **Hook never blocks:** `printf '{}' | api/.venv/bin/python api/hooks/capture.py --harness claude-code; echo $?` → `0`, empty stdout, one `skipped: no transcript_path` line appended to `$CICADA_HOME/logs/capture.log` (set `CICADA_HOME` to the scratchpad for this check so the real home is untouched).
