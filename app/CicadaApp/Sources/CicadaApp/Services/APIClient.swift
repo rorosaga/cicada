@@ -331,10 +331,34 @@ struct BookmarkSyncSourceSummary: Codable {
 
 /// `POST /sources/sync-bookmarks` result — aggregate new/skipped plus the
 /// per-browser breakdown.
-struct BookmarkSyncResult: Codable {
+struct BookmarkSyncResult {
     let new: Int
     let skipped: Int
     let sources: [BookmarkSyncSourceSummary]
+    /// G129 slice 2 — how many `removal` inbox items this sync proposed.
+    /// Defaulted so the pre-existing 3-arg call sites still compile.
+    var removalsProposed: Int = 0
+    /// Non-nil only when the correctness rails refused to compute removals
+    /// this sync (a folder-scope change since the last sync on some channel).
+    var removalsSkipped: String? = nil
+}
+
+// `Codable` conformance lives in an extension, not the primary declaration,
+// for the same reason `InboxItem.InboxOption` does this: a custom
+// `init(from:)` on the struct itself would suppress the synthesized
+// memberwise init that `BrowserImportModelTests.swift` and call sites across
+// the app construct `BookmarkSyncResult` with directly.
+extension BookmarkSyncResult: Codable {
+    enum CodingKeys: String, CodingKey { case new, skipped, sources, removalsProposed, removalsSkipped }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        new = try c.decode(Int.self, forKey: .new)
+        skipped = try c.decode(Int.self, forKey: .skipped)
+        sources = try c.decodeIfPresent([BookmarkSyncSourceSummary].self, forKey: .sources) ?? []
+        removalsProposed = try c.decodeIfPresent(Int.self, forKey: .removalsProposed) ?? 0
+        removalsSkipped = try c.decodeIfPresent(String.self, forKey: .removalsSkipped)
+    }
 }
 
 /// `POST /sources/sync-notes` result — Apple Notes one-way sync tally. Mirrors

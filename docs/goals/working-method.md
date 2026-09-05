@@ -203,15 +203,10 @@ brief written from this table over fighting the cache.
 
 #### The rest, in order
 
-0. **G129 slice 2 — bookmark deletions.** Slice 1 shipped (PR #52): browsers are watched, a save
-   reaches the queue in seconds, and each browser row has a status light. Slice 2 is the other
-   direction — an unbookmark proposes a removal and waits for a keep/remove answer. Two rails are
-   written on the row and both are correctness, not polish: the diff is only valid **inside the
-   folder scope that was synced** (with `folders:` selection everything outside the chosen prefixes
-   looks deleted), and it must be **browser-then vs browser-now, never browser vs memory**, or a
-   bookmark the person chose to keep is re-proposed after every sync forever. That needs one small
-   per-channel seen-set beside `url_index.json`. Removal is a proposal: an inbox item, rendered
-   again as a Deletions subsection on the browser's page — one write path, two views.
+0. ~~**G129 slice 2 — bookmark deletions.**~~ — **shipped 2026-09-05** (branch
+   `feat/bookmark-deletions`): the seen-set + diff, the `removal` inbox kind (`keep`/`remove`,
+   always `neutral` — the proposal is the browser's), and the browser page's own Deletions
+   subsection. Open remainder, not this row: G119 (more browsers).
 
 2. ~~**G125 — Sleep page as the study desk.**~~ — **shipped 2026-09-05, PR #55**
    (`feat/study-desk`): the `reading` mascot state, a clock-free speech bubble, a book pile keyed on

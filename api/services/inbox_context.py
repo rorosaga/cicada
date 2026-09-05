@@ -224,6 +224,21 @@ class InboxContext:
 
     def cause_for(self, fm: dict, options: list[dict]) -> Cause:
         """The three tiers of G97, first hit wins (R1)."""
+        # G129 slice 2: a `removal` item was raised by a browser sync, not a
+        # conversation — none of the three episode-anchored tiers below apply
+        # (there is no episode to excerpt). The item carries its own real
+        # provenance directly (`synced_at`, `browser`); serve THAT as tier
+        # "item" instead of falling through to `[ no source recorded ]`, which
+        # would be honest but would throw away provenance the item actually
+        # has.
+        if str(fm.get("kind", "") or "") == "removal":
+            at = _opt(fm.get("synced_at"))
+            if at is None:
+                return Cause()
+            browser = _opt(fm.get("browser")) or _opt(fm.get("channel")) or "a browser"
+            url = _opt(fm.get("url"))
+            excerpt = f"Removed from {browser}" + (f" — {url}" if url else "")
+            return Cause(tier="item", timestamp=at, origin=_opt(fm.get("channel")), excerpt=excerpt)
         entity_id = str(fm.get("entity_id", "") or "")
         name = str(fm.get("entity_name", "") or "")
         # Ordered + deduped: the item's own `claim_id` is normally ALSO one of

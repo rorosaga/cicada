@@ -108,6 +108,12 @@ enum BrowserImportSummary {
         return "\(newPart) · \(r.skipped) already saved · \(r.seen) \(r.seen == 1 ? "tab" : "tabs") seen"
     }
     static func bookmarks(_ r: BookmarkSyncResult) -> String {
-        "\(r.new == 0 ? "Nothing new" : "\(r.new) new") · \(r.skipped) already saved"
+        var line = "\(r.new == 0 ? "Nothing new" : "\(r.new) new") · \(r.skipped) already saved"
+        // G129 slice 2 — only mention removals when there's something to
+        // review; a sync with none reads exactly as it did before this row.
+        if r.removalsProposed > 0 {
+            line += " · \(r.removalsProposed) removal\(r.removalsProposed == 1 ? "" : "s") to review"
+        }
+        return line
     }
 }

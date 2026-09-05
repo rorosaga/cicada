@@ -891,6 +891,11 @@ class InboxKind(str, Enum):
     # question and could never answer it.
     divergence = "divergence"
     normalization = "normalization"
+    # G129 slice 2: a bookmark that left the browser — keep it, or archive
+    # the media entity it named. The proposal comes from the browser's own
+    # diff, never from the extractor, so it carries no recommendation and its
+    # verdict is always `neutral` (see `inbox_service._verdict`).
+    removal = "removal"
 
 
 class RequiredInput(str, Enum):
@@ -970,6 +975,11 @@ class InboxItem(CamelModel):
     allow_defer: bool = False
     predicate: Optional[str] = None
     hint: Optional[str] = None
+    # G129 slice 2 — which sync_state channel (`chrome-bookmarks`/
+    # `safari-bookmarks`) proposed this item, so the app's Deletions
+    # subsection can filter `GET /inbox`'s result without a new endpoint.
+    # Null for every other kind.
+    channel: Optional[str] = None
     remind_after: Optional[str] = None
     updated_date: Optional[str] = None
     # clarification/merge extras (only populated for those kinds)
@@ -1575,6 +1585,12 @@ class BookmarkSyncResponse(CamelModel):
     new: int
     skipped: int
     sources: list[BookmarkSyncSourceSummary] = []
+    # G129 slice 2 — how many `removal` inbox items this sync proposed, and
+    # (mutually exclusive in practice, but both default absent) why none were
+    # computed when the rails refused (folder-scope mismatch since the last
+    # sync on some channel this pass touched).
+    removals_proposed: int = 0
+    removals_skipped: Optional[str] = None
 
 
 class BookmarkFolderNode(CamelModel):
