@@ -1,14 +1,15 @@
 import SwiftUI
 
-// MARK: - Top Bar Controls (Sleep + Upload + Help)
+// MARK: - Top Bar Controls (Help; Sleep + Upload are opt-in seams — Track P R1)
 
-/// Which popover the `?` button opens (G125 Task 7). Every page but Sleep
-/// wants `.actions` ("what do Sleep/Upload do") unchanged since 2026-09-01;
-/// the Sleep page itself hides Sleep/Upload entirely (R10 — the one
-/// Consolidate control now lives in the study list's footer) and repoints
-/// its own `?` at *How Cicada sleeps* instead.
+/// Which popover the `?` button opens (G125 Task 7). Track P: the audit
+/// removed the Sleep and Upload buttons from every page (R1), so "About
+/// these actions" no longer had any actions to describe — `.actions` became
+/// `.aboutCicada`, one paragraph per half of Awake/Sleep, true on every page
+/// it renders on. The Sleep page keeps its own page-specific explainer
+/// (R10 — the one Consolidate control lives in the study list's footer).
 enum HelpContent: Equatable {
-    case actions
+    case aboutCicada
     case howSleepWorks
 }
 
@@ -17,11 +18,24 @@ struct TopBarControls: View {
 
     @Binding var selectedTab: AppTab
     @Binding var showUploadOverlay: Bool
-    /// R10: `false` on the Sleep page only — every other call site keeps the
-    /// default so it compiles and renders unchanged.
-    var showsSleep: Bool = true
-    var showsUpload: Bool = true
-    var help: HelpContent = .actions
+    /// Track P R1 — the audit resolves by REMOVING: a cycle starts on the
+    /// Sleep page (G125 R10 made that the one Consolidate control) and the
+    /// menu-bar bookworm offers "Run Sleep" globally. Both flags survive as
+    /// an opt-in seam rather than being deleted, because
+    /// `Views/Sleep/SleepView.swift` passes them explicitly and a page added
+    /// later may earn one back — but the DEFAULT is now the policy, so a
+    /// page added later inherits "`?` only".
+    var showsSleep: Bool = false
+    /// Final review F1 — `showsUpload` is default-false but NOT unused:
+    /// `FeedView` opts back in. "A one-shot import lives behind the Feed's
+    /// `+` and ⌘N" (CLAUDE.md's Integrations rule) covers
+    /// `UploadMode.conversations` only; `UploadMode.project` — an export
+    /// imported into a chosen or newly created memory bank — has no
+    /// `AddSourceTile`, and `UploadOverlay` is also the only writer of
+    /// `Store.intakeInFlight` (G125 R2's `.reading` mascot). A default flip
+    /// must not delete a capability that has no replacement.
+    var showsUpload: Bool = false
+    var help: HelpContent = .aboutCicada
     @State private var showHelpOverlay = false
 
     var body: some View {
@@ -94,7 +108,7 @@ struct TopBarControls: View {
             .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
             .popover(isPresented: $showHelpOverlay, arrowEdge: .bottom) {
                 switch help {
-                case .actions: HelpPopoverContent()
+                case .aboutCicada: AboutCicadaPopover()
                 case .howSleepWorks: HowSleepWorksContent()
                 }
             }
@@ -103,15 +117,41 @@ struct TopBarControls: View {
 
 }
 
-// MARK: - Help Popover Content
+// MARK: - About Cicada Popover
 
-struct HelpPopoverContent: View {
+/// The `?` popover on Graph, Clusters and Feed. Track P rewrote it: the old
+/// two rows described the Sleep and Upload buttons this audit deleted, and
+/// both sentences were false anyway — capture was pitched as something MCP
+/// clients do (G105 replaced that with the harness's own Stop hook, which
+/// cannot be skipped by a model declining to call a tool), and consolidation
+/// was described as automatic when a fresh install's schedule is `manual`.
+/// The two rows now name the two halves of Awake/Sleep instead of two
+/// buttons, so the popover stays true on every page that renders it.
+struct AboutCicadaPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            Text("ABOUT THESE ACTIONS")
+            Text("ABOUT CICADA")
                 .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
+
+            HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(CicadaTheme.font(size: 14))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Capture")
+                        .font(CicadaTheme.font(size: 13, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+
+                    Text(Copy.aboutCicadaCapture)
+                        .font(CicadaTheme.font(size: 11))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
 
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                 Image(systemName: "moon.fill")
@@ -124,25 +164,7 @@ struct HelpPopoverContent: View {
                         .font(CicadaTheme.font(size: 13, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textPrimary)
 
-                    Text("Processes imported conversations and consolidates them into your memory graph. For day-to-day usage with Claude Desktop or other MCP clients, Cicada handles consolidation automatically — you only need to trigger Sleep manually after bulk imports.")
-                        .font(CicadaTheme.font(size: 11))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-                Image(systemName: "arrow.up.doc")
-                    .font(CicadaTheme.font(size: 14))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(width: 20)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Upload")
-                        .font(CicadaTheme.font(size: 13, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.textPrimary)
-
-                    Text("Import conversation exports from Claude, ChatGPT, or Gemini. Drop a folder or pick individual JSON/HTML files. Uploaded conversations become episodes ready for the next Sleep cycle.")
+                    Text(Copy.aboutCicadaSleep)
                         .font(CicadaTheme.font(size: 11))
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

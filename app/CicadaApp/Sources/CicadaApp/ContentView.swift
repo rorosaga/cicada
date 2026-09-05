@@ -216,7 +216,6 @@ struct GraphContainerView: View {
     @Binding var showAskPanel: Bool
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(BanksViewModel.self) private var banksVM
-    @State private var showUploadOverlay = false
 
     var body: some View {
         ZStack {
@@ -238,7 +237,8 @@ struct GraphContainerView: View {
                 )
             }
 
-            // Top-right: Ask + Sleep + Upload + Help buttons
+            // Top-right: Ask + Help (Track P: the audit removed Sleep/Upload —
+            // a cycle starts on the Sleep page, an import behind the Feed's +)
             VStack {
                 HStack {
                     Spacer()
@@ -246,7 +246,7 @@ struct GraphContainerView: View {
                         AskButton(showAskPanel: $showAskPanel)
                         TopBarControls(
                             selectedTab: $selectedTab,
-                            showUploadOverlay: $showUploadOverlay
+                            showUploadOverlay: .constant(false)
                         )
                     }
                     .padding(CicadaTheme.spacingLG)
@@ -314,15 +314,8 @@ struct GraphContainerView: View {
                     .padding(CicadaTheme.spacingXL)
                     .transition(.scale(scale: 0.97).combined(with: .opacity))
             }
-
-            // Upload overlay
-            if showUploadOverlay {
-                UploadOverlay(isPresented: $showUploadOverlay)
-                    .transition(.opacity)
-            }
         }
         .animation(.spring(duration: 0.3), value: graphVM.selectedEntity?.id)
-        .animation(.spring(duration: 0.3), value: showUploadOverlay)
     }
 }
 

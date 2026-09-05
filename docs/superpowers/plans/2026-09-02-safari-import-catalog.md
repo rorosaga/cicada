@@ -12,10 +12,10 @@
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import` (branch `feat/safari-import`, based on `dev` @ `bad8461`). Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && …` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never `grep --include=*.ext` (zsh globbing breaks it) — use `grep -rn … <dir>` and filter by path.
-- **Never read** `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`, `~/Library/Safari`, `~/Library/Containers/com.apple.Safari`, or `~/.claude/projects` — real personal data. Every fixture is synthetic (`alpha-project`, `bob-example`, `example.com`, device names like `Bob's iPhone`).
-- Python tests: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Full suite: `api/tests`. **Baseline failures (not yours):** 8 date-dependent ones in `test_calendar_registry.py` and `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent). Everything else must be green.
-- Swift: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report 0 failures. SourceKit diagnostics naming OTHER worktrees are noise. **NEVER** run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live.
+- Work ONLY in `<worktree>/` (branch `feat/safari-import`, based on `dev` @ `bad8461`). Every shell command is `cd <worktree>/ && …` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never `grep --include=*.ext` (zsh globbing breaks it) — use `grep -rn … <dir>` and filter by path.
+- **Never read** `<repo>/memory` (any bank), `~/.cicada`, `~/Library/Safari`, `~/Library/Containers/com.apple.Safari`, or `~/.claude/projects` — real personal data. Every fixture is synthetic (`alpha-project`, `bob-example`, `example.com`, device names like `Bob's iPhone`).
+- Python tests: `cd <worktree>/ && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Full suite: `api/tests`. **Baseline failures (not yours):** 8 date-dependent ones in `test_calendar_registry.py` and `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent). Everything else must be green.
+- Swift: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report 0 failures. SourceKit diagnostics naming OTHER worktrees are noise. **NEVER** run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live.
 - Never `git add -A`; stage named files only. Never commit `memory/`, `logs/`, `.claude/settings.json`, `api/.venv`, `*-report.md`. No push, no new branches/worktrees, no subagents. Ignore Devin/PR comments.
 - **Privacy rule (CLAUDE.md, standing):** no owner device names, bookmark folder names, URLs or titles in code comments, tests, docs, commit messages or this plan. Fixtures use placeholders.
 - **Sleep-safety rails:** no LLM anywhere in this track; every new read path is engine-free; no new network call is introduced by any task (the existing best-effort enrichment inside `ingest_batch` is unchanged — see R3). Secrets are not involved.
@@ -358,7 +358,7 @@ Also edit the two ordering assertions in `api/tests/test_source_channels.py:229-
     ]
 ```
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && api/.venv/bin/python -m pytest api/tests/test_safari_tabs.py api/tests/test_source_channels.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_safari_tabs.py api/tests/test_source_channels.py -q -p no:cacheprovider`
 Expected: `test_safari_tabs.py` fails on import (`ModuleNotFoundError: api.services.safari_tabs`); the two ordering tests fail.
 
 - [ ] **Step 2: `saved_at.from_cocoa_seconds`**
@@ -707,14 +707,14 @@ Update the module docstring line 7 to `* ``bookmarks`` / ``safari-tabs`` / ``not
 
 - [ ] **Step 6: Run, then the full suite**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && api/.venv/bin/python -m pytest api/tests/test_safari_tabs.py api/tests/test_source_channels.py api/tests/test_bookmark_sync.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_safari_tabs.py api/tests/test_source_channels.py api/tests/test_bookmark_sync.py -q -p no:cacheprovider`
 Expected: all pass.
 Then `api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15` — only the baseline failures.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && git add api/services/safari_tabs.py api/services/saved_at.py api/models/schemas.py api/routers/sources.py api/services/channel_registry.py api/tests/test_safari_tabs.py api/tests/test_source_channels.py && git commit -m "feat(sources): Safari iCloud tabs — POST /sources/sync-safari-tabs (+preview), safari_tabs parser, safari-tabs channel (G30)
+cd <worktree>/ && git add api/services/safari_tabs.py api/services/saved_at.py api/models/schemas.py api/routers/sources.py api/services/channel_registry.py api/tests/test_safari_tabs.py api/tests/test_source_channels.py && git commit -m "feat(sources): Safari iCloud tabs — POST /sources/sync-safari-tabs (+preview), safari_tabs parser, safari-tabs channel (G30)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -915,7 +915,7 @@ def test_browser_rows_fall_back_to_the_legacy_bookmarks_entry_until_they_sync(tm
     assert ch["chrome-bookmarks"]["count"] == 412, "the other row keeps the legacy value"
 ```
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && api/.venv/bin/python -m pytest api/tests/test_bookmark_sync.py api/tests/test_source_channels.py -q -p no:cacheprovider`
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_bookmark_sync.py api/tests/test_source_channels.py -q -p no:cacheprovider`
 Expected: the new tests fail (`AttributeError: folder_tree`, ordering mismatch).
 
 - [ ] **Step 2: `bookmark_sync.py`**
@@ -1093,12 +1093,12 @@ Docstring line 7 → `* ``chrome-bookmarks`` / ``safari-bookmarks`` / ``safari-t
 
 - [ ] **Step 5: Run + full suite**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && api/.venv/bin/python -m pytest api/tests/test_bookmark_sync.py api/tests/test_source_channels.py api/tests/test_safari_tabs.py api/tests/test_bookmarks_safari.py -q -p no:cacheprovider` → all pass. Then the full suite → only baseline failures. Also `grep -rn '"bookmarks"' mcp api/services api/routers` → only `channel_registry.py` (the `legacy_key`) and docstrings.
+Run: `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_bookmark_sync.py api/tests/test_source_channels.py api/tests/test_safari_tabs.py api/tests/test_bookmarks_safari.py -q -p no:cacheprovider` → all pass. Then the full suite → only baseline failures. Also `grep -rn '"bookmarks"' mcp api/services api/routers` → only `channel_registry.py` (the `legacy_key`) and docstrings.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && git add api/services/bookmark_sync.py api/services/channel_registry.py api/services/sync_state.py api/models/schemas.py api/routers/sources.py api/tests/test_bookmark_sync.py api/tests/test_source_channels.py && git commit -m "feat(sources): bookmark folder selection + folder-tree preview on /sources/sync-bookmarks; per-browser channels with legacy fallback (G30, R4/R5)
+cd <worktree>/ && git add api/services/bookmark_sync.py api/services/channel_registry.py api/services/sync_state.py api/models/schemas.py api/routers/sources.py api/tests/test_bookmark_sync.py api/tests/test_source_channels.py && git commit -m "feat(sources): bookmark folder selection + folder-tree preview on /sources/sync-bookmarks; per-browser channels with legacy fallback (G30, R4/R5)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -1308,7 +1308,7 @@ In `StoreTests.swift` `FakeSyncAPI` add (after `unsubscribeCalendar`, `:158-160`
 
 Existing-test edits: `SourceChannelTests.swift:71-74` → the 13-id list from Task 2, and its JSON fixture at `:14` (`"id":"bookmarks","label":"Chrome & Safari bookmarks"` → `"id":"chrome-bookmarks","label":"Chrome bookmarks"`) with the sort expectation at `:51` following (`["rss", "chrome-bookmarks", "telegram"]`) — the row's label no longer exists on the backend and Task 5's final grep must find it nowhere; `FeedChannelStripTests.swift:29` and `:32` fixture `"bookmarks"` → `"chrome-bookmarks"`, and the `forChannel` list at `:38` → `["rss", "calendar", "chrome-bookmarks", "safari-bookmarks", "safari-tabs", "notes", "telegram", "chat-export:claude", "chat-export:chatgpt", "files"]`; `ImportCatalogTests.swift:26` → `XCTAssertEqual(AddSourceTile.safari.route, .sync); XCTAssertEqual(AddSourceTile.chrome.route, .sync)`; `:123-125` list → replace `"browserBookmarks"` with `"safari", "chrome"`; `:171-172` → replace `.browserBookmarks` with `.safari, .chrome`; add `XCTAssertNil(AddSourceTile(rawValue: "browserBookmarks"))` next to the retired-tile test at `:130-132`. `AddSourceTileTests.swift` needs no change (new tiles have no vendors).
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import/app/CicadaApp && swift build --build-tests 2>&1 | tail -5` → compile errors on the new types (expected).
+Run: `cd <worktree>/app/CicadaApp && swift build --build-tests 2>&1 | tail -5` → compile errors on the new types (expected).
 
 - [ ] **Step 2: `BrowserFiles.swift`**
 
@@ -1905,10 +1905,10 @@ struct BookmarkFolderPanel: View {
 
 - [ ] **Step 7: Build, test, commit**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20` → 0 failures.
+Run: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20` → 0 failures.
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && git add app/CicadaApp/Sources/CicadaApp/Services/BrowserFiles.swift app/CicadaApp/Sources/CicadaApp/Models/BrowserImport.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/Sheets/BrowserImportPanels.swift app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/Sync/SyncAPI.swift app/CicadaApp/Sources/CicadaApp/Sync/Mutations.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/Sheets/AddSourceSheet.swift app/CicadaApp/Sources/CicadaApp/Views/Feed/ConnectedChannelsStrip.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/ConnectedChannelRow.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/OriginIconography.swift app/CicadaApp/Tests/CicadaAppTests/BrowserFilesTests.swift app/CicadaApp/Tests/CicadaAppTests/BrowserImportModelTests.swift app/CicadaApp/Tests/CicadaAppTests/MutationTests.swift app/CicadaApp/Tests/CicadaAppTests/StoreTests.swift app/CicadaApp/Tests/CicadaAppTests/SourceChannelTests.swift app/CicadaApp/Tests/CicadaAppTests/FeedChannelStripTests.swift app/CicadaApp/Tests/CicadaAppTests/ImportCatalogTests.swift && git commit -m "feat(app): Safari iCloud tabs device picker + bookmark folder tree; app reads ~/Library and posts bytes, Full Disk Access fix on failure (R1/R8/R9)
+cd <worktree>/ && git add app/CicadaApp/Sources/CicadaApp/Services/BrowserFiles.swift app/CicadaApp/Sources/CicadaApp/Models/BrowserImport.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/Sheets/BrowserImportPanels.swift app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/Sync/SyncAPI.swift app/CicadaApp/Sources/CicadaApp/Sync/Mutations.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/Sheets/AddSourceSheet.swift app/CicadaApp/Sources/CicadaApp/Views/Feed/ConnectedChannelsStrip.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/ConnectedChannelRow.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/OriginIconography.swift app/CicadaApp/Tests/CicadaAppTests/BrowserFilesTests.swift app/CicadaApp/Tests/CicadaAppTests/BrowserImportModelTests.swift app/CicadaApp/Tests/CicadaAppTests/MutationTests.swift app/CicadaApp/Tests/CicadaAppTests/StoreTests.swift app/CicadaApp/Tests/CicadaAppTests/SourceChannelTests.swift app/CicadaApp/Tests/CicadaAppTests/FeedChannelStripTests.swift app/CicadaApp/Tests/CicadaAppTests/ImportCatalogTests.swift && git commit -m "feat(app): Safari iCloud tabs device picker + bookmark folder tree; app reads ~/Library and posts bytes, Full Disk Access fix on failure (R1/R8/R9)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -2254,10 +2254,10 @@ Replace `@State private var expanded: AddSourceTile?` with `@State private var l
 
 - [ ] **Step 4: Build, test, commit**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20` → 0 failures.
+Run: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20` → 0 failures.
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && git add app/CicadaApp/Sources/CicadaApp/Views/Capture/Sheets/ImportFamilies.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/Sheets/AddSourceSheet.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/Sheets/ImportCatalog.swift app/CicadaApp/Sources/CicadaApp/Views/Common/LogoImage.swift app/CicadaApp/Tests/CicadaAppTests/ImportFamilyTests.swift app/CicadaApp/Tests/CicadaAppTests/ImportCatalogTests.swift app/CicadaApp/Tests/CicadaAppTests/AddSourceTileTests.swift && git commit -m "feat(app): logo-first two-level import catalog — families → members → flow, drawn Safari/Chrome glyphs, arrow/Enter/Esc navigation (G71 follow-up)
+cd <worktree>/ && git add app/CicadaApp/Sources/CicadaApp/Views/Capture/Sheets/ImportFamilies.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/Sheets/AddSourceSheet.swift app/CicadaApp/Sources/CicadaApp/Views/Capture/Sheets/ImportCatalog.swift app/CicadaApp/Sources/CicadaApp/Views/Common/LogoImage.swift app/CicadaApp/Tests/CicadaAppTests/ImportFamilyTests.swift app/CicadaApp/Tests/CicadaAppTests/ImportCatalogTests.swift app/CicadaApp/Tests/CicadaAppTests/AddSourceTileTests.swift && git commit -m "feat(app): logo-first two-level import catalog — families → members → flow, drawn Safari/Chrome glyphs, arrow/Enter/Esc navigation (G71 follow-up)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -2293,7 +2293,7 @@ POST /sources/sync-safari-tabs            → Safari iCloud tabs from CloudTabs.
 - [ ] **Step 2: Backlog rows** (edit with a targeted string replace, never by retyping a long line)
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && api/.venv/bin/python - <<'PY'
+cd <worktree>/ && api/.venv/bin/python - <<'PY'
 from pathlib import Path
 p = Path("docs/goals/memory-evolution.md"); s = p.read_text()
 
@@ -2337,10 +2337,10 @@ If the G30 tail string does not match exactly (the row may have been edited), ru
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && grep -n "browserBookmarks\|Chrome & Safari bookmarks" CLAUDE.md docs/goals/TODO.md app/CicadaApp/Sources -r` → no output (the retired tile and the combined label are gone from prose and code; the G30 backlog row's history may still mention the old label — that is fine).
+Run: `cd <worktree>/ && grep -n "browserBookmarks\|Chrome & Safari bookmarks" CLAUDE.md docs/goals/TODO.md app/CicadaApp/Sources -r` → no output (the retired tile and the combined label are gone from prose and code; the G30 backlog row's history may still mention the old label — that is fine).
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "docs: Safari iCloud tabs, folder selection, family catalog; G30/G47/G71 shipped clauses, G118 filed, TODO handoff
+cd <worktree>/ && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "docs: Safari iCloud tabs, folder selection, family catalog; G30/G47/G71 shipped clauses, G118 filed, TODO handoff
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -2350,10 +2350,10 @@ Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
 
 ## Verification the orchestrator runs at the end
 
-1. `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15` → only the 8 `test_calendar_registry.py` baseline failures plus the order-dependent `test_agent_provenance` one.
-2. `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20` → 0 failures.
-3. `git -C /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import log --oneline bad8461..HEAD` → 5 commits, one per task; `git status --porcelain` shows nothing staged from `memory/`, `logs/`, `api/.venv`, `*-report.md`.
-4. Privacy grep on the diff: `git -C /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/safari-import diff bad8461..HEAD -- . ':!api/.venv' | grep -in "rodrigo's\|rodrigo’s\|rorosaga"` → no hits in code, tests or docs (the only allowed "Rodrigo" mentions are pre-existing backlog voice lines; `rorosaga` is fine only inside the pre-existing `repos:` example in `CLAUDE.md`, which this track never touches). The orchestrator additionally greps for the owner's real device and folder names locally — they are deliberately not written into this plan.
+1. `cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15` → only the 8 `test_calendar_registry.py` baseline failures plus the order-dependent `test_agent_provenance` one.
+2. `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20` → 0 failures.
+3. `git -C <worktree>/ log --oneline bad8461..HEAD` → 5 commits, one per task; `git status --porcelain` shows nothing staged from `memory/`, `logs/`, `api/.venv`, `*-report.md`.
+4. Privacy grep on the diff: `git -C <worktree>/ diff bad8461..HEAD -- . ':!api/.venv' | grep -in "rodrigo's\|rodrigo’s\|rorosaga"` → no hits in code, tests or docs (the only allowed "Rodrigo" mentions are pre-existing backlog voice lines; `rorosaga` is fine only inside the pre-existing `repos:` example in `CLAUDE.md`, which this track never touches). The orchestrator additionally greps for the owner's real device and folder names locally — they are deliberately not written into this plan.
 5. Static contract checks: `grep -rn "sync_from_local_files" api/services/safari_tabs.py` → none (R1); `grep -n "immutable=1" api/services/safari_tabs.py` → present (R2); `grep -n '"bookmarks"' api/routers/sources.py` → none (R4 — nothing writes the legacy key).
 6. **After merge, with the owner at the machine** (the only step touching real data, never done by an agent): install via `make install-app`, grant Full Disk Access to Cicada.app once, open Feed → `+` → Browsers → Safari → *iCloud tabs*: the preview should list the iPhone with ~200 tabs and the Mac with 0; import; expect `new ≈ tabs − already-bookmarked`, `skipped` for the rest, and the `safari-tabs` row lit in the Connected strip. Then *Bookmarks & Reading List*: tick only the large folder under Favorites; expect `new: 0`-ish if those URLs were already synced as `safari-bookmark` entities (dedup is by URL hash) — a non-zero `skipped` there is the idempotency proof. `GET /sources/channels` should show `chrome-bookmarks` / `safari-bookmarks` reading the legacy count until each syncs on its own.
 

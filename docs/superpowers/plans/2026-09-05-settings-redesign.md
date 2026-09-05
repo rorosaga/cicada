@@ -34,8 +34,8 @@
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/settings` (branch `feat/settings-redesign`, based on `dev` @ `2312887`). Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/settings && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never an unquoted `grep --include=*.ext` (zsh globbing breaks it) — quote it or use `rg`.
-- NEVER read `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`, `~/Library`, or `~/.claude/projects`. Test fixtures are synthetic (`alpha-project`, `bob-example`, `example.com`).
+- Work ONLY in `<worktree>/` (branch `feat/settings-redesign`, based on `dev` @ `2312887`). Every shell command is `cd <worktree>/ && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never an unquoted `grep --include=*.ext` (zsh globbing breaks it) — quote it or use `rg`.
+- NEVER read `<repo>/memory` (any bank), `~/.cicada`, `~/Library`, or `~/.claude/projects`. Test fixtures are synthetic (`alpha-project`, `bob-example`, `example.com`).
 - Python: `api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`; the full suite `api/tests` must report **0 failures** (2014 passed on 2026-09-03). `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` is order-dependent and pre-existing — if it's the ONLY red, re-run it alone and report both results.
 - Swift: `cd .../app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report **0 failures** (SourceKit diagnostics naming other worktrees are noise).
 - NEVER run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live; the orchestrator installs at the end.
@@ -233,7 +233,7 @@ class SleepEngineChoice(CamelModel):
   (`get_registry` imported from `api.services.connections.registry`, same module `engine_select` itself already imports lazily). Run 1.1, 1.3, 1.4 together, then the **full suite**.
 - [ ] **1.7 Verify + commit.**
   ```
-  cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/settings
+  cd <worktree>/
   api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider
   ```
   0 failures (or the one documented order-dependent case, re-run alone and report both). Stage exactly: `api/models/schemas.py api/services/engine_select.py api/services/agent_engine.py api/services/sleep_engine_prefs.py api/routers/sleep.py api/tests/test_engine_select.py api/tests/test_sleep_engine_prefs.py api/tests/test_agent_engine.py`. Commit: `feat(G122): GET/PUT /sleep/engine — engine & model picker, prefs-first`.
@@ -326,7 +326,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
   `IntegrationsView` doesn't exist yet, so this task also creates a minimal stub — a **new** `Views/Settings/IntegrationsView.swift` containing only `struct IntegrationsView: View { var body: some View { PageHeader(title: Copy.integrations, subtitle: Copy.integrationsSubtitle) {} } }` — so the branch builds at the end of this task. Task 4 fleshes out this same file in place; it never creates a second one.
 - [ ] **2.7 Build + test.**
   ```
-  cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/settings/app/CicadaApp
+  cd <worktree>/app/CicadaApp
   swift build 2>&1 | tail -5
   swift test 2>&1 | tail -20
   ```
@@ -515,17 +515,17 @@ enum IntegrationRowState {
 ## Verification (run at the end, orchestrator-facing)
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/settings
+cd <worktree>/
 api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider
 # expect: 0 failures (2014+ passed); if the single order-dependent decay test
 # is the only red, re-run it alone and report both results.
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/settings/app/CicadaApp
+cd <worktree>/app/CicadaApp
 swift build 2>&1 | tail -5
 swift test 2>&1 | tail -20
 # expect: build succeeds; 0 test failures.
 
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/settings
+cd <worktree>/
 git log --oneline dev..feat/settings-redesign
 git diff --stat dev...feat/settings-redesign
 ```

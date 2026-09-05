@@ -52,6 +52,32 @@ enum Copy {
     /// built from `settingsSleep` so a rename can't desync the two halves.
     static let changeInSettingsSleep = "Change in \(settingsSleep)"
 
+    // MARK: The `?` popover (Track P)
+    //
+    // Shown on Graph, Clusters and Feed, so every sentence has to be true on
+    // all three — and on a DEFAULT install, which is where the old "About
+    // these actions" copy went wrong twice over. One paragraph per half of
+    // the Awake/Sleep split. Both interpolate pointers declared LATER in the
+    // file (`settingsIntegrations`, `settingsSleep` above it): `Copy` is an
+    // `enum` of lazily-initialised `static let` globals, so declaration order
+    // does not constrain them.
+
+    /// Awake. Capture is the harness's own Stop hook (G105 — not a model
+    /// choosing to call a tool, and not a property of any one MCP client),
+    /// so the sentence names the harnesses rather than the client.
+    static let aboutCicadaCapture =
+        "Every Claude Code and Codex session is saved as it ends, by the harness's own hook — no button, no tool call. "
+        + "Bookmarks, feeds, calendars and chat exports arrive through \(settingsIntegrations) and the Feed's + button."
+
+    /// Sleep. Nothing consolidates until a schedule is chosen
+    /// (`sleep_scheduler._DEFAULT` is `manual`), so the popover says so and
+    /// points at the one place a schedule is set. The last clause is
+    /// TODO.md ruling 4 — a scheduled cycle passes `user_triggered=False`
+    /// and never spends plan quota — stated rather than hidden.
+    static let aboutCicadaSleep =
+        "Consolidation is not automatic. Sleep runs when you press Consolidate on the Sleep page, or on the schedule you pick in \(settingsSleep) — nightly, every few hours, or after an import. "
+        + "A scheduled cycle never spends your plan quota."
+
     // MARK: Shared action verbs
     //
     // One verb per action, app-wide. The Sleep page used to say "Run now" /
@@ -223,6 +249,15 @@ enum Copy {
     static let onboardingTryDemoBank = "Try it on a demo bank first"
     static let onboardingCreatingDemoBank = "Creating demo bank…"
 
+    /// Track P R3 — the first-run toggle's label. Says the exact schedule it
+    /// writes (`daily`, 03:00), because the sentence beneath it is derived
+    /// from what the backend reports and the two must agree on a fresh bank.
+    /// On a bank that ALREADY carries `interval`/`after_import` the toggle
+    /// reads ON and the derived line names THAT mode (R4) — the label is the
+    /// name of the thing the toggle turns on, not a claim about the current
+    /// schedule.
+    static let onboardingRunNightly = "Run a Sleep cycle nightly at 3:00"
+
     /// One title per `OnboardingStep`, shown in the sheet's header.
     static func onboardingStepTitle(_ step: OnboardingStep) -> String {
         switch step {
@@ -241,4 +276,11 @@ enum Copy {
     static let emptyInboxMessage = "Questions appear here after a Sleep cycle."
     static let emptyFeedMessage = "Save a link or add a source to get started."
     static let emptySourcesMessage = "Nothing has fed this memory yet."
+
+    /// Settings → Integrations with BOTH domains loaded and both empty —
+    /// which on a working install means the backend is not answering, since
+    /// `channel_registry` always yields thirteen rows. Never shown while a
+    /// fetch is in flight or an error is latched (`IntegrationsView.
+    /// loadState`), so it can only ever mean "confirmed nothing".
+    static let integrationsEmpty = "No integrations found — is the Cicada backend running?"
 }

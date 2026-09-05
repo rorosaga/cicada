@@ -63,7 +63,14 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
 /// backend field.
 enum IntegrationHarnessRows {
     static func rows(from overview: [SourceOverview]) -> [SourceOverview] {
-        overview.filter { $0.kind == .harness }
+        // A row that HAS a channel id is already rendered by this page as a
+        // real, connectable channel — `api/services/source_overview.py:50`
+        // gives `chat-export:*` both `kind = "harness"` and a `channel`, so
+        // taking `kind` alone printed every chat export twice, the second copy
+        // captioned "Captured automatically — no setup needed" (false: an
+        // export is a one-shot file drop). The informational rows this list is
+        // for are the ones with nothing to connect: Claude Code, Cursor, Codex.
+        overview.filter { $0.kind == .harness && $0.channelId == nil }
     }
 }
 

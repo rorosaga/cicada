@@ -27,6 +27,12 @@ if str(_REPO_ROOT) not in sys.path:
 from api.services import agentic_write  # noqa: E402
 # Pure filesystem + datetime, no bank/config state — safe to hoist alongside.
 from api.services import episode_ids  # noqa: E402
+# Track P R8/R9 — the legacy observer value is protocol and must stay in the
+# `cicada_write_claim` schema (CLAUDE.md R12: a description naming an argument
+# the schema would reject is a bug), but it is a person's name, the repo is
+# public and the install is portable. Imported from its one documented home
+# rather than retyped, so `mcp/` holds no name literal of its own.
+from api.services.owner_identity import LEGACY_OBSERVER  # noqa: E402
 
 # MCP protocol uses JSON-RPC 2.0 over stdin/stdout
 
@@ -170,7 +176,7 @@ TOOLS = [
             "properties": {
                 "entity_id": {
                     "type": "string",
-                    "description": "The entity ID (e.g. 'figure-ai') or entity name from a cicada_recall result.",
+                    "description": "The entity ID (e.g. 'alpha-project') or entity name from a cicada_recall result.",
                 }
             },
             "required": ["entity_id"],
@@ -241,17 +247,17 @@ TOOLS = [
     },
     {
         "name": "cicada_get_perspective",
-        "description": "Return a subject's currently-valid claims from a specific PERSPECTIVE — optionally filtered by observer (who holds the belief: 'agent', 'owner', or 'external:<name>'; 'rodrigo' is still accepted for compatibility) and/or context (e.g. 'engineering', 'family', 'career'). Use when you need to know who believes what about a subject, or want only one facet of a subject (e.g. engineer-Rodrigo vs family-Rodrigo). Each claim carries its observer, context, source_trust, confidence, and valid-from date so you can attribute beliefs honestly.",
+        "description": "Return a subject's currently-valid claims from a specific PERSPECTIVE — optionally filtered by observer (who holds the belief: 'agent', 'owner', or 'external:<name>') and/or context (e.g. 'engineering', 'family', 'career'). Use when you need to know who believes what about a subject, or want only one facet of it (e.g. the engineering facet of the owner vs the family facet). Each claim carries its observer, context, source_trust, confidence, and valid-from date so you can attribute beliefs honestly.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "subject": {
                     "type": "string",
-                    "description": "The subject entity id or name (e.g. 'rodrigo', 'cicada').",
+                    "description": "The subject entity id or name (e.g. 'owner', 'cicada').",
                 },
                 "observer": {
                     "type": "string",
-                    "description": "Optional. Filter to one observer: 'agent', 'owner', or 'external:<name>'. 'rodrigo' is still accepted for compatibility.",
+                    "description": "Optional. Filter to one observer: 'agent', 'owner', or 'external:<name>'.",
                 },
                 "context": {
                     "type": "string",
@@ -284,19 +290,19 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {"entity_id": {"type": "string",
-                "description": "The entity id (e.g. 'diego-sanmartin') to fetch sources for."}},
+                "description": "The entity id (e.g. 'bob-example') to fetch sources for."}},
             "required": ["entity_id"],
         },
     },
     {
         "name": "cicada_write_claim",
-        "description": "Write ONE atomic fact into Cicada's memory as a structured, observer-tagged claim (subject-predicate-object), reusing the same trust-gated reconciliation the nightly Sleep cycle uses. Tag observer='owner' ONLY for something the USER explicitly stated themselves — this claim becomes trust-protected and can never be silently overwritten by a later agent claim. 'rodrigo' is still accepted for compatibility. Tag observer='agent' for something YOU inferred, deduced, or noticed yourself. Tag observer='external' for a fact attributed to a third party. Write ONE claim per atomic fact — never bundle multiple facts into a single call. If the subject has no entity page yet, a minimal one is created automatically. A lower-trust claim never overwrites a higher-trust one; it either coexists (flagged) or is held back for a nudge.",
+        "description": "Write ONE atomic fact into Cicada's memory as a structured, observer-tagged claim (subject-predicate-object), reusing the same trust-gated reconciliation the nightly Sleep cycle uses. Tag observer='owner' ONLY for something the USER explicitly stated themselves — this claim becomes trust-protected and can never be silently overwritten by a later agent claim. Tag observer='agent' for something YOU inferred, deduced, or noticed yourself. Tag observer='external' for a fact attributed to a third party. Write ONE claim per atomic fact — never bundle multiple facts into a single call. If the subject has no entity page yet, a minimal one is created automatically. A lower-trust claim never overwrites a higher-trust one; it either coexists (flagged) or is held back for a nudge.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "subject": {
                     "type": "string",
-                    "description": "The entity the claim is about (e.g. 'Rodrigo', 'Cicada').",
+                    "description": "The entity the claim is about (e.g. 'the owner', 'Cicada').",
                 },
                 "predicate": {
                     "type": "string",
@@ -304,18 +310,30 @@ TOOLS = [
                 },
                 "object": {
                     "type": "string",
-                    "description": "The value or target entity of the claim (e.g. 'Figure AI', 'concise summaries').",
+                    "description": "The value or target entity of the claim (e.g. 'alpha-project', 'concise summaries').",
                 },
                 "observer": {
                     "type": "string",
-                    # "rodrigo" stays in the enum (not just the description)
-                    # so the schema itself matches the compatibility promise
-                    # made below — R12 in CLAUDE.md: a primer/schema naming
-                    # an argument the schema itself would reject is a bug.
-                    # `agentic_write.write_claim` already normalizes this
-                    # legacy literal to the resolved owner id (G117).
-                    "enum": ["owner", "agent", "external", "rodrigo"],
-                    "description": "Who holds this belief. 'owner' = the user stated this themselves (trust-protected). 'agent' = you inferred/extracted this. 'external' = attributed to a third party. Defaults to 'agent'. 'rodrigo' is still accepted for compatibility.",
+                    # The legacy observer value stays in the ENUM (not just
+                    # in the prose) so the schema itself keeps the
+                    # compatibility promise — CLAUDE.md R12: a primer or
+                    # schema naming an argument the schema itself would
+                    # reject is a bug. `agentic_write.write_claim` already
+                    # normalizes it to the resolved owner id (G117).
+                    #
+                    # Track P R8/R9 — imported from
+                    # `owner_identity.LEGACY_OBSERVER` rather than retyped, so
+                    # `mcp/` holds no person's name of its own (the repo is
+                    # public, the install is portable), and it is NOT
+                    # interpolated from a resolved owner: `TOOLS` is a module
+                    # constant built at import, before any bank is known, and
+                    # a tool description must not vary per bank (one prose
+                    # source, G75 R12). It stops being ADVERTISED here — an
+                    # agent should send 'owner'; the enum keeps accepting the
+                    # legacy value for old callers, and naming it only invites
+                    # new ones.
+                    "enum": ["owner", "agent", "external", LEGACY_OBSERVER],
+                    "description": "Who holds this belief. 'owner' = the user stated this themselves (trust-protected). 'agent' = you inferred/extracted this. 'external' = attributed to a third party. Defaults to 'agent'.",
                 },
                 "confidence": {
                     "type": "number",
@@ -1756,8 +1774,8 @@ def render_question(
 
     Shape:
 
-        Where does Rodrigo work now?
-          entity_id=rodrigo · predicate=works-at
+        Where does the owner work now?
+          entity_id=owner · predicate=works-at
           Cause: “…the sentence that raised it…” — from "Title" · claude-code · 6 months ago
           a) MongoDB — 6 months ago
           b) Supahost — 5 days ago (Recommended)

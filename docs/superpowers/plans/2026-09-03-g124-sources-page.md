@@ -12,10 +12,10 @@
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124` (branch `feat/sources-page`, based on `dev` @ `bdcdc54`). Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && <cmd>` with the ABSOLUTE path (`zoxide` hijacks relative `cd`; ignore its stderr banner). No `grep --include=*.ext` (zsh globbing breaks it) — grep a directory instead.
-- **NEVER read** `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`, `~/Library/Safari`, or `~/.claude/projects` — real personal data. Test fixtures are synthetic (`alpha-project`, `bob-example`, `example.com`, the two UUID constants already used by `test_session_stats.py`).
-- Python tests: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Full suite `api/tests` baseline: exactly 8 date-dependent failures in `test_calendar_registry.py` plus `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent, pre-existing). Everything else must be green.
-- Swift: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report 0 failures. SourceKit diagnostics naming OTHER worktrees are noise. **NEVER** run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live; the orchestrator installs at the end.
+- Work ONLY in `<worktree>/` (branch `feat/sources-page`, based on `dev` @ `bdcdc54`). Every shell command is `cd <worktree>/ && <cmd>` with the ABSOLUTE path (`zoxide` hijacks relative `cd`; ignore its stderr banner). No `grep --include=*.ext` (zsh globbing breaks it) — grep a directory instead.
+- **NEVER read** `<repo>/memory` (any bank), `~/.cicada`, `~/Library/Safari`, or `~/.claude/projects` — real personal data. Test fixtures are synthetic (`alpha-project`, `bob-example`, `example.com`, the two UUID constants already used by `test_session_stats.py`).
+- Python tests: `cd <worktree>/ && api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`. Full suite `api/tests` baseline: exactly 8 date-dependent failures in `test_calendar_registry.py` plus `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` (order-dependent, pre-existing). Everything else must be green.
+- Swift: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report 0 failures. SourceKit diagnostics naming OTHER worktrees are noise. **NEVER** run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live; the orchestrator installs at the end.
 - Never `git add -A`; stage named files only (`git add -- <path> <path>`; `git mv` for moves). Never commit `memory/`, `logs/`, `.claude/settings.json`, `api/.venv`, `*-report.md`. No push, no new branches/worktrees, no PR, no subagents. Ignore Devin/PR comments.
 - **Rails from CLAUDE.md that this track touches:** engine-free read paths (no LLM anywhere in this plan); ids-only telemetry (a `read` event carries an entity id and a surface enum — never a title, body, or query string); transcripts under `~/.claude` are never read (resume = `isfile()` + the existing descriptor endpoint, unchanged); every new payload's ETag covers every file it is computed from (ship-together); secrets stay in `~/.cicada/secrets.env` (nothing here touches them); portability (no owner name, no author-machine path — the harness label map is generic); Swift decode tolerance (every new wire field is optional-with-default so an older backend never blanks a page); `Store`/`Snapshot`/`Mutation` patterns kept.
 - Another running track edits `mcp/server.py` (handshake). Task 2's change there is **three call lines plus one local import**; do not restructure that file. Expect a trivial merge.
@@ -317,7 +317,7 @@ def test_aggregate_conversations_harness_unknown_matches_an_empty_harness(tmp_pa
 - [ ] **Step 2: Run the tests to confirm they fail**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && api/.venv/bin/python -m pytest api/tests/test_source_overview.py api/tests/test_session_stats.py -q -p no:cacheprovider 2>&1 | tail -5
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_source_overview.py api/tests/test_session_stats.py -q -p no:cacheprovider 2>&1 | tail -5
 ```
 Expected: `ImportError`/`AttributeError` on `source_overview`, `TypeError` on the new kwargs.
 
@@ -688,14 +688,14 @@ Add `source_overview` to the `from api.services import (...)` block and `SourceO
 - [ ] **Step 7: Run the tests until green**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && api/.venv/bin/python -m pytest api/tests/test_source_overview.py api/tests/test_session_stats.py api/tests/test_source_channels.py api/tests/test_origin_stats.py api/tests/test_conversation_resume.py api/tests/test_session_provenance_views.py -q -p no:cacheprovider 2>&1 | tail -5
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_source_overview.py api/tests/test_session_stats.py api/tests/test_source_channels.py api/tests/test_origin_stats.py api/tests/test_conversation_resume.py api/tests/test_session_provenance_views.py -q -p no:cacheprovider 2>&1 | tail -5
 ```
 Expected: all pass.
 
 - [ ] **Step 8: Commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && git add -- api/services/source_overview.py api/services/session_stats.py api/routers/sources.py api/routers/conversations.py api/models/schemas.py api/tests/test_source_overview.py api/tests/test_session_stats.py && git commit -q -m "feat(api): GET /sources/overview — one engine-free row per memory source (G124)
+cd <worktree>/ && git add -- api/services/source_overview.py api/services/session_stats.py api/routers/sources.py api/routers/conversations.py api/models/schemas.py api/tests/test_source_overview.py api/tests/test_session_stats.py && git commit -q -m "feat(api): GET /sources/overview — one engine-free row per memory source (G124)
 
 One card per harness/origin/channel from episode frontmatter, source_episodes
 credits and /sources/channels state; harness=/origin= filters on
@@ -962,7 +962,7 @@ def test_mcp_recall_records_the_suggested_ids_with_the_recall_surface(home, tmp_
 - [ ] **Step 2: Run to confirm failure**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && api/.venv/bin/python -m pytest api/tests/test_contributor_calendar.py api/tests/test_entity_read_events.py -q -p no:cacheprovider 2>&1 | tail -5
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_contributor_calendar.py api/tests/test_entity_read_events.py -q -p no:cacheprovider 2>&1 | tail -5
 ```
 
 - [ ] **Step 3: `telemetry.py`** — `KINDS` gains `"read"`; after `FEEDBACK_KINDS` add:
@@ -1311,14 +1311,14 @@ Nothing else in that file changes.
 - [ ] **Step 9: Run**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && api/.venv/bin/python -m pytest api/tests/test_contributor_calendar.py api/tests/test_entity_read_events.py api/tests/test_consumption_stats.py api/tests/test_consumption_api.py api/tests/test_contributors.py api/tests/test_contributor_commits.py api/tests/test_telemetry.py api/tests/test_feedback_ledger.py api/tests/test_mcp_recall_fusion.py api/tests/test_mcp_sources_tool.py -q -p no:cacheprovider 2>&1 | tail -5
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests/test_contributor_calendar.py api/tests/test_entity_read_events.py api/tests/test_consumption_stats.py api/tests/test_consumption_api.py api/tests/test_contributors.py api/tests/test_contributor_commits.py api/tests/test_telemetry.py api/tests/test_feedback_ledger.py api/tests/test_mcp_recall_fusion.py api/tests/test_mcp_sources_tool.py -q -p no:cacheprovider 2>&1 | tail -5
 ```
 Then the full suite: `api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15` — only the baseline failures.
 
 - [ ] **Step 10: Commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && git add -- api/services/telemetry.py api/services/consumption_stats.py api/services/git_service.py api/routers/contributors.py api/routers/entities.py api/models/schemas.py mcp/server.py api/tests/test_contributor_calendar.py api/tests/test_entity_read_events.py && git commit -q -m "feat(api): contributors calendar, top-entities and the ids-only read ledger kind (G124)
+cd <worktree>/ && git add -- api/services/telemetry.py api/services/consumption_stats.py api/services/git_service.py api/routers/contributors.py api/routers/entities.py api/models/schemas.py mcp/server.py api/tests/test_contributor_calendar.py api/tests/test_entity_read_events.py && git commit -q -m "feat(api): contributors calendar, top-entities and the ids-only read ledger kind (G124)
 
 GET /contributors/calendar?author= (memory writes per UTC day per
 Cicada-Author, R14), GET /contributors/top-entities (git-bounded most-written
@@ -1438,7 +1438,7 @@ final class SourcesPageTests: XCTestCase {
 ```
 `SidebarTabTests.swift` edits: `:10` `allCases` ends in `.sources`; `:21` `AppTab.sources.rawValue == "Sources"`; `:29-30` the `Contributors`/`Usage` expectations become `.sources` and gain `XCTAssertEqual(AppTab.restored(from: "Activity"), .sources)`. `CopyConstantsTests.swift:33-41`: the `pairs` array has no Activity entry today — ADD `(Copy.sources, Copy.sourcesSubtitle)` so the ≤60-chars / no-title-repeat rule covers the new page. `ConversationsTests.swift`: `:111` and `:123` (`fetchRecentConversations(limit: 20)`) gain `harness: nil, origin: nil`; delete `testActivitySectionRoundTripsTheConversationsCase` (`:366-371`) — it tests `ActivitySection`, which is deleted with `ActivityView.swift`. Delete `ActivitySectionTests.swift` (`git rm`) — it is the only other reference to `Copy.activity`/`Copy.activitySubtitle`.
 
-- [ ] **Step 2: Build to confirm failure** — `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124/app/CicadaApp && swift build --build-tests 2>&1 | grep -c "error:"` — expected non-zero.
+- [ ] **Step 2: Build to confirm failure** — `cd <worktree>/app/CicadaApp && swift build --build-tests 2>&1 | grep -c "error:"` — expected non-zero.
 
 - [ ] **Step 3: Tab, copy, content**
 
@@ -2078,14 +2078,14 @@ Move `ConversationRow` (verbatim, `ConversationsSection.swift:96-261`) into `Vie
 - [ ] **Step 7: Build and test**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
 ```
 Expected: build succeeds; 0 failures. If `UsageRangeTests`/`UsageFormatTests` fail because `UsageRangeControls` moved, leave them for Task 4 only if they compile — they must be green at the end of THIS task, so fix any signature break they hit now.
 
 - [ ] **Step 8: Commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && git add -- app/CicadaApp/Sources/CicadaApp/Views/Sidebar/SidebarView.swift app/CicadaApp/Sources/CicadaApp/ContentView.swift app/CicadaApp/Sources/CicadaApp/Theme/Copy.swift app/CicadaApp/Sources/CicadaApp/Models/SourceOverview.swift app/CicadaApp/Sources/CicadaApp/Sync app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/ViewModels/ConversationsViewModel.swift app/CicadaApp/Sources/CicadaApp/Views/Sources app/CicadaApp/Sources/CicadaApp/Views/Activity app/CicadaApp/Sources/CicadaApp/Views/Capture app/CicadaApp/Sources/CicadaApp/Views/Feed/FeedView.swift app/CicadaApp/Tests/CicadaAppTests/SourcesPageTests.swift app/CicadaApp/Tests/CicadaAppTests/SidebarTabTests.swift app/CicadaApp/Tests/CicadaAppTests/CopyConstantsTests.swift app/CicadaApp/Tests/CicadaAppTests/ConversationsTests.swift app/CicadaApp/Tests/CicadaAppTests/StoreTests.swift app/CicadaApp/Tests/CicadaAppTests/ActivitySectionTests.swift && git commit -q -m "feat(app): Sources page — Activity becomes a grid of clickable memory sources with per-source pages (G124)
+cd <worktree>/ && git add -- app/CicadaApp/Sources/CicadaApp/Views/Sidebar/SidebarView.swift app/CicadaApp/Sources/CicadaApp/ContentView.swift app/CicadaApp/Sources/CicadaApp/Theme/Copy.swift app/CicadaApp/Sources/CicadaApp/Models/SourceOverview.swift app/CicadaApp/Sources/CicadaApp/Sync app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/ViewModels/ConversationsViewModel.swift app/CicadaApp/Sources/CicadaApp/Views/Sources app/CicadaApp/Sources/CicadaApp/Views/Activity app/CicadaApp/Sources/CicadaApp/Views/Capture app/CicadaApp/Sources/CicadaApp/Views/Feed/FeedView.swift app/CicadaApp/Tests/CicadaAppTests/SourcesPageTests.swift app/CicadaApp/Tests/CicadaAppTests/SidebarTabTests.swift app/CicadaApp/Tests/CicadaAppTests/CopyConstantsTests.swift app/CicadaApp/Tests/CicadaAppTests/ConversationsTests.swift app/CicadaApp/Tests/CicadaAppTests/StoreTests.swift app/CicadaApp/Tests/CicadaAppTests/ActivitySectionTests.swift && git commit -q -m "feat(app): Sources page — Activity becomes a grid of clickable memory sources with per-source pages (G124)
 
 Tab renamed (Activity/Contributors/Usage all restore to Sources, ⌘6 kept),
 sourcesOverview Store domain riding episodes+entities+sources, card grid →
@@ -2488,16 +2488,16 @@ Move `StatTile` (verbatim from `UsageView.swift:148-163`) into `Views/Sources/St
 - [ ] **Step 7: Build, test, and the no-prices grep**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124/app/CicadaApp && grep -rn "usd\|costUsd\|equivCost\|\$/mo\|UsageFormat.tokens\|priceUsdMonth" Sources/CicadaApp/Views ; echo "exit=$? (1 = clean)"
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124/app/CicadaApp && grep -rn "import Charts" Sources ; echo "exit=$? (1 = clean)"
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && grep -rn "usd\|costUsd\|equivCost\|\$/mo\|UsageFormat.tokens\|priceUsdMonth" Sources/CicadaApp/Views ; echo "exit=$? (1 = clean)"
+cd <worktree>/app/CicadaApp && grep -rn "import Charts" Sources ; echo "exit=$? (1 = clean)"
 ```
 Expected: build ok, 0 failures, both greps print nothing (exit 1). (`Views/Settings` may legitimately show a plan's `priceUsdMonth` — Plans & keys is a Settings tab and not this page; if the grep hits there, narrow it to `Sources/CicadaApp/Views/Sources Sources/CicadaApp/Views/Contributors Sources/CicadaApp/Views/Usage` and record that in the commit body.)
 
 - [ ] **Step 8: Commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && git add -- app/CicadaApp/Sources/CicadaApp/Models/ContributorCalendar.swift app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/Views/Contributors/ContributorsView.swift app/CicadaApp/Sources/CicadaApp/Views/Usage app/CicadaApp/Sources/CicadaApp/Views/Sources app/CicadaApp/Sources/CicadaApp/ViewModels/UsageViewModel.swift app/CicadaApp/Sources/CicadaApp/Utilities/UsageFormat.swift app/CicadaApp/Sources/CicadaApp/Views/Graph/EntityDetailCard.swift app/CicadaApp/Tests/CicadaAppTests/ContributorCalendarTests.swift app/CicadaApp/Tests/CicadaAppTests/UsageFormatTests.swift app/CicadaApp/Tests/CicadaAppTests/UsageRangeTests.swift app/CicadaApp/Tests/CicadaAppTests/ConsumptionModelTests.swift app/CicadaApp/Tests/CicadaAppTests/FixWaveTests.swift && git commit -q -m "feat(app): contributors calendar per model, Advanced counts, prices and tokens leave the UI (G124)
+cd <worktree>/ && git add -- app/CicadaApp/Sources/CicadaApp/Models/ContributorCalendar.swift app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/Views/Contributors/ContributorsView.swift app/CicadaApp/Sources/CicadaApp/Views/Usage app/CicadaApp/Sources/CicadaApp/Views/Sources app/CicadaApp/Sources/CicadaApp/ViewModels/UsageViewModel.swift app/CicadaApp/Sources/CicadaApp/Utilities/UsageFormat.swift app/CicadaApp/Sources/CicadaApp/Views/Graph/EntityDetailCard.swift app/CicadaApp/Tests/CicadaAppTests/ContributorCalendarTests.swift app/CicadaApp/Tests/CicadaAppTests/UsageFormatTests.swift app/CicadaApp/Tests/CicadaAppTests/UsageRangeTests.swift app/CicadaApp/Tests/CicadaAppTests/ConsumptionModelTests.swift app/CicadaApp/Tests/CicadaAppTests/FixWaveTests.swift && git commit -q -m "feat(app): contributors calendar per model, Advanced counts, prices and tokens leave the UI (G124)
 
 GitHub-style heatmap per Cicada-Author in the contributor drill-down;
 Advanced = memory writes / sleep runs / in-session writes / streak +
@@ -2556,7 +2556,7 @@ And in the Telemetry ledger paragraph (`### Telemetry ledger`, :487), append one
 - [x] **Step 5: Verify docs tests still pass** (some tests read CLAUDE.md? check `grep -rln "CLAUDE.md" api/tests app/CicadaApp/Tests`) and commit:
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && git add -- CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md docs/superpowers/plans/2026-09-03-g124-sources-page.md && git commit -q -m "docs: Sources replaces Activity (G124) — sidebar paragraph, four new endpoints, G124/G51/G9 rows, TODO.md handoff
+cd <worktree>/ && git add -- CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md docs/superpowers/plans/2026-09-03-g124-sources-page.md && git commit -q -m "docs: Sources replaces Activity (G124) — sidebar paragraph, four new endpoints, G124/G51/G9 rows, TODO.md handoff
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -2578,15 +2578,15 @@ Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
 ## Verification the orchestrator runs at the end
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && git status --porcelain -uall | grep -v "^?? api/.venv" ; echo "(must be empty apart from the .venv symlink)"
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && git log --oneline bdcdc54..HEAD   # exactly 5 commits, Tasks 1–5 in order
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15
+cd <worktree>/ && git status --porcelain -uall | grep -v "^?? api/.venv" ; echo "(must be empty apart from the .venv symlink)"
+cd <worktree>/ && git log --oneline bdcdc54..HEAD   # exactly 5 commits, Tasks 1–5 in order
+cd <worktree>/ && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -15
 #   → only the 8 test_calendar_registry.py failures + test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20   # 0 failures
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124/app/CicadaApp && grep -rn "usd\|costUsd\|equivCost\|\$/mo\|UsageFormat.tokens\|import Charts" Sources/CicadaApp/Views/Sources Sources/CicadaApp/Views/Contributors Sources/CicadaApp/Views/Usage Sources/CicadaApp/Utilities/UsageFormat.swift ; echo "exit=$? (1 = no prices/tokens rendered)"
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && git diff bdcdc54..HEAD --stat -- mcp/server.py   # ≤ 8 lines changed
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && git diff bdcdc54..HEAD --stat -- api/routers/consumption.py api/services/pricing.py   # no output: endpoints untouched
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && grep -n "ActivityView\|ActivitySection\|originsLabel\|Copy.activity" -r app/CicadaApp/Sources CLAUDE.md ; echo "exit=$? (1 = Activity fully retired)"
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g124 && grep -rn "rorosaga\|/Users/" api/services/source_overview.py app/CicadaApp/Sources/CicadaApp/Views/Sources ; echo "exit=$? (1 = portable)"
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20   # 0 failures
+cd <worktree>/app/CicadaApp && grep -rn "usd\|costUsd\|equivCost\|\$/mo\|UsageFormat.tokens\|import Charts" Sources/CicadaApp/Views/Sources Sources/CicadaApp/Views/Contributors Sources/CicadaApp/Views/Usage Sources/CicadaApp/Utilities/UsageFormat.swift ; echo "exit=$? (1 = no prices/tokens rendered)"
+cd <worktree>/ && git diff bdcdc54..HEAD --stat -- mcp/server.py   # ≤ 8 lines changed
+cd <worktree>/ && git diff bdcdc54..HEAD --stat -- api/routers/consumption.py api/services/pricing.py   # no output: endpoints untouched
+cd <worktree>/ && grep -n "ActivityView\|ActivitySection\|originsLabel\|Copy.activity" -r app/CicadaApp/Sources CLAUDE.md ; echo "exit=$? (1 = Activity fully retired)"
+cd <worktree>/ && grep -rn "rorosaga\|/Users/" api/services/source_overview.py app/CicadaApp/Sources/CicadaApp/Views/Sources ; echo "exit=$? (1 = portable)"
 ```
 Then the owner-present steps (not automatable here): `make install-app` from the main checkout after merge; open ⌘6, confirm a persisted "Activity" selection lands on Sources, click a harness card → Resume opens Terminal, click Safari → Sync now, toggle Advanced and confirm no `$` appears anywhere on the page.

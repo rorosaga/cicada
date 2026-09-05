@@ -150,8 +150,8 @@ async def resolve(
     pending_actions: list[tuple[Callable, tuple, dict]] = []
     cancelled = False
 
-    # Process more specific names first so "Rodrigo Sagastegui" becomes the
-    # canonical in-cycle entity and "Rodrigo" can merge into it rather than
+    # Process more specific names first so "Bob Example" becomes the
+    # canonical in-cycle entity and "Bob" can merge into it rather than
     # the other way around.
     ordered_entities = sorted(
         best_by_name.items(),
@@ -731,7 +731,7 @@ def _is_substantively_discussed(
 # names is not a reason to ask the LLM anything.
 _STOPWORD_TOKENS = {
     "the", "a", "an", "of", "and", "or", "for", "to", "in", "on", "at",
-    "de", "del", "la", "el", "los", "las",  # common Spanish fillers Rodrigo's data hits often
+    "de", "del", "la", "el", "los", "las",  # common Spanish fillers a bank's data hits often
 }
 
 
@@ -748,7 +748,7 @@ def _share_content_token(a: str, b: str) -> bool:
 
 _DISAMBIG_PROMPT = """You are deciding whether two entity entries from a personal knowledge graph refer to the same real-world thing.
 
-Both entries have overlapping names (for example "Francesco" and "Francesco Baldissera") but the existing one was built from different conversations, so you need to look at the descriptions and decide whether merging them would be correct.
+Both entries have overlapping names (for example a bare first name and that same first name with a surname) but the existing one was built from different conversations, so you need to look at the descriptions and decide whether merging them would be correct.
 
 ENTITY A (existing in graph)
 Name: {existing_name}

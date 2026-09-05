@@ -73,13 +73,63 @@ const OBSERVER_BADGE_COLORS = {
     rodrigo:  "#5AA8FF",   // blue (person)
     external: "#F65BA6",   // pink (media)
 };
+
+// Track P — the canvas is transparent (index.html), so only the DRAWN colours
+// were dark-locked. Two tables, one key per drawn surface, each value the
+// exact `CicadaTheme.Dark`/`.Light` twin so the chrome and the canvas agree.
+// `labelShadow` is a HALO, not a drop shadow: on a light ground a black blur
+// around dark text is what made light mode unreadable, so the light value is
+// the background colour instead. `edge` takes `borderLight` in light mode —
+// `border` (#E3E5EC) is invisible as a 1px line on #F5F6FA.
+//
+// CONTEXT_COLORS and OBSERVER_BADGE_COLORS above are deliberately NOT in here:
+// they are IDENTITY colours (which context, which observer), and an identity
+// that changes hue with the theme stops being an identity.
+const PALETTES = {
+    dark: {
+        label:       "#ECEDF2",                    // = CicadaTheme.Dark.textPrimary
+        labelShadow: "rgba(0, 0, 0, 0.85)",
+        plate:       "rgba(14, 15, 20, 0.85)",     // = Dark.background
+        plateStrong: "rgba(14, 15, 20, 0.92)",
+        plateText:   "#C7CBD6",
+        edge:        "#262A33",                    // = Dark.border
+        nodeStroke:  "#FFFFFF",
+    },
+    light: {
+        label:       "#14161C",                    // = CicadaTheme.Light.textPrimary
+        labelShadow: "rgba(245, 246, 250, 0.95)",  // = Light.background, as a halo
+        plate:       "rgba(255, 255, 255, 0.92)",  // = Light.surface
+        plateStrong: "rgba(255, 255, 255, 0.96)",
+        plateText:   "#51566A",                    // = Light.textSecondary
+        edge:        "#CACDD9",                    // = Light.borderLight
+        nodeStroke:  "#14161C",
+    },
+};
+let themeMode = "dark";
+let PALETTE = PALETTES.dark;
+
+// Pushed from `GraphView.updateNSView` the same way setPanToggle /
+// setHoverSuppressed are. R10: this is a REPAINT — it swaps a table and asks
+// for a frame. It must never touch `simulation`, `alpha`, `alphaTarget` or
+// `restart()` (G109: the release path never bumps alpha; a colour change is
+// not even a release, and a re-layout would throw away every node position
+// the person has dragged). An unknown mode falls back to dark rather than
+// leaving `undefined` in a fillStyle, which paints a silently black canvas.
+function setTheme(mode) {
+    const next = PALETTES[String(mode)] ? String(mode) : "dark";
+    if (next === themeMode) return;
+    themeMode = next;
+    PALETTE = PALETTES[next];
+    scheduleRedraw();
+}
+
 function hashHue(str) {
     let h = 0;
     for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
     return Math.abs(h) % 360;
 }
 function contextColor(context) {
-    if (!context) return "#262A33";   // = CicadaTheme.border (contextless edge)
+    if (!context) return PALETTE.edge;   // contextless edge = the theme border
     if (CONTEXT_COLORS[context]) return CONTEXT_COLORS[context];
     return `hsl(${hashHue(context)}, 55%, 68%)`;
 }
@@ -1246,7 +1296,7 @@ function draw() {
         ctx.globalAlpha = alpha;
         // §2a: context-colored edges. An edge with a context paints in its
         // context hue; a contextless (legacy) edge keeps the flat gray.
-        ctx.strokeStyle = l.context ? contextColor(l.context) : "#262A33";
+        ctx.strokeStyle = l.context ? contextColor(l.context) : PALETTE.edge;
         ctx.lineWidth = 1 / transform.k;
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
@@ -1357,7 +1407,7 @@ function draw() {
         if (searchHighlight && searchHighlight.has(n.id)) {
             ctx.globalAlpha = 1;
             ctx.lineWidth = 2.5 / transform.k;
-            ctx.strokeStyle = "#FFFFFF";
+            ctx.strokeStyle = PALETTE.nodeStroke;
             ctx.beginPath();
             ctx.arc(n.x, n.y, r + 6 / transform.k, 0, Math.PI * 2);
             ctx.stroke();
@@ -1448,7 +1498,7 @@ function drawNodeLabels(hoverActive, neighbors, focusActive) {
     ctx.font = `${fontSize}px -apple-system, 'SF Pro Text', system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    ctx.shadowColor = "rgba(0,0,0,0.85)";
+    ctx.shadowColor = PALETTE.labelShadow;
     ctx.shadowBlur = 3 / k;
 
     const placed = [];
@@ -1474,7 +1524,7 @@ function drawNodeLabels(hoverActive, neighbors, focusActive) {
         // intentional — neighbor labels read slightly softer than the hovered
         // node's own plate so the focal point stays dominant.
         ctx.globalAlpha = hoverActive ? 0.8 : 0.95;
-        ctx.fillStyle = "#ECEDF2";   // = CicadaTheme.textPrimary
+        ctx.fillStyle = PALETTE.label;
         ctx.fillText(n.name, n.x, n.y + r + (4 / k));
     }
     ctx.shadowBlur = 0;
@@ -1516,11 +1566,11 @@ function drawEdgeLabels(focusActive) {
         const boxH = fontSize + padY * 2;
 
         ctx.globalAlpha = alpha * 0.7;
-        ctx.fillStyle = "rgba(14, 15, 20, 0.85)";   // = CicadaTheme.background
+        ctx.fillStyle = PALETTE.plate;
         ctx.fillRect(mx - boxW / 2, my - boxH / 2, boxW, boxH);
 
         ctx.globalAlpha = alpha;
-        ctx.fillStyle = "#C7CBD6";
+        ctx.fillStyle = PALETTE.plateText;
         ctx.fillText(l.label, mx, my);
     }
     ctx.globalAlpha = 1;
@@ -1542,9 +1592,9 @@ function drawHoverLabel(n) {
     const boxX = n.x - boxW / 2;
     const boxY = n.y + r + (6 / k);
     ctx.globalAlpha = 0.92;
-    ctx.fillStyle = "rgba(14, 15, 20, 0.92)";   // = CicadaTheme.background
+    ctx.fillStyle = PALETTE.plateStrong;
     ctx.fillRect(boxX, boxY, boxW, boxH);
-    ctx.fillStyle = "#ECEDF2";   // = CicadaTheme.textPrimary
+    ctx.fillStyle = PALETTE.label;
     ctx.fillText(text, n.x, boxY + boxH / 2);
     ctx.globalAlpha = 1;
 }
