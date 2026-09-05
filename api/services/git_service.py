@@ -268,15 +268,37 @@ def _parse_entity_sessions(body: str, entity_id: str) -> list[str]:
 # The literal "user" author (manual/companion-app/media-save writes).
 USER_AUTHOR = "user"
 
+# The literal "cicada" author: system maintenance with no model and no user in
+# the loop. Written by ``sleep_cycle`` (the G85 decay split and the inbox
+# question refresh), ``state_dictionary`` (the ``State snapshot`` commit),
+# ``bookmark_sync``, ``link_enrichment`` and the one-shot migrations. It is a
+# CONSTANT here rather than a literal at each site so the UI's bucket
+# (``_classify_author_kind`` -> "system", R-L6) can never drift from what the
+# writers actually stamp.
+CICADA_AUTHOR = "cicada"
+
+# Routers that PROXY other vendors' models. Matched on the segment before the
+# first "/" and checked BEFORE the substring pass (R9 of Track L): the router
+# is who billed, so "openrouter/anthropic/claude-opus-4" is openrouter, not
+# anthropic — attributing it to Anthropic is a lie about who was paid.
+_ROUTER_PREFIXES = ("openrouter", "ollama")
+
 # Model-id -> provider classification. We key on stable id substrings/prefixes
 # (provider level, not per-model). LiteLLM-style "provider/model" ids are
 # handled because the substring still appears (e.g. "anthropic/claude-...").
 #
 # These markers are distinctive enough to be safe as bare substring matches.
+# The open-weight families (meta/mistral/deepseek/qwen) were added by R-L6:
+# they are what a local or routed engine actually serves, and without them
+# every one of them answered "other" and shared a single anonymous badge.
 _PROVIDER_SUBSTRINGS = (
     ("openai", ("gpt", "text-embedding")),
     ("anthropic", ("claude",)),
     ("google", ("gemini", "gemma")),
+    ("meta", ("llama",)),
+    ("mistral", ("mistral", "mixtral")),
+    ("deepseek", ("deepseek",)),
+    ("qwen", ("qwen",)),
 )
 
 # OpenAI o-series markers are too short to match as bare substrings (they would
@@ -287,23 +309,40 @@ _OPENAI_O_SERIES = ("o1", "o3")
 
 
 def _classify_author_kind(author: str) -> str:
-    """Bucket an author into "user" | "model" | "unknown" for the UI."""
+    """Bucket an author into "user" | "system" | "model" | "unknown" for the UI.
+
+    "system" is the literal ``cicada`` (R-L6): maintenance with no model and no
+    user in the loop. It used to fall through to "model", where
+    ``_provider_for_model`` answered "other" and the app drew a grey "?" — so
+    the state snapshot, the split-out decay commit and the migrations all
+    rendered as an anonymous unknown model in Cicada's own contributors list.
+    """
     if author == USER_AUTHOR:
         return "user"
+    if author == CICADA_AUTHOR:
+        return "system"
     if author == UNKNOWN_AUTHOR:
         return "unknown"
     return "model"
 
 
 def _provider_for_model(author: str) -> str | None:
-    """Derive the provider for a model id; None for user/unknown (not models).
+    """Derive the provider for a model id; None for user/system/unknown.
 
     Matches by lower-cased substring/prefix against the known provider markers;
     any unmatched model id is "other".
+
+    The router check runs on the lower-cased id and BEFORE the substring loop
+    (R9): "openrouter/anthropic/claude-opus-4" would otherwise hit ``claude``
+    first and answer "anthropic", crediting the vendor whose model was proxied
+    rather than the service that billed for it.
     """
     if _classify_author_kind(author) != "model":
         return None
     a = author.lower()
+    head = a.split("/", 1)[0]
+    if head in _ROUTER_PREFIXES:
+        return head
     for provider, markers in _PROVIDER_SUBSTRINGS:
         if any(marker in a for marker in markers):
             return provider

@@ -189,11 +189,49 @@ def test_provider_for_model_google():
 
 
 def test_provider_for_model_other_and_non_model():
-    assert git_service._provider_for_model("mistral-large") == "other"
-    assert git_service._provider_for_model("llama-3") == "other"
+    # `mistral-large` / `llama-3` used to live here: Track L R-L6 gave the
+    # open-weight families real providers, so the "unmatched" case needs an id
+    # that genuinely matches nothing — a model behind a router, named bare.
+    assert git_service._provider_for_model("glm-5.2") == "other"
+    assert git_service._provider_for_model("command-r-plus") == "other"
     # user / unknown are not models -> no provider
     assert git_service._provider_for_model("user") is None
     assert git_service._provider_for_model("unknown") is None
+
+
+# --- Track L (R-L6): the system author, and the router that billed ----------
+
+
+def test_classify_author_kind_system():
+    """R-L6 — `cicada` is the literal author of system maintenance with no
+    model and no user in the loop (the state snapshot, the split-out decay
+    commit, the one-shot migrations). It used to classify as a *model* with
+    provider "other", so Cicada's own commits showed as an anonymous grey "?"
+    in its own contributors list."""
+    assert git_service._classify_author_kind("cicada") == "system"
+    assert git_service._provider_for_model("cicada") is None
+
+
+def test_provider_for_model_router_before_the_first_slash_wins():
+    """R9/R-L6 — an OpenRouter id names the model it proxied; the router is who
+    billed. A bare substring pass would map `openrouter/z-ai/glm-5.2` to
+    nothing and `openrouter/anthropic/claude-opus-4` to Anthropic, which is a
+    lie about who was paid."""
+    assert git_service._provider_for_model("openrouter/z-ai/glm-5.2") == "openrouter"
+    assert git_service._provider_for_model("openrouter/anthropic/claude-opus-4") == "openrouter"
+    assert git_service._provider_for_model("ollama/llama3.2") == "ollama"
+    # A provider prefix that is NOT a router keeps the substring behaviour.
+    assert git_service._provider_for_model("anthropic/claude-opus-4") == "anthropic"
+
+
+def test_provider_for_model_open_weight_families():
+    """The families a local/router engine actually serves. Before R-L6 all four
+    answered "other" and shared one grey badge with every unknown id."""
+    assert git_service._provider_for_model("llama-3") == "meta"
+    assert git_service._provider_for_model("mistral-large") == "mistral"
+    assert git_service._provider_for_model("mixtral-8x7b") == "mistral"
+    assert git_service._provider_for_model("deepseek-v3") == "deepseek"
+    assert git_service._provider_for_model("qwen2.5-72b") == "qwen"
 
 
 def test_github_handle_from_remote_https():

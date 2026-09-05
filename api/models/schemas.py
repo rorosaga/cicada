@@ -194,14 +194,23 @@ class Contributor(CamelModel):
     last_active: str = ""  # ISO date (YYYY-MM-DD) of the author's most recent commit
     # G15 — visual identity (all additive + defaulted, so the wire stays
     # backward-compatible with older clients that don't decode them).
-    # ``kind``: "user" for the literal `user` author, "unknown" for legacy
-    # untrailered commits, "model" for every model id. ``provider`` is the
-    # model's company (openai/anthropic/google/other) derived from the id, or
-    # None for user/unknown. ``avatar_url`` is the user's GitHub profile picture
+    # ``kind``: "user" for the literal `user` author, "system" for the literal
+    # `cicada` author (maintenance with no model and no user in the loop —
+    # R-L6), "unknown" for legacy untrailered commits, "model" for every model
+    # id. ``provider`` is who billed for the model, derived from the id: a
+    # router when the id names one before its first slash (openrouter/ollama —
+    # R9), else the model's company, else "other"; None for
+    # user/system/unknown. ``avatar_url`` is the user's GitHub profile picture
     # (https://github.com/<handle>.png) for the `user` author when a handle is
-    # known; None for model/unknown (their identity is rendered client-side).
-    kind: str = "unknown"  # "user" | "model" | "unknown"
-    provider: Optional[str] = None  # "openai" | "anthropic" | "google" | "other" | None
+    # known; None for model/system/unknown (rendered client-side).
+    #
+    # Both stay plain strings: R-L6 added VALUES, never a shape, so an older
+    # client decodes a `system` row unchanged and renders it through its
+    # `default:` branch (today's behaviour) rather than failing to decode.
+    kind: str = "unknown"  # "user" | "system" | "model" | "unknown"
+    # "openai" | "anthropic" | "google" | "meta" | "mistral" | "deepseek"
+    # | "qwen" | "openrouter" | "ollama" | "other" | None
+    provider: Optional[str] = None
     avatar_url: Optional[str] = None
 
 
