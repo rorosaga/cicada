@@ -87,16 +87,20 @@ final class SleepLayoutTests: XCTestCase {
 final class SleepLivenessTests: XCTestCase {
 
     private let then = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    /// A `now` far enough past `then` to clear `SleepLiveness.staleAfter` —
+    /// i.e. the backend really has gone quiet, not merely lost its stream.
+    private var wellAfter: Date { then.addingTimeInterval(SleepLiveness.staleAfter + 1) }
 
     func test_connected_isLive() {
-        XCTAssertEqual(sleepLiveness(isConnected: true, refreshedAt: then, isError: false, now: then),
+        XCTAssertEqual(sleepLiveness(isConnected: true, refreshedAt: then, isError: false, now: wellAfter),
                        .live)
     }
 
-    /// The only stale case: the backend is gone AND it had, at some point,
-    /// confirmed what is on screen — a real timestamp to date the page by.
+    /// The only stale case: the backend is gone, it had at some point
+    /// confirmed what is on screen — a real timestamp to date the page by —
+    /// and that confirmation is now older than `staleAfter`.
     func test_disconnectedWithARefreshedAt_isStaleAndCarriesThatDate() {
-        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: then),
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: wellAfter),
                        .stale(asOf: then))
     }
 
@@ -105,7 +109,7 @@ final class SleepLivenessTests: XCTestCase {
     /// the reader can act on — and it is the one thing on the page that must
     /// not read as "probably out of date".
     func test_disconnectedWithAFailedCycle_staysLive() {
-        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: true, now: then),
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: true, now: wellAfter),
                        .live)
     }
 
@@ -118,7 +122,7 @@ final class SleepLivenessTests: XCTestCase {
     /// must honour: disconnected + a real `refreshedAt` + no cycle failure is
     /// ALWAYS `.stale`.
     func test_disconnectedWithOnlyAFailedFetch_isStill_stale() {
-        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: then),
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: wellAfter),
                        .stale(asOf: then))
         XCTAssertEqual(SleepLiveness.stale(asOf: then).saturation,
                        SleepLiveness.staleSaturation,
@@ -137,18 +141,39 @@ final class SleepLivenessTests: XCTestCase {
     /// `StoreTests.testDiskHydrateLeavesRefreshedAtNilSoTheStalenessChipHasNoHourToFabricate`
     /// pins that a hydrate really does leave it nil.
     func test_disconnectedWithNothingEverConfirmed_staysLive() {
-        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: nil, isError: false, now: then),
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: nil, isError: false, now: wellAfter),
                        .live)
     }
 
-    /// `now` is injected so the function is pure and testable, and today the
-    /// answer does not depend on it — a staleness *threshold* would be the
-    /// thing that used it. Pinned so a future threshold cannot arrive
-    /// unnoticed and start hiding a chip after N minutes.
-    func test_theAnswerDoesNotDependOnTheClockYet() {
-        let muchLater = then.addingTimeInterval(60 * 60 * 24 * 365)
-        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: then),
-                       sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: muchLater))
+    /// Final review, finding 1 — the regression this threshold exists for.
+    ///
+    /// `store.isConnected` means "the SSE stream is open", not "the backend is
+    /// alive": `SyncEngine.start` holds it false for the whole reconnect
+    /// backoff while the loop inside that window is still polling a healthy
+    /// backend every 3 s. Keying the chip off the flag alone printed
+    /// "Not connected — showing the last reading · as of 16:12" with 16:12
+    /// seconds old, on every backend restart. A confirmation younger than
+    /// `staleAfter` is not stale, whatever the transport says.
+    func test_aRecentConfirmationIsNotStaleEvenWhileTheStreamIsDown() {
+        let duringBackoff = then.addingTimeInterval(SyncEngine.maxBackoff)
+        XCTAssertLessThan(SyncEngine.maxBackoff, SleepLiveness.staleAfter,
+                          "the threshold must clear the transport's own worst-case silence")
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: duringBackoff),
+                       .live,
+                       "a dropped stream over a backend that answered a moment ago is not staleness")
+    }
+
+    /// The boundary, both sides of it: `staleAfter` is a strict threshold, so
+    /// a confirmation exactly that old is still live and one second older is
+    /// not. Pinned so the comparison can't silently become `>=` or lose its
+    /// unit.
+    func test_theThresholdIsStrictAndMeasuredInSeconds() {
+        let exactly = then.addingTimeInterval(SleepLiveness.staleAfter)
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: exactly),
+                       .live)
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: false,
+                                     now: exactly.addingTimeInterval(1)),
+                       .stale(asOf: then))
     }
 
     /// ONE desaturation step (R-A12) — a value on the enum rather than a

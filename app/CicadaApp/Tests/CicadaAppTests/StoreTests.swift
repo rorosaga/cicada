@@ -400,14 +400,21 @@ final class StoreTests: XCTestCase {
                        "a failed fetch confirms nothing and must not move the chip forward")
 
         store.isConnected = false
+        let stalest = SleepLiveness.stalestRefreshedAt(store.status.refreshedAt,
+                                                       store.sourcesOverview.refreshedAt)
+        // `now` is explicit and past `staleAfter`, because a disconnect alone
+        // is not staleness (final review, finding 1): the confirmations above
+        // were stamped a millisecond ago, and at the real clock this page is
+        // still `.live` — the reconnect backoff is exactly that case.
         XCTAssertEqual(
-            sleepLiveness(isConnected: false,
-                          refreshedAt: SleepLiveness.stalestRefreshedAt(store.status.refreshedAt,
-                                                                        store.sourcesOverview.refreshedAt),
-                          isError: false),
-            .stale(asOf: SleepLiveness.stalestRefreshedAt(store.status.refreshedAt,
-                                                          store.sourcesOverview.refreshedAt)!),
-            "once the backend HAS confirmed something, a disconnect dates the page by it")
+            sleepLiveness(isConnected: false, refreshedAt: stalest, isError: false,
+                          now: Date().addingTimeInterval(SleepLiveness.staleAfter + 1)),
+            .stale(asOf: stalest!),
+            "once the backend HAS confirmed something and then gone quiet, the page is dated by it")
+        XCTAssertEqual(
+            sleepLiveness(isConnected: false, refreshedAt: stalest, isError: false, now: Date()),
+            .live,
+            "a confirmation from a moment ago is not stale, whatever the stream is doing")
     }
 
     /// (b) A 304 keeps the existing value instead of blanking it.

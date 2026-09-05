@@ -69,6 +69,32 @@ enum SleepLiveness: Equatable {
     /// at each call site so "one step" stays one number.
     static let staleSaturation: Double = 0.85
 
+    /// How old the last backend confirmation has to be before the page will
+    /// call itself stale (final review, finding 1).
+    ///
+    /// **`store.isConnected` is not "the backend is down" — it is "the SSE
+    /// stream is not currently open."** `SyncEngine.start` sets it false for
+    /// the *whole* backoff window (1 s doubling to 30 s) while the loop inside
+    /// that window keeps polling `GET /sync/version` every 3 s and keeps
+    /// refreshing whatever changed. So every backend restart and every dropped
+    /// stream flipped the flag and this page printed "Not connected — showing
+    /// the last reading · as of 16:12" with 16:12 seconds old: a warning
+    /// contradicted by its own timestamp, on the one feature here built to be
+    /// honest about freshness.
+    ///
+    /// 60 s is chosen to clear the transport's own worst case with room —
+    /// `SyncEngine.pollInterval` is 3 s and `maxBackoff` 30 s — so a reconnect
+    /// never trips the chip, while a backend that has genuinely stopped
+    /// answering trips it within a minute of its last confirmation (and
+    /// immediately, if contact was already older than that).
+    ///
+    /// No timer is needed to make the chip appear: the reconnect loop re-assigns
+    /// `store.isConnected` on every backoff iteration, and an `@Observable`
+    /// write re-evaluates the body whether or not the value changed. The motion
+    /// budget's "idle is still" (rule 1) survives — a settled, connected page
+    /// still costs zero redraws.
+    static let staleAfter: TimeInterval = 60
+
     var saturation: Double {
         switch self {
         case .live: 1.0
@@ -123,17 +149,25 @@ enum SleepLiveness: Equatable {
 ///   minute over data of any age. A never-refreshed page now falls through
 ///   here and shows no chip at all.
 ///
+/// - **The last confirmation is recent → `.live`.** Final review, finding 1:
+///   `isConnected` goes false for the whole reconnect backoff while the poll
+///   loop inside it is still talking to a healthy backend, so keying the chip
+///   off the flag alone made it fire on every backend restart and every
+///   dropped stream — dating the page by a timestamp seconds old. The claim
+///   this page makes is about *freshness*, so it is freshness that decides:
+///   nothing is called stale until the backend has been silent for
+///   `SleepLiveness.staleAfter`.
+///
 /// `now` is injected rather than read from the clock so the function stays
-/// pure and testable (the R8 rule the speech bubble already follows). **With
-/// today's rules the result does not depend on it** — it is the parameter a
-/// later staleness *threshold* ("older than N minutes") would use, and it is
-/// declared now so adding one is an edit to this function rather than a new
-/// signature at every call site.
+/// pure and testable (the R8 rule the speech bubble already follows). It is
+/// the fourth refusal that uses it; the call site passes the default, which is
+/// re-read on every body evaluation.
 func sleepLiveness(isConnected: Bool,
                    refreshedAt: Date?,
                    isError: Bool,
                    now: Date = Date()) -> SleepLiveness {
-    guard !isConnected, !isError, let refreshedAt else { return .live }
+    guard !isConnected, !isError, let refreshedAt,
+          now.timeIntervalSince(refreshedAt) > SleepLiveness.staleAfter else { return .live }
     return .stale(asOf: refreshedAt)
 }
 
@@ -345,6 +379,13 @@ struct SleepView: View {
     /// failed, which is real news and stays at full contrast. `pageError`
     /// keeps its one job — driving `errorBanner`, which `leftColumn` already
     /// places outside every desaturated group.
+    ///
+    /// `now` is left at its default, which is read fresh on every body
+    /// evaluation — that is what lets `SleepLiveness.staleAfter` do its work
+    /// (final review, finding 1). It is deliberately NOT the R8 case: R8 bans
+    /// the wall clock from `sleepBubbleText` because prose that flickers
+    /// between renders is a lie about *state*; here the elapsed time since the
+    /// last backend answer IS the state being reported.
     private var liveness: SleepLiveness {
         sleepLiveness(
             isConnected: store.isConnected,
