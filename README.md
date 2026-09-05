@@ -135,7 +135,7 @@ Day-to-day commands:
 | `make dev` | Rebuild debug, reinstall over `~/Applications/Cicada.app`, relaunch |
 | `make install-app` | Release build, install without relaunch |
 | `make doctor` | Backend, MCP, and environment health checks |
-| `curl -X POST localhost:8000/sleep/trigger` | Run a Sleep cycle now (also a button in the app) |
+| `curl -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" localhost:8000/sleep/trigger` | Run a Sleep cycle now (also a button in the app) |
 | `api/.venv/bin/python -m pytest api/tests -q` | Backend suite |
 | `cd app/CicadaApp && swift test` | App suite |
 

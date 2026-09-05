@@ -557,7 +557,7 @@ def _engine_label(settings: Settings) -> str:
     return engine_select.engine_label(settings)
 
 
-def _stage1_failure_message(engine: str) -> str:
+def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> str:
     """The user-visible reason Stage 1 produced nothing — per engine.
 
     L3 (Task 4 review, handed to Task 5): Stage 1 swallows ``EngineThrottled``
@@ -595,6 +595,15 @@ def _stage1_failure_message(engine: str) -> str:
             "Check the Ollama server is running and the model is pulled. "
             "The queue is intact for retry."
         )
+    # G117 — a plain byok install that never chose an engine (rung 4's
+    # "nobody chose" default) gets an honest reason instead of a diagnosis
+    # of a key that was never entered. `engine_detail` already carries this
+    # exact signal (engine_select.py:246,271) — reuse it rather than adding
+    # a second "was anything configured" probe (R8). This branch must sit
+    # AFTER the claude-cli/ollama checks above (unaffected by it) and BEFORE
+    # the generic byok return below (the one it replaces for this one case).
+    if engine_detail and "no sleep engine chosen" in engine_detail.lower():
+        return "Stage 1 extracted nothing — no engine chosen — pick one in Settings → Sleep."
     return (
         "Stage 1 extracted nothing — every episode failed on the API engine "
         "(check the model id, and that the key still has credit). "
@@ -984,7 +993,7 @@ async def _run_stages(
     # committing a misleading empty "completed" cycle. Re-running after
     # fixing the cause retries the whole batch.
     if episodes and not extracted:
-        msg = _stage1_failure_message(_state.last_engine or "litellm")
+        msg = _stage1_failure_message(_state.last_engine or "litellm", _state.engine_detail)
         # Fix round 1, L2: `engine_detail` is now set on EVERY resolved
         # cycle (Task 7), not just an agent-rung pre-flight abort — a plain
         # byok install's `engine_detail` is just "why we're on byok"
