@@ -692,6 +692,11 @@ async def _synthesize_entity_update(
     return body or None
 
 
+# Track P R9 — every example in here is a neutral placeholder, never a name.
+# This is a module constant built at import, so there is no bank to resolve one
+# from; and interpolating a real owner would prime the extractor with a person
+# who has nothing to do with the entity it is judging — on a shared or demo
+# bank, with somebody else's name.
 _CONTRADICTION_PROMPT = """You are checking whether two descriptions of the same entity contain an unresolvable contradiction.
 
 A contradiction is unresolvable when newer information alone does not make it obvious which statement is currently true. For example: two different stacks mentioned across two conversations with no date cue, or two different roles for the same person.
@@ -708,7 +713,7 @@ Respond with JSON only:
 {{
   "has_unresolvable_contradiction": true | false,
   "contradiction": "one-sentence description of the contradiction, or empty",
-  "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does Rodrigo work now?'). Empty when there is no contradiction.",
+  "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does the owner work now?'). Empty when there is no contradiction.",
   "options": [
     {{"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"}},
     {{"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"}},

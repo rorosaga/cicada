@@ -150,8 +150,8 @@ async def resolve(
     pending_actions: list[tuple[Callable, tuple, dict]] = []
     cancelled = False
 
-    # Process more specific names first so "Rodrigo Sagastegui" becomes the
-    # canonical in-cycle entity and "Rodrigo" can merge into it rather than
+    # Process more specific names first so "Bob Example" becomes the
+    # canonical in-cycle entity and "Bob" can merge into it rather than
     # the other way around.
     ordered_entities = sorted(
         best_by_name.items(),
@@ -731,7 +731,7 @@ def _is_substantively_discussed(
 # names is not a reason to ask the LLM anything.
 _STOPWORD_TOKENS = {
     "the", "a", "an", "of", "and", "or", "for", "to", "in", "on", "at",
-    "de", "del", "la", "el", "los", "las",  # common Spanish fillers Rodrigo's data hits often
+    "de", "del", "la", "el", "los", "las",  # common Spanish fillers a bank's data hits often
 }
 
 

@@ -11,7 +11,7 @@ A *source* is a cheat-sheet for REFRESHING a specific fact: a URL, a local path,
 or a plain-English instruction ("ask me — I announce job changes"). Stored as::
 
     sources:
-      - ref: https://www.linkedin.com/in/rodrigo
+      - ref: https://www.linkedin.com/in/bob-example
         kind: url              # url | path | note
         predicate: works-at    # optional — which fact this refreshes
         added_by: user         # model id, or "user"

@@ -18,7 +18,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from api.services import agentic_write, markdown_parser, predicates
+from api.services import agentic_write, markdown_parser, owner_identity, predicates
 from api.services.claims import Claim, parse_claims, write_claims
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -352,7 +352,16 @@ def test_cicada_write_claim_registered_in_tools():
 
     tool = {t["name"]: t for t in server.TOOLS}["cicada_write_claim"]
     desc = tool["description"].lower()
-    assert "observer='rodrigo'" in desc or "observer= 'rodrigo'" in desc or "rodrigo" in desc
+    # Track P R8 — the legacy observer VALUE stays accepted, but the tool
+    # description stops advertising it: an agent should send 'owner', and the
+    # compatibility promise now lives where a client can act on it (the enum),
+    # not in prose that reaches every agent on `initialize` carrying a real
+    # person's name. Read from the constant so no test types the name.
+    assert "observer='owner'" in desc
+    assert owner_identity.LEGACY_OBSERVER not in desc
+    assert owner_identity.LEGACY_OBSERVER in (
+        tool["inputSchema"]["properties"]["observer"]["enum"]
+    )
     assert "agent" in desc
     assert set(tool["inputSchema"]["required"]) == {"subject", "predicate", "object"}
 
