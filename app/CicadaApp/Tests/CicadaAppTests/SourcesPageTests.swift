@@ -176,4 +176,47 @@ final class SourcesPageTests: XCTestCase {
         let cursor = SourceOverview(id: "harness:cursor", label: "Cursor", kind: .harness)
         XCTAssertEqual(SourceBlurb.text(for: cursor), "Conversations captured from Cursor, one episode per session.")
     }
+
+    // MARK: - Track D: the queue strip
+
+    private func queueItem(_ id: String, origin: String) throws -> EpisodeQueueItem {
+        try JSONDecoder().decode(EpisodeQueueItem.self, from:
+            #"{"id":"\#(id)","timestamp":"2026-09-01T00:00:00Z","source":"x","origin":"\#(origin)","preview":"","processed":false}"#.data(using: .utf8)!)
+    }
+
+    func testOwnedQueueMatchesAHarnessByIdPlusTheLegacyMcpAliasForClaudeCodeOnly() throws {
+        let all = [try queueItem("1", origin: "claude-code"), try queueItem("2", origin: "mcp"),
+                   try queueItem("3", origin: "cursor"), try queueItem("4", origin: "safari-bookmark")]
+        let claudeCode = SourceOverview(id: "harness:claude-code", label: "Claude Code", kind: .harness, harness: "claude-code")
+        XCTAssertEqual(claudeCode.ownedQueue(from: all).map(\.id), ["1", "2"], "the legacy mcp id belongs to claude-code only")
+        let cursor = SourceOverview(id: "harness:cursor", label: "Cursor", kind: .harness, harness: "cursor")
+        XCTAssertEqual(cursor.ownedQueue(from: all).map(\.id), ["3"], "cursor never adopts a bare mcp episode")
+    }
+
+    func testOwnedQueueMatchesACatalogRowByItsExactOriginsOnlyWithNoUnstampedFallback() throws {
+        let all = [try queueItem("1", origin: "safari-bookmark"), try queueItem("2", origin: "saved-link"),
+                   try queueItem("3", origin: "unknown")]
+        let safari = SourceOverview(id: "safari-bookmarks", label: "Safari bookmarks", kind: .browser, origins: ["safari-bookmark"])
+        XCTAssertEqual(safari.ownedQueue(from: all).map(\.id), ["1"])
+        let files = SourceOverview(id: "files", label: "Files & links", kind: .import, origins: ["saved-link"])
+        XCTAssertEqual(files.ownedQueue(from: all).map(\.id), ["2"],
+                        "R-D8: exact origins only — files does NOT also adopt \"unknown\", unlike ownedItems' nil-origin rule")
+    }
+
+    func testSourceQueueLabelsWaitingAndConsolidatedSoFar() {
+        XCTAssertEqual(SourceQueueLabels.waiting(0), "Nothing waiting for Sleep")
+        XCTAssertEqual(SourceQueueLabels.waiting(12), "12 waiting for Sleep")
+
+        let harness = SourceOverview(id: "harness:claude-code", label: "Claude Code", kind: .harness, conversations: 3, entities: 5)
+        XCTAssertEqual(SourceQueueLabels.consolidatedSoFar(for: harness), "Consolidated so far: 3 conversations → 5 entities")
+
+        let one = SourceOverview(id: "harness:cursor", label: "Cursor", kind: .harness, conversations: 1, entities: 1)
+        XCTAssertEqual(SourceQueueLabels.consolidatedSoFar(for: one), "Consolidated so far: 1 conversation → 1 entity")
+
+        let channel = SourceOverview(id: "safari-bookmarks", label: "Safari", kind: .browser, episodes: 40, entities: 12)
+        XCTAssertEqual(SourceQueueLabels.consolidatedSoFar(for: channel), "Consolidated so far: 40 captures → 12 entities")
+
+        let empty = SourceOverview(id: "rss", label: "RSS", kind: .feed)
+        XCTAssertNil(SourceQueueLabels.consolidatedSoFar(for: empty), "hidden when both counts are 0")
+    }
 }

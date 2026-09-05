@@ -57,6 +57,27 @@ struct SourceOverview: Codable, Identifiable, Hashable {
             .sorted { $0.recencyDate > $1.recencyDate }
     }
 
+    /// Which queued episodes belong to this source, for the per-source
+    /// page's queue strip (Track D). A harness owns items stamped with its
+    /// own harness id, plus the legacy `mcp` origin when this row IS
+    /// `claude-code` — every MCP-tool-initiated episode (as opposed to a
+    /// hook-captured one) carries `origin: mcp` regardless of harness
+    /// (`mcp/server.py`), and `claude-code` is the one harness old enough to
+    /// have episodes from before the hook stamped `origin: <harness>`
+    /// directly (`OriginIconography.label`'s own comment). Every other row
+    /// owns items whose origin is one of its own `origins` — EXACT, with no
+    /// legacy-unstamped fallback (R-D8): unlike `ownedItems`, which also
+    /// adopts a nil-origin media page for `files`, `EpisodeQueueItem.origin`
+    /// defaults to the literal `"unknown"` on an older backend, and an
+    /// unknown queued episode is not evidence for any one source.
+    func ownedQueue(from all: [EpisodeQueueItem]) -> [EpisodeQueueItem] {
+        if let harness {
+            return all.filter { $0.origin == harness || (harness == "claude-code" && $0.origin == "mcp") }
+        }
+        let mine = Set(origins)
+        return all.filter { mine.contains($0.origin) }
+    }
+
     /// Whether this row owns media pages that carry no `origin:` at all.
     ///
     /// Files & links is that row, and the backend agrees — `build_overview`
