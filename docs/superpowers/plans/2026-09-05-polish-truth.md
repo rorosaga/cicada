@@ -32,8 +32,8 @@
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish` (branch `feat/polish-truth`, based on `dev` @ `53885a1`). Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never an unquoted `--include=*.ext` (zsh globbing breaks it) — quote it or use `rg`.
-- NEVER read `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`, `~/Library`, or `~/.claude/projects`. Fixtures are synthetic: `alpha-project`, `bob-example`, `example.com`, `ep_2026-09-01_001`, origins `claude-code` / `safari-tab`.
+- Work ONLY in `<worktree>` (branch `feat/polish-truth`, based on `dev` @ `53885a1`). Every shell command is `cd <worktree> && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never an unquoted `--include=*.ext` (zsh globbing breaks it) — quote it or use `rg`.
+- NEVER read `<repo>/memory` (any bank), `~/.cicada`, `~/Library`, or `~/.claude/projects`. Fixtures are synthetic: `alpha-project`, `bob-example`, `example.com`, `ep_2026-09-01_001`, origins `claude-code` / `safari-tab`.
 - Python: `api/.venv/bin/python -m pytest <files> -q -p no:cacheprovider`; the full suite `api/tests` must report **0 failures** (2119 passed on 2026-09-05). `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` is order-dependent and pre-existing — if it is the ONLY red, re-run it alone and report both results.
 - Swift: `cd .../polish/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report **0 failures** (763 passed on 2026-09-05; SourceKit diagnostics naming OTHER worktrees are noise). JS: `node --test app/CicadaApp/Tests/graph/*.test.js`, 0 failures. NEVER run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live; the orchestrator installs at the end.
 - Never `git add -A`; stage named files only. Never commit `memory/`, `logs/`, `.claude/`, `api/.venv`, or `*-report.md`. No push, no new branches or worktrees, no subagents. Ignore Devin/PR comments.
@@ -169,7 +169,7 @@ Add to `CopyConstantsTests.swift`:
 
 Run (expect: compile failure on `.aboutCicada`, then two red):
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift test --filter 'TopBarControlsTests|CopyConstantsTests' 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift test --filter 'TopBarControlsTests|CopyConstantsTests' 2>&1 | tail -20
 ```
 
 - [ ] **Step 2: Implement**
@@ -229,14 +229,14 @@ In `CLAUDE.md`, append one sentence to the **Navigation** paragraph:
 - [ ] **Step 3: Verify + commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift build 2>&1 | tail -5
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift test 2>&1 | tail -20
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && rg -n "showUploadOverlay" app/CicadaApp/Sources | cat
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5
+cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -20
+cd <worktree> && rg -n "showUploadOverlay" app/CicadaApp/Sources | cat
 ```
 The last command must show hits only in `TopBarControls.swift`, `FeedView.swift` and the two `.constant(false)` call sites.
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && git add app/CicadaApp/Sources/CicadaApp/Views/Common/TopBarControls.swift app/CicadaApp/Sources/CicadaApp/ContentView.swift app/CicadaApp/Sources/CicadaApp/Views/Topics/TopicsView.swift app/CicadaApp/Sources/CicadaApp/Theme/Copy.swift app/CicadaApp/Tests/CicadaAppTests/TopBarControlsTests.swift app/CicadaApp/Tests/CicadaAppTests/CopyConstantsTests.swift CLAUDE.md && git commit -m "$(cat <<'EOF'
+cd <worktree> && git add app/CicadaApp/Sources/CicadaApp/Views/Common/TopBarControls.swift app/CicadaApp/Sources/CicadaApp/ContentView.swift app/CicadaApp/Sources/CicadaApp/Views/Topics/TopicsView.swift app/CicadaApp/Sources/CicadaApp/Theme/Copy.swift app/CicadaApp/Tests/CicadaAppTests/TopBarControlsTests.swift app/CicadaApp/Tests/CicadaAppTests/CopyConstantsTests.swift CLAUDE.md && git commit -m "$(cat <<'EOF'
 feat(Track P): the toolbar audit resolves by deletion, and the `?` stops describing buttons that are gone
 
 Sleep and Upload leave every page: a cycle starts from the Sleep page's one
@@ -330,7 +330,7 @@ final class OnboardingScheduleTests: XCTestCase {
 
 Run (expect: compile failure — `OnboardingSchedule` does not exist):
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift test --filter OnboardingScheduleTests 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift test --filter OnboardingScheduleTests 2>&1 | tail -20
 ```
 
 - [ ] **Step 2: Implement**
@@ -423,11 +423,11 @@ Replace `statusLine`'s `else` branch with `OnboardingSchedule.line(sleepVM.sched
 - [ ] **Step 3: Verify + commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift test 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -20
 ```
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && git add app/CicadaApp/Sources/CicadaApp/Views/Onboarding/OnboardingSleepStep.swift app/CicadaApp/Sources/CicadaApp/Theme/Copy.swift app/CicadaApp/Tests/CicadaAppTests/OnboardingScheduleTests.swift && git commit -m "$(cat <<'EOF'
+cd <worktree> && git add app/CicadaApp/Sources/CicadaApp/Views/Onboarding/OnboardingSleepStep.swift app/CicadaApp/Sources/CicadaApp/Theme/Copy.swift app/CicadaApp/Tests/CicadaAppTests/OnboardingScheduleTests.swift && git commit -m "$(cat <<'EOF'
 feat(Track P): onboarding offers a nightly schedule instead of promising one
 
 The first-run sheet told a new install that Sleep "also runs on its own
@@ -623,7 +623,7 @@ final class InboxMergeRejectTests: XCTestCase {
 
 Run (expect: compile failures, then red):
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift test --filter 'IntegrationsViewTests|InboxMergeRejectTests|SettingsSectionTests|AppRouterTests' 2>&1 | tail -25
+cd <worktree>/app/CicadaApp && swift test --filter 'IntegrationsViewTests|InboxMergeRejectTests|SettingsSectionTests|AppRouterTests' 2>&1 | tail -25
 ```
 
 - [ ] **Step 2: Implement**
@@ -807,12 +807,12 @@ Finally, `IntegrationExportOnlyRow`'s action becomes `{ router.routeToFeedAddSou
 - [ ] **Step 3: Verify + commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift build 2>&1 | tail -5
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift test 2>&1 | tail -20
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5
+cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -20
 ```
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && git add app/CicadaApp/Sources/CicadaApp/Models/IntegrationCategory.swift app/CicadaApp/Sources/CicadaApp/Views/Settings/IntegrationsView.swift app/CicadaApp/Sources/CicadaApp/Views/Settings/SettingsScene.swift app/CicadaApp/Sources/CicadaApp/Views/Settings/SettingsGeneralView.swift app/CicadaApp/Sources/CicadaApp/Views/Onboarding/FirstRunSheet.swift app/CicadaApp/Sources/CicadaApp/Views/Inbox/QuestionView.swift app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxCardView.swift app/CicadaApp/Sources/CicadaApp/Support/AppRouter.swift app/CicadaApp/Sources/CicadaApp/Theme/Copy.swift app/CicadaApp/Tests/CicadaAppTests/IntegrationsViewTests.swift app/CicadaApp/Tests/CicadaAppTests/InboxMergeRejectTests.swift app/CicadaApp/Tests/CicadaAppTests/SettingsSectionTests.swift app/CicadaApp/Tests/CicadaAppTests/AppRouterTests.swift && git commit -m "$(cat <<'EOF'
+cd <worktree> && git add app/CicadaApp/Sources/CicadaApp/Models/IntegrationCategory.swift app/CicadaApp/Sources/CicadaApp/Views/Settings/IntegrationsView.swift app/CicadaApp/Sources/CicadaApp/Views/Settings/SettingsScene.swift app/CicadaApp/Sources/CicadaApp/Views/Settings/SettingsGeneralView.swift app/CicadaApp/Sources/CicadaApp/Views/Onboarding/FirstRunSheet.swift app/CicadaApp/Sources/CicadaApp/Views/Inbox/QuestionView.swift app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxCardView.swift app/CicadaApp/Sources/CicadaApp/Support/AppRouter.swift app/CicadaApp/Sources/CicadaApp/Theme/Copy.swift app/CicadaApp/Tests/CicadaAppTests/IntegrationsViewTests.swift app/CicadaApp/Tests/CicadaAppTests/InboxMergeRejectTests.swift app/CicadaApp/Tests/CicadaAppTests/SettingsSectionTests.swift app/CicadaApp/Tests/CicadaAppTests/AppRouterTests.swift && git commit -m "$(cat <<'EOF'
 fix(Track P): six one-liners, each with the test that should have caught it
 
 - Integrations listed every chat export twice, the duplicate captioned
@@ -951,7 +951,7 @@ def test_the_existing_etag_already_covers_a_status_flip(tmp_path, monkeypatch):
 
 Run (expect: both red):
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && api/.venv/bin/python -m pytest api/tests/test_feed_visibility.py -q -p no:cacheprovider
+cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_feed_visibility.py -q -p no:cacheprovider
 ```
 
 **The mtime bump is not optional.** `etag_for(..., "entities", ...)` is a max-FILE-mtime component, and a rewrite inside the same coarse mtime tick produces an identical ETag — so copy `api/tests/test_sources_about.py:82-96`'s precedent EXACTLY: after `markdown_parser.write`, do
@@ -1012,12 +1012,12 @@ _HIDDEN_STATUSES = {"archived", "dropped"}
 - [ ] **Step 3: Verify + commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && api/.venv/bin/python -m pytest api/tests/test_feed_visibility.py api/tests/test_sources.py api/tests/test_sources_about.py api/tests/test_source_overview.py api/tests/test_inbox_removal.py -q -p no:cacheprovider
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
+cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_feed_visibility.py api/tests/test_sources.py api/tests/test_sources_about.py api/tests/test_source_overview.py api/tests/test_inbox_removal.py -q -p no:cacheprovider
+cd <worktree> && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
 ```
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && git add api/routers/sources.py api/tests/test_feed_visibility.py && git commit -m "$(cat <<'EOF'
+cd <worktree> && git add api/routers/sources.py api/tests/test_feed_visibility.py && git commit -m "$(cat <<'EOF'
 fix(Track P): GET /sources hides archived, dropped and junk items
 
 A bookmark answered "remove" in the inbox is archived, never deleted (G129
@@ -1118,7 +1118,7 @@ def test_after_import_next_at_is_an_instant_when_the_queue_is_not_empty(api_bank
 
 Run (expect: the two new cases red):
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && api/.venv/bin/python -m pytest api/tests/test_state_wiring.py -q -p no:cacheprovider
+cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_state_wiring.py -q -p no:cacheprovider
 ```
 
 - [ ] **Step 2: Implement** — in `api/routers/state.py`, replace the disclosed-gap comment and the bare call:
@@ -1149,13 +1149,13 @@ Add `from datetime import datetime, timedelta` and `sleep_debt` to the module's 
 - [ ] **Step 3: Verify + commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && api/.venv/bin/python -m pytest api/tests/test_state_wiring.py api/tests/test_state_dictionary.py api/tests/test_handshake.py api/tests/test_sleep_schedule_modes.py -q -p no:cacheprovider
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
+cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_state_wiring.py api/tests/test_state_dictionary.py api/tests/test_handshake.py api/tests/test_sleep_schedule_modes.py -q -p no:cacheprovider
+cd <worktree> && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
 ```
 (If `test_state_dictionary.py` / `test_handshake.py` / `test_sleep_schedule_modes.py` are named differently, find them with `ls api/tests | rg 'state|handshake|schedule'` and run those.)
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && git add api/routers/state.py api/tests/test_state_wiring.py && git commit -m "$(cat <<'EOF'
+cd <worktree> && git add api/routers/state.py api/tests/test_state_wiring.py && git commit -m "$(cat <<'EOF'
 fix(Track P): /state's sleep.next_at is calibrated for interval and after_import
 
 The bare `next_run_at(memory_path)` call made `interval` read "N hours from
@@ -1301,7 +1301,7 @@ def test_the_legacy_observer_constant_is_still_the_one_home_for_it():
 
 Run (expect: the first three red):
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && api/.venv/bin/python -m pytest api/tests/test_owner_name_portability.py -q -p no:cacheprovider
+cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_owner_name_portability.py -q -p no:cacheprovider
 ```
 
 - [ ] **Step 2: Implement**
@@ -1332,13 +1332,13 @@ The comment/docstring sweep uses the repo's own synthetic vocabulary — `Bob Ex
 - [ ] **Step 3: Verify + commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && api/.venv/bin/python -m pytest api/tests/test_owner_name_portability.py api/tests/test_agentic_write.py api/tests/test_mcp_tools.py api/tests/test_conflict_resolver.py -q -p no:cacheprovider
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
+cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_owner_name_portability.py api/tests/test_agentic_write.py api/tests/test_mcp_tools.py api/tests/test_conflict_resolver.py -q -p no:cacheprovider
+cd <worktree> && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
 ```
 (Resolve the middle two names with `ls api/tests | rg 'mcp|conflict'` — run whatever exists; nothing may go unrun that imports `mcp.server` or `conflict_resolver`.)
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && git add mcp/server.py api/services/conflict_resolver.py api/services/predicates.py api/services/entity_resolver.py api/services/logo_service.py api/services/fact_sources.py api/services/local_refs.py api/tests/test_owner_name_portability.py && git commit -m "$(cat <<'EOF'
+cd <worktree> && git add mcp/server.py api/services/conflict_resolver.py api/services/predicates.py api/services/entity_resolver.py api/services/logo_service.py api/services/fact_sources.py api/services/local_refs.py api/tests/test_owner_name_portability.py && git commit -m "$(cat <<'EOF'
 fix(Track P): no person's name in an agent-facing string or an LLM prompt
 
 CLAUDE.md's portability rail says no owner name in shipped code. G117 removed
@@ -1454,7 +1454,7 @@ console.log("All graph theme checks passed.");
 
 Run (expect: red on `PALETTES` being undefined):
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && node --test app/CicadaApp/Tests/graph/graph-theme.test.js
+cd <worktree> && node --test app/CicadaApp/Tests/graph/graph-theme.test.js
 ```
 
 - [ ] **Step 2: Implement** — in `graph.js`, above `contextColor` (`:81`, just after the `OBSERVER_BADGE_COLORS` table at `:71-75`):
@@ -1532,15 +1532,15 @@ Finally, in `docs/goals/TODO.md`, rewrite the "**Small polish left behind by the
 - [ ] **Step 3: Verify + commit**
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && node --test app/CicadaApp/Tests/graph/*.test.js
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift build 2>&1 | tail -5
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift test 2>&1 | tail -20
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && rg -n 'ECEDF2|C7CBD6|rgba\(14, 15, 20' app/CicadaApp/Sources/CicadaApp/Resources/graph/graph.js | cat
+cd <worktree> && node --test app/CicadaApp/Tests/graph/*.test.js
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5
+cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -20
+cd <worktree> && rg -n 'ECEDF2|C7CBD6|rgba\(14, 15, 20' app/CicadaApp/Sources/CicadaApp/Resources/graph/graph.js | cat
 ```
 The last command must show hits only inside the `PALETTES` table.
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && git add app/CicadaApp/Sources/CicadaApp/Resources/graph/graph.js app/CicadaApp/Sources/CicadaApp/Views/Graph/GraphView.swift app/CicadaApp/Tests/graph/graph-theme.test.js docs/goals/TODO.md && git commit -m "$(cat <<'EOF'
+cd <worktree> && git add app/CicadaApp/Sources/CicadaApp/Resources/graph/graph.js app/CicadaApp/Sources/CicadaApp/Views/Graph/GraphView.swift app/CicadaApp/Tests/graph/graph-theme.test.js docs/goals/TODO.md && git commit -m "$(cat <<'EOF'
 feat(Track P): the graph canvas gets the theme (closes TODO(G26))
 
 `graph.js` baked the dark palette into every drawn colour while the canvas
@@ -1585,12 +1585,12 @@ Named here so nobody re-derives them mid-task:
 ## Verification the orchestrator runs at the end
 
 ```
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift build 2>&1 | tail -5
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish/app/CicadaApp && swift test 2>&1 | tail -20
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && node --test app/CicadaApp/Tests/graph/*.test.js
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && git log --oneline dev..HEAD | cat
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/polish && git status --porcelain | cat
+cd <worktree> && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
+cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5
+cd <worktree>/app/CicadaApp && swift test 2>&1 | tail -20
+cd <worktree> && node --test app/CicadaApp/Tests/graph/*.test.js
+cd <worktree> && git log --oneline dev..HEAD | cat
+cd <worktree> && git status --porcelain | cat
 ```
 
 Expected: **0 backend failures** (2119+ passed; if `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` is the ONLY red, re-run it alone and report both results — it is a known order dependency), **0 Swift failures** (763+ passed), **0 JS failures**, exactly **7 commits**, and a clean tree with nothing from `memory/`, `logs/`, `.claude/`, `api/.venv` or any `*-report.md` staged.
