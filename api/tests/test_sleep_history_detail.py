@@ -102,6 +102,22 @@ def test_get_sleep_history_returns_counts_kind_and_respects_limit(bank):
     assert len(asyncio.run(git_service.get_sleep_history(bank, limit=1))) == 1
 
 
+def test_get_sleep_history_finds_cycles_behind_a_long_run_of_other_commits(bank):
+    """Live-bank finding (2026-09-05): the top of history was a run of State
+    snapshots / inbox / docs commits longer than the old `limit * 3` window,
+    so `?limit=2` returned `[]` while `?limit=15` found cycles. `-n` must
+    count MATCHING commits (git's own `--grep`), never a raw window."""
+    import asyncio
+    for i in range(12):
+        subprocess.run(["git", "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q",
+                        "--allow-empty", "-m", f"State snapshot 2026-09-{3 + i % 20:02d}\n\nCicada-Author: cicada"],
+                       cwd=bank, check=True)
+    rows = asyncio.run(git_service.get_sleep_history(bank, limit=1))
+    assert [r.kind for r in rows] == ["decay"]
+    rows = asyncio.run(git_service.get_sleep_history(bank, limit=2))
+    assert [r.kind for r in rows] == ["decay", "sleep"]
+
+
 def test_get_sleep_history_is_cached_per_head(bank, monkeypatch):
     import asyncio
     calls = []
