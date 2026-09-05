@@ -133,4 +133,21 @@ final class SourcesPageTests: XCTestCase {
     func testSourceSectionsOnEmptyInputIsEmpty() {
         XCTAssertTrue(SourceSections.group([]).isEmpty)
     }
+
+    // MARK: - Track D: status light + quick action
+
+    func testQuickActionPrefersSyncOverPollAndIsNilOtherwise() {
+        XCTAssertEqual(SourceCard.quickAction(for: SourceOverview(id: "safari-bookmarks", label: "Safari", kind: .browser, actions: ["sync"])), "Sync now")
+        XCTAssertEqual(SourceCard.quickAction(for: SourceOverview(id: "rss", label: "RSS", kind: .feed, actions: ["poll", "manage"])), "Poll now")
+        XCTAssertNil(SourceCard.quickAction(for: SourceOverview(id: "x", label: "X", kind: .social, actions: ["connect"])))
+        XCTAssertNil(SourceCard.quickAction(for: SourceOverview(id: "harness:claude-code", label: "Claude Code", kind: .harness)),
+                     "a harness row has no channel actions at all")
+    }
+
+    func testCardAccessibilityLabelAppendsTheStateTitleOnlyWhenALightIsShown() {
+        let row = SourceOverview(id: "safari-bookmarks", label: "Safari bookmarks", kind: .browser, items: 3)
+        XCTAssertEqual(SourceCard.accessibilityLabel(for: row, watchState: nil), "Safari bookmarks, 3 items")
+        XCTAssertEqual(SourceCard.accessibilityLabel(for: row, watchState: .watching), "Safari bookmarks, 3 items, Watching")
+        XCTAssertEqual(SourceCard.accessibilityLabel(for: row, watchState: .blocked), "Safari bookmarks, 3 items, Can't read")
+    }
 }
