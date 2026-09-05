@@ -101,6 +101,25 @@ final class UsageViewModel {
 
     var harness: HarnessStats? { store.consumption.value?.harness }
 
+    /// G113 feedback tile. Only the Store's default "month" view carries the
+    /// section — `RangeFetch` is a three-tuple and widening it drags
+    /// `UsageRangeTests` along, so other ranges render the tile as a dash
+    /// with an honest footnote rather than a stale month number.
+    var feedback: ConsumptionFeedback? { range == "month" ? store.consumption.value?.feedback : nil }
+
+    var feedbackValue: String {
+        guard let f = feedback else { return "—" }
+        guard let r = f.rate else { return f.resolutions == 0 ? "—" : "n/a" }
+        return "\(Int((r * 100).rounded()))%"
+    }
+
+    var feedbackFootnote: String {
+        guard range == "month" else { return "month view only" }
+        guard let f = feedback else { return "no feedback ledger" }
+        if f.resolutions == 0 { return "no resolutions yet" }
+        return "\(UsageFormat.count(f.resolutions)) resolutions · \(UsageFormat.count(f.corrections)) corrections"
+    }
+
     var isLoading: Bool { store.consumption.isEmpty && store.consumption.isRefreshing }
 
     /// Whether the data backing the *currently selected* range has actually

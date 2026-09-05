@@ -4,17 +4,21 @@
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (2026-09-04)
+## Where things stand (2026-09-05)
 
-**Nothing is running. No open PRs. No worktree in flight except `.worktrees/g113`.** The owner
-paused the queue on 2026-09-03; it is still paused deliberately.
+**Only `.worktrees/g113` (`feat/feedback-ledger`) is in flight, with G113 slices 3–7 now committed
+on it and awaiting PR + merge.** The owner paused the wider queue on 2026-09-03; it is still paused
+deliberately beyond finishing this one branch.
 
 **`dev` is ahead of `main`.** `main` was promoted at `381cfd3` (evening 2026-09-02); everything
 since is on `dev` only. Merged since that promotion: **#40** G102 link summaries · **#44** G118
 slice 1 (evidence spans) · **#45** G53+G75 (live state + handshake) · **#46** G105 (deterministic
 capture) · **#47** G124 (Sources page) · **#48** G115 Phase 1 (inbox cause + Recommended) ·
 **#49** theme toggle + `saved-link`/`rss` origins · **#50** the backend suite is green ·
-**#51** the sidebar Settings gear · **#52** G129 slice 1 (browser bookmark watch).
+**#51** the sidebar Settings gear · **#52** G129 slice 1 (browser bookmark watch) ·
+**#53** Track D (Sources grid + status lights) · **#54** G130 slice 1a (app-wide zoom) ·
+**#55** G125 (the study desk) · **#56** a Sleep-history-window fix · **#58** the font-literal
+migration (G130 slice 1b).
 **Per-PR detail is in git — `git log --oneline 381cfd3..dev` — not here.**
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
@@ -112,19 +116,17 @@ G115 Phase 1 landed. Everything about *what to do next and why* now lives in one
 > are not failures, the rails, how to start / resume / land a Workflow track, and the paused queue with
 > the reasoning for its order.
 
-The queue there, in order: **G129 slice 2** (bookmark deletions — item 0, small) → **G113 slices 3–7** (the grounded-reward ledger, half-built — its entry carries
-a per-task table verified against `dev` and the two places its committed plan is now stale) → **G125**
-(Sleep as the study desk) → ~~**G122** (engine/model picker)~~ → **G117** (first-run onboarding) →
-~~**G126** (Integrations page)~~ → **G118 slice 2** (the provenance viewer) → **G93** (cross-stream
-ask). Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision,
-not a build.
+The queue there, in order: **G129 slice 2** (bookmark deletions — in flight on
+`feat/bookmark-deletions`) → **G117** (first-run onboarding) → **G118 slice 2** (the provenance
+viewer) → **G93** (cross-stream ask). Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**,
+**G76**, and **G127** as a decision, not a build. Shipped 2026-09-05 and no longer queued: G125
+(PR #55), G113 slices 3–7 (PR #59), G122 + the G126 page (Track C, PR #TBD).
 
 **Track C (G122 engine/model picker + G126 Integrations page) shipped** on `feat/settings-redesign`
-(`c67dbd1..c19300f`, plus this docs commit) — a `GET/PUT /sleep/engine` prefs-first endpoint, the
-five-section Settings sidebar, the Sleep page's `EngineCard`, and the Integrations page over the
-existing channel registry. Not yet merged to `dev`; PR pending. G126's adapter rows (Strava,
-Todoist/Reminders, YouTube subscriptions, Garmin/Apple Health) stay queued — see the G126 backlog
-row and `working-method.md` §3.
+(PR #TBD) — a `GET/PUT /sleep/engine` prefs-first endpoint, the five-section Settings sidebar, the
+Sleep section's `EngineCard`, and the Integrations page over the existing channel registry. G126's
+adapter rows (Strava, Todoist/Reminders, YouTube subscriptions, Garmin/Apple Health) stay queued —
+see the G126 backlog row and `working-method.md` §3.
 
 Owner-present checks still unticked, none blocking: the mascot visual pass in light and dark, the G109
 graph eyeball at fit-zoom, the G124 and G115 checks in the paragraphs above, and the README screenshots
@@ -133,12 +135,17 @@ graph eyeball at fit-zoom, the G124 and G115 checks in the paragraphs above, and
 **One manual step on any existing install:** re-run `./install.sh` (idempotent) so the G105 `Stop` hook is
 registered in `~/.claude/settings.json`; `make doctor` check 12 confirms it. Done on the owner's machine.
 
-**Worktrees:** only `.worktrees/g113` remains, holding `feat/feedback-ledger` (G113 slices 1–2 merged as
-PR #31; slices 3–7 paused). Every other track worktree was removed after its PR merged. A worktree's
-`api/.venv` is a symlink to the main checkout's. Never `--force`-remove one without reading
-`git status --porcelain -uall` in it first, and never commit a `*-report.md` left there as scratch.
+**Worktrees:** only `.worktrees/g113` remains, holding `feat/feedback-ledger` (G113 slices 1–2 merged
+as PR #31; slices 3–7 now shipped on the branch, awaiting PR + merge). Every other track worktree
+was removed after its PR merged. A worktree's `api/.venv` is a symlink to the main checkout's. Never
+`--force`-remove one without reading `git status --porcelain -uall` in it first, and never commit a
+`*-report.md` left there as scratch.
 
-_Last synced: **2026-09-04**. Queue still paused. Merged since the last sync: #49 (theme toggle, origins), #50 (backend suite green), #51 (Settings gear), #52 (G129 slice 1). Backlog rows added: **G130** (app-wide ⌘+/⌘− zoom) and **G131** (replace the harness's auto-memory with Cicada). Next work and its reasoning: [`working-method.md`](working-method.md)._
+_Last synced: **2026-09-05**. Queue still paused beyond finishing `feat/feedback-ledger`. Merged
+since the last sync: #53 (Track D), #54 (G130 slice 1a app-wide zoom), #55 (G125 the study desk),
+#56 (Sleep-history-window fix), #58 (G130 slice 1b font-literal migration). Backlog rows added:
+**G130** (app-wide ⌘+/⌘− zoom) and **G131** (replace the harness's auto-memory with Cicada). Next
+work and its reasoning: [`working-method.md`](working-method.md)._
 
 ## ✅ Shipped
 
@@ -183,6 +190,10 @@ PR #54, PR #58)** — one persisted `uiScale` behind every `CicadaTheme` font/sp
 canvas keeps its own zoom (slice 2 stays open on a measured need); **slice 1b (2026-09-05, PR #58)**
 did the mechanical literal-font migration plus a source lint (`FontLiteralLintTests`) that keeps new
 ones out
+
+**G113 grounded-reward ledger (2026-09-05, PR #59)** — every inbox verdict is a `resolution`
+telemetry event; `/consumption/feedback` + Feedback tile; divergence/normalization resolvable;
+merge reject sticks; keep_active/answers write claims.
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
@@ -274,12 +285,14 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
    frame-by-frame review** — the live bank holds real people — S
 
 ### Wave B · make what exists trustworthy
-4a. **G113 slices 1–4** — the grounded-reward ledger: every human verdict on memory (inbox resolve,
-   decay keep/archive, merge accept/reject, `Cicada-Author: user` corrections) recorded as a
-   telemetry event — ids and enums only, never text — with per-predicate agreement rates and a
-   confidence-calibration curve as a tile in Sources ▸ Advanced (the `feedbackTileSlot`); R6
-   (`remind_later → _defer(7)`) landed with G115 Phase 1. Slice 5 (feeding rates back into prompts)
-   stays 💸 DECIDE under G78 — slices 1–2 merged (PR #31); 3–7 open — S/M
+4a. ~~**G113 slices 1–4**~~ *(the grounded-reward ledger)* — **shipped 2026-09-05
+   (PR #59, `feat/feedback-ledger`)** — every human verdict on memory (inbox resolve, decay
+   keep/archive, merge accept/reject, `Cicada-Author: user` corrections) recorded as a telemetry
+   event — ids and enums only, never text — with per-predicate agreement rates and a
+   confidence-calibration curve as a tile in Sources ▸ Advanced (the `feedbackTileSlot`);
+   `divergence`/`normalization` resolvable; merge reject persisted; decay `keep_active` and
+   clarification answers write back to the claim layer. Slice 5 (feeding rates back into prompts)
+   stays 💸 DECIDE under G78
 4d. ~~**G115 Phase 1**~~ *(owner 2026-09-03: start with the dead chevron and the unbounded URL list
    on cards)* — **shipped 2026-09-03 (`feat/inbox-phase1`)**
 4d″. **G115 Phase 2 — suggested outcome** *(owner 2026-09-03)*: a confidence-gated one-sentence "Cicada thinks…"

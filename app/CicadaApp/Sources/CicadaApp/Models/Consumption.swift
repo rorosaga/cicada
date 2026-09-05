@@ -245,11 +245,48 @@ indirect enum LooseValueTree: Codable {
     var value: LooseValue? { if case .value(let v) = self { v } else { nil } }
 }
 
-/// The Store's `consumption` sync domain (G51). The backend serves five
-/// separate endpoints (`/consumption/summary|calendar|stats|connections|harness`),
+/// G113 — `GET /consumption/feedback`. Decode-tolerant like the rest of this
+/// file: an older backend returns 404 (the bundle carries `nil`), a newer one
+/// may add fields. `agreement`/`calibration`/`byAction` are `[String:
+/// LooseValue]` rows — NOT `StatsRow`, which is shaped for the by-model/
+/// by-stage/by-connection/by-bank tables and has no field for `kind`,
+/// `bucket`, `action`, `total`, `agreed`, `overruled`, `rate`, `n` or
+/// `agreedRate`. The tile only needs the top-level scalars; the rows are
+/// kept loose so a future Advanced table can render them without a model
+/// change.
+struct ConsumptionFeedback: Codable {
+    var range: String = "month"
+    var since: String?
+    var resolutions: Int = 0
+    var corrections: Int = 0
+    var rate: Double?
+    var agreement: [[String: LooseValue]] = []
+    var calibration: [[String: LooseValue]] = []
+    var byAction: [[String: LooseValue]] = []
+    var audits: [String: Int] = [:]
+    var dedup: [String: Int] = [:]
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        range = try c.decodeIfPresent(String.self, forKey: .range) ?? "month"
+        since = try c.decodeIfPresent(String.self, forKey: .since)
+        resolutions = try c.decodeIfPresent(Int.self, forKey: .resolutions) ?? 0
+        corrections = try c.decodeIfPresent(Int.self, forKey: .corrections) ?? 0
+        rate = try c.decodeIfPresent(Double.self, forKey: .rate)
+        agreement = try c.decodeIfPresent([[String: LooseValue]].self, forKey: .agreement) ?? []
+        calibration = try c.decodeIfPresent([[String: LooseValue]].self, forKey: .calibration) ?? []
+        byAction = try c.decodeIfPresent([[String: LooseValue]].self, forKey: .byAction) ?? []
+        audits = try c.decodeIfPresent([String: Int].self, forKey: .audits) ?? [:]
+        dedup = try c.decodeIfPresent([String: Int].self, forKey: .dedup) ?? [:]
+    }
+}
+
+/// The Store's `consumption` sync domain (G51). The backend serves six
+/// separate endpoints (`/consumption/summary|calendar|stats|connections|harness|feedback`),
 /// but only one of each is needed for the dashboard's default view (range
 /// "month", 53-week calendar) — `APIClient.fetchConsumption(etag:current:)` fans out
-/// to all five and folds them into this one bundle so the whole page hydrates
+/// to all six and folds them into this one bundle so the whole page hydrates
 /// from a single disk snapshot and reconciles off a single SSE-driven refresh.
 /// A non-"month" range is fetched directly by `UsageViewModel` and never
 /// touches this bundle or the on-disk cache (see `loadRange()`).
@@ -259,4 +296,8 @@ struct ConsumptionBundle: Codable {
     let stats: ConsumptionStats
     let connections: ConsumptionConnections
     let harness: HarnessStats
+    /// G113 — nil when the backend predates `/consumption/feedback` or the
+    /// cached bundle predates this build. Defaulted so the five existing
+    /// five-argument memberwise call sites (APIClient + tests) compile.
+    var feedback: ConsumptionFeedback? = nil
 }

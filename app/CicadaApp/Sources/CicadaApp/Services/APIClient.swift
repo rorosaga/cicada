@@ -1495,6 +1495,10 @@ actor APIClient {
         try await get("/consumption/harness")
     }
 
+    func fetchConsumptionFeedback(range: String) async throws -> ConsumptionFeedback {
+        try await get("/consumption/feedback?range=\(range)")
+    }
+
     // MARK: - Inbox
 
     /// Fetch the unified inbox (`GET /inbox`). Optionally filter by kinds —
@@ -2196,11 +2200,13 @@ extension APIClient: SyncAPI {
         // tolerant of a missing key, so decoding "{}" can never throw.
         try! JSONDecoder().decode(ConsumptionStats.self, from: Data("{}".utf8))
 
-    /// Fans out to all five `/consumption/*` endpoints for the Store's
+    /// Fans out to all six `/consumption/*` endpoints for the Store's
     /// default view (range "month", 53-week calendar) and folds them into one
     /// `ConsumptionBundle`. Only `/summary`, `/calendar` and `/stats` carry a
-    /// server-side ETag (see `api/routers/consumption.py`) — `/connections`
-    /// and `/harness` are always refetched.
+    /// server-side ETag (see `api/routers/consumption.py`) — `/connections`,
+    /// `/harness` and `/feedback` are always refetched. `/feedback` is fetched
+    /// unconditionally and a 404 there means only that section is missing
+    /// (older backend), never that the dashboard is.
     ///
     /// A 304 on any of the three ETag'd endpoints must only short-circuit
     /// *that* section, never the whole bundle: `/connections`/`/harness` are
@@ -2230,13 +2236,18 @@ extension APIClient: SyncAPI {
             async let st: Conditional<ConsumptionStats> = getConditional("/consumption/stats?range=\(range)", etag: parts[2])
             async let conn: ConsumptionConnections = get("/consumption/connections?range=\(range)")
             async let h: HarnessStats = get("/consumption/harness")
-            let (summaryResult, calendarResult, statsResult, connections, harness) = try await (s, c, st, conn, h)
+            async let fb: ConsumptionFeedback? = {
+                do { return try await self.fetchConsumptionFeedback(range: range) }
+                catch APIError.httpError(404, _) { return nil }
+            }()
+            let (summaryResult, calendarResult, statsResult, connections, harness, feedback) = try await (s, c, st, conn, h, fb)
             let bundle = ConsumptionBundle(
                 summary: summaryResult.value ?? current?.summary ?? ConsumptionSummary(),
                 calendar: calendarResult.value ?? current?.calendar ?? ConsumptionCalendar(days: [], weeks: weeks),
                 stats: statsResult.value ?? current?.stats ?? Self.emptyConsumptionStats,
                 connections: connections,
-                harness: harness
+                harness: harness,
+                feedback: feedback
             )
             let newEtag = [summaryResult.etag ?? parts[0] ?? "", calendarResult.etag ?? parts[1] ?? "", statsResult.etag ?? parts[2] ?? ""]
                 .joined(separator: "|")

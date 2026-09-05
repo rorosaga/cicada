@@ -86,9 +86,12 @@ struct AdvancedStatsView: View {
         .task(id: viewModel.range) { await loadTop() }
     }
 
-    /// G113 slice 4 lands its Feedback-rate tile here (a rate, not a price —
-    /// welcome under Advanced). Empty until that slice ships (R10).
-    @ViewBuilder private var feedbackTileSlot: some View { EmptyView() }
+    /// G113 slice 4's Feedback-rate tile (a rate, not a price — welcome under
+    /// Advanced). "n/a" distinguishes "every resolution this month was a
+    /// deferral" (engagement, no judgement) from "—" (no ledger data at all).
+    @ViewBuilder private var feedbackTileSlot: some View {
+        StatTile(title: "Feedback", value: viewModel.feedbackValue, footnote: viewModel.feedbackFootnote)
+    }
 
     private func loadTop() async {
         do { top = try await APIClient.shared.fetchTopEntities(limit: 10, range: viewModel.range); topFailed = false }

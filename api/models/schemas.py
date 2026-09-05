@@ -877,6 +877,13 @@ class InboxKind(str, Enum):
     conflict = "conflict"
     clarification = "clarification"
     merge_suggestion = "merge_suggestion"
+    # G113 slice 3: Sleep has written these two kinds for months
+    # (`inbox_generator.py`'s `divergence_nudge`/`normalization_audit`
+    # branches) but `InboxKind` lacked them, so `_item_from_file` raised and
+    # `load_inbox` silently dropped every such item — the user never saw the
+    # question and could never answer it.
+    divergence = "divergence"
+    normalization = "normalization"
 
 
 class RequiredInput(str, Enum):
@@ -1633,6 +1640,11 @@ class MaintenanceDedupSweepResponse(CamelModel):
     proposed: list[MaintenanceMergePair] = []
     # Pairs the judge was uncertain about — same shape as the Nudge Inbox.
     nudged: list[MaintenanceNudgePair] = []
+    # G113 slice 3b — pairs skipped without a judge call because the user
+    # already rejected them (`merge_rejections`). Distinct from `nudged`: a
+    # rejected pair never re-reaches the judge at all, so it is neither
+    # merged, proposed, nor nudged.
+    skipped_rejected: int = 0
 
 
 class MaintenanceEnrichLinksResponse(CamelModel):
@@ -1868,6 +1880,20 @@ class ConsumptionStats(CamelModel):
     first_event: Optional[str] = None
     series: list[dict]
     range: str
+
+
+class ConsumptionFeedback(CamelModel):
+    """G113: the grounded-reward ledger as numbers. Ids/enums-derived counts only."""
+    range: str
+    since: Optional[str] = None
+    resolutions: int = 0
+    corrections: int = 0
+    rate: Optional[float] = None
+    agreement: list[dict] = []
+    calibration: list[dict] = []
+    by_action: list[dict] = []
+    audits: dict = {}
+    dedup: dict = {}
 
 
 class ConnectionConsumption(CamelModel):

@@ -75,6 +75,19 @@ class ClarificationManager:
             if is_duplicate
             else (uncertainty_type or "")
         )
+        # G113 slice 3b (R5) — a pair the user already rejected ("these are NOT
+        # the same entity") is never re-proposed. Checked only for a duplicate
+        # suggestion: a plain clarification's `second` is the uncertainty type,
+        # not an entity, so it is never a pair `merge_rejections` would hold.
+        if is_duplicate and second:
+            from api.services import merge_rejections
+
+            if merge_rejections.is_rejected(self.memory_path, sanitize_id(entity_name), second):
+                logger.info(
+                    "clarification: merge pair (%s, %s) was rejected by the user — not re-proposing",
+                    entity_name, second,
+                )
+                return None
         open_path = find_open(self.memory_path, kind, sanitize_id(entity_name), second)
         if open_path is not None:
             parsed = markdown_parser.parse(open_path)

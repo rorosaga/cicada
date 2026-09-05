@@ -348,6 +348,11 @@ def _normalization_audit_nudge(raw_label: str, canonical: str, claim: Claim) -> 
         "source_episode": (claim.source_episodes or [""])[0],
         "trigger": "sleep/conflict_resolution",
         "claim_id": claim.id,
+        # G113 slice 3: persisted so `_resolve_normalization` can un-merge the
+        # raw label from `_predicates.yaml` on a "wrong fold" answer without
+        # re-deriving it from the (already-folded) claim on disk.
+        "raw_predicate": raw_label,
+        "canonical_predicate": canonical,
     }
 
 
