@@ -88,6 +88,7 @@ async def get_entity(
         raw_markdown=entity_path.read_text(encoding="utf-8"),
         history=history,
         media=_build_media_block(fm, parsed.body),
+        is_owner=bool(fm.get("owner")),
     )
 
 

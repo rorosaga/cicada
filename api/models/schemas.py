@@ -426,6 +426,9 @@ class EntityResponse(CamelModel):
     # Structured media metadata for ``type: media`` entities (G11); ``None`` for
     # every other entity. Populated from the nested ``media:`` frontmatter block.
     media: Optional[EntityMedia] = None
+    # G117 — mirrors GraphNode.is_owner (same `owner:` frontmatter key), so
+    # the detail card can render "Name (you)" without a second lookup.
+    is_owner: bool = False
 
 
 class EntityDecayUpdate(CamelModel):

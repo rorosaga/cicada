@@ -239,7 +239,10 @@ struct EntityDetailCard: View {
 
             HStack(spacing: CicadaTheme.spacingMD) {
                 LogoImage(entityId: entity.id, name: entity.name, type: entity.type, size: 40)
-                Text(entity.name)
+                // G117 — the owner's own page/node is marked `owner: true` in
+                // frontmatter; render it distinctly rather than leaving the
+                // person to infer it from the observer badges alone.
+                Text(entity.isOwner ? "\(entity.name) (you)" : entity.name)
                     .font(CicadaTheme.titleFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
             }

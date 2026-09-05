@@ -625,13 +625,18 @@ struct Entity: Identifiable, Codable {
     /// `rawMarkdown` frontmatter, see `init`).
     var media: MediaBlock? = nil
     var history: [EntityHistoryEntry]
+    /// G117 — mirrors `GraphNode.isOwner` (same `owner:` frontmatter key) on
+    /// the detail response, so `EntityDetailCard` can render "Name (you)"
+    /// without a second lookup against `/graph`. Additive/decode-tolerant.
+    var isOwner: Bool = false
 
     init(
         id: String, name: String, type: EntityType, status: EntityStatus,
         confidence: Double, created: String, lastReferenced: String,
         decayRate: Double, sourceEpisodes: [String], tags: [String],
         related: [String], version: Int, markdownContent: String,
-        history: [EntityHistoryEntry], decayClass: DecayClass = .active
+        history: [EntityHistoryEntry], decayClass: DecayClass = .active,
+        isOwner: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -648,12 +653,13 @@ struct Entity: Identifiable, Codable {
         self.version = version
         self.markdownContent = markdownContent
         self.history = history
+        self.isOwner = isOwner
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
         case decayRate, decayClass, sourceEpisodes, tags, related, version
-        case markdownContent, rawMarkdown, path, media, history
+        case markdownContent, rawMarkdown, path, media, history, isOwner
     }
 
     init(from decoder: Decoder) throws {
@@ -687,6 +693,7 @@ struct Entity: Identifiable, Codable {
             media = nil
         }
         history = try c.decodeIfPresent([EntityHistoryEntry].self, forKey: .history) ?? []
+        isOwner = try c.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
     }
 
     /// Fallback parser for the nested `media:` block when the backend hasn't
@@ -853,12 +860,17 @@ struct GraphNode: Codable, Sendable {
     /// card show the right chip on the very first frame, before the full entity
     /// arrives. Decode-tolerant so an old on-disk `SnapshotCache` still loads.
     let decayClass: DecayClass
+    /// G117 — mirrors the entity page's `owner: true` frontmatter. Additive/
+    /// decode-tolerant so an older backend that never emits it still decodes;
+    /// drives the graph node's own "this is you" render alongside
+    /// `Entity.isOwner`'s twin on the detail card.
+    let isOwner: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, tags
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
-        case summary, contentHash, hasLogo, decayClass
+        case summary, contentHash, hasLogo, decayClass, isOwner
     }
 
     init(
@@ -868,7 +880,7 @@ struct GraphNode: Codable, Sendable {
         hubId: String? = nil, observers: [String] = [], contexts: [String] = [],
         isFacet: Bool = false, parentId: String? = nil, context: String? = nil,
         summary: String? = nil, contentHash: String = "", hasLogo: Bool = false,
-        decayClass: DecayClass = .active
+        decayClass: DecayClass = .active, isOwner: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -890,6 +902,7 @@ struct GraphNode: Codable, Sendable {
         self.contentHash = contentHash
         self.hasLogo = hasLogo
         self.decayClass = decayClass
+        self.isOwner = isOwner
     }
 
     init(from decoder: Decoder) throws {
@@ -919,5 +932,6 @@ struct GraphNode: Codable, Sendable {
         contentHash = try c.decodeIfPresent(String.self, forKey: .contentHash) ?? ""
         hasLogo = try c.decodeIfPresent(Bool.self, forKey: .hasLogo) ?? false
         decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
+        isOwner = try c.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
     }
 }
