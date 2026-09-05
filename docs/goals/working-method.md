@@ -126,7 +126,7 @@ afterwards — it is a half-written task the resumed agent redoes from scratch.
 Verify both suites yourself → `git merge --no-edit origin/dev` in the worktree and resolve conflicts
 (they are almost always `CLAUDE.md`, `TODO.md`, `memory-evolution.md`, and the telemetry kind tuples
 where two tracks each added a kind — take the **union**) → push → `gh pr create --base dev` →
-`gh pr merge --merge` → pull `dev` → replace `PR #TBD` in the docs → restart the backend
+`gh pr merge --merge` → pull `dev` → replace `PR #55` in the docs → restart the backend
 (`launchctl kickstart -k gui/$(id -u)/com.cicada.backend`) → `make dev` if Swift changed →
 `git worktree remove` → update the handoff.
 
@@ -213,7 +213,7 @@ brief written from this table over fighting the cache.
    per-channel seen-set beside `url_index.json`. Removal is a proposal: an inbox item, rendered
    again as a Deletions subsection on the browser's page — one write path, two views.
 
-2. ~~**G125 — Sleep page as the study desk.**~~ — **shipped 2026-09-05, PR #TBD**
+2. ~~**G125 — Sleep page as the study desk.**~~ — **shipped 2026-09-05, PR #55**
    (`feat/study-desk`): the `reading` mascot state, a clock-free speech bubble, a book pile keyed on
    queued characters per source, the study list replacing the old queue card + debt breakdown, a
    server-parsed consolidation history with a per-cycle detail and telemetry-joined duration, and

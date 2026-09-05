@@ -155,7 +155,7 @@ Recommended, decay through the question component, the G98 informational rule
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·
 G62 capture redesign · G63 connections clarity · G64 import walkthroughs · G67 commit-diff views ·
 G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars · G107 pixel mascot + single menu-bar Tamagotchi ·
-**G125 the study desk (2026-09-05, PR #TBD)** — Sleep page rebuilt around a `reading` mascot state
+**G125 the study desk (2026-09-05, PR #55)** — Sleep page rebuilt around a `reading` mascot state
 and clock-free speech bubble, a book pile encoding queued characters per source (log scale, no
 charts), a study list replacing the old queue card + debt breakdown, consolidation history with a
 server-parsed per-cycle detail and telemetry-joined duration, four schedule modes (manual · daily ·
