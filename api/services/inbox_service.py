@@ -873,7 +873,32 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
             entity.frontmatter.get("confidence", 0.5), 0.6
         )
         entity.frontmatter["last_referenced"] = str(date.today())
-        markdown_parser.write(entity_path, entity.frontmatter, entity.body)
+        # G113 slice 3c: "still true" is a verdict on the CLAIM the decay nudge
+        # was raised over, not just the entity's summary confidence — without
+        # this, a `keep_active` left the claim itself faded (and, if decay had
+        # already closed it, still closed) while the entity page read `active`.
+        claim_id = _opt_str(parsed.frontmatter.get("claim_id"))
+        body = entity.body
+        if claim_id:
+            from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+
+            try:
+                claims = parse_claims(body)
+            except MalformedClaimsBlockError:
+                # A corrupt claims block degrades this to a no-op claim
+                # refresh rather than blocking the "still relevant" answer
+                # from clearing the decay nudge (default strict=False below
+                # never actually raises this; kept defensive for a future
+                # switch to strict=True).
+                claims = None
+            if claims:
+                for c in claims:
+                    if c.id == claim_id:
+                        c.confidence = max(float(c.confidence or 0), 0.6)
+                        if c.valid_to and not c.superseded_by:
+                            c.valid_to = None  # faded, not replaced — reopen it
+                body = write_claims(body, claims)
+        markdown_parser.write(entity_path, entity.frontmatter, body)
         path.unlink()
 
     elif request.action == "archive" and entity_path.exists():
@@ -1381,7 +1406,50 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             entity.frontmatter["version"] = (
                 int(entity.frontmatter.get("version", 1) or 1) + 1
             )
-            body = entity.body.rstrip() + f"\n\n{answer_text}"
+            # G113 slice 3c: a clarification answer used to land as prose
+            # only — invisible to the claim layer, so nothing downstream
+            # (conflict detection, decay, `GET /entities/{id}`'s claims) ever
+            # saw it. Write a `user_stated` claim alongside the prose,
+            # mirroring `_resolve_conflict`'s free-text branch exactly
+            # (same field list, same `_owner_observer` portability rail —
+            # G115 R7, no owner name hardcoded here).
+            predicate = _opt_str(parsed.frontmatter.get("predicate")) or "description"
+            from api.services.claims import (
+                Claim,
+                MalformedClaimsBlockError,
+                parse_claims,
+                strip_claims_block,
+                write_claims,
+            )
+
+            try:
+                claims = parse_claims(entity.body)
+            except MalformedClaimsBlockError:
+                claims = None
+            if claims is not None:
+                # The raw body has the ```claims fence at the very end;
+                # `entity.body.rstrip() + answer_text` would leave the new
+                # prose trailing AFTER the machine layer. Strip the fence for
+                # the prose append, then let `write_claims` put the
+                # (re-rendered) block back where it belongs.
+                prose = strip_claims_block(entity.body)
+                body = f"{prose}\n\n{answer_text}" if prose else answer_text
+                claims.append(Claim(
+                    id=_user_claim_id(entity_id, predicate, answer_text, today),
+                    text=predicates.predicate_phrase(
+                        predicate, entity.frontmatter.get("name", entity_id), answer_text
+                    ),
+                    subject=entity_id, predicate=predicate, object=answer_text, object_kind="literal",
+                    observer=_owner_observer(settings), source_trust="user_stated", origin="clarification",
+                    authored_by="user", confidence=0.95, valid_from=today, recorded_at=today,
+                ))
+                body = write_claims(body, claims)
+            else:
+                # A corrupt claims block: leave it byte-identical (never
+                # silently discard content this module cannot parse) and just
+                # append the prose, exactly as before this task — a claim
+                # write never blocks the user's answer.
+                body = entity.body.rstrip() + f"\n\n{answer_text}"
             markdown_parser.write(entity_path, entity.frontmatter, body)
         else:
             entity_type = str(
