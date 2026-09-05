@@ -89,14 +89,14 @@ final class SleepLivenessTests: XCTestCase {
     private let then = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
     func test_connected_isLive() {
-        XCTAssertEqual(sleepLiveness(isConnected: true, loadedAt: then, isError: false, now: then),
+        XCTAssertEqual(sleepLiveness(isConnected: true, refreshedAt: then, isError: false, now: then),
                        .live)
     }
 
-    /// The only stale case: the backend is gone AND there is a real timestamp
-    /// to date the page by.
-    func test_disconnectedWithALoadedAt_isStaleAndCarriesThatDate() {
-        XCTAssertEqual(sleepLiveness(isConnected: false, loadedAt: then, isError: false, now: then),
+    /// The only stale case: the backend is gone AND it had, at some point,
+    /// confirmed what is on screen — a real timestamp to date the page by.
+    func test_disconnectedWithARefreshedAt_isStaleAndCarriesThatDate() {
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: then),
                        .stale(asOf: then))
     }
 
@@ -105,7 +105,7 @@ final class SleepLivenessTests: XCTestCase {
     /// the reader can act on — and it is the one thing on the page that must
     /// not read as "probably out of date".
     func test_disconnectedWithAFailedCycle_staysLive() {
-        XCTAssertEqual(sleepLiveness(isConnected: false, loadedAt: then, isError: true, now: then),
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: true, now: then),
                        .live)
     }
 
@@ -115,10 +115,10 @@ final class SleepLivenessTests: XCTestCase {
     /// report itself `.live` in the exact state liveness exists for, and would
     /// flip back and forth as fetches succeeded and failed. Only the caller
     /// can confuse the two, so this test states the contract the call site
-    /// must honour: disconnected + a real `loadedAt` + no cycle failure is
+    /// must honour: disconnected + a real `refreshedAt` + no cycle failure is
     /// ALWAYS `.stale`.
     func test_disconnectedWithOnlyAFailedFetch_isStill_stale() {
-        XCTAssertEqual(sleepLiveness(isConnected: false, loadedAt: then, isError: false, now: then),
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: then),
                        .stale(asOf: then))
         XCTAssertEqual(SleepLiveness.stale(asOf: then).saturation,
                        SleepLiveness.staleSaturation,
@@ -126,11 +126,18 @@ final class SleepLivenessTests: XCTestCase {
         XCTAssertNotNil(SleepLiveness.stale(asOf: then).asOf)
     }
 
-    /// Nothing has ever loaded, so there is no hour to print. A chip reading
-    /// "as of 00:00" would be a fabricated timestamp — the same refusal `—`
-    /// carries everywhere else on this page (P18).
-    func test_disconnectedWithNothingLoaded_staysLive() {
-        XCTAssertEqual(sleepLiveness(isConnected: false, loadedAt: nil, isError: false, now: then),
+    /// The backend has never confirmed anything, so there is no hour to
+    /// print. A chip reading "as of 00:00" would be a fabricated timestamp —
+    /// the same refusal `—` carries everywhere else on this page (P18).
+    ///
+    /// Review round 2: this refusal was reachable only in theory, because the
+    /// call site passed `Snapshot.loadedAt`, which a disk hydrate stamps, so a
+    /// cold launch against a stopped backend printed the launch minute. The
+    /// argument is `refreshedAt` now, and
+    /// `StoreTests.testDiskHydrateLeavesRefreshedAtNilSoTheStalenessChipHasNoHourToFabricate`
+    /// pins that a hydrate really does leave it nil.
+    func test_disconnectedWithNothingEverConfirmed_staysLive() {
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: nil, isError: false, now: then),
                        .live)
     }
 
@@ -140,8 +147,8 @@ final class SleepLivenessTests: XCTestCase {
     /// unnoticed and start hiding a chip after N minutes.
     func test_theAnswerDoesNotDependOnTheClockYet() {
         let muchLater = then.addingTimeInterval(60 * 60 * 24 * 365)
-        XCTAssertEqual(sleepLiveness(isConnected: false, loadedAt: then, isError: false, now: then),
-                       sleepLiveness(isConnected: false, loadedAt: then, isError: false, now: muchLater))
+        XCTAssertEqual(sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: then),
+                       sleepLiveness(isConnected: false, refreshedAt: then, isError: false, now: muchLater))
     }
 
     /// ONE desaturation step (R-A12) — a value on the enum rather than a
@@ -160,11 +167,11 @@ final class SleepLivenessTests: XCTestCase {
     /// The chip is ONE number over a page built from several domains, so it
     /// takes the OLDEST reading on screen: claiming the newest would overstate
     /// how fresh the stalest card is.
-    func test_stalestLoadedAt_takesTheOldestAndIgnoresDomainsThatNeverLoaded() {
+    func test_stalestRefreshedAt_takesTheOldestAndIgnoresDomainsNeverConfirmed() {
         let older = then.addingTimeInterval(-600)
-        XCTAssertEqual(SleepLiveness.stalestLoadedAt(then, older), older)
-        XCTAssertEqual(SleepLiveness.stalestLoadedAt(nil, then), then)
-        XCTAssertNil(SleepLiveness.stalestLoadedAt(nil, nil))
+        XCTAssertEqual(SleepLiveness.stalestRefreshedAt(then, older), older)
+        XCTAssertEqual(SleepLiveness.stalestRefreshedAt(nil, then), then)
+        XCTAssertNil(SleepLiveness.stalestRefreshedAt(nil, nil))
     }
 
     /// The chip's wording, with the zone injected so the assertion never

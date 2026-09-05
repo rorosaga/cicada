@@ -329,6 +329,87 @@ final class StoreTests: XCTestCase {
         XCTAssertTrue(api.calls.isEmpty, "hydrate must not hit the network")
     }
 
+    /// G125 v3 Task 8, review round 2. `loadedAt` moves on a disk hydrate —
+    /// it is a change token (`GraphViewModel` re-maps the graph off it), not a
+    /// freshness claim. The Sleep page's `as of HH:MM` chip needs the second
+    /// meaning, so `refreshedAt` exists and a hydrate must leave it nil:
+    /// otherwise a cold launch with the backend stopped prints the minute the
+    /// app opened over data that could be days old.
+    ///
+    /// The assertion is written all the way through to the page's own
+    /// decision, because that is the bug: a never-refreshed page is `.live`,
+    /// with no hour to print, exactly as `sleepLiveness`'s third refusal says.
+    func testDiskHydrateLeavesRefreshedAtNilSoTheStalenessChipHasNoHourToFabricate() async throws {
+        let cache = tempCache()
+        let banks: BanksResponse = try decodeFixture(banksJSON)
+        let status: StatusSnapshot = try decodeFixture(statusJSON)
+        await cache.save(banks, etag: "\"b\"", domain: .banks, bank: Store.rosterBank)
+        await cache.save(status, etag: nil, domain: .status, bank: "work")
+        await cache.save([SourceOverview(id: "claude-code", label: "Claude Code", kind: .harness)],
+                         etag: "\"o\"", domain: .sourcesOverview, bank: "work")
+        await cache.flush()
+
+        let store = Store(cache: cache, api: FakeSyncAPI())
+        await store.hydrate()
+
+        XCTAssertNotNil(store.status.value, "the hydrate did land")
+        XCTAssertNotNil(store.status.loadedAt, "loadedAt stays a change token and must still move")
+        XCTAssertNotNil(store.sourcesOverview.loadedAt)
+        XCTAssertNil(store.status.refreshedAt, "a disk read is not a backend confirmation")
+        XCTAssertNil(store.sourcesOverview.refreshedAt)
+        XCTAssertNil(store.banks.refreshedAt)
+
+        XCTAssertFalse(store.isConnected)
+        let liveness = sleepLiveness(
+            isConnected: store.isConnected,
+            refreshedAt: SleepLiveness.stalestRefreshedAt(store.status.refreshedAt,
+                                                          store.sourcesOverview.refreshedAt),
+            isError: false)
+        XCTAssertEqual(liveness, .live,
+                       "a page the backend has never confirmed must show no chip, not the launch minute")
+        XCTAssertNil(liveness.asOf)
+    }
+
+    /// The other half of round 2: `refreshedAt` has to be *stamped* somewhere,
+    /// or the chip could never appear. Both landed outcomes count — a 200 with
+    /// a new body and a 304 saying the body we hold is current — because both
+    /// mean the backend answered just now; only a failure leaves the last
+    /// confirmation standing.
+    func testALandedResponseStampsRefreshedAtOnBoth200And304() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+
+        await store.refresh([.sourcesOverview, .status])
+        XCTAssertNotNil(store.sourcesOverview.refreshedAt, "a 200 is a confirmation")
+        XCTAssertNotNil(store.status.refreshedAt)
+
+        // A 304 moves it too — a domain that rarely changes is not stale.
+        let longAgo = Date(timeIntervalSinceReferenceDate: 0)
+        store.sourcesOverview.refreshedAt = longAgo
+        api.replies[.sourcesOverview] = .notModified
+        await store.refresh([.sourcesOverview])
+        XCTAssertGreaterThan(store.sourcesOverview.refreshedAt ?? longAgo, longAgo,
+                             "a 304 confirms the value we hold is current")
+
+        // A failure does not: the last real confirmation is what the chip must
+        // date the page by, so the reader sees the moment contact was lost.
+        let confirmed = store.sourcesOverview.refreshedAt
+        api.replies[.sourcesOverview] = .failure
+        await store.refresh([.sourcesOverview])
+        XCTAssertEqual(store.sourcesOverview.refreshedAt, confirmed,
+                       "a failed fetch confirms nothing and must not move the chip forward")
+
+        store.isConnected = false
+        XCTAssertEqual(
+            sleepLiveness(isConnected: false,
+                          refreshedAt: SleepLiveness.stalestRefreshedAt(store.status.refreshedAt,
+                                                                        store.sourcesOverview.refreshedAt),
+                          isError: false),
+            .stale(asOf: SleepLiveness.stalestRefreshedAt(store.status.refreshedAt,
+                                                          store.sourcesOverview.refreshedAt)!),
+            "once the backend HAS confirmed something, a disconnect dates the page by it")
+    }
+
     /// (b) A 304 keeps the existing value instead of blanking it.
     func testNotModifiedKeepsExistingValue() async throws {
         let api = FakeSyncAPI()

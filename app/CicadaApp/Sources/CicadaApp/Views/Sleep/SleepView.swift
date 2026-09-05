@@ -81,12 +81,21 @@ enum SleepLiveness: Equatable {
         return nil
     }
 
-    /// The page draws several domains, each with its own `Snapshot.loadedAt`.
-    /// The chip is ONE number, so it takes the OLDEST of them: naming the
-    /// newest would date the page by its freshest card and quietly overstate
-    /// how current the stalest one is. A domain that has never loaded
-    /// contributes nothing — it has no reading to be stale.
-    static func stalestLoadedAt(_ dates: Date?...) -> Date? {
+    /// The page draws several domains, each with its own
+    /// `Snapshot.refreshedAt`. The chip is ONE number, so it takes the OLDEST
+    /// of them: naming the newest would date the page by its freshest card and
+    /// quietly overstate how current the stalest one is. A domain the backend
+    /// has never confirmed contributes nothing — it has no reading to be
+    /// stale, and `sleepLiveness` refuses to print a chip when they all say
+    /// nothing.
+    ///
+    /// **`refreshedAt`, never `loadedAt`** (review round 2). `loadedAt` moves
+    /// on a disk-cache hydrate too, so a cold launch against a stopped backend
+    /// stamped both domains with the launch time and this chip printed the
+    /// minute the app opened over data that could be days old — the fabricated
+    /// timestamp the docstring below refuses, in the state the feature exists
+    /// for.
+    static func stalestRefreshedAt(_ dates: Date?...) -> Date? {
         dates.compactMap { $0 }.min()
     }
 }
@@ -105,9 +114,14 @@ enum SleepLiveness: Equatable {
 ///   banner's own contrast is not this function's job: `leftColumn` keeps
 ///   `errorBanner` outside every `.saturation` group, so both errors render at
 ///   full contrast whatever this returns.
-/// - Nothing has ever loaded → `.live`. There is no hour to print, and a chip
-///   reading "as of 00:00" would be a fabricated timestamp — the same refusal
-///   `—` carries everywhere else on this page (P18).
+/// - **The backend has never confirmed anything → `.live`.** There is no hour
+///   to print, and a chip reading "as of 00:00" would be a fabricated
+///   timestamp — the same refusal `—` carries everywhere else on this page
+///   (P18). `refreshedAt` is what makes this refusal real: review round 2
+///   caught the caller feeding `Snapshot.loadedAt`, which a disk hydrate
+///   stamps, so a cold launch against a stopped backend printed the launch
+///   minute over data of any age. A never-refreshed page now falls through
+///   here and shows no chip at all.
 ///
 /// `now` is injected rather than read from the clock so the function stays
 /// pure and testable (the R8 rule the speech bubble already follows). **With
@@ -116,11 +130,11 @@ enum SleepLiveness: Equatable {
 /// declared now so adding one is an edit to this function rather than a new
 /// signature at every call site.
 func sleepLiveness(isConnected: Bool,
-                   loadedAt: Date?,
+                   refreshedAt: Date?,
                    isError: Bool,
                    now: Date = Date()) -> SleepLiveness {
-    guard !isConnected, !isError, let loadedAt else { return .live }
-    return .stale(asOf: loadedAt)
+    guard !isConnected, !isError, let refreshedAt else { return .live }
+    return .stale(asOf: refreshedAt)
 }
 
 // MARK: - Sleep Dashboard — the study desk (G125)
@@ -315,9 +329,13 @@ struct SleepView: View {
         return error
     }
 
-    /// R-A12. Both domains this page projects are asked for their last
-    /// successful refresh; `stalestLoadedAt` takes the older, so the chip
-    /// never dates the page by its freshest card.
+    /// R-A12. Both domains this page projects are asked when the BACKEND last
+    /// confirmed them (`Snapshot.refreshedAt`, not `loadedAt` — review round
+    /// 2: a disk hydrate moves `loadedAt`, so reading it dated a cold launch
+    /// against a dead backend by the launch minute); `stalestRefreshedAt`
+    /// takes the older of the two, so the chip never dates the page by its
+    /// freshest card, and returns nil — no chip — while neither has ever been
+    /// confirmed.
     ///
     /// **`isError` is the CYCLE's error, not the page's** (review round 1).
     /// `pageError` folds in `sleepVM.errorMessage`, which a stopped backend
@@ -330,8 +348,8 @@ struct SleepView: View {
     private var liveness: SleepLiveness {
         sleepLiveness(
             isConnected: store.isConnected,
-            loadedAt: SleepLiveness.stalestLoadedAt(store.status.loadedAt,
-                                                    store.sourcesOverview.loadedAt),
+            refreshedAt: SleepLiveness.stalestRefreshedAt(store.status.refreshedAt,
+                                                          store.sourcesOverview.refreshedAt),
             isError: sleepVM.lastError != nil
         )
     }

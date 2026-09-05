@@ -173,6 +173,8 @@ final class Store {
                 banks.value = roster.value
                 banks.etag = roster.etag
                 banks.loadedAt = Date()
+                // A disk read is not a backend confirmation (Snapshot.refreshedAt).
+                banks.refreshedAt = nil
                 if let active = roster.value.active, !active.isEmpty { bank = active }
             }
         }
@@ -192,6 +194,12 @@ final class Store {
             self[keyPath: kp].value = hit.value
             self[keyPath: kp].etag = hit.etag
             self[keyPath: kp].loadedAt = Date()
+            // Cleared, never stamped: this value came off the disk cache, so
+            // the backend has confirmed nothing (`Snapshot.refreshedAt`). The
+            // snapshot being mutated may also be the PREVIOUS bank's — a
+            // carried-over confirmation time would date bank B's page by a
+            // fetch that happened in bank A.
+            self[keyPath: kp].refreshedAt = nil
             self[keyPath: kp].isRefreshing = false
             loaded.append(domain.rawValue)
             return true
@@ -212,6 +220,7 @@ final class Store {
             consumption.value = hit.value
             consumption.etag = hit.etag
             consumption.loadedAt = Date()
+            consumption.refreshedAt = nil  // disk, not the backend — see `take`
             consumption.isRefreshing = false
             loaded.append(SyncDomain.consumption.rawValue)
         } else {
@@ -333,7 +342,13 @@ final class Store {
                 }
                 // 200 and 304 both mean "we are in sync with the server" —
                 // any previously-latched failure for this domain no longer
-                // applies.
+                // applies, and both are equally a confirmation that what we
+                // hold is what the backend has right now, so `refreshedAt`
+                // moves on either (`Snapshot.refreshedAt`). Stamping only the
+                // 200 would understate freshness for any domain that rarely
+                // changes — the Sleep page's chip would date a page the
+                // backend confirmed a second ago by the last body change.
+                self[keyPath: kp].refreshedAt = Date()
                 pendingDomains.remove(domain)
                 domainErrors[domain] = nil
             } catch {
@@ -374,6 +389,10 @@ final class Store {
                 }
                 status.value = snapshot
                 status.loadedAt = Date()
+                // The backend just answered — see `refreshOne`'s stamp and
+                // `Snapshot.refreshedAt`. `/status` has no etag, so every
+                // landed response is a 200 and there is no 304 case here.
+                status.refreshedAt = Date()
                 await cache.save(snapshot, etag: nil, domain: .status, bank: bank)
                 pendingDomains.remove(.status)
                 // Mirrors `refreshOne`: a landed response means any previously
