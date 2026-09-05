@@ -184,7 +184,7 @@ canvas keeps its own zoom (slice 2 stays open on a measured need); **slice 1b (2
 did the mechanical literal-font migration plus a source lint (`FontLiteralLintTests`) that keeps new
 ones out
 
-**G113 grounded-reward ledger (2026-09-05, PR #TBD)** — every inbox verdict is a `resolution`
+**G113 grounded-reward ledger (2026-09-05, PR #59)** — every inbox verdict is a `resolution`
 telemetry event; `/consumption/feedback` + Feedback tile; divergence/normalization resolvable;
 merge reject sticks; keep_active/answers write claims.
 
@@ -279,7 +279,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 
 ### Wave B · make what exists trustworthy
 4a. ~~**G113 slices 1–4**~~ *(the grounded-reward ledger)* — **shipped 2026-09-05
-   (PR #TBD, `feat/feedback-ledger`)** — every human verdict on memory (inbox resolve, decay
+   (PR #59, `feat/feedback-ledger`)** — every human verdict on memory (inbox resolve, decay
    keep/archive, merge accept/reject, `Cicada-Author: user` corrections) recorded as a telemetry
    event — ids and enums only, never text — with per-predicate agreement rates and a
    confidence-calibration curve as a tile in Sources ▸ Advanced (the `feedbackTileSlot`);
