@@ -380,6 +380,13 @@ private extension CicadaTheme {
             // designed around.
             case .divergence: Color(hex: 0xFF5C5C)
             case .normalization: Color(hex: 0x8896FF)
+            // G129 slice 2 — decay's amber, darkened: a retraction reads as a
+            // graver cousin of decay's fade, not a wholly new hue (R9, same
+            // "no new hue budget" precedent as divergence/normalization above).
+            case .removal: Color(hex: 0xC9822E)
+            // Forward-compat bucket — no real category, reuse the muted text
+            // token rather than inventing a colour for it (R8).
+            case .unknown: Dark.textTertiary
             }
         }
     }
@@ -480,6 +487,8 @@ private extension CicadaTheme {
             // conflict, normalization reads as clarification.
             case .divergence: Color(hex: 0xE43D3D)
             case .normalization: Color(hex: 0x5A62E0)
+            case .removal: Color(hex: 0x8A5A10)
+            case .unknown: Light.textTertiary
             }
         }
     }
