@@ -4,130 +4,58 @@
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (2026-09-03)
+## Where things stand (2026-09-04)
 
-**Merged 2026-09-02 as PR #35: `feat/safari-import`** — Safari iCloud
-tabs + bookmark folder selection + the family → member import catalog; G30/G47/G71 rows carry the
-shipped clauses, G119 (Arc/Firefox/Brave) is filed. The imports were run
-against the live bank the same day (iPhone tabs: 188 new / 9 skipped; the big Favorites folder:
-0 new / 496 skipped — the idempotency proof). Until each browser
-row syncs on its own, `chrome-bookmarks` / `safari-bookmarks` both read the legacy `bookmarks` count.
+**Nothing is running. No open PRs. No worktree in flight except `.worktrees/g113`.** The owner
+paused the queue on 2026-09-03; it is still paused deliberately.
 
-**G124 — the Sources page — merged as PR #47 (2026-09-03, `feat/sources-page`):** Activity is gone; ⌘6 is
-*Sources* — a card grid from `GET /sources/overview`, per-source pages (harness conversations with Resume,
-channel state with Sync/Poll now and folder counts), a contributors calendar per model
-(`GET /contributors/calendar`), and an Advanced toggle holding counts only (`GET /contributors/top-entities`,
-the ids-only `read` ledger kind). No price or token is rendered anywhere in the app; `/consumption/*` and the
-ledger are untouched. Owner-present check: ⌘6, a harness card → Resume, Safari → Sync now, Advanced on → no `$`.
+**`dev` is ahead of `main`.** `main` was promoted at `381cfd3` (evening 2026-09-02); everything
+since is on `dev` only. Merged since that promotion: **#40** G102 link summaries · **#44** G118
+slice 1 (evidence spans) · **#45** G53+G75 (live state + handshake) · **#46** G105 (deterministic
+capture) · **#47** G124 (Sources page) · **#48** G115 Phase 1 (inbox cause + Recommended) ·
+**#49** theme toggle + `saved-link`/`rss` origins · **#50** the backend suite is green ·
+**#51** the sidebar Settings gear · **#52** G129 slice 1 (browser bookmark watch).
+**Per-PR detail is in git — `git log --oneline 381cfd3..dev` — not here.**
 
-**G115 Phase 1 — the inbox redesign's first slice — merged as PR #48 (2026-09-03, `feat/inbox-phase1`):**
-cause on every card (G97 delivered), `(Recommended)` from the shipped `_verdict`, decay through
-`QuestionView`, keys `1–9`/⏎/`o`/`l`/Esc, both ETag halves, `render_question` v2, the G98 informational
-rule, the dead chevron and the unbounded list closed. Owner-present check: ⌘5, expand a card → line 2 names
-the conversation and the excerpt bolds the mention; press `2` on a decay card; a `uses` conflict shows
-"These can all be true"; the chevron opens the card; a media clarification shows "Show all N".
+**Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
+test baselines, the rails, the Workflow-track machinery, and the paused queue with its reasoning.
+Do not re-derive the queue from this file.
 
-**G118 slice 1 — evidence spans — merged as PR #44 (`feat/provenance-spans`):** every new claim carries
-`evidence` spans (offsets + hash into the stored body, never copies), `cicada_write_claim` cites
-`{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift change; legacy claims
-show no evidence, honestly.
+### Live environment (verified 2026-09-04)
 
-**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`) — then #40 (`feat/link-summaries`, the G102 cheap slice, see the G102 paragraph below) and #44 (`feat/provenance-spans`, G118 slice 1). Then #45 (`feat/state-handshake`, G53+G75), #46 (`feat/deterministic-capture`, G105), #47 (`feat/sources-page`, G124) and #48 (`feat/inbox-phase1`, G115 Phase 1). **No open PRs; nothing is running.**
+- **Backend** runs under **launchd** (`com.cicada.backend`, RunAtLoad + KeepAlive,
+  `python -m uvicorn`). Restart it with
+  `launchctl kickstart -k gui/$(id -u)/com.cicada.backend`.
+- **Active bank** `claude-chats` — 1,866 entities, 1,396 episodes (`GET /healthz`; re-read it
+  rather than trusting this number).
+- **Keys** live in `~/.cicada/secrets.env` (0600). Never in a bank, never logged.
+- **MCP** is registered at **user scope**, so every Claude Code session sees it. The G105 `Stop`
+  hook is registered in `~/.claude/settings.json` — confirmed present.
+- **Launching the app: `make dev`.** Never `swift run` — that produces a bundle-less executable
+  whose window never becomes *key*, which silently breaks graph clicks and text-field focus. Run it
+  from the repo root; `cd ..` from `app/CicadaApp` lands in `app/`, not the root.
 
-**G118 slice 1 — evidence spans — merged to `dev` as PR #44 (2026-09-03, from `feat/provenance-spans`):**
-every new claim carries `evidence` spans (offsets + hash into the stored body, never copies),
-`cicada_write_claim` cites `{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift
-change; legacy claims show no evidence, honestly.
+**One manual step still outstanding on this machine:** the launchd plist predates G114 and its
+`EnvironmentVariables` dict has no `CICADA_ALLOW_FEED_FETCH` (checked 2026-09-04 — still missing),
+so the nightly feed/calendar poll logs `skipped: CICADA_ALLOW_FEED_FETCH is not "1"` every cycle.
+`install.sh` only writes the plist when no backend answers `/healthz`, so it will not fix itself.
+Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
+`launchctl bootout gui/$(id -u)/com.cicada.backend && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cicada.backend.plist`.
 
-**G105 deterministic capture — `feat/deterministic-capture` (worktree `.worktrees/g105`), PR #46 against
-`dev`.** Every Claude Code session is captured by its own `Stop` hook into one episode per session, block-level
-(person's turns + agent's final replies; tool blocks, code and secrets never), updated in place on every later
-Stop. **One manual step for an existing install:** re-run `./install.sh` (idempotent) to register the hook in
-`~/.claude/settings.json`; `make doctor` check 12 says whether it is there. Then open any Claude Code session,
-say one sentence, and `tail ~/.cicada/logs/capture.log` shows `claude-code <id> http 200 created`; the Sleep
-page lists the episode with the Claude Code mark. Codex: registered when the CLI is present, payload not yet
-verified — the same log line says `skipped: no transcript_path` if Codex's Stop hook does not pass one.
+### Known and disclosed — open, not forgotten
 
-**G53 + G75 (live state + handshake) merged as PR #45 (2026-09-03):** `_state.md`, `GET /state`, `GET /handshake`,
-`initialize.instructions`, `cicada_handshake`; first check on the live bank: `curl -s -H "Authorization: Bearer $(cat ~/.cicada/api_token)" 'http://127.0.0.1:8000/state?refresh=true' | head -c 600`
-— the owner should eyeball that the projects list is the right seven.
+- **Wikilinks (PR #29):** the client `sanitizeID` fallback still differs from the backend's
+  `id_utils.sanitize_id`; `.wikilinkNavigation` traps if hosted outside a `WindowGroup` (it reads
+  `@Environment(Store.self)`).
+- **G109:** phase 1 shipped; phases 2–3, the Swift `WKWebView`-rebuild track, and the live-bank
+  visual check are open — see the G109 row and Wave A.
+- **Owner-present checks, none blocking:** the mascot visual pass in light and dark, the G109 graph
+  eyeball at fit-zoom, the G124/G115 checks in their rows, the G129 status light and Sleep queue as
+  rendered, and the README screenshots (G90), which must come from the **demo** bank, never the live
+  one.
+- **Parked review findings** that are real but deferred are listed per-area in the backlog rows they
+  belong to; do not rediscover them.
 
-**Merged to `dev`:** PRs #21–#37 — #36 is the G107 pixel mascot (one animated menu-bar item, page mascot with the bracket caption), #37 fixes a launch hang: SwiftPM's `Bundle.module` probed the build dir under `~/Documents` and a TCC prompt blocked the main thread inside `GraphView.makeNSView` (no window, no status item) — resources now resolve beside the executable (`Bundle.cicadaResources`). **No open PRs** other than G105's `feat/deterministic-capture` (above); `feat/link-summaries` merged as PR #40 (see the G102 paragraph below).
-
-**G102 cheap slice (merged as PR #40 from `feat/link-summaries`):** saved links get descriptions + `about` edges nightly (20/night, oldest first) and on demand. **One-time warm-up the owner can run now:** `curl -s -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" "http://127.0.0.1:8000/maintenance/enrich-links?limit=50"` — repeat until `remaining` is 0 (each run: ≤ 50 fetches + summaries on the resolved engine, ~7 extraction calls); the response's `engine` says whether the plan or the API key paid.
-The big one is **#25 — the agent engine (G74a)**: Sleep can now run on the user's Claude Max plan
-via `claude -p`, after ~2.5 months with no engine.
-Also #24, the **correctness gate**, which fixed decay (see rulings below), #23's app fixes, #26's
-`saved_at` fix, and #27's sleep cancel/cap/debt screen.
-
-**#27's 🔴 is worth knowing:** Stage 2 used to make clarifier/index writes *inline* inside the
-per-name judging loop, so cancelling mid-Stage-2 left partial writes — including a **deleted** inbox
-item. Writes are now queued as callables and flushed only if the loop completes.
-
-**#28 — G88 dev loop (merged 2026-09-01).** `make install-app` / `make dev` / `make login-item`, and
-the **bank split-brain closed as a class rather than as a path**: after a default install outside
-`~/cicada`, `installRoot` pointed agent setup commands at the *checkout's* memory while the app used
-another bank — silent, because memory gets written and the app just shows nothing. The root cause
-was **two independent computations that had to coincidentally agree** (a Swift heuristic vs.
-`install.sh`/`Settings` defaults). Now there is one source of truth: `GET /healthz` reports
-`memoryRoot`, and whenever a backend answers it **overrides the local guess everywhere**
-`CICADA_MEMORY_PATH` is emitted (`LiveMemoryRootProbe`: backoff 0.5→8 s, re-armed on reconnect,
-never regresses to the guess once a root is known). `installRoot()` survives only as a fallback
-until a backend has ever answered. Every snippet path is escaped per format (`SnippetEscape`:
-shell/json/toml/yaml). `install_app.sh` stages → verifies → swaps with the old bundle recoverable,
-and an interrupted swap is recovered on the next run (EXIT/INT/TERM trap). All of it proved by
-injected failures, not argued.
-
-**#29 — wikilinks (merged 2026-09-01).** Renders, click-through, back stack. Round 2 fixed the three
-real defects: a `cicada://entity/<ref>` link now carries the wikilink text **verbatim** and is
-resolved at click time against the graph snapshot (`MarkdownBody.resolveEntityID`: exact id →
-case-insensitive name → `sanitizeID` fallback), so `algorithms-&-data-structures.md` no longer 404s;
-`GraphViewModel.pushEntity` commits Back history only once a destination is **accepted** (stub on
-the spot, otherwise when the body arrives); `TopicDetailNavigation` is a generation-token value type
-so a late fetch can't undo Back. Known, disclosed: the client `sanitizeID` fallback still differs
-from the backend's `id_utils.sanitize_id`; `.wikilinkNavigation` traps if hosted outside a
-`WindowGroup` (reads `@Environment(Store.self)`).
-
-**G109 phase 1 — graph physics (2026-09-02, PR #32 against `dev`).** The research run ruled: keep
-d3-force, fix `graph.js` — the "no deceleration" and "orphan ring" were three local bugs, not the
-engine (an un-alpha-scaled custom force, a release-path reheat, nothing opposing charge on degree-0
-nodes). Two `graph.js` commits plus a committed headless bench (`Tests/graph/graph-physics.bench.js`,
-real d3 driving the real `startSimulation`): KE/node at tick 400 20 → 4e-6, a flick coasts 0 → 13
-ticks / 100 wu, a release moves the rest of the graph 1,200 → 9 wu, isolate max radius 2.0× → 1.3×
-core p90. Two rules now in CLAUDE.md: alpha-scale every custom force; never bump alpha on release.
-**Not done:** the live-bank visual check (needs Rodrigo at the machine — the bank holds real people),
-phase 2 (own the loop + `__cicadaPerf`, then the tuning pass — including the **no-op-delta shuffle**
-the final review measured: a delta with no change still moves a dense core 80 wu mean / 573 max,
-bench `deltaNoop*`; the lever and why it is not pulled in phase 1 are in the G109 row), phase 3
-(isolates out of the sim), and the Swift track (`ContentView` rebuilds the `WKWebView` per tab
-switch — that is the "explosion on return").
-
-**G107 pixel mascot (2026-09-02, `feat/mascot`, PR #36).** The bracket-text interim is superseded: a
-nine-colour 24×24 sprite set, every state always moving, `error` state added, the menu bar shows one
-animated worm with the count in the sprite (no more text badge), and `BookwormView` on a `TimelineView`
-at whole-cell sizes on five surfaces. `swift test` green (four new test files, 31 new cases); the visual
-pass — menu bar light/dark, Sleep page, Reduce Motion — is the install step, not yet done at the time of
-this commit.
-
-**Live environment (verified):** backend runs under **launchd** (`com.cicada.backend`,
-RunAtLoad+KeepAlive, `python -m uvicorn`), keys in `~/.cicada/secrets.env` (0600). Cicada's MCP
-server is registered at **user scope** so every Claude Code session sees it, both skills are in
-`~/.claude/skills/`, and **Claude Desktop is registered** (needs a Desktop restart). Active bank:
-`claude-chats`, 1,731 entities. **One-time step after G114:** `install.sh` only writes the launchd
-plist when no backend answers `/healthz`, so this pre-G114 plist lacks the feed-poll opt-in — add
-`<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to its `EnvironmentVariables` dict, then
-`launchctl bootout gui/$(id -u)/com.cicada.backend && launchctl bootstrap gui/$(id -u)
-~/Library/LaunchAgents/com.cicada.backend.plist`; until then the nightly feed/calendar poll logs
-`skipped: CICADA_ALLOW_FEED_FETCH is not "1"` every cycle. `install.sh` now also writes `hooks.Stop`
-into `~/.claude/settings.json` (merge, never clobber); `--uninstall` removes only Cicada's entry.
-
-**2026-09-02:** **PR #30 (G114 capture-writer hygiene) and PR #31 (G113 slices 1–2, the feedback ledger:
-`_verdict`, the `resolution` event, R1 trigger labels) merged to `dev` at `09a4b66`.** G109 phase 1 is in
-flight on `feat/graph-physics`. The inbox redesign study (four designs, three judges, critic pass) is
-folded in as **G115** (the design, APPLY) and **G116** (its two contract rulings, DECIDE).
-
-**How to run the app:** `make run-app` (NOT `swift run` — that produces a bundle-less executable
-whose window never becomes *key*, which silently breaks graph clicks and text-field focus).
 
 ## Rulings that cost real work to derive — do not re-litigate without reading them
 
@@ -184,7 +112,7 @@ G115 Phase 1 landed. Everything about *what to do next and why* now lives in one
 > are not failures, the rails, how to start / resume / land a Workflow track, and the paused queue with
 > the reasoning for its order.
 
-The queue there, in order: **G113 slices 3–7** (the grounded-reward ledger, half-built — its entry carries
+The queue there, in order: **G129 slice 2** (bookmark deletions — item 0, small) → **G113 slices 3–7** (the grounded-reward ledger, half-built — its entry carries
 a per-task table verified against `dev` and the two places its committed plan is now stale) → **G125**
 (Sleep as the study desk) → **G122** (engine/model picker) → **G117** (first-run onboarding) → **G126**
 (Integrations page) → **G118 slice 2** (the provenance viewer) → **G93** (cross-stream ask). Then the
@@ -202,9 +130,7 @@ PR #31; slices 3–7 paused). Every other track worktree was removed after its P
 `api/.venv` is a symlink to the main checkout's. Never `--force`-remove one without reading
 `git status --porcelain -uall` in it first, and never commit a `*-report.md` left there as scratch.
 
-_Last synced: 2026-09-03 — queue paused after PR #48. Merged that day: #44 (G118 slice 1), #45 (G53+G75),
-#46 (G105), #47 (G124), #48 (G115 Phase 1); before that #40 (G102 cheap slice) and #30–#39. Next work and
-its reasoning: [`working-method.md`](working-method.md)._
+_Last synced: **2026-09-04**. Queue still paused. Merged since the last sync: #49 (theme toggle, origins), #50 (backend suite green), #51 (Settings gear), #52 (G129 slice 1). Backlog rows added: **G130** (app-wide ⌘+/⌘− zoom) and **G131** (replace the harness's auto-memory with Cicada). Next work and its reasoning: [`working-method.md`](working-method.md)._
 
 ## ✅ Shipped
 
@@ -234,7 +160,9 @@ G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animati
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
 verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii) ·
 **G124 Sources page (2026-09-03, PR #47)** — Activity → Sources: card grid from /sources/overview,
-per-source pages with Resume, contributors calendar per model, Advanced counts; prices/tokens out of the app
+per-source pages with Resume, contributors calendar per model, Advanced counts; prices/tokens out
+of the app; **Track D (2026-09-05, PR #TBD)** — grouped-by-kind grid with real logos, G129 status
+lights + hover quick actions, per-source blurbs, and a queue strip with Consolidate now
 **G53 + G75 live state + handshake (2026-09-03, PR #45)** — `_state.md` cursor, `initialize.instructions`,
 `cicada_handshake`, `/state`, `/handshake`
 
@@ -296,10 +224,9 @@ per-source pages with Resume, contributors calendar per model, Advanced counts; 
 
 | What | State | Next action |
 |---|---|---|
+| **G129 bookmarks** | **Slice 1 merged as PR #52** — file watch, catch-up sync, six-state light. Slice 2 (deletions) not started; its two correctness rails are in the G129 row | Slice 2, queued as item 0 in `working-method.md` §3 |
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
 | **G109 graph physics** | **Phase 1 in PR #32** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
-| **G115 Phase 1 inbox** | On `feat/inbox-phase1`, five commits, both suites green | PR against `dev`; owner-present check in the header |
-| Claude Desktop | **Registered 2026-09-01** — needs a Desktop restart | Then: it captures only what an agent chooses to save (see G105) |
 
 ---
 
@@ -426,6 +353,12 @@ per-source pages with Resume, contributors calendar per model, Advanced counts; 
 25. **G54** onboarding interview · **G55** executable skills · **G13** tasks/ideas backlog
 
 ### Research / decisions (not builds)
+- **G131** replace the harness's own auto-memory with Cicada — it is a per-project markdown graph with an
+  always-loaded index (`~/.claude/projects/<cwd>/memory/`), i.e. `entities/` + `_state.md` built by someone
+  else and invisible to the bank. Cicada wins on decay, provenance, contradiction handling and portability;
+  auto-memory wins on zero-cost injection before the first token — which G75's handshake already solves.
+  So the real question is what belongs in that slot besides the now-view (answer: the `feedback` category,
+  i.e. G112). Measure the SessionStart-hook path and the token budget before writing code — M
 - **G127** mascot identity — bookworm vs a friendly WALL·E-*inspired* librarian robot (never a copy of the
   character); prototype = three states behind a `mascot` setting, live with it a week, then rule — owner
   said document only for now (2026-09-03)
@@ -444,6 +377,12 @@ per-source pages with Resume, contributors calendar per model, Advanced counts; 
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
 
 ### Small & cheap — grab when passing
+- **G130** app-wide zoom (⌘+ / ⌘− / ⌘0) — today only the graph *canvas* zooms; the chrome is fixed at
+  `CicadaTheme`'s hardcoded font/spacing constants and the app defines no `.commands` at all, so the
+  shortcut is unbound. Slice 1: a persisted `uiScale` the theme constants derive from (read through the
+  `@Observable` store — a `static let` notifies nothing, and **no `.id()` on the root**, or every zoom step
+  reloads the graph WKWebView, the exact regression PR #49 removed), a View menu `CommandGroup`, and a
+  Settings slider beside appearance. Bind `=` and `+` both. Leave the graph canvas on its own zoom — S
 - **G123** graph node search — shipped 2026-09-03 (PR #43); follow-up: route Ask citations and Sources
   entity chips through `revealEntity` so they land on the node too — XS
 G7 centrality *(recommended for closing — "premise measured false" per a prior session, but this

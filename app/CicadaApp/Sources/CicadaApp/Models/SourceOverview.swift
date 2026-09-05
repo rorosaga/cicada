@@ -57,6 +57,27 @@ struct SourceOverview: Codable, Identifiable, Hashable {
             .sorted { $0.recencyDate > $1.recencyDate }
     }
 
+    /// Which queued episodes belong to this source, for the per-source
+    /// page's queue strip (Track D). A harness owns items stamped with its
+    /// own harness id, plus the legacy `mcp` origin when this row IS
+    /// `claude-code` — every MCP-tool-initiated episode (as opposed to a
+    /// hook-captured one) carries `origin: mcp` regardless of harness
+    /// (`mcp/server.py`), and `claude-code` is the one harness old enough to
+    /// have episodes from before the hook stamped `origin: <harness>`
+    /// directly (`OriginIconography.label`'s own comment). Every other row
+    /// owns items whose origin is one of its own `origins` — EXACT, with no
+    /// legacy-unstamped fallback (R-D8): unlike `ownedItems`, which also
+    /// adopts a nil-origin media page for `files`, `EpisodeQueueItem.origin`
+    /// defaults to the literal `"unknown"` on an older backend, and an
+    /// unknown queued episode is not evidence for any one source.
+    func ownedQueue(from all: [EpisodeQueueItem]) -> [EpisodeQueueItem] {
+        if let harness {
+            return all.filter { $0.origin == harness || (harness == "claude-code" && $0.origin == "mcp") }
+        }
+        let mine = Set(origins)
+        return all.filter { mine.contains($0.origin) }
+    }
+
     /// Whether this row owns media pages that carry no `origin:` at all.
     ///
     /// Files & links is that row, and the backend agrees — `build_overview`
@@ -190,5 +211,36 @@ enum SourceItemsGrouping {
         }
         return counts.map { (folder: $0.key, count: $0.value) }
             .sorted { $0.count != $1.count ? $0.count > $1.count : $0.folder < $1.folder }
+    }
+}
+
+/// Section headers for the Sources grid (Track D — "in a grid, grouped by
+/// kind, no horizontal scroll"). Pure: given the rows a page already has, in
+/// what order and under what caption they render. `SourceKind.order` decides
+/// section order (mirrors the backend's `KIND_ORDER`, with `.unknown` last
+/// for a kind a newer backend invents); a kind with no rows never prints an
+/// empty header (R2's "a row is shown only when it has evidence" extends
+/// naturally to "a section is shown only when it has a row"). Within a
+/// section the order is `gridOrder`'s own — re-derived here rather than
+/// assumed, so a caller that hands in an unsorted list still gets a
+/// correctly ordered grid.
+enum SourceSections {
+    private static let titles: [SourceKind: String] = [
+        .harness: "CHAT & AGENTS",
+        .browser: "BROWSERS",
+        .social: "SOCIAL & SAVED",
+        .feed: "FEEDS & CALENDARS",
+        .messaging: "MESSAGING",
+        .import: "FILES & IMPORTS",
+        .unknown: "OTHER",
+    ]
+
+    static func group(_ rows: [SourceOverview]) -> [(kind: SourceKind, title: String, rows: [SourceOverview])] {
+        let ordered = SourceOverview.gridOrder(rows)
+        return SourceKind.order.compactMap { kind in
+            let inKind = ordered.filter { $0.kind == kind }
+            guard !inKind.isEmpty else { return nil }
+            return (kind: kind, title: titles[kind] ?? kind.rawValue.uppercased(), rows: inKind)
+        }
     }
 }
