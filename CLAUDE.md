@@ -491,6 +491,11 @@ size slider) alongside Agents, Plans & keys and Schedule. Slice 1b (PR #58) fini
 every literal `.font(.system(size:))` / `Font.system(size:)` in `Sources/` now goes through
 `CicadaTheme.font(size:...)`, and `FontLiteralLintTests` fails the build on a new one.
 
+**Video (Track V).** A saved video plays where the user already is — the Feed sheet, the entity
+Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — and the provider is
+derived from the URL at read time (`VideoRef.resolve`), never read out of the page, so a bank never
+needs rewriting to teach the app a new one.
+
 ---
 
 ## API Design
@@ -673,6 +678,17 @@ authentication, ever.
 shared `base.forget()` removes them on disconnect, so a fields-vs-stored drift can't orphan a
 secret. Where a vendor bills per request (X's "owned reads"), the sync result carries the count so a
 cost is stated plainly rather than hidden behind a "connected" checkbox.
+
+**Video (Track V, 2026-09-05).** Only a provider's own player URL is ever loaded — YouTube
+(`youtube-nocookie.com/embed/…`, incl. `videoseries?list=`), Vimeo, TikTok and Loom — and an
+oEmbed response is read for its *fields* only, never its `html` blob: the player URL is derived
+from the id by `video_urls.resolve` / `VideoRef`, so nothing a provider returns is ever executed.
+**A stream is never derived** — no `yt-dlp`, no CDN or `.m3u8` URL lifted out of a page — so a
+direct file the app plays is one the *user* saved as a direct URL. Twitch stays external (its
+player validates `parent` against the real embedding origin; synthesising one is circumvention),
+X and Instagram stay external. The app itself makes **no** network call to classify: oEmbed runs
+only on the ingest/enrich path, under the gates that path already has, and the three new
+provider calls take the rail's own 4 s / ≤ 512 KB numbers rather than the older, looser `_TIMEOUT`.
 
 ---
 

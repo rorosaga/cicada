@@ -66,6 +66,15 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   one.
 - **Parked review findings** that are real but deferred are listed per-area in the backlog rows they
   belong to; do not rediscover them.
+- **Track V video — two named follow-ups.** (1) `/live/<id>` is played at read time but is still not
+  taught to `normalize_url`/`_youtube_video_id`: teaching it changes `url_hash`, so an
+  already-ingested URL would re-import as a *new* entity and orphan its `url_index.json` entry — a
+  **dedup-index migration**, not a one-line fix. (2) **Twitch and X playback stay out**, each on its
+  own blocker: Twitch's player validates `parent` against the real embedding origin and a top-level
+  `WKWebView` document has none (synthesising one is circumvention), and an X `/status/<id>` is
+  *any* post whose oEmbed returns no first-party player URL and no thumbnail — playing one would
+  mean executing a `widgets.js` blob we assembled. Dailymotion/Reddit embeds are mechanical once the
+  table exists, but neither endpoint was probed.
 
 
 ## Rulings that cost real work to derive — do not re-litigate without reading them
@@ -217,6 +226,23 @@ gaps fixed alongside (`install.sh`'s `-s user`, the README `/sleep/trigger` bear
 `sleep_cycle`'s byok failure copy no longer diagnosing a key nobody entered when no engine was ever
 chosen). **Open remainder:** the onboarding *interview* (G54); entity-merge-across-identity-change
 (R3's disclosed gap).
+
+**Track V in-app video (2026-09-05, `feat/video-renderer`)** — G11's preview half generalized past
+YouTube. One URL→video classification table written twice (`api/services/video_urls.py` +
+`Views/Common/VideoRef.swift`) and pinned by one fixture (`api/tests/fixtures/video_urls.json`), so
+YouTube (incl. `/live/<id>` and `playlist?list=`), Vimeo, TikTok and Loom play in the provider's own
+embed, and a direct `.mp4/.m4v/.mov/.webm/.m3u8` or `file://` clip plays in AVKit behind a
+`VideoPlaybackController` seam — space-to-play, Reveal in Finder when the path is unreadable, and a
+source lint keeping AVFoundation to the one new file. **The provider is derived at read time from
+the stored URL**, so no bank is rewritten and `url_index.json` gains no keys. Feed rows get a play
+badge (playable refs only — an `external` ref would promise what the tap cannot deliver) and a
+duration pill only when a provider reported one; the Feed sheet grows to 720 × 560 for video kinds.
+Backend is metadata only: `media_type: video` for direct files (which `link_enrichment` already
+excluded from the nightly fetch), one shared oEmbed for the three new providers under the 4 s /
+≤ 512 KB rail reading *fields* only, a content-type guard on the OG fetch, and
+`media.provider`/`media.duration_s` as additive optional keys. **Disclosed:** an entity page shows
+two paused players (the `MediaPreview` card and the hero, the two pre-existing slots) — neither
+starts on its own. **G22 is untouched** — transcripts/captions as the entity body remain open.
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
