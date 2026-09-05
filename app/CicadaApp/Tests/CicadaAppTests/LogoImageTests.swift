@@ -37,4 +37,46 @@ final class LogoImageTests: XCTestCase {
             XCTAssertEqual(m, m.uppercased(), name)
         }
     }
+
+    // MARK: - Dark-mode resolution (Track L, R-L5)
+
+    /// R-L5 — a monochrome mark ships a `-dark` sibling and `LogoImage` picks
+    /// it under a dark theme. `CicadaTheme.surfaceElevated` is `#23252E` in
+    /// dark, so a black-on-transparent ChatGPT mark is simply invisible there;
+    /// the white plate `AgentTile` used to paper over this with is worse than
+    /// the disease (it puts every COLOUR mark on a white chip).
+    func testDarkModePrefersTheDarkSiblingWhenOneIsBundled() {
+        let saved = CicadaTheme.mode
+        defer { CicadaTheme.mode = saved }
+
+        CicadaTheme.mode = .dark
+        XCTAssertEqual(LogoImage.resolvedName(for: "chatgpt"), "chatgpt-dark")
+        XCTAssertEqual(LogoImage.resolvedName(for: "x"), "x-dark")
+        // A colour mark has no sibling and must not be rewritten.
+        XCTAssertEqual(LogoImage.resolvedName(for: "chrome"), "chrome")
+
+        CicadaTheme.mode = .light
+        XCTAssertEqual(LogoImage.resolvedName(for: "chatgpt"), "chatgpt")
+        XCTAssertEqual(LogoImage.resolvedName(for: "chrome"), "chrome")
+    }
+
+    /// An id nothing bundles resolves to nil in both themes — the caller's
+    /// SF-Symbol fallback, never a blank square.
+    func testAnUnbundledNameResolvesToNilInBothModes() {
+        let saved = CicadaTheme.mode
+        defer { CicadaTheme.mode = saved }
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            XCTAssertNil(LogoImage.resolvedName(for: "not-a-real-mark"))
+        }
+    }
+
+    /// A `-dark` file is never reachable on its own: asking for the sibling by
+    /// name must not append a second suffix.
+    func testADarkNameIsNeverDoubleSuffixed() {
+        let saved = CicadaTheme.mode
+        defer { CicadaTheme.mode = saved }
+        CicadaTheme.mode = .dark
+        XCTAssertEqual(LogoImage.resolvedName(for: "chatgpt-dark"), "chatgpt-dark")
+    }
 }

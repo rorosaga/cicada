@@ -421,9 +421,16 @@ private struct AgentSetupCard: View {
 
 // MARK: - Square identity tile
 
-/// 44pt square brand tile. Prefers a bundled `Resources/logos/<id>.png` (drop
-/// official marks there to upgrade the page); falls back to a brand-colored
-/// monogram so the tile is always identifiable.
+/// 44pt square brand tile. Prefers a bundled `Resources/logos/<id>.png`; falls
+/// back to a brand-colored monogram so the tile is always identifiable.
+///
+/// The white plate this tile used to draw under the mark is gone (R-L5). It
+/// existed for one asset — `codex.png` shipped as black ink on an opaque white
+/// square, invisible on a dark card — and it "fixed" that by putting EVERY
+/// mark, colour ones included, on a white chip in dark mode. Track L recut the
+/// two opaque rasters with alpha and gave the monochrome marks a `-dark`
+/// sibling `LogoImage.resolvedName(for:)` picks up, so the plate has nothing
+/// left to hide and the tile keeps only its own border.
 private struct AgentTile: View {
     let agent: AgentSetup
 
@@ -431,8 +438,6 @@ private struct AgentTile: View {
         Group {
             if LogoImage.exists(name: agent.id) {
                 LogoImage(name: agent.id, size: 44)
-                    .padding(6)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.92)))
             } else {
                 Text(agent.monogram)
                     .font(CicadaTheme.font(size: 16, weight: .bold, design: .rounded))

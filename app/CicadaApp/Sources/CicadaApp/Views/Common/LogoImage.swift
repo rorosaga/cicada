@@ -50,7 +50,12 @@ struct LogoImage: View {
 
     private var taskKey: String {
         switch source {
-        case let .bundled(name): "bundled:\(name)"
+        // R-L5: reading `CicadaTheme.mode` (through `resolvedName`) HERE is
+        // what subscribes the view to the theme and what changes the task id
+        // on a flip, so the mark reloads its `-dark` sibling. Keying on the
+        // bare name repaints nothing — the `.task` never re-runs and the
+        // previous theme's `NSImage` stays on screen.
+        case let .bundled(name): "bundled:\(Self.resolvedName(for: name) ?? name)"
         case let .entity(id, _, _): "entity:\(id):\(store.bank)"
         }
     }
@@ -112,9 +117,36 @@ struct LogoImage: View {
         return initials.isEmpty ? "?" : String(initials).uppercased()
     }
 
+    /// The file to load for `name` under the active theme (R-L5): a
+    /// `<name>-dark` sibling when the theme is dark and one is bundled, else
+    /// `<name>`, else nil. Only monochrome marks ship a sibling (R4 of the
+    /// Track L plan) — a coloured mark reads in both themes and is never
+    /// recoloured, so `chrome` resolves to `chrome` in either.
+    ///
+    /// Reading `CicadaTheme.mode` inside a SwiftUI `body` subscribes the view
+    /// to the theme, so a light/dark flip repaints the mark with no extra
+    /// wiring — the same mechanism every `CicadaTheme.<token>` call site uses.
+    /// `taskKey` is where that read happens for the bundled path.
+    ///
+    /// A name that already carries the suffix is returned untouched: the
+    /// sibling is a file in its own right and asking for it by name must never
+    /// look for `x-dark-dark`.
+    static func resolvedName(for name: String) -> String? {
+        if CicadaTheme.mode == .dark, !name.hasSuffix("-dark"), exists(name: "\(name)-dark") {
+            return "\(name)-dark"
+        }
+        return exists(name: name) ? name : nil
+    }
+
     /// Cheap synchronous existence check for a *bundled* logo (a bundle
     /// resource lookup, not a file read) so callers can pick a fallback layout
     /// without waiting on the async PNG decode.
+    ///
+    /// Deliberately still asks about the BASE file: it is the layout gate every
+    /// caller uses, and the pairing invariant `LogoAssetTests
+    /// .testEveryDarkSiblingHasABaseMark` holds means a `-dark` never exists
+    /// without one, so a dark-mode caller can never be gated out of a mark it
+    /// actually ships.
     static func exists(name: String) -> Bool {
         Bundle.cicadaResources.url(forResource: name, withExtension: "png", subdirectory: "Resources/logos") != nil
     }
@@ -124,15 +156,19 @@ struct LogoImage: View {
     @MainActor
     private static var cache: [String: NSImage] = [:]
 
+    /// R-L5: the cache key is the **resolved** name, not the requested one. A
+    /// theme flip must not serve the other theme's cached bytes — `chatgpt` and
+    /// `chatgpt-dark` are two different files and two different entries.
     private static func bundledImage(for name: String) async -> NSImage? {
-        if let cached = await MainActor.run(body: { cache[name] }) { return cached }
+        let file = resolvedName(for: name) ?? name
+        if let cached = await MainActor.run(body: { cache[file] }) { return cached }
         let loaded = await Task.detached(priority: .utility) {
             guard let url = Bundle.cicadaResources.url(
-                forResource: name, withExtension: "png", subdirectory: "Resources/logos"
+                forResource: file, withExtension: "png", subdirectory: "Resources/logos"
             ) else { return nil as NSImage? }
             return NSImage(contentsOf: url)
         }.value
-        if let loaded { await MainActor.run { cache[name] = loaded } }
+        if let loaded { await MainActor.run { cache[file] = loaded } }
         return loaded
     }
 
@@ -191,8 +227,13 @@ private struct PlatformTile: View {
                     .resizable().interpolation(.high).scaledToFit()
                     .frame(width: markSize, height: markSize)
             } else if LogoImage.exists(name: name) {
+                // No clip (R-L5). The rounded clip existed for the two rasters
+                // that shipped as opaque squares (`x` white-on-black, `codex`
+                // black-on-white); both were recut with alpha in Track L, so
+                // there is no full-bleed square left to round off — and a
+                // `cornerRadius * 0.5` (2.4 pt inside a 5.6 pt card at the
+                // reference size) read as SQUARER than the card behind it.
                 LogoImage(name: name, size: markSize)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius * 0.5))
             } else {
                 Image(systemName: systemFallback)
                     .font(CicadaTheme.font(size: size * 0.42, weight: .medium))
