@@ -115,6 +115,11 @@ private struct IntegrationChannelRow: View {
                 Spacer()
                 trailingAction
             }
+            .popover(isPresented: $showConnectorPopover, arrowEdge: .trailing) {
+                ConnectorSetupPanel(connectorId: channel.id, vendors: tile?.vendors ?? [], vendor: $vendor)
+                    .padding(CicadaTheme.spacingLG)
+                    .frame(width: 320)
+            }
             if let feedback {
                 Text(feedback)
                     .font(CicadaTheme.captionFont)
@@ -142,27 +147,40 @@ private struct IntegrationChannelRow: View {
         }
     }
 
-    /// One control per row, chosen by priority over `channel.actions`
-    /// (R-order below), never more than one: "connect" is the only action
-    /// `channel_registry` ever pairs with a bare, unconnected connector row
-    /// (`_connector_channel`'s `["connect"]` branch), so it's checked first
-    /// and opens the same `ConnectorSetupPanel` the Feed's catalog uses.
-    /// Once connected, a connector's actions become `["sync", "disconnect"]`
-    /// — "sync" is checked next and renders as a plain button exactly like a
-    /// browser sync row, and "disconnect" deliberately gets no button of its
-    /// own here: full disconnect UI already lives in the Feed's "Manage…"
-    /// sheet (`ConnectorSetupPanel` there), and duplicating it as a second
-    /// control on this page is out of scope for a page-only pass (G126).
+    /// Controls over `channel.actions`, in priority order below: "connect"
+    /// is the only action `channel_registry` ever pairs with a bare,
+    /// unconnected connector row (`_connector_channel`'s `["connect"]`
+    /// branch), so it's checked first and opens the same
+    /// `ConnectorSetupPanel` the Feed's catalog uses (in a `.popover`
+    /// attached to the row's `HStack` in `body`, so both this branch and the
+    /// "disconnect" branch below can drive the one `showConnectorPopover`
+    /// flag without duplicating the popover modifier). Once connected, a
+    /// connector's actions become `["sync", "disconnect"]`: a plain "Sync
+    /// now" button plus a "Manage" button that reopens the same panel — the
+    /// panel's own `status.connected` branch is what actually renders
+    /// Disconnect (`ConnectorSetupPanel.swift`). Final review (finding 1):
+    /// the panel was reachable only for a *bare* connector row via
+    /// "connect"; a *connected* row fell through to the plain "sync" branch
+    /// below and had no way back into the panel at all, making Disconnect
+    /// unreachable from this page — contradicting this page's own row
+    /// contract (Connect … Disconnect, CLAUDE.md §Integrations,
+    /// plan Task 4.4's "'disconnect' → covered inside the same
+    /// ConnectorSetupPanel popover, not a second button" — which presumed a
+    /// way back into that popover would exist). "sync"/"poll" alone (a
+    /// non-connector channel) still render as bare buttons, unchanged.
     @ViewBuilder
     private var trailingAction: some View {
         if channel.actions.contains("connect") {
             Button("Connect") { showConnectorPopover = true }
                 .buttonStyle(.bordered)
-                .popover(isPresented: $showConnectorPopover, arrowEdge: .trailing) {
-                    ConnectorSetupPanel(connectorId: channel.id, vendors: tile?.vendors ?? [], vendor: $vendor)
-                        .padding(CicadaTheme.spacingLG)
-                        .frame(width: 320)
+        } else if channel.actions.contains("disconnect") {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                if channel.actions.contains("sync") {
+                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store) }
                 }
+                Button("Manage") { showConnectorPopover = true }
+                    .buttonStyle(.bordered)
+            }
         } else if channel.actions.contains("sync") {
             actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store) }
         } else if channel.actions.contains("poll") {
