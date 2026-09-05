@@ -10,7 +10,10 @@ final class ContributorIdentityTests: XCTestCase {
     func testTheSystemAuthorIsNamedNotLeftAsAnId() {
         XCTAssertEqual(ContributorIdentity.displayName(author: "cicada", kind: "system"),
                        "Cicada · maintenance")
-        XCTAssertEqual(ContributorIdentity.displayName(author: "user", kind: "user"), "user")
+        // R-S13 — this pinned the RAW id "user" only because Track L had no
+        // reason to change it. The strip made it a defect: a bank the person
+        // wrote themselves listed a contributor called "user" (critique E1).
+        XCTAssertEqual(ContributorIdentity.displayName(author: "user", kind: "user"), Copy.you)
         XCTAssertEqual(ContributorIdentity.displayName(author: "gpt-5.4-mini", kind: "model"),
                        "gpt-5.4-mini")
     }

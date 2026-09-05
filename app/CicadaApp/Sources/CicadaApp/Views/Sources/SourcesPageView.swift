@@ -46,8 +46,11 @@ struct SourcesPageView: View {
                         // motion nobody asked for.
                         SourceCardGrid(rows: rows,
                                        hasLoaded: store.sourcesOverview.value != nil) { route = .detail($0) }
-                        sectionHeader("Contributors")
-                        ContributorsSection()
+                        // R-S6 — the strip carries its own "WHO WROTE YOUR
+                        // MEMORY" header, so the page's separate
+                        // `sectionHeader("Contributors")` would be the same
+                        // label twice, eighteen points apart.
+                        ContributorsStrip()
                         if usageVM.mode == .advanced {
                             sectionHeader("Advanced")
                             AdvancedStatsView(onSelectEntity: onSelectEntity)
