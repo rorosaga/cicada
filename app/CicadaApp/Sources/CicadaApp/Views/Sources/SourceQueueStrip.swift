@@ -38,6 +38,17 @@ struct SourceQueueStrip: View {
 
     private var owned: [EpisodeQueueItem] { source.ownedQueue(from: sleepVM.queuedEpisodes) }
 
+    /// `source` is a snapshot captured at navigation time (`SourcesPageView`'s
+    /// `route` holds it in a plain `let`, never re-derived) — after a
+    /// Consolidate run its counts are stale even though `store.sourcesOverview`
+    /// just refreshed. Re-resolve against the live snapshot by id on every
+    /// render so "consolidated so far" moves the moment Sleep finishes,
+    /// falling back to the captured value only when the row has aged out of
+    /// the overview (deleted source, still-loading snapshot).
+    private var liveSource: SourceOverview {
+        store.sourcesOverview.value?.first(where: { $0.id == source.id }) ?? source
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             HStack(spacing: CicadaTheme.spacingMD) {
@@ -47,7 +58,7 @@ struct SourceQueueStrip: View {
                 Spacer()
                 consolidateButton
             }
-            if let line = SourceQueueLabels.consolidatedSoFar(for: source) {
+            if let line = SourceQueueLabels.consolidatedSoFar(for: liveSource) {
                 Text(line)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
