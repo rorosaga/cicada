@@ -51,8 +51,11 @@ router = APIRouter()
 # A media page in either state is a decision the person made (an inbox
 # `remove`, G129 slice 2) or one the system already recorded (`dropped`,
 # never resurfaced) — hidden from every read path, never deleted (CLAUDE.md's
-# status lifecycle).
-_HIDDEN_STATUSES = {"archived", "dropped"}
+# status lifecycle). Imported, not re-typed (F6): `source_overview` counts the
+# `files` card's headline number on its own entity walk, and a card whose
+# number disagrees with the list on its page is the defect this shares a
+# predicate to prevent.
+_HIDDEN_STATUSES = source_overview.HIDDEN_STATUSES
 
 
 class FeedSubscribeRequest(BaseModel):

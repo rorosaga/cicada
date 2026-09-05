@@ -20,13 +20,20 @@ struct TopBarControls: View {
     @Binding var showUploadOverlay: Bool
     /// Track P R1 — the audit resolves by REMOVING: a cycle starts on the
     /// Sleep page (G125 R10 made that the one Consolidate control) and the
-    /// menu-bar bookworm offers "Run Sleep" globally; a one-shot import
-    /// lives behind the Feed's `+` and ⌘N (CLAUDE.md's Integrations rule).
-    /// Both flags survive as an opt-in seam rather than being deleted,
-    /// because `Views/Sleep/SleepView.swift` passes them explicitly and a
-    /// page added later may earn one back — but the DEFAULT is now the
-    /// policy, so a page added later inherits "`?` only".
+    /// menu-bar bookworm offers "Run Sleep" globally. Both flags survive as
+    /// an opt-in seam rather than being deleted, because
+    /// `Views/Sleep/SleepView.swift` passes them explicitly and a page added
+    /// later may earn one back — but the DEFAULT is now the policy, so a
+    /// page added later inherits "`?` only".
     var showsSleep: Bool = false
+    /// Final review F1 — `showsUpload` is default-false but NOT unused:
+    /// `FeedView` opts back in. "A one-shot import lives behind the Feed's
+    /// `+` and ⌘N" (CLAUDE.md's Integrations rule) covers
+    /// `UploadMode.conversations` only; `UploadMode.project` — an export
+    /// imported into a chosen or newly created memory bank — has no
+    /// `AddSourceTile`, and `UploadOverlay` is also the only writer of
+    /// `Store.intakeInFlight` (G125 R2's `.reading` mascot). A default flip
+    /// must not delete a capability that has no replacement.
     var showsUpload: Bool = false
     var help: HelpContent = .aboutCicada
     @State private var showHelpOverlay = false

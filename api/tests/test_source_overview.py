@@ -123,10 +123,11 @@ def test_unknown_origin_gets_an_open_family_row_and_empty_catalog_rows_are_hidde
     assert "files" not in rows, "an empty url index is no evidence either (R1: files has no origins of its own)"
 
 
-def _media_page(memory, entity_id, *, origin=None):
+def _media_page(memory, entity_id, *, origin=None, status="active", enrichment_status=None):
     origin_line = f"origin: {origin}\n" if origin else ""
+    enrichment_line = f"enrichment_status: {enrichment_status}\n" if enrichment_status else ""
     (memory / "entities" / f"{entity_id}.md").write_text(
-        f"---\nid: {entity_id}\ntype: media\nstatus: active\nconfidence: 0.9\n{origin_line}"
+        f"---\nid: {entity_id}\ntype: media\nstatus: {status}\nconfidence: 0.9\n{origin_line}{enrichment_line}"
         f"source_episodes: []\nrelated: []\nmedia:\n  url: https://example.com/{entity_id}\n---\n\n# {entity_id}\n",
         encoding="utf-8")
 
@@ -256,3 +257,25 @@ def test_the_files_card_counts_stamped_and_pre_stamp_saves_together(bank):
     bank_index.invalidate()
 
     assert _rows(bank)["files"]["items"] == 2
+
+
+def test_the_files_card_does_not_count_what_its_page_hides(bank):
+    """F6: `GET /sources/{id}` stopped listing archived / dropped / junk media
+    (commit 2ff60f6), and this walk has to stop counting them in the same
+    breath — otherwise the card's headline number exceeds the list on its own
+    page, which is precisely the M1 defect the walk exists to prevent. One
+    live link, one archived by an inbox `remove` (G129 slice 2), one
+    `dropped`, one retired as `junk` behind a consent wall: the card says 1."""
+    _media_page(bank, "media-live", origin="saved-link")
+    _media_page(bank, "media-removed", origin="saved-link", status="archived")
+    _media_page(bank, "media-dropped", origin=None, status="dropped")
+    _media_page(bank, "media-junk", origin="saved-link", enrichment_status="junk")
+    bank_index.invalidate()
+
+    assert _rows(bank)["files"]["items"] == 1
+
+    # And with nothing but hidden pages there is no evidence at all (R2) —
+    # a card reading "0 items" would be worse than no card.
+    (bank / "entities" / "media-live.md").unlink()
+    bank_index.invalidate()
+    assert "files" not in _rows(bank)

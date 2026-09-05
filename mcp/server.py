@@ -176,7 +176,7 @@ TOOLS = [
             "properties": {
                 "entity_id": {
                     "type": "string",
-                    "description": "The entity ID (e.g. 'figure-ai') or entity name from a cicada_recall result.",
+                    "description": "The entity ID (e.g. 'alpha-project') or entity name from a cicada_recall result.",
                 }
             },
             "required": ["entity_id"],
@@ -310,7 +310,7 @@ TOOLS = [
                 },
                 "object": {
                     "type": "string",
-                    "description": "The value or target entity of the claim (e.g. 'Figure AI', 'concise summaries').",
+                    "description": "The value or target entity of the claim (e.g. 'alpha-project', 'concise summaries').",
                 },
                 "observer": {
                     "type": "string",

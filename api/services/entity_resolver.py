@@ -748,7 +748,7 @@ def _share_content_token(a: str, b: str) -> bool:
 
 _DISAMBIG_PROMPT = """You are deciding whether two entity entries from a personal knowledge graph refer to the same real-world thing.
 
-Both entries have overlapping names (for example "Francesco" and "Francesco Baldissera") but the existing one was built from different conversations, so you need to look at the descriptions and decide whether merging them would be correct.
+Both entries have overlapping names (for example a bare first name and that same first name with a surname) but the existing one was built from different conversations, so you need to look at the descriptions and decide whether merging them would be correct.
 
 ENTITY A (existing in graph)
 Name: {existing_name}

@@ -69,6 +69,29 @@ final class IntegrationsViewTests: XCTestCase {
                                        overview: [], isLoading: false, error: "Connection refused"),
             .loaded
         )
+        // Final review F2 — the shape that was rendering one error row over a
+        // roster the Store already had: `GET /sources/channels` landed,
+        // `GET /sources/overview` did not. `overview` feeds only the three
+        // informational harness rows, so it must never gate the page.
+        XCTAssertEqual(
+            IntegrationsView.loadState(channels: [SourceChannel(id: "rss", label: "RSS", connected: true)],
+                                       overview: nil, isLoading: false, error: "Connection refused"),
+            .loaded,
+            "a failed overview must not hide channel rows the Store is holding"
+        )
+        // …and the mirror image, since either domain alone is evidence.
+        XCTAssertEqual(
+            IntegrationsView.loadState(channels: nil, overview: [SourceOverview(id: "claude-code", label: "Claude Code", kind: .harness)],
+                                       isLoading: false, error: "Connection refused"),
+            .loaded
+        )
+        // One domain confirmed-empty while the other has NOT answered is not
+        // "confirmed nothing here" — the failure still shows.
+        XCTAssertEqual(
+            IntegrationsView.loadState(channels: [], overview: nil, isLoading: false, error: "Connection refused"),
+            .failed("Connection refused"),
+            "half an answer never resolves to .empty"
+        )
     }
 
     func testRowStateLine() {

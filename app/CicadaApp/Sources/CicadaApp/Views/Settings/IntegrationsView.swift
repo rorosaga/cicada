@@ -45,12 +45,19 @@ struct IntegrationsView: View {
 
     /// A latched error never hides rows the app already has: last known good
     /// beats a blank page (the Store's own "view models never blank" rule),
-    /// so a snapshot on BOTH domains wins over `error` and `isLoading`.
+    /// so a snapshot on EITHER domain wins over `error` and `isLoading`.
+    ///
+    /// Final review F2 — requiring both was the bug: `overview` feeds only
+    /// the three informational harness rows (`IntegrationHarnessRows.rows`),
+    /// so a `GET /sources/overview` that fails while `GET /sources/channels`
+    /// succeeds must not blank the thirteen channel rows the Store is
+    /// already holding. Either snapshot is evidence; `.empty` needs both
+    /// present and both empty, so a failed domain can never be read as
+    /// "confirmed nothing here".
     static func loadState(channels: [SourceChannel]?, overview: [SourceOverview]?,
                           isLoading: Bool, error: String?) -> LoadState {
-        if let channels, let overview {
-            return channels.isEmpty && overview.isEmpty ? .empty : .loaded
-        }
+        if !(channels ?? []).isEmpty || !(overview ?? []).isEmpty { return .loaded }
+        if let channels, let overview, channels.isEmpty, overview.isEmpty { return .empty }
         if isLoading { return .loading }
         if let error { return .failed(error) }
         // No snapshot, not refreshing, no latched failure — the fetch simply
