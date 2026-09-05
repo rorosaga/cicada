@@ -148,7 +148,7 @@ Sources card whose count comes from `channel_registry` (every row but `files`) s
 its own page now hides — the archived/dropped/junk filter reached the item list and the `files`
 count, but a channel's own `count` is computed per adapter and was not re-derived.
 
-Track P (2026-09-05) closed the rest of that list: the Graph/Clusters toolbar audit (G125 (5)),
+Track P (2026-09-05, PR #64) closed the rest of that list: the Graph/Clusters toolbar audit (G125 (5)),
 the duplicated chat-export row in Integrations, the missing Reject control on a hintless merge
 suggestion, and `GET /state`'s uncalibrated `sleep.next_at` — plus `TODO(G26)`'s last piece, the
 d3 canvas, which now takes the app's colour scheme instead of staying dark-locked in Light mode.
