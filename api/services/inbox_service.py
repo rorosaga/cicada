@@ -550,31 +550,18 @@ def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
     return agreed[0] if len(agreed) == 1 else None
 
 
-def _owner_observer(settings) -> str:
+def _owner_observer(settings, memory_path=None) -> str:
     """The observer id for a claim the OWNER states from the inbox.
 
-    Portability rail (G115 R7): no owner name in code. ``settings.observer_owner``
-    (``CICADA_OBSERVER_OWNER``, PR #45) names the person's own entity id; until
-    G117's onboarding sets it, an unset value falls back to the literal the
-    claim layer has used since the thesis so existing banks keep ONE observer
-    lineage — flipping the fallback would split every existing bank's claim
-    lineage in two on the next reconciliation.
-
-    TODO(G117): **this is one of five owner-observer sites and the only one that
-    reads the setting today** (final review H5). The other four still hardcode
-    the literal, so a portable install that sets ``CICADA_OBSERVER_OWNER`` gets
-    two lineages in one bank — exactly the split this helper exists to prevent:
-
-    * ``telegram_capture.py`` — the ``saved-because`` claim's ``observer=``
-    * ``agentic_write.write_claim`` — the ``source_trust`` gate (``user_stated``
-      vs ``agent_extracted``) and the ``origin`` gate (``manual_edit`` vs ``mcp``)
-    * ``mcp/server.py`` — the ``cicada_write_claim`` observer enum + its description
-
-    Drop the literal from all five in one change once onboarding writes the
-    setting; migrating a bank's existing claims is part of that change, not of
-    this one.
+    G117: delegates to `owner_identity.resolve_observer` — the ONE
+    resolution every observer-literal site in the codebase now shares (see
+    that module's docstring). `memory_path` is optional only because two
+    legacy call sites here don't thread it yet; passing it enables R1's
+    migration-safety rung (rung 3).
     """
-    return str(getattr(settings, "observer_owner", "") or "").strip() or "rodrigo"
+    from api.services import owner_identity
+
+    return owner_identity.resolve_observer(memory_path, settings)
 
 
 def _item_age_days(fm: dict, today: date) -> int | None:
@@ -1120,7 +1107,7 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
                     object=answer,
                     # Keep the SAME belief slot (observer) as the claims being
                     # replaced so future reconciliation sees one lineage.
-                    observer=option_claims[0].observer if option_claims else _owner_observer(settings),
+                    observer=option_claims[0].observer if option_claims else _owner_observer(settings, settings.memory_path),
                     context=option_claims[0].context if option_claims else "general",
                     source_trust="user_stated",
                     origin="clarification",
@@ -1440,7 +1427,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                         predicate, entity.frontmatter.get("name", entity_id), answer_text
                     ),
                     subject=entity_id, predicate=predicate, object=answer_text, object_kind="literal",
-                    observer=_owner_observer(settings), source_trust="user_stated", origin="clarification",
+                    observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated", origin="clarification",
                     authored_by="user", confidence=0.95, valid_from=today, recorded_at=today,
                 ))
                 body = write_claims(body, claims)

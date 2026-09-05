@@ -738,6 +738,10 @@ class GraphNode(CamelModel):
     # folded into `content_hash` below — the `has_logo` precedent — so the
     # companion app's delta repaints the node when the class changes.
     decay_class: DecayClass = DecayClass.active
+    # G117 — set from the entity's own `owner: true` frontmatter
+    # (`owner_identity.ensure_owner_entity`). Additive/optional: an older
+    # client ignores it; the app renders "Name (you)" when true.
+    is_owner: bool = False
 
 
 class GraphLink(CamelModel):
@@ -1335,6 +1339,28 @@ class SleepEngineChoice(CamelModel):
     mode: str
     model: Optional[str] = None
     disambiguation_model: Optional[str] = None
+
+
+class OwnerUpdateRequest(CamelModel):
+    """PUT /settings/owner body. `handle`/`email` are stored in owner.json
+    only (never in the entity page, never sent anywhere else — CLAUDE.md's
+    rail: owner.json holds a name, never a secret, and these two are opt-in
+    identity, not credentials)."""
+
+    name: str
+    handle: Optional[str] = None
+    email: Optional[str] = None
+
+
+class OwnerSettingsResponse(CamelModel):
+    name: str = ""
+    handle: Optional[str] = None
+    email: Optional[str] = None
+    # R1's resolved value — "owner" on a fresh install/bank, the legacy
+    # "rodrigo" on a pre-G117 bank until the name is set, else the
+    # name-derived slug. Always non-empty.
+    observer: str = "owner"
+    entity_id: Optional[str] = None
 
 
 # --- Conversation Upload ---

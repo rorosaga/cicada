@@ -41,7 +41,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import episode_ids, markdown_parser
+from api.services import episode_ids, markdown_parser, owner_identity
 
 # Telegram doesn't ship its own "find URLs in free text" primitive, and
 # media_ingestor's URL handling assumes a URL is already the whole field
@@ -329,7 +329,7 @@ def _write_saved_because_claim(
         media_entity_id,
         "saved-because",
         reason,
-        observer="rodrigo",
+        observer=owner_identity.resolve_observer(memory_path, None),
         object_kind="literal",
         confidence=0.9,
         source_episode=episode_id or None,

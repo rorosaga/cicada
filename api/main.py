@@ -30,6 +30,7 @@ from api.routers import (
     nudges,
     origins,
     search,
+    settings as settings_router,
     sleep,
     sources,
     state,
@@ -169,6 +170,7 @@ app.include_router(conversations.router, tags=["conversations"])
 app.include_router(sources.router, tags=["sources"])
 app.include_router(state.router, tags=["state"])
 app.include_router(banks.router, tags=["banks"])
+app.include_router(settings_router.router, tags=["settings"])
 app.include_router(local_refs.router, tags=["local-refs"])
 app.include_router(capture.router, tags=["capture"])
 app.include_router(connectors.router, tags=["connectors"])
