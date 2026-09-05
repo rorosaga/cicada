@@ -333,3 +333,19 @@ def test_relevant_inbox_builds_one_inbox_context_for_the_whole_loop(server, tmp_
     monkeypatch.setattr(inbox_context, "InboxContext", Counting)
     assert len(server._relevant_inbox(memory, "Bob Example")) == 3
     assert len(built) == 1
+
+
+def test_resolve_inbox_posts_removal_keys_unchanged(server, monkeypatch):
+    """G129 slice 2: `cicada_resolve_inbox` needs no new code — `option_key`
+    is already a free-form string on the wire; `keep`/`remove` pass straight
+    through the same path `divergence`'s `"0"`/`"1"` already exercises."""
+    posted = {}
+
+    def fake_post(path, payload):
+        posted["path"], posted["payload"] = path, payload
+        return {"status": "resolved"}
+
+    monkeypatch.setattr(server, "_backend_post", fake_post)
+    server.handle_resolve_inbox("inbox-001", "remove", None, False, None)
+    assert posted["path"] == "/inbox/inbox-001/resolve"
+    assert posted["payload"] == {"action": "resolve", "optionKey": "remove"}

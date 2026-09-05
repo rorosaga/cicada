@@ -47,7 +47,7 @@ def next_inbox_num(inbox_dir: Path) -> int:
 
 
 def _required_input_for(kind: str) -> str:
-    if kind in ("decay", "conflict", "divergence", "normalization"):
+    if kind in ("decay", "conflict", "divergence", "normalization", "removal"):
         return "choice"
     if kind == "merge_suggestion":
         return "merge"
@@ -151,6 +151,7 @@ def _item_from_file(
         allow_defer=allow_defer,
         predicate=_opt_str(fm.get("predicate")),
         hint=_opt_str(fm.get("hint")),
+        channel=_opt_str(fm.get("channel")),
         remind_after=_opt_str(fm.get("remind_after")),
         updated_date=_opt_str(fm.get("updated_date")),
         uncertainty_type=fm.get("uncertainty_type"),
@@ -372,6 +373,12 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
     key = (request.option_key or "").strip()
     if kind == "decay":
         return action or "answer"
+    if kind == "removal":
+        if action == "skip":
+            return "skip"
+        if key in ("keep", "remove"):
+            return key
+        return action or "answer"
     if kind in ("conflict", "divergence", "normalization"):
         if action == "dismiss":
             return "dismiss"
@@ -418,6 +425,12 @@ def _verdict(
     skew the feedback ratio against a model that never took a side.
     """
     if label in _NEUTRAL_LABELS:
+        return "neutral"
+    # R3: the proposal came from the browser's own diff, never from the
+    # extractor — there is no model belief to agree or disagree with, the
+    # same reasoning already used for an entity-path conflict with no
+    # `claim_id` just below.
+    if kind == "removal":
         return "neutral"
     if kind == "decay":
         return {"archive": "agreed", "keep_active": "overruled"}.get(label, "neutral")
@@ -519,7 +532,8 @@ def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
     every answer grades ``agreed``, so a marker would be freshness dressed as a
     proposal). An entity-path conflict has no item ``claim_id``, grades every
     pick ``neutral``, and therefore carries no recommendation — a large share of
-    live conflicts (G98), stated rather than papered over.
+    live conflicts (G98), stated rather than papered over. Nor on ``removal`` —
+    Sleep proposed nothing here; the browser did (R3).
 
     **A decay item's options are synthesised here when the caller has none**
     (final review H2). R5 serves decay's question at READ time and never writes
@@ -533,7 +547,7 @@ def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
     The name and date are irrelevant to the verdict table (only the KEYS are),
     so the cheap placeholder question is enough.
     """
-    if kind in ("merge_suggestion", "clarification"):
+    if kind in ("merge_suggestion", "clarification", "removal"):
         return None
     if kind == "decay" and not options:
         options = inbox_questions.normalize_options(
@@ -754,6 +768,8 @@ async def resolve(
     extra_lines: list[str] = []
     if kind == "decay":
         entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
+    elif kind == "removal":
+        entity_id, skipped = await _resolve_removal(path, parsed, request, settings)
     elif kind == "conflict":
         entity_id, skipped, extra_lines = await _resolve_conflict(
             path, parsed, request, settings
@@ -792,6 +808,8 @@ async def resolve(
         change = "status archived"
     elif kind == "decay" and label == "keep_active":
         change = "status active"
+    elif kind == "removal" and label == "remove":
+        change = "status archived"
     await git_service.commit_resolution(
         settings.memory_path,
         entity_id,
@@ -921,6 +939,45 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
             markdown_parser.write(entity_path, entity.frontmatter, body)
         path.unlink()
 
+    return entity_id, False
+
+
+async def _resolve_removal(path, parsed, request: InboxResolveRequest, settings) -> tuple[str, bool]:
+    """``keep`` closes the question with no change to the entity — the
+    browser's own diff produced this ask, not a belief to walk back. ``remove``
+    archives the media entity: NEVER deletes the page (G129 row rule) — it may
+    be claim-linked, and git keeps every version regardless of status.
+
+    Finding 2 (G129 slice-2 final review): ``skip`` is an item-preserving
+    no-op, like every sibling choice kind gives it (``_resolve_divergence``,
+    ``_resolve_normalization``) — the item file is left on disk (unlinked
+    nowhere below) so it is asked again later, and ``resolve()`` reports
+    ``{"status": "skipped"}`` instead of committing anything.
+    ``_action_label`` already computes ``label == "skip"`` for exactly this
+    input; without this branch that label was never reachable — the request
+    fell through to the "got an unrecognised optionKey/action" 400 below.
+    """
+    entity_id = str(parsed.frontmatter.get("entity_id", "") or "")
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    action = (request.action or "").strip().lower()
+    key = (request.option_key or "").strip().lower()
+
+    if action == "skip":
+        return entity_id, True
+
+    verb = key if key in ("keep", "remove") else (action if action in ("keep", "remove") else "")
+
+    if not verb:
+        raise HTTPException(
+            400,
+            f"A removal item takes optionKey 'keep' or 'remove' — got {key or action!r}.",
+        )
+    if verb == "remove" and entity_path.exists():
+        entity = markdown_parser.parse(entity_path)
+        entity.frontmatter["status"] = "archived"
+        entity.frontmatter["last_referenced"] = str(date.today())
+        markdown_parser.write(entity_path, entity.frontmatter, entity.body)
+    path.unlink(missing_ok=True)
     return entity_id, False
 
 

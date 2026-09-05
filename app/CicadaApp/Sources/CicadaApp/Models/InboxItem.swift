@@ -12,6 +12,22 @@ enum InboxKind: String, Codable {
     // `api/models/schemas.py`) instead of dropping the item and warning.
     case divergence
     case normalization
+    // G129 slice 2: a bookmark removed from the browser — keep it or archive
+    // the media entity it named.
+    case removal
+    // Forward-compat fallback (matches `EntityType`/`Epistemic`/`SourceTrust`'s
+    // existing pattern in this codebase). Before this, an unrecognized raw
+    // value threw `DecodingError.dataCorrupted` out of `InboxItem.init(from:)`,
+    // which propagates out of `[InboxItem]`'s array decode and drops EVERY
+    // pending item, not just the one this build has never heard of — `removal`
+    // is what exposed the gap, but any future kind hits the same failure
+    // without this case.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = InboxKind(rawValue: raw) ?? .unknown
+    }
 
     var label: String {
         switch self {
@@ -21,6 +37,8 @@ enum InboxKind: String, Codable {
         case .mergeSuggestion: "Possible duplicate"
         case .divergence: "Divergence"
         case .normalization: "Predicate fold"
+        case .removal: "Removed bookmark"
+        case .unknown: "Update available"
         }
     }
 
@@ -33,6 +51,8 @@ enum InboxKind: String, Codable {
         case .mergeSuggestion: "arrow.triangle.merge"
         case .divergence: "arrow.triangle.branch"
         case .normalization: "arrow.triangle.merge"
+        case .removal: "bookmark.slash"
+        case .unknown: "questionmark.circle"
         }
     }
 
@@ -165,6 +185,9 @@ struct InboxItem: Identifiable, Codable {
     var allowDefer: Bool
     var predicate: String?
     var hint: String?
+    // G129 slice 2 — which browser channel (`chrome-bookmarks`/
+    // `safari-bookmarks`) proposed a `removal` item; nil for every other kind.
+    var channel: String?
     var remindAfter: String?
     var updatedDate: String?
     // clarification / merge extras
@@ -187,7 +210,7 @@ struct InboxItem: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
         case entityId, entityName, title, body, options, createdDate
-        case question, allowOther, allowDefer, predicate, hint, remindAfter, updatedDate
+        case question, allowOther, allowDefer, predicate, hint, channel, remindAfter, updatedDate
         case uncertaintyType, suggestedClassification, suggestedConfidence, mergeTargetHint
         case entityType, sourceEpisode, sourceEpisodeTimestamp, claimId, cause
         case extractorConfidence, extractorModel, recommendedKey, informational
@@ -222,6 +245,7 @@ struct InboxItem: Identifiable, Codable {
         allowDefer = try c.decodeIfPresent(Bool.self, forKey: .allowDefer) ?? false
         predicate = try c.decodeIfPresent(String.self, forKey: .predicate)
         hint = try c.decodeIfPresent(String.self, forKey: .hint)
+        channel = try c.decodeIfPresent(String.self, forKey: .channel)
         remindAfter = try c.decodeIfPresent(String.self, forKey: .remindAfter)
         updatedDate = try c.decodeIfPresent(String.self, forKey: .updatedDate)
         uncertaintyType = try c.decodeIfPresent(String.self, forKey: .uncertaintyType)
@@ -255,5 +279,14 @@ struct InboxItem: Identifiable, Codable {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         return f.date(from: createdDate) ?? .now
+    }
+}
+
+extension InboxItem {
+    /// Open `removal` items proposed against one browser channel (G129 slice
+    /// 2) — pure so `ChannelSourceView`'s Deletions subsection is testable
+    /// without a view, same pattern as `SourceOverview.ownedItems`.
+    static func openRemovals(in items: [InboxItem], channelId: String) -> [InboxItem] {
+        items.filter { $0.kind == .removal && $0.channel == channelId }
     }
 }

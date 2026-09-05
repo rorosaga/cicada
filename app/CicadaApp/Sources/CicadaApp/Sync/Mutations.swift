@@ -544,5 +544,9 @@ struct SyncBrowserBookmarks: Mutation {
     func request(_ api: any SyncAPI) async throws { memo.value = try await api.syncBookmarks(chromeData: chromeData, safariData: safariData, folders: folders) }
     func rollback(_ store: Store) async {}
     var failureMessage: String { "Couldn't finish syncing those bookmarks — the Feed shows what landed" }
-    var refreshDomains: Set<SyncDomain> { [.channels, .sources, .status] }
+    // `.inbox` added for G129 slice 2: a sync that proposes a `removal` item
+    // writes to the inbox domain, and without it here the Deletions
+    // subsection would wait for the next SSE/poll tick instead of updating
+    // the instant this mutation completes.
+    var refreshDomains: Set<SyncDomain> { [.channels, .sources, .status, .inbox] }
 }

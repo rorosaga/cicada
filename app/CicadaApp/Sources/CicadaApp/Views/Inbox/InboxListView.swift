@@ -106,7 +106,7 @@ struct InboxListView: View {
     /// Kinds present in the current inbox, in a stable display order.
     private var orderedKinds: [InboxKind] {
         let present = Set(viewModel.items.map(\.kind))
-        return [.decay, .conflict, .clarification, .mergeSuggestion].filter { present.contains($0) }
+        return [.decay, .conflict, .clarification, .mergeSuggestion, .removal].filter { present.contains($0) }
     }
 
     // MARK: - Empty state ("Nothing pending" + the truth, featuring the bookworm)

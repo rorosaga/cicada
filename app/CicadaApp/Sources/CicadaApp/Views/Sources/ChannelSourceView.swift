@@ -13,6 +13,7 @@ struct ChannelSourceView: View {
 
     @Environment(Store.self) private var store
     @Environment(BrowserWatcher.self) private var watcher
+    @Environment(InboxViewModel.self) private var inboxVM
     @State private var busy = false
     @State private var feedback: ChannelFeedback?
 
@@ -27,10 +28,20 @@ struct ChannelSourceView: View {
         source.ownedItems(from: store.sources.value ?? [])
     }
 
+    /// G129 slice 2 — open `removal` items proposed against THIS channel.
+    /// `store.visibleInbox`, not `store.inbox.value`, so an optimistic
+    /// resolve here hides the card the instant it's clicked, same as the
+    /// main Inbox page (`InboxViewModel.items`).
+    private var removals: [InboxItem] {
+        guard let id = source.channelId else { return [] }
+        return InboxItem.openRemovals(in: store.visibleInbox, channelId: id)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                 if let channel { stateCard(channel) }
+                if !removals.isEmpty { deletionsSection }
                 let groups = SourceItemsGrouping.folders(items)
                 if groups.count > 1 || (groups.first?.folder != SourceItemsGrouping.noFolder) {
                     folderCounts(groups)
@@ -101,6 +112,28 @@ struct ChannelSourceView: View {
             }
         }
         .buttonStyle(.bordered).controlSize(.small).disabled(busy)
+    }
+
+    /// One write path (`InboxViewModel.resolve` → `POST /inbox/{id}/resolve`),
+    /// two views: the unified Inbox and this page render the identical
+    /// `InboxCardView` for the identical open items.
+    private var deletionsSection: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text("Removed from \(source.label)")
+                .font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
+            VStack(spacing: CicadaTheme.spacingSM) {
+                ForEach(removals) { item in
+                    InboxCardView(item: item) { resolution in
+                        await inboxVM.resolve(
+                            id: item.id, action: resolution.action, answer: resolution.answer,
+                            optionKey: resolution.optionKey, remindDays: resolution.remindDays,
+                            mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor
+                        )
+                    }
+                }
+            }
+        }
+        .padding(CicadaTheme.spacingMD).glassCard()
     }
 
     /// iCloud tabs group by device (the importer writes the device name into
