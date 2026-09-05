@@ -144,6 +144,43 @@ def test_sse_sleep_event_carries_debt_and_progress(client):
         assert key in data, f"sleep event missing {key}"
 
 
+def test_sse_sleep_event_carries_per_origin_counts_and_moves_per_episode(client):
+    """G125 R3: the study list counts down per episode, so the change key
+    must include `stage1_progress` — `progressPct` alone is an integer
+    percent that stays put for many episodes on a big queue."""
+    import asyncio
+
+    from api.config import get_settings
+    from api.routers import sync as sync_router
+    from api.services import sleep_cycle
+
+    state = sleep_cycle.get_sleep_state()
+    state.status, state.stage, state.episodes_total = "running", 0, 300
+    state.queue_by_origin = {"safari-tab": 300}
+    state.read_by_origin, state.stage1_progress = {}, 0
+
+    async def _drive():
+        resp = await sync_router.events(settings=get_settings())
+        gen = resp.body_iterator
+        await gen.__anext__()                      # version
+        first = await gen.__anext__()              # sleep
+        state.read_by_origin, state.stage1_progress = {"safari-tab": 1}, 1   # 1/300 → still 0 %
+        second = await gen.__anext__()             # must be a NEW sleep event, not a ping
+        await gen.aclose()
+        return first, second
+
+    try:
+        first, second = asyncio.run(_drive())
+    finally:
+        state.status, state.stage, state.episodes_total = "idle", 0, 0
+        state.queue_by_origin, state.read_by_origin, state.stage1_progress = {}, {}, 0
+    d1 = json.loads(first.splitlines()[1].split(":", 1)[1])
+    assert d1["queueByOrigin"] == {"safari-tab": 300} and d1["readByOrigin"] == {}
+    assert second.splitlines()[0] == "event: sleep"
+    d2 = json.loads(second.splitlines()[1].split(":", 1)[1])
+    assert d2["readByOrigin"] == {"safari-tab": 1}
+
+
 def test_sse_sleep_event_fires_when_age_pct_changes_even_though_rested_pct_does_not(
     client, monkeypatch,
 ):

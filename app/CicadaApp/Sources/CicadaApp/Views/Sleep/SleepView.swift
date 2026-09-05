@@ -1,23 +1,23 @@
 import SwiftUI
 
-// MARK: - Sleep Dashboard
+// MARK: - Sleep Dashboard — the study desk (G125)
 
 struct SleepView: View {
     @Binding var selectedTab: AppTab
+    /// Entity chips inside the consolidation history's expanded detail land
+    /// here (mirrors `SourcesPageView`'s own closure at `ContentView.swift`)
+    /// — jump to Graph and open the card, exactly like an Ask citation.
+    var onSelectEntity: ((String) -> Void)?
+
     @Environment(SleepViewModel.self) private var sleepVM
-    // H1: the "EPISODES QUEUED" header and `SleepQueueCard` above it must
-    // agree on one count. `Store.status` is the SSE-live source; reading it
-    // here (instead of only `sleepVM.queuedEpisodes.count`, which is fetched
-    // once per visit) keeps the two readouts from disagreeing when an MCP
-    // capture lands while this page is open.
+    // H1: the study list's header and the desk card's bubble/pile must agree
+    // on one live reading of the queue. `Store.status`/`Store.sleepEvent` are
+    // the SSE-live sources; reading them here (instead of only
+    // `sleepVM.queuedEpisodes.count`, fetched once per visit) keeps every
+    // readout on the page from disagreeing when a capture lands while it's
+    // open.
     @Environment(Store.self) private var store
-    @State private var scheduleDate: Date = Self.defaultDate()
-    @State private var scheduleEnabled: Bool = false
     @State private var loadedOnce: Bool = false
-    @State private var showUploadOverlay = false
-    // Default to descending (newest first) — the common case when reviewing
-    // what's about to be consolidated.
-    @State private var sortAscending: Bool = false
     // PR #19 review: rapid live-count changes (a capture landing, then
     // another one right behind it) fired an untracked `sleepVM.load()` Task
     // per change with no cancellation. Mirrors `UsageViewModel.rangeTask`:
@@ -36,21 +36,22 @@ struct SleepView: View {
     // `.onChange` instead of contending for either slot.
     @State private var justFinishedAt: Date?
 
-    private var sortedQueuedEpisodes: [EpisodeQueueItem] {
-        let base = sleepVM.queuedEpisodes
-        return sortAscending ? base : base.reversed()
+    /// G125 Task 7 — the SSE-preferred, REST-fallback read of the cycle's
+    /// per-origin queue/read dicts (R3) that both the desk card's book pile
+    /// and the study list are built from. Resolved once per body evaluation
+    /// so the two never disagree about which cycle's counts they're showing.
+    private var liveOriginCounts: (queueByOrigin: [String: Int], readByOrigin: [String: Int]) {
+        resolveOriginCounts(sse: store.sleepEvent, status: sleepVM.status)
     }
 
-    private var sortedProcessedEpisodes: [EpisodeQueueItem] {
-        let base = sleepVM.processedEpisodes
-        return sortAscending ? base : base.reversed()
-    }
-
-    private static func defaultDate() -> Date {
-        var comps = DateComponents()
-        comps.hour = 3
-        comps.minute = 0
-        return Calendar.current.date(from: comps) ?? Date()
+    private var studyListRows: [StudyRow] {
+        let origins = liveOriginCounts
+        return studyRows(
+            queued: sleepVM.queuedEpisodes,
+            queueByOrigin: origins.queueByOrigin,
+            readByOrigin: origins.readByOrigin,
+            running: sleepVM.isRunning
+        )
     }
 
     var body: some View {
@@ -63,54 +64,49 @@ struct SleepView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     headerRow
-                    moodCard
-                    if let engine = sleepVM.status?.lastEngine {
-                        engineLine(engine, detail: sleepVM.status?.engineDetail)
-                    }
+                    deskCard
                     if let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty {
                         errorBanner(error)
                     }
-                    SleepQueueCard()
-                    pauseCard
-                    SleepDebtBreakdown(episodes: sleepVM.queuedEpisodes)
-                    progressCard
-                    queueCard
+                    StudyListCard(rows: studyListRows, episodes: sleepVM.queuedEpisodes, onSelectEntity: onSelectEntity)
+                    ConsolidationHistoryCard(
+                        entries: sleepVM.history,
+                        details: sleepVM.details,
+                        expanded: sleepVM.expanded,
+                        onToggle: toggleHistory,
+                        onSelectEntity: onSelectEntity
+                    )
                 }
                 .padding(CicadaTheme.spacingXL)
                 .frame(maxWidth: 760)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
 
-            // Top-right: Sleep + Upload + Help buttons — same pattern as
-            // GraphContainerView and TopicsView so the Import (Upload)
-            // button is available from every primary screen.
+            // Top-right: just the `?` button now (R10 — the Sleep/Upload
+            // pair left this page; the one Consolidate control lives in the
+            // study list's footer). It opens *How Cicada sleeps* instead of
+            // the generic "About these actions" popover every other page
+            // shows.
             VStack {
                 HStack {
                     Spacer()
                     TopBarControls(
                         selectedTab: $selectedTab,
-                        showUploadOverlay: $showUploadOverlay
+                        showUploadOverlay: .constant(false),
+                        showsSleep: false,
+                        showsUpload: false,
+                        help: .howSleepWorks
                     )
                     .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
             }
-
-            if showUploadOverlay {
-                UploadOverlay(isPresented: $showUploadOverlay)
-                    .transition(.opacity)
-            }
         }
-        .animation(.spring(duration: 0.3), value: showUploadOverlay)
         .task {
             if !loadedOnce {
                 loadedOnce = true
                 await sleepVM.load()
-                syncScheduleState()
             }
-        }
-        .onChange(of: sleepVM.schedule) { _, _ in
-            syncScheduleState()
         }
         // G106 amendment: this view's own edge-detection for the mood
         // card's `.digesting` window — see `justFinishedAt`'s declaration
@@ -121,20 +117,13 @@ struct SleepView: View {
                 justFinishedAt = Date()
             }
         }
-        .onChange(of: showUploadOverlay) { _, isOpen in
-            // When the import overlay closes, refresh the episode queue so
-            // newly-uploaded conversations show up immediately.
-            if !isOpen {
-                Task { @MainActor in await sleepVM.load() }
-            }
-        }
-        // PR #19 review: the header count reads SSE-live `store.status`
-        // while the rows below it stay pinned to whatever `sleepVM.load()`
-        // last fetched, once per visit. A capture (or another Sleep cycle
+        // PR #19 review: the study list's header reads SSE-live `store.status`
+        // while its rows stay pinned to whatever `sleepVM.load()` last
+        // fetched, once per visit. A capture (or another Sleep cycle
         // finishing elsewhere) bumps the live count without touching the
-        // rows, so the header and the list contradict each other for as
-        // long as the page stays open. One freshness model: whenever the
-        // live unprocessed count disagrees with the loaded rows, refetch.
+        // rows, so the two contradict each other for as long as the page
+        // stays open. One freshness model: whenever the live unprocessed
+        // count disagrees with the loaded rows, refetch.
         .onChange(of: store.status.value?.episodes.unprocessed) { _, newValue in
             if Self.queueNeedsReconcile(liveUnprocessed: newValue,
                                         loadedQueuedCount: sleepVM.queuedEpisodes.count) {
@@ -192,13 +181,40 @@ struct SleepView: View {
         .seconds(min(8, 1 << attempt))
     }
 
-    private func syncScheduleState() {
-        scheduleEnabled = sleepVM.schedule.enabled
-        var comps = DateComponents()
-        comps.hour = sleepVM.schedule.hour
-        comps.minute = sleepVM.schedule.minute
-        if let d = Calendar.current.date(from: comps) {
-            scheduleDate = d
+    /// The count `StudyListCard`'s content must agree with (H1): SSE-live
+    /// `store.status.episodes.unprocessed` when a snapshot has arrived,
+    /// falling back to the once-per-visit `sleepVM.queuedEpisodes` count
+    /// before the first one does. Pulled out as a pure function so the
+    /// precedence is unit-testable without standing up a view.
+    static func queueCount(status: StatusSnapshot?, fallback: Int) -> Int {
+        status?.episodes.unprocessed ?? fallback
+    }
+
+    /// Whether the SSE-live unprocessed count has drifted from the rows
+    /// `sleepVM.queuedEpisodes` is currently showing — the signal that owes
+    /// the page a refetch (H1 follow-up, PR #19 review). `nil` (no status
+    /// snapshot yet) never triggers a reconcile — `queueCount` already falls
+    /// back to `loadedQueuedCount` in that case, so there is nothing to
+    /// disagree with. Pulled out as a pure function, mirroring `queueCount`
+    /// above, so the trigger condition is unit-testable without a view.
+    static func queueNeedsReconcile(liveUnprocessed: Int?, loadedQueuedCount: Int) -> Bool {
+        guard let liveUnprocessed else { return false }
+        return liveUnprocessed != loadedQueuedCount
+    }
+
+    // MARK: History disclosure (G125 R12)
+
+    /// A second click on an already-expanded row just closes it — no
+    /// re-fetch. `loadDetail` itself is the cache-hit guard for the OPEN
+    /// case: a row that's been opened once before never asks the network
+    /// again this session.
+    private func toggleHistory(_ commit: String) {
+        let opening = sleepVM.expanded != commit
+        withAnimation(.easeInOut(duration: 0.15)) {
+            sleepVM.expanded = opening ? commit : nil
+        }
+        if opening {
+            Task { @MainActor in await sleepVM.loadDetail(commit) }
         }
     }
 
@@ -219,152 +235,65 @@ struct SleepView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: Mood (G106 amendment; G107 art)
+    // MARK: The desk (G106 amendment; G107 art; G125 the study desk)
 
-    /// The mascot card: the 24×24 colour bookworm (G107) at 120 pt — five
-    /// whole cells per point-row, so the pixels stay crisp (ruling R3) — in
-    /// the mood `deriveSleepPageMood` derives, with the bracketed,
-    /// monospaced status line kept underneath as its caption (ruling R9:
-    /// same text, same colour, now under the worm rather than standing in
-    /// for it), plus the Rested % reading and the components it's built
-    /// from — "explainable, not a black box" (spec). Both the mood and the
-    /// debt numbers prefer the continuously-updating SSE `sleep` event
-    /// (`store.sleepEvent`) and fall back to the last REST `/sleep/status`
-    /// fetch, via `resolveSleepDebt`/`resolveProgressPct`.
-    private var moodCard: some View {
+    /// The mascot card, now "the desk": the speech bubble (G125 Task 5) over
+    /// the 24×24 colour bookworm (G107) at 120 pt — five whole cells per
+    /// point-row, so the pixels stay crisp (ruling R3) — with the bracketed,
+    /// monospaced status line kept as its caption, beside the book pile
+    /// (Task 6) that encodes queued volume on a log scale. Both the mood and
+    /// the per-origin counts prefer the continuously-updating SSE `sleep`
+    /// event (`store.sleepEvent`) and fall back to the last REST
+    /// `/sleep/status` fetch, via `resolveSleepDebt`/`resolveProgressPct`/
+    /// `resolveOriginCounts`.
+    private var deskCard: some View {
         let debt = resolveSleepDebt(sse: store.sleepEvent, status: sleepVM.status)
         let progress = resolveProgressPct(sse: store.sleepEvent, status: sleepVM.status)
-        let mood = deriveSleepPageMood(status: sleepVM.status, debt: debt, justFinishedAt: justFinishedAt)
-        return VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            BookwormView(
-                state: mood,
-                pointSize: 120,
-                caption: sleepDebtBracketText(mood, debt: debt),
-                captionFont: .system(size: 24, weight: .semibold, design: .monospaced),
-                captionColor: sleepDebtBracketColor(mood),
-                alignment: .leading
-            )
+        let mood = deriveSleepPageMood(
+            status: sleepVM.status, debt: debt, justFinishedAt: justFinishedAt,
+            intakeInFlight: store.intakeInFlight
+        )
+        let origins = liveOriginCounts
+        let rows = studyListRows
+        let books = bookPileLayout(originVolumes(
+            queued: sleepVM.queuedEpisodes,
+            queueByOrigin: origins.queueByOrigin,
+            readByOrigin: origins.readByOrigin,
+            running: sleepVM.isRunning
+        ))
+        let bubbleCtx = BubbleContext(
+            unprocessed: debt?.unprocessedCount ?? 0,
+            topOriginLabel: rows.first?.label,
+            topOriginCount: rows.first?.count ?? 0,
+            stage: sleepVM.status?.stage ?? 0,
+            read: origins.readByOrigin.values.reduce(0, +),
+            total: origins.queueByOrigin.values.reduce(0, +),
+            hoursSinceLastCycle: debt?.hoursSinceLastCycle
+        )
+
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            HStack(alignment: .bottom, spacing: CicadaTheme.spacingXL) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    SpeechBubbleView(text: sleepBubbleText(mood, bubbleCtx))
+                    BookwormView(
+                        state: mood,
+                        pointSize: 120,
+                        caption: sleepDebtBracketText(mood, debt: debt),
+                        captionFont: .system(size: 20, weight: .semibold, design: .monospaced),
+                        captionColor: sleepDebtBracketColor(mood),
+                        alignment: .leading
+                    )
+                }
+                Spacer(minLength: 0)
+                BookPileView(books: books)
+                    .frame(width: 170, height: 150, alignment: .bottomLeading)
+            }
 
             moodDetailLine(mood: mood, debt: debt, progress: progress)
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
 
-    @ViewBuilder
-    private func moodDetailLine(mood: BookwormState, debt: SleepDebtView?, progress: Int?) -> some View {
-        if case .sleeping = mood, let progress {
-            // Progress % — literally "episodes processed / episodes in this
-            // cycle", live during Stage 1 (the only stage with a natural
-            // per-episode unit; see the backend's `sleep_cycle.progress_pct`
-            // docstring). Absent (this branch skipped) once Stage 1 finishes
-            // rather than freezing at 100% while stages 2-5 still run.
-            Text("Stage 1 progress: \(progress)%")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-        } else if let debt {
-            if let rested = debt.restedPct {
-                Text("Rested \(rested)% — volume \(debt.volumePct)%, age \(debt.agePct)%")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            } else {
-                // No baseline: the queue is empty and Sleep has never run in
-                // this bank — an honest state, not a fabricated 100%.
-                Text("No baseline yet — Sleep hasn't run in this bank.")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
+            if let engine = sleepVM.status?.lastEngine {
+                engineLine(engine, detail: sleepVM.status?.engineDetail)
             }
-        }
-    }
-
-    // MARK: Schedule (quick control — the full editor moved to Settings → Schedule)
-
-    /// One of the Sleep page's three quick controls (run — `SleepQueueCard`
-    /// — pause, cancel — G106 amendment). Flips the SAME `ScheduleConfig.
-    /// enabled` the Settings → Schedule tab's time picker edits; the hour/
-    /// minute this toggle preserves is whatever was last set there, never
-    /// reset to a default. No time picker here on purpose — that lives in
-    /// exactly one place (`SettingsSleepView`) so the two can't disagree.
-    private var pauseCard: some View {
-        HStack(spacing: CicadaTheme.spacingMD) {
-            Image(systemName: scheduleEnabled ? "moon.fill" : "moon.zzz")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(scheduleEnabled ? CicadaTheme.accent : CicadaTheme.textTertiary)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill((scheduleEnabled ? CicadaTheme.accent : CicadaTheme.textTertiary).opacity(0.12)))
-                .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(scheduleEnabled ? "Auto-run at \(formattedTime(scheduleDate)) daily" : "Manual triggers only")
-                    .font(CicadaTheme.headingFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text("Change the time in \(Copy.settingsSchedule).")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-
-            Spacer()
-
-            Button {
-                scheduleEnabled.toggle()
-                commitSchedule()
-            } label: {
-                Text(scheduleEnabled ? Copy.pauseAutoRun : Copy.resumeAutoRun)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .padding(.horizontal, CicadaTheme.spacingLG)
-                    .padding(.vertical, CicadaTheme.spacingSM)
-                    .background(CicadaTheme.surfaceElevated)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.cicadaPlain)
-            .accessibilityLabel(scheduleEnabled ? Copy.pauseAutoRun : Copy.resumeAutoRun)
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    private func commitSchedule() {
-        let comps = Calendar.current.dateComponents([.hour, .minute], from: scheduleDate)
-        let new = ScheduleConfig(
-            enabled: scheduleEnabled,
-            hour: comps.hour ?? 3,
-            minute: comps.minute ?? 0
-        )
-        Task { @MainActor in
-            await sleepVM.updateSchedule(new)
-        }
-    }
-
-    private func formattedTime(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.timeStyle = .short
-        f.dateStyle = .none
-        return f.string(from: date)
-    }
-
-    // MARK: Progress
-
-    private var progressCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            // H1: the trigger lives solely on `SleepQueueCard` now (spec
-            // §2.8/§2.9 — "one voice"). This card is read-only progress.
-            Text("PROGRESS")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
-
-            ProgressView(value: sleepVM.progressFraction)
-                .progressViewStyle(.linear)
-                .tint(CicadaTheme.accent)
-                .animation(.easeInOut(duration: 0.35), value: sleepVM.progressFraction)
-
-            Text(sleepVM.status?.progress ?? "Idle")
-                .font(.system(size: 12))
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
 
             // Review fix L1/L4: `cancelled`/`episodeCap`/`episodesQueued` were
             // decoded but read by no view — only the free-text `progress`
@@ -384,41 +313,55 @@ struct SleepView: View {
             if let warning = sleepVM.status?.indexWarning, !warning.isEmpty {
                 warningBanner(warning)
             }
-
-            HStack(spacing: CicadaTheme.spacingMD) {
-                counterChip(
-                    label: "Episodes",
-                    value: sleepVM.status?.episodesTotal ?? 0,
-                    caption: episodesCaption
-                )
-                counterChip(
-                    label: "Entities",
-                    value: (sleepVM.status?.entitiesCreated ?? 0)
-                        + (sleepVM.status?.entitiesUpdated ?? 0)
-                )
-                counterChip(
-                    label: "Relationships",
-                    value: sleepVM.status?.relationshipsCreated ?? 0
-                )
-                counterChip(label: "Skills", value: sleepVM.status?.skillsDetected ?? 0)
-            }
         }
         .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
     }
 
-    /// "25 of 230" under the Episodes chip when the cap truncated this
-    /// cycle — `nil` (chip shows just the count, as before) otherwise.
-    private var episodesCaption: String? {
-        guard let s = sleepVM.status, s.episodesQueued > s.episodesTotal else { return nil }
-        return "of \(s.episodesQueued) queued"
+    /// Under the bubble/worm/pile row: while a cycle is running, which of
+    /// the five stages it's on plus the same overall progress bar that used
+    /// to live in the retired `progressCard` (Stage 1's own live percent
+    /// stays visible too — it's the only stage with a natural per-episode
+    /// unit; see `sleep_cycle.progress_pct`'s docstring). While idle, the
+    /// Rested % breakdown — "explainable, not a black box" (spec).
+    @ViewBuilder
+    private func moodDetailLine(mood: BookwormState, debt: SleepDebtView?, progress: Int?) -> some View {
+        if case .sleeping(let stage) = mood {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                Text("Stage \(stage) of 5")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                ProgressView(value: sleepVM.progressFraction)
+                    .progressViewStyle(.linear)
+                    .tint(CicadaTheme.accent)
+                    .frame(maxWidth: 240)
+                    .animation(.easeInOut(duration: 0.35), value: sleepVM.progressFraction)
+                if let progress {
+                    Text("Stage 1: \(progress)%")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            }
+        } else if let debt {
+            if let rested = debt.restedPct {
+                Text("Rested \(rested)% — volume \(debt.volumePct)%, age \(debt.agePct)%")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            } else {
+                // No baseline: the queue is empty and Sleep has never run in
+                // this bank — an honest state, not a fabricated 100%.
+                Text("No baseline yet — Sleep hasn't run in this bank.")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+        }
     }
 
-    /// Episode cap (sleep control) truncated this cycle — informational,
-    /// not a warning: the cap is a deliberate safety feature (spec: bound
-    /// one cycle's wall-clock instead of an unbounded first run), and the
-    /// remaining episodes are simply picked up next cycle, nothing lost.
+    /// "Episode cap reached" — informational, not a warning: the cap is a
+    /// deliberate safety feature (spec: bound one cycle's wall-clock instead
+    /// of an unbounded first run), and the remaining episodes are simply
+    /// picked up next cycle, nothing lost.
     private func capBanner(processed: Int, queued: Int, cap: Int) -> some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "tray.and.arrow.down")
@@ -466,122 +409,6 @@ struct SleepView: View {
         .frame(maxWidth: .infinity)
         .background(CicadaTheme.accent.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    private func counterChip(label: String, value: Int, caption: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label.uppercased())
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.0)
-            Text("\(value)")
-                .font(.system(size: 20, weight: .semibold, design: .rounded))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .contentTransition(.numericText())
-                .animation(.easeInOut(duration: 0.3), value: value)
-            if let caption {
-                Text(caption)
-                    .font(.system(size: 9))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-        }
-        .padding(.horizontal, CicadaTheme.spacingMD)
-        .padding(.vertical, CicadaTheme.spacingSM)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CicadaTheme.surfaceHover)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    // MARK: Queue
-
-    /// The count `queueCard`'s header and `SleepQueueCard` must agree on
-    /// (H1): SSE-live `store.status.episodes.unprocessed` when a snapshot has
-    /// arrived, falling back to the once-per-visit `sleepVM.queuedEpisodes`
-    /// count before the first one does. Pulled out as a pure function so the
-    /// precedence is unit-testable without standing up a view.
-    static func queueCount(status: StatusSnapshot?, fallback: Int) -> Int {
-        status?.episodes.unprocessed ?? fallback
-    }
-
-    /// Whether the SSE-live unprocessed count has drifted from the rows
-    /// `sleepVM.queuedEpisodes` is currently showing — the signal that owes
-    /// `queueCard` a refetch (H1 follow-up, PR #19 review). `nil` (no status
-    /// snapshot yet) never triggers a reconcile — `queueCount` already falls
-    /// back to `loadedQueuedCount` in that case, so there is nothing to
-    /// disagree with. Pulled out as a pure function, mirroring `queueCount`
-    /// above, so the trigger condition is unit-testable without a view.
-    static func queueNeedsReconcile(liveUnprocessed: Int?, loadedQueuedCount: Int) -> Bool {
-        guard let liveUnprocessed else { return false }
-        return liveUnprocessed != loadedQueuedCount
-    }
-
-    private var queueCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Text("EPISODES QUEUED (\(Self.queueCount(status: store.status.value, fallback: sleepVM.queuedEpisodes.count)))")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .tracking(1.2)
-                Spacer()
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        sortAscending.toggle()
-                    }
-                } label: {
-                    Image(systemName: sortAscending
-                          ? "arrow.up"
-                          : "arrow.down")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.cicadaPlain)
-                .help(sortAscending ? "Oldest first" : "Newest first")
-
-                Button {
-                    Task { @MainActor in await sleepVM.load() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.cicadaPlain)
-                .help("Refresh queue")
-            }
-
-            if sleepVM.queuedEpisodes.isEmpty {
-                Text("No episodes queued. Capture a conversation to get started.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.vertical, CicadaTheme.spacingSM)
-            } else {
-                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    ForEach(sortedQueuedEpisodes) { item in
-                        EpisodeRow(item: item)
-                    }
-                }
-            }
-
-            if !sleepVM.processedEpisodes.isEmpty {
-                Divider().background(CicadaTheme.border).padding(.vertical, CicadaTheme.spacingXS)
-                Text("RECENTLY PROCESSED")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .tracking(1.2)
-                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    ForEach(sortedProcessedEpisodes.prefix(10)) { item in
-                        EpisodeRow(item: item)
-                            .opacity(0.6)
-                    }
-                }
-            }
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
     }
 
     // MARK: Warning banner
@@ -655,83 +482,4 @@ struct SleepView: View {
         .background(CicadaTheme.danger.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
     }
-}
-
-// MARK: - Episode Row
-
-private struct EpisodeRow: View {
-    let item: EpisodeQueueItem
-
-    var body: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            Circle()
-                .fill(item.processed ? CicadaTheme.textTertiary : CicadaTheme.accent)
-                .frame(width: 8, height: 8)
-                .padding(.top, 6)
-
-            // G105 companion: the source's mark sits between the status dot
-            // and the text so the dot keeps meaning "queued vs processed"
-            // and the row still answers "where did this come from" at a
-            // glance — the same mark the import catalog tile wears.
-            OriginMark(origin: item.origin, size: 16)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(item.title ?? item.id)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .lineLimit(1)
-
-                    Text(item.source)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(CicadaTheme.surfaceHover)
-                        .clipShape(Capsule())
-
-                    Spacer()
-
-                    Text(shortTimestamp(item.timestamp))
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-
-                if !item.preview.isEmpty {
-                    Text(item.preview)
-                        .font(.system(size: 11))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .lineLimit(2)
-                }
-            }
-        }
-        .padding(.horizontal, CicadaTheme.spacingMD)
-        .padding(.vertical, CicadaTheme.spacingSM)
-        .background(CicadaTheme.surfaceHover.opacity(0.35))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    private func shortTimestamp(_ raw: String) -> String {
-        guard !raw.isEmpty else { return "—" }
-        // Accept both ISO-8601 and plain dates; fall back to raw on parse failure.
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: raw) {
-            return Self.display.string(from: date)
-        }
-        formatter.formatOptions = [.withInternetDateTime]
-        if let date = formatter.date(from: raw) {
-            return Self.display.string(from: date)
-        }
-        return String(raw.prefix(16))
-    }
-
-    private static let display: DateFormatter = {
-        let f = DateFormatter()
-        // Include the year — the queue can span multiple years after a bulk
-        // import and a bare "Nov 3" is ambiguous without it.
-        f.dateFormat = "MMM d, yyyy HH:mm"
-        return f
-    }()
 }

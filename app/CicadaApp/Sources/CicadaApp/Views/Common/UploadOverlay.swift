@@ -34,6 +34,10 @@ struct UploadOverlay: View {
     @Binding var isPresented: Bool
     @Environment(BanksViewModel.self) private var banksVM
     @Environment(GraphViewModel.self) private var graphVM
+    /// G125 R2 — flips `store.intakeInFlight` alongside every local
+    /// `isUploading` transition below so the Sleep page's mascot reads
+    /// `.reading` while an import lands.
+    @Environment(Store.self) private var store
     @State private var isDragOver = false
     @State private var isUploading = false
     @State private var uploadResult: String?
@@ -281,6 +285,7 @@ struct UploadOverlay: View {
         let url = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return }
         isUploading = true
+        store.intakeInFlight = true
         errorMessage = nil
         uploadResult = nil
         inactiveImportBank = nil
@@ -289,12 +294,14 @@ struct UploadOverlay: View {
                 try await APIClient.shared.saveSource(url: url)
                 await MainActor.run {
                     isUploading = false
+                    store.intakeInFlight = false
                     urlText = ""
                     uploadResult = "Saved — it joins the graph after the next Sleep cycle"
                 }
             } catch {
                 await MainActor.run {
                     isUploading = false
+                    store.intakeInFlight = false
                     errorMessage = Self.friendlyError(error)
                 }
             }
@@ -387,6 +394,7 @@ struct UploadOverlay: View {
         }
 
         isUploading = true
+        store.intakeInFlight = true
         errorMessage = nil
         uploadResult = nil
         inactiveImportBank = nil
@@ -425,6 +433,7 @@ struct UploadOverlay: View {
 
             await MainActor.run {
                 isUploading = false
+                store.intakeInFlight = false
                 if let err = firstError {
                     errorMessage = err
                 } else {
@@ -480,6 +489,7 @@ struct UploadOverlay: View {
         }
 
         isUploading = true
+        store.intakeInFlight = true
         errorMessage = nil
         uploadResult = nil
         inactiveImportBank = nil
@@ -493,6 +503,7 @@ struct UploadOverlay: View {
                 guard let slug = await banksVM.create(name: typedName) else {
                     await MainActor.run {
                         isUploading = false
+                        store.intakeInFlight = false
                         errorMessage = banksVM.errorMessage ?? "Couldn't create project \"\(typedName)\""
                     }
                     return
@@ -542,6 +553,7 @@ struct UploadOverlay: View {
 
             await MainActor.run {
                 isUploading = false
+                store.intakeInFlight = false
                 if let err = firstError, totalStaged == 0 {
                     errorMessage = err
                 } else {

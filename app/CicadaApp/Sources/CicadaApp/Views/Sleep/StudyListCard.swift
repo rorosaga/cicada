@@ -1,0 +1,301 @@
+import SwiftUI
+
+/// "What is waiting for the next cycle", grouped by source (G125 — replaces
+/// the old `SleepQueueCard` + `SleepDebtBreakdown` pair, R1/R11). One row per
+/// origin, largest pile first; a chevron discloses that origin's episodes
+/// inline; the footer carries the one Consolidate/Cancel control the page
+/// keeps (R10) and a line naming when the next run happens.
+///
+/// A projection over `Store.status` plus `SleepViewModel`; starts no fetches
+/// of its own. `rows` is computed by the caller (`studyRows`, in
+/// `SleepQueueModel.swift`) so this view stays a pure renderer of whatever
+/// the desk card already resolved SSE-vs-REST precedence for.
+struct StudyListCard: View {
+    @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(Store.self) private var store
+
+    let rows: [StudyRow]
+    let episodes: [EpisodeQueueItem]
+    var onSelectEntity: ((String) -> Void)?
+
+    /// Which origins are disclosed. Local UI state, not persisted — a fresh
+    /// visit to the page starts every row collapsed.
+    @State private var expandedOrigins: Set<String> = []
+
+    private var status: StatusSnapshot? { store.status.value }
+    private var isLoading: Bool { store.status.isEmpty && store.status.isRefreshing }
+
+    /// PR #19 review (moved verbatim from `SleepQueueCard`, R11): a missing
+    /// `store.status` is not one state, it's two — a fetch still in flight
+    /// (`.loading`) vs. one that already failed and left nothing behind
+    /// (`.failed`) — and neither is "a confirmed zero queue"
+    /// (`.loaded(count: 0)`, the only case that state may render for).
+    enum LoadState: Equatable {
+        case loading
+        case failed(String)
+        case loaded(count: Int)
+    }
+
+    static func loadState(status: StatusSnapshot?, isLoading: Bool, error: String?) -> LoadState {
+        if let status { return .loaded(count: status.episodes.unprocessed) }
+        if isLoading { return .loading }
+        if let error { return .failed(error) }
+        // No snapshot, not refreshing, no latched failure yet — the fetch
+        // simply hasn't started. Treat like loading rather than guessing.
+        return .loading
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            Text("ON THE DESK")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.2)
+
+            content
+
+            Divider().background(CicadaTheme.border).padding(.vertical, CicadaTheme.spacingXS)
+
+            HStack(spacing: CicadaTheme.spacingMD) {
+                nextRunLine
+                Spacer()
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    consolidateButton(count: episodes.count)
+                    if sleepVM.isRunning {
+                        cancelButton
+                    }
+                }
+            }
+
+            if sleepVM.isRunning {
+                Text(Copy.cancelSleepExplainer)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
+                Text(err)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.danger)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(CicadaTheme.spacingLG)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch Self.loadState(status: status, isLoading: isLoading, error: store.domainErrors[.status]) {
+        case .loading:
+            HStack(spacing: CicadaTheme.spacingSM) {
+                ProgressView().controlSize(.small)
+                Text("Checking the queue…")
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+        case .failed(let message):
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(CicadaTheme.danger)
+                Text(message)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                Spacer()
+                Button("Retry") { Task { await store.refresh([.status]) } }
+                    .buttonStyle(.cicadaPlain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.accent)
+                    .accessibilityLabel("Retry loading the queue")
+            }
+        case .loaded(let count):
+            if rows.isEmpty {
+                Text(count == 0 ? "All caught up" : "Nothing grouped yet.")
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .padding(.vertical, CicadaTheme.spacingSM)
+            } else {
+                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    ForEach(rows) { row in
+                        rowView(row)
+                        if expandedOrigins.contains(row.origin) {
+                            LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                                ForEach(episodesForOrigin(row.origin)) { ep in
+                                    EpisodeRow(item: ep)
+                                }
+                            }
+                            .padding(.leading, CicadaTheme.spacingLG)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func rowView(_ row: StudyRow) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                if expandedOrigins.contains(row.origin) {
+                    expandedOrigins.remove(row.origin)
+                } else {
+                    expandedOrigins.insert(row.origin)
+                }
+            }
+        } label: {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: expandedOrigins.contains(row.origin) ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .frame(width: 10)
+
+                OriginMark(origin: row.origin, size: 18)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.label)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                    if let age = row.oldestAge {
+                        Text("oldest \(age)")
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                }
+
+                Spacer()
+
+                trailing(row)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .accessibilityLabel("\(row.label), \(row.count) queued")
+    }
+
+    /// While idle: the plain count. While running: `read / total`, unless
+    /// this source was left out of the cycle by the episode cap — signaled
+    /// by `total == 0` (`studyRows`'s own doc comment) — in which case
+    /// "next cycle" is the honest read rather than a bogus "0 of 0".
+    @ViewBuilder
+    private func trailing(_ row: StudyRow) -> some View {
+        if let total = row.total, let read = row.read {
+            if total == 0 {
+                Text("next cycle")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            } else {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Text("\(read) / \(total)")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                    ProgressView(value: Double(read), total: Double(total))
+                        .frame(width: 60)
+                }
+            }
+        } else {
+            Text("\(row.count)")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(CicadaTheme.textSecondary)
+        }
+    }
+
+    private func episodesForOrigin(_ origin: String) -> [EpisodeQueueItem] {
+        episodes
+            .filter { $0.origin == origin }
+            .sorted {
+                (parseEpisodeTimestamp($0.timestamp) ?? .distantPast)
+                    > (parseEpisodeTimestamp($1.timestamp) ?? .distantPast)
+            }
+    }
+
+    // MARK: Footer — next run + the one Consolidate/Cancel pair (R10)
+
+    /// "Manual only" / "Next run …" / "… after the next import", with a
+    /// pointer to Settings → Schedule — the one place the time/interval
+    /// itself is edited (no picker duplicated here).
+    private var nextRunLine: some View {
+        HStack(spacing: CicadaTheme.spacingXS) {
+            Text(nextRunText)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+            SettingsLink {
+                Text(Copy.changeInSettingsSchedule)
+            }
+            .buttonStyle(.cicadaPlain)
+            .font(CicadaTheme.captionFont)
+            .foregroundStyle(CicadaTheme.accent)
+        }
+    }
+
+    private var nextRunText: String {
+        if sleepVM.schedule.mode == "manual" {
+            return Copy.nextRunManual
+        }
+        guard let date = StatusSnapshot.parseDate(status?.nextSleepAt) else {
+            return sleepVM.schedule.mode == "after_import" ? "Next run after the next import" : "Next run —"
+        }
+        let f = DateFormatter()
+        f.dateFormat = "MMM d, h:mm a"
+        return "Next run \(f.string(from: date))"
+    }
+
+    private func consolidateButton(count: Int) -> some View {
+        Button {
+            Task {
+                await sleepVM.triggerManually()
+                await store.refresh([.status, .channels])
+            }
+        } label: {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                if sleepVM.isRunning {
+                    ProgressView().controlSize(.small).frame(width: 12, height: 12)
+                } else {
+                    Image(systemName: "moon.fill").font(.system(size: 12))
+                }
+                Text(sleepVM.isRunning ? Copy.consolidating : Copy.consolidateNow)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(count == 0 && !sleepVM.isRunning ? CicadaTheme.textTertiary : .white)
+            .padding(.horizontal, CicadaTheme.spacingLG)
+            .padding(.vertical, CicadaTheme.spacingSM)
+            .background(count == 0 && !sleepVM.isRunning ? CicadaTheme.surfaceElevated : CicadaTheme.accent.opacity(0.9))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.cicadaPlain)
+        .disabled(sleepVM.isRunning || count == 0)
+        .help(count == 0 ? "Nothing queued right now" : "Run the Sleep cycle now")
+        .accessibilityLabel(Copy.consolidateNow)
+    }
+
+    /// Only shown while a cycle is running (H1: the trigger button itself
+    /// stays disabled + read-only for "Consolidating…", so this is the one
+    /// live control the running state offers). Cooperative, not instant —
+    /// `Copy.cancelSleepExplainer` says so both here (tooltip) and in the
+    /// caption below the buttons.
+    private var cancelButton: some View {
+        Button {
+            Task { await sleepVM.cancel() }
+        } label: {
+            HStack(spacing: 4) {
+                if sleepVM.isCancelling {
+                    ProgressView().controlSize(.small).frame(width: 10, height: 10)
+                } else {
+                    Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+                }
+                Text(sleepVM.isCancelling ? Copy.cancellingSleep : Copy.cancelSleep)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(CicadaTheme.textSecondary)
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .padding(.vertical, CicadaTheme.spacingSM)
+            .background(CicadaTheme.surfaceElevated)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.cicadaPlain)
+        .disabled(sleepVM.isCancelling)
+        .help(Copy.cancelSleepExplainer)
+        .accessibilityLabel(Copy.cancelSleep)
+    }
+}

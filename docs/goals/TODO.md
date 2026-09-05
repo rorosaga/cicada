@@ -154,8 +154,22 @@ Recommended, decay through the question component, the G98 informational rule
 **App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·
 G62 capture redesign · G63 connections clarity · G64 import walkthroughs · G67 commit-diff views ·
-G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars ·
-G107 pixel mascot + single menu-bar Tamagotchi · **G130 slice 1a app-wide zoom (2026-09-05,
+G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars · G107 pixel mascot + single menu-bar Tamagotchi ·
+**G125 the study desk (2026-09-05, PR #TBD)** — Sleep page rebuilt around a `reading` mascot state
+and clock-free speech bubble, a book pile encoding queued characters per source (log scale, no
+charts), a study list replacing the old queue card + debt breakdown, consolidation history with a
+server-parsed per-cycle detail and telemetry-joined duration, four schedule modes (manual · daily ·
+every N hours · after imports, always `user_triggered=False`), and the deprecated top-right
+Sleep/Upload buttons removed from this page. **Disclosed gap:** `GET /status`'s `next_sleep` (the
+one user-visible "Next run …" text, R6/R7) is calibrated from `sleep_debt.compute`'s
+`last_cycle_at`/`newest_unprocessed_at`; `GET /state`'s own `sleep.next_at`
+(`api/routers/state.py:100`, feeding the MCP handshake's now-view, not the app) is not — it calls
+`sleep_scheduler.next_run_at` with neither, so `interval` mode reads "N hours from now" instead of
+"N hours from the last real cycle" and `after_import` always reads `null`. Lower-stakes than the app
+surface (an agent's primer briefly imprecise right after a schedule-mode change, never a wrong clock
+shown to the user) and left as-is rather than adding a second `sleep_debt.compute` scan to an
+engine-free read path on a late pass — fold in alongside the next `/state` touch.
+· **G130 slice 1a app-wide zoom (2026-09-05,
 PR #54)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
 (⌘=/⌘−/⌘0, plus a ⌘⇧= key monitor), a Settings *General* tab with a text-size slider; the graph
 canvas keeps its own zoom (slice 2 stays open on a measured need; slice 1b, the literal-font
@@ -315,9 +329,6 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 11. ~~G100~~ — absorbed into G118 (slice 1 shipped the write-time citation; the derived-span class and
     the viewer are G118 slice 2)
 12. **G103** observer model in the UI — whose belief, who was in the room — S
-12e. **G125** Sleep page as the study desk — `reading` mascot state, the queue as a per-category study list,
-    breakdowns moved to Sources/Settings, schedule frequency picker (`interval_hours`/`after_import`), the
-    deprecated Sleep/Upload toolbar buttons removed — M
 12c. **G108** landing page + navigation — decide *before* building: status vs graph as the front
     door, and linear vs browser-style history (G106 makes history the better bet) — decision
 12b. **G106** two-way conversations ↔ entities browser — the inverse index works today; content

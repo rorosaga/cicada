@@ -1,12 +1,13 @@
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
     EpisodeQueueItem,
     ScheduleConfig,
     SleepCancelResponse,
+    SleepCycleDetail,
     SleepDebtResponse,
     SleepHistoryEntry,
     SleepStatusResponse,
@@ -119,6 +120,8 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         cancel_requested=state.cancel_requested,
         cancelled=cancelled_is_visible(state),
         progress_pct=progress_pct(state),
+        queue_by_origin=dict(state.queue_by_origin),
+        read_by_origin=dict(state.read_by_origin),
         debt=SleepDebtResponse(
             unprocessed_count=debt.unprocessed_count,
             oldest_unprocessed_age_hours=debt.oldest_unprocessed_age_hours,
@@ -132,8 +135,16 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
 
 
 @router.get("/sleep/history", response_model=list[SleepHistoryEntry])
-async def sleep_history(settings: Settings = Depends(get_settings)):
-    return await git_service.get_sleep_history(settings.memory_path)
+async def sleep_history(limit: int = Query(15, ge=1, le=100), settings: Settings = Depends(get_settings)):
+    return await git_service.get_sleep_history(settings.memory_path, limit=limit)
+
+
+@router.get("/sleep/history/{commit}", response_model=SleepCycleDetail)
+async def sleep_cycle_detail(commit: str, settings: Settings = Depends(get_settings)):
+    detail = await git_service.get_sleep_cycle_detail(settings.memory_path, commit)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
+    return detail
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
@@ -151,6 +162,7 @@ async def sleep_episodes(settings: Settings = Depends(get_settings)):
                 origin=ep.get("origin", "unknown"),
                 title=ep.get("title"),
                 preview=preview,
+                chars=len(ep.get("body") or ""),
                 processed=ep.get("processed", False),
                 processed_by=ep.get("processed_by"),
             )

@@ -1,6 +1,6 @@
 import asyncio
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -99,6 +99,14 @@ class SleepState:
     # scoped to it — see `progress_pct()` below — rather than inventing a
     # blended cross-stage metric stages 2-5 have no honest way to report.
     stage1_progress: int = 0
+    # G125 (the study desk) — the same per-episode unit as `stage1_progress`,
+    # split by source so the Sleep page's study list can count each source
+    # down while Stage 1 reads (R3). `queue_by_origin` is this cycle's
+    # SELECTED episodes (after the cap slice) grouped by `origin`;
+    # `read_by_origin` ticks per finished episode. Both reset with every
+    # other per-cycle counter at the top of `run()`.
+    queue_by_origin: dict[str, int] = field(default_factory=dict)
+    read_by_origin: dict[str, int] = field(default_factory=dict)
 
 
 _state = SleepState()
@@ -791,6 +799,8 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.episode_cap = 0
     _state.episodes_queued = 0
     _state.stage1_progress = 0
+    _state.queue_by_origin = {}
+    _state.read_by_origin = {}
 
     memory_path = settings.memory_path
 
@@ -889,6 +899,13 @@ async def _run_stages(
         logger.info(f"Found {total_unprocessed} unprocessed episodes")
     _state.episodes_total = len(episodes)
 
+    # G125: what this cycle will read, by source — set once, from the capped
+    # slice, so the study list's denominators never move mid-cycle.
+    by_origin: dict[str, int] = {}
+    for ep in episodes:
+        by_origin[str(ep.get("origin") or "unknown")] = by_origin.get(str(ep.get("origin") or "unknown"), 0) + 1
+    _state.queue_by_origin = by_origin
+
     # Fix round 1, M1 (part 2): resolution moved to AFTER the idle-episode
     # return above — an idle cycle must never touch the connections registry
     # at all, not even the bounded cache-first probe. "auto" (and a default
@@ -938,8 +955,13 @@ async def _run_stages(
     def _tick_stage1() -> None:
         _state.stage1_progress += 1
 
+    def _on_episode_done(ep: dict) -> None:
+        origin = str(ep.get("origin") or "unknown")
+        _state.read_by_origin[origin] = _state.read_by_origin.get(origin, 0) + 1
+
     extracted = await extract(
-        episodes, settings, cancel_check=_cancel_requested, progress_callback=_tick_stage1,
+        episodes, settings, cancel_check=_cancel_requested,
+        progress_callback=_tick_stage1, on_episode_done=_on_episode_done,
     )
     total_entities = sum(len(e.get("entities", [])) for e in extracted)
     total_rels = sum(len(e.get("relationships", [])) for e in extracted)

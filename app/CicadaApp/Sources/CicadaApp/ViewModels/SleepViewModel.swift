@@ -18,8 +18,20 @@ final class SleepViewModel {
 
     var status: SleepStatusResponse?
     var episodes: [EpisodeQueueItem] = []
-    var schedule: ScheduleConfig = ScheduleConfig(enabled: false, hour: 3, minute: 0)
+    var schedule: ScheduleConfig = ScheduleConfig(mode: "manual", hour: 3, minute: 0)
     var errorMessage: String?
+
+    /// G125 R4 — the consolidation history the Sleep page's history card
+    /// lists, newest first. Loaded alongside everything else in `load()`.
+    var history: [SleepHistoryEntry] = []
+    /// G125 R12 — a history row's expanded detail, cached by commit hash so
+    /// a second click on an already-open row is a dictionary hit rather than
+    /// a second fetch. Never evicted within a session; a bank switch simply
+    /// starts a new `SleepViewModel`.
+    var details: [String: SleepCycleDetail] = [:]
+    /// Which history row's detail is disclosed, if any (Task 7's
+    /// `ConsolidationHistoryCard`). `nil` means every row is collapsed.
+    var expanded: String?
 
     /// Hook fired exactly once when a cycle transitions ``running`` -> ``idle``
     /// without an exception. The app wires this to ``GraphViewModel.loadGraph``
@@ -79,6 +91,14 @@ final class SleepViewModel {
     /// real `POST /sleep/cancel` call.
     private let requestCancel: () async throws -> SleepCancelResponse
 
+    /// Injectable, same reasoning as `fetchSleepStatus`. Defaults to the
+    /// real `GET /sleep/history` call.
+    private let fetchHistory: () async throws -> [SleepHistoryEntry]
+
+    /// Injectable, same reasoning as `fetchSleepStatus`. Defaults to the
+    /// real `GET /sleep/history/{commit}` call.
+    private let fetchDetail: (String) async throws -> SleepCycleDetail
+
     /// True from the moment `cancel()` is called until the poll loop
     /// observes the cycle has actually stopped (whether because of the
     /// cancel or otherwise) — cooperative cancellation means the backend
@@ -93,11 +113,19 @@ final class SleepViewModel {
         },
         requestCancel: @escaping () async throws -> SleepCancelResponse = {
             try await APIClient.shared.cancelSleep()
+        },
+        fetchHistory: @escaping () async throws -> [SleepHistoryEntry] = {
+            try await APIClient.shared.fetchSleepHistory(limit: 15)
+        },
+        fetchDetail: @escaping (String) async throws -> SleepCycleDetail = {
+            try await APIClient.shared.fetchSleepCycleDetail($0)
         }
     ) {
         self.store = store
         self.fetchSleepStatus = fetchSleepStatus
         self.requestCancel = requestCancel
+        self.fetchHistory = fetchHistory
+        self.fetchDetail = fetchDetail
     }
 
     /// `/sleep/status` isn't a Store domain, so this mirrors the Store's
@@ -155,9 +183,15 @@ final class SleepViewModel {
         async let statusTask = fetchSleepStatus()
         async let episodesTask = APIClient.shared.fetchEpisodeQueue()
         async let scheduleTask = APIClient.shared.fetchSchedule()
+        // `loadHistory()` does its own guarding against `loadToken` (reading,
+        // never bumping, it — only `load()` mints a new generation) rather
+        // than being raced through a fourth do/catch here, so it can also be
+        // called on its own later (a history-only refresh) with the exact
+        // same staleness protection.
+        async let historyTask: Void = loadHistory()
 
         // Each result is guarded individually rather than once at the end —
-        // the three fetches race independently, and a newer `load()` call can
+        // the fetches race independently, and a newer `load()` call can
         // start (and even finish) while any one of them is still in flight.
         // Without the per-assignment check, a call that lost the race on
         // `status` could still win on `episodes` (or vice versa), stitching
@@ -181,6 +215,7 @@ final class SleepViewModel {
         } catch {
             if token == loadToken { errorMessage = "Schedule: \(error.localizedDescription)" }
         }
+        await historyTask
 
         // A superseded call must not make poll-loop decisions either — the
         // newer call (or one still in flight) owns that now.
@@ -191,6 +226,40 @@ final class SleepViewModel {
         // nothing is polling yet (see the guard above).
         if pollTask == nil, isRunning {
             startPolling()
+        }
+    }
+
+    /// Reload the consolidation history list (G125 R4) — called from
+    /// `load()`'s fourth `async let`, and safe to call again on its own (a
+    /// history-only refresh). Reads, never bumps, `loadToken`: only `load()`
+    /// mints a new generation, so a call here rides whatever generation is
+    /// already current and drops its own result if a newer `load()` lands
+    /// first — same protection the three original fetches get, applied
+    /// without a fifth counter.
+    func loadHistory() async {
+        let token = loadToken
+        do {
+            let h = try await fetchHistory()
+            if token == loadToken { history = h }
+        } catch {
+            if token == loadToken { errorMessage = "History: \(error.localizedDescription)" }
+        }
+    }
+
+    /// Fetch one cycle's detail and cache it by commit hash (G125 R12) — a
+    /// second click on an already-expanded history row is a dictionary hit,
+    /// never a second network round trip. Guarded the same way as
+    /// `loadHistory()`: a bank switch that starts a fresh `load()` while
+    /// this fetch is still in flight must not paint another bank's cycle
+    /// into the detail the user is now looking at.
+    func loadDetail(_ commit: String) async {
+        if details[commit] != nil { return }
+        let token = loadToken
+        do {
+            let d = try await fetchDetail(commit)
+            if token == loadToken { details[commit] = d }
+        } catch {
+            if token == loadToken { errorMessage = "History: \(error.localizedDescription)" }
         }
     }
 

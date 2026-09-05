@@ -143,23 +143,32 @@ struct SleepEventPayload: Codable, Equatable {
     var unprocessedCount: Int?
     var hasRunBefore: Bool?
     var hoursSinceLastCycle: Double?
+    /// G125 R3 — this cycle's selected episodes by source, and how many of
+    /// each Stage 1 has finished. `nil` (never a fabricated `[:]`) on an
+    /// older backend that predates these keys; `SleepViewModel`/the Sleep
+    /// page fall back to the REST-polled `SleepStatusResponse` fields.
+    var queueByOrigin: [String: Int]?
+    var readByOrigin: [String: Int]?
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, stage, totalStages, progress, error
         case progressPct, restedPct, volumePct, agePct
         case unprocessedCount, hasRunBefore, hoursSinceLastCycle
+        case queueByOrigin, readByOrigin
     }
 
     init(status: String, cycleId: String? = nil, stage: Int = 0,
          totalStages: Int = 5, progress: Double? = nil, error: String? = nil,
          progressPct: Int? = nil, restedPct: Int? = nil, volumePct: Int? = nil,
          agePct: Int? = nil, unprocessedCount: Int? = nil, hasRunBefore: Bool? = nil,
-         hoursSinceLastCycle: Double? = nil) {
+         hoursSinceLastCycle: Double? = nil, queueByOrigin: [String: Int]? = nil,
+         readByOrigin: [String: Int]? = nil) {
         self.status = status; self.cycleId = cycleId; self.stage = stage
         self.totalStages = totalStages; self.progress = progress; self.error = error
         self.progressPct = progressPct; self.restedPct = restedPct; self.volumePct = volumePct
         self.agePct = agePct; self.unprocessedCount = unprocessedCount
         self.hasRunBefore = hasRunBefore; self.hoursSinceLastCycle = hoursSinceLastCycle
+        self.queueByOrigin = queueByOrigin; self.readByOrigin = readByOrigin
     }
 
     init(from decoder: Decoder) throws {
@@ -177,5 +186,7 @@ struct SleepEventPayload: Codable, Equatable {
         unprocessedCount = try? c.decodeIfPresent(Int.self, forKey: .unprocessedCount)
         hasRunBefore = try? c.decodeIfPresent(Bool.self, forKey: .hasRunBefore)
         hoursSinceLastCycle = try? c.decodeIfPresent(Double.self, forKey: .hoursSinceLastCycle)
+        queueByOrigin = try? c.decodeIfPresent([String: Int].self, forKey: .queueByOrigin)
+        readByOrigin = try? c.decodeIfPresent([String: Int].self, forKey: .readByOrigin)
     }
 }
