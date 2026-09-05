@@ -129,14 +129,14 @@ The queue there, in order: **G118 slice 2** (the provenance viewer) → **G93** 
 Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a
 build. Shipped 2026-09-05 and no longer queued: G125 (PR #55), G113 slices 3–7 (PR #59), G122 + the
 G126 page (Track C, PR #60), G129 slice 2 (bookmark deletions, PR #61), **G117** first-run onboarding
-(PR #62).
+(PR #62), and **Track L** — real brand marks, one id → mark map, `cicada` as a system contributor
+(PR #TBD, on `feat/real-marks`).
 
 **Small polish left behind by the 2026-09-05 tracks, none blocking:** Settings → Integrations lists
 both the harness "Claude export" overview row and the "Claude chat export" channel (dedupe by
-origin) and draws the generic bubble symbol where `OriginMark` would show the logo; the Sleep page's
-toolbar audit on Graph/Clusters (G125 (5)) is still open; a merge suggestion with no target hint has
-no Reject control (dismiss still works); `GET /state`'s `sleep.next_at` is uncalibrated for the
-`interval`/`after_import` schedule modes (the app's own next-run line is); the Settings sidebar
+origin); the Sleep page's toolbar audit on Graph/Clusters (G125 (5)) is still open; a merge
+suggestion with no target hint has no Reject control (dismiss still works); `GET /state`'s
+`sleep.next_at` is uncalibrated for the `interval`/`after_import` schedule modes (the app's own next-run line is); the Settings sidebar
 cannot be driven by a synthetic `click at` (select its rows through the accessibility API).
 
 Owner-present checks still unticked, none blocking: the mascot visual pass in light and dark, the G109
