@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -1235,13 +1235,35 @@ class EpisodeQueueItem(CamelModel):
     processed_by: Optional[str] = None
 
 
+SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")
+
+
 class ScheduleConfig(CamelModel):
-    enabled: bool
+    """When Sleep runs on its own (G125 (4)). ``mode`` is the truth; ``enabled``
+    is derived (``mode != "manual"``) and always written so an older reader of
+    ``/status.nextSleepAt`` keeps working (R6). An older client that PUTs only
+    ``{enabled, hour, minute}`` gets ``daily``/``manual`` derived for it.
+    ``after_import`` is a settle probe, not a hook (R7).
+    """
+    mode: Optional[str] = None
+    enabled: bool = False
     # 24-hour clock, local time. Constrained so garbage input (e.g. hour=99)
     # is rejected at the API boundary instead of persisting to
     # memory/sleep_schedule.yaml or blowing up CronTrigger downstream.
-    hour: int = Field(ge=0, le=23)
-    minute: int = Field(ge=0, le=59)
+    hour: int = Field(3, ge=0, le=23)
+    minute: int = Field(0, ge=0, le=59)
+    # "interval" mode's period, hours. 1..168 (a week) — below 1 is a
+    # de-facto polling loop, above a week is indistinguishable from manual.
+    interval_hours: int = Field(6, ge=1, le=168)
+
+    @model_validator(mode="after")
+    def _derive(self):
+        if self.mode is None:
+            self.mode = "daily" if self.enabled else "manual"
+        if self.mode not in SCHEDULE_MODES:
+            raise ValueError(f"mode must be one of {SCHEDULE_MODES}")
+        self.enabled = self.mode != "manual"
+        return self
 
 
 # --- Conversation Upload ---

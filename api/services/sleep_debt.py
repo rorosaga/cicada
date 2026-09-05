@@ -66,6 +66,13 @@ class SleepDebt:
     # the oldest-episode age alone already tells you how far behind it is,
     # with no need for cycle history.
     rested_pct: int | None
+    # G125 (4) R7 — the newest unprocessed episode's timestamp (naive local,
+    # same normalisation `_parse_episode_timestamp` applies to every stamp
+    # shape on disk). The `after_import` schedule mode and its settle probe
+    # both need "how long has the queue been quiet" — the newest arrival, not
+    # the oldest — and share this one scan rather than each re-deriving it.
+    # `None` when the queue is empty.
+    newest_unprocessed_at: datetime | None = None
 
 
 def rested_components(
@@ -137,8 +144,11 @@ def _parse_episode_timestamp(raw: str) -> datetime | None:
     return dt
 
 
-def _count_and_oldest(memory_path: Path, *, now: datetime) -> tuple[int, float | None]:
-    """Unprocessed episode count + the oldest one's age in hours.
+def _count_and_oldest(memory_path: Path, *, now: datetime) -> tuple[int, float | None, datetime | None]:
+    """Unprocessed episode count, the oldest one's age in hours, and the
+    NEWEST one's timestamp (G125 (4) R7 — the after-import probe and
+    ``next_run_at`` both need "how long has the queue been quiet", i.e. the
+    newest arrival, not the oldest).
 
     Reads ONLY frontmatter via ``bank_index`` (never ``.body()``) — cheap
     even on a large queue, and cached across calls the way ``sleep_cycle.
@@ -146,6 +156,7 @@ def _count_and_oldest(memory_path: Path, *, now: datetime) -> tuple[int, float |
     """
     count = 0
     oldest_hours: float | None = None
+    newest_ts: datetime | None = None
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter
         if fm.get("processed", False):
@@ -157,7 +168,9 @@ def _count_and_oldest(memory_path: Path, *, now: datetime) -> tuple[int, float |
         age_hours = max(0.0, (now - ts).total_seconds() / 3600.0)
         if oldest_hours is None or age_hours > oldest_hours:
             oldest_hours = age_hours
-    return count, oldest_hours
+        if newest_ts is None or ts > newest_ts:
+            newest_ts = ts
+    return count, oldest_hours, newest_ts
 
 
 # Review fix (M2): `_last_cycle_at` used to run an uncached `git log`
@@ -264,7 +277,7 @@ async def compute(memory_path: Path, settings: Settings | None = None) -> SleepD
     beyond the one bounded ``git log``.
     """
     now = datetime.now()
-    count, oldest_hours = _count_and_oldest(memory_path, now=now)
+    count, oldest_hours, newest_ts = _count_and_oldest(memory_path, now=now)
     last_cycle = await _last_cycle_at(memory_path)
     hours_since = (
         max(0.0, (now - last_cycle).total_seconds() / 3600.0)
@@ -287,4 +300,5 @@ async def compute(memory_path: Path, settings: Settings | None = None) -> SleepD
         volume_pct=volume_pct,
         age_pct=age_pct,
         rested_pct=rested,
+        newest_unprocessed_at=newest_ts,
     )

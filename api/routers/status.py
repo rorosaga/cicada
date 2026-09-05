@@ -1,4 +1,5 @@
 from collections import Counter
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
@@ -13,7 +14,7 @@ from api.models.schemas import (
     StatusResponse,
     StatusSleep,
 )
-from api.services import bank_index, git_service, inbox_service, sleep_scheduler, sync_service
+from api.services import bank_index, git_service, inbox_service, sleep_debt, sleep_scheduler, sync_service
 from api.services.sleep_cycle import get_sleep_state
 
 router = APIRouter()
@@ -81,7 +82,23 @@ async def get_status(settings: Settings = Depends(get_settings)):
     )
 
     last_sleep = await _last_sleep_at(settings.memory_path)
-    next_sleep = _next_sleep_at(settings.memory_path)
+
+    # G125 (4): `next_sleep_at` must be calibrated to the mode, not just the
+    # daily HH:MM — an `interval` schedule needs the last real cycle's time
+    # as its anchor, and `after_import` needs the newest unprocessed
+    # episode's. Both already live on `SleepDebt`, so one `compute()` call
+    # (itself cached — see its own docstring) covers both without a second
+    # bank scan. `last_cycle_at` is derived from `hours_since_last_cycle`
+    # rather than exposing `sleep_debt`'s private cached datetime.
+    debt = await sleep_debt.compute(settings.memory_path, settings)
+    last_cycle_at = (
+        datetime.now() - timedelta(hours=debt.hours_since_last_cycle)
+        if debt.hours_since_last_cycle is not None else None
+    )
+    next_sleep = _next_sleep_at(
+        settings.memory_path, last_cycle_at=last_cycle_at,
+        newest_unprocessed_at=debt.newest_unprocessed_at,
+    )
 
     from api.services.connections.registry import get_registry
 
@@ -178,11 +195,16 @@ async def _last_sleep_at(memory_path: Path) -> str | None:
     return result
 
 
-def _next_sleep_at(memory_path: Path) -> str | None:
-    """Next occurrence of the persisted schedule, or None when disabled.
+def _next_sleep_at(
+    memory_path: Path, *, last_cycle_at: datetime | None = None,
+    newest_unprocessed_at: datetime | None = None,
+) -> str | None:
+    """Next occurrence of the persisted schedule, or None per mode (G125 (4)).
 
     Delegates to ``sleep_scheduler.next_run_at`` (moved there for G53 so the
     state dictionary can share it without a service importing a router);
     kept as a function because the status route and its tests call it.
     """
-    return sleep_scheduler.next_run_at(memory_path)
+    return sleep_scheduler.next_run_at(
+        memory_path, last_cycle_at=last_cycle_at, newest_unprocessed_at=newest_unprocessed_at,
+    )

@@ -8,12 +8,13 @@ whenever the user updates the schedule from the Sleep dashboard.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from loguru import logger
 
 from api.config import Settings
@@ -23,7 +24,17 @@ from api.services import sleep_cycle
 JOB_ID = "sleep_daily"
 SCHEDULE_FILE = "sleep_schedule.yaml"
 
-_DEFAULT = ScheduleConfig(enabled=False, hour=3, minute=0)
+# G125 (4) R7 — "after imports" is a settle probe, not a writer hook: no
+# ingest path calls into the scheduler directly (that would couple every
+# capture writer to Sleep's own concerns). Instead a short interval job polls
+# whether the queue has gone quiet. AFTER_IMPORT_PROBE_MINUTES is how often
+# it looks; AFTER_IMPORT_SETTLE_MINUTES is how long the newest unprocessed
+# episode must have sat untouched before a multi-file import is treated as
+# "done arriving" and consolidated once, not once per file.
+AFTER_IMPORT_SETTLE_MINUTES = 10
+AFTER_IMPORT_PROBE_MINUTES = 5
+
+_DEFAULT = ScheduleConfig(mode="manual", hour=3, minute=0)
 
 
 def _schedule_path(memory_path: Path) -> Path:
@@ -41,9 +52,11 @@ def load_schedule(memory_path: Path) -> ScheduleConfig:
         return _DEFAULT.model_copy()
     try:
         return ScheduleConfig(
+            mode=data.get("mode"),
             enabled=bool(data.get("enabled", False)),
             hour=int(data.get("hour", 3)),
             minute=int(data.get("minute", 0)),
+            interval_hours=int(data.get("interval_hours", 6)),
         )
     except Exception as e:
         # Corrupt or out-of-range values on disk (e.g. hour=99 from an older
@@ -58,52 +71,115 @@ def load_schedule(memory_path: Path) -> ScheduleConfig:
 def save_schedule(memory_path: Path, cfg: ScheduleConfig) -> None:
     path = _schedule_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"enabled": cfg.enabled, "hour": cfg.hour, "minute": cfg.minute}
+    payload = {
+        "mode": cfg.mode, "enabled": cfg.enabled, "hour": cfg.hour, "minute": cfg.minute,
+        "interval_hours": cfg.interval_hours,
+    }
     path.write_text(yaml.safe_dump(payload, sort_keys=True), encoding="utf-8")
 
 
-def next_run_at(memory_path: Path, now: datetime | None = None) -> str | None:
-    """Next occurrence of the persisted schedule as a naive local ISO string,
-    or ``None`` when the schedule is disabled.
+def next_run_at(
+    memory_path: Path, now: datetime | None = None, *,
+    last_cycle_at: datetime | None = None,
+    newest_unprocessed_at: datetime | None = None,
+) -> str | None:
+    """Next run as a naive local ISO string, per mode (G125 (4) R6/R7):
+    ``manual`` → ``None``; ``daily`` → the next HH:MM; ``interval`` → the last
+    cycle plus N hours (``now`` + N hours if Sleep never ran in this bank —
+    there's no other anchor); ``after_import`` → the newest unprocessed
+    episode plus the settle window, or ``None`` with an empty queue (nothing
+    to settle).
 
     Lived in ``api/routers/status.py`` until G53: the state dictionary (a
     service) needs the same answer and a service must not import a router.
     ``now`` is injectable so the state builder's determinism tests are
-    date-stable.
+    date-stable; ``last_cycle_at``/``newest_unprocessed_at`` are injected
+    rather than recomputed here so callers reuse the same
+    ``sleep_debt.compute`` call they already made for other fields, instead
+    of this function running its own redundant scan.
     """
-    from datetime import timedelta
-
     cfg = load_schedule(memory_path)
-    if not cfg.enabled:
-        return None
     current = now or datetime.now()
-    candidate = current.replace(hour=cfg.hour, minute=cfg.minute, second=0, microsecond=0)
-    if candidate <= current:
-        candidate += timedelta(days=1)
-    return candidate.isoformat()
+    if cfg.mode == "manual":
+        return None
+    if cfg.mode == "daily":
+        candidate = current.replace(hour=cfg.hour, minute=cfg.minute, second=0, microsecond=0)
+        if candidate <= current:
+            candidate += timedelta(days=1)
+        return candidate.isoformat()
+    if cfg.mode == "interval":
+        base = last_cycle_at or current
+        candidate = base + timedelta(hours=cfg.interval_hours)
+        return max(candidate, current).isoformat(timespec="seconds")
+    # after_import
+    if newest_unprocessed_at is None:
+        return None
+    return (newest_unprocessed_at + timedelta(minutes=AFTER_IMPORT_SETTLE_MINUTES)).isoformat(timespec="seconds")
 
 
 def register_job(
     scheduler: AsyncIOScheduler, settings: Settings, cfg: ScheduleConfig
 ) -> None:
-    """Remove any existing sleep job and add a new cron trigger if enabled."""
+    """Remove any existing sleep job and register the trigger this mode
+    needs — or none, for ``manual`` (G125 (4))."""
     try:
         scheduler.remove_job(JOB_ID)
     except Exception:
         pass
-    if not cfg.enabled:
-        logger.info("Sleep schedule disabled — no cron registered")
+    if cfg.mode == "manual":
+        logger.info("Sleep schedule: manual — no job registered")
         return
+    if cfg.mode == "daily":
+        scheduler.add_job(
+            _run_if_idle,
+            CronTrigger(hour=cfg.hour, minute=cfg.minute),
+            id=JOB_ID,
+            args=[settings],
+            replace_existing=True,
+        )
+        logger.info(f"Sleep schedule registered: daily at {cfg.hour:02d}:{cfg.minute:02d}")
+        return
+    if cfg.mode == "interval":
+        scheduler.add_job(
+            _run_if_idle,
+            IntervalTrigger(hours=cfg.interval_hours),
+            id=JOB_ID,
+            args=[settings],
+            replace_existing=True,
+        )
+        logger.info(f"Sleep schedule registered: every {cfg.interval_hours}h")
+        return
+    # after_import: a settle probe (R7), not a hook — see
+    # `_run_after_intake_if_settled`'s own docstring for why nothing calls in.
     scheduler.add_job(
-        _run_if_idle,
-        CronTrigger(hour=cfg.hour, minute=cfg.minute),
+        _run_after_intake_if_settled,
+        IntervalTrigger(minutes=AFTER_IMPORT_PROBE_MINUTES),
         id=JOB_ID,
         args=[settings],
         replace_existing=True,
     )
-    logger.info(
-        f"Sleep schedule registered: daily at {cfg.hour:02d}:{cfg.minute:02d}"
-    )
+    logger.info(f"Sleep schedule registered: after imports (probing every {AFTER_IMPORT_PROBE_MINUTES}m)")
+
+
+async def _run_after_intake_if_settled(settings) -> None:
+    """The ``after_import`` probe (G125 (4) R7): every few minutes, start a
+    cycle only when the queue has SETTLED — idle, something waiting, and the
+    newest unprocessed episode at least ``AFTER_IMPORT_SETTLE_MINUTES`` old —
+    so a multi-file import lands as one consolidation, not one per file.
+    Scheduled → ``user_triggered=False`` (TODO.md ruling 4: a scheduled cycle
+    never spends plan quota)."""
+    from api.services import sleep_debt
+
+    if sleep_cycle.get_sleep_state().status == "running":
+        return
+    debt = await sleep_debt.compute(settings.memory_path, settings)
+    newest = getattr(debt, "newest_unprocessed_at", None)
+    if not debt.unprocessed_count or newest is None:
+        return
+    if datetime.now() - newest < timedelta(minutes=AFTER_IMPORT_SETTLE_MINUTES):
+        return
+    cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
+    await sleep_cycle.run(settings, cycle_id, user_triggered=False)
 
 
 async def _run_if_idle(settings: Settings) -> None:
