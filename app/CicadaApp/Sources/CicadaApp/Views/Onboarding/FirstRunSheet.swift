@@ -34,7 +34,10 @@ struct FirstRunSheet: View {
     var bank: String
     var onFinished: () -> Void
 
+    @Environment(Store.self) private var store
     @State private var step: OnboardingStep = .identity
+    @State private var isCreatingDemoBank = false
+    @State private var demoBankError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -89,23 +92,60 @@ struct FirstRunSheet: View {
     /// this footer hides the buttons that would otherwise duplicate or race
     /// with a step's own action.
     private var footer: some View {
-        HStack {
-            if OnboardingStep.previous(step) != nil {
-                Button("Back") { if let p = OnboardingStep.previous(step) { step = p } }
-                    .buttonStyle(.cicadaPlain)
-                    .foregroundStyle(CicadaTheme.textSecondary)
+        VStack(alignment: .trailing, spacing: CicadaTheme.spacingXS) {
+            if let demoBankError {
+                Text(demoBankError)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(.red)
             }
-            Spacer()
-            Button("Skip setup") { finish() }
+            HStack {
+                if OnboardingStep.previous(step) != nil {
+                    Button("Back") { if let p = OnboardingStep.previous(step) { step = p } }
+                        .buttonStyle(.cicadaPlain)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
+                // G117 Task 5 — the demo-bank shortcut lives on every step
+                // (not just step 0): whichever step a person stalls on, "just
+                // let me look at it" is one click away rather than requiring
+                // them to first back out to the start.
+                Button(isCreatingDemoBank ? Copy.onboardingCreatingDemoBank : Copy.onboardingTryDemoBank) {
+                    Task { await tryDemoBank() }
+                }
                 .buttonStyle(.cicadaPlain)
                 .foregroundStyle(CicadaTheme.textTertiary)
-            if step == .engine || step == .channel {
-                Button("Next") { advance() }
+                .disabled(isCreatingDemoBank)
+                Spacer()
+                Button("Skip setup") { finish() }
                     .buttonStyle(.cicadaPlain)
-                    .foregroundStyle(CicadaTheme.accent)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                if step == .engine || step == .channel {
+                    Button("Next") { advance() }
+                        .buttonStyle(.cicadaPlain)
+                        .foregroundStyle(CicadaTheme.accent)
+                }
             }
         }
         .padding(CicadaTheme.spacingXL)
+    }
+
+    /// `POST /banks/demo` already creates AND activates the bank server-side
+    /// (`api/routers/banks.py::create_demo_bank`); the only client-side work
+    /// left is telling `Store` the active bank moved. `refresh([.banks])`
+    /// reuses the SAME bank-switch fan-out `ActivateBank` triggers
+    /// (`Store.refresh`: sees `active != previous`, hydrates the new bank
+    /// from its on-disk cache, then reconciles every domain) — there is no
+    /// second, hand-rolled "switch banks" path to keep in sync with that one.
+    private func tryDemoBank() async {
+        demoBankError = nil
+        isCreatingDemoBank = true
+        defer { isCreatingDemoBank = false }
+        do {
+            _ = try await APIClient.shared.createDemoBank()
+            await store.refresh([.banks])
+            finish()
+        } catch {
+            demoBankError = "Couldn't create the demo bank — \(error.localizedDescription)"
+        }
     }
 
     private func advance() {

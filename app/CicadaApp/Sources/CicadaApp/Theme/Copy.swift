@@ -218,6 +218,11 @@ enum Copy {
     static let onboardingChannelCaption =
         "Connect one thing to get started — add the rest anytime in Settings → Integrations."
 
+    /// The footer's demo-bank shortcut (Task 5, G117) — skips the remaining
+    /// steps entirely since `POST /banks/demo` ships pre-populated.
+    static let onboardingTryDemoBank = "Try it on a demo bank first"
+    static let onboardingCreatingDemoBank = "Creating demo bank…"
+
     /// One title per `OnboardingStep`, shown in the sheet's header.
     static func onboardingStepTitle(_ step: OnboardingStep) -> String {
         switch step {

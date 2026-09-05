@@ -159,6 +159,41 @@ async def rename_bank(
     )
 
 
+@router.post("/banks/demo", response_model=BankListResponse)
+async def create_demo_bank(settings: Settings = Depends(get_settings)) -> BankListResponse:
+    """G117 — one click, a populated bank (`api/services/demo_bank.py`), for
+    the first-run sheet's "try it on a demo bank first" button. `409` if a
+    `demo` bank already exists (mirrors `create_bank`'s own collision
+    handling) rather than silently re-populating someone's edited copy —
+    the same reasoning `create_bank` names for a plain name collision.
+
+    Registered ahead of `create_bank` (whose slug is caller-supplied, so a
+    plain `POST /banks` could never collide with this literal route) but
+    placed as its own function rather than folded into it: the population
+    step below is demo-specific and unrelated to the general "make an empty
+    bank" contract `create_bank` gives every other caller.
+    """
+    root = settings.memory_root
+    try:
+        slug = bank_registry.create_bank(root, "demo", "Synthetic demo bank — try Cicada risk-free.")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    # Deferred: `demo_bank` pulls in `agentic_write` (fuzzy matching, claim
+    # reconciliation) for a handful of literal `write_claim` calls this ONE
+    # route makes — no other route in this module needs any of that, so
+    # every other request pays nothing for it.
+    from api.services import demo_bank
+
+    await run_in_threadpool(demo_bank.populate, bank_registry.bank_dir(root, slug))
+    bank_registry.activate_bank(root, slug)
+    await run_in_threadpool(run_bank_migrations, bank_registry.bank_dir(root, slug))
+    data = bank_registry.list_banks(root)
+    return BankListResponse(
+        banks=[BankInfo(**b) for b in data["banks"]],
+        active=data["active"],
+    )
+
+
 @router.post("/banks/{name}/import", response_model=BankImportResponse)
 async def import_into_bank(
     name: str,

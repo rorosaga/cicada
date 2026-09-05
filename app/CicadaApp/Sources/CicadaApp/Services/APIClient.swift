@@ -1066,6 +1066,17 @@ actor APIClient {
         return expectedSlug
     }
 
+    /// `POST /banks/demo` (G117) → one click, a populated synthetic bank
+    /// (`api/services/demo_bank.py`), already ACTIVATED server-side. The
+    /// echoed roster is what the first-run sheet's demo button hands to
+    /// `store.refresh([.banks])`, which notices `active` moved and re-hydrates
+    /// on its own (`Store.refresh`'s bank-switch fan-out) — no second
+    /// activate call needed.
+    @discardableResult
+    func createDemoBank() async throws -> BanksResponse {
+        try await post("/banks/demo")
+    }
+
     /// `POST /banks/{name}/activate` → switch the active bank.
     func activateBank(name: String) async throws {
         try await post("/banks/\(encodedBank(name))/activate")
