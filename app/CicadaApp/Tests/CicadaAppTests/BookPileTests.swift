@@ -137,4 +137,17 @@ final class BookPileTests: XCTestCase {
         XCTAssertEqual(byOrigin["safari-tab"]?.remaining, 1)
         XCTAssertEqual(byOrigin["safari-tab"]?.count, 1)
     }
+
+    func test_stackedDisplayOrderPutsTheFattestBookAtTheBottom() {
+        let books = bookPileLayout([
+            OriginVolume(origin: "safari-tab", count: 188, chars: 40_000, remaining: 188),
+            OriginVolume(origin: "telegram", count: 1, chars: 100, remaining: 1),
+            OriginVolume(origin: "claude-code", count: 6, chars: 900_000, remaining: 6),
+        ])
+        // Layout contract: largest first.
+        XCTAssertEqual(books.map(\.origin), ["claude-code", "safari-tab", "telegram"])
+        // Display contract: a VStack draws top-down, so the fattest spine must come LAST.
+        XCTAssertEqual(BookPileView.stacked(books).map(\.origin), ["telegram", "safari-tab", "claude-code"])
+        XCTAssertEqual(BookPileView.stacked([]).count, 0)
+    }
 }

@@ -97,10 +97,14 @@ func originVolumes(
     }
 }
 
-/// The pile itself: bottom-aligned spines, tallest visual weight toward the
-/// bottom of the frame like books actually stack. A spine whose
-/// `widthFraction` is 0 (everything from that source has been read this
-/// cycle) draws nothing rather than a zero-width sliver.
+/// The pile itself: bottom-aligned spines, the fattest book at the BOTTOM
+/// like books actually stack — `bookPileLayout` hands the specs largest-first
+/// (its own tested contract, and what the study list reads), so the view
+/// reverses them for display rather than asking the layout to sort the
+/// other way (owner-side check 2026-09-05: the first cut drew the biggest
+/// spine on top, which read as a chart's bar order, not a pile). A spine
+/// whose `widthFraction` is 0 (everything from that source has been read
+/// this cycle) draws nothing rather than a zero-width sliver.
 struct BookPileView: View {
     let books: [BookSpec]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -109,7 +113,7 @@ struct BookPileView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(books) { spec in
+            ForEach(Self.stacked(books)) { spec in
                 if spec.widthFraction > 0 {
                     spine(spec)
                 }
@@ -120,6 +124,12 @@ struct BookPileView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(books.reduce(0) { $0 + $1.count }) books on the pile")
     }
+
+    /// Display order: `bookPileLayout`'s largest-first list, bottom-up — the
+    /// remainder spine (always last in the layout) lands on the very bottom
+    /// of the pile, under the real books, which is where a folded "+more"
+    /// of small leftovers belongs. Pure and tested.
+    static func stacked(_ books: [BookSpec]) -> [BookSpec] { Array(books.reversed()) }
 
     @ViewBuilder
     private func spine(_ spec: BookSpec) -> some View {
