@@ -3,8 +3,9 @@ import SwiftUI
 /// "What is waiting for the next cycle", grouped by source (G125 — replaces
 /// the old `SleepQueueCard` + `SleepDebtBreakdown` pair, R1/R11). One row per
 /// origin, largest pile first; a chevron discloses that origin's episodes
-/// inline; the footer carries the one Consolidate/Cancel control the page
-/// keeps (R10) and a line naming when the next run happens.
+/// inline; the footer names when the next run happens. The one
+/// Consolidate/Cancel control lives in the hero since G125 v3 (R-A7) — the
+/// ruling is still "exactly one on this page", only its home moved.
 ///
 /// A projection over `Store.status` plus `SleepViewModel`; starts no fetches
 /// of its own. `rows` is computed by the caller (`studyRows`, in
@@ -56,24 +57,17 @@ struct StudyListCard: View {
 
             Divider().background(CicadaTheme.border).padding(.vertical, CicadaTheme.spacingXS)
 
+            // R-A7 (upgrading G125 R10): the one Consolidate/Cancel control
+            // moved to the hero, where the decision is actually made — the
+            // count, the meter and the engine it would run on are all right
+            // there. This footer keeps only the line that says WHEN the next
+            // run happens without anyone clicking anything.
             HStack(spacing: CicadaTheme.spacingMD) {
                 nextRunLine
                 Spacer()
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    consolidateButton(count: episodes.count)
-                    if sleepVM.isRunning {
-                        cancelButton
-                    }
-                }
             }
 
-            if sleepVM.isRunning {
-                Text(Copy.cancelSleepExplainer)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
+            if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
                 Text(err)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.danger)
@@ -210,7 +204,7 @@ struct StudyListCard: View {
             }
     }
 
-    // MARK: Footer — next run + the one Consolidate/Cancel pair (R10)
+    // MARK: Footer — when the next run happens
 
     /// "Manual only" / "Next run …" / "… after the next import", with a
     /// pointer to Settings → Sleep — the one place the time/interval
@@ -239,63 +233,5 @@ struct StudyListCard: View {
         let f = DateFormatter()
         f.dateFormat = "MMM d, h:mm a"
         return "Next run \(f.string(from: date))"
-    }
-
-    private func consolidateButton(count: Int) -> some View {
-        Button {
-            Task {
-                await sleepVM.triggerManually()
-                await store.refresh([.status, .channels])
-            }
-        } label: {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                if sleepVM.isRunning {
-                    ProgressView().controlSize(.small).frame(width: 12, height: 12)
-                } else {
-                    Image(systemName: "moon.fill").font(CicadaTheme.font(size: 12))
-                }
-                Text(sleepVM.isRunning ? Copy.consolidating : Copy.consolidateNow)
-                    .font(CicadaTheme.font(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(count == 0 && !sleepVM.isRunning ? CicadaTheme.textTertiary : .white)
-            .padding(.horizontal, CicadaTheme.spacingLG)
-            .padding(.vertical, CicadaTheme.spacingSM)
-            .background(count == 0 && !sleepVM.isRunning ? CicadaTheme.surfaceElevated : CicadaTheme.accent.opacity(0.9))
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.cicadaPlain)
-        .disabled(sleepVM.isRunning || count == 0)
-        .help(count == 0 ? "Nothing queued right now" : "Run the Sleep cycle now")
-        .accessibilityLabel(Copy.consolidateNow)
-    }
-
-    /// Only shown while a cycle is running (H1: the trigger button itself
-    /// stays disabled + read-only for "Consolidating…", so this is the one
-    /// live control the running state offers). Cooperative, not instant —
-    /// `Copy.cancelSleepExplainer` says so both here (tooltip) and in the
-    /// caption below the buttons.
-    private var cancelButton: some View {
-        Button {
-            Task { await sleepVM.cancel() }
-        } label: {
-            HStack(spacing: 4) {
-                if sleepVM.isCancelling {
-                    ProgressView().controlSize(.small).frame(width: 10, height: 10)
-                } else {
-                    Image(systemName: "xmark").font(CicadaTheme.font(size: 10, weight: .semibold))
-                }
-                Text(sleepVM.isCancelling ? Copy.cancellingSleep : Copy.cancelSleep)
-                    .font(CicadaTheme.font(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(CicadaTheme.textSecondary)
-            .padding(.horizontal, CicadaTheme.spacingMD)
-            .padding(.vertical, CicadaTheme.spacingSM)
-            .background(CicadaTheme.surfaceElevated)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.cicadaPlain)
-        .disabled(sleepVM.isCancelling)
-        .help(Copy.cancelSleepExplainer)
-        .accessibilityLabel(Copy.cancelSleep)
     }
 }

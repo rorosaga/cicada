@@ -61,6 +61,47 @@ enum Copy {
     static let consolidateNow = "Consolidate now"
     static let consolidating = "Consolidating…"
 
+    // MARK: The Sleep hero (G125 v3, R-A4…R-A7)
+
+    /// The noun under the hero's promoted numeral. Pluralised, like every
+    /// other count in this file (`clusterCount`, `bracketTail`) — the hero
+    /// draws it only when the count is at least 1, and "1 episodes waiting"
+    /// is the kind of small wrongness that makes a page look generated.
+    static func episodesWaiting(_ count: Int) -> String {
+        count == 1 ? "episode waiting" : "episodes waiting"
+    }
+
+    /// The Consolidate button's subtitle: what THIS click would run on
+    /// (`GET /sleep/engine`'s `preview.manual`). Shown at the moment of
+    /// choice rather than hidden, because the standing ruling — a scheduled
+    /// cycle never spends plan quota — makes manual and scheduled genuinely
+    /// different, and a button that hides which one it is would be lying by
+    /// omission. Absent, never guessed, when the preview hasn't loaded.
+    static func runsOn(engine: String) -> String { "Runs on \(engineLabel(engine))" }
+
+    /// The hero tiles' nouns (R-A6). Each takes its own count so the singular
+    /// is right, and an unknown (`nil`) keeps the plural — the tile shows `—`
+    /// beside it, so "— entities in memory" reads correctly and "— entity in
+    /// memory" would not.
+    static func entitiesInMemory(_ count: Int?) -> String {
+        count == 1 ? "entity in memory" : "entities in memory"
+    }
+
+    static func sourcesFeeding(_ count: Int?) -> String {
+        count == 1 ? "source feeding it" : "sources feeding it"
+    }
+
+    static let lastCycle = "Last cycle"
+
+    /// R-A14/P18 — every `—` on this page carries a hover reason naming why
+    /// the number is unknowable. A cycle's duration is joined from the
+    /// `sleep_run` telemetry ledger by commit hash; with telemetry off (or a
+    /// cycle older than the ledger) there is no row to join, and G107's
+    /// ruling forbids showing a guess in its place.
+    static let noTimingRecorded = "No timing was recorded for that cycle."
+    static let bankListNotLoaded = "The bank list hasn't loaded yet."
+    static let sourceOverviewNotLoaded = "The source overview hasn't loaded yet."
+
     /// The Feed page's "+" / ⌘N affordance for opening the add-source sheet
     /// (G68 §1 — Capture merged into Feed).
     static let addASource = "Add a source"

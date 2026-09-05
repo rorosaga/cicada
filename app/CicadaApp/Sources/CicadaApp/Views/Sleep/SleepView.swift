@@ -316,6 +316,20 @@ struct SleepView: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel(sleepDebtBracketText(mood, debt: debt))
 
+            // R-A4…R-A7 — the promoted count, the meter that names its noun,
+            // the three measured tiles and the page's one Consolidate/Cancel
+            // control. Every number it draws is resolved ABOVE, once per body
+            // evaluation (H1), and handed down: the hero can never disagree
+            // with the book pile or the queue card about which cycle's counts
+            // it is showing.
+            SleepHeroView(
+                mood: mood,
+                debt: debt,
+                read: bubbleCtx.read,
+                total: bubbleCtx.total,
+                queuedCount: sleepVM.queuedEpisodes.count
+            )
+
             moodDetailLine(mood: mood, debt: debt, progress: progress)
 
             if let engine = sleepVM.status?.lastEngine {

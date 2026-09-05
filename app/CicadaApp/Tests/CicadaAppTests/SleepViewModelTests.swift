@@ -452,4 +452,54 @@ final class SleepViewModelTests: XCTestCase {
         XCTAssertEqual(fetchCalls, 1, "a second click on an open row must not re-fetch")
         XCTAssertEqual(vm.details["abc123"]?.commitHash, "abc123")
     }
+
+    // MARK: G125 v3 Task 4 — the hero's engine subtitle (`load()`'s fifth fetch)
+
+    /// R-A7: the one Consolidate control names the engine the NEXT manual
+    /// cycle would run on. It rides `load()` like every other fetch, behind
+    /// the same `loadToken` guard, and is injectable for the same reason
+    /// `fetchHistory` is — no live backend in a unit test.
+    func test_load_populatesEnginePreviewFromTheInjectedFetch() async throws {
+        let store = idleStore()
+        let previews = SleepEnginePreviews(
+            manual: SleepEnginePreview(engine: "claude-cli", model: "sonnet", why: "your plan"),
+            scheduled: SleepEnginePreview(engine: "ollama", model: "llama3.1",
+                                          why: "a scheduled cycle never spends plan quota"))
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+            fetchEngine: {
+                SleepEngineResponse(mode: "claude-cli", model: "sonnet",
+                                    disambiguationModel: "sonnet", source: "prefs",
+                                    candidates: [], preview: previews)
+            }
+        )
+
+        await vm.load()
+
+        XCTAssertEqual(vm.enginePreview, previews)
+    }
+
+    /// An absent preview is a missing SUBTITLE, not a page error: the button
+    /// still works, it just cannot name its engine. So a throwing fetch
+    /// leaves `enginePreview` nil and never writes `errorMessage` — the
+    /// banner that field drives is reserved for failures the reader can act
+    /// on (`SleepView.errorBanner`).
+    func test_load_aFailingEngineFetchIsSilent() async throws {
+        struct Boom: Error {}
+        let store = idleStore()
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+            fetchEngine: { throw Boom() }
+        )
+
+        await vm.load()
+
+        XCTAssertNil(vm.enginePreview)
+        // `load()`'s episodes/schedule fetches hit the real APIClient and can
+        // legitimately fail in a unit test, so assert on the ENGINE half only.
+        XCTAssertFalse((vm.errorMessage ?? "").localizedCaseInsensitiveContains("engine"),
+                       "a missing engine preview must not raise a page error")
+    }
 }
