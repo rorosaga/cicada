@@ -1919,6 +1919,32 @@ actor APIClient {
         return try await get("/sleep/history/\(encoded)")
     }
 
+    /// `GET /settings/owner` — the first-run sheet's identity step reads
+    /// this to pre-fill the name field when "Run setup again" reopens it
+    /// (G117).
+    func fetchOwnerSettings() async throws -> OwnerSettings {
+        return try await get("/settings/owner")
+    }
+
+    /// `PUT /settings/owner`. `handle`/`email` are omitted from the body
+    /// entirely when `nil` rather than sent as JSON `null` — the same
+    /// conditional-assignment shape `updateSleepEngine` uses just above,
+    /// for the same reason: boxing a `nil` optional as `Any` inside a
+    /// `[String: Any]` is not JSON-null, it's an
+    /// `Optional<Any>.some(Optional<String>.none)`, which
+    /// `JSONSerialization.data(withJSONObject:)` (`put`'s own
+    /// implementation, below) cannot serialize and throws at runtime —
+    /// exactly what happens every time the person leaves handle/email
+    /// blank, the common case.
+    func updateOwnerSettings(
+        name: String, handle: String? = nil, email: String? = nil
+    ) async throws -> OwnerSettings {
+        var body: [String: Any] = ["name": name]
+        if let handle { body["handle"] = handle }
+        if let email { body["email"] = email }
+        return try await put("/settings/owner", body: body)
+    }
+
     // MARK: - Upload
 
     func uploadFile(fileURL: URL) async throws -> UploadResponse {

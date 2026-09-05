@@ -207,4 +207,24 @@ enum Copy {
     static let connectorExportBackfill =
         "The API only reaches your most recent ~1,000 saves. A one-off data "
         + "export backfills everything older."
+
+    // MARK: - First-run sheet (G117)
+
+    /// Step 2's caption above the embedded `IntegrationsView` — R4's
+    /// justification made visible: the whole Integrations page is shown, not
+    /// a hand-picked subset, and this line is what tells the reader they
+    /// only need to pick ONE row here, not connect everything before moving
+    /// on.
+    static let onboardingChannelCaption =
+        "Connect one thing to get started — add the rest anytime in Settings → Integrations."
+
+    /// One title per `OnboardingStep`, shown in the sheet's header.
+    static func onboardingStepTitle(_ step: OnboardingStep) -> String {
+        switch step {
+        case .identity: return "Who's using Cicada?"
+        case .engine: return "Choose a Sleep engine"
+        case .channel: return "Connect a source"
+        case .sleep: return "Run your first Sleep cycle"
+        }
+    }
 }

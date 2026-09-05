@@ -8,11 +8,17 @@ struct ContentView: View {
     /// exists (G68 retired five of them).
     @AppStorage("cicada.selectedTab") private var selectedTabRaw = AppTab.graph.rawValue
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
-    // First-launch onboarding: show the Connect guide once, then it lives in
-    // Settings → Agents (⌘,). Stored flag so reinstalls of the same Mac user
-    // don't re-trigger it on every launch.
-    @AppStorage("cicada.hasSeenConnectGuide") private var hasSeenConnectGuide = false
-    @State private var showOnboarding = false
+    // G117 — the four-step first-run sheet (identity → engine → one capture
+    // channel → first Sleep), gated per-bank (`OnboardingState`, R5) rather
+    // than the old machine-global `hasSeenConnectGuide` flag: switching to a
+    // fresh bank (or the demo bank, G117 Task 5) must show the tour again
+    // even on a Mac that already onboarded a different bank. The old
+    // single-step `ConnectView(isOnboarding: true)` sheet this replaces is
+    // still reachable — it's the same view Settings → Agents opens, and its
+    // "MCP item" content now also lives inside the embedded
+    // `IntegrationsView`'s `.chatAndAgents` category (`harnessRows`), so
+    // nothing it offered is lost, only the old single-step framing.
+    @State private var showFirstRun = false
     // ⌘K Ask panel (G52, spec §5.9).
     @State private var showAskPanel = false
 
@@ -60,7 +66,19 @@ struct ContentView: View {
         // directly), so there's nothing left for ContentView to kick off.
         .onAppear {
             selectedTab = AppTab.restored(from: selectedTabRaw)
-            if !hasSeenConnectGuide { showOnboarding = true }
+            // R6 — reads Store snapshots only, no extra fetch: `store.graph`
+            // is already hydrated (from the on-disk cache, then the network)
+            // by `store.bootstrap()`, called from `CicadaApp`'s own
+            // `.onAppear` before this view's tree is even built. `?? true`
+            // treats "graph not loaded yet" the same as "empty" — the sheet
+            // showing once on a slow first load and then never again (once
+            // `OnboardingState.markOnboarded` fires) is the safe failure
+            // direction; the alternative (treating unloaded as non-empty)
+            // would silently skip onboarding on a fresh bank whose first
+            // fetch just hasn't landed yet.
+            if !OnboardingState.isOnboarded(bank: store.bank) && (store.graph.value?.nodes.isEmpty ?? true) {
+                showFirstRun = true
+            }
         }
         .onChange(of: selectedTab) { _, newValue in
             selectedTabRaw = newValue.rawValue
@@ -69,12 +87,8 @@ struct ContentView: View {
             // alone; only its click-through history is cleared).
             graphVM.resetNavigationHistory()
         }
-        .sheet(isPresented: $showOnboarding) {
-            ConnectView(isOnboarding: true) {
-                hasSeenConnectGuide = true
-                showOnboarding = false
-            }
-            .frame(width: 780, height: 640)
+        .sheet(isPresented: $showFirstRun) {
+            FirstRunSheet(bank: store.bank) { showFirstRun = false }
         }
         // ⌘K opens the Ask panel (G52) from anywhere in the app — a hidden
         // button is the standard SwiftUI way to attach a global keyboard
@@ -94,6 +108,15 @@ struct ContentView: View {
             guard let newTab else { return }
             withAnimation(.spring(duration: 0.25)) { selectedTab = newTab }
             router.pendingTab = nil
+        }
+        // G117 — Settings → General's "Run setup again" hand-off. Settings
+        // is a separate window/scene (same reason `pendingTab` exists above
+        // for G126 R9's Feed hand-off) so it cannot flip `showFirstRun`
+        // directly; it stages this flag on the shared `AppRouter` instead.
+        .onChange(of: router.pendingFirstRun) { _, isPending in
+            guard isPending else { return }
+            showFirstRun = true
+            router.pendingFirstRun = false
         }
         .sheet(isPresented: $showAskPanel) {
             // G123: a citation lands ON its node — the graph zooms to that
