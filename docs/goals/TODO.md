@@ -160,7 +160,15 @@ and clock-free speech bubble, a book pile encoding queued characters per source 
 charts), a study list replacing the old queue card + debt breakdown, consolidation history with a
 server-parsed per-cycle detail and telemetry-joined duration, four schedule modes (manual · daily ·
 every N hours · after imports, always `user_triggered=False`), and the deprecated top-right
-Sleep/Upload buttons removed from this page
+Sleep/Upload buttons removed from this page. **Disclosed gap:** `GET /status`'s `next_sleep` (the
+one user-visible "Next run …" text, R6/R7) is calibrated from `sleep_debt.compute`'s
+`last_cycle_at`/`newest_unprocessed_at`; `GET /state`'s own `sleep.next_at`
+(`api/routers/state.py:100`, feeding the MCP handshake's now-view, not the app) is not — it calls
+`sleep_scheduler.next_run_at` with neither, so `interval` mode reads "N hours from now" instead of
+"N hours from the last real cycle" and `after_import` always reads `null`. Lower-stakes than the app
+surface (an agent's primer briefly imprecise right after a schedule-mode change, never a wrong clock
+shown to the user) and left as-is rather than adding a second `sleep_debt.compute` scan to an
+engine-free read path on a late pass — fold in alongside the next `/state` touch.
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
@@ -396,6 +404,8 @@ the report for what was checked)*
 - Sidebar footer: the sun/moon button next to the gear writes `cicada.colorScheme` but the owner reports
   nothing happens on press (2026-09-03) — verify whether the scheme is applied at the root (`preferredColorScheme`)
   and whether the graph page (hard-coded dark d3 palette, see GraphView.swift comment) masks it — XS
+- Graph re-lays out on every return to the Graph tab: `ContentView` rebuilds the `WKWebView` per
+  tab switch *(G109 Swift track — Wave A #1; the physics half shipped in phase 1)*
 - Bank `.git` is 69 MB against 16 MB of markdown — future growth stopped, **history not rewritten**
   (destructive; user's call)
 - 8 date-dependent `test_calendar_registry.py` failures — pre-existing baseline on dev

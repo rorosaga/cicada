@@ -65,8 +65,11 @@ func bookPileLayout(_ buckets: [OriginVolume], maxBooks: Int = 8) -> [BookSpec] 
 /// `running` — `queueByOrigin[origin] - readByOrigin[origin]`, clamped to
 /// never go negative (a transient race between the two counters must never
 /// draw a spine wider than the pile it's slicing) — and otherwise falls
-/// back to the origin's full `count` (idle: nothing has been read, the
-/// whole pile still stands).
+/// back to the origin's full `count`: idle (nothing has been read, the
+/// whole pile still stands) AND the case where `origin` is queued but not a
+/// key of `queueByOrigin` at all — the episode cap left it out of this
+/// cycle, same condition `studyRows` renders as "next cycle" rather than a
+/// bogus "0 of 0" — so its spine stays full-width too, not zeroed out.
 func originVolumes(
     queued: [EpisodeQueueItem],
     queueByOrigin: [String: Int],
@@ -84,8 +87,7 @@ func originVolumes(
     return order.map { origin in
         let count = countByOrigin[origin] ?? 0
         let remaining: Int
-        if running {
-            let queuedForCycle = queueByOrigin[origin] ?? 0
+        if running, let queuedForCycle = queueByOrigin[origin] {
             let readForCycle = readByOrigin[origin] ?? 0
             remaining = max(0, queuedForCycle - readForCycle)
         } else {

@@ -121,4 +121,20 @@ final class BookPileTests: XCTestCase {
         let volumes = originVolumes(queued: queued, queueByOrigin: ["claude-code": 2], readByOrigin: ["claude-code": 5], running: true)
         XCTAssertEqual(volumes.first?.remaining, 0)
     }
+
+    /// An origin the episode cap left out of THIS cycle is queued but is not
+    /// a key of `queueByOrigin` at all (distinct from the zero-remaining
+    /// case above, where it IS a key). `studyRows` renders that as "next
+    /// cycle" rather than a bogus "0 of 0" — the pile must match: the spine
+    /// stays full-width, not zeroed to a vanished sliver.
+    func test_originVolumes_running_originLeftOutOfCycleByCapStaysFullWidth() {
+        let queued = [
+            episode(id: "1", origin: "claude-code", chars: 500),
+            episode(id: "2", origin: "safari-tab", chars: 100),
+        ]
+        let volumes = originVolumes(queued: queued, queueByOrigin: ["claude-code": 10], readByOrigin: ["claude-code": 4], running: true)
+        let byOrigin = Dictionary(uniqueKeysWithValues: volumes.map { ($0.origin, $0) })
+        XCTAssertEqual(byOrigin["safari-tab"]?.remaining, 1)
+        XCTAssertEqual(byOrigin["safari-tab"]?.count, 1)
+    }
 }

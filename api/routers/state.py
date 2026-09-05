@@ -97,6 +97,13 @@ async def get_state(
     for row in state.get("conversations", []) or []:
         row["resumable"] = bool(conv.transcript_exists(project_dirs.get(row["id"]), row["id"]))
     # Per request, local clock — never in the file (see the module docstring).
+    # Disclosed gap (G125 TODO.md): no `last_cycle_at`/`newest_unprocessed_at`
+    # is threaded through here, unlike `GET /status`'s calibrated call — so
+    # `interval` reads "N hours from now" and `after_import` always reads
+    # `null`. Feeds the MCP handshake's now-view, not the app's own "Next
+    # run" text, so a brief primer imprecision right after a schedule-mode
+    # change was judged not worth a second `sleep_debt.compute` scan on this
+    # engine-free read path.
     state.setdefault("sleep", {})["next_at"] = sleep_scheduler.next_run_at(memory_path)
     state["stale"] = state.get("inputs_version") != state_dictionary.inputs_version(memory_path)
     state.pop("body", None)
