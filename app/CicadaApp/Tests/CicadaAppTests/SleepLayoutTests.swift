@@ -76,3 +76,88 @@ final class SleepLayoutTests: XCTestCase {
         XCTAssertEqual(sleepLayout(width: 0).maxContentWidth, 760)
     }
 }
+
+/// G125 v3 Task 8 — the page's liveness, as a pure function of the connection,
+/// the last successful refresh and whether there is already news on screen.
+///
+/// The rule under test is R-A12: a disconnected page is *shown*, one
+/// desaturation step down with an `as of HH:MM` chip that dates it — never
+/// blanked, never faked — and the **error state is exempt**, because an error
+/// banner at 85% saturation is news whispered.
+final class SleepLivenessTests: XCTestCase {
+
+    private let then = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+    func test_connected_isLive() {
+        XCTAssertEqual(sleepLiveness(isConnected: true, loadedAt: then, isError: false, now: then),
+                       .live)
+    }
+
+    /// The only stale case: the backend is gone AND there is a real timestamp
+    /// to date the page by.
+    func test_disconnectedWithALoadedAt_isStaleAndCarriesThatDate() {
+        XCTAssertEqual(sleepLiveness(isConnected: false, loadedAt: then, isError: false, now: then),
+                       .stale(asOf: then))
+    }
+
+    /// R-A12: news stays at full contrast. An error banner is the one thing on
+    /// the page that must not read as "probably out of date".
+    func test_disconnectedWithAnError_staysLive() {
+        XCTAssertEqual(sleepLiveness(isConnected: false, loadedAt: then, isError: true, now: then),
+                       .live)
+    }
+
+    /// Nothing has ever loaded, so there is no hour to print. A chip reading
+    /// "as of 00:00" would be a fabricated timestamp — the same refusal `—`
+    /// carries everywhere else on this page (P18).
+    func test_disconnectedWithNothingLoaded_staysLive() {
+        XCTAssertEqual(sleepLiveness(isConnected: false, loadedAt: nil, isError: false, now: then),
+                       .live)
+    }
+
+    /// `now` is injected so the function is pure and testable, and today the
+    /// answer does not depend on it — a staleness *threshold* would be the
+    /// thing that used it. Pinned so a future threshold cannot arrive
+    /// unnoticed and start hiding a chip after N minutes.
+    func test_theAnswerDoesNotDependOnTheClockYet() {
+        let muchLater = then.addingTimeInterval(60 * 60 * 24 * 365)
+        XCTAssertEqual(sleepLiveness(isConnected: false, loadedAt: then, isError: false, now: then),
+                       sleepLiveness(isConnected: false, loadedAt: then, isError: false, now: muchLater))
+    }
+
+    /// ONE desaturation step (R-A12) — a value on the enum rather than a
+    /// literal in the body, so "one step" is a number a reader can check.
+    func test_oneDesaturationStepAndOnlyWhenStale() {
+        XCTAssertEqual(SleepLiveness.live.saturation, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(SleepLiveness.stale(asOf: then).saturation, 0.85, accuracy: 1e-9)
+        XCTAssertEqual(SleepLiveness.staleSaturation, 0.85, accuracy: 1e-9)
+    }
+
+    func test_asOfIsNilWhenLive() {
+        XCTAssertNil(SleepLiveness.live.asOf)
+        XCTAssertEqual(SleepLiveness.stale(asOf: then).asOf, then)
+    }
+
+    /// The chip is ONE number over a page built from several domains, so it
+    /// takes the OLDEST reading on screen: claiming the newest would overstate
+    /// how fresh the stalest card is.
+    func test_stalestLoadedAt_takesTheOldestAndIgnoresDomainsThatNeverLoaded() {
+        let older = then.addingTimeInterval(-600)
+        XCTAssertEqual(SleepLiveness.stalestLoadedAt(then, older), older)
+        XCTAssertEqual(SleepLiveness.stalestLoadedAt(nil, then), then)
+        XCTAssertNil(SleepLiveness.stalestLoadedAt(nil, nil))
+    }
+
+    /// The chip's wording, with the zone injected so the assertion never
+    /// depends on the runner's locale — the same seam
+    /// `SleepHistoryPresentation.timeText` opened for exactly this reason.
+    func test_asOfChipNamesTheHourAndMinute() {
+        var utcNoonish = DateComponents()
+        utcNoonish.year = 2026; utcNoonish.month = 9; utcNoonish.day = 5
+        utcNoonish.hour = 16; utcNoonish.minute = 12
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let date = cal.date(from: utcNoonish)!
+        XCTAssertEqual(Copy.asOf(date, timeZone: TimeZone(identifier: "UTC")!), "as of 16:12")
+    }
+}

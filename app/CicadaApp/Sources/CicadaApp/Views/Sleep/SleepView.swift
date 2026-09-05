@@ -50,8 +50,99 @@ func sleepLayout(width: CGFloat) -> SleepLayout {
                        leftFraction: SleepLayout.twoColumnLeftFraction)
 }
 
+// MARK: - Liveness (G125 v3 Task 8 — spec R-A12)
+
+/// Whether what the page is showing is a live reading or a last-known-good
+/// one, and — when it is the latter — the moment it was good at.
+///
+/// The Store's whole design is last-known-good projections that **never
+/// blank** (CLAUDE.md, the sync engine). The cost of that promise is that a
+/// dead backend looks exactly like a healthy one. This is the honest tax:
+/// one desaturation step and a chip that dates the page, so a reader can tell
+/// "nothing has changed" from "nothing is arriving" without the page ever
+/// throwing away the numbers it already has.
+enum SleepLiveness: Equatable {
+    case live
+    case stale(asOf: Date)
+
+    /// ONE step (R-A12). Named rather than written into a `.saturation(0.85)`
+    /// at each call site so "one step" stays one number.
+    static let staleSaturation: Double = 0.85
+
+    var saturation: Double {
+        switch self {
+        case .live: 1.0
+        case .stale: Self.staleSaturation
+        }
+    }
+
+    var asOf: Date? {
+        if case .stale(let date) = self { return date }
+        return nil
+    }
+
+    /// The page draws several domains, each with its own `Snapshot.loadedAt`.
+    /// The chip is ONE number, so it takes the OLDEST of them: naming the
+    /// newest would date the page by its freshest card and quietly overstate
+    /// how current the stalest one is. A domain that has never loaded
+    /// contributes nothing — it has no reading to be stale.
+    static func stalestLoadedAt(_ dates: Date?...) -> Date? {
+        dates.compactMap { $0 }.min()
+    }
+}
+
+/// R-A12. Three refusals, in order:
+///
+/// - Connected → `.live`. Nothing to disclose.
+/// - **An error is on screen → `.live`, even disconnected.** News stays at
+///   full contrast; an error banner desaturated to 85% is a warning
+///   whispered, and the one thing a person opens this page for during a
+///   failure is that banner.
+/// - Nothing has ever loaded → `.live`. There is no hour to print, and a chip
+///   reading "as of 00:00" would be a fabricated timestamp — the same refusal
+///   `—` carries everywhere else on this page (P18).
+///
+/// `now` is injected rather than read from the clock so the function stays
+/// pure and testable (the R8 rule the speech bubble already follows). **With
+/// today's rules the result does not depend on it** — it is the parameter a
+/// later staleness *threshold* ("older than N minutes") would use, and it is
+/// declared now so adding one is an edit to this function rather than a new
+/// signature at every call site.
+func sleepLiveness(isConnected: Bool,
+                   loadedAt: Date?,
+                   isError: Bool,
+                   now: Date = Date()) -> SleepLiveness {
+    guard !isConnected, !isError, let loadedAt else { return .live }
+    return .stale(asOf: loadedAt)
+}
+
 // MARK: - Sleep Dashboard — the study desk (G125)
 
+/// **The motion budget (G125 v3 Task 8, spec R-A13).** Four rules, and every
+/// one of them has a test or a lint behind it — a budget that lives only in a
+/// comment is a budget that drifts:
+///
+/// 1. **Idle is still.** Nothing on a settled page moves except the worm's own
+///    frame loop. `DeskSceneView` has no `TimelineView` (its docstring says
+///    so), and `SleepStageStrip` starts one *only* while a pip is actually
+///    active — an idle page costs zero redraws.
+/// 2. **Nothing animates longer than 400 ms**, except the stage pulse, which
+///    is capped separately at 1.2 s (`SleepStages.pulsePeriod`) because a
+///    breath is a state indicator, not a transition. Every duration on this
+///    page is a named constant on `SleepMotion`, and
+///    `SleepNumbersLintTests.testTheSleepFolderDeclaresNoLiteralAnimationDuration`
+///    fails the build on a literal `duration:` anywhere else under
+///    `Views/Sleep/`.
+/// 3. **Reduce Motion holds every animation at its terminal frame.** The worm
+///    through `BookwormView.frameIndex(…reduceMotion:)`, the pulse through
+///    `stagePulse(at:reduceMotion:)`, and every value-driven settle through
+///    `SleepMotion.settle/pile/disclosure(reduceMotion:)`, which return `nil`
+///    — SwiftUI for "jump to the new value".
+/// 4. **No spinner where a real count exists.** A `ProgressView` on this page
+///    appears only where there is genuinely nothing to count yet: the queue
+///    before its first fetch, a history row's detail mid-load, and the
+///    Consolidate/Cancel buttons' own in-flight state. The queue's rows lost
+///    theirs in Task 6 — they have `read of total`.
 struct SleepView: View {
     @Binding var selectedTab: AppTab
     /// Entity chips inside the consolidation history's expanded detail land
@@ -67,6 +158,7 @@ struct SleepView: View {
     // readout on the page from disagreeing when a capture lands while it's
     // open.
     @Environment(Store.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var loadedOnce: Bool = false
     // PR #19 review: rapid live-count changes (a capture landing, then
     // another one right behind it) fired an untracked `sleepVM.load()` Task
@@ -203,23 +295,52 @@ struct SleepView: View {
         }
     }
 
+    /// The one error the page has to tell, if there is one — `lastError`
+    /// preferred over the transient `errorMessage`, which is how `leftColumn`
+    /// has always resolved it. Pulled out because liveness needs the same
+    /// answer: an error banner is the R-A12 exemption.
+    private var pageError: String? {
+        guard let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty else { return nil }
+        return error
+    }
+
+    /// R-A12. Both domains this page projects are asked for their last
+    /// successful refresh; `stalestLoadedAt` takes the older, so the chip
+    /// never dates the page by its freshest card.
+    private var liveness: SleepLiveness {
+        sleepLiveness(
+            isConnected: store.isConnected,
+            loadedAt: SleepLiveness.stalestLoadedAt(store.status.loadedAt,
+                                                    store.sourcesOverview.loadedAt),
+            isError: pageError != nil
+        )
+    }
+
     /// The page's subject: the room, what the cycle is doing, and what is
     /// waiting for it. The error banner keeps its place between the two — it is
     /// news about the cycle the desk card is describing.
+    ///
+    /// R-A12: the desaturation is applied **per card**, not to the column, so
+    /// the error banner sits at full contrast between two dimmed cards. A
+    /// group modifier here would be one character shorter and would take the
+    /// banner down with it.
     @ViewBuilder
     private var leftColumn: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             deskCard
-            if let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty {
+                .saturation(liveness.saturation)
+            if let error = pageError {
                 errorBanner(error)
             }
             StudyListCard(rows: studyListRows, episodes: sleepVM.queuedEpisodes, onSelectEntity: onSelectEntity)
+                .saturation(liveness.saturation)
         }
     }
 
     /// The page's margin: where memory came from, and what past cycles did with
     /// it. Both are projections of domains the caller already holds — neither
-    /// card fetches anything (R-A10).
+    /// card fetches anything (R-A10). Nothing here is news, so the whole
+    /// column takes the liveness treatment together.
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             MemorySourcesCard(rows: memoryRows) { selectedTab = .sources }
@@ -231,6 +352,7 @@ struct SleepView: View {
                 onSelectEntity: onSelectEntity
             )
         }
+        .saturation(liveness.saturation)
     }
 
     /// A projection of `store.sourcesOverview` — the SAME domain the hero's
@@ -323,7 +445,7 @@ struct SleepView: View {
     /// again this session.
     private func toggleHistory(_ commit: String) {
         let opening = sleepVM.expanded != commit
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) {
             sleepVM.expanded = opening ? commit : nil
         }
         if opening {
@@ -338,14 +460,43 @@ struct SleepView: View {
         // the whole VStack, so this header strips PageHeader's outer padding and
         // just reuses its title/subtitle typography for visual parity.
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Text("Sleep Cycle")
-                .font(CicadaTheme.titleFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Text("Sleep Cycle")
+                    .font(CicadaTheme.titleFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                // R-A12: the chip is the *explanation* for the dimming below
+                // it, so it stays at full contrast and sits outside every
+                // desaturated group.
+                if let asOf = liveness.asOf {
+                    stalenessChip(asOf)
+                }
+                Spacer(minLength: 0)
+            }
             Text(Copy.sleepSubtitle)
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "as of 16:12" — the moment the numbers below were last confirmed by a
+    /// backend that is no longer answering. A dated page is honest; a blank
+    /// one loses work the reader can still use, and an undated one lies by
+    /// omission.
+    private func stalenessChip(_ asOf: Date) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "wifi.slash")
+                .font(CicadaTheme.font(size: 9, weight: .semibold))
+            Text(Copy.asOf(asOf))
+                .font(CicadaTheme.font(size: 10, weight: .semibold))
+        }
+        .foregroundStyle(CicadaTheme.textTertiary)
+        .padding(.horizontal, CicadaTheme.spacingSM)
+        .padding(.vertical, 3)
+        .background(CicadaTheme.surfaceElevated)
+        .clipShape(Capsule())
+        .help(Copy.notConnectedExplainer)
+        .accessibilityLabel("\(Copy.notConnectedExplainer) \(Copy.asOf(asOf))")
     }
 
     // MARK: The desk (G106 amendment; G107 art; G125 the study desk)

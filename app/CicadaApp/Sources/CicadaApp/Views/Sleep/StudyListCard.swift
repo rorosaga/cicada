@@ -85,6 +85,9 @@ func scheduledEngineLine(preview: SleepEnginePreviews?) -> String? {
 struct StudyListCard: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(Store.self) private var store
+    /// R-A13 — a row's disclosure is a transition, and Reduce Motion turns it
+    /// into a jump (`SleepMotion.disclosure` returns `nil`).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let rows: [StudyRow]
     let episodes: [EpisodeQueueItem]
@@ -201,7 +204,7 @@ struct StudyListCard: View {
 
     private func rowView(_ row: StudyRow) -> some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) {
                 if expandedOrigins.contains(row.origin) {
                     expandedOrigins.remove(row.origin)
                 } else {

@@ -177,6 +177,27 @@ enum Copy {
     static let pauseAutoRun = "Pause auto-run"
     static let resumeAutoRun = "Resume auto-run"
 
+    // MARK: Liveness (G125 v3 Task 8 — spec R-A12)
+
+    /// Why a page is desaturated one step: the backend stopped answering, and
+    /// what is on screen is the last thing it said. Deliberately not an
+    /// error — the Store's whole promise is that a view never blanks, and a
+    /// disconnect is a fact about the connection, not a failure of the cycle.
+    static let notConnectedExplainer = "Not connected — showing the last reading."
+
+    /// The chip that dates a desaturated page. 24-hour, zero-padded, because
+    /// it sits inline next to a title and `4:12 PM` is three glyphs wider for
+    /// no added meaning. `timeZone` is injectable for the same reason
+    /// `SleepHistoryPresentation.timeText` opened that seam: so the assertion
+    /// never depends on the test runner's locale.
+    static func asOf(_ date: Date, timeZone: TimeZone = .current) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        f.timeZone = timeZone
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return "as of \(f.string(from: date))"
+    }
+
     // MARK: Observer
 
     /// The user's own observer label. Never the account holder's first name —
@@ -187,7 +208,12 @@ enum Copy {
 
     static let clustersSubtitle = "Every entity, grouped by type."
     static let feedSubtitle = "Everything Cicada has read, newest first."
-    static let sleepSubtitle = "Fold today's episodes into the graph."
+    /// G125 v3 Task 8: "today's episodes" was the one false string on the
+    /// page. The queue's oldest item is months old on a real bank — the
+    /// queue card's own `oldest 87d` says so two cards down — so a subtitle
+    /// promising *today* contradicted a number the same screen was drawing.
+    /// What a cycle actually does is fold whatever is waiting, however old.
+    static let sleepSubtitle = "Fold what's waiting into the graph."
     static let inboxSubtitle = "Questions waiting on you."
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."

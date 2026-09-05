@@ -154,7 +154,7 @@ struct SleepStageStrip: View {
                 EmptyView()
             }
         }
-        .animation(.easeInOut(duration: 0.35), value: activeFillWidthKey)
+        .animation(SleepMotion.settle(reduceMotion: reduceMotion), value: activeFillWidthKey)
     }
 
     /// The value the fill animates on — an `Equatable` scalar rather than the

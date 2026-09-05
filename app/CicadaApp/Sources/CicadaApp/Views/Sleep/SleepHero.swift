@@ -220,6 +220,11 @@ func heroTiles(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?) -> [H
 struct SleepHeroView: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(Store.self) private var store
+    /// R-A13: the meter's blocks ease between two readings, and Reduce Motion
+    /// has to reach that easing. It did not before Task 8 — the modifier took
+    /// a non-optional literal, which is how a `.animation(...)` silently skips
+    /// the setting.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let mood: BookwormState
     let debt: SleepDebtView?
@@ -292,7 +297,7 @@ struct SleepHeroView: View {
                         .frame(width: 8, height: 12)
                 }
             }
-            .animation(.easeInOut(duration: 0.35), value: meter.filledBlocks)
+            .animation(SleepMotion.settle(reduceMotion: reduceMotion), value: meter.filledBlocks)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(meter.label)

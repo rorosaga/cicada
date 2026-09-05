@@ -120,7 +120,7 @@ struct BookPileView: View {
             }
         }
         .frame(maxHeight: .infinity, alignment: .bottom)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: books)
+        .animation(SleepMotion.pile(reduceMotion: reduceMotion), value: books)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(books.reduce(0) { $0 + $1.count }) books on the pile")
     }
