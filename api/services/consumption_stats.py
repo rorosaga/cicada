@@ -330,3 +330,89 @@ def per_connection(events: list[UsageEvent], connection_statuses: list[dict]) ->
             "by_model": _group([e for e in evs if e.kind in ("llm_call", "ask")], "model", "model"),
         })
     return rows
+
+
+_CAL_BUCKETS: tuple[tuple[str, float, float], ...] = (
+    ("<0.5", 0.0, 0.5), ("0.5–0.7", 0.5, 0.7), ("0.7–0.9", 0.7, 0.9), ("≥0.9", 0.9, 1.01),
+)
+
+
+def _rate(agreed: int, overruled: int) -> float | None:
+    judged = agreed + overruled
+    return round(agreed / judged, 4) if judged else None
+
+
+async def feedback(memory_path: Path, *, range_: str, today: date) -> dict:
+    """The grounded-reward ledger (G113) as numbers.
+
+    Reads only the three ``telemetry.FEEDBACK_KINDS`` events. A ``neutral``
+    verdict (defer / skip / "both") counts toward ``resolutions`` — it is
+    engagement — but never toward a rate: a deferral is not a judgement on
+    the extractor. Calibration buckets use the ``extractor_confidence`` ref
+    the resolution event carried; events without one (decay, clarification)
+    are simply absent from that table. ``memory_path`` is accepted for
+    signature parity with the other aggregators; nothing here reads the bank.
+    """
+    start = resolve_range(range_, today)
+    events = [e for e in _events_in(range_, today) if e.kind in telemetry.FEEDBACK_KINDS]
+    resolutions = [e for e in events if e.kind == "resolution"]
+
+    per_kind: dict[str, dict] = defaultdict(lambda: {"total": 0, "agreed": 0, "overruled": 0})
+    actions: Counter[str] = Counter()
+    cal: dict[str, dict] = {name: {"n": 0, "agreed": 0} for name, _, _ in _CAL_BUCKETS}
+    agreed = overruled = 0
+    for e in resolutions:
+        refs = e.refs or {}
+        verdict = refs.get("verdict")
+        kind = str(refs.get("kind") or "unknown")
+        row = per_kind[kind]
+        row["total"] += 1
+        actions[str(refs.get("action") or "unknown")] += 1
+        if verdict not in ("agreed", "overruled"):
+            continue
+        row[verdict] += 1
+        if verdict == "agreed":
+            agreed += 1
+        else:
+            overruled += 1
+        conf = refs.get("extractor_confidence")
+        if isinstance(conf, (int, float)):
+            for name, lo, hi in _CAL_BUCKETS:
+                if lo <= float(conf) < hi:
+                    cal[name]["n"] += 1
+                    cal[name]["agreed"] += verdict == "agreed"
+                    break
+
+    agreement = [
+        {"kind": k, "total": r["total"], "agreed": r["agreed"], "overruled": r["overruled"],
+         "rate": _rate(r["agreed"], r["overruled"])}
+        for k, r in per_kind.items()
+    ]
+    agreement.sort(key=lambda r: (-r["total"], r["kind"]))
+    calibration = [
+        {"bucket": name, "n": cal[name]["n"],
+         "agreed_rate": round(cal[name]["agreed"] / cal[name]["n"], 4) if cal[name]["n"] else None}
+        for name, _, _ in _CAL_BUCKETS
+    ]
+    by_action = [{"action": a, "n": n} for a, n in actions.most_common()]
+
+    audits = Counter(str((e.refs or {}).get("action")) for e in events if e.kind == "audit")
+    dedup_events = [e for e in events if e.kind == "dedup_verdict"]
+    dedup_verdicts = Counter(str((e.refs or {}).get("verdict")) for e in dedup_events)
+    return {
+        "range": range_,
+        "since": start.isoformat() if start else None,
+        "resolutions": len(resolutions),
+        "corrections": overruled,
+        "rate": _rate(agreed, overruled),
+        "agreement": agreement,
+        "calibration": calibration,
+        "by_action": by_action,
+        "audits": {"supersede": audits.get("supersede", 0), "rejected": audits.get("rejected", 0)},
+        "dedup": {
+            "same": dedup_verdicts.get("same", 0),
+            "different": dedup_verdicts.get("different", 0),
+            "unsure": dedup_verdicts.get("unsure", 0),
+            "merged": sum(1 for e in dedup_events if (e.refs or {}).get("applied") == "merged"),
+        },
+    }

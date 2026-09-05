@@ -117,13 +117,26 @@ def test_resolve_inbox_free_text(server, monkeypatch):
     assert seen == {"action": "resolve", "optionKey": "neither", "answer": "Acme Robotics"}
 
 
+def test_resolve_inbox_reject_posts_reject_action(server, monkeypatch):
+    """G113 slice 3b: reject=true is a real, remembered verdict — unlike
+    skip, it IS posted to the backend (which records the pair)."""
+    seen = {}
+    monkeypatch.setattr(
+        server, "_backend_post",
+        lambda path, payload: seen.update(payload) or {"status": "resolved"},
+    )
+    out = server.handle_resolve_inbox("inbox-001", None, None, False, None, reject=True)
+    assert seen == {"action": "reject"}
+    assert "resolved" in out
+
+
 def test_resolve_inbox_tool_is_registered(server):
     names = {t["name"] for t in server.TOOLS}
     assert "cicada_resolve_inbox" in names
     tool = next(t for t in server.TOOLS if t["name"] == "cicada_resolve_inbox")
     assert tool["inputSchema"]["required"] == ["id"]
     assert set(tool["inputSchema"]["properties"]) == {
-        "id", "option_key", "answer", "defer", "remind_days", "skip",
+        "id", "option_key", "answer", "defer", "remind_days", "skip", "reject",
     }
 
 

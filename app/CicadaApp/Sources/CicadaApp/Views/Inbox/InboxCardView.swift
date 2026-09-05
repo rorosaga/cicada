@@ -359,8 +359,11 @@ struct InboxCardView: View {
                                             mergeSurvivor: survivor))
                 }
                 Spacer()
-                InboxActionButton(title: "Dismiss", icon: "xmark", color: CicadaTheme.textSecondary) {
-                    fire(QuestionResolution(action: "dismiss"))
+                InboxActionButton(title: "Keep separate", icon: "xmark", color: CicadaTheme.textSecondary) {
+                    // G113 slice 3b: unlike a plain dismiss, this is a
+                    // remembered verdict — the backend records the pair so
+                    // it is never re-proposed by Sleep or the dedup sweep.
+                    fire(QuestionResolution(action: "reject"))
                 }
                 InboxActionButton(title: "Skip", icon: "arrow.right", color: CicadaTheme.textTertiary) {
                     fire(QuestionResolution(action: "skip"))

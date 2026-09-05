@@ -384,6 +384,12 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
             "trigger": nudge.get("trigger", "sleep/conflict_resolution"),
             # G61 — which declared source refreshes this fact, "conflict"-only.
             "hint": hint,
+            # G113 slice 3 — "normalization"-only; null for every other kind,
+            # the same way `predicate`/`question`/`hint` already go null for
+            # kinds that don't use them (`markdown_parser.write` does not
+            # strip `None` values, and that's fine and consistent).
+            "raw_predicate": nudge.get("raw_predicate"),
+            "canonical_predicate": nudge.get("canonical_predicate"),
         }
         body = nudge.get("conflict_context") or (
             f"{entity_name} hasn't been mentioned recently; confidence dropped to "

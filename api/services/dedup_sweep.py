@@ -4,7 +4,7 @@ uncertain. Runs on a duplicate bank; never on the live bank in tests."""
 from __future__ import annotations
 import logging
 from pathlib import Path
-from api.services import markdown_parser, telemetry
+from api.services import markdown_parser, merge_rejections, telemetry
 from api.services.entity_merge import merge_entities
 
 logger = logging.getLogger(__name__)
@@ -68,8 +68,16 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
     ents = memory_path / "entities"
     merged, proposed, nudged = [], [], []
     gone: set[str] = set()
+    # G113 slice 3b (R5) — a pair the user already told us are NOT duplicates
+    # is skipped without ever calling the (paid) judge, mirroring
+    # `clarification_manager.create`'s check on the Sleep-time producer side.
+    rejected = merge_rejections.load_rejected(memory_path)
+    skipped_rejected = 0
     for a, b in pairs:
         if a in gone or b in gone:
+            continue
+        if (a, b) in rejected or (b, a) in rejected:
+            skipped_rejected += 1
             continue
         ap, bp = ents / f"{a}.md", ents / f"{b}.md"
         if not ap.exists() or not bp.exists():
@@ -116,7 +124,13 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
         except Exception as exc:  # noqa: BLE001 - one bad pair must not abort the sweep
             logger.warning("dedup_sweep: skipping pair (%s, %s) after error: %s", a, b, exc)
             continue
-    return {"merged": merged, "proposed": proposed, "nudged": nudged, "candidate_pairs": len(pairs)}
+    return {
+        "merged": merged,
+        "proposed": proposed,
+        "nudged": nudged,
+        "candidate_pairs": len(pairs),
+        "skipped_rejected": skipped_rejected,
+    }
 
 
 def _default_judge_fn(settings):  # pragma: no cover - needs a real model

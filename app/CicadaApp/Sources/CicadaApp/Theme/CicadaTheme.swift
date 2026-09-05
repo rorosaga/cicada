@@ -373,6 +373,13 @@ private extension CicadaTheme {
             case .conflict: Color(hex: 0xFF5C5C)
             case .clarification: Color(hex: 0x8896FF)
             case .mergeSuggestion: Color(hex: 0xF2C744)
+            // G113 slice 3: no new hue budget — a divergence IS a conflict
+            // shape (two competing claims) and a normalization IS a
+            // clarification shape (confirm-or-correct), so each borrows its
+            // sibling's color rather than adding a color the palette wasn't
+            // designed around.
+            case .divergence: Color(hex: 0xFF5C5C)
+            case .normalization: Color(hex: 0x8896FF)
             }
         }
     }
@@ -469,6 +476,10 @@ private extension CicadaTheme {
             case .conflict: Color(hex: 0xE43D3D)
             case .clarification: Color(hex: 0x5A62E0)
             case .mergeSuggestion: Color(hex: 0xB48A00)
+            // G113 slice 3: same pairing as Dark above — divergence reads as
+            // conflict, normalization reads as clarification.
+            case .divergence: Color(hex: 0xE43D3D)
+            case .normalization: Color(hex: 0x5A62E0)
             }
         }
     }

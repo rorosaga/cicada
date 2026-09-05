@@ -6,6 +6,12 @@ import SwiftUI
 enum InboxKind: String, Codable {
     case decay, conflict, clarification
     case mergeSuggestion = "merge_suggestion"
+    // G113 slice 3: Sleep has written both kinds for months
+    // (`inbox_generator.py`'s `divergence_nudge`/`normalization_audit`
+    // branches); the API only just started decoding them (`InboxKind` in
+    // `api/models/schemas.py`) instead of dropping the item and warning.
+    case divergence
+    case normalization
 
     var label: String {
         switch self {
@@ -13,6 +19,8 @@ enum InboxKind: String, Codable {
         case .conflict: "Conflict"
         case .clarification: "Clarification"
         case .mergeSuggestion: "Possible duplicate"
+        case .divergence: "Divergence"
+        case .normalization: "Predicate fold"
         }
     }
 
@@ -23,6 +31,8 @@ enum InboxKind: String, Codable {
         case .conflict: "exclamationmark.triangle.fill"
         case .clarification: "questionmark.circle.fill"
         case .mergeSuggestion: "arrow.triangle.merge"
+        case .divergence: "arrow.triangle.branch"
+        case .normalization: "arrow.triangle.merge"
         }
     }
 
