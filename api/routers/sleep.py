@@ -1,12 +1,13 @@
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
     EpisodeQueueItem,
     ScheduleConfig,
     SleepCancelResponse,
+    SleepCycleDetail,
     SleepDebtResponse,
     SleepHistoryEntry,
     SleepStatusResponse,
@@ -134,8 +135,16 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
 
 
 @router.get("/sleep/history", response_model=list[SleepHistoryEntry])
-async def sleep_history(settings: Settings = Depends(get_settings)):
-    return await git_service.get_sleep_history(settings.memory_path)
+async def sleep_history(limit: int = Query(15, ge=1, le=100), settings: Settings = Depends(get_settings)):
+    return await git_service.get_sleep_history(settings.memory_path, limit=limit)
+
+
+@router.get("/sleep/history/{commit}", response_model=SleepCycleDetail)
+async def sleep_cycle_detail(commit: str, settings: Settings = Depends(get_settings)):
+    detail = await git_service.get_sleep_cycle_detail(settings.memory_path, commit)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
+    return detail
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])

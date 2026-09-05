@@ -1168,6 +1168,14 @@ class SleepStatusResponse(CamelModel):
 
 
 class SleepHistoryEntry(CamelModel):
+    """One consolidation, as the Sleep page's history lists it (G125 R4).
+
+    Counts are parsed server-side from the commit's manifest lines — the body
+    itself never crosses the wire (the M1 lesson: 787 B → 378 KB for eight
+    commits when it did). ``duration_ms`` is joined from the ``sleep_run``
+    ledger row by ``refs.commit`` and is ``None`` — never estimated — when no
+    row exists (R5; G107 keeps estimates deferred).
+    """
     commit_hash: str
     date: str
     message: str
@@ -1178,6 +1186,29 @@ class SleepHistoryEntry(CamelModel):
     # decay-only commit (G85 split): no LLM engine ran for pure decay
     # arithmetic, so the honest answer is "no engine", never a guess.
     engine: Optional[str] = None
+    # "sleep" | "decay" (the G85 split's `(decay)` commit) | "inbox"
+    kind: str = "sleep"
+    entities_created: int = 0
+    entities_updated: int = 0
+    episodes: int = 0
+    sessions: int = 0
+    authors: list[str] = Field(default_factory=list)
+    duration_ms: Optional[int] = None
+
+
+class SleepCycleEntity(CamelModel):
+    id: str
+    action: str
+    trigger: str
+    source_episode: Optional[str] = None
+
+
+class SleepCycleDetail(SleepHistoryEntry):
+    """``GET /sleep/history/{commit}`` — what one cycle consolidated (G125)."""
+    entities: list[SleepCycleEntity] = Field(default_factory=list)
+    truncated: bool = False
+    episodes_by_origin: dict[str, int] = Field(default_factory=dict)
+    inbox_changes: int = 0
 
 
 class EpisodeQueueItem(CamelModel):

@@ -1,5 +1,6 @@
 import asyncio
 import re
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -9,6 +10,8 @@ from api.models.schemas import (
     DiffLine,
     EntityDiff,
     EntityHistoryEntry,
+    SleepCycleDetail,
+    SleepCycleEntity,
     SleepHistoryEntry,
 )
 
@@ -870,68 +873,171 @@ async def top_written_entities(memory_path: Path, *, limit: int = 10) -> tuple[l
     return rows[: max(1, int(limit or 10))], scanned
 
 
-async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:
-    """Get chronological Sleep cycle history from git log.
+_MANIFEST_LINE_RE = re.compile(r"^(?P<path>[^:\s][^:]*?):\s+(?P<action>\w+)\s*\((?P<rest>.*)\)\s*$")
+_ENTITY_PATH_RE = re.compile(r"^entities/(?P<id>.+)\.md$")
+MAX_DETAIL_ENTITIES = 200
+HISTORY_LOG_MULTIPLIER = 3
 
-    Each entry's ``engine`` (G74(a) Task 6, Ruling 4 extended) comes straight
-    from the commit's optional ``Cicada-Engine:`` trailer — the same one line
-    ``sleep_cycle._finalize`` now stamps on its main commit — via git's own
-    ``%(trailers:key=...,valueonly,separator=)`` pretty-format directive,
-    NOT ``%b``. M1 review fix round 1: pulling the full body (``%b``) for
-    every commit to extract one trailer line made this endpoint's payload
-    grow with the SIZE of every commit message ever written (measured on the
-    live bank: 787 B -> 378 KB for 8 commits; a year of nightly cycles would
-    be tens of MB parsed and NUL-split per request). The trailers directive
-    gets git itself to do the extraction — it returns the bare value with no
-    key/prefix, and an empty string (never an error) when the trailer is
-    absent — so the per-record payload is back to what it was before this
-    field existed. Verified against git 2.50.1.
+
+@dataclass
+class CycleManifest:
+    entities: list[dict]
+    files: list[str]
+    episodes: list[str]
+    inbox_changes: int
+    authors: list[str]
+    sessions: list[str]
+    engine: str | None
+
+
+def parse_cycle_body(subject: str, body: str) -> CycleManifest:
+    """Read a Sleep-cycle commit body back into counts (G125 R4).
+
+    The body is what ``sleep_cycle._finalize`` wrote: one ``<path>: <action>
+    (source: <ep|n/a>, trigger: <t>[, sessions: …])`` line per file, then the
+    trailer block. ``n/a`` is not an episode. Unknown lines are ignored so a
+    legacy or hand-written commit degrades to zeros rather than an error.
     """
-    sep = "\x1f"
-    rec = "\x1e"
-    engine_directive = "%(trailers:key=Cicada-Engine,valueonly,separator=)"
+    entities: list[dict] = []
+    files: list[str] = []
+    episodes: list[str] = []
+    seen_eps: set[str] = set()
+    inbox_changes = 0
+    engine: str | None = None
+    for raw in body.splitlines():
+        line = raw.strip()
+        if line.startswith(f"{ENGINE_TRAILER}:"):
+            engine = line.split(":", 1)[1].strip() or None
+            continue
+        m = _MANIFEST_LINE_RE.match(line)
+        if not m:
+            continue
+        path = m.group("path").strip()
+        files.append(path)
+        fields = {}
+        for part in m.group("rest").split(","):
+            if ":" in part:
+                k, v = part.split(":", 1)
+                fields[k.strip()] = v.strip()
+        source = fields.get("source")
+        source = None if not source or source == "n/a" else source
+        if path.startswith("inbox/"):
+            inbox_changes += 1
+        em = _ENTITY_PATH_RE.match(path)
+        if em:
+            entities.append({"id": em.group("id"), "action": m.group("action"),
+                             "source_episode": source, "trigger": fields.get("trigger", "")})
+            if source and source not in seen_eps:
+                seen_eps.add(source)
+                episodes.append(source)
+    return CycleManifest(entities=entities, files=files, episodes=episodes, inbox_changes=inbox_changes,
+                         authors=_parse_authors(body), sessions=_parse_sessions(body), engine=engine)
+
+
+def _cycle_kind(subject: str) -> str | None:
+    s = subject.lower()
+    if s.startswith("sleep cycle"):
+        return "decay" if s.rstrip().endswith("(decay)") else "sleep"
+    if s.startswith("inbox resolution"):
+        return "inbox"
+    return None
+
+
+def _entry_from(commit_hash: str, date: str, subject: str, body: str) -> SleepHistoryEntry:
+    m = parse_cycle_body(subject, body)
+    return SleepHistoryEntry(
+        commit_hash=commit_hash, date=date, message=subject, files_changed=m.files, engine=m.engine,
+        kind=_cycle_kind(subject) or "sleep",
+        entities_created=sum(1 for e in m.entities if e["action"] == "created"),
+        entities_updated=sum(1 for e in m.entities if e["action"] != "created"),
+        episodes=len(m.episodes), sessions=len(m.sessions), authors=m.authors,
+    )
+
+
+_history_cache: dict[tuple[str, str, int], list[SleepHistoryEntry]] = {}
+
+
+async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHistoryEntry]:
+    """The last ``limit`` consolidations, newest first (G125 R4).
+
+    One ``git log -n limit*3`` with bodies, parsed HERE — the body never
+    leaves the process (the M1 lesson in the 2026-09-01 review: ``%b`` over
+    the wire grew this endpoint to 378 KB for eight commits). Cached per
+    ``(memory_path, HEAD, limit)`` so a Sleep page poll costs no subprocess
+    until HEAD moves. Durations are joined from the ledger (R5).
+    """
+    from api.services import sleep_history, sync_service, telemetry
+
+    limit = max(1, int(limit))
+    key = (str(memory_path), sync_service.git_head(memory_path), limit)
+    cached = _history_cache.get(key)
+    if cached is None:
+        sep, rec = "\x1f", "\x1e"
+        try:
+            output = await _run_git(
+                memory_path, "log", f"-n{limit * HISTORY_LOG_MULTIPLIER}",
+                f"--format=%H{sep}%ad{sep}%s{sep}%b{rec}", "--date=short",
+            )
+        except GitError:
+            return []
+        entries: list[SleepHistoryEntry] = []
+        for record in output.split(rec):
+            if not record.strip():
+                continue
+            fields = record.strip("\n").split(sep, 3)
+            if len(fields) < 4 or _cycle_kind(fields[2].strip()) is None:
+                continue
+            entries.append(_entry_from(fields[0].strip(), fields[1].strip(), fields[2].strip(), fields[3]))
+            if len(entries) >= limit:
+                break
+        # No `.clear()`: this is a multi-key cache — the SAME shape as
+        # `status._last_sleep_cache` — keyed on `(memory_path, head, limit)`
+        # (R4). Wiping the dict on every miss would make two different
+        # `limit`s at the SAME head evict each other forever, contradicting
+        # "cached per (memory_path, git_head, limit)" above. Unbounded
+        # growth is accepted the same way `_last_sleep_cache` accepts it:
+        # trivially small at personal scale (one entry per unique head this
+        # process has ever seen `/sleep/history` called against).
+        _history_cache[key] = entries
+        cached = entries
+    out = [e.model_copy() for e in cached]
+    # Bound the telemetry join the same way the git side is bounded: only
+    # scan months that could possibly contain one of THESE entries' commits,
+    # never the whole machine-global ledger (the exact class of cost this
+    # function's own docstring above warns against for `%b` — a call site
+    # that grows with the SIZE of everything that ever happened, not with
+    # what this request actually needs). Nothing to join → skip the read.
+    if out:
+        oldest = min(date.fromisoformat(e.date) for e in out)
+        sleep_history.attach_durations(out, telemetry.read_events(start=oldest))
+    return out
+
+
+async def get_sleep_cycle_detail(memory_path: Path, commit: str) -> SleepCycleDetail | None:
+    """``GET /sleep/history/{commit}`` (G125). ``None`` when the hash is not
+    a Sleep/inbox commit — never a diff, never the raw body."""
+    from api.services import sleep_history, telemetry
+
+    if not re.fullmatch(r"[0-9a-f]{7,40}", commit or ""):
+        return None
     try:
-        output = await _run_git(
-            memory_path,
-            "log", f"--format=%H{sep}%ad{sep}%s{sep}{engine_directive}{rec}", "--date=short",
-        )
+        output = await _run_git(memory_path, "show", "-s", "--format=%H%x1f%ad%x1f%s%x1f%b", "--date=short", commit)
     except GitError:
-        return []
-
-    entries: list[SleepHistoryEntry] = []
-    for record in output.split(rec):
-        record = record.strip("\n")
-        if not record.strip():
-            continue
-        fields = record.split(sep, 3)
-        if len(fields) < 4:
-            continue
-        commit_hash, date, subject, engine_field = (
-            fields[0].strip(), fields[1].strip(), fields[2].strip(), fields[3].strip()
-        )
-        subj = subject.lower()
-        if subj.startswith("sleep cycle") or subj.startswith("inbox resolution"):
-            # Get changed files for this commit
-            try:
-                diff_output = await _run_git(
-                    memory_path,
-                    "diff-tree", "--no-commit-id", "--name-only", "-r",
-                    "--root",  # so the initial (parentless) commit lists its files
-                    commit_hash,
-                )
-                files = [f for f in diff_output.strip().splitlines() if f]
-            except GitError:
-                files = []
-
-            entries.append(SleepHistoryEntry(
-                commit_hash=commit_hash,
-                date=date,
-                message=subject,
-                files_changed=files,
-                engine=engine_field or None,
-            ))
-
-    return entries
+        return None
+    fields = output.strip("\n").split("\x1f", 3)
+    if len(fields) < 4 or _cycle_kind(fields[2].strip()) is None:
+        return None
+    base = _entry_from(fields[0].strip(), fields[1].strip(), fields[2].strip(), fields[3])
+    manifest = parse_cycle_body(fields[2].strip(), fields[3])
+    detail = SleepCycleDetail(
+        **base.model_dump(),
+        entities=[SleepCycleEntity(**e) for e in manifest.entities[:MAX_DETAIL_ENTITIES]],
+        truncated=len(manifest.entities) > MAX_DETAIL_ENTITIES,
+        episodes_by_origin=sleep_history.episodes_by_origin(memory_path, manifest.episodes),
+        inbox_changes=manifest.inbox_changes,
+    )
+    sleep_history.attach_durations([detail], telemetry.read_events(start=date.fromisoformat(detail.date)))
+    return detail
 
 
 async def commit_changes(memory_path: Path, message: str) -> str | None:

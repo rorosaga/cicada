@@ -167,7 +167,7 @@ async def _last_sleep_at(memory_path: Path) -> str | None:
     if cache_key in _last_sleep_cache:
         return _last_sleep_cache[cache_key]
 
-    history = await git_service.get_sleep_history(memory_path)
+    history = await git_service.get_sleep_history(memory_path, limit=50)
     result = None
     for entry in history:
         if entry.message.lower().startswith("sleep cycle"):
