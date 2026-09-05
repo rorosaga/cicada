@@ -1818,6 +1818,20 @@ class ConsumptionStats(CamelModel):
     range: str
 
 
+class ConsumptionFeedback(CamelModel):
+    """G113: the grounded-reward ledger as numbers. Ids/enums-derived counts only."""
+    range: str
+    since: Optional[str] = None
+    resolutions: int = 0
+    corrections: int = 0
+    rate: Optional[float] = None
+    agreement: list[dict] = []
+    calibration: list[dict] = []
+    by_action: list[dict] = []
+    audits: dict = {}
+    dedup: dict = {}
+
+
 class ConnectionConsumption(CamelModel):
     id: str
     label: str

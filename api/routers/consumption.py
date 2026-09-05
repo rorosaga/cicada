@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from api.config import Settings, get_settings
 from api.models.schemas import (
     CalendarDay, ConnectionConsumption, ConsumptionCalendar, ConsumptionConnections,
-    ConsumptionStats, ConsumptionSummary, HarnessStats,
+    ConsumptionFeedback, ConsumptionStats, ConsumptionSummary, HarnessStats,
 )
 from api.services import consumption_stats, harness_stats, sync_service, telemetry
 from api.services.connections.registry import get_registry
@@ -94,6 +94,28 @@ async def stats(
     for key in ("by_model", "by_stage", "by_connection", "by_bank", "series"):
         data[key] = _camel_rows(data[key])
     return ConsumptionStats(**data)
+
+
+@router.get("/feedback", response_model=ConsumptionFeedback)
+async def feedback(
+    request: Request,
+    response: Response,
+    range_: str = Depends(_range),
+    settings: Settings = Depends(get_settings),
+):
+    memory_path = settings.memory_path
+    today = _utc_today()
+    # Feedback numbers come only from the telemetry ledger and never depend
+    # on the bank's git state (unlike /summary and /stats), so "git_head"
+    # isn't part of this ETag; the "feedback:" extra prefix keeps it distinct
+    # from /summary's ETag for the same range and day.
+    etag = sync_service.etag_for(memory_path, "telemetry", extra=f"feedback:{range_}:{today}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    data = await consumption_stats.feedback(memory_path, range_=range_, today=today)
+    for key in ("agreement", "calibration", "by_action"):
+        data[key] = _camel_rows(data[key])
+    return ConsumptionFeedback(**data)
 
 
 @router.get("/connections", response_model=ConsumptionConnections)
