@@ -6,13 +6,22 @@ import Foundation
 enum UsageFormat {
     /// Plain grouped integer for counters ("1,284 sessions"). Never
     /// abbreviated — a count of "1.3k" reads as an estimate when it is exact.
-    static func count(_ n: Int) -> String {
+    ///
+    /// R-S17 — the locale is a parameter defaulting to
+    /// `.autoupdatingCurrent`, not a pin to `en_US_POSIX`. The pin was the
+    /// senior half of critique B1: it printed "1,035" to a reader whose whole
+    /// system says "1.035", eight inches above a `Text("\(count) entities")`
+    /// that — being a `LocalizedStringKey` — grouped in the reader's OWN
+    /// locale. Three conventions in one window. An explicit parameter is also
+    /// what lets a test assert both `es_ES` and `en_US` on any host.
+    static func count(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         let f = NumberFormatter()
         f.numberStyle = .decimal
-        f.locale = Locale(identifier: "en_US_POSIX")
-        // `en_US_POSIX` — otherwise locale-stable for a fixed "," + "." — does
-        // NOT group by default the way a real `en_US` locale does; without
-        // this, "1,284" silently comes back as "1284".
+        f.locale = locale
+        // Kept from the `en_US_POSIX` era: that locale does NOT group by
+        // default the way a real `en_US` one does, so without this "1,284"
+        // silently came back as "1284". Harmless (and explicit) for a real
+        // locale, which is why it stays rather than being dropped with the pin.
         f.usesGroupingSeparator = true
         return f.string(from: NSNumber(value: n)) ?? "\(n)"
     }

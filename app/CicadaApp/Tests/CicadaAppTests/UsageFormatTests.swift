@@ -7,11 +7,16 @@ import XCTest
 final class UsageFormatTests: XCTestCase {
     // MARK: G68 §2.5 — harness numbers go through UsageFormat too
 
+    /// R-S17 moved `count`'s default off the `en_US_POSIX` pin and onto
+    /// `Locale.autoupdatingCurrent`, so these assertions name the locale they
+    /// mean. Without that they would be green on an `en` host and red on a
+    /// `de` one — asserting the tester's Mac, not the formatter.
     func testCount() {
-        XCTAssertEqual(UsageFormat.count(0), "0")
-        XCTAssertEqual(UsageFormat.count(999), "999")
-        XCTAssertEqual(UsageFormat.count(1_284), "1,284")
-        XCTAssertEqual(UsageFormat.count(1_284_000), "1,284,000")
+        let en = Locale(identifier: "en_US")
+        XCTAssertEqual(UsageFormat.count(0, locale: en), "0")
+        XCTAssertEqual(UsageFormat.count(999, locale: en), "999")
+        XCTAssertEqual(UsageFormat.count(1_284, locale: en), "1,284")
+        XCTAssertEqual(UsageFormat.count(1_284_000, locale: en), "1,284,000")
     }
 
     func testPercent() {
@@ -33,7 +38,10 @@ final class UsageFormatTests: XCTestCase {
     func testHarnessValue() {
         XCTAssertEqual(UsageFormat.harnessValue(nil), "—")
         XCTAssertEqual(UsageFormat.harnessValue(.null), "—")
-        XCTAssertEqual(UsageFormat.harnessValue(.number(1284)), "1,284")
+        // Compared against `count`'s own output rather than a literal: the
+        // point of this case is that `harnessValue` ROUTES through `count`,
+        // and since R-S17 that answer is the reader's locale, not "en_US".
+        XCTAssertEqual(UsageFormat.harnessValue(.number(1284)), UsageFormat.count(1284))
         XCTAssertEqual(UsageFormat.harnessValue(.string("2026-01-04")), "2026-01-04")
     }
 }
