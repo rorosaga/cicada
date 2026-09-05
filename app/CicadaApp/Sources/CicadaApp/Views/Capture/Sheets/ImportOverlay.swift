@@ -85,7 +85,7 @@ struct ImportPreviewSection: View {
         case .preview(let preview, let file, _):
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 Text(ImportOverlayState.totalLine(preview))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(CicadaTheme.font(size: 13, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
@@ -126,7 +126,7 @@ struct ImportPreviewSection: View {
         case .done(let summary):
             VStack(alignment: .leading, spacing: 2) {
                 Text(summary)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(CicadaTheme.font(size: 13, weight: .semibold))
                     .foregroundStyle(CicadaTheme.success)
                 Text("Processed on the next Sleep cycle.")
                     .font(CicadaTheme.captionFont)

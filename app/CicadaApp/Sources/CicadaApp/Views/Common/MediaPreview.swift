@@ -178,7 +178,7 @@ struct MediaPreview: View {
 
                 // Play affordance overlay.
                 Image(systemName: "play.circle.fill")
-                    .font(.system(size: 48))
+                    .font(CicadaTheme.font(size: 48))
                     .foregroundStyle(.white.opacity(0.92))
                     .shadow(radius: 6)
             }
@@ -227,7 +227,7 @@ struct MediaPreview: View {
             if let url = model.resolvedURL { NSWorkspace.shared.open(url) }
         } label: {
             Label("Open in Instagram", systemImage: "arrow.up.right.square")
-                .font(.system(size: 12, weight: .medium))
+                .font(CicadaTheme.font(size: 12, weight: .medium))
                 .foregroundStyle(CicadaTheme.mediaPink)
         }
         .buttonStyle(.cicadaPlain)
@@ -237,7 +237,7 @@ struct MediaPreview: View {
         ZStack {
             CicadaTheme.mediaPink.opacity(0.12)
             Image(systemName: "camera.aperture")
-                .font(.system(size: 30))
+                .font(CicadaTheme.font(size: 30))
                 .foregroundStyle(CicadaTheme.mediaPink.opacity(0.7))
         }
     }
@@ -264,11 +264,11 @@ struct MediaPreview: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 if let site = model.site, !site.isEmpty {
                     Text(site.uppercased())
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(CicadaTheme.font(size: 10, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 Text(model.title.isEmpty ? model.url : model.title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(CicadaTheme.font(size: 14, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(2)
                 if let desc = model.description, !desc.isEmpty {
@@ -292,7 +292,7 @@ struct MediaPreview: View {
         HStack(spacing: CicadaTheme.spacingMD) {
             Button { showSitePreview = true } label: {
                 Label("Preview site", systemImage: "safari")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(CicadaTheme.font(size: 12, weight: .medium))
                     .foregroundStyle(CicadaTheme.accent)
             }
             .buttonStyle(.cicadaPlain)
@@ -306,7 +306,7 @@ struct MediaPreview: View {
         ZStack {
             CicadaTheme.surfaceHover
             Image(systemName: "globe")
-                .font(.system(size: 28))
+                .font(CicadaTheme.font(size: 28))
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
     }
@@ -318,7 +318,7 @@ struct MediaPreview: View {
             if let url = model.resolvedURL { NSWorkspace.shared.open(url) }
         } label: {
             Label("Open externally", systemImage: "arrow.up.right.square")
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
         .buttonStyle(.cicadaPlain)
@@ -328,7 +328,7 @@ struct MediaPreview: View {
     private var unavailable: some View {
         HStack(spacing: CicadaTheme.spacingXS) {
             Image(systemName: "questionmark.circle")
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
             Text("No preview available")
                 .font(CicadaTheme.captionFont)
         }

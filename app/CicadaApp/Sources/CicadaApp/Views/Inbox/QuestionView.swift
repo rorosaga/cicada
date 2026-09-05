@@ -50,7 +50,7 @@ struct QuestionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Text(item.questionText)
-                .font(.system(size: 13, weight: .medium))
+                .font(CicadaTheme.font(size: 13, weight: .medium))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -127,7 +127,7 @@ struct QuestionView: View {
     private func hintRow(_ hint: String) -> some View {
         HStack(spacing: CicadaTheme.spacingXS) {
             Image(systemName: "link")
-                .font(.system(size: 10))
+                .font(CicadaTheme.font(size: 10))
                 .foregroundStyle(CicadaTheme.textTertiary)
             Text(hint)
                 .font(CicadaTheme.captionFont)
@@ -139,7 +139,7 @@ struct QuestionView: View {
                     NSWorkspace.shared.open(url)
                 } label: {
                     Image(systemName: "arrow.up.right.square")
-                        .font(.system(size: 11))
+                        .font(CicadaTheme.font(size: 11))
                         .foregroundStyle(CicadaTheme.accent)
                 }
                 .buttonStyle(.cicadaPlain)
@@ -159,11 +159,11 @@ struct QuestionView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(index < 9 ? "\(index + 1). \(option.label)" : option.label)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(CicadaTheme.font(size: 12, weight: .medium))
                         .foregroundStyle(CicadaTheme.textPrimary)
                     if option.recommended {
                         Text("(Recommended)")
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                             .foregroundStyle(CicadaTheme.accent)
                     }
                 }
@@ -177,7 +177,7 @@ struct QuestionView: View {
             Spacer(minLength: CicadaTheme.spacingSM)
             if let capsule = option.ageCapsule {
                 Text(capsule)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10, design: .monospaced))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -222,10 +222,10 @@ struct QuestionView: View {
             } else {
                 HStack {
                     Image(systemName: "pencil")
-                        .font(.system(size: 11))
+                        .font(CicadaTheme.font(size: 11))
                         .foregroundStyle(CicadaTheme.textTertiary)
                     Text("Other…")
-                        .font(.system(size: 12))
+                        .font(CicadaTheme.font(size: 12))
                         .foregroundStyle(CicadaTheme.textSecondary)
                     Spacer()
                 }

@@ -64,7 +64,7 @@ struct InboxCardView: View {
             // a question. What the card asks matters more than whose page it is
             // about, and the entity is named inside the question anyway.
             Image(systemName: item.kind.icon)
-                .font(.system(size: 16))
+                .font(CicadaTheme.font(size: 16))
                 .foregroundStyle(item.kind.color)
                 .frame(width: 24)
 
@@ -74,7 +74,7 @@ struct InboxCardView: View {
                 // of the entity name (`clarification_manager` used to write the
                 // name into `title`, so the two lines read identically).
                 Text(item.questionText)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(isExpanded ? nil : 1)
 
@@ -87,7 +87,7 @@ struct InboxCardView: View {
             Spacer()
 
             Text(item.kind.label)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(item.kind.color)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
@@ -101,7 +101,7 @@ struct InboxCardView: View {
                 withAnimation(.spring(duration: 0.3, bounce: 0.15)) { isExpanded.toggle() }
             } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CicadaTheme.font(size: 11, weight: .medium))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     .frame(width: 20, height: 20)
@@ -161,7 +161,7 @@ struct InboxCardView: View {
                 .frame(width: 3)
 
             Text(text)
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .italic()
                 .fixedSize(horizontal: false, vertical: true)
@@ -175,7 +175,7 @@ struct InboxCardView: View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
             RoundedRectangle(cornerRadius: 1.5).fill(CicadaTheme.borderLight).frame(width: 3)
             Text(ExcerptText.attributed(cause.excerpt, bold: cause.mentionOffsets))
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
@@ -206,7 +206,7 @@ struct InboxCardView: View {
     /// now sits under the name it classifies, in `survivorPicker`.
     private func provenanceRow(model: String, confidence: Double?) -> some View {
         HStack(spacing: CicadaTheme.spacingXS) {
-            Image(systemName: "sparkles").font(.system(size: 10)).foregroundStyle(CicadaTheme.textTertiary)
+            Image(systemName: "sparkles").font(CicadaTheme.font(size: 10)).foregroundStyle(CicadaTheme.textTertiary)
             Text(confidence.map { String(format: "%@'s guess at %.2f", model, $0) } ?? "\(model)'s guess")
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
@@ -253,10 +253,10 @@ struct InboxCardView: View {
                 .foregroundStyle(CicadaTheme.textSecondary)
             ForEach(item.options) { option in
                 HStack(spacing: CicadaTheme.spacingXS) {
-                    Image(systemName: "checkmark.circle").font(.system(size: 10)).foregroundStyle(CicadaTheme.textTertiary)
-                    Text(option.label).font(.system(size: 12)).foregroundStyle(CicadaTheme.textPrimary)
+                    Image(systemName: "checkmark.circle").font(CicadaTheme.font(size: 10)).foregroundStyle(CicadaTheme.textTertiary)
+                    Text(option.label).font(CicadaTheme.font(size: 12)).foregroundStyle(CicadaTheme.textPrimary)
                     if let capsule = option.ageCapsule {
-                        Text(capsule).font(.system(size: 10, design: .monospaced)).foregroundStyle(CicadaTheme.textTertiary)
+                        Text(capsule).font(CicadaTheme.font(size: 10, design: .monospaced)).foregroundStyle(CicadaTheme.textTertiary)
                     }
                 }
             }
@@ -328,7 +328,7 @@ struct InboxCardView: View {
             // Merge-into target (the existing entity = data source), editable.
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "arrow.triangle.merge")
-                    .font(.system(size: 11))
+                    .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(CicadaTheme.textTertiary)
                 TextField("Existing entity…", text: $mergeText)
                     .textFieldStyle(.plain)
@@ -380,7 +380,7 @@ struct InboxCardView: View {
     private var survivorPicker: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             Text("KEEP AS CANONICAL")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 9, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.0)
 
@@ -409,11 +409,11 @@ struct InboxCardView: View {
             if !survivor.isEmpty, !absorbed.isEmpty {
                 HStack(spacing: 4) {
                     Text(absorbed).foregroundStyle(CicadaTheme.textTertiary)
-                    Image(systemName: "arrow.right").font(.system(size: 9))
+                    Image(systemName: "arrow.right").font(CicadaTheme.font(size: 9))
                         .foregroundStyle(CicadaTheme.textTertiary)
                     Text(survivor).foregroundStyle(CicadaTheme.textSecondary)
                 }
-                .font(.system(size: 10))
+                .font(CicadaTheme.font(size: 10))
             }
         }
     }
@@ -438,10 +438,10 @@ struct InboxCardView: View {
         Button(action: action) {
             HStack(spacing: CicadaTheme.spacingXS) {
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .font(.system(size: 12))
+                    .font(CicadaTheme.font(size: 12))
                     .foregroundStyle(isSelected ? CicadaTheme.accent : CicadaTheme.textTertiary)
                 Text(name.isEmpty ? "—" : name)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(CicadaTheme.font(size: 12, weight: .medium))
                     .foregroundStyle(isSelected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                     .lineLimit(1)
             }
@@ -514,9 +514,9 @@ struct InboxActionButton: View {
         Button(action: action) {
             HStack(spacing: CicadaTheme.spacingXS) {
                 Image(systemName: icon)
-                    .font(.system(size: 11))
+                    .font(CicadaTheme.font(size: 11))
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(CicadaTheme.font(size: 12, weight: .medium))
             }
             .foregroundStyle(color)
             .padding(.horizontal, CicadaTheme.spacingMD)

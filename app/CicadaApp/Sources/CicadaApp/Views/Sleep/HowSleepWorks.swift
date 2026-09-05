@@ -38,23 +38,23 @@ struct HowSleepWorksContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             Text("HOW CICADA SLEEPS")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
             ForEach(Self.rows) { row in
                 HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                     Image(systemName: row.icon)
-                        .font(.system(size: 14))
+                        .font(CicadaTheme.font(size: 14))
                         .foregroundStyle(CicadaTheme.accent)
                         .frame(width: 20)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(row.title)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(CicadaTheme.font(size: 13, weight: .semibold))
                             .foregroundStyle(CicadaTheme.textPrimary)
                         Text(row.detail)
-                            .font(.system(size: 11))
+                            .font(CicadaTheme.font(size: 11))
                             .foregroundStyle(CicadaTheme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -67,7 +67,7 @@ struct HowSleepWorksContent: View {
             // than retyping "Settings → Schedule" — `CopyConstantsTests`
             // greps the whole source tree for the literal.
             Text("Nightly runs never spend your plan's quota — only a cycle you start yourself does. Change when it runs in \(Copy.settingsSchedule).")
-                .font(.system(size: 11))
+                .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }

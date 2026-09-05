@@ -49,9 +49,9 @@ struct ObserverFilterBar: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: seg.symbol)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(CicadaTheme.font(size: 10, weight: .medium))
                 Text(seg.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CicadaTheme.font(size: 11, weight: .medium))
             }
             .foregroundStyle(isSelected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             .padding(.horizontal, CicadaTheme.spacingSM)

@@ -64,7 +64,7 @@ struct BeliefTimelineView: View {
     private var emptyState: some View {
         VStack(spacing: CicadaTheme.spacingSM) {
             Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 24))
+                .font(CicadaTheme.font(size: 24))
                 .foregroundStyle(CicadaTheme.textTertiary)
             Text("No timeline for this belief yet.")
                 .font(CicadaTheme.bodyFont)
@@ -207,7 +207,7 @@ struct SupersededRow: View {
                 if !isCurrent, claim.supersededBy != nil {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.down")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(CicadaTheme.font(size: 9, weight: .semibold))
                         Text("superseded by \(claim.supersededBy ?? "")")
                             .font(CicadaTheme.captionFont)
                     }

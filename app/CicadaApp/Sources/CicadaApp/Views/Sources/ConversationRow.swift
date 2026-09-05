@@ -99,7 +99,7 @@ struct ConversationRow: View {
                 // Deliberately NOT a button: there is no id behind it to open.
                 if plan.hidden > 0 {
                     Text("+\(plan.hidden) more")
-                        .font(.system(size: 11))
+                        .font(CicadaTheme.font(size: 11))
                         .lineLimit(1)
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(CicadaTheme.surfaceHover)
@@ -114,7 +114,7 @@ struct ConversationRow: View {
     @ViewBuilder
     private func entityChip(_ entityId: String) -> some View {
         let label = Text(entityId)
-            .font(.system(size: 11))
+            .font(CicadaTheme.font(size: 11))
             .lineLimit(1)
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(CicadaTheme.accent.opacity(0.10))

@@ -146,7 +146,7 @@ struct SafariTabsPanel: View {
                     }
                 }
             case .done(let summary):
-                Text(summary).font(.system(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.success)
+                Text(summary).font(CicadaTheme.font(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.success)
                 Text("Processed on the next Sleep cycle.").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 Button("Import again") { load() }.buttonStyle(.bordered)
             case .fileError(let error):
@@ -253,7 +253,7 @@ struct BookmarkFolderPanel: View {
                     }
                 }
             case .done(let summary):
-                Text(summary).font(.system(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.success)
+                Text(summary).font(CicadaTheme.font(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.success)
                 Text("Processed on the next Sleep cycle.").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 Button("Import again") { load() }.buttonStyle(.bordered)
             case .fileError(let error):

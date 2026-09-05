@@ -43,7 +43,7 @@ struct SettingsGeneralView: View {
     private var appearanceCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Text("APPEARANCE")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
@@ -63,7 +63,7 @@ struct SettingsGeneralView: View {
     private var textSizeCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Text("TEXT SIZE")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 

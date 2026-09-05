@@ -47,10 +47,10 @@ struct TopBarControls: View {
                                 .frame(width: 14, height: 14)
                         } else {
                             Image(systemName: "moon.fill")
-                                .font(.system(size: 12))
+                                .font(CicadaTheme.font(size: 12))
                         }
                         Text(sleepVM.isRunning ? "Sleeping..." : "Sleep")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(CicadaTheme.font(size: 12, weight: .medium))
                     }
                     .foregroundStyle(sleepVM.isRunning ? CicadaTheme.textTertiary : CicadaTheme.accent)
                     .padding(.horizontal, CicadaTheme.spacingMD)
@@ -69,9 +69,9 @@ struct TopBarControls: View {
                 } label: {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Image(systemName: "arrow.up.doc")
-                            .font(.system(size: 12))
+                            .font(CicadaTheme.font(size: 12))
                         Text("Upload")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(CicadaTheme.font(size: 12, weight: .medium))
                     }
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .padding(.horizontal, CicadaTheme.spacingMD)
@@ -87,7 +87,7 @@ struct TopBarControls: View {
                 }
             } label: {
                 Image(systemName: "questionmark.circle")
-                    .font(.system(size: 13))
+                    .font(CicadaTheme.font(size: 13))
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(width: 32, height: 28)
             }
@@ -109,23 +109,23 @@ struct HelpPopoverContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             Text("ABOUT THESE ACTIONS")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                 Image(systemName: "moon.fill")
-                    .font(.system(size: 14))
+                    .font(CicadaTheme.font(size: 14))
                     .foregroundStyle(CicadaTheme.accent)
                     .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Sleep")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(CicadaTheme.font(size: 13, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textPrimary)
 
                     Text("Processes imported conversations and consolidates them into your memory graph. For day-to-day usage with Claude Desktop or other MCP clients, Cicada handles consolidation automatically — you only need to trigger Sleep manually after bulk imports.")
-                        .font(.system(size: 11))
+                        .font(CicadaTheme.font(size: 11))
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -133,17 +133,17 @@ struct HelpPopoverContent: View {
 
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                 Image(systemName: "arrow.up.doc")
-                    .font(.system(size: 14))
+                    .font(CicadaTheme.font(size: 14))
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Upload")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(CicadaTheme.font(size: 13, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textPrimary)
 
                     Text("Import conversation exports from Claude, ChatGPT, or Gemini. Drop a folder or pick individual JSON/HTML files. Uploaded conversations become episodes ready for the next Sleep cycle.")
-                        .font(.system(size: 11))
+                        .font(CicadaTheme.font(size: 11))
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

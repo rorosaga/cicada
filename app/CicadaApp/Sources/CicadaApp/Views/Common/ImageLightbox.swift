@@ -39,7 +39,7 @@ struct ImageThumbnail: View {
             )
             .overlay(alignment: .bottomTrailing) {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(CicadaTheme.font(size: 10, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(5)
                     .background(.black.opacity(0.45))
@@ -60,7 +60,7 @@ struct ImageThumbnail: View {
         ZStack {
             CicadaTheme.mediaPink.opacity(0.1)
             Image(systemName: symbol)
-                .font(.system(size: 24))
+                .font(CicadaTheme.font(size: 24))
                 .foregroundStyle(CicadaTheme.mediaPink.opacity(0.6))
         }
     }
@@ -102,7 +102,7 @@ struct ImageLightbox: View {
                 case .failure:
                     VStack(spacing: CicadaTheme.spacingSM) {
                         Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 32))
+                            .font(CicadaTheme.font(size: 32))
                         Text("Couldn't load image")
                             .font(CicadaTheme.bodyFont)
                     }
@@ -120,7 +120,7 @@ struct ImageLightbox: View {
                     Spacer()
                     Button { dismiss() } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(CicadaTheme.font(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 34, height: 34)
                             .background(.black.opacity(0.5))

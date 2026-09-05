@@ -78,7 +78,7 @@ struct LogoImage: View {
             } else {
                 CicadaTheme.entityColor(for: type)
                 Text(Self.monogram(for: name))
-                    .font(.system(size: size * 0.42, weight: .semibold, design: .rounded))
+                    .font(CicadaTheme.font(size: size * 0.42, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
@@ -197,7 +197,7 @@ private struct PlatformTile<Glyph: View>: View {
                 glyph
             } else {
                 Image(systemName: systemFallback)
-                    .font(.system(size: size * 0.42, weight: .medium))
+                    .font(CicadaTheme.font(size: size * 0.42, weight: .medium))
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
         }

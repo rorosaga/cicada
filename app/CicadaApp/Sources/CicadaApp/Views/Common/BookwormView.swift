@@ -19,7 +19,7 @@ struct BookwormView: View {
     /// Multiples of 24 keep cells integer (R3): 48 (inline), 96 (empty states), 120 (Sleep).
     var pointSize: CGFloat = 96
     var caption: String? = nil
-    var captionFont: Font = .system(size: 13, weight: .semibold, design: .monospaced)
+    var captionFont: Font = CicadaTheme.font(size: 13, weight: .semibold, design: .monospaced)
     var captionColor: Color = CicadaTheme.textTertiary
     var alignment: HorizontalAlignment = .center
 

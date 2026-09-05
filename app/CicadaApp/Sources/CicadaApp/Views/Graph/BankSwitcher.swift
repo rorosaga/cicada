@@ -63,12 +63,12 @@ struct BankSwitcher: View {
         } label: {
             HStack(spacing: CicadaTheme.spacingXS) {
                 Image(systemName: "square.stack.3d.up")
-                    .font(.system(size: 12))
+                    .font(CicadaTheme.font(size: 12))
                 Text(displayName)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(CicadaTheme.font(size: 12, weight: .medium))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(CicadaTheme.font(size: 9, weight: .semibold))
             }
             .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             .padding(.horizontal, CicadaTheme.spacingMD)
@@ -179,7 +179,7 @@ private struct BankNameSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             Text(title)
-                .font(.system(size: 16, weight: .semibold))
+                .font(CicadaTheme.font(size: 16, weight: .semibold))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 // Seed the field on first appearance so "Rename…" pre-fills the
                 // current name; no-op for create/duplicate (empty initialName).

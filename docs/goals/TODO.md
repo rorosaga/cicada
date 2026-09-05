@@ -177,11 +177,12 @@ one user-visible "Next run …" text, R6/R7) is calibrated from `sleep_debt.comp
 surface (an agent's primer briefly imprecise right after a schedule-mode change, never a wrong clock
 shown to the user) and left as-is rather than adding a second `sleep_debt.compute` scan to an
 engine-free read path on a late pass — fold in alongside the next `/state` touch.
-· **G130 slice 1a app-wide zoom (2026-09-05,
-PR #54)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
+· **G130 slice 1a+1b app-wide zoom (2026-09-05,
+PR #54, PR #58)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
 (⌘=/⌘−/⌘0, plus a ⌘⇧= key monitor), a Settings *General* tab with a text-size slider; the graph
-canvas keeps its own zoom (slice 2 stays open on a measured need; slice 1b, the literal-font
-migration + lint, is its own follow-up)
+canvas keeps its own zoom (slice 2 stays open on a measured need); **slice 1b (2026-09-05, PR #58)**
+did the mechanical literal-font migration plus a source lint (`FontLiteralLintTests`) that keeps new
+ones out
 
 **G113 grounded-reward ledger (2026-09-05, PR #TBD)** — every inbox verdict is a `resolution`
 telemetry event; `/consumption/feedback` + Feedback tile; divergence/normalization resolvable;
@@ -407,12 +408,6 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
 
 ### Small & cheap — grab when passing
-- **G130** app-wide zoom (⌘+ / ⌘− / ⌘0) — today only the graph *canvas* zooms; the chrome is fixed at
-  `CicadaTheme`'s hardcoded font/spacing constants and the app defines no `.commands` at all, so the
-  shortcut is unbound. Slice 1: a persisted `uiScale` the theme constants derive from (read through the
-  `@Observable` store — a `static let` notifies nothing, and **no `.id()` on the root**, or every zoom step
-  reloads the graph WKWebView, the exact regression PR #49 removed), a View menu `CommandGroup`, and a
-  Settings slider beside appearance. Bind `=` and `+` both. Leave the graph canvas on its own zoom — S
 - **G123** graph node search — shipped 2026-09-03 (PR #43); follow-up: route Ask citations and Sources
   entity chips through `revealEntity` so they land on the node too — XS
 G7 centrality *(recommended for closing — "premise measured false" per a prior session, but this

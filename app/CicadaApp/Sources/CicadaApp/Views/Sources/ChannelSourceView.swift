@@ -113,7 +113,7 @@ struct ChannelSourceView: View {
             FlowLayout(spacing: 6) {
                 ForEach(groups, id: \.folder) { g in
                     Text("\(g.folder) · \(g.count)")
-                        .font(.system(size: 11)).padding(.horizontal, 8).padding(.vertical, 3)
+                        .font(CicadaTheme.font(size: 11)).padding(.horizontal, 8).padding(.vertical, 3)
                         .background(CicadaTheme.surfaceHover).clipShape(Capsule())
                 }
             }

@@ -189,7 +189,7 @@ private struct TopicsListView: View {
             HStack(spacing: CicadaTheme.spacingMD) {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 12))
+                        .font(CicadaTheme.font(size: 12))
                         .foregroundStyle(CicadaTheme.textTertiary)
 
                     TextField("Search clusters...", text: $searchText)
@@ -202,7 +202,7 @@ private struct TopicsListView: View {
                             searchText = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 11))
+                                .font(CicadaTheme.font(size: 11))
                                 .foregroundStyle(CicadaTheme.textTertiary)
                         }
                         .buttonStyle(.cicadaPlain)
@@ -217,9 +217,9 @@ private struct TopicsListView: View {
                 } label: {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Image(systemName: "line.3.horizontal.decrease.circle")
-                            .font(.system(size: 12))
+                            .font(CicadaTheme.font(size: 12))
                         Text("\(enabledTypes.count)/\(EntityType.selectableCases.count)")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(CicadaTheme.font(size: 11, weight: .medium))
                     }
                     .foregroundStyle(enabledTypes.count == EntityType.selectableCases.count ? CicadaTheme.textSecondary : CicadaTheme.accent)
                     .padding(.horizontal, CicadaTheme.spacingMD)
@@ -235,9 +235,9 @@ private struct TopicsListView: View {
                 } label: {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Image(systemName: "tag")
-                            .font(.system(size: 12))
+                            .font(CicadaTheme.font(size: 12))
                         Text(selectedLabels.isEmpty ? "Labels" : "\(selectedLabels.count)")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(CicadaTheme.font(size: 11, weight: .medium))
                     }
                     .foregroundStyle(selectedLabels.isEmpty ? CicadaTheme.textSecondary : CicadaTheme.accent)
                     .padding(.horizontal, CicadaTheme.spacingMD)
@@ -288,9 +288,9 @@ private struct TopicsListView: View {
                             } label: {
                                 HStack(spacing: CicadaTheme.spacingXS) {
                                     Image(systemName: allExpanded ? "chevron.up.chevron.down" : "chevron.down.chevron.up")
-                                        .font(.system(size: 9, weight: .semibold))
+                                        .font(CicadaTheme.font(size: 9, weight: .semibold))
                                     Text(allExpanded ? "Collapse all" : "Expand all")
-                                        .font(.system(size: 11, weight: .medium))
+                                        .font(CicadaTheme.font(size: 11, weight: .medium))
                                 }
                                 .foregroundStyle(CicadaTheme.textSecondary)
                             }
@@ -371,16 +371,16 @@ private struct TypeSectionHeader: View {
                     .frame(width: 10, height: 10)
 
                 Image(systemName: type.icon)
-                    .font(.system(size: 12))
+                    .font(CicadaTheme.font(size: 12))
                     .foregroundStyle(CicadaTheme.entityColor(for: type))
                     .frame(width: 16)
 
                 Text(type.label)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(CicadaTheme.font(size: 13, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
 
                 Text("\(count)")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(CicadaTheme.entityColor(for: type))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
@@ -390,7 +390,7 @@ private struct TypeSectionHeader: View {
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(CicadaTheme.font(size: 11, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
             }
@@ -450,11 +450,11 @@ private struct TypeChip: View {
                     .frame(width: 7, height: 7)
 
                 Text(type.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CicadaTheme.font(size: 11, weight: .medium))
                     .foregroundStyle(isFocused ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
 
                 Text("\(count)")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10, design: .monospaced))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .padding(.horizontal, CicadaTheme.spacingMD)
@@ -480,7 +480,7 @@ private struct TopicsFilterPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             Text("FILTER BY TYPE")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
                 .padding(.bottom, CicadaTheme.spacingXS)
@@ -495,7 +495,7 @@ private struct TopicsFilterPopover: View {
                 } label: {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Image(systemName: enabledTypes.contains(type) ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 13))
+                            .font(CicadaTheme.font(size: 13))
                             .foregroundStyle(enabledTypes.contains(type) ? CicadaTheme.entityColor(for: type) : CicadaTheme.textTertiary)
 
                         Circle()
@@ -546,18 +546,18 @@ private struct TopicsLabelPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             Text("FILTER BY LABEL")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
                 .padding(.bottom, CicadaTheme.spacingXS)
 
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
+                    .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(CicadaTheme.textTertiary)
                 TextField("Search labels…", text: $labelSearch)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(CicadaTheme.font(size: 12))
                     .foregroundStyle(CicadaTheme.textPrimary)
             }
             .padding(.horizontal, CicadaTheme.spacingSM)
@@ -567,7 +567,7 @@ private struct TopicsLabelPopover: View {
 
             if allLabels.isEmpty {
                 Text("No labels yet")
-                    .font(.system(size: 11))
+                    .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .padding(.vertical, CicadaTheme.spacingSM)
             } else {
@@ -583,18 +583,18 @@ private struct TopicsLabelPopover: View {
                             } label: {
                                 HStack(spacing: CicadaTheme.spacingSM) {
                                     Image(systemName: selectedLabels.contains(label) ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 13))
+                                        .font(CicadaTheme.font(size: 13))
                                         .foregroundStyle(selectedLabels.contains(label) ? CicadaTheme.accent : CicadaTheme.textTertiary)
 
                                     Text(label)
-                                        .font(.system(size: 12))
+                                        .font(CicadaTheme.font(size: 12))
                                         .foregroundStyle(selectedLabels.contains(label) ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                                         .lineLimit(1)
 
                                     Spacer()
 
                                     Text("\(count)")
-                                        .font(.system(size: 10, design: .monospaced))
+                                        .font(CicadaTheme.font(size: 10, design: .monospaced))
                                         .foregroundStyle(CicadaTheme.textTertiary)
                                 }
                                 .padding(.horizontal, 4)
@@ -605,7 +605,7 @@ private struct TopicsLabelPopover: View {
 
                         if hiddenCount > 0 {
                             Text("+\(hiddenCount) more — refine search")
-                                .font(.system(size: 10))
+                                .font(CicadaTheme.font(size: 10))
                                 .foregroundStyle(CicadaTheme.textTertiary)
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 4)
@@ -622,9 +622,9 @@ private struct TopicsLabelPopover: View {
                 } label: {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Image(systemName: "xmark.circle")
-                            .font(.system(size: 11))
+                            .font(CicadaTheme.font(size: 11))
                         Text("Clear all")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(CicadaTheme.font(size: 11, weight: .medium))
                     }
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .padding(.vertical, 4)
@@ -651,12 +651,12 @@ private struct TopicRowListItem: View {
                 LogoImage(entityId: entity.id, name: entity.name, type: entity.type, size: 20)
 
                 Text(entity.name)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
 
                 Text(entity.type.label)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10, design: .monospaced))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -666,11 +666,11 @@ private struct TopicRowListItem: View {
                 Spacer()
 
                 Text(String(format: "%.0f%%", entity.confidence * 100))
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10, design: .monospaced))
                     .foregroundStyle(CicadaTheme.textTertiary)
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(CicadaTheme.font(size: 10, weight: .medium))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .padding(.horizontal, CicadaTheme.spacingMD)
@@ -751,9 +751,9 @@ private struct TopicDetailView: View {
                 } label: {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(CicadaTheme.font(size: 12, weight: .medium))
                         Text("Clusters")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(CicadaTheme.font(size: 12, weight: .medium))
                     }
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .padding(.horizontal, CicadaTheme.spacingMD)

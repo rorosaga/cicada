@@ -142,7 +142,7 @@ struct WalkthroughPanel: View {
                 ForEach(Array(vendor.steps.enumerated()), id: \.offset) { index, step in
                     HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                         Text("\(index + 1)")
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                             .foregroundStyle(CicadaTheme.accent)
                             .frame(width: 14, alignment: .trailing)
                         Text(step)
@@ -158,7 +158,7 @@ struct WalkthroughPanel: View {
                     NSWorkspace.shared.open(vendor.exportURL)
                 } label: {
                     Label("Open \(vendor.title) export settings", systemImage: "arrow.up.forward.app")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(CicadaTheme.font(size: 12, weight: .semibold))
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityLabel("Open \(vendor.title) export settings in your browser")
@@ -184,7 +184,7 @@ struct WalkthroughPanel: View {
             } else {
                 VStack(spacing: CicadaTheme.spacingXS) {
                     Image(systemName: "play.rectangle")
-                        .font(.system(size: 22))
+                        .font(CicadaTheme.font(size: 22))
                         .foregroundStyle(CicadaTheme.textTertiary)
                     Text("Walkthrough video coming soon")
                         .font(CicadaTheme.captionFont)

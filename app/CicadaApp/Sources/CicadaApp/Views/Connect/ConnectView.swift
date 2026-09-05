@@ -230,7 +230,7 @@ struct ConnectView: View {
                         onDone?()
                     } label: {
                         Text("Get started")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(CicadaTheme.font(size: 13, weight: .semibold))
                             .padding(.horizontal, CicadaTheme.spacingLG)
                             .padding(.vertical, CicadaTheme.spacingSM)
                             .background(CicadaTheme.accent.opacity(0.9))
@@ -319,7 +319,7 @@ struct ConnectView: View {
     private var prereqCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text("STEP 0 — ONE-TIME INSTALL")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
             Text("Sets up the Python environment, registers the backend service, and schedules the nightly Sleep cycle. Skip if you've already run it.")
@@ -339,7 +339,7 @@ struct ConnectView: View {
     private var webNoteCard: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
             Image(systemName: "globe")
-                .font(.system(size: 16))
+                .font(CicadaTheme.font(size: 16))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .frame(width: 44, height: 44)
                 .background(RoundedRectangle(cornerRadius: 10).fill(CicadaTheme.surfaceElevated))
@@ -383,7 +383,7 @@ private struct AgentSetupCard: View {
                         NSWorkspace.shared.open(deeplink.url)
                     } label: {
                         Text(deeplink.label)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(CicadaTheme.font(size: 11, weight: .semibold))
                             .padding(.horizontal, CicadaTheme.spacingMD)
                             .padding(.vertical, 5)
                             .background(agent.brand.opacity(0.25))
@@ -435,7 +435,7 @@ private struct AgentTile: View {
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.92)))
             } else {
                 Text(agent.monogram)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .font(CicadaTheme.font(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(

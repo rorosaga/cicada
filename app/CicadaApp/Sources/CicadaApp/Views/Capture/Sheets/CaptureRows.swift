@@ -10,7 +10,7 @@ struct FeedSubscriptionRow: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             Image(systemName: "dot.radiowaves.up.forward")
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.textTertiary)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -31,7 +31,7 @@ struct FeedSubscriptionRow: View {
             } else {
                 Button(action: onRemove) {
                     Image(systemName: "trash")
-                        .font(.system(size: 12))
+                        .font(CicadaTheme.font(size: 12))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 .buttonStyle(.cicadaPlain)
@@ -68,7 +68,7 @@ struct CalendarSubscriptionRow: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             Image(systemName: "calendar")
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.textTertiary)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -89,7 +89,7 @@ struct CalendarSubscriptionRow: View {
             } else {
                 Button(action: onRemove) {
                     Image(systemName: "trash")
-                        .font(.system(size: 12))
+                        .font(CicadaTheme.font(size: 12))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 .buttonStyle(.cicadaPlain)
