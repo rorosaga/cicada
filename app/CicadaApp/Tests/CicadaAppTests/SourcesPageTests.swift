@@ -150,4 +150,30 @@ final class SourcesPageTests: XCTestCase {
         XCTAssertEqual(SourceCard.accessibilityLabel(for: row, watchState: .watching), "Safari bookmarks, 3 items, Watching")
         XCTAssertEqual(SourceCard.accessibilityLabel(for: row, watchState: .blocked), "Safari bookmarks, 3 items, Can't read")
     }
+
+    // MARK: - Track D: per-source blurb
+
+    func testSourceBlurbCoversEveryCatalogIdWithAShortSentence() {
+        // Every id api/services/source_overview.CATALOG declares today.
+        let catalogIds = [
+            "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini",
+            "chrome-bookmarks", "safari-bookmarks", "safari-tabs",
+            "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok",
+            "rss", "calendar", "telegram", "notes", "files",
+        ]
+        for id in catalogIds {
+            let row = SourceOverview(id: id, label: id, kind: .harness)  // kind is irrelevant once the id matches
+            let text = SourceBlurb.text(for: row)
+            XCTAssertFalse(text.isEmpty, "\(id) has no blurb")
+            XCTAssertLessThanOrEqual(text.count, 110, "\(id)'s blurb is too long for a subtitle line: \(text)")
+            XCTAssertFalse(text.contains("$"), "no prices in the app (G124 ruling)")
+        }
+    }
+
+    func testSourceBlurbFallsBackToTheKindSentenceForAnUnrecognizedId() {
+        let mystery = SourceOverview(id: "origin:mystery-app", label: "mystery-app", kind: .import)
+        XCTAssertEqual(SourceBlurb.text(for: mystery), "Links or files you added through mystery-app.")
+        let cursor = SourceOverview(id: "harness:cursor", label: "Cursor", kind: .harness)
+        XCTAssertEqual(SourceBlurb.text(for: cursor), "Conversations captured from Cursor, one episode per session.")
+    }
 }
