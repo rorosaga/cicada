@@ -458,7 +458,7 @@ only a measured, telemetry-joined duration is ever shown.
 every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the
 PR #49 lesson repeated). The graph canvas keeps its own zoom; ⌘+/⌘− means chrome, not canvas, same
 as a browser's page zoom vs. a map widget's. `Settings` gains a *General* tab (Appearance + a Text
-size slider) alongside Agents, Plans & keys and Schedule. Slice 1b (PR #TBD) finished the job:
+size slider) alongside Agents, Plans & keys and Schedule. Slice 1b (PR #58) finished the job:
 every literal `.font(.system(size:))` / `Font.system(size:)` in `Sources/` now goes through
 `CicadaTheme.font(size:...)`, and `FontLiteralLintTests` fails the build on a new one.
 
