@@ -1,13 +1,20 @@
 import SwiftUI
 
-/// Settings → Schedule (G106 amendment): the Sleep cycle's auto-run schedule,
-/// moved here from the Sleep page proper — this IS settings-shaped
-/// configuration ("visit once, then never again"), matching the pattern the
-/// Agents/Plans & keys tabs already establish. The Sleep page itself keeps
-/// only a quick Pause/Resume toggle on the SAME `enabled` flag (one of its
-/// three controls — run, pause, cancel); the full hour/minute editor lives
-/// here, once, so the two never drift into disagreeing about what "the
-/// schedule" is.
+/// Settings → Schedule (G106 amendment; G125 Task 7 — schedule modes): when
+/// the Sleep cycle runs on its own. This IS settings-shaped configuration
+/// ("visit once, then never again"), matching the pattern the Agents/Plans &
+/// keys tabs already establish — the Sleep page itself only ever points here
+/// (`Copy.changeInSettingsSchedule`, on the study list's footer) rather than
+/// duplicating a second picker.
+///
+/// Four modes (R6/R7): manual (no auto-run — a `daily`/`interval`/
+/// `after_import` config the user turns off keeps its hour/minute/interval,
+/// never resets to a default when picked back), daily at an hour/minute,
+/// every N hours, or "after imports" (a probe that fires once the newest
+/// unprocessed episode has sat for `AFTER_IMPORT_SETTLE_MINUTES` — the
+/// backend's own R7 doc comment). `ScheduleConfig.mode` is the one source of
+/// truth; `enabled` is derived (`mode != "manual"`) and sent for an older
+/// reader (R6).
 ///
 /// Engine selection (which model powers Sleep) already lives in
 /// \(Copy.settingsPlansAndKeys) — the "Use for Sleep" toggle on the Claude
@@ -15,8 +22,9 @@ import SwiftUI
 /// there rather than duplicating it.
 struct SettingsSleepView: View {
     @Environment(SleepViewModel.self) private var sleepVM
+    @State private var mode: String = "manual"
     @State private var scheduleDate: Date = Self.defaultDate()
-    @State private var scheduleEnabled: Bool = false
+    @State private var intervalHours: Int = 6
     @State private var loadedOnce = false
 
     private static func defaultDate() -> Date {
@@ -53,7 +61,8 @@ struct SettingsSleepView: View {
     }
 
     private func syncScheduleState() {
-        scheduleEnabled = sleepVM.schedule.enabled
+        mode = sleepVM.schedule.mode
+        intervalHours = sleepVM.schedule.intervalHours
         var comps = DateComponents()
         comps.hour = sleepVM.schedule.hour
         comps.minute = sleepVM.schedule.minute
@@ -64,24 +73,37 @@ struct SettingsSleepView: View {
 
     private var scheduleCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text("AUTO-RUN")
+            Text("RUNS")
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
-            Toggle(isOn: Binding(
-                get: { scheduleEnabled },
+            Picker("Runs", selection: Binding(
+                get: { mode },
                 set: { newValue in
-                    scheduleEnabled = newValue
+                    mode = newValue
                     commitSchedule()
                 }
             )) {
-                Text("Auto-run Sleep cycle daily")
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text("Manual").tag("manual")
+                Text("Daily").tag("daily")
+                Text("Every N hours").tag("interval")
+                Text("After imports").tag("after_import")
             }
-            .toggleStyle(.switch)
+            .pickerStyle(.segmented)
+            .labelsHidden()
 
+            modeDetail
+        }
+        .padding(CicadaTheme.spacingLG)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    @ViewBuilder
+    private var modeDetail: some View {
+        switch mode {
+        case "daily":
             HStack(spacing: CicadaTheme.spacingMD) {
                 Text("At")
                     .font(CicadaTheme.captionFont)
@@ -98,23 +120,34 @@ struct SettingsSleepView: View {
                     displayedComponents: .hourAndMinute
                 )
                 .labelsHidden()
-                .disabled(!scheduleEnabled)
                 Spacer()
             }
-
-            if scheduleEnabled {
-                Text("Next run: \(formattedTime(scheduleDate))")
-                    .font(.system(size: 11))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-            } else {
-                Text("Manual triggers only. Use Pause on the Sleep page to toggle this quickly.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
+            Text("Next run: \(formattedTime(scheduleDate))")
+                .font(.system(size: 11))
+                .foregroundStyle(CicadaTheme.textSecondary)
+        case "interval":
+            Stepper(
+                "Every \(intervalHours) hour\(intervalHours == 1 ? "" : "s")",
+                value: Binding(
+                    get: { intervalHours },
+                    set: { newValue in
+                        intervalHours = newValue
+                        commitSchedule()
+                    }
+                ),
+                in: 1...168
+            )
+            .font(CicadaTheme.bodyFont)
+            .foregroundStyle(CicadaTheme.textPrimary)
+        case "after_import":
+            Text("Starts about 10 minutes after the last import lands, if nothing is running.")
+                .font(.system(size: 11))
+                .foregroundStyle(CicadaTheme.textTertiary)
+        default:
+            Text("Only when you press Consolidate now.")
+                .font(.system(size: 11))
+                .foregroundStyle(CicadaTheme.textTertiary)
         }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
     }
 
     private var engineCard: some View {
@@ -134,6 +167,12 @@ struct SettingsSleepView: View {
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
+            // The toggle this used to point at is gone (R6/R7 replaced it
+            // with the mode picker above) — the Sleep page now only ever
+            // reads the next run, never edits it.
+            Text("The Sleep page shows the next run.")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
         }
         .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -143,9 +182,10 @@ struct SettingsSleepView: View {
     private func commitSchedule() {
         let comps = Calendar.current.dateComponents([.hour, .minute], from: scheduleDate)
         let new = ScheduleConfig(
-            mode: scheduleEnabled ? "daily" : "manual",
+            mode: mode,
             hour: comps.hour ?? 3,
-            minute: comps.minute ?? 0
+            minute: comps.minute ?? 0,
+            intervalHours: intervalHours
         )
         Task { @MainActor in
             await sleepVM.updateSchedule(new)

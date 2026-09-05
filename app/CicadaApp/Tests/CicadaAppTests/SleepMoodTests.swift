@@ -297,4 +297,32 @@ final class SleepMoodTests: XCTestCase {
     func test_bracketColor_happyIsSuccess() {
         XCTAssertEqual(sleepDebtBracketColor(.happy), CicadaTheme.success)
     }
+
+    // MARK: resolveOriginCounts (G125 Task 7 — same SSE-first, REST-fallback
+    // precedence as resolveSleepDebt/resolveProgressPct, for the desk card's
+    // book pile and study list).
+
+    func test_resolveOriginCounts_prefersSSE_whenItCarriesTheDicts() throws {
+        let sse = SleepEventPayload(status: "running",
+                                     queueByOrigin: ["safari-tab": 300], readByOrigin: ["safari-tab": 1])
+        let st = try status(status: "running")   // no queueByOrigin/readByOrigin overrides — defaults to [:]
+        let resolved = resolveOriginCounts(sse: sse, status: st)
+        XCTAssertEqual(resolved.queueByOrigin, ["safari-tab": 300])
+        XCTAssertEqual(resolved.readByOrigin, ["safari-tab": 1])
+    }
+
+    func test_resolveOriginCounts_fallsBackToREST_whenSSEHasNilDicts() throws {
+        // An SSE payload predating G125 R3 (or mid-reconnect) decodes both
+        // dicts as nil — must fall back to the REST snapshot, not read as
+        // "nothing queued".
+        let sse = SleepEventPayload(status: "running")
+        let st = try status(status: "running")
+        XCTAssertEqual(resolveOriginCounts(sse: sse, status: st).queueByOrigin, [:])
+    }
+
+    func test_resolveOriginCounts_isEmpty_whenNeitherSourceHasAnything() {
+        let resolved = resolveOriginCounts(sse: nil, status: nil)
+        XCTAssertEqual(resolved.queueByOrigin, [:])
+        XCTAssertEqual(resolved.readByOrigin, [:])
+    }
 }

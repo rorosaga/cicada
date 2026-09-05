@@ -152,7 +152,14 @@ struct ContentView: View {
         case .feed:
             FeedView(selectedTab: $selectedTab)
         case .sleep:
-            SleepView(selectedTab: $selectedTab)
+            // An entity chip in the consolidation history's expanded detail
+            // navigates the same way an Ask citation (or a Sources
+            // conversation row, below) does: land on the node, then show
+            // its card.
+            SleepView(selectedTab: $selectedTab) { entityId in
+                withAnimation(.spring(duration: 0.25)) { selectedTab = .graph }
+                graphVM.revealEntity(id: entityId)
+            }
         case .inbox:
             InboxListView()
         case .sources:

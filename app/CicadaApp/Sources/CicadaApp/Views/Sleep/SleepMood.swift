@@ -52,6 +52,23 @@ func resolveProgressPct(sse: SleepEventPayload?, status: SleepStatusResponse?) -
     sse?.progressPct ?? status?.progressPct
 }
 
+/// Same SSE-first, REST-fallback precedence again (G125 Task 7), for the two
+/// per-origin dicts the desk card's book pile and study list both read.
+/// `sse`'s own dict wins only when it is non-nil — an SSE payload predating
+/// G125 R3, or one that hasn't ticked since reconnect, decodes both as `nil`
+/// and must fall back to the last REST `/sleep/status` fetch rather than
+/// being read as "nothing queued". Neither source ever returns `nil` itself
+/// (both `SleepStatusResponse` fields default to `[:]` on decode), so the
+/// only genuinely empty result is "no status has loaded yet at all".
+func resolveOriginCounts(
+    sse: SleepEventPayload?,
+    status: SleepStatusResponse?
+) -> (queueByOrigin: [String: Int], readByOrigin: [String: Int]) {
+    let queue = sse?.queueByOrigin ?? status?.queueByOrigin ?? [:]
+    let read = sse?.readByOrigin ?? status?.readByOrigin ?? [:]
+    return (queue, read)
+}
+
 // MARK: - Mood derivation (reuses BookwormState — see MenuBar/BookwormState.swift)
 
 /// The Sleep page's OWN mood derivation. Reuses the same `BookwormState`
