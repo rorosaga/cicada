@@ -21,6 +21,16 @@ import MapKit
 //     elsewhere.
 //   • `ImageLightbox` (ImageLightbox.swift) for tap-to-enlarge.
 //
+// KNOWN, DISCLOSED, NOT FIXED HERE: a `media` entity page renders BOTH this
+// hero and `MediaPreview` — `EntityDetailCard.contentTab` shows the preview
+// card and, inside `renderedMarkdownView`, the hero, as siblings in one
+// VStack. That predates Track V (a YouTube thumbnail card above a hero embed);
+// after it, the same clip has two players on one page. It is safe because
+// neither starts on its own — `AVPlaybackController` constructs paused and the
+// embed hero never autoplays (R11) — and collapsing the two surfaces is an
+// `EntityDetailCard` layout decision that belongs to whoever takes it, not a
+// video-renderer change smuggled in here.
+//
 // Renders NOTHING when the entity has no previewable asset — no empty card,
 // no reserved layout slot. Callers should gate inclusion with
 // `HeroPreview.hasPreviewableAsset(for:)` (see EntityDetailCard) rather than
@@ -38,7 +48,10 @@ struct HeroPreview: View {
     /// layout inclusion without instantiating a view. Location entities
     /// always qualify: `LocationHero` itself degrades to an icon+name
     /// placeholder while geocoding or on failure, so there's always
-    /// something worth the layout slot.
+    /// something worth the layout slot. A `.fileVideo` qualifies for the same
+    /// reason even when the file has moved — `VideoPlayerView` renders the
+    /// "can't read this file" card with the path and Reveal in Finder (R9),
+    /// which is more useful than silently dropping the hero.
     static func hasPreviewableAsset(for entity: Entity) -> Bool {
         if entity.type == .location { return true }
         guard let media = entity.media, media.hasURL else { return false }
@@ -65,21 +78,10 @@ struct HeroPreview: View {
     private func content(for model: MediaPreviewModel) -> some View {
         switch model.kind {
         case .embedVideo(let ref):
-            YouTubeHero(model: model, ref: ref)
+            EmbedVideoHero(model: model, ref: ref)
 
         case .fileVideo(let ref):
-            // A direct or local clip: a real transport-controlled player, not
-            // a thumbnail. `VideoPlayerView` decides for itself whether the
-            // file is readable and shows the fix if it is not (R9), so this
-            // slot is never a black rectangle.
-            VideoPlayerView(url: ref.watchURL)
-                .frame(maxWidth: .infinity)
-                .frame(height: HeroPreview.maxHeight)
-                .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
-                .overlay(
-                    RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
-                        .stroke(CicadaTheme.border, lineWidth: 1)
-                )
+            FileVideoHero(ref: ref)
 
         case .image:
             if let url = model.resolvedURL {
@@ -105,13 +107,17 @@ struct HeroPreview: View {
 
 // MARK: - Embed-provider hero (in-app playback)
 
-/// Still named for YouTube because that is all it played before Track V; the
-/// rename lands with the hero's own task. What changed here is only where the
-/// embed url comes from: `VideoRef`, so Vimeo/TikTok/Loom reach the same
-/// player. It reads `ref.embedURL` and never `ref.autoplayURL` — a hero
-/// renders on every visit to the page, so autoplaying would be surprising
-/// (R11); the user presses play in-page.
-private struct YouTubeHero: View {
+/// A provider's own player, inline at the top of the entity page — YouTube,
+/// Vimeo, TikTok or Loom, whichever `VideoRef` resolved from the entity's own
+/// saved url. It was `YouTubeHero` until Track V, when the embed url stopped
+/// coming from a YouTube-only helper and started coming from `VideoRef`; the
+/// name went with the parser.
+///
+/// It reads `ref.embedURL` and **never `ref.autoplayURL`** — a hero renders on
+/// every visit to the page rather than behind an explicit tap, so autoplaying
+/// would be surprising (R11). That was the YouTube-only rule
+/// `youtubeHeroEmbedURL` carried, and generalizing the player must not lose it.
+private struct EmbedVideoHero: View {
     let model: MediaPreviewModel
     let ref: VideoRef
 
@@ -126,8 +132,12 @@ private struct YouTubeHero: View {
                         .stroke(CicadaTheme.border, lineWidth: 1)
                 )
         } else {
-            // Couldn't cleanly extract a video id — fall back to the
-            // thumbnail with a play badge that opens the url externally.
+            // Defensive only: a `.embedVideo` kind means `VideoRef` resolved
+            // `kind == .embed`, and every embed row in the fixture carries an
+            // `embedUrl` — so this branch is unreachable today. Kept rather
+            // than force-unwrapped because the alternative to a thumbnail is a
+            // crash on the entity page, and because a future provider whose
+            // `URL(string:)` fails would land here quietly.
             thumbnailFallback
         }
     }
@@ -164,6 +174,37 @@ private struct YouTubeHero: View {
         }
         .buttonStyle(.cicadaPlain)
         .help("Open video")
+    }
+}
+
+// MARK: - Direct / local file hero (AVKit in place)
+
+/// A direct `.mp4/.m4v/.mov/.webm/.m3u8` url or a `file://` clip the user
+/// saved themselves: a real transport-controlled player at the top of the
+/// page, not a thumbnail that has to be tapped.
+///
+/// Starts **paused** by construction — `AVPlaybackController` builds its
+/// player without calling `play()` — which is what makes it safe in a hero
+/// slot that renders on every visit, the same rule `EmbedVideoHero` follows by
+/// refusing `autoplayURL` (R11).
+///
+/// `VideoPlayerView` decides for itself whether the file is readable and shows
+/// the fix (path + Reveal in Finder) when it is not (R9), so this slot is
+/// never a black rectangle — which is also why `hasPreviewableAsset` returns
+/// true for a `.fileVideo` whose file has since moved: the card explaining
+/// that is worth the slot, for the same reason `LocationHero` always is.
+private struct FileVideoHero: View {
+    let ref: VideoRef
+
+    var body: some View {
+        VideoPlayerView(url: ref.watchURL)
+            .frame(maxWidth: .infinity)
+            .frame(height: HeroPreview.maxHeight)
+            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                    .stroke(CicadaTheme.border, lineWidth: 1)
+            )
     }
 }
 
