@@ -48,6 +48,12 @@ from api.services.media_ingestor import MAX_BATCH, RawItem
 
 router = APIRouter()
 
+# A media page in either state is a decision the person made (an inbox
+# `remove`, G129 slice 2) or one the system already recorded (`dropped`,
+# never resurfaced) — hidden from every read path, never deleted (CLAUDE.md's
+# status lifecycle).
+_HIDDEN_STATUSES = {"archived", "dropped"}
+
 
 class FeedSubscribeRequest(BaseModel):
     url: str
@@ -501,6 +507,7 @@ async def list_sources(
         entity_id = entry.get("media_entity_id", "")
         related_count = 0
         status = "active"
+        enrichment_status = ""
         tags: list[str] = []
         relevance = 0.0
         personal_relevance = None
@@ -529,6 +536,19 @@ async def list_sources(
                 folder = str(fm.get("folder") or "").strip() or None
                 related_count = len(fm.get("related") or [])
                 status = fm.get("status", "active")
+                # Track P R5 — what the person removed, and what enrichment
+                # retired, must stop rendering. G129 slice 2's `remove`
+                # ARCHIVES the media entity (`inbox_service.py:962-966`) and
+                # never deletes it, so the page is still on disk and this read
+                # path was still emitting a row for it — the answer read as
+                # ignored. `enrichment_status: "junk"` is `link_enrichment`'s
+                # permanent verdict on a consent or login interstitial
+                # (`:886`); until now its only readers were the enrichment
+                # scan (`:670`) and `link_recon` (`:145`), so a retired page
+                # kept a Feed row. Filtered HERE, on the one read path both
+                # the Feed and a source page's item list use, so the two
+                # agree.
+                enrichment_status = str(fm.get("enrichment_status") or "")
                 tags = fm.get("tags") or []
                 relevance = media_ingestor.compute_relevance(fm)
                 pr = fm.get("personal_relevance")
@@ -544,6 +564,8 @@ async def list_sources(
                     channel = c if isinstance(c, str) and c else None
             except Exception:
                 pass
+        if status in _HIDDEN_STATUSES or enrichment_status == "junk":
+            continue
         items.append(
             MediaSourceItem(
                 media_entity_id=entity_id,
