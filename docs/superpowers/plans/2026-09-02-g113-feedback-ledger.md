@@ -10,6 +10,36 @@
 
 **Spec:** `docs/goals/memory-evolution.md` row **G113** (the backlog row is the spec; this plan is its argument). The four slices above are that row's four slices.
 
+## STATUS (critic pass, verified against `dev` @ 7933de1, 2026-09-05)
+
+**Tasks 1 and 2 are ALREADY SHIPPED** — merged as PR #31 on 2026-09-02 (see the
+G113 backlog row's own "(2b, decided in G115...) slices 1–2 merged as PR #31
+at `09a4b66`" annotation). Verified directly against today's code:
+`api/tests/test_inbox_resolution_provenance.py` and
+`api/tests/test_feedback_ledger.py` both already exist and pass;
+`inbox_service._action_label`/`_verdict`/`_emit_resolution`/`_feedback_refs`,
+`telemetry.FEEDBACK_KINDS`/`NON_SPEND_KINDS`/`record_audit`,
+`git_service.commit_resolution(..., change=)`, the `audit` calls in
+`claim_pipeline.py`/`agentic_write.py`, the `dedup_verdict` emission in
+`dedup_sweep.py`, and the `by_connection` exclusion in
+`consumption_stats.stats` are all present and match this plan's design
+(`_action_label`/`_verdict` were even written to already switch on
+`"divergence"`/`"normalization"`, anticipating Task 3). **Do not re-run Tasks
+1–2 or re-create their test files — start execution at Task 3.** Since PR
+#31, G115 Phase 1 also landed and changed the shape of `resolve()`,
+`_resolve_decay`, `_defer` and `_item_from_file` in ways Tasks 3–5 below
+depend on (`_normalize_decay_request`, `recommended_key`,
+`_owner_observer`, `remind_later` already routed through `_defer`) — every
+task below has been re-verified against that code, not against the plan's
+original `b690b66` baseline, and file:line citations are corrected to match.
+One more shipped-elsewhere fact worth knowing: the G113 backlog row already
+carries a **separate, later, out-of-scope** ruling ("2b", decided in G115)
+that widens the `resolution` event with additional refs (`surface`,
+`harness`, `session_id`, `cause_tier`, `silent_days`, `defer_count`,
+`via_conversation_match`, `rule_applied`) and a new `ask` ledger kind — none
+of that exists in code yet, and it is **G115 Phase 2/3, not this plan**; do
+not implement it under Tasks 3–7.
+
 ## Global Constraints
 
 - Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113` (branch `feat/feedback-ledger`). Every shell command uses absolute paths (`zoxide` hijacks relative `cd`).
@@ -58,6 +88,12 @@
 ---
 
 ### Task 1: Provenance — the resolution commit names the action
+
+> **✅ ALREADY SHIPPED (PR #31, 2026-09-02) — do not execute this task.** Kept
+> below only as the interface reference later tasks build on
+> (`_action_label`, `commit_resolution(..., change=)`). Confirmed present and
+> matching this description in `api/services/inbox_service.py` and
+> `api/services/git_service.py` on `dev` @ 7933de1.
 
 **Files:**
 - Modify: `api/services/git_service.py:923-960` (`commit_resolution`)
@@ -255,6 +291,16 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/ser
 ---
 
 ### Task 2: Ledger — `resolution`, `audit`, `dedup_verdict` telemetry events
+
+> **✅ ALREADY SHIPPED (PR #31, 2026-09-02) — do not execute this task.** Kept
+> below only as the interface reference later tasks build on (`_verdict`,
+> `_emit_resolution`/`_feedback_refs`, `telemetry.FEEDBACK_KINDS`,
+> `record_audit`). Confirmed present on `dev` @ 7933de1, with two additive
+> refs beyond what's written below (`recommended_key`, `picked_recommended`
+> on the `resolution` event, from G115 Phase 1) — harmless extra fields, no
+> action needed. `telemetry.NON_SPEND_KINDS` (`FEEDBACK_KINDS` + `capture` +
+> `handshake` + `read`) is the generalized form of this task's R7 step and is
+> already what `consumption_stats.stats` uses.
 
 **Files:**
 - Modify: `api/services/telemetry.py:21` (`KINDS`), add `FEEDBACK_KINDS`
@@ -685,15 +731,20 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/ser
 ### Task 3: `divergence` and `normalization` become real inbox kinds (API + Swift)
 
 **Files:**
-- Modify: `api/models/schemas.py:763` (`InboxKind`)
-- Modify: `api/services/inbox_service.py` (`_required_input_for`, `resolve`, new `_resolve_divergence`, `_resolve_normalization`)
-- Modify: `api/services/claim_reconciler.py:323-336` (`_normalization_audit_nudge`), `api/services/inbox_generator.py:350-375` (persist two keys)
-- Modify: `app/CicadaApp/Sources/CicadaApp/Models/InboxItem.swift` (`InboxKind`), `app/CicadaApp/Sources/CicadaApp/Theme/CicadaTheme.swift` (`Dark.inboxColor`, `Light.inboxColor`)
+- Modify: `api/models/schemas.py:875` (`InboxKind`)
+- Modify: `api/services/inbox_service.py` (`_required_input_for` :49, `resolve` :720, new `_resolve_divergence`, `_resolve_normalization`)
+- Modify: `api/services/claim_reconciler.py:338` (`_normalization_audit_nudge`), `api/services/inbox_generator.py` (persist two keys — grep `merge_target_hint` for the sibling frontmatter-build pattern; this file's own generator write site)
+- Modify: `app/CicadaApp/Sources/CicadaApp/Models/InboxItem.swift` (`InboxKind`), `app/CicadaApp/Sources/CicadaApp/Theme/CicadaTheme.swift` (`Dark.inboxColor` :370, `Light.inboxColor` :466)
 - Test: `api/tests/test_inbox_divergence_normalization.py` (new), `app/CicadaApp/Tests/CicadaAppTests/InboxKindDecodingTests.swift` (new)
 
 **Interfaces:**
-- Consumes: `_action_label`, `_emit_resolution` (Tasks 1–2), `_close_today`, `_user_claim_id` (existing), `predicates.RUNTIME_FILE`, `predicates._slugify_predicate`.
+- Consumes: `_action_label`, `_verdict`, `_emit_resolution` (Tasks 1–2, **already shipped** — verified they already branch on `kind in ("conflict", "divergence", "normalization")`, so NO changes are needed to `_action_label`/`_verdict` for this task), `_close_today`, `_user_claim_id` (existing), `predicates.RUNTIME_FILE`, `predicates._slugify_predicate`.
 - Produces: `InboxKind.divergence`, `InboxKind.normalization`; normalization items carry `raw_predicate` and `canonical_predicate` frontmatter keys; resolvers return `(entity_id, skipped, extra_lines)` like `_resolve_conflict`.
+
+**Line numbers below are re-verified against `dev` @ 7933de1 (not the plan's
+original `b690b66` baseline) — the `_action_label`/`_verdict` bodies you'll
+find already reference `divergence`/`normalization` because Task 2 was
+written anticipating this task; nothing in them needs editing.
 
 **Why:** `inbox_generator` writes both kinds every Sleep (`inbox_generator.py:333-338`) but `InboxKind` lacks them, so `_item_from_file` raises and `load_inbox` drops them with a warning — the user never sees them and can never answer them. Option keys are positional (`normalize_options` on the flat lists at `claim_reconciler.py:309-313` / `:331`): divergence `0`=keep mine, `1`=update, `2`=both; normalization `0`=correct fold, `1`=wrong fold.
 
@@ -913,7 +964,11 @@ def test_normalization_wrong_fold_splits_predicate(memory):
 def test_normalization_nudge_carries_raw_and_canonical():
     from api.services.claim_reconciler import _normalization_audit_nudge
     from api.services.claims import Claim
-    claim = Claim(id="clm_x", subject="bob-example", predicate="built-with", object="rust",
+    # `text` has no default on the Claim dataclass (it sits right after `id`
+    # with no `= ...`) — every direct `Claim(...)` construction in this repo
+    # passes it; a plan draft that omits it raises TypeError at collection time.
+    claim = Claim(id="clm_x", text="bob-example built-with rust.", subject="bob-example",
+                  predicate="built-with", object="rust",
                   observer="rodrigo", source_trust="inferred", epistemic="fact", confidence=0.6,
                   valid_from="2026-08-01", recorded_at="2026-08-01")
     n = _normalization_audit_nudge("uses stack", "built-with", claim)
@@ -929,7 +984,7 @@ Expected: FAIL — `ValueError: 'divergence' is not a valid InboxKind`.
 
 - [ ] **Step 3: Schema + `_required_input_for`**
 
-`api/models/schemas.py` `InboxKind`: add `divergence = "divergence"` and `normalization = "normalization"` after `merge_suggestion`. `inbox_service._required_input_for`: `if kind in ("decay", "conflict", "divergence", "normalization"): return "choice"`. In `_item_from_file`, `allow_other`/`allow_defer` default to `kind in ("conflict", "clarification")` — extend `allow_defer` to include `"divergence"` (a "remind me later" is a sane answer to "I'm reading something different"); leave `allow_other` unchanged.
+`api/models/schemas.py` `InboxKind` (:875-879): add `divergence = "divergence"` and `normalization = "normalization"` after `merge_suggestion = "merge_suggestion"`. `inbox_service._required_input_for` (:49-56) currently returns `"choice"` for `decay`/`conflict` and falls through to `"freetext"` otherwise — add `if kind in ("divergence", "normalization"): return "choice"` (or fold into the existing `decay`/`conflict` check: `if kind in ("decay", "conflict", "divergence", "normalization"): return "choice"`). In `_item_from_file` (:82-83) the current line is `allow_defer = bool(fm.get("allow_defer", kind in ("conflict", "clarification")))` — extend the tuple to `("conflict", "clarification", "divergence")` (a "remind me later" is a sane answer to "I'm reading something different"); leave the `allow_other` line unchanged.
 
 - [ ] **Step 4: `_resolve_divergence`**
 
@@ -949,7 +1004,13 @@ async def _resolve_divergence(path: Path, parsed, request: InboxResolveRequest, 
         return entity_id, False, []
     entity = markdown_parser.parse(entity_path)
     try:
-        claims = parse_claims(entity.body)
+        # strict=True: parse_claims defaults to strict=False (silently
+        # degrades a malformed block to []) — `_resolve_conflict` passes
+        # strict=True precisely so a malformed block ABORTS the resolve
+        # instead of silently treating a real claims block as empty and
+        # skipping the write. Omitting it here would never raise, and the
+        # 409 branch below would be dead code.
+        claims = parse_claims(entity.body, strict=True)
     except MalformedClaimsBlockError as exc:
         raise HTTPException(status_code=409, detail=f"claims block on {entity_id} will not parse: {exc}") from exc
     by_id = {c.id: c for c in claims}
@@ -975,7 +1036,7 @@ async def _resolve_divergence(path: Path, parsed, request: InboxResolveRequest, 
     return entity_id, False, [f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/divergence/resolved)"]
 ```
 
-This mirrors `_resolve_conflict` exactly (`inbox_service.py:408-410` imports, `:600-620` write-back): `markdown_parser.parse` → `parse_claims(entity.body)` (strict; 409 on a malformed block) → mutate → `write_claims(entity.body, claims)` → `markdown_parser.write`. Check `_close_today`'s `today` parameter type (`str` vs `date`) at `inbox_service.py:381` and pass what it expects. Read `_resolve_conflict` at `inbox_service.py:393-620` first and use its local imports (`from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims`).
+This mirrors `_resolve_conflict` exactly (`inbox_service.py:918-1152`, local imports at :933): `markdown_parser.parse` → `parse_claims(entity.body, strict=True)` (409 on a malformed block) → mutate → `write_claims(entity.body, claims)` → `markdown_parser.write`. `_close_today(old, *, by, today: str)` (:906-913) takes `today` as a `str` (`str(date.today())`), matching what's used above. Use the same local imports `_resolve_conflict` does: `from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims`.
 
 - [ ] **Step 5: `_resolve_normalization`**
 
@@ -1027,11 +1088,56 @@ async def _resolve_normalization(path: Path, parsed, request: InboxResolveReques
 
 `from api.services import predicates` and `import yaml` at the top of `inbox_service.py` if absent. Note `_read_runtime_map` is module-private but the same package — import it as shown; do not copy its body.
 
-In `resolve()`, dispatch: `elif kind == "divergence": entity_id, skipped, extra_lines = await _resolve_divergence(...)` and likewise for `normalization`. When `entity_id` is empty and no entity file exists, `commit_resolution` still commits the unlink (it already handles a missing entity file for clarifications — verify by reading `commit_resolution`; if it does not, guard by committing `inbox/` via `commit_paths` as `_defer` does).
+**Dispatch (verified against the real `resolve()` on `dev` @ 7933de1, which no
+longer matches the plan's original `b690b66` shape — G115 Phase 1 added
+`_normalize_decay_request`, moved the `remind_later`/`defer` checks earlier,
+and pre-computes `label`/`feedback` before the kind dispatch).** The current
+dispatch block (`inbox_service.py`, inside `resolve()`) reads:
+
+```python
+    extra_lines: list[str] = []
+    if kind == "decay":
+        entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
+    elif kind == "conflict":
+        entity_id, skipped, extra_lines = await _resolve_conflict(
+            path, parsed, request, settings
+        )
+    elif kind in ("clarification", "merge_suggestion"):
+        entity_id, skipped = await _resolve_clarification(
+            path, parsed, request, settings
+        )
+    else:
+        raise HTTPException(400, f"Unknown kind {kind}")
+```
+
+Add two `elif` branches between the `conflict` and `clarification` branches
+(order doesn't matter functionally, but keeping the question-kinds together
+reads best):
+
+```python
+    elif kind == "divergence":
+        entity_id, skipped, extra_lines = await _resolve_divergence(
+            path, parsed, request, settings, item_id
+        )
+    elif kind == "normalization":
+        entity_id, skipped, extra_lines = await _resolve_normalization(
+            path, parsed, request, settings, item_id
+        )
+```
+
+Nothing else in `resolve()` needs to change: `label = _action_label(...)`,
+`feedback = _feedback_refs(...)` and the `_emit_resolution(...)` call already
+run generically before/after this dispatch for every kind, and
+`commit_resolution` is already called uniformly afterward. When `entity_id`
+is empty and no entity file exists, `commit_resolution`'s `commit_changes`
+does `git add -A` then checks `git status --porcelain` — the inbox file's own
+unlink is a real diff, so the commit still lands (this is the exact same
+path `_resolve_conflict`'s and `_resolve_clarification`'s own "entity file
+missing" branches already rely on — no new guard needed here).
 
 - [ ] **Step 6: Persist `raw_predicate`/`canonical_predicate`**
 
-`claim_reconciler._normalization_audit_nudge`: add `"raw_predicate": raw_label, "canonical_predicate": canonical` to the returned dict. `inbox_generator` frontmatter dict: add `"raw_predicate": nudge.get("raw_predicate"), "canonical_predicate": nudge.get("canonical_predicate")`. `markdown_parser.write` drops `None` values? Read it — if it writes `key: null`, only add the keys when present.
+`claim_reconciler._normalization_audit_nudge` (:338-351): add `"raw_predicate": raw_label, "canonical_predicate": canonical` to the returned dict. `inbox_generator`'s ONE generic frontmatter-build dict, shared by every kind (`inbox_generator.py:363-387`, right after `"hint": hint,`): add `"raw_predicate": nudge.get("raw_predicate"), "canonical_predicate": nudge.get("canonical_predicate")`. Confirmed: `markdown_parser.write` (:29-32) does `yaml.dump(frontmatter, ...)` with no `None`-stripping, so a decay/conflict/divergence item gets `raw_predicate: null` / `canonical_predicate: null` written — this is fine and consistent with the existing style (`predicate`, `question` and `hint` already go `null` the same way for kinds that don't use them); do not special-case it.
 
 - [ ] **Step 7: Swift — the two kinds**
 
@@ -1045,7 +1151,7 @@ enum InboxKind: String, Codable {
     case normalization
 ```
 
-and in its `label` / `icon` switches add `case .divergence: return "Divergence"` / `"arrow.triangle.branch"` and `case .normalization: return "Predicate fold"` / `"arrow.triangle.merge"`; in the `color` switch (and in both `Dark.inboxColor` and `Light.inboxColor` at `Theme/CicadaTheme.swift:240` / `:336`) map `.divergence` to the same colour as `.conflict` and `.normalization` to the same colour as `.clarification`. Add the test:
+and in its `label` / `icon` switches add `case .divergence: return "Divergence"` / `"arrow.triangle.branch"` and `case .normalization: return "Predicate fold"` / `"arrow.triangle.merge"`; in both `Dark.inboxColor` and `Light.inboxColor` (`Theme/CicadaTheme.swift:370` and `:466` respectively — `InboxKind.color` already delegates to `CicadaTheme.inboxColor(for:)`, which picks between them) map `.divergence` to the same colour as `.conflict` and `.normalization` to the same colour as `.clarification`. Both switches are exhaustive (no `default:`), so the Swift build itself fails until both cases are added — a fast, load-bearing check. Add the test:
 
 ```swift
 // app/CicadaApp/Tests/CicadaAppTests/InboxKindDecodingTests.swift
@@ -1091,12 +1197,16 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/mod
 
 **Files:**
 - Create: `api/services/merge_rejections.py`
-- Modify: `api/services/inbox_service.py` (`_resolve_clarification` ~:621 — `reject` action)
-- Modify: `api/services/clarification_manager.py:55-113` (`create` skips rejected pairs)
-- Modify: `api/services/dedup_sweep.py:71-101` (skip rejected pairs; `skipped_rejected` count)
-- Modify: `mcp/server.py:347` (tool schema), `:1614` (`handle_resolve_inbox`)
-- Modify: `app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxCardView.swift:233` (`mergeActions`)
+- Modify: `api/services/inbox_service.py` (`_resolve_clarification` :1155-1357 — `reject` action; return-tuple widened to 3)
+- Modify: `api/services/clarification_manager.py:47-124` (`create` skips rejected pairs)
+- Modify: `api/services/dedup_sweep.py:66-116` (skip rejected pairs; `skipped_rejected` count)
+- Modify: `api/models/schemas.py:1563` (`MaintenanceDedupSweepResponse` — add `skipped_rejected: int = 0`)
+- Modify: `api/routers/maintenance.py:52-64` (`run_dedup_sweep` — the response is built field-by-field from the `report` dict, so `skipped_rejected` must be threaded through explicitly or it silently stays `0` on the wire even once the service returns the real count)
+- Modify: `mcp/server.py:386-418` (tool schema), `:1903-1953` (`handle_resolve_inbox`), `:635-643` (dispatch)
+- Modify: `app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxCardView.swift:362-364` (the merge card's Dismiss button inside `mergeActions`)
 - Test: `api/tests/test_merge_rejections.py` (new)
+
+**Line numbers above are re-verified against `dev` @ 7933de1** — `handle_resolve_inbox` already grew a keyword-only `skip: bool = False` param since this plan's `b690b66` baseline (G115), so Step 7 below adds `reject` alongside it, not to a bare 5-arg signature.
 
 **Interfaces:**
 - Produces: `merge_rejections.load_rejected(memory_path) -> set[tuple[str, str]]`, `is_rejected(memory_path, a, b) -> bool`, `add_rejected(memory_path, a, b) -> Path` (pairs sorted; file `<memory>/_merge_rejected.yaml` = `{"rejected": [[a, b], ...]}`); resolve action `"reject"` on a `merge_suggestion` item; MCP `cicada_resolve_inbox(reject=true)`.
@@ -1218,11 +1328,19 @@ def test_clarification_manager_skips_rejected_pair(memory):
     merge_rejections.add_rejected(memory, "alpha-project", "alpha-proj")
     (memory / "inbox" / "inbox-020.md").unlink()
     mgr = ClarificationManager(memory)
+    # `create`'s real signature (api/services/clarification_manager.py:47-55) is
+    # (entity_name, source_episode, uncertainty_type, suggested_classification,
+    # suggested_confidence, source_context, source_episode_timestamp=None) — a
+    # plan draft with `question=`/`context=` kwargs does not match and raises
+    # TypeError. `uncertainty_type` starting "Possible duplicate of Alpha Proj"
+    # is what routes this into the merge_suggestion / duplicate-pair path.
     created = mgr.create(
         entity_name="Alpha Project",
+        source_episode="ep_2026-08-02_001",
         uncertainty_type="Possible duplicate of Alpha Proj",
-        question="Are these the same?",
-        context="",
+        suggested_classification="project",
+        suggested_confidence=0.6,
+        source_context="",
     )
     assert created is None
     assert list((memory / "inbox").glob("inbox-*.md")) == []
@@ -1242,7 +1360,7 @@ def test_dedup_sweep_skips_rejected_pair(memory):
     assert result["proposed"] == [] and result["skipped_rejected"] == 1
 ```
 
-Read `ClarificationManager.create`'s real signature (`api/services/clarification_manager.py:55`) — parameter names and what it returns when it declines to create (the summary says it returns `None` after bumping an open duplicate; a rejected pair must return `None` too, without writing). Fix the `mgr.create(...)` call to match.
+`ClarificationManager.create`'s signature is confirmed above; it returns `None` after bumping an open duplicate's `updated_date` (no new file), and a rejected pair must likewise return `None` while writing nothing at all (not even the bump) — see Step 5 below.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1306,13 +1424,19 @@ def add_rejected(memory_path: Path, a: str, b: str) -> Path:
 
 - [ ] **Step 4: `reject` in `_resolve_clarification`**
 
-At the top of `_resolve_clarification`'s action dispatch (read `inbox_service.py:621+` first), add:
+`_resolve_clarification(path, parsed, request, settings)` (`inbox_service.py:1155`)
+computes `entity_id` on its own line (:1170) but has no local `kind` variable —
+read `parsed.frontmatter.get("kind")` directly. Insert this right after
+`entity_id` is computed and before `action = request.action` (:1182), i.e.
+before the dispatch chain (`if action == "resolve": ... elif action ==
+"answer": ... elif action == "dismiss": ...`):
 
 ```python
     if request.action == "reject":
+        kind = str(parsed.frontmatter.get("kind", "") or "")
         if kind != "merge_suggestion":
             raise HTTPException(status_code=400, detail="reject is only valid on a merge_suggestion item")
-        other = _opt_str(fm.get("merge_target_hint")) or (
+        other = _opt_str(parsed.frontmatter.get("merge_target_hint")) or (
             sanitize_id(request.merge_target) if request.merge_target else ""
         )
         if not other:
@@ -1323,11 +1447,27 @@ At the top of `_resolve_clarification`'s action dispatch (read `inbox_service.py
         return entity_id, False, [f"{merge_rejections.FILE}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)"]
 ```
 
-`_resolve_clarification` currently returns a 2-tuple `(entity_id, skipped)`; change it to return a 3-tuple `(entity_id, skipped, extra_lines)` everywhere (existing returns append `[]`) and update `resolve()`'s unpacking for the clarification/merge_suggestion branch to `entity_id, skipped, extra_lines = ...`. `resolve()` already passes `extra_lines` to `commit_resolution`, and `commit_resolution` runs `commit_changes` (`git add -A` inside the bank) so `_merge_rejected.yaml` is swept into the same commit.
+`_resolve_clarification` currently returns a bare 2-tuple `(entity_id,
+skipped)` at every exit — three of them: the `skip` branch (`return
+entity_id, True` at :1352), the fall-through `else: raise HTTPException(400,
+...)` (:1354-1355, no return), and the function's own final `return
+entity_id, False` (:1357). Widen the type hint to `tuple[str, bool,
+list[str]]` and change those two `return` statements to append `[]`:
+`return entity_id, True, []` and `return entity_id, False, []`. In `resolve()`
+change the clarification/merge_suggestion branch from `entity_id, skipped =
+await _resolve_clarification(...)` to `entity_id, skipped, extra_lines =
+await _resolve_clarification(...)` (the `extra_lines: list[str] = []`
+initializer before the dispatch chain already exists and is what this
+overwrites, matching the `conflict` branch's own pattern one `elif` up).
+`resolve()` already passes `extra_lines` to `commit_resolution`, and
+`commit_resolution` runs `commit_changes` (`git add -A` inside the bank) so
+`_merge_rejected.yaml` is swept into the same commit even without being named
+in `extra_lines` — the manifest line is cosmetic documentation of what
+changed, not what `git add -A` stages.
 
 - [ ] **Step 5: `clarification_manager.create` skips rejected pairs**
 
-In `create(...)` right after `is_duplicate` and `second` are computed (`clarification_manager.py:55-113`), before `find_open`:
+In `create(...)` right after `is_duplicate` and `second` are computed (`clarification_manager.py:65-77`), before the `find_open(...)` call (:78):
 
 ```python
         if is_duplicate and second:
@@ -1349,15 +1489,34 @@ Before the `ap, bp = ...` line in the loop:
             continue
 ```
 
-with `rejected = merge_rejections.load_rejected(memory_path)` and `skipped_rejected = 0` initialised above the loop, and `"skipped_rejected": skipped_rejected` added to the returned dict. Check `api/routers/maintenance.py`'s `MaintenanceDedupSweepResponse` (`api/models/schemas.py`) — add `skipped_rejected: int = 0` to it so the router's response model doesn't drop the key.
+with `rejected = merge_rejections.load_rejected(memory_path)` and `skipped_rejected = 0` initialised above the loop (`dedup_sweep.py:67`, right after `merged, proposed, nudged = [], [], []`), and `"skipped_rejected": skipped_rejected` added to the returned dict (:116). Add `skipped_rejected: int = 0` to `MaintenanceDedupSweepResponse` in `api/models/schemas.py:1563-1571`. **This alone is not enough**: `api/routers/maintenance.py`'s `run_dedup_sweep` (:52-65) builds the response by naming every field explicitly off the `report` dict (`dry_run=..., candidate_pairs=report.get(...), merged=[...], proposed=[...], nudged=[...]`) rather than `MaintenanceDedupSweepResponse(**report)` — so the new key is silently dropped (defaults to `0` on the wire) unless you also add `skipped_rejected=report.get("skipped_rejected", 0)` to that constructor call.
 
 - [ ] **Step 7: MCP**
 
-`mcp/server.py` `cicada_resolve_inbox` schema (`:347`): add `"reject": {"type": "boolean", "description": "For a merge_suggestion: these are NOT the same entity — remember that and stop proposing it."}`. `handle_resolve_inbox(item_id, option_key, answer, defer, remind_days, reject=False)`: `if reject: payload = {"action": "reject"}` checked before the defer branch; dispatch at `:549` passes `reject=bool(arguments.get("reject"))`. Add a case to `api/tests/test_mcp_inbox_questions.py` mirroring its existing defer test (posting `{"action": "reject"}` to `/inbox/{id}/resolve`).
+`mcp/server.py` `cicada_resolve_inbox` schema (`:388-415`, right after the existing `"skip"` property): add `"reject": {"type": "boolean", "description": "For a merge_suggestion: these are NOT the same entity — remember that and stop proposing it."}`. `handle_resolve_inbox` (:1903-1911) is already `(item_id, option_key, answer, defer, remind_days, *, skip=False)` since G115 — add `reject: bool = False` alongside `skip`. Inside the body (:1925-1940), the current shape is `if skip: ...; return ...` then `if defer: payload = {...} else: payload = {...}`; restructure the second half to an `if/elif/else`:
+
+```python
+    if reject:
+        payload = {"action": "reject"}
+    elif defer:
+        payload = {"action": "defer"}
+        if remind_days is not None:
+            payload["remindDays"] = int(remind_days)
+    else:
+        payload = {"action": "resolve"}
+        if option_key:
+            payload["optionKey"] = str(option_key)
+        if answer:
+            payload["answer"] = str(answer)
+        if not option_key and not answer:
+            return "Error: pass option_key, answer, or defer=true."
+```
+
+Dispatch (`:635-643`) already passes `skip=bool(arguments.get("skip", False))` as the last keyword arg — add `reject=bool(arguments.get("reject", False))` alongside it. Add a case to `api/tests/test_mcp_inbox_questions.py` mirroring its existing defer test (posting `{"action": "reject"}` to `/inbox/{id}/resolve`).
 
 - [ ] **Step 8: Swift — "Keep separate"**
 
-In `InboxCardView.swift` `mergeActions` (~:233), change the Dismiss button on a merge card to title `"Keep separate"` sending `QuestionResolution(action: "reject")` (keep its role/style; Skip stays). Read `QuestionResolution`'s initialiser to pass only `action:`.
+In `InboxCardView.swift`'s `mergeActions` (:324-366), the Dismiss button is the `InboxActionButton(title: "Dismiss", ...)` at :362-364, currently firing `QuestionResolution(action: "dismiss")` with no `mergeTarget`. Change its title to `"Keep separate"` and its fired resolution to `QuestionResolution(action: "reject")` (keep its role/style; the Skip button elsewhere on the card is untouched). `QuestionResolution`'s initializer (`Views/Inbox/QuestionView.swift:6-13`) defaults every field but `action`, so `QuestionResolution(action: "reject")` compiles as-is — no other fields need passing (the backend falls back to `merge_target_hint` from the item's own frontmatter when the request carries no `mergeTarget`, per `test_reject_uses_explicit_merge_target_when_no_hint` covering the other case server-side).
 
 - [ ] **Step 9: Run**
 
@@ -1367,7 +1526,7 @@ Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113/app/CicadaAp
 - [ ] **Step 10: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/services/merge_rejections.py api/services/inbox_service.py api/services/clarification_manager.py api/services/dedup_sweep.py api/models/schemas.py mcp/server.py api/tests/test_merge_rejections.py api/tests/test_mcp_inbox_questions.py app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxCardView.swift && git commit -m "feat(inbox): reject a merge suggestion and remember it (G113 slice 3)"
+cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/services/merge_rejections.py api/services/inbox_service.py api/services/clarification_manager.py api/services/dedup_sweep.py api/models/schemas.py api/routers/maintenance.py mcp/server.py api/tests/test_merge_rejections.py api/tests/test_mcp_inbox_questions.py app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxCardView.swift && git commit -m "feat(inbox): reject a merge suggestion and remember it (G113 slice 3)"
 ```
 
 ---
@@ -1375,14 +1534,39 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/ser
 ### Task 5: Decay and clarification answers reach the claim layer
 
 **Files:**
-- Modify: `api/services/inbox_service.py:331-370` (`_resolve_decay`), `:259-300` (`resolve` — `remind_later` routing), `:301-330` (`_defer` default days), `:621-700` (`_resolve_clarification` answer on an existing entity)
+- Modify: `api/services/inbox_service.py:851-876` (`_resolve_decay` — `keep_active` claim refresh only), `:1201-1223` (`_resolve_clarification`'s `answer` branch, entity-exists case — claim write-back)
 - Test: `api/tests/test_inbox_claim_writeback.py` (new)
 
 **Interfaces:**
-- Consumes: `_defer(path, parsed, request, settings, item_id, *, label="defer", default_days=None)` (Task 2 added `label`; this task adds `default_days`), `_user_claim_id`, `Claim`, `parse_claims`, `write_claims`.
-- Produces: a decay item carrying `claim_id` refreshes that claim on `keep_active`; `remind_later` == a 7-day defer; a clarification `answer` on an existing entity writes a `user_stated` claim beside the prose.
+- Consumes: `_user_claim_id`, `Claim`, `parse_claims`, `write_claims` (all existing).
+- Produces: a decay item carrying `claim_id` refreshes that claim on `keep_active`; a clarification `answer` on an existing entity writes a `user_stated` claim beside the prose.
 
-**Why:** `_resolve_decay` (`inbox_service.py:331`) never touches `claim_id` even though claim-decay nudges carry one (`claim_reconciler.py:520-529`) — "still true" leaves the claim faded. `remind_later` writes `status: snoozed`/`snooze_until` that nothing reads, so the item comes straight back. A clarification answer is appended as prose only, invisible to the claim layer.
+**Already shipped, do NOT re-implement (verified against `dev` @ 7933de1,
+G115 Phase 1):** `remind_later` routing through `_defer` is DONE —
+`resolve()` already special-cases it (`if kind == "decay" and
+(request.action or "").strip().lower() == "remind_later": return await
+_defer(path, parsed, request.model_copy(update={"remind_days": 7}),
+settings, item_id, label="remind_later")`), and `_resolve_decay`'s own
+docstring says as much ("the branch that used to live here wrote a
+`snooze_until` key ... `remind_later` is routed to `_defer` by `resolve` and
+never reaches here"). `_defer` did NOT gain a `default_days` kwarg — the
+7-day figure is threaded in via `request.model_copy(update={"remind_days":
+7})` at the call site instead, so `_defer`'s signature stays
+`(path, parsed, request, settings, item_id, *, label="defer")`. **This task's
+implementation is now only Step 3 (keep_active) and Step 4 (clarification
+answer) below** — the plan's original Step 3 (`remind_later` → `_defer`) is
+already shipped and is skipped entirely; running `git log --oneline --
+api/services/inbox_service.py | grep -i remind` or just reading
+`_resolve_decay`'s docstring confirms it before you start.
+
+**Why:** `_resolve_decay`'s `keep_active` branch (:865-870) sets the
+*entity's* `status`/`confidence`/`last_referenced` frontmatter but never
+touches the `claims` block — even though a claim-decay nudge carries a
+`claim_id` (`inbox_generator.py` writes it onto decay items sourced from a
+claim) — so "still true" leaves the underlying claim's own confidence faded
+and, if it had drifted `valid_to`-closed by decay math, still closed. A
+clarification answer (`_resolve_clarification`'s `answer`/entity-exists
+branch, :1206-1223) is appended as prose only, invisible to the claim layer.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1556,26 +1740,45 @@ Check the `Claim` dataclass (`api/services/claims.py`) for the exact attribute n
 - [ ] **Step 2: Run to verify failure**
 
 Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_inbox_claim_writeback.py -q -p no:cacheprovider`
-Expected: FAIL on all five.
+Expected: **4 of the 5 tests FAIL** (`test_keep_active_refreshes_claim`,
+`test_keep_active_never_reopens_a_superseded_claim`,
+`test_clarification_answer_writes_user_claim`,
+`test_clarification_answer_without_predicate_uses_description`).
+`test_remind_later_is_a_seven_day_defer` already **PASSES** — `remind_later`
+routing through `_defer` shipped with G115 Phase 1 (see the STATUS note
+above this task); it stays in the file as a regression pin, not a step you
+implement.
 
-- [ ] **Step 3: `remind_later` → `_defer`**
+- [ ] **Step 3: `keep_active` refreshes the claim**
 
-In `resolve()`, replace the defer check with:
+`_resolve_decay`'s `keep_active` branch (`inbox_service.py:865-870`) currently reads:
 
 ```python
-    if request.action == "defer" or (kind == "decay" and request.action == "remind_later"):
-        label = "remind_later" if request.action == "remind_later" else "defer"
-        return await _defer(path, parsed, request, settings, item_id, label=label,
-                            default_days=7 if label == "remind_later" else None)
+    if request.action == "keep_active" and entity_path.exists():
+        entity = markdown_parser.parse(entity_path)
+        entity.frontmatter["status"] = "active"
+        entity.frontmatter["confidence"] = max(
+            entity.frontmatter.get("confidence", 0.5), 0.6
+        )
+        entity.frontmatter["last_referenced"] = str(date.today())
+        markdown_parser.write(entity_path, entity.frontmatter, entity.body)
+        path.unlink()
 ```
 
-`_defer` signature becomes `async def _defer(path, parsed, request, settings, item_id, *, label="defer", default_days=None)` and its day computation `days = request.remind_days or default_days or getattr(settings, "inbox_defer_days", None) or 30`. Delete the `remind_later` branch from `_resolve_decay` (it is now unreachable) and its `snooze_until` writes.
-
-- [ ] **Step 4: `keep_active` refreshes the claim**
-
-In `_resolve_decay`'s `keep_active` branch, after the frontmatter edits and before `markdown_parser.write`:
+That only touches the entity's own top-level `confidence` — the claim inside
+the `claims` block (named by the decay item's `claim_id`, when one is
+present) stays untouched. Insert the claim refresh between the frontmatter
+edits and `markdown_parser.write`, replacing the single-argument call with
+one that carries a rewritten body:
 
 ```python
+    if request.action == "keep_active" and entity_path.exists():
+        entity = markdown_parser.parse(entity_path)
+        entity.frontmatter["status"] = "active"
+        entity.frontmatter["confidence"] = max(
+            entity.frontmatter.get("confidence", 0.5), 0.6
+        )
+        entity.frontmatter["last_referenced"] = str(date.today())
         claim_id = _opt_str(parsed.frontmatter.get("claim_id"))
         body = entity.body
         if claim_id:
@@ -1592,15 +1795,25 @@ In `_resolve_decay`'s `keep_active` branch, after the frontmatter edits and befo
                             c.valid_to = None  # faded, not replaced — reopen it
                 body = write_claims(body, claims)
         markdown_parser.write(entity_path, entity.frontmatter, body)
+        path.unlink()
 ```
 
-- [ ] **Step 5: clarification `answer` writes a claim on an existing entity**
+`parse_claims(body)` here intentionally uses the default `strict=False` (not
+`strict=True`, unlike `_resolve_conflict`/Task 3's `_resolve_divergence`): a
+malformed claims block degrades this to a no-op claim refresh rather than
+blocking a "still relevant" answer from clearing the decay nudge — the
+`except MalformedClaimsBlockError` clause is defensive/never-fires under the
+default `strict=False`, kept only so a future switch to `strict=True` fails
+safely rather than raising unhandled.
 
-In `_resolve_clarification`'s `if action == "answer": ... if entity_path.exists():` branch, replace `body = entity.body.rstrip() + f"\n\n{answer_text}"` with:
+- [ ] **Step 4: clarification `answer` writes a claim on an existing entity**
+
+In `_resolve_clarification`'s `if action == "answer": ... if entity_path.exists():` branch (`inbox_service.py:1206-1223`), replace `body = entity.body.rstrip() + f"\n\n{answer_text}"` (:1222) with:
 
 ```python
             body = entity.body.rstrip() + f"\n\n{answer_text}"
             predicate = _opt_str(parsed.frontmatter.get("predicate")) or "description"
+            from api.services import predicates
             from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
             try:
                 claims = parse_claims(entity.body)
@@ -1609,6 +1822,15 @@ In `_resolve_clarification`'s `if action == "answer": ... if entity_path.exists(
             if claims is not None:
                 claims.append(Claim(
                     id=_user_claim_id(entity_id, predicate, answer_text, today),
+                    # `text` has no default on the Claim dataclass — every
+                    # direct construction elsewhere in this module passes it
+                    # (see `_resolve_conflict`'s own free-text branch);
+                    # omitting it here raises TypeError at call time, not at
+                    # import time, so it would only surface when this branch
+                    # actually runs.
+                    text=predicates.predicate_phrase(
+                        predicate, entity.frontmatter.get("name", entity_id), answer_text
+                    ),
                     subject=entity_id, predicate=predicate, object=answer_text, object_kind="literal",
                     observer="rodrigo", source_trust="user_stated", epistemic="fact", origin="clarification",
                     authored_by="user", confidence=0.95, valid_from=today, recorded_at=today,
@@ -1616,13 +1838,17 @@ In `_resolve_clarification`'s `if action == "answer": ... if entity_path.exists(
                 body = write_claims(body, claims)
 ```
 
-Match `Claim`'s constructor exactly as `_resolve_conflict`'s free-text branch builds one (`inbox_service.py` — search `origin="clarification"`) and reuse its field list; `write_claims` on a body with no block must append one (verify in `claims.py`; if it does not, this is the case to handle by calling whatever helper `_resolve_conflict` uses).
+This matches `_resolve_conflict`'s free-text branch's `Claim(...)` field list
+exactly (`inbox_service.py`, search `origin="clarification"`) plus the
+required `text=`. `write_claims` (`claims.py:320-`) appends a new
+` ```claims ` block when the body has none — confirmed, no extra handling
+needed.
 
-- [ ] **Step 6: Run**
+- [ ] **Step 5: Run**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_inbox_claim_writeback.py api/tests/test_inbox_resolve_claims.py api/tests/test_inbox_questions.py api/tests/test_inbox_resolution_provenance.py api/tests/test_feedback_ledger.py api/tests/test_nudges.py api/tests/test_inbox_service.py -q -p no:cacheprovider` → PASS (drop a listed file only if it does not exist; find the decay-resolution tests with `grep -ln remind_later api/tests/*.py` and run those too — an existing test asserting `snooze_until` must be updated to the deferral contract, since this task changes that behaviour on purpose).
+Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python -m pytest api/tests/test_inbox_claim_writeback.py api/tests/test_inbox_resolve_claims.py api/tests/test_inbox_questions.py api/tests/test_inbox_resolution_provenance.py api/tests/test_feedback_ledger.py api/tests/test_inbox_service.py -q -p no:cacheprovider` → PASS (drop a listed file only if it does not exist). `test_nudges.py` no longer exists on `dev` (the deprecated `/nudges` shim has its own coverage under a different name — `grep -l "nudges" api/tests/*.py` to find it if you want extra confidence, but it is not required for this task). There is no `snooze_until` contract left to update — that behaviour was already replaced by the `remind_later` → `_defer` routing that shipped with G115 Phase 1, before this task started.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/services/inbox_service.py api/tests/test_inbox_claim_writeback.py $(cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git diff --name-only -- api/tests) && git commit -m "feat(inbox): decay keep_active and clarification answers reach the claim layer (G113 slice 3)"
@@ -1633,19 +1859,33 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/ser
 ### Task 6: Surface — `GET /consumption/feedback` and a fifth Usage tile
 
 **Files:**
-- Modify: `api/services/consumption_stats.py` (append `feedback(...)` after `per_connection`, ~line 260)
-- Modify: `api/models/schemas.py:1452` (add `ConsumptionFeedback` after `ConsumptionStats`)
-- Modify: `api/routers/consumption.py` (import + `GET /feedback` after `/stats`, ~line 95)
-- Modify: `app/CicadaApp/Sources/CicadaApp/Models/Consumption.swift:256` (`ConsumptionFeedback`, `ConsumptionBundle.feedback`)
-- Modify: `app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift:1274-1291` (`fetchConsumptionFeedback`) and `:1903-1948` (`fetchConsumption` fan-out)
-- Modify: `app/CicadaApp/Sources/CicadaApp/ViewModels/UsageViewModel.swift:102` (feedback projection + tile strings)
-- Modify: `app/CicadaApp/Sources/CicadaApp/Views/Usage/UsageView.swift:99-107` (fifth `StatTile`)
-- Modify: `app/CicadaApp/Tests/CicadaAppTests/ConsumptionFetchTests.swift:49-63,75-86` (both mock handlers gain a `/consumption/feedback` case)
+- Modify: `api/services/consumption_stats.py` (append `feedback(...)` after `per_connection`, which currently ends at line ~349 — there is no existing `feedback` function yet)
+- Modify: `api/models/schemas.py:1794-1806` (add `ConsumptionFeedback` after `ConsumptionStats`)
+- Modify: `api/routers/consumption.py` (import + `GET /feedback` after `/stats`, which currently ends at line 96)
+- Modify: `app/CicadaApp/Sources/CicadaApp/Models/Consumption.swift:256-262` (`ConsumptionFeedback`, `ConsumptionBundle.feedback`)
+- Modify: `app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift:1494-1496` (add `fetchConsumptionFeedback` next to `fetchHarnessStats`) and `:2194-2222` (`fetchConsumption` fan-out)
+- Modify: `app/CicadaApp/Sources/CicadaApp/ViewModels/UsageViewModel.swift:102` (feedback projection + tile strings — this line number happens to still be correct)
+- **Modify (retargeted — see note below): `app/CicadaApp/Sources/CicadaApp/Views/Sources/AdvancedStatsView.swift:91`** (`feedbackTileSlot`, currently `EmptyView()`)
+- Modify: `app/CicadaApp/Tests/CicadaAppTests/ConsumptionFetchTests.swift:51-62,77-87` (both mock handlers gain a `/consumption/feedback` case)
 - Modify: `app/CicadaApp/Tests/CicadaAppTests/ConsumptionDecodingTests.swift` (two new tests)
 - Test: `api/tests/test_consumption_feedback.py` (new)
 
+**Retargeting note (critic pass, verified against `dev` @ 7933de1):** the
+plan's original UI target, `app/CicadaApp/Sources/CicadaApp/Views/Usage/UsageView.swift`,
+**no longer exists** — G124 deleted it along with `UsageAdvancedView.swift`;
+`Views/Usage/` today holds only `HeatmapView.swift`. The Advanced section of
+the Sources page (`AdvancedStatsView.swift`) already has a slot built for
+exactly this: `@ViewBuilder private var feedbackTileSlot: some View {
+EmptyView() }` at line 91, rendered inline with the other `StatTile`s (line
+73), with a doc comment reading "G113 slice 4 lands its Feedback-rate tile
+here (a rate, not a price — welcome under Advanced). Empty until that slice
+ships." `StatTile` itself (`Views/Sources/StatTile.swift`) is unchanged and
+still `StatTile(title:value:footnote:)`. Every "Step 10" instruction below
+about `UsageView.swift` targets `AdvancedStatsView.swift`'s `feedbackTileSlot`
+instead — do not create a new file or resurrect the old one.
+
 **Interfaces:**
-- Consumes: the `resolution` / `audit` / `dedup_verdict` events Task 2 emits — `refs` keys `kind`, `action`, `verdict` (`agreed|overruled|neutral`), `extractor_confidence` (float or None) on `resolution`; `refs.action` (`supersede|rejected`) on `audit`; `refs.verdict` (`same|different|unsure`) and `refs.applied` (`merged|proposed|nudged|none`) on `dedup_verdict`. `telemetry.FEEDBACK_KINDS`.
+- Consumes: the `resolution` / `audit` / `dedup_verdict` events Task 2 emits (already shipped) — `refs` keys `kind`, `action`, `verdict` (`agreed|overruled|neutral`), `extractor_confidence` (float or None) on `resolution`; `refs.action` (`supersede|rejected`) on `audit`; `refs.verdict` (`same|different|unsure`) and `refs.applied` (`merged|proposed|nudged|none`) on `dedup_verdict`. `telemetry.FEEDBACK_KINDS`.
 - Produces: `consumption_stats.feedback(memory_path, *, range_, today) -> dict`; `schemas.ConsumptionFeedback`; `GET /consumption/feedback?range=`; Swift `ConsumptionFeedback`, `ConsumptionBundle.feedback: ConsumptionFeedback?` (defaults nil), `APIClient.fetchConsumptionFeedback(range:)`, `UsageViewModel.feedback / feedbackValue / feedbackFootnote`.
 
 **Shape (the contract Swift decodes):**
@@ -1926,7 +2166,7 @@ async def feedback(
     return ConsumptionFeedback(**data)
 ```
 
-`etag_for` with a single component: check its signature at `api/services/sync_service.py` (search `def etag_for`) — if it requires ≥2 components or the `git_head` one, pass `"telemetry", "git_head"` exactly as `/summary` does; a spurious git-head bump only costs a refetch. The `extra=` prefix `feedback:` keeps this ETag distinct from `/summary`'s for the same range and day.
+`etag_for`'s confirmed signature is `etag_for(memory_path: Path, *keys: str, extra: str = "") -> str` (`sync_service.py:206`) — it accepts any number of keys, so the single `"telemetry"` key above is valid as written (unlike `/summary`/`/stats`, feedback numbers come only from the telemetry ledger and never depend on the bank's git state, so `"git_head"` isn't needed here). The `extra=` prefix `feedback:` keeps this ETag distinct from `/summary`'s for the same range and day.
 
 - [ ] **Step 5: Run the API tests**
 
@@ -1975,7 +2215,7 @@ Append to `app/CicadaApp/Tests/CicadaAppTests/ConsumptionDecodingTests.swift` in
     }
 ```
 
-In `ConsumptionFetchTests.swift`, add to BOTH `MockURLProtocol.handler` switches (the 304 test at ~line 49 and the all-fresh test at ~line 75) a case before `default:`:
+In `ConsumptionFetchTests.swift`, add to BOTH `MockURLProtocol.handler` switches (the 304 test's switch starts at line 51, the all-fresh test's at line 77) a case before `default:`:
 
 ```swift
             case "/consumption/feedback":
@@ -2016,24 +2256,43 @@ Expected: build FAILS — `ConsumptionFeedback` / `feedback` undefined.
 
 - [ ] **Step 8: Swift model**
 
-In `Models/Consumption.swift`, before `struct ConsumptionBundle`:
+**Do NOT reuse `StatsRow` for `agreement`/`calibration`/`byAction` — verified
+incompatible.** `StatsRow` (`Consumption.swift:81-109`) has a hardcoded
+custom `init(from:)` that (a) requires a `name` decoded from one of exactly
+`["model", "stage", "connection", "bank"]` — none of which exist on a
+feedback row (`kind`, `bucket`, `action`) — falling back to the literal
+string `"unknown"`, and (b) hardcodes hardcoded fields
+`invocations`/`inputTokens`/`outputTokens`/`cacheReadTokens`/`cacheWriteTokens`/`tokens`/`costUsd`/`equivCostUsd`
+with no way to read `total`/`agreed`/`overruled`/`rate`/`bucket`/`n`/`agreedRate`/`action`
+at all — those fields would simply be dropped, silently. Decoding a feedback
+row through `StatsRow` compiles and never throws, but every field the tile
+and a future Advanced table would need is gone. Use the same loose-dict
+pattern `HarnessStats.claudeCode` uses instead: `[String: LooseValue]`
+(`LooseValue` is the existing `string | number | null` enum at
+`Consumption.swift:163-178`, already `Codable` both directions — confirmed by
+`testLooseValueDecodesStringNumberAndNull` in `ConsumptionDecodingTests.swift`).
+
+In `Models/Consumption.swift`, before `struct ConsumptionBundle` (:256):
 
 ```swift
 /// G113 — `GET /consumption/feedback`. Decode-tolerant like the rest of this
 /// file: an older backend returns 404 (the bundle carries `nil`), a newer one
-/// may add fields. `agreement`/`calibration`/`byAction` are loose rows for
-/// the same reason `ConsumptionStats.byModel` is — the tile only needs the
-/// scalars; the rows are kept so a future Advanced section can render them
-/// without a model change.
+/// may add fields. `agreement`/`calibration`/`byAction` are `[String:
+/// LooseValue]` rows — NOT `StatsRow`, which is shaped for the by-model/
+/// by-stage/by-connection/by-bank tables and has no field for `kind`,
+/// `bucket`, `action`, `total`, `agreed`, `overruled`, `rate`, `n` or
+/// `agreedRate`. The tile only needs the top-level scalars; the rows are
+/// kept loose so a future Advanced table can render them without a model
+/// change.
 struct ConsumptionFeedback: Codable {
     var range: String = "month"
     var since: String?
     var resolutions: Int = 0
     var corrections: Int = 0
     var rate: Double?
-    var agreement: [StatsRow] = []
-    var calibration: [StatsRow] = []
-    var byAction: [StatsRow] = []
+    var agreement: [[String: LooseValue]] = []
+    var calibration: [[String: LooseValue]] = []
+    var byAction: [[String: LooseValue]] = []
     var audits: [String: Int] = [:]
     var dedup: [String: Int] = [:]
 
@@ -2045,16 +2304,16 @@ struct ConsumptionFeedback: Codable {
         resolutions = try c.decodeIfPresent(Int.self, forKey: .resolutions) ?? 0
         corrections = try c.decodeIfPresent(Int.self, forKey: .corrections) ?? 0
         rate = try c.decodeIfPresent(Double.self, forKey: .rate)
-        agreement = try c.decodeIfPresent([StatsRow].self, forKey: .agreement) ?? []
-        calibration = try c.decodeIfPresent([StatsRow].self, forKey: .calibration) ?? []
-        byAction = try c.decodeIfPresent([StatsRow].self, forKey: .byAction) ?? []
+        agreement = try c.decodeIfPresent([[String: LooseValue]].self, forKey: .agreement) ?? []
+        calibration = try c.decodeIfPresent([[String: LooseValue]].self, forKey: .calibration) ?? []
+        byAction = try c.decodeIfPresent([[String: LooseValue]].self, forKey: .byAction) ?? []
         audits = try c.decodeIfPresent([String: Int].self, forKey: .audits) ?? [:]
         dedup = try c.decodeIfPresent([String: Int].self, forKey: .dedup) ?? [:]
     }
 }
 ```
 
-`StatsRow` is the loose-dict row type `ConsumptionStats.byModel` already decodes (see `testStatsRowsDecodeLooseDicts` in `ConsumptionDecodingTests.swift` and its declaration in this same file) — confirm its exact name and that it is `Codable` in both directions before using it; if it is decode-only, use the same `[String: LooseValue]`-style dictionary `HarnessStats.claudeCode` uses (declared in this file too). Do not invent a third row type.
+The Task 6 Swift decoding tests (Step 6 above) only assert `full.agreement.count == 1` and `back.audits["supersede"] == 7` — they do not depend on a specific row type, so this substitution needs no test changes.
 
 Then change `ConsumptionBundle` to:
 
@@ -2076,7 +2335,7 @@ Synthesized `Codable` decodes a missing `feedback` key as `nil` for an optional 
 
 - [ ] **Step 9: APIClient**
 
-Next to `fetchHarnessStats()` (~line 1291):
+Next to `fetchHarnessStats()` (`APIClient.swift:1494-1496`):
 
 ```swift
     func fetchConsumptionFeedback(range: String) async throws -> ConsumptionFeedback {
@@ -2084,7 +2343,7 @@ Next to `fetchHarnessStats()` (~line 1291):
     }
 ```
 
-In `fetchConsumption(etag:current:)`, add a sixth branch to the fan-out. `/feedback` is ETag'd server-side but the bundle's three-part etag string is a stored contract (`"s|c|st"` pipe-joined, parsed with `(0..<3)`), so do NOT widen it — fetch feedback unconditionally like `/connections`, and swallow a 404 into `nil` per branch (the outer `catch APIError.httpError(404, _)` must keep meaning "no dashboard at all", so this branch must not throw 404 into it):
+In `fetchConsumption(etag:current:)` (`APIClient.swift:2194-2222`), add a sixth branch to the fan-out (currently five: `s, c, st, conn, h`, awaited together at :2208). `/feedback` is ETag'd server-side but the bundle's three-part etag string is a stored contract (`"s|c|st"` pipe-joined, parsed with `(0..<3).map` at :2198-2201), so do NOT widen it — fetch feedback unconditionally like `/connections`/`/harness`, and swallow a 404 into `nil` per branch (the outer `catch APIError.httpError(404, _)` at :2219 must keep meaning "no dashboard at all", so this branch must not throw 404 into it):
 
 ```swift
             async let fb: ConsumptionFeedback? = {
@@ -2129,13 +2388,22 @@ In `UsageViewModel.swift`, after `var harness` (line 102):
     }
 ```
 
-In `UsageView.swift` after the "Streak" tile (line 106):
+**`UsageView.swift` does not exist — target `AdvancedStatsView.swift` instead.** Its `feedbackTileSlot` (:91) is currently:
 
 ```swift
-                StatTile(title: "Feedback", value: viewModel.feedbackValue, footnote: viewModel.feedbackFootnote)
+    @ViewBuilder private var feedbackTileSlot: some View { EmptyView() }
 ```
 
-`"n/a"` is the case where every resolution in the month was neutral (all deferrals): there is engagement but no judgement, and a "—" would read as "nothing happened". Keep the copy exactly this so the tile's three states are distinguishable.
+rendered inline with the four summary tiles inside an `HStack` (:69-74:
+`ForEach(Self.tiles(for: viewModel.summary), id: \.title) { t in StatTile(...) }; feedbackTileSlot`). Replace the body:
+
+```swift
+    @ViewBuilder private var feedbackTileSlot: some View {
+        StatTile(title: "Feedback", value: viewModel.feedbackValue, footnote: viewModel.feedbackFootnote)
+    }
+```
+
+`viewModel` here is the same `@Environment(UsageViewModel.self)` instance the rest of `AdvancedStatsView` already reads (:25), so no new plumbing is needed. `"n/a"` is the case where every resolution in the month was neutral (all deferrals): there is engagement but no judgement, and a "—" would read as "nothing happened". Keep the copy exactly this so the tile's three states are distinguishable.
 
 - [ ] **Step 11: Run the Swift tests**
 
@@ -2145,7 +2413,7 @@ Expected: all tests pass (the full suite, not just the filter — `UsageRangeTes
 - [ ] **Step 12: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/services/consumption_stats.py api/models/schemas.py api/routers/consumption.py api/tests/test_consumption_feedback.py app/CicadaApp/Sources/CicadaApp/Models/Consumption.swift app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/ViewModels/UsageViewModel.swift app/CicadaApp/Sources/CicadaApp/Views/Usage/UsageView.swift app/CicadaApp/Tests/CicadaAppTests/ConsumptionFetchTests.swift app/CicadaApp/Tests/CicadaAppTests/ConsumptionDecodingTests.swift && git commit -m "feat(usage): GET /consumption/feedback + Feedback tile — the grounded-reward ledger as a number (G113 slice 4)"
+cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/services/consumption_stats.py api/models/schemas.py api/routers/consumption.py api/tests/test_consumption_feedback.py app/CicadaApp/Sources/CicadaApp/Models/Consumption.swift app/CicadaApp/Sources/CicadaApp/Services/APIClient.swift app/CicadaApp/Sources/CicadaApp/ViewModels/UsageViewModel.swift app/CicadaApp/Sources/CicadaApp/Views/Sources/AdvancedStatsView.swift app/CicadaApp/Tests/CicadaAppTests/ConsumptionFetchTests.swift app/CicadaApp/Tests/CicadaAppTests/ConsumptionDecodingTests.swift && git commit -m "feat(usage): GET /consumption/feedback + Feedback tile — the grounded-reward ledger as a number (G113 slice 4)"
 ```
 
 ---
@@ -2153,47 +2421,78 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add api/ser
 ### Task 7: Docs — CLAUDE.md, backlog row, TODO handoff
 
 **Files:**
-- Modify: `CLAUDE.md:387-388` (telemetry ledger paragraph), `:646` (API list), `:671-672` (inbox kinds), and the "Resolve is claim-aware" paragraph below it
-- Modify: `docs/goals/memory-evolution.md:675` (the G113 row — one line; edit with a targeted `python - <<'PY'` string replace, never by hand-retyping a 6 KB line)
-- Modify: `docs/goals/TODO.md` (Shipped list, Wave B item 4a, handoff header)
+- Modify: `CLAUDE.md:326-331` (telemetry ledger paragraph), `:509-513` (inbox kinds), and `:527-530` (the "Resolve is claim-aware" paragraph)
+- Modify: `docs/goals/memory-evolution.md:675` (the G113 row — one line; edit with a targeted `python - <<'PY'` string replace, never by hand-retyping a multi-KB line)
+- Modify: `docs/goals/TODO.md` (Shipped list, Wave B item `4a`, handoff header)
 
-**Interfaces:** none — prose only. Everything asserted below must be true of the branch as committed by Tasks 1–6; if a task changed a name, follow the code, not this text.
+**Interfaces:** none — prose only. Everything asserted below must be true of the branch as committed by Tasks 3–6; if a task changed a name, follow the code, not this text.
+
+**Anchors re-verified against `dev` @ 7933de1 — the plan's original line
+numbers (`:387-388`, `:646`, `:671-672`) and anchor text (a sentence ending
+"...and MCP `cicada_write_claim`.", and an "API list" enumerating every
+endpoint) no longer exist in CLAUDE.md**: the file has been condensed since
+this plan was drafted, there is no itemized endpoint list any more ("Read the
+routers for the endpoint list — it is not duplicated here" is the current
+API Design section's own rule), and the telemetry ledger paragraph's last
+sentence is now about the `read` kind / `sync_service.components`, not
+`cicada_write_claim` (that phrase now lives in an unrelated "Open observer
+inconsistency" paragraph about claim observers). Steps below are corrected
+to the real anchors.
 
 - [ ] **Step 1: CLAUDE.md**
 
-1. In the "Telemetry ledger" paragraph (line ~388), after "and MCP `cicada_write_claim`." insert:
-   "**Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`, `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`, winner/loser claim ids, the extractor's confidence and model — ids and enums only, never claim text), Stage-3 reconcile emits one `audit` event per supersede/reject, and the dedup sweep emits one `dedup_verdict` per judged pair. `telemetry.FEEDBACK_KINDS` names the three; `consumption_stats.stats()` excludes them from `by_connection` so they never show as an "unknown" connection. Nothing learned from the ledger is auto-applied — `GET /consumption/feedback` shows the rates; feeding them back into prompts is G78."
-2. In the API list (line ~646) change the `/consumption` line to `GET  /consumption/summary|calendar|stats|connections|harness|feedback → …` and add a sub-line: `                                            /feedback (G113): agreement rate, per-kind rows, confidence calibration, audits, dedup verdicts`.
-3. Inbox kinds (line ~672): replace ``(`decay`, `conflict`, `clarification`, `merge_suggestion`)`` with ``(`decay`, `conflict`, `clarification`, `merge_suggestion`, `divergence`, `normalization` — the last two were written by Sleep since G49/G98 but only became loadable and resolvable kinds with G113)``.
-4. After the "Resolve is claim-aware" paragraph add one paragraph: "**Every resolution is a verdict (G113).** The commit trigger names the action (`inbox/<kind>/resolved:<label>`; a deferral stays `inbox/deferred`), decay `archive`/`keep_active` land as `statusChange` history entries, a decay `keep_active` and a clarification free-text answer write back to the claim layer, a rejected merge is remembered in `<bank>/_merge_rejected.yaml` so neither `clarification_manager` nor the dedup sweep proposes the pair again, and `remind_later` is a 7-day defer. Each of these also records a `resolution` telemetry event — see Telemetry ledger."
+1. The "Telemetry ledger" section (`### Telemetry ledger`, lines 326-331) currently ends "...deliberately does not stat — the app maps that component onto its consumption domain, so a card open must not move it." Append a new paragraph after it:
+   "**Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`, `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`, winner/loser claim ids, the extractor's confidence and model — ids and enums only, never claim text), Stage-3 reconcile emits one `audit` event per supersede/reject, and the dedup sweep emits one `dedup_verdict` per judged pair. `telemetry.FEEDBACK_KINDS` names the three (a superset, `NON_SPEND_KINDS`, also excludes `capture`/`handshake`/`read`); `consumption_stats.stats()` excludes them from `by_connection` so they never show as an "unknown" connection. Nothing learned from the ledger is auto-applied — `GET /consumption/feedback` shows the rates; feeding them back into prompts is G78."
+2. There is no itemized API endpoint list in CLAUDE.md to edit (the "API Design" section deliberately doesn't duplicate the router list) — **skip the plan's original step 2 entirely**; do not add one.
+3. Inbox kinds (`### 2/3. Unified inbox`, lines 510-511): replace ``(`decay`, `conflict`, `clarification`, `merge_suggestion`)`` with ``(`decay`, `conflict`, `clarification`, `merge_suggestion`, `divergence`, `normalization` — the last two were written by Sleep since G49/G98 but only became loadable and resolvable kinds with G113)``.
+4. The "Resolve is claim-aware" paragraph (lines 527-530) ends "...`defer` writes `remind_after`. All commit with `Cicada-Author: user`." Insert one new paragraph immediately after it (before "**Cause (G115 Phase 1...**"): "**Every resolution is a verdict (G113).** The commit trigger names the action (`inbox/<kind>/resolved:<label>`; a deferral stays `inbox/deferred`), decay `archive`/`keep_active` land as `statusChange` history entries, a decay `keep_active` and a clarification free-text answer write back to the claim layer, a rejected merge is remembered in `<bank>/_merge_rejected.yaml` so neither `clarification_manager` nor the dedup sweep proposes the pair again, and `remind_later` is a 7-day defer (shipped with G115 Phase 1). Each of these also records a `resolution` telemetry event — see Telemetry ledger."
 
 - [ ] **Step 2: Backlog row**
 
-Run from the worktree root (adjust the PR number placeholder ONLY if the PR already exists; otherwise leave `#TBD` — the merge step fixes it):
+**The plan's original `old_tail` anchor does not exist on `dev` @ 7933de1 — do
+not run the script as originally drafted, it will fail its own assertion.**
+The G113 row already carries a "(2b, decided in G115, 2026-09-02; slices 1–2
+merged as PR #31 at `09a4b66` ...)" annotation appended after the "...a
+compiled skill's `## Evidence` is only trustworthy once verdicts are
+counted)." sentence — the real tail is that whole 2b paragraph, ending
+"...`session_id` lives in the ledger, not in a `Cicada-Session:` trailer on
+the user commit (contract unchanged pending G116). | 🔲 |". **Do not flip the
+status flag to `✅`**: the 2b annotation describes further scope (additive
+refs — `surface`, `harness`, `session_id`, `cause_tier`, etc. — and a new
+`ask` kind) that is explicitly G115 Phase 2/3, not this plan, and remains
+unbuilt; slice 5 (rates → prompts) also stays open under G78. Append a THIRD
+annotation instead, leaving the row `🔲`:
 
 ```bash
 cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && api/.venv/bin/python - <<'PY'
 from pathlib import Path
 p = Path("docs/goals/memory-evolution.md")
 s = p.read_text()
-old_tail = "a compiled skill's `## Evidence` is only trustworthy once verdicts are counted). | 🔲 |"
-assert s.count(old_tail) == 1, "G113 row tail not found exactly once"
-new_tail = ("a compiled skill's `## Evidence` is only trustworthy once verdicts are counted). "
-            "**Shipped 2026-09-02 (PR #TBD, `feat/feedback-ledger`) — slices 1–4:** trigger `inbox/<kind>/resolved:<label>` + "
-            "`statusChange` for decay; `resolution`/`audit`/`dedup_verdict` events (`telemetry.FEEDBACK_KINDS`, ids/enums only); "
+old_tail = "(contract unchanged pending G116). | 🔲 |"
+assert s.count(old_tail) == 1, "G113 row tail not found exactly once — read the row and update this anchor to match"
+new_tail = ("(contract unchanged pending G116). "
+            "**Shipped 2026-09-05 (PR #TBD, `feat/feedback-ledger`) — slices 3–7:** trigger `inbox/<kind>/resolved:<label>` + "
+            "`statusChange` for decay (slices 1–2, already covered above); "
             "`divergence` + `normalization` resolvable in API and Swift; merge reject persisted in `_merge_rejected.yaml`; "
-            "decay `keep_active` and clarification answers reach the claim layer; `remind_later` = 7-day defer; "
-            "`GET /consumption/feedback` + Feedback tile. Slice 5 (rates → prompts) stays 💸 DECIDE under G78. | ✅ |")
+            "decay `keep_active` and clarification answers reach the claim layer; "
+            "`GET /consumption/feedback` + a Feedback tile in Sources ▸ Advanced. "
+            "Still open: slice 5 (rates → prompts, 💸 DECIDE under G78) and the 2b additive refs above (G115 Phase 2/3). | 🔲 |")
 p.write_text(s.replace(old_tail, new_tail))
 print("ok")
 PY
 ```
 
+Adjust the PR number placeholder ONLY if the PR already exists; otherwise leave `#TBD` — the merge step fixes it.
+
 - [ ] **Step 3: TODO.md**
 
-1. Under `## ✅ Shipped`, add a line in the style of its neighbours: "**G113 grounded-reward ledger (2026-09-02, PR #TBD)** — every inbox verdict is a `resolution` telemetry event; `/consumption/feedback` + Feedback tile; divergence/normalization resolvable; merge reject sticks; keep_active/answers write claims."
-2. Remove the Wave B item `4a. **G113 slices 1–4**` (and renumber nothing — the list uses explicit labels).
-3. In `## Where things stand`, update the date line and the in-flight PR list to name `feat/feedback-ledger` as open (or merged, if Step 4 of the merge procedure already ran), and in `## Pick up here` replace the G113 bullet with the next item the Wave order names.
+TODO.md already reflects the "slices 1–2 merged, 3–7 open" state (it was kept
+current through G115 Phase 1) — re-read it before editing; the anchors below
+are current as of `dev` @ 7933de1 but this file changes often.
+
+1. Under `## ✅ Shipped` (line 135), add a line in the style of its neighbours: "**G113 grounded-reward ledger (2026-09-05, PR #TBD)** — every inbox verdict is a `resolution` telemetry event; `/consumption/feedback` + Feedback tile; divergence/normalization resolvable; merge reject sticks; keep_active/answers write claims."
+2. Remove (or replace with a shipped-strikethrough, matching the style of the `4d`/`4d′` rows nearby) the Wave B item `4a. **G113 slices 1–4**` — its real text on `dev` today is `4a. **G113 slices 1–4** — the grounded-reward ledger: ... slices 1–2 merged (PR #31); 3–7 open — S/M` (lines 268-273 of `docs/goals/TODO.md`), not the plan's original guess.
+3. In `## Where things stand` (line 7) update the date line (line 133's `_Last synced: ...`) and the in-flight PR list to name `feat/feedback-ledger` as open (or merged, if Step 4 of the merge procedure already ran); update the "Worktrees" paragraph (lines 128-130, currently "G113 slices 1–2 merged as PR #31; slices 3–7 paused") to say slices 3–7 shipped too. In `## Pick up here` (line 106), the queue line (115-119) currently opens "**G129 slice 2** ... → **G113 slices 3–7** (the grounded-reward ledger, half-built ...) → **G125** ..." — drop the G113 entry from the queue (it's done) so the queue reads "**G129 slice 2** → **G125** → ...".
 
 - [ ] **Step 4: Verify nothing else references the old kind set**
 
@@ -2214,3 +2513,5 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/g113 && git add CLAUDE.
 - Task 6's `ConsumptionBundle.feedback` MUST be `var … = nil`; a `let` without a default breaks the four memberwise call sites and the on-disk cache decode.
 - The `≥0.9` and `0.5–0.7` bucket labels contain non-ASCII characters on purpose (they are display strings); the Swift test compares them only through `count`, and the Python test compares them exactly — keep them byte-identical between `_CAL_BUCKETS` and the test.
 - No task touches `memory/`; the API tests build their own bank under `tmp_path`.
+- Task 6's `ConsumptionFeedback.agreement`/`calibration`/`byAction` MUST be `[[String: LooseValue]]`, never `[StatsRow]` — `StatsRow`'s custom decoder only reads a `name` from `model`/`stage`/`connection`/`bank` and a fixed token/cost field set, so every feedback-row field would silently vanish on decode.
+- Tasks 1 and 2 are already merged (PR #31) — verify with `api/.venv/bin/python -m pytest api/tests/test_inbox_resolution_provenance.py api/tests/test_feedback_ledger.py -q` (23 passed on `dev` @ 7933de1) before starting, rather than re-authoring either file.
