@@ -171,6 +171,12 @@ struct SleepView: View {
     /// Reconcile retry policy, pulled out as pure functions (mirrors
     /// `queueCount`/`queueNeedsReconcile` above) so the bound and the backoff
     /// curve are unit-testable without standing up a view or a live Task loop.
+    /// The one requested point size for the whole hero. `BookwormView` and
+    /// `deskSceneLayout` each snap it the same way (G130 R6), so passing this
+    /// single number to both is what puts the room and the character on one
+    /// lattice — P12: two pixel scales in one picture read as a bug.
+    static let wormPointSize: CGFloat = 120
+
     static let maxReconcileAttempts = 3
 
     static func shouldRetryReconcile(attempt: Int, stillNeedsReconcile: Bool) -> Bool {
@@ -237,15 +243,22 @@ struct SleepView: View {
 
     // MARK: The desk (G106 amendment; G107 art; G125 the study desk)
 
-    /// The mascot card, now "the desk": the speech bubble (G125 Task 5) over
-    /// the 24×24 colour bookworm (G107) at 120 pt — five whole cells per
-    /// point-row, so the pixels stay crisp (ruling R3) — with the bracketed,
-    /// monospaced status line kept as its caption, beside the book pile
-    /// (Task 6) that encodes queued volume on a log scale. Both the mood and
-    /// the per-origin counts prefer the continuously-updating SSE `sleep`
-    /// event (`store.sleepEvent`) and fall back to the last REST
-    /// `/sleep/status` fetch, via `resolveSleepDebt`/`resolveProgressPct`/
-    /// `resolveOriginCounts`.
+    /// The mascot card, now "the study room" (G125 v3 Task 3): the speech
+    /// bubble over a night window, a floor lamp, a plant, a cushion and a mug,
+    /// with the 24×24 colour bookworm (G107) sitting on the cushion at 120 pt
+    /// — five whole cells per point-row, so the pixels stay crisp (ruling R3)
+    /// — and the REAL `BookPileView` standing in the column
+    /// `deskSceneLayout` reserves for it beside him. Nothing in the room is
+    /// painted books (P10): the page's one volume encoding is that pile.
+    ///
+    /// Both the mood and the per-origin counts prefer the
+    /// continuously-updating SSE `sleep` event (`store.sleepEvent`) and fall
+    /// back to the last REST `/sleep/status` fetch, via
+    /// `resolveSleepDebt`/`resolveProgressPct`/`resolveOriginCounts`.
+    ///
+    /// The scene box is a FIXED height at a given zoom (R-A2), so idle →
+    /// running → idle never reflows the art: the mood changes the worm's
+    /// frames, never the room's geometry.
     private var deskCard: some View {
         let debt = resolveSleepDebt(sse: store.sleepEvent, status: sleepVM.status)
         let progress = resolveProgressPct(sse: store.sleepEvent, status: sleepVM.status)
@@ -271,23 +284,37 @@ struct SleepView: View {
             hoursSinceLastCycle: debt?.hoursSinceLastCycle
         )
 
+        let scene = deskSceneLayout(pointSize: Self.wormPointSize)
+
         return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            HStack(alignment: .bottom, spacing: CicadaTheme.spacingXL) {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    SpeechBubbleView(text: sleepBubbleText(mood, bubbleCtx))
-                    BookwormView(
-                        state: mood,
-                        pointSize: 120,
-                        caption: sleepDebtBracketText(mood, debt: debt),
-                        captionFont: CicadaTheme.font(size: 20, weight: .semibold, design: .monospaced),
-                        captionColor: sleepDebtBracketColor(mood),
-                        alignment: .leading
-                    )
-                }
-                Spacer(minLength: 0)
+            SpeechBubbleView(text: sleepBubbleText(mood, bubbleCtx))
+
+            ZStack(alignment: .bottomLeading) {
+                // R-A3: lit exactly when Sleep is scheduled. `enabled` is
+                // `mode != "manual"` by definition (`ScheduleConfig`), so the
+                // lamp and the schedule sentence read the same field — the
+                // art can never disagree with the words.
+                DeskSceneView(pointSize: Self.wormPointSize, lampLit: sleepVM.schedule.enabled)
+
+                // The worm sits on the cushion; `caption` is dropped because
+                // the scene positions the sprite by its own box, and a
+                // VStack'd caption underneath would move it off the cushion.
+                // The bracket line survives as this group's VoiceOver label
+                // below — the sprite loses its visible caption, not its
+                // meaning (P8).
+                BookwormView(state: mood, pointSize: Self.wormPointSize, caption: nil)
+                    .offset(x: scene.wormOrigin.x, y: -scene.wormOrigin.y)
+
+                // The REAL pile, in the column the layout reserves for it —
+                // never a painted stack (P10).
                 BookPileView(books: books)
-                    .frame(width: 170, height: 150, alignment: .bottomLeading)
+                    .frame(width: scene.pileFrame.width, height: scene.pileFrame.height,
+                           alignment: .bottomLeading)
+                    .offset(x: scene.pileFrame.minX, y: -scene.pileFrame.minY)
             }
+            .frame(width: scene.size.width, height: scene.size.height, alignment: .bottomLeading)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(sleepDebtBracketText(mood, debt: debt))
 
             moodDetailLine(mood: mood, debt: debt, progress: progress)
 
