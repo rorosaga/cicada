@@ -63,6 +63,7 @@ async def run_dedup_sweep(
         nudged=[
             MaintenanceNudgePair(a=a, b=b) for a, b in report.get("nudged", [])
         ],
+        skipped_rejected=report.get("skipped_rejected", 0),
     )
 
 

@@ -1576,6 +1576,11 @@ class MaintenanceDedupSweepResponse(CamelModel):
     proposed: list[MaintenanceMergePair] = []
     # Pairs the judge was uncertain about — same shape as the Nudge Inbox.
     nudged: list[MaintenanceNudgePair] = []
+    # G113 slice 3b — pairs skipped without a judge call because the user
+    # already rejected them (`merge_rejections`). Distinct from `nudged`: a
+    # rejected pair never re-reaches the judge at all, so it is neither
+    # merged, proposed, nor nudged.
+    skipped_rejected: int = 0
 
 
 class MaintenanceEnrichLinksResponse(CamelModel):

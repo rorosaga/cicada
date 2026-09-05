@@ -412,6 +412,10 @@ TOOLS = [
                     "type": "boolean",
                     "description": "True when the question went unanswered this session: no write, not re-asked until the MCP process restarts. Distinct from defer (which writes remind_after).",
                 },
+                "reject": {
+                    "type": "boolean",
+                    "description": "For a merge_suggestion: these are NOT the same entity — remember that and stop proposing it.",
+                },
             },
             "required": ["id"],
         },
@@ -640,6 +644,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             bool(arguments.get("defer", False)),
             arguments.get("remind_days"),
             skip=bool(arguments.get("skip", False)),
+            reject=bool(arguments.get("reject", False)),
         )
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -1908,6 +1913,7 @@ def handle_resolve_inbox(
     remind_days,
     *,
     skip: bool = False,
+    reject: bool = False,
 ) -> str:
     """Resolve (or defer) one inbox item through the backend (§2.7).
 
@@ -1917,6 +1923,11 @@ def handle_resolve_inbox(
     this the primer named an argument the schema rejected (R12 — a bug), and
     an agent hitting the tool error could fall back to ``defer=true``, a
     real ``remind_after`` write the person never asked for.
+
+    ``reject=True`` (G113 slice 3b) is a merge_suggestion-only verdict —
+    "these are NOT the same entity" — that IS posted to the backend, which
+    records the pair in ``_merge_rejected.yaml`` so it is never re-proposed;
+    unlike ``skip`` it is a real, remembered answer, not a no-op.
     """
     item_id = (item_id or "").strip()
     if not item_id:
@@ -1926,8 +1937,10 @@ def handle_resolve_inbox(
         _SKIPPED_INBOX_IDS.add(item_id)
         return f"Skipped {item_id} — not re-asked this session (nothing written)."
 
-    if defer:
-        payload: dict = {"action": "defer"}
+    if reject:
+        payload: dict = {"action": "reject"}
+    elif defer:
+        payload = {"action": "defer"}
         if remind_days is not None:
             payload["remindDays"] = int(remind_days)
     else:

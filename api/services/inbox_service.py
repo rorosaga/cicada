@@ -767,7 +767,7 @@ async def resolve(
             path, parsed, request, settings, item_id
         )
     elif kind in ("clarification", "merge_suggestion"):
-        entity_id, skipped = await _resolve_clarification(
+        entity_id, skipped, extra_lines = await _resolve_clarification(
             path, parsed, request, settings
         )
     else:
@@ -1287,12 +1287,12 @@ async def _resolve_normalization(path, parsed, request, settings, item_id: str) 
     return entity_id, False, extra
 
 
-async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool]:
-    """Port of the clarifications.py logic (answer / dismiss / merge / skip).
+async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
+    """Port of the clarifications.py logic (answer / dismiss / merge / reject / skip).
 
     Lifted verbatim — the source_date/_max_date chronology handling is already
-    correct. Returns ``(entity_id, skipped)``; ``skipped`` short-circuits the
-    commit in :func:`resolve`.
+    correct. Returns ``(entity_id, skipped, extra_lines)``; ``skipped``
+    short-circuits the commit in :func:`resolve`.
 
     ``resolve`` is accepted as an alias for ``answer`` (G60 §2.1): the MCP tool
     and the app's ``QuestionView`` send one verb for *every* kind carrying a
@@ -1303,6 +1303,33 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         "entity_mention", ""
     )
     entity_id = parsed.frontmatter.get("entity_id", "") or sanitize_id(entity_mention)
+
+    # G113 slice 3b — "these are NOT the same entity" is a verdict on the
+    # *pair*, not a dismissal of the item: without this, deleting the file was
+    # the whole effect, and the next Sleep's `_create_duplicate_clarification`
+    # (or a dedup sweep) recreated the exact same question. Recording the pair
+    # in `_merge_rejected.yaml` lets both producers skip it going forward
+    # (R5). Checked before the rest of the dispatch chain and before
+    # `source_episode`/`today` are computed — a reject never touches an entity
+    # page, so none of that chronology bookkeeping is relevant here.
+    if request.action == "reject":
+        kind = str(parsed.frontmatter.get("kind", "") or "")
+        if kind != "merge_suggestion":
+            raise HTTPException(status_code=400, detail="reject is only valid on a merge_suggestion item")
+        other = _opt_str(parsed.frontmatter.get("merge_target_hint")) or (
+            sanitize_id(request.merge_target) if request.merge_target else ""
+        )
+        if not other:
+            raise HTTPException(status_code=400, detail="reject needs a merge target (hint or mergeTarget)")
+        from api.services import merge_rejections
+
+        merge_rejections.add_rejected(settings.memory_path, entity_id, other)
+        path.unlink()
+        return (
+            entity_id,
+            False,
+            [f"{merge_rejections.FILE}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)"],
+        )
 
     source_episode = str(parsed.frontmatter.get("source_episode", "") or "").strip()
     source_timestamp = str(
@@ -1484,9 +1511,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             entity_id = survivor_slug
 
     elif action == "skip":
-        return entity_id, True
+        return entity_id, True, []
 
     else:
         raise HTTPException(400, f"Unknown action: {request.action}")
 
-    return entity_id, False
+    return entity_id, False, []
