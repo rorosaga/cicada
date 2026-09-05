@@ -93,7 +93,7 @@ struct ConsolidationHistoryCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Text("RECENT CONSOLIDATIONS")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
@@ -131,12 +131,12 @@ struct ConsolidationHistoryCard: View {
         } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
                 Text(SleepHistoryPresentation.dateText(entry.date))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(CicadaTheme.font(size: 11, design: .monospaced))
                     .foregroundStyle(tone)
                     .frame(width: 44, alignment: .leading)
 
                 Image(systemName: SleepHistoryPresentation.engineSymbol(entry.engine))
-                    .font(.system(size: 11))
+                    .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(isDecay || entry.engine == nil ? CicadaTheme.textTertiary : CicadaTheme.accent)
                     .frame(width: 14)
 
@@ -148,11 +148,11 @@ struct ConsolidationHistoryCard: View {
                 Spacer()
 
                 Text(SleepHistoryPresentation.durationText(ms: entry.durationMs))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(CicadaTheme.font(size: 11, design: .monospaced))
                     .foregroundStyle(CicadaTheme.textTertiary)
 
                 Image(systemName: expanded == entry.commitHash ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(CicadaTheme.font(size: 9, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .contentShape(Rectangle())

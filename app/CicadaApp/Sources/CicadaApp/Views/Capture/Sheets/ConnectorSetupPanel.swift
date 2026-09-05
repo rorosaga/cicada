@@ -72,7 +72,7 @@ struct ConnectorSetupPanel: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             if let status {
                 Text(ConnectorSetupState.stepLabel(status))
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(CicadaTheme.font(size: 12, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
 
                 if let detail = status.detail ?? status.lastError {

@@ -77,7 +77,7 @@ struct HeatmapView: View {
         VStack(spacing: gap) {
             ForEach(Array(Self.weekdayLabels.enumerated()), id: \.offset) { _, day in
                 Text(day)
-                    .font(.system(size: 9))
+                    .font(CicadaTheme.font(size: 9))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .frame(width: 28, height: cellSize, alignment: .leading)
             }

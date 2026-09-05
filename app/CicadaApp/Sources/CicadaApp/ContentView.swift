@@ -104,7 +104,7 @@ struct ContentView: View {
     private var toastBanner: some View {
         if let toast = store.toast {
             Text(toast)
-                .font(.system(size: 12, weight: .medium))
+                .font(CicadaTheme.font(size: 12, weight: .medium))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 9)
@@ -287,7 +287,7 @@ struct FilterButton: View {
             graphVM.showFilterPopover.toggle()
         } label: {
             Image(systemName: "line.3.horizontal.decrease.circle")
-                .font(.system(size: 13, weight: .medium))
+                .font(CicadaTheme.font(size: 13, weight: .medium))
                 .foregroundStyle(allEnabled ? (isHovered ? CicadaTheme.textPrimary : CicadaTheme.textSecondary) : CicadaTheme.accent)
                 .frame(width: 36, height: 32)
         }
@@ -312,7 +312,7 @@ struct FilterPopoverContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             Text("FILTER CATEGORIES")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
                 .padding(.bottom, CicadaTheme.spacingXS)
@@ -323,7 +323,7 @@ struct FilterPopoverContent: View {
                 } label: {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Image(systemName: graphVM.filter.types.contains(type) ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 14))
+                            .font(CicadaTheme.font(size: 14))
                             .foregroundStyle(graphVM.filter.types.contains(type) ? CicadaTheme.entityColor(for: type) : CicadaTheme.textTertiary)
 
                         Text(type.label)
@@ -342,7 +342,7 @@ struct FilterPopoverContent: View {
                 .padding(.vertical, CicadaTheme.spacingXS)
 
             Text("STATUS")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
                 .padding(.bottom, CicadaTheme.spacingXS)
@@ -353,7 +353,7 @@ struct FilterPopoverContent: View {
                 } label: {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Image(systemName: graphVM.filter.statuses.contains(status) ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 14))
+                            .font(CicadaTheme.font(size: 14))
                             .foregroundStyle(graphVM.filter.statuses.contains(status) ? CicadaTheme.accent : CicadaTheme.textTertiary)
 
                         Text(status.label)
@@ -373,12 +373,12 @@ struct FilterPopoverContent: View {
 
             HStack {
                 Text("MIN CONFIDENCE")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .tracking(1.2)
                 Spacer()
                 Text(String(format: "%.0f%%", graphVM.filter.minConfidence * 100))
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10, design: .monospaced))
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
 
@@ -449,9 +449,9 @@ struct AskButton: View {
         } label: {
             HStack(spacing: CicadaTheme.spacingXS) {
                 Image(systemName: "sparkle.magnifyingglass")
-                    .font(.system(size: 12))
+                    .font(CicadaTheme.font(size: 12))
                 Text("Ask")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(CicadaTheme.font(size: 12, weight: .medium))
             }
             .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.accent)
             .padding(.horizontal, CicadaTheme.spacingMD)
@@ -472,7 +472,7 @@ private struct ZoomButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .medium))
+                .font(CicadaTheme.font(size: 13, weight: .medium))
                 .foregroundStyle(isActive ? CicadaTheme.accent : (isHovered ? CicadaTheme.textPrimary : CicadaTheme.textSecondary))
                 .frame(width: 36, height: 32)
                 .background(isActive ? CicadaTheme.accent.opacity(0.18) : (isHovered ? CicadaTheme.surfaceHover : .clear))
@@ -500,11 +500,11 @@ struct GraphSearchField: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: CicadaTheme.spacingXS) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
+                    .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(CicadaTheme.textTertiary)
                 TextField("Find a node", text: $query)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(CicadaTheme.font(size: 12))
                     .focused($focused)
                     .frame(width: 160)
                     .onSubmit { pick(highlighted) }
@@ -514,7 +514,7 @@ struct GraphSearchField: View {
                     .onChange(of: query) { _, _ in highlighted = 0 }
                 if !query.isEmpty {
                     Button { clear() } label: {
-                        Image(systemName: "xmark.circle.fill").font(.system(size: 11))
+                        Image(systemName: "xmark.circle.fill").font(CicadaTheme.font(size: 11))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(CicadaTheme.textTertiary)
@@ -535,7 +535,7 @@ struct GraphSearchField: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if matches.isEmpty {
                         Text("No node matches")
-                            .font(.system(size: 12))
+                            .font(CicadaTheme.font(size: 12))
                             .foregroundStyle(CicadaTheme.textTertiary)
                             .padding(.horizontal, CicadaTheme.spacingSM)
                             .padding(.vertical, 6)
@@ -543,10 +543,10 @@ struct GraphSearchField: View {
                     ForEach(Array(matches.enumerated()), id: \.element.id) { index, node in
                         HStack(spacing: CicadaTheme.spacingXS) {
                             Circle().fill(CicadaTheme.entityColor(for: node.type)).frame(width: 7, height: 7)
-                            Text(node.name).font(.system(size: 12)).lineLimit(1)
+                            Text(node.name).font(CicadaTheme.font(size: 12)).lineLimit(1)
                             Spacer(minLength: 0)
                             Text(node.type.rawValue)
-                                .font(.system(size: 10))
+                                .font(CicadaTheme.font(size: 10))
                                 .foregroundStyle(CicadaTheme.textTertiary)
                         }
                         .padding(.horizontal, CicadaTheme.spacingSM)

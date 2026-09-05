@@ -191,7 +191,7 @@ private struct ContributorRow: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             HStack {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(CicadaTheme.font(size: 9, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textTertiary)
                 ContributorAvatar(contributor: contributor, kind: kind)
                 Text(contributor.author)
@@ -345,7 +345,7 @@ private struct ContributorRow: View {
     /// so it doesn't read as a tappable entity.
     private func moreEntitiesCapsule(_ hidden: Int) -> some View {
         Text("+\(hidden) more")
-            .font(.system(size: 11))
+            .font(CicadaTheme.font(size: 11))
             .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
@@ -363,7 +363,7 @@ private struct ContributorRow: View {
             toggleEntityDiff(key)
         } label: {
             Text(entityId)
-                .font(.system(size: 11))
+                .font(CicadaTheme.font(size: 11))
                 .lineLimit(1)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -424,7 +424,7 @@ private struct ContributorAvatar: View {
             userAvatar
         case "unknown":
             Image(systemName: "questionmark.circle.fill")
-                .font(.system(size: Self.size))
+                .font(CicadaTheme.font(size: Self.size))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .frame(width: Self.size, height: Self.size)
         default:
@@ -454,7 +454,7 @@ private struct ContributorAvatar: View {
 
     private var userFallback: some View {
         Image(systemName: "person.crop.circle.fill")
-            .font(.system(size: Self.size))
+            .font(CicadaTheme.font(size: Self.size))
             .foregroundStyle(CicadaTheme.info)
             .frame(width: Self.size, height: Self.size)
     }
@@ -465,7 +465,7 @@ private struct ContributorAvatar: View {
             .frame(width: Self.size, height: Self.size)
             .overlay(
                 Text(Self.monogram(contributor.provider))
-                    .font(.system(size: 12, weight: .bold))
+                    .font(CicadaTheme.font(size: 12, weight: .bold))
                     .foregroundStyle(.white)
             )
     }

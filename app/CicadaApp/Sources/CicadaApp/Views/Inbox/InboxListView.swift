@@ -172,7 +172,7 @@ struct InboxListView: View {
         VStack(spacing: CicadaTheme.spacingLG) {
             Spacer()
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 40))
+                .font(CicadaTheme.font(size: 40))
                 .foregroundStyle(CicadaTheme.textTertiary)
 
             Text("Couldn't load the inbox")
@@ -189,7 +189,7 @@ struct InboxListView: View {
                 Task { await viewModel.loadInbox() }
             } label: {
                 Text("Retry")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(CicadaTheme.font(size: 12, weight: .medium))
                     .padding(.horizontal, CicadaTheme.spacingMD)
                     .padding(.vertical, 6)
             }
@@ -220,9 +220,9 @@ private struct KindChip: View {
                     .fill(color)
                     .frame(width: 7, height: 7)
                 Text(label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CicadaTheme.font(size: 11, weight: .medium))
                 Text("\(count)")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10, design: .monospaced))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)

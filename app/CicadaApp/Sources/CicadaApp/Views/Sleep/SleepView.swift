@@ -279,7 +279,7 @@ struct SleepView: View {
                         state: mood,
                         pointSize: 120,
                         caption: sleepDebtBracketText(mood, debt: debt),
-                        captionFont: .system(size: 20, weight: .semibold, design: .monospaced),
+                        captionFont: CicadaTheme.font(size: 20, weight: .semibold, design: .monospaced),
                         captionColor: sleepDebtBracketColor(mood),
                         alignment: .leading
                     )
@@ -365,14 +365,14 @@ struct SleepView: View {
     private func capBanner(processed: Int, queued: Int, cap: Int) -> some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "tray.and.arrow.down")
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Episode cap reached (\(cap))")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(CicadaTheme.font(size: 11, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text("\(processed) of \(queued) processed — the rest stay queued for the next cycle.")
-                    .font(.system(size: 10))
+                    .font(CicadaTheme.font(size: 10))
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -392,14 +392,14 @@ struct SleepView: View {
     private var cancelledBanner: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "xmark.circle")
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Cancelled")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(CicadaTheme.font(size: 11, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text("Stopped cleanly before any writes — nothing was lost.")
-                    .font(.system(size: 10))
+                    .font(CicadaTheme.font(size: 10))
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -416,14 +416,14 @@ struct SleepView: View {
     private func warningBanner(_ text: String) -> some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.warning)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Completed with warnings")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(CicadaTheme.font(size: 11, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text(text)
-                    .font(.system(size: 10))
+                    .font(CicadaTheme.font(size: 10))
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -443,7 +443,7 @@ struct SleepView: View {
     private func engineLine(_ engine: String, detail: String?) -> some View {
         HStack(spacing: CicadaTheme.spacingXS) {
             Text("ENGINE")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 9, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.1)
             Text(Copy.engineLabel(engine))
@@ -464,14 +464,14 @@ struct SleepView: View {
     private func errorBanner(_ text: String) -> some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 13))
+                .font(CicadaTheme.font(size: 13))
                 .foregroundStyle(CicadaTheme.danger)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Sleep cycle error")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(CicadaTheme.font(size: 12, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text(text)
-                    .font(.system(size: 11))
+                    .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

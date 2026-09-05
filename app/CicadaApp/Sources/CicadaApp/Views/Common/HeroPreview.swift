@@ -126,7 +126,7 @@ private struct YouTubeHero: View {
                 }
 
                 Image(systemName: "play.circle.fill")
-                    .font(.system(size: 52))
+                    .font(CicadaTheme.font(size: 52))
                     .foregroundStyle(.white.opacity(0.92))
                     .shadow(radius: 8)
             }
@@ -185,7 +185,7 @@ private struct HeroImage: View {
         ZStack {
             CicadaTheme.mediaPink.opacity(0.1)
             Image(systemName: symbol)
-                .font(.system(size: 28))
+                .font(CicadaTheme.font(size: 28))
                 .foregroundStyle(CicadaTheme.mediaPink.opacity(0.6))
         }
     }
@@ -217,11 +217,11 @@ private struct WebsiteHero: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     if let site = model.site, !site.isEmpty {
                         Text(site.uppercased())
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(CicadaTheme.font(size: 10, weight: .semibold))
                             .foregroundStyle(CicadaTheme.textTertiary)
                     }
                     Text(model.title.isEmpty ? model.url : model.title)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(CicadaTheme.font(size: 15, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(2)
                 }
@@ -244,7 +244,7 @@ private struct WebsiteHero: View {
         ZStack {
             CicadaTheme.surfaceHover
             Image(systemName: "globe")
-                .font(.system(size: 26))
+                .font(CicadaTheme.font(size: 26))
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
     }
@@ -263,7 +263,7 @@ private struct CompactSiteHero: View {
                 ZStack {
                     Circle().fill(CicadaTheme.surfaceHover)
                     Image(systemName: "globe")
-                        .font(.system(size: 18))
+                        .font(CicadaTheme.font(size: 18))
                         .foregroundStyle(CicadaTheme.textSecondary)
                 }
                 .frame(width: 40, height: 40)
@@ -271,11 +271,11 @@ private struct CompactSiteHero: View {
                 VStack(alignment: .leading, spacing: 2) {
                     if let site = model.site, !site.isEmpty {
                         Text(site.uppercased())
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(CicadaTheme.font(size: 10, weight: .semibold))
                             .foregroundStyle(CicadaTheme.textTertiary)
                     }
                     Text(model.title.isEmpty ? model.url : model.title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(CicadaTheme.font(size: 14, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
                 }
@@ -283,7 +283,7 @@ private struct CompactSiteHero: View {
                 Spacer()
 
                 Image(systemName: "arrow.up.right.square")
-                    .font(.system(size: 12))
+                    .font(CicadaTheme.font(size: 12))
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
             .padding(CicadaTheme.spacingMD)
@@ -396,7 +396,7 @@ private struct LocationHero: View {
             }
         } label: {
             Image(systemName: "arrow.up.forward.app")
-                .font(.system(size: 11, weight: .medium))
+                .font(CicadaTheme.font(size: 11, weight: .medium))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .padding(6)
                 .background(.ultraThinMaterial, in: Circle())
@@ -413,7 +413,7 @@ private struct LocationHero: View {
         VStack(spacing: CicadaTheme.spacingSM) {
             if isResolved {
                 Image(systemName: "mappin.slash.circle")
-                    .font(.system(size: 28))
+                    .font(CicadaTheme.font(size: 28))
                     .foregroundStyle(CicadaTheme.textTertiary)
             } else {
                 ProgressView().controlSize(.small)

@@ -182,9 +182,9 @@ struct EntityDetailCard: View {
                     Button(action: goBack) {
                         HStack(spacing: CicadaTheme.spacingXS) {
                             Image(systemName: "chevron.left")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(CicadaTheme.font(size: 11, weight: .semibold))
                             Text(backTargetName.map { "Back to \($0)" } ?? "Back")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(CicadaTheme.font(size: 11, weight: .medium))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
@@ -202,7 +202,7 @@ struct EntityDetailCard: View {
             HStack {
                 // Type badge
                 Label(entity.type.label, systemImage: entity.type.icon)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CicadaTheme.font(size: 11, weight: .medium))
                     .foregroundStyle(CicadaTheme.entityColor(for: entity.type))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -211,7 +211,7 @@ struct EntityDetailCard: View {
 
                 // Status badge
                 Text(entity.status.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CicadaTheme.font(size: 11, weight: .medium))
                     .foregroundStyle(CicadaTheme.statusColor(for: entity.status))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -227,7 +227,7 @@ struct EntityDetailCard: View {
                         graphVM.clearSelection()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(CicadaTheme.font(size: 12, weight: .medium))
                             .foregroundStyle(CicadaTheme.textSecondary)
                             .frame(width: 28, height: 28)
                             .background(CicadaTheme.surfaceHover)
@@ -319,7 +319,7 @@ struct EntityDetailCard: View {
                     NSPasteboard.general.setString(fullMarkdown, forType: .string)
                 } label: {
                     Image(systemName: "doc.on.doc")
-                        .font(.system(size: 12))
+                        .font(CicadaTheme.font(size: 12))
                         .foregroundStyle(CicadaTheme.textSecondary)
                 }
                 .buttonStyle(.cicadaPlain)
@@ -411,7 +411,7 @@ struct EntityDetailCard: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     Image(systemName: "folder")
-                        .font(.system(size: 11))
+                        .font(CicadaTheme.font(size: 11))
                         .foregroundStyle(CicadaTheme.entityColor(for: .location))
                     Text("Path")
                         .font(CicadaTheme.captionFont)
@@ -422,7 +422,7 @@ struct EntityDetailCard: View {
                         NSPasteboard.general.setString(path, forType: .string)
                     } label: {
                         Image(systemName: "doc.on.doc")
-                            .font(.system(size: 11))
+                            .font(CicadaTheme.font(size: 11))
                             .foregroundStyle(CicadaTheme.textSecondary)
                     }
                     .buttonStyle(.cicadaPlain)
@@ -460,19 +460,19 @@ struct EntityDetailCard: View {
                     ForEach(listing.entries) { entry in
                         HStack(spacing: CicadaTheme.spacingSM) {
                             Image(systemName: entry.isDir ? "folder.fill" : "doc")
-                                .font(.system(size: 11))
+                                .font(CicadaTheme.font(size: 11))
                                 .foregroundStyle(entry.isDir
                                                  ? CicadaTheme.entityColor(for: .location)
                                                  : CicadaTheme.textTertiary)
                                 .frame(width: 16)
                             Text(entry.name)
-                                .font(.system(size: 12))
+                                .font(CicadaTheme.font(size: 12))
                                 .foregroundStyle(CicadaTheme.textSecondary)
                                 .lineLimit(1)
                             Spacer()
                             if !entry.isDir {
                                 Text(humanSize(entry.size))
-                                    .font(.system(size: 10, design: .monospaced))
+                                    .font(CicadaTheme.font(size: 10, design: .monospaced))
                                     .foregroundStyle(CicadaTheme.textTertiary)
                             }
                         }
@@ -480,7 +480,7 @@ struct EntityDetailCard: View {
                     }
                     if listing.truncated {
                         Text("…listing truncated")
-                            .font(.system(size: 10))
+                            .font(CicadaTheme.font(size: 10))
                             .foregroundStyle(CicadaTheme.textTertiary)
                             .padding(.top, 2)
                     }
@@ -492,7 +492,7 @@ struct EntityDetailCard: View {
     private func locationNote(_ text: String, icon: String) -> some View {
         HStack(spacing: CicadaTheme.spacingXS) {
             Image(systemName: icon)
-                .font(.system(size: 11))
+                .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textTertiary)
             Text(text)
                 .font(CicadaTheme.captionFont)
@@ -528,7 +528,7 @@ struct EntityDetailCard: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             HStack(spacing: CicadaTheme.spacingXS) {
                 Image(systemName: "chevron.left.forwardslash.chevron.right")
-                    .font(.system(size: 11))
+                    .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(CicadaTheme.entityColor(for: .tool))
                 Text(repoContexts.count > 1 ? "Repositories" : "Repository")
                     .font(CicadaTheme.captionFont)
@@ -547,7 +547,7 @@ struct EntityDetailCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     if let remote = repo.remote, !remote.isEmpty {
                         Text(remote)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(CicadaTheme.font(size: 12, weight: .medium))
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -599,10 +599,10 @@ struct EntityDetailCard: View {
                     ForEach(repo.worktrees, id: \.path) { wt in
                         HStack(spacing: 4) {
                             Image(systemName: wt.isMain ? "star.fill" : "arrow.triangle.branch")
-                                .font(.system(size: 9))
+                                .font(CicadaTheme.font(size: 9))
                                 .foregroundStyle(wt.isMain ? CicadaTheme.hubGold : CicadaTheme.textTertiary)
                             Text(wt.branch ?? wt.path)
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(CicadaTheme.font(size: 10, design: .monospaced))
                                 .foregroundStyle(CicadaTheme.textTertiary)
                                 .lineLimit(1)
                             if wt.isDirty == true {
@@ -619,9 +619,9 @@ struct EntityDetailCard: View {
             if let hint = repo.staleHint, !hint.isEmpty {
                 HStack(spacing: 4) {
                     Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 9))
+                        .font(CicadaTheme.font(size: 9))
                     Text(hint)
-                        .font(.system(size: 10))
+                        .font(CicadaTheme.font(size: 10))
                 }
                 .foregroundStyle(CicadaTheme.warning)
             }
@@ -645,7 +645,7 @@ struct EntityDetailCard: View {
             }
         }()
         return Text(label)
-            .font(.system(size: 10, weight: .medium))
+            .font(CicadaTheme.font(size: 10, weight: .medium))
             .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -657,10 +657,10 @@ struct EntityDetailCard: View {
         HStack(spacing: 3) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: 7))
+                    .font(CicadaTheme.font(size: 7))
             }
             Text(text)
-                .font(.system(size: 10, weight: .medium))
+                .font(CicadaTheme.font(size: 10, weight: .medium))
         }
         .foregroundStyle(color)
         .padding(.horizontal, 6)
@@ -686,7 +686,7 @@ struct EntityDetailCard: View {
 
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "plus.circle")
-                    .font(.system(size: 11))
+                    .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(CicadaTheme.textTertiary)
                 TextField("Add a URL, a path, or a note…", text: $newSourceRef)
                     .textFieldStyle(.plain)
@@ -718,23 +718,23 @@ struct EntityDetailCard: View {
     private func sourceRow(_ source: EntitySource, index: Int) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Image(systemName: source.icon)
-                .font(.system(size: 11))
+                .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textTertiary)
             VStack(alignment: .leading, spacing: 1) {
                 Text(source.ref)
-                    .font(.system(size: 12))
+                    .font(CicadaTheme.font(size: 12))
                     .foregroundStyle(source.url == nil ? CicadaTheme.textSecondary : CicadaTheme.accent)
                     .lineLimit(2)
                 Text([source.predicate, "added by \(source.addedBy)", source.addedAt]
                         .compactMap { $0 }.joined(separator: " · "))
-                    .font(.system(size: 10))
+                    .font(CicadaTheme.font(size: 10))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             Spacer()
             if let url = source.url {
                 Button { NSWorkspace.shared.open(url) } label: {
                     Image(systemName: "arrow.up.right.square")
-                        .font(.system(size: 11))
+                        .font(CicadaTheme.font(size: 11))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 .buttonStyle(.cicadaPlain)
@@ -750,7 +750,7 @@ struct EntityDetailCard: View {
                 }
             } label: {
                 Image(systemName: "trash")
-                    .font(.system(size: 11))
+                    .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .buttonStyle(.cicadaPlain)
@@ -882,7 +882,7 @@ struct EntityDetailCard: View {
                     FlowLayout(spacing: 6) {
                         ForEach(entity.tags, id: \.self) { tag in
                             Text(tag)
-                                .font(.system(size: 11))
+                                .font(CicadaTheme.font(size: 11))
                                 .foregroundStyle(CicadaTheme.textSecondary)
                                 .lineLimit(1)
                                 .padding(.horizontal, 8)
@@ -903,7 +903,7 @@ struct EntityDetailCard: View {
                     FlowLayout(spacing: 6) {
                         ForEach(entity.related, id: \.self) { rel in
                             Text(rel)
-                                .font(.system(size: 11))
+                                .font(CicadaTheme.font(size: 11))
                                 .foregroundStyle(CicadaTheme.accent)
                                 .lineLimit(1)
                                 .padding(.horizontal, 8)
@@ -954,7 +954,7 @@ struct EntityDetailCard: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: shownDecayClass.icon)
-                    .font(.system(size: 9))
+                    .font(CicadaTheme.font(size: 9))
                 Text(shownDecayClass.chipText)
                     .font(CicadaTheme.captionFont)
             }
@@ -1015,7 +1015,7 @@ struct EntityDetailCard: View {
         case .empty:
             VStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 26))
+                    .font(CicadaTheme.font(size: 26))
                     .foregroundStyle(CicadaTheme.textTertiary)
                 Text("No commits touch this page yet")
                     .font(CicadaTheme.headingFont)
@@ -1031,7 +1031,7 @@ struct EntityDetailCard: View {
         case .error:
             VStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 26))
+                    .font(CicadaTheme.font(size: 26))
                     .foregroundStyle(CicadaTheme.danger)
                 Text("Couldn't load history")
                     .font(CicadaTheme.headingFont)
@@ -1140,7 +1140,7 @@ struct EntityDetailCard: View {
             HStack(spacing: CicadaTheme.spacingXS) {
                 if expandable {
                     Image(systemName: isExpanded(entry) ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(CicadaTheme.font(size: 9, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 Text(entry.date)
@@ -1262,7 +1262,7 @@ struct EntityDetailCard: View {
             } else if contestedKeys.isEmpty {
                 VStack(spacing: CicadaTheme.spacingSM) {
                     Image(systemName: "clock.badge.questionmark")
-                        .font(.system(size: 24))
+                        .font(CicadaTheme.font(size: 24))
                         .foregroundStyle(CicadaTheme.textTertiary)
                     Text("No contested beliefs yet.")
                         .font(CicadaTheme.bodyFont)
@@ -1284,7 +1284,7 @@ struct EntityDetailCard: View {
                     } label: {
                         HStack(spacing: CicadaTheme.spacingSM) {
                             Image(systemName: "clock.arrow.circlepath")
-                                .font(.system(size: 12))
+                                .font(CicadaTheme.font(size: 12))
                                 .foregroundStyle(CicadaTheme.accent)
                             Text(key.predicate)
                                 .font(CicadaTheme.bodyFont)
@@ -1292,7 +1292,7 @@ struct EntityDetailCard: View {
                             ContextPill(key.context)
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 10))
+                                .font(CicadaTheme.font(size: 10))
                                 .foregroundStyle(CicadaTheme.textTertiary)
                         }
                         .padding(CicadaTheme.spacingMD)
@@ -1311,7 +1311,7 @@ struct EntityDetailCard: View {
                 Spacer()
                 Button { timelineKey = nil } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(CicadaTheme.font(size: 12, weight: .medium))
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .frame(width: 28, height: 28)
                         .background(CicadaTheme.surfaceHover)
@@ -1331,7 +1331,7 @@ struct EntityDetailCard: View {
     private var claimsEmptyState: some View {
         VStack(spacing: CicadaTheme.spacingSM) {
             Image(systemName: "person.2.slash")
-                .font(.system(size: 24))
+                .font(CicadaTheme.font(size: 24))
                 .foregroundStyle(CicadaTheme.textTertiary)
             Text("No claims for this subject yet.")
                 .font(CicadaTheme.bodyFont)
@@ -1345,10 +1345,10 @@ struct EntityDetailCard: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.bubble.fill")
-                    .font(.system(size: 11))
+                    .font(CicadaTheme.font(size: 11))
                     .foregroundStyle(CicadaTheme.warning)
                 Text("Observers disagree on \(d.predicate)")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(CicadaTheme.font(size: 12, weight: .medium))
                     .foregroundStyle(CicadaTheme.textPrimary)
                 ContextPill(d.context)
             }
@@ -1499,7 +1499,7 @@ private struct SummaryBox: View {
 
             HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(CicadaTheme.font(size: 12, weight: .medium))
                     .foregroundStyle(CicadaTheme.accent)
 
                 // Routed through `MarkdownBody.inlineAttributed` — the same
@@ -1535,9 +1535,9 @@ private struct ViewModeButton: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(CicadaTheme.font(size: 10, weight: .medium))
                 Text(title)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CicadaTheme.font(size: 11, weight: .medium))
             }
             .foregroundStyle(isSelected ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
             .padding(.horizontal, 8)

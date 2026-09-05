@@ -82,7 +82,7 @@ struct ConnectedChannelRow: View {
                     .fill(Self.tint(for: channel.id).opacity(0.12))
                     .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
                 Image(systemName: Self.icon(for: channel.id))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
                     .foregroundStyle(Self.tint(for: channel.id))
             }
             .frame(width: 28, height: 28)
@@ -98,7 +98,7 @@ struct ConnectedChannelRow: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: CicadaTheme.spacingXS) {
                             Text(channel.label)
-                                .font(.system(size: 13, weight: .medium))
+                                .font(CicadaTheme.font(size: 13, weight: .medium))
                                 .foregroundStyle(CicadaTheme.textPrimary)
                             // G129: a watched browser wears its light here
                             // too, so "is this live" is answerable from the
@@ -126,7 +126,7 @@ struct ConnectedChannelRow: View {
             .accessibilityLabel(channel.detail.map { "\(channel.label). \($0)" } ?? channel.label)
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 10, weight: .semibold))
+                .font(CicadaTheme.font(size: 10, weight: .semibold))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .opacity(isHovered ? 1 : 0)
                 .accessibilityHidden(true)
@@ -137,7 +137,7 @@ struct ConnectedChannelRow: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(CicadaTheme.font(size: 12, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .frame(width: 24, height: 24)
             }

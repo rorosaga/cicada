@@ -30,7 +30,7 @@ struct SourceCardGrid: View {
                     ForEach(SourceSections.group(rows), id: \.kind) { section in
                         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                             Text(section.title)
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(CicadaTheme.textTertiary)
                                 .tracking(1.2)
                             LazyVGrid(columns: columns, alignment: .leading, spacing: CicadaTheme.spacingMD) {

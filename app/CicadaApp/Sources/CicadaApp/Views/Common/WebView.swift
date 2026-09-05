@@ -61,7 +61,7 @@ struct WebPreviewSheet: View {
                     NSWorkspace.shared.open(externalURL)
                 } label: {
                     Label("Open externally", systemImage: "arrow.up.right.square")
-                        .font(.system(size: 12))
+                        .font(CicadaTheme.font(size: 12))
                         .foregroundStyle(CicadaTheme.textSecondary)
                 }
                 .buttonStyle(.cicadaPlain)
@@ -69,7 +69,7 @@ struct WebPreviewSheet: View {
 
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(CicadaTheme.font(size: 12, weight: .medium))
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .frame(width: 28, height: 28)
                         .background(CicadaTheme.surfaceHover)
