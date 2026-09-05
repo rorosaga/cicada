@@ -427,17 +427,29 @@ private struct AgentSetupCard: View {
 /// The white plate this tile used to draw under the mark is gone (R-L5). It
 /// existed for one asset — `codex.png` shipped as black ink on an opaque white
 /// square, invisible on a dark card — and it "fixed" that by putting EVERY
-/// mark, colour ones included, on a white chip in dark mode. Track L recut the
-/// two opaque rasters with alpha and gave the monochrome marks a `-dark`
-/// sibling `LogoImage.resolvedName(for:)` picks up, so the plate has nothing
-/// left to hide and the tile keeps only its own border.
+/// mark, colour ones included, on a white chip in dark mode. Track L recut
+/// `codex` and `x` with alpha and gave the monochrome marks a `-dark` sibling
+/// `LogoImage.resolvedName(for:)` picks up, so the plate has nothing left to
+/// hide and the tile keeps only its own border. Opaque rasters DO remain
+/// (`claude-code`, `claude-desktop`, `hermes`) — they are coloured plates that
+/// read fine on a dark card, which is a clipping problem, not a plate one, and
+/// the `clipShape` below is what answers it.
 private struct AgentTile: View {
     let agent: AgentSetup
 
     var body: some View {
         Group {
             if LogoImage.exists(name: agent.id) {
+                // Clipped to the tile's own border radius, for the same reason
+                // `PlatformTile` clips: three of this catalog's seven ids —
+                // `claude-code`, `claude-desktop`, `hermes` — are full-bleed
+                // plates (measured corner alpha 0.996, 0.996, and 0.02 that is
+                // 0.91 one pixel in), so drawn unclipped at the full 44 pt
+                // they push square corners outside the 10 pt rounded stroke
+                // this tile overlays. A no-op for the four that already carry
+                // transparent corners.
                 LogoImage(name: agent.id, size: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
             } else {
                 Text(agent.monogram)
                     .font(CicadaTheme.font(size: 16, weight: .bold, design: .rounded))

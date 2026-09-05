@@ -71,6 +71,25 @@ final class LogoImageTests: XCTestCase {
         }
     }
 
+    /// The empty name is not a name. `ConnectedChannelRow.rowIcon`,
+    /// `IntegrationsView.mark` and `MemberMark` all pass `logoName ?? ""`,
+    /// because R6 makes them take the platform tile whenever EITHER rung
+    /// exists — and Foundation resolves an empty resource name to the FIRST
+    /// file in the directory, which is `rss.png` today. Without the guard, a
+    /// Safari or Apple Notes row on a Mac where that app is absent drew the RSS
+    /// mark. The assertion is `false`/nil, not "not rss": the defect is
+    /// resolving at all, and a new alphabetically-first asset must not be able
+    /// to make this test pass for the wrong reason.
+    func testTheEmptyNameIsNeverAMark() {
+        let saved = CicadaTheme.mode
+        defer { CicadaTheme.mode = saved }
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            XCTAssertFalse(LogoImage.exists(name: ""), "\(mode)")
+            XCTAssertNil(LogoImage.resolvedName(for: ""), "\(mode)")
+        }
+    }
+
     /// A `-dark` file is never reachable on its own: asking for the sibling by
     /// name must not append a second suffix.
     func testADarkNameIsNeverDoubleSuffixed() {

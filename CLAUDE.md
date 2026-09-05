@@ -496,8 +496,13 @@ every literal `.font(.system(size:))` / `Font.system(size:)` in `Sources/` now g
 Apple Notes resolve through `NSWorkspace` by bundle id, then their own SF Symbol); every other mark
 is fetched once by a maintainer with `scripts/fetch-logos.sh`, declared in
 `Resources/logos/logos.manifest.json` (source, licence, trademark restriction, sha256) and
-attributed in `Resources/logos/LOGOS.md`. **No runtime network:** none of the three outbound gates
-is involved. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
+attributed in `Resources/logos/LOGOS.md` — marks committed before the pipeline are declared
+`legacy` (12 of the 27): the script never fetches them, their sha256 is verified on every run, and
+their licence line records the commit that introduced them rather than an upstream grant. **No
+runtime network:** none of the three outbound gates is involved. A raster whose background IS the
+mark (`claude-code`, `claude-desktop`, `hermes`) is never recut — every surface that draws one
+clips it to its own curvature instead, and `LogoAssetTests` names them so a fourth cannot arrive
+unnoticed. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
 `LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
 

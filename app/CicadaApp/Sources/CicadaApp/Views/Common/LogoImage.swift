@@ -147,8 +147,23 @@ struct LogoImage: View {
     /// .testEveryDarkSiblingHasABaseMark` holds means a `-dark` never exists
     /// without one, so a dark-mode caller can never be gated out of a mark it
     /// actually ships.
+    ///
+    /// **The empty-name guard is load-bearing.** Foundation resolves an EMPTY
+    /// resource name to the FIRST matching file in the directory — measured
+    /// against the built bundle, `url(forResource: "", withExtension: "png",
+    /// subdirectory: "Resources/logos")` returns `rss.png`. Three call sites
+    /// pass `logoName ?? ""` because R6 makes them take the tile whenever
+    /// EITHER rung exists (`ConnectedChannelRow.rowIcon`,
+    /// `IntegrationsView.mark`, `MemberMark`), so a channel that has only the
+    /// installed-app rung — Safari, Apple Notes, whose PNGs R2 forbids — would
+    /// fall through to the PNG rung on a Mac where that app is absent and draw
+    /// an unrelated brand mark instead of its SF Symbol. One guard here fixes
+    /// every caller: this is the single lookup that answers "is there a mark".
     static func exists(name: String) -> Bool {
-        Bundle.cicadaResources.url(forResource: name, withExtension: "png", subdirectory: "Resources/logos") != nil
+        guard !name.isEmpty else { return false }
+        return Bundle.cicadaResources.url(
+            forResource: name, withExtension: "png", subdirectory: "Resources/logos"
+        ) != nil
     }
 
     // MARK: - Bundled cache
@@ -160,7 +175,12 @@ struct LogoImage: View {
     /// theme flip must not serve the other theme's cached bytes — `chatgpt` and
     /// `chatgpt-dark` are two different files and two different entries.
     private static func bundledImage(for name: String) async -> NSImage? {
-        let file = resolvedName(for: name) ?? name
+        // `?? name` used to sit here and it re-opened the empty-name hole
+        // `exists(name:)` closes: `resolvedName("")` is nil, the fallback fed
+        // `""` straight back into the bundle lookup, and Foundation answered
+        // with the directory's first file. A nil resolution means no such mark
+        // ships — the second lookup could only ever fail or lie.
+        guard let file = resolvedName(for: name) else { return nil }
         if let cached = await MainActor.run(body: { cache[file] }) { return cached }
         let loaded = await Task.detached(priority: .utility) {
             guard let url = Bundle.cicadaResources.url(
@@ -175,9 +195,10 @@ struct LogoImage: View {
     // MARK: - Platform tile (Task 13)
 
     /// Linear-style "Connected accounts" tile: a rounded-square card with a
-    /// subtle background and a hairline border, the brand mark centered and
-    /// inset so a full-bleed source PNG (X's plain black square, same deal as
-    /// the existing `codex.png`) and a transparent-cornered one (Instagram,
+    /// subtle background and a hairline border, the brand mark centered, inset
+    /// and clipped to the card's curvature so a full-bleed source PNG
+    /// (`claude-code`, `claude-desktop`, `hermes` — the three rasters whose
+    /// background IS the mark) and a transparent-cornered one (Instagram,
     /// Reddit, …) read the same. Radius scales proportionally with `size` (8pt
     /// at the reference 40pt).
     ///
@@ -227,13 +248,26 @@ private struct PlatformTile: View {
                     .resizable().interpolation(.high).scaledToFit()
                     .frame(width: markSize, height: markSize)
             } else if LogoImage.exists(name: name) {
-                // No clip (R-L5). The rounded clip existed for the two rasters
-                // that shipped as opaque squares (`x` white-on-black, `codex`
-                // black-on-white); both were recut with alpha in Track L, so
-                // there is no full-bleed square left to round off — and a
-                // `cornerRadius * 0.5` (2.4 pt inside a 5.6 pt card at the
-                // reference size) read as SQUARER than the card behind it.
+                // The clip stays, at the CARD's own curvature scaled to the
+                // mark (`cornerRadius * markSize / size` — a constant 0.2 of
+                // whatever it is drawn at). R-L5 dropped it on a premise that
+                // measurement disproved: recutting `x` and `codex` with alpha
+                // did not leave "no full-bleed square", because `claude-code`
+                // and `claude-desktop` are 256 px rasters whose every pixel is
+                // opaque (corners 0.996, sampled minimum 1.00) and `hermes` is
+                // a black plate with only a 1-px feathered edge (corner 0.02,
+                // 0.91 one pixel in). All three reach here — `claude-desktop`
+                // through `chat-export:claude` on the Feed strip and Settings →
+                // Integrations, `claude-code` through `claude-plan` — and drew
+                // hard corners inside a rounded card. The old radius was
+                // `cornerRadius * 0.5`, which read SQUARER than the card
+                // because 0.5 is not the card's ratio; this one is, so the mark
+                // and the card curve alike. It is a no-op for every mark whose
+                // corners are already transparent (25 of the 27 bundled), which
+                // is why it costs nothing to apply unconditionally rather than
+                // maintaining a list of which rasters are opaque.
                 LogoImage(name: name, size: markSize)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius * (markSize / size)))
             } else {
                 Image(systemName: systemFallback)
                     .font(CicadaTheme.font(size: size * 0.42, weight: .medium))
