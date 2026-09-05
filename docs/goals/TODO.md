@@ -117,10 +117,10 @@ G115 Phase 1 landed. Everything about *what to do next and why* now lives in one
 > the reasoning for its order.
 
 The queue there, in order: **G129 slice 2** (bookmark deletions — in flight on
-`feat/bookmark-deletions`) → **G117** (first-run onboarding) → **G118 slice 2** (the provenance
-viewer) → **G93** (cross-stream ask). Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**,
-**G76**, and **G127** as a decision, not a build. Shipped 2026-09-05 and no longer queued: G125
-(PR #55), G113 slices 3–7 (PR #59), G122 + the G126 page (Track C, PR #60).
+`feat/bookmark-deletions`) → **G118 slice 2** (the provenance viewer) → **G93** (cross-stream ask).
+Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a
+build. Shipped 2026-09-05 and no longer queued: G125 (PR #55), G113 slices 3–7 (PR #59), G122 + the
+G126 page (Track C, PR #60), **G117** first-run onboarding (`feat/onboarding`, pending PR).
 
 **Track C (G122 engine/model picker + G126 Integrations page) shipped** on `feat/settings-redesign`
 (PR #60) — a `GET/PUT /sleep/engine` prefs-first endpoint, the five-section Settings sidebar, the
@@ -194,6 +194,18 @@ ones out
 **G113 grounded-reward ledger (2026-09-05, PR #59)** — every inbox verdict is a `resolution`
 telemetry event; `/consumption/feedback` + Feedback tile; divergence/normalization resolvable;
 merge reject sticks; keep_active/answers write claims.
+
+**G117 first-run onboarding (2026-09-05, `feat/onboarding`)** — `owner_identity.resolve_observer`
+(R1's four-rung precedence, migration-safe against a pre-G117 `entities/rodrigo.md`) replaces the
+hardcoded `"rodrigo"` literal at all five observer sites; `GET/PUT /settings/owner` writes the owner
+entity page and the app renders it, and its graph node, as "Name (you)" (R2's not-agent-not-external
+rule); the four-step first-run sheet (identity → engine → one channel → first Sleep) replaces the
+old single-step Connect guide; every tab that can be empty says so with one honest action; a
+checked-in, deterministic `demo_bank.py` backs a one-click `POST /banks/demo`; three install/copy
+gaps fixed alongside (`install.sh`'s `-s user`, the README `/sleep/trigger` bearer header, and
+`sleep_cycle`'s byok failure copy no longer diagnosing a key nobody entered when no engine was ever
+chosen). **Open remainder:** the onboarding *interview* (G54); entity-merge-across-identity-change
+(R3's disclosed gap).
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote

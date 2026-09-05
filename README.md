@@ -119,6 +119,10 @@ make dev              # build the app, install to ~/Applications, launch
 the backend as a `launchd` agent that starts on login, and registers the `cicada` MCP server with
 Claude Code. Check health any time with `make doctor`.
 
+First launch opens a four-step sheet — your name, a consolidation engine, one capture channel, and
+your first Sleep cycle — or "try a demo bank first" if you'd rather look around before wiring in
+your own life. Re-open it any time from Settings → General → "Run setup again".
+
 Pick a consolidation engine in `api/.env`:
 
 ```sh

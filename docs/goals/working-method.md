@@ -225,10 +225,14 @@ brief written from this table over fighting the cache.
    `GET/PUT /sleep/engine` ladder rung, the Sleep page's `EngineCard` (segmented picker over Claude
    plan / Ollama / a key, Codex disabled), and both `preview.manual`/`preview.scheduled` lines shown
    rather than hiding ruling 4. Codex as a selectable engine stays open under G49.
-4. **G117 — first-run onboarding**, including capturing the owner's identity so the owner entity
-   renders as *Name (you)* and replaces the last hardcoded observer literal. *Why here:* release
-   blocker, and the owner plans a clean-install run to watch a new user's first hour. Reuses this
-   track's `EngineCard` (G122) and `IntegrationsView` (G126) as its steps 1 and 2.
+4. ~~**G117 — first-run onboarding**, including capturing the owner's identity so the owner entity
+   renders as *Name (you)* and replaces the last hardcoded observer literal.~~ — **shipped
+   2026-09-05** on `feat/onboarding` (PR pending): `owner_identity.resolve_observer` replaces the
+   hardcoded literal at all five sites, `GET/PUT /settings/owner` + the owner entity page, the
+   four-step first-run sheet (reusing G122's `EngineCard` and G126's `IntegrationsView` as steps 1
+   and 2), honest empty states per tab, a deterministic demo bank, and the three install/copy gaps
+   named below. Open remainder: the onboarding *interview* (G54); entity-merge-across-identity-change
+   (R3's disclosed gap).
 5. **G126 — Settings → Integrations by category.** ~~The page over the existing channel registry
    first~~ — **page shipped 2026-09-05** on `feat/settings-redesign` (Track C, PR pending):
    categorized, logo-first rows over `GET /sources/channels`, connect/disconnect via a
