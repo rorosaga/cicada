@@ -520,9 +520,10 @@ decay/clarification indicators. Open ideas live in the backlog.
 
 ### 2/3. Unified inbox (`memory/inbox/`)
 Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, each with a `kind`
-discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`, `divergence`,
+discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`, `removal`, `divergence`,
 `normalization` — the last two were written by Sleep since G49/G98 but only became loadable and
-resolvable kinds with G113), behind `GET /inbox` /
+resolvable kinds with G113; `removal` is written by a live browser sync, not Sleep, at proposal
+time (G129 slice 2)), behind `GET /inbox` /
 `POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
 shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`.
 
@@ -560,6 +561,11 @@ on word boundaries, **offsets recomputed on every read and never stored**. Nothi
 **Decay is no longer the special case.** Served as `Still tracking {name}?` with `archive` / `keep`,
 synthesised at read from the page's `last_referenced`, never written. Its question sets
 `allow_other: false` and **the whole stack now means it**: free text on resolve is a `400`.
+
+**Neither is a bookmark removal.** Served the same way as decay — two closed options
+(`keep`/`remove`), no free text, no recommendation (the proposal came from the browser's own
+before/after diff, not the extractor) — `remove` archives the media entity it named; it is never
+deleted.
 
 **G98 rule.** A multi-valued predicate never opens a conflict; an existing one is served
 `informational: true` — the card lists the values and offers `Got it`, which removes the item and
