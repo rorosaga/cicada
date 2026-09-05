@@ -130,12 +130,12 @@ named this exact escape hatch.
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks` (branch
+- Work ONLY in `<worktree>/` (branch
   `feat/real-marks`, based on `dev` @ `53885a1`). Every shell command is
-  `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks && <cmd>` with absolute paths
+  `cd <worktree>/ && <cmd>` with absolute paths
   (`zoxide` hijacks relative `cd`; ignore its stderr warning). Never an unquoted
   `--include=*.ext` (zsh globbing breaks it) — quote it or use `rg`.
-- NEVER read `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`,
+- NEVER read `<repo>/memory` (any bank), `~/.cicada`,
   `~/Library`, or `~/.claude/projects`. Fixtures are synthetic (`alpha-project`, `bob-example`,
   `example.com`). Reading `/Applications` and `/System/Applications` **bundle icons** is fine and is
   what `NSWorkspace` does at runtime; no icon extracted from an installed app is ever committed.
@@ -356,7 +356,7 @@ def test_the_manifest_records_a_licence_and_a_restriction_for_every_asset():
 
 Run it — it fails on the missing manifest:
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks && \
+cd <worktree>/ && \
   api/.venv/bin/python -m pytest api/tests/test_logo_manifest.py -q -p no:cacheprovider
 ```
 
@@ -466,7 +466,7 @@ black-on-transparent mark does not vanish on `CicadaTheme.surfaceElevated` (`#23
 
 - [ ] **Step 4: Seed the manifest from what is already committed.** Compute the shas:
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks && \
+cd <worktree>/ && \
   for f in app/CicadaApp/Sources/CicadaApp/Resources/logos/*.png; do \
     printf '%s %s\n' "$(basename "$f" .png)" "$(shasum -a 256 "$f" | cut -d' ' -f1)"; done
 ```
@@ -588,7 +588,7 @@ final class LogoAssetTests: XCTestCase {
 
 Run:
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks/app/CicadaApp && \
+cd <worktree>/app/CicadaApp && \
   swift test --filter LogoAssetTests 2>&1 | tail -20
 ```
 
@@ -615,7 +615,7 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks/app/CicadaAp
       344×127 wordmark and `Brave_Logo_(2024).svg` is a 129×40 wordmark; a 28 pt square tile needs a
       *symbol*. Use the search step to find the square glyph:
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks && \
+cd <worktree>/ && \
 UA="CicadaLogoFetch/1.0 (+https://github.com/rorosaga/cicada)" && \
 curl -sS -A "$UA" -G "https://commons.wikimedia.org/w/api.php" \
   --data-urlencode action=query --data-urlencode format=json \
@@ -657,7 +657,7 @@ curl -sS -A "$UA" -G "https://commons.wikimedia.org/w/api.php" \
 
 - [ ] **Step 5: Run it for real.**
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks && ./scripts/fetch-logos.sh
+cd <worktree>/ && ./scripts/fetch-logos.sh
 ```
       Expect one `ok 256x256 from WxH` line per fetched asset and a final list of written paths.
 
@@ -938,7 +938,7 @@ enum InstalledAppIcon {
 
 - [ ] **Step 6:** `swift build` then `swift test` — 0 failures. Grep the tree for stragglers:
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks/app/CicadaApp && \
+cd <worktree>/app/CicadaApp && \
   rg -n "BrandGlyph|brandGlyph|ChromeGlyph|SafariGlyph|platformTile\(glyph" Sources Tests
 ```
       (must print nothing).
@@ -1182,7 +1182,7 @@ final class ChannelMarkTests: XCTestCase {
 - [ ] **Step 5:** `swift test` — 0 failures. Then a read-only cross-check that the Swift list still
       matches the backend:
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks && \
+cd <worktree>/ && \
   api/.venv/bin/python -c "from api.services import channel_registry as c; print(c.CHANNEL_IDS)"
 ```
 
@@ -1475,10 +1475,10 @@ _PROVIDER_SUBSTRINGS = (
 
 - [ ] **Step 4:**
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks && \
+cd <worktree>/ && \
   api/.venv/bin/python -m pytest api/tests/test_contributors.py -q -p no:cacheprovider && \
   api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks/app/CicadaApp && \
+cd <worktree>/app/CicadaApp && \
   swift test 2>&1 | tail -20
 ```
 
@@ -1565,29 +1565,29 @@ cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks/app/CicadaAp
 
 ```bash
 # Backend — must report 0 failures (2119 passed on 2026-09-05).
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks && \
+cd <worktree>/ && \
   api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider 2>&1 | tail -5
 # Known order-dependent case: if the ONLY red is
 # test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit,
 # re-run it alone and report both results.
 
 # App — build then the full suite (763 passed on 2026-09-05).
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks/app/CicadaApp && \
+cd <worktree>/app/CicadaApp && \
   swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20
 
 # The assets are the ones the ledger claims. `--check` is offline by construction
 # (task 1 step 3.9): it re-hashes the committed PNGs and reads LOGOS.md, and never
 # curls Commons — upstream drift is only asked on a real run.
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks && \
+cd <worktree>/ && \
   ./scripts/fetch-logos.sh --check && echo "manifest clean"
 
 # The retired abstraction is really gone.
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks && \
+cd <worktree>/ && \
   rg -n "BrandGlyph|brandGlyph|ChromeGlyph|SafariGlyph|platformTile\(glyph" app/CicadaApp \
   || echo "no glyph residue"
 
 # Nothing personal, no owner path, in what shipped.
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/real-marks && \
+cd <worktree>/ && \
   rg -n "/Users/" scripts/fetch-logos.sh tools/ || echo "no absolute paths"
 ```
 

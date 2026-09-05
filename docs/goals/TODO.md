@@ -139,7 +139,7 @@ Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G12
 build. Shipped 2026-09-05 and no longer queued: G125 (PR #55), G113 slices 3–7 (PR #59), G122 + the
 G126 page (Track C, PR #60), G129 slice 2 (bookmark deletions, PR #61), **G117** first-run onboarding
 (PR #62), and **Track L** — real brand marks, one id → mark map, `cicada` as a system contributor
-(PR #TBD, on `feat/real-marks`).
+(PR #65, `feat/real-marks`).
 
 **Small polish left behind by the 2026-09-05 tracks, none blocking:** the Settings sidebar
 cannot be driven by a synthetic `click at` (select its rows through the accessibility API); and a
