@@ -249,6 +249,15 @@ enum Copy {
     static let onboardingTryDemoBank = "Try it on a demo bank first"
     static let onboardingCreatingDemoBank = "Creating demo bank…"
 
+    /// Track P R3 — the first-run toggle's label. Says the exact schedule it
+    /// writes (`daily`, 03:00), because the sentence beneath it is derived
+    /// from what the backend reports and the two must agree on a fresh bank.
+    /// On a bank that ALREADY carries `interval`/`after_import` the toggle
+    /// reads ON and the derived line names THAT mode (R4) — the label is the
+    /// name of the thing the toggle turns on, not a claim about the current
+    /// schedule.
+    static let onboardingRunNightly = "Run a Sleep cycle nightly at 3:00"
+
     /// One title per `OnboardingStep`, shown in the sheet's header.
     static func onboardingStepTitle(_ step: OnboardingStep) -> String {
         switch step {
