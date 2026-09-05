@@ -1,0 +1,126 @@
+{
+  "assets": [
+    {
+      "file": "claude-code.png",
+      "id": "claude-code",
+      "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "91f02260c48c86ddb34e30014eec84c132e2e5d9fe623506bb7898d249809db0"
+    },
+    {
+      "file": "claude-desktop.png",
+      "id": "claude-desktop",
+      "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "91f02260c48c86ddb34e30014eec84c132e2e5d9fe623506bb7898d249809db0"
+    },
+    {
+      "file": "codex.png",
+      "id": "codex",
+      "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "43de3b748faf9d6b75ac3f6a73efc94d3a2a876ce004339e6c7f11169f4098ef"
+    },
+    {
+      "file": "cursor.png",
+      "id": "cursor",
+      "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "675d7c36838e365515e13c6294fff4e9b0f5484b542d81275b3f8c54bd1dc8c5"
+    },
+    {
+      "file": "gemini-cli.png",
+      "id": "gemini-cli",
+      "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "dc8b386ee826aa152fde20f2fbe13144e65d742ed83198de792c8e1ca04d9030"
+    },
+    {
+      "file": "hermes.png",
+      "id": "hermes",
+      "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "01b025b04d46e08e94cf42ed76039b8cbe1c4a937d7d61a97448e87e2b6c08e1"
+    },
+    {
+      "file": "instagram.png",
+      "id": "instagram",
+      "licence": "Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "93533eac5f2cf506577d953c1777682dafdcd5d5c17d537bedc95e8a50c890e1"
+    },
+    {
+      "file": "linkedin.png",
+      "id": "linkedin",
+      "licence": "Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "6b57a92bd4a1817b4a68e11ea7f6cb758a6ce0418db24b9d6459190c7973193e"
+    },
+    {
+      "file": "openclaw.png",
+      "id": "openclaw",
+      "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "e97fba414e122b9758ed032397223c3fb8792dd9e33026961c11a973fc58d5cf"
+    },
+    {
+      "file": "pinterest.png",
+      "id": "pinterest",
+      "licence": "Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "96db17b770ad5dfa937c81b6213b52e6973fb53fa8944d226213d9c7e723a481"
+    },
+    {
+      "file": "reddit.png",
+      "id": "reddit",
+      "licence": "Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "9e19560d3d807f102434d8390242ed4a45e3c1e8349dc1554debd16fdf5edc30"
+    },
+    {
+      "file": "telegram.png",
+      "id": "telegram",
+      "licence": "Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "fad34029b64abec586716c73f4ab6bd5d6e3b006f64f4d2a7f6ac466d21c82c7"
+    },
+    {
+      "file": "tiktok.png",
+      "id": "tiktok",
+      "licence": "Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "7693361260f450ceba9b0a5c081d752d3a6bbdbb0394168affe3380257bc03b2"
+    },
+    {
+      "file": "x.png",
+      "id": "x",
+      "licence": "Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "8076970932553c523728f4c0422d182815016acef02fe757fb818b071b761d6c"
+    },
+    {
+      "file": "youtube.png",
+      "id": "youtube",
+      "licence": "Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449)",
+      "origin": "legacy",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "25d31e5ad018bbb9b8f92c4606af19a59c0b127e7f69a05865295e6209218eb4"
+    }
+  ],
+  "size": 256,
+  "userAgent": "CicadaLogoFetch/1.0 (+https://github.com/rorosaga/cicada)"
+}
