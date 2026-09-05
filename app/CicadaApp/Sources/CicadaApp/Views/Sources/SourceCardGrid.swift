@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// The grid of source cards (G124 — "in a grid, no horizontal scroll").
+/// The grid of source cards (G124 — "in a grid, no horizontal scroll"),
+/// grouped into sections by kind (Track D) so seventeen-odd sources read as
+/// a handful of short, labelled groups instead of one long shuffled list.
 /// Never-loaded → loading; loaded-but-empty → the one call to action (R2: a
 /// row is shown only when it has evidence, and the Feed's `+` catalog is
-/// where a person adds a source); otherwise adaptive columns.
+/// where a person adds a source); otherwise one section per non-empty kind.
 struct SourceCardGrid: View {
     let rows: [SourceOverview]
     let hasLoaded: Bool
@@ -24,11 +26,21 @@ struct SourceCardGrid: View {
                 Text("Nothing has fed this memory yet. Add a source from the Feed's + button.")
                     .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
             } else {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                    ForEach(rows) { row in
-                        Button { onOpen(row) } label: { SourceCard(source: row) }
-                            .buttonStyle(.cicadaPlain)
-                            .accessibilityLabel("\(row.label), \(row.countLines.joined(separator: ", "))")
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                    ForEach(SourceSections.group(rows), id: \.kind) { section in
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                            Text(section.title)
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                                .tracking(1.2)
+                            LazyVGrid(columns: columns, alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                                ForEach(section.rows) { row in
+                                    Button { onOpen(row) } label: { SourceCard(source: row) }
+                                        .buttonStyle(.cicadaPlain)
+                                        .accessibilityLabel("\(row.label), \(row.countLines.joined(separator: ", "))")
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -38,17 +50,17 @@ struct SourceCardGrid: View {
 }
 
 /// One card: mark, label, the counts that apply, last activity, state. The
-/// mark is an `OriginIconography` key (R17), so a harness card and the Sleep
-/// page's debt breakdown draw the same glyph for the same source.
+/// mark reuses `OriginMark` (Track D) — the same bundled-logo → drawn-glyph →
+/// SF-Symbol precedence the Sleep queue and the import catalog already draw,
+/// so a source's card, its queue row and its catalog tile show the identical
+/// mark instead of the card alone falling back to a bare SF Symbol.
 struct SourceCard: View {
     let source: SourceOverview
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: OriginIconography.symbol(for: source.mark))
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(OriginIconography.color(for: source.mark))
+                OriginMark(origin: source.mark, size: 20)
                     .frame(width: 24, height: 24)
                     .background(OriginIconography.color(for: source.mark).opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 6))

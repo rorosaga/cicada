@@ -192,3 +192,34 @@ enum SourceItemsGrouping {
             .sorted { $0.count != $1.count ? $0.count > $1.count : $0.folder < $1.folder }
     }
 }
+
+/// Section headers for the Sources grid (Track D — "in a grid, grouped by
+/// kind, no horizontal scroll"). Pure: given the rows a page already has, in
+/// what order and under what caption they render. `SourceKind.order` decides
+/// section order (mirrors the backend's `KIND_ORDER`, with `.unknown` last
+/// for a kind a newer backend invents); a kind with no rows never prints an
+/// empty header (R2's "a row is shown only when it has evidence" extends
+/// naturally to "a section is shown only when it has a row"). Within a
+/// section the order is `gridOrder`'s own — re-derived here rather than
+/// assumed, so a caller that hands in an unsorted list still gets a
+/// correctly ordered grid.
+enum SourceSections {
+    private static let titles: [SourceKind: String] = [
+        .harness: "CHAT & AGENTS",
+        .browser: "BROWSERS",
+        .social: "SOCIAL & SAVED",
+        .feed: "FEEDS & CALENDARS",
+        .messaging: "MESSAGING",
+        .import: "FILES & IMPORTS",
+        .unknown: "OTHER",
+    ]
+
+    static func group(_ rows: [SourceOverview]) -> [(kind: SourceKind, title: String, rows: [SourceOverview])] {
+        let ordered = SourceOverview.gridOrder(rows)
+        return SourceKind.order.compactMap { kind in
+            let inKind = ordered.filter { $0.kind == kind }
+            guard !inKind.isEmpty else { return nil }
+            return (kind: kind, title: titles[kind] ?? kind.rawValue.uppercased(), rows: inKind)
+        }
+    }
+}

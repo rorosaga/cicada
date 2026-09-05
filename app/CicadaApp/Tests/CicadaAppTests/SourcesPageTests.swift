@@ -107,4 +107,30 @@ final class SourcesPageTests: XCTestCase {
         XCTAssertNil(item.origin)
         XCTAssertNil(item.folder)
     }
+
+    // MARK: - Track D: grouped grid (2026-09-05 sources redesign)
+
+    func testSourceSectionsGroupsByKindOrderAndSkipsEmptyKinds() {
+        let a = SourceOverview(id: "rss", label: "RSS", kind: .feed, lastActivityAt: "2026-09-02T00:00:00+00:00")
+        let b = SourceOverview(id: "harness:cursor", label: "Cursor", kind: .harness, lastActivityAt: "2026-08-01T00:00:00+00:00")
+        let c = SourceOverview(id: "harness:claude-code", label: "Claude Code", kind: .harness, lastActivityAt: "2026-09-01T00:00:00+00:00")
+        let d = SourceOverview(id: "telegram", label: "Telegram", kind: .messaging)
+        let sections = SourceSections.group([a, b, c, d])
+        XCTAssertEqual(sections.map(\.kind), [.harness, .feed, .messaging],
+                        "no browser/social/import rows in the input -> those headers never appear")
+        XCTAssertEqual(sections.map(\.title), ["CHAT & AGENTS", "FEEDS & CALENDARS", "MESSAGING"])
+        XCTAssertEqual(sections[0].rows.map(\.id), ["harness:claude-code", "harness:cursor"],
+                        "within-kind order is still gridOrder — newest activity first")
+    }
+
+    func testSourceSectionsEveryKindGetsANonEmptyHeader() {
+        for kind in SourceKind.allCases {
+            let row = SourceOverview(id: "x-\(kind.rawValue)", label: "X", kind: kind, episodes: 1)
+            XCTAssertFalse(SourceSections.group([row]).first!.title.isEmpty, "\(kind) must render a header")
+        }
+    }
+
+    func testSourceSectionsOnEmptyInputIsEmpty() {
+        XCTAssertTrue(SourceSections.group([]).isEmpty)
+    }
 }
