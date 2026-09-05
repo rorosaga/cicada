@@ -78,6 +78,11 @@ async def events(settings: Settings = Depends(get_settings)):
                 state.status, state.cycle_id, state.stage, state.progress,
                 debt.rested_pct, debt.volume_pct, debt.age_pct, debt.has_run_before,
                 debt.unprocessed_count, progress, hours_bucket,
+                # G125 R3: `progress` is an integer PERCENT that can sit
+                # still for many episodes on a big queue (1/300 rounds to
+                # 0% same as 0/300) — the study list needs a per-episode
+                # tick, so the change key includes the raw counter too.
+                state.stage1_progress,
             )
             if sleep_key != last_sleep:
                 last_sleep = sleep_key
@@ -91,6 +96,8 @@ async def events(settings: Settings = Depends(get_settings)):
                     "unprocessedCount": debt.unprocessed_count,
                     "hasRunBefore": debt.has_run_before,
                     "hoursSinceLastCycle": debt.hours_since_last_cycle,
+                    "queueByOrigin": dict(state.queue_by_origin),
+                    "readByOrigin": dict(state.read_by_origin),
                 })
             if since_ping >= PING_SECONDS:
                 yield "event: ping\ndata: {}\n\n"

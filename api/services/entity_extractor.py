@@ -276,6 +276,7 @@ async def extract(
     *,
     cancel_check: Callable[[], bool] | None = None,
     progress_callback: Callable[[], None] | None = None,
+    on_episode_done: Callable[[dict], None] | None = None,
 ) -> list[dict]:
     """Extract entities and relationships from unprocessed episodes (parallel).
 
@@ -298,6 +299,14 @@ async def extract(
     ``update(1)``, which fires on every one of those paths already). This is
     what makes ``SleepStatusResponse``'s live "Progress %" during Stage 1
     possible without waiting for the whole fan-out to finish.
+
+    ``on_episode_done`` (G125 R3): an optional one-arg callback fired with
+    the episode dict itself, on every one of the same outcomes as
+    ``progress_callback`` above (right after it, in ``process_one``'s
+    ``finally``) — the study list's per-source countdown needs the
+    episode's ``origin`` to know WHICH source just finished, which the
+    zero-arg ``progress_callback`` can't carry without breaking its
+    existing callers.
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
     results: list[dict | None] = [None] * len(episodes)
@@ -433,6 +442,8 @@ async def extract(
             progress.update(1)
             if progress_callback is not None:
                 progress_callback()
+            if on_episode_done is not None:
+                on_episode_done(episode)
 
     # Fire all tasks with semaphore-controlled concurrency
     try:

@@ -1161,6 +1161,10 @@ class SleepStatusResponse(CamelModel):
     # 2-5 have no per-episode unit to report (see
     # `sleep_cycle.progress_pct`'s docstring for the full contract).
     progress_pct: Optional[int] = None
+    # G125 — this cycle's selected episodes by source, and how many of each
+    # Stage 1 has finished (R3). Empty when idle.
+    queue_by_origin: dict[str, int] = Field(default_factory=dict)
+    read_by_origin: dict[str, int] = Field(default_factory=dict)
 
 
 class SleepHistoryEntry(CamelModel):
@@ -1188,6 +1192,10 @@ class EpisodeQueueItem(CamelModel):
     origin: str = "unknown"
     title: Optional[str] = None
     preview: str
+    # G125 R9 — body length in characters, for the Sleep page's book pile
+    # (a log-scale spine height, R9). 0 on an older backend that predates
+    # this field, and for an episode whose body genuinely is empty.
+    chars: int = 0
     processed: bool
     # G114 R6: who flipped `processed` — "sleep" for a Sleep-cycle
     # consolidation, "agent" (or the harness name) for an agent's

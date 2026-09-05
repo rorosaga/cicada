@@ -119,6 +119,8 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         cancel_requested=state.cancel_requested,
         cancelled=cancelled_is_visible(state),
         progress_pct=progress_pct(state),
+        queue_by_origin=dict(state.queue_by_origin),
+        read_by_origin=dict(state.read_by_origin),
         debt=SleepDebtResponse(
             unprocessed_count=debt.unprocessed_count,
             oldest_unprocessed_age_hours=debt.oldest_unprocessed_age_hours,
@@ -151,6 +153,7 @@ async def sleep_episodes(settings: Settings = Depends(get_settings)):
                 origin=ep.get("origin", "unknown"),
                 title=ep.get("title"),
                 preview=preview,
+                chars=len(ep.get("body") or ""),
                 processed=ep.get("processed", False),
                 processed_by=ep.get("processed_by"),
             )
