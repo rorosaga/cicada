@@ -35,6 +35,38 @@ final class FixWaveTests: XCTestCase {
                        "SleepView must not call triggerManually() directly any more")
     }
 
+    /// R-A7 (upgrading G125 R10): "exactly ONE Consolidate control on the
+    /// Sleep page". The lint above greps only `SleepView.swift`, so moving
+    /// the control into a sibling file under `Views/Sleep/` kept it green
+    /// while defeating the rule — which is exactly what Task 4 does when it
+    /// lifts the button out of `StudyListCard`'s footer. This walks the whole
+    /// folder instead.
+    ///
+    /// It is deliberately NOT tree-wide, and that is a measured decision, not
+    /// a shortcut: `sleepVM.triggerManually()` also lives in
+    /// `Views/Common/TopBarControls.swift`, `Views/Sources/SourceQueueStrip.swift`,
+    /// `Views/Onboarding/OnboardingSleepStep.swift` and `CicadaApp.swift` —
+    /// the top bar, the Sources queue strip, onboarding and the ⌘-key
+    /// command, four OTHER surfaces that each legitimately own a trigger. R10
+    /// and R-A7 are rulings about the Sleep PAGE, so the folder is the scope
+    /// that makes the rule true.
+    func testExactlyOneSleepPageFileDefinesTheConsolidateControl() throws {
+        // `ThemeTokenTests.swiftSources()` is a `static` internal helper over
+        // `Sources/CicadaApp/**/*.swift`, resolved from `#filePath` — reused
+        // rather than writing a fourth enumerator.
+        let sleepFiles = try ThemeTokenTests.swiftSources()
+            .filter { $0.path.contains("/Views/Sleep/") }
+        XCTAssertFalse(sleepFiles.isEmpty, "found no Views/Sleep sources — the lint would pass vacuously")
+        var defining: [String] = []
+        for url in sleepFiles {
+            // A `for … where` clause cannot throw, so the read is in the body.
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if text.contains("sleepVM.triggerManually()") { defining.append(url.lastPathComponent) }
+        }
+        XCTAssertEqual(defining.sorted(), ["SleepHero.swift"],
+                       "exactly one file under Views/Sleep may define the Consolidate control (R-A7)")
+    }
+
     /// `SleepQueueCard` (reads `store.status.episodes.unprocessed`, SSE-live)
     /// and the page's own "EPISODES QUEUED (n)" header (used to read
     /// `sleepVM.episodes`, fetched once per visit) must agree. Pulled out as

@@ -35,26 +35,76 @@ enum SleepHistoryPresentation {
     /// "+N new · M updated" would credit an LLM for work it never did. Every
     /// other kind counts entities the manifest actually attributes to
     /// `sleep/extraction`/`sleep/promotion`/etc.
+    ///
+    /// G125 v3 Task 7 (budget row #18): a real cycle now leads with what it
+    /// READ — "2 episodes → +12 new · 8 updated" answers "where did those
+    /// entities come from" in the same glance. The prefix is drawn **only when
+    /// there is a count** (P18): `episodes` decodes to its default zero on an
+    /// older backend, a cached snapshot or an inbox commit, and "0 episodes →"
+    /// would be a fabricated zero standing in for an unknown.
     static func summaryLine(_ e: SleepHistoryEntry) -> String {
         if e.kind == "decay" { return "decay pass" }
-        return "+\(e.entitiesCreated) new · \(e.entitiesUpdated) updated"
+        let written = "+\(e.entitiesCreated) new · \(e.entitiesUpdated) updated"
+        guard e.episodes > 0 else { return written }
+        return "\(e.episodes) episode\(e.episodes == 1 ? "" : "s") → \(written)"
     }
 
-    /// `date` arrives as git's `--date=short` (`yyyy-MM-dd`, anchored UTC —
-    /// see `git_service.get_sleep_history`) with no time component; a raw
-    /// string that fails to parse is shown as-is rather than hidden behind a
-    /// blank field.
-    static func dateText(_ iso: String) -> String {
+    /// The row's badge slot (G125 v3 Task 7): which engine ran the cycle, and
+    /// who authored its writes — both already parsed server-side, neither
+    /// invented.
+    ///
+    /// An absent engine drops the pill's LEFT half rather than defaulting to
+    /// one: `Cicada-Engine:` is "omitted entirely rather than guessed" when no
+    /// LLM ran (CLAUDE.md), which is exactly the case for a decay or
+    /// state-snapshot commit. Only the first author is named — the expanded
+    /// detail below already lists every one of them, and a badge is one fact
+    /// wide. Both halves missing → no pill at all, never an empty badge.
+    static func enginePill(_ e: SleepHistoryEntry) -> String? {
+        let parts = [e.engine.map(Copy.engineLabel), e.authors.first.map(authorLabel)].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// `date` arrives as git's `--date=iso-strict` (`2026-09-05T21:41:00+00:00`)
+    /// since R-A11, and as the older `--date=short` (`yyyy-MM-dd`) from any
+    /// snapshot cached before that. git renders BOTH in the COMMIT's own
+    /// zone — the previous comment here claimed `--date=short` was "anchored
+    /// UTC" and the formatter pinned UTC, which would shift the displayed
+    /// hour the moment a time existed. The offset is parsed for real and the
+    /// result displayed in the reader's zone; `timeZone` is injectable so the
+    /// tests never depend on the runner's locale.
+    static func parsed(_ iso: String) -> Date? {
+        let withOffset = ISO8601DateFormatter()
+        withOffset.formatOptions = [.withInternetDateTime]
+        if let d = withOffset.date(from: iso) { return d }
         let dayOnly = DateFormatter()
         dayOnly.dateFormat = "yyyy-MM-dd"
         dayOnly.timeZone = TimeZone(identifier: "UTC")
         dayOnly.locale = Locale(identifier: "en_US_POSIX")
-        guard let date = dayOnly.date(from: String(iso.prefix(10))) else { return iso }
-        let display = DateFormatter()
-        display.dateFormat = "MMM d"
-        display.timeZone = TimeZone(identifier: "UTC")
-        display.locale = Locale(identifier: "en_US_POSIX")
-        return display.string(from: date)
+        return dayOnly.date(from: String(iso.prefix(10)))
+    }
+
+    /// A raw string that fails to parse is shown as-is rather than hidden
+    /// behind a blank field. A date-only value carries no zone of its own, so
+    /// it keeps the UTC anchor it was parsed with — re-projecting a bare day
+    /// into the reader's zone is what would slide it to the previous day.
+    static func dateText(_ iso: String, timeZone: TimeZone = .current) -> String {
+        guard let date = parsed(iso) else { return iso }
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        f.timeZone = iso.contains("T") ? timeZone : TimeZone(identifier: "UTC")
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: date)
+    }
+
+    /// `—`, never a fabricated midnight, for a value that carries no time
+    /// (R-A14): a legacy `--date=short` row genuinely does not know the hour.
+    static func timeText(_ iso: String, timeZone: TimeZone = .current) -> String {
+        guard iso.contains("T"), let date = parsed(iso) else { return "—" }
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        f.timeZone = timeZone
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: date)
     }
 
     /// Which SF Symbol names an engine (G125) — `nil` (no `Cicada-Engine:`
@@ -130,26 +180,30 @@ struct ConsolidationHistoryCard: View {
             onToggle(entry.commitHash)
         } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
-                Text(SleepHistoryPresentation.dateText(entry.date))
-                    .font(CicadaTheme.font(size: 11, design: .monospaced))
-                    .foregroundStyle(tone)
-                    .frame(width: 44, alignment: .leading)
+                // Date over time (budget row #16). The time exists only since
+                // `--date=iso-strict` (Task 1); a legacy `yyyy-MM-dd` row reads
+                // "—" rather than a fabricated midnight (R-A14).
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(SleepHistoryPresentation.dateText(entry.date))
+                        .font(CicadaTheme.font(size: 11, design: .monospaced))
+                        .foregroundStyle(tone)
+                    Text(SleepHistoryPresentation.timeText(entry.date))
+                        .font(CicadaTheme.font(size: 9, design: .monospaced))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                .frame(width: 58, alignment: .leading)
 
-                Image(systemName: SleepHistoryPresentation.engineSymbol(entry.engine))
-                    .font(CicadaTheme.font(size: 11))
-                    .foregroundStyle(isDecay || entry.engine == nil ? CicadaTheme.textTertiary : CicadaTheme.accent)
-                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(SleepHistoryPresentation.summaryLine(entry))
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.textPrimary)
+                        .lineLimit(1)
+                    enginePill(entry, isDecay: isDecay)
+                }
 
-                Text(SleepHistoryPresentation.summaryLine(entry))
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.textPrimary)
-                    .lineLimit(1)
+                Spacer(minLength: CicadaTheme.spacingSM)
 
-                Spacer()
-
-                Text(SleepHistoryPresentation.durationText(ms: entry.durationMs))
-                    .font(CicadaTheme.font(size: 11, design: .monospaced))
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                durationText(entry)
 
                 Image(systemName: expanded == entry.commitHash ? "chevron.down" : "chevron.right")
                     .font(CicadaTheme.font(size: 9, weight: .semibold))
@@ -158,7 +212,49 @@ struct ConsolidationHistoryCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .accessibilityLabel("\(SleepHistoryPresentation.dateText(entry.date)), \(SleepHistoryPresentation.summaryLine(entry))")
+        .accessibilityLabel(Self.rowAccessibilityLabel(entry))
+    }
+
+    /// Everything the row draws, in words — the pill and the `—` are both
+    /// silent marks otherwise.
+    static func rowAccessibilityLabel(_ entry: SleepHistoryEntry) -> String {
+        var parts = [SleepHistoryPresentation.dateText(entry.date)]
+        let time = SleepHistoryPresentation.timeText(entry.date)
+        if time != "—" { parts.append(time) }
+        parts.append(SleepHistoryPresentation.summaryLine(entry))
+        if let pill = SleepHistoryPresentation.enginePill(entry) { parts.append(pill) }
+        return parts.joined(separator: ", ")
+    }
+
+    /// The engine·author badge. An absent engine drops the mark with the label
+    /// it belonged to rather than showing a placeholder icon next to an author
+    /// — the icon means "this engine", and there is no engine to mean.
+    @ViewBuilder
+    private func enginePill(_ entry: SleepHistoryEntry, isDecay: Bool) -> some View {
+        if let pill = SleepHistoryPresentation.enginePill(entry) {
+            HStack(spacing: 3) {
+                if entry.engine != nil {
+                    Image(systemName: SleepHistoryPresentation.engineSymbol(entry.engine))
+                        .font(CicadaTheme.font(size: 9))
+                        .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.accent)
+                }
+                Text(pill)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+    }
+
+    /// P18 — a `—` is a value with a reason, and the reason is on hover: the
+    /// duration is joined from the `sleep_run` telemetry ledger by commit hash,
+    /// and there is simply no row to join when telemetry was off (R5).
+    private func durationText(_ entry: SleepHistoryEntry) -> some View {
+        Text(SleepHistoryPresentation.durationText(ms: entry.durationMs))
+            .font(CicadaTheme.font(size: 11, design: .monospaced))
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .help(entry.durationMs == nil ? Copy.noTimingRecorded : "")
     }
 
     @ViewBuilder

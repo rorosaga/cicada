@@ -1,58 +1,40 @@
 import AppKit
 
-/// Rasterizes a `PixelGrid` into a COLOUR `NSImage` with nearest-neighbour
-/// cells. Colour, not template (G107): a template image is tinted uniformly
-/// by the system and so cannot show mood; the 1-px `o` outline is what makes
-/// the silhouette survive both the light and the dark menu bar without
-/// tinting. Page consumers request sizes that are multiples of 24 so cells
-/// are integer points (ruling R3); the menu bar runs 18 pt.
+/// The mascot's face on `PixelRenderer` — four thin forwarders that bind the
+/// generalized rasterizer to the worm's 24-cell grid and nine-colour palette,
+/// plus the mascot's own state-derived cache key and cache.
+///
+/// It used to BE the rasterizer; G125 v3 Task 2 lifted the body into
+/// `PixelRenderer` so the Sleep page's study room could draw its props through
+/// the same code path instead of a second, subtly different copy. Every call
+/// site and every assertion in the four `Bookworm*Tests` files is unchanged —
+/// that they pass unmodified is what proves this forwards rather than
+/// re-implements.
+///
+/// Colour, not template (G107): a template image is tinted uniformly by the
+/// system and so cannot show mood; the 1-px `o` outline is what makes the
+/// silhouette survive both the light and the dark menu bar without tinting.
+/// Page consumers request sizes that are multiples of 24 so cells are integer
+/// points (ruling R3); the menu bar runs 18 pt.
 enum BookwormRenderer {
     static let gridSize = BookwormSprites.size
 
-    /// Snaps a scaled point size back onto a multiple of 24 (G130 R6): pages
-    /// request sizes like 96 · `CicadaTheme.uiScale`, and a fractional
-    /// multiple would leave a sprite cell a fractional point AND change the
-    /// `Int(pointSize)` cache key on every frame instead of once per zoom
-    /// step. Floors at one whole cell (24) rather than 0, which a very small
-    /// `pointSize` would otherwise round down to.
+    /// Snaps a scaled point size back onto a multiple of 24 (G130 R6) — the
+    /// `gridSize: 24` case of `PixelRenderer.snappedPointSize`. Kept as its
+    /// own entry point because `BookwormView` calls it on every body eval and
+    /// should not have to know the mascot's grid size to do so.
     static func snappedPointSize(_ pointSize: CGFloat) -> CGFloat {
-        max(24, 24 * (pointSize / 24).rounded())
+        PixelRenderer.snappedPointSize(pointSize, gridSize: gridSize)
     }
 
-    private static let colors: [Character: NSColor] = BookwormPalette.colors.mapValues { hex in
-        NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
-                green: CGFloat((hex >> 8) & 0xFF) / 255,
-                blue: CGFloat(hex & 0xFF) / 255,
-                alpha: 1)
-    }
+    private static let colors: [Character: NSColor] = PixelRenderer.nsColors(BookwormPalette.colors)
 
-    /// Render one grid at `pointSize` × `pointSize`. The grid is drawn as
-    /// given: `BookwormSprites.frames(for:)` already bakes every overlay
-    /// (badge, stage dots — ruling R2), so there is no merge seam here.
+    /// Render one grid at `pointSize` × `pointSize` in the mascot's palette.
+    /// The grid is drawn as given: `BookwormSprites.frames(for:)` already
+    /// bakes every overlay (badge, stage dots — ruling R2), so there is no
+    /// merge seam here.
     static func image(grid: PixelGrid, pointSize: CGFloat) -> NSImage {
-        let rows: [[Character]] = (0..<gridSize).map { r in
-            r < grid.count ? Array(grid[r].padding(toLength: gridSize, withPad: ".", startingAt: 0)) : Array(repeating: ".", count: gridSize)
-        }
-        let cell = pointSize / CGFloat(gridSize)
-        let image = NSImage(size: NSSize(width: pointSize, height: pointSize), flipped: false) { _ in
-            guard let ctx = NSGraphicsContext.current else { return false }
-            // Hard edges: a pixel is a pixel at every scale.
-            ctx.shouldAntialias = false
-            ctx.imageInterpolation = .none
-            for (r, line) in rows.enumerated() {
-                for (c, ch) in line.enumerated() {
-                    guard let color = colors[ch] else { continue }   // "." and unknowns stay clear
-                    color.setFill()
-                    // Grid row 0 is the top; AppKit's origin is bottom-left.
-                    let x = CGFloat(c) * cell
-                    let y = CGFloat(gridSize - 1 - r) * cell
-                    NSBezierPath(rect: NSRect(x: x, y: y, width: cell, height: cell)).fill()
-                }
-            }
-            return true
-        }
-        image.isTemplate = false
-        return image
+        PixelRenderer.image(grid: grid, gridSize: gridSize, pointSize: pointSize, palette: colors)
     }
 
     // MARK: - Cache (ruling R5: one cache, keyed state|frame|count|stage|size)
@@ -70,6 +52,11 @@ enum BookwormRenderer {
     /// `BookwormView`'s `TimelineView` content closure, whose isolation the
     /// SDK does not spell out. An `NSLock` around a dictionary is the whole
     /// cost; `NSImage` is immutable once built.
+    ///
+    /// This stays the mascot's OWN cache and is deliberately not
+    /// `PixelRenderer.sceneCache` (P13): this one wipes wholesale past 512
+    /// entries, and a page rendering scene layers through a shared dictionary
+    /// would make the always-animating worm collateral damage of every wipe.
     private static let lock = NSLock()
     nonisolated(unsafe) private static var cache: [String: NSImage] = [:]
 

@@ -259,6 +259,72 @@ def test_the_files_card_counts_stamped_and_pre_stamp_saves_together(bank):
     assert _rows(bank)["files"]["items"] == 2
 
 
+# --- activity (R-A16, the Memory-sources sparkline) -------------------------
+
+
+def test_activity_buckets_captures_by_day_inside_the_window(bank):
+    """R-A16 — one sparse ISO-day histogram per source, computed in the loop
+    `build_overview` already runs. Absolute date keys, never a rolling array:
+    a 304'd payload must render a day SHORT, never a day SHIFTED.
+
+    `today=2026-08-10` puts the fixture's window start at 2026-07-12, so the
+    two Aug 4 Safari bookmarks land in one bucket and the Jul 1 episode is
+    dropped — inclusion and the bound in one assertion.
+    """
+    from datetime import date
+    rows = {r["id"]: r for r in source_overview.build_overview(
+        bank, channels=[], today=date(2026, 8, 10))}
+    assert rows["safari-bookmarks"]["activity"] == {"2026-08-04": 2}
+    assert rows["harness:unknown"]["activity"] == {}      # the Jul 1 legacy mcp episode
+    # A silent day has NO key — the series is sparse on the wire and densified
+    # client-side, so a gap can never be read as a zero the backend asserted.
+    assert "2026-08-05" not in rows["safari-bookmarks"]["activity"]
+
+
+def test_activity_reads_a_naive_stamp_as_local_then_converts_to_utc():
+    """The trap the design panel named: banks hold naive-local stamps
+    (pre-G114) beside aware ones, so `raw[:10]` calls a local day a UTC day
+    and is off by one, invisibly, for a subset of rows."""
+    import os
+    import time
+
+    from api.services import source_overview as mod
+    os.environ["TZ"] = "Pacific/Auckland"
+    time.tzset()                                             # UTC+12/+13
+    try:
+        assert mod._activity_day("2026-09-02T09:00:00") == "2026-09-01"
+        assert mod._activity_day("2026-09-02T09:00:00+00:00") == "2026-09-02"
+        assert mod._activity_day("2026-09-02T09:00:00Z") == "2026-09-02"
+        assert mod._activity_day("") is None
+        assert mod._activity_day("not-a-date") is None
+    finally:
+        os.environ.pop("TZ", None)
+        time.tzset()
+
+
+def test_overview_etag_recipe_is_unchanged_by_the_activity_field(client, bank):
+    """ETag ship-together (R-A16): `activity` is computed from episodes, which
+    the recipe already covers and `VersionVector.mapping` already routes to
+    `.sourcesOverview` — so the recipe must NOT move, and no client mapping
+    change is owed. Pinned behaviourally, not by grepping the source.
+
+    (The connector tag is built from `ADAPTERS`, so read it off the response
+    rather than retyping it: the point of this test is that adding `activity`
+    changed nothing about the recipe's INPUTS, which the recomputation below
+    proves by reproducing the same value from the same four arguments.)
+    """
+    from api.routers.sources import ADAPTERS
+    from api.services import sync_service
+    r = client.get("/sources/overview")
+    assert r.status_code == 200
+    assert "activity" in r.json()["sources"][0]
+    tag = ",".join(f"{k}:{a.is_connected()}" for k, a in sorted(ADAPTERS.items()))
+    expected = sync_service.etag_for(
+        bank, "sources", "episodes", "entities",
+        extra=f"overview|telegram:False|connectors:{tag}",
+    )
+    assert r.headers["etag"] == expected
+    assert client.get("/sources/overview", headers={"If-None-Match": expected}).status_code == 304
 def test_the_files_card_does_not_count_what_its_page_hides(bank):
     """F6: `GET /sources/{id}` stopped listing archived / dropped / junk media
     (commit 2ff60f6), and this walk has to stop counting them in the same

@@ -2,38 +2,20 @@ import SwiftUI
 
 /// The Sleep page's `?` popover (G125 Task 7) — replaces "About these
 /// actions" there, since the Sleep/Upload buttons themselves leave this page
-/// (R10: the one Consolidate control moved into the study list's footer).
+/// (R10: the one Consolidate control moved into the study list's footer, and
+/// R-A7 later moved it again, into the hero).
 /// Six short rows, one per Sleep stage plus Capture, mirroring the five-stage
 /// batch `CLAUDE.md`'s "Core Architecture" section documents — this is the
 /// same pipeline in plain language, not a second source of truth for it.
+///
+/// **The five stage rows are `SleepStages.all` (G125 v3 Task 5, P16).** They
+/// used to be typed here; the strip on the page needed the same five, and two
+/// hand-typed lists is how a pipeline acquires a second description. The copy
+/// is unchanged — `SleepStageStripTests` pins all five titles, details and SF
+/// Symbols as literals so this hoist cannot silently reword anything.
+/// `capture` stays here, and only here: it is what happens BEFORE a cycle, not
+/// a stage of one.
 struct HowSleepWorksContent: View {
-    private struct Row: Identifiable {
-        let id: String
-        let icon: String
-        let title: String
-        let detail: String
-    }
-
-    private static let rows: [Row] = [
-        Row(id: "capture", icon: "tray.and.arrow.down",
-            title: "Capture",
-            detail: "Conversations, links and imports land as episodes — no model runs at capture time."),
-        Row(id: "stage1", icon: "book",
-            title: "Stage 1 · Read",
-            detail: "Each episode is read once for people, projects, tools and ideas."),
-        Row(id: "stage2", icon: "arrow.triangle.merge",
-            title: "Stage 2 · Sort",
-            detail: "New mentions are matched against what you already have."),
-        Row(id: "stage3", icon: "questionmark.circle",
-            title: "Stage 3 · Decide",
-            detail: "Contradictions become questions in your Inbox; old beliefs fade."),
-        Row(id: "stage4", icon: "sparkles",
-            title: "Stage 4 · Notice",
-            detail: "Habits that recur become skills."),
-        Row(id: "stage5", icon: "checkmark.seal",
-            title: "Stage 5 · File",
-            detail: "Everything is written to the graph and committed with its provenance."),
-    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
@@ -42,23 +24,12 @@ struct HowSleepWorksContent: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
-            ForEach(Self.rows) { row in
-                HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-                    Image(systemName: row.icon)
-                        .font(CicadaTheme.font(size: 14))
-                        .foregroundStyle(CicadaTheme.accent)
-                        .frame(width: 20)
+            row(icon: "tray.and.arrow.down",
+                title: "Capture",
+                detail: "Conversations, links and imports land as episodes — no model runs at capture time.")
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(row.title)
-                            .font(CicadaTheme.font(size: 13, weight: .semibold))
-                            .foregroundStyle(CicadaTheme.textPrimary)
-                        Text(row.detail)
-                            .font(CicadaTheme.font(size: 11))
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+            ForEach(SleepStages.all) { stage in
+                row(icon: stage.symbol, title: stage.title, detail: stage.detail)
             }
 
             Divider().background(CicadaTheme.border)
@@ -74,5 +45,27 @@ struct HowSleepWorksContent: View {
         .padding(CicadaTheme.spacingLG)
         .frame(width: 360)
         .background(CicadaTheme.surface)
+    }
+
+    /// One popover row. Extracted so `capture` and the five hoisted stages are
+    /// drawn by the same code — a second copy of this layout is how the
+    /// leading row and the stage rows would drift apart visually.
+    private func row(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
+            Image(systemName: icon)
+                .font(CicadaTheme.font(size: 14))
+                .foregroundStyle(CicadaTheme.accent)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(CicadaTheme.font(size: 13, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text(detail)
+                    .font(CicadaTheme.font(size: 11))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }

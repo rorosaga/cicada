@@ -1010,6 +1010,13 @@ async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHis
     one. ``-n`` now counts only matching commits, so the window is exact.
     Cached per ``(memory_path, HEAD, limit)`` so a Sleep page poll costs no
     subprocess until HEAD moves. Durations are joined from the ledger (R5).
+
+    ``--date=iso-strict`` (R-A11): the row needs a time of day. git renders it
+    in the COMMIT's own zone, so the client parses the offset rather than
+    assuming UTC; the telemetry bound below slices to ``[:10]`` because
+    ``date.fromisoformat`` rejects a datetime string (measured, CPython
+    3.12.11 — unsliced, this endpoint and ``get_sleep_cycle_detail`` both 500
+    the moment the format changes).
     """
     from api.services import sleep_history, sync_service, telemetry
 
@@ -1022,7 +1029,7 @@ async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHis
             output = await _run_git(
                 memory_path, "log", f"-n{limit}",
                 "--regexp-ignore-case", "--grep=^Sleep cycle", "--grep=^Inbox resolution",
-                f"--format=%H{sep}%ad{sep}%s{sep}%b{rec}", "--date=short",
+                f"--format=%H{sep}%ad{sep}%s{sep}%b{rec}", "--date=iso-strict",
             )
         except GitError:
             return []
@@ -1054,20 +1061,24 @@ async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHis
     # that grows with the SIZE of everything that ever happened, not with
     # what this request actually needs). Nothing to join → skip the read.
     if out:
-        oldest = min(date.fromisoformat(e.date) for e in out)
+        oldest = min(date.fromisoformat(e.date[:10]) for e in out)
         sleep_history.attach_durations(out, telemetry.read_events(start=oldest))
     return out
 
 
 async def get_sleep_cycle_detail(memory_path: Path, commit: str) -> SleepCycleDetail | None:
     """``GET /sleep/history/{commit}`` (G125). ``None`` when the hash is not
-    a Sleep/inbox commit — never a diff, never the raw body."""
+    a Sleep/inbox commit — never a diff, never the raw body.
+
+    ``--date=iso-strict`` and the ``[:10]`` slice on the telemetry bound are
+    the same pair as in ``get_sleep_history`` above, and for the same reason —
+    they must move together or this endpoint raises ``ValueError``."""
     from api.services import sleep_history, telemetry
 
     if not re.fullmatch(r"[0-9a-f]{7,40}", commit or ""):
         return None
     try:
-        output = await _run_git(memory_path, "show", "-s", "--format=%H%x1f%ad%x1f%s%x1f%b", "--date=short", commit)
+        output = await _run_git(memory_path, "show", "-s", "--format=%H%x1f%ad%x1f%s%x1f%b", "--date=iso-strict", commit)
     except GitError:
         return None
     fields = output.strip("\n").split("\x1f", 3)
@@ -1082,7 +1093,7 @@ async def get_sleep_cycle_detail(memory_path: Path, commit: str) -> SleepCycleDe
         episodes_by_origin=sleep_history.episodes_by_origin(memory_path, manifest.episodes),
         inbox_changes=manifest.inbox_changes,
     )
-    sleep_history.attach_durations([detail], telemetry.read_events(start=date.fromisoformat(detail.date)))
+    sleep_history.attach_durations([detail], telemetry.read_events(start=date.fromisoformat(detail.date[:10])))
     return detail
 
 

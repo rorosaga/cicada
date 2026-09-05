@@ -262,6 +262,39 @@ enum BookwormSprites {
         return out
     }
 
+    /// The nightcap (G125 v3 Task 3, P14) — rows 0–4, worn by `.sleeping` and
+    /// `.reading` and nothing else.
+    ///
+    /// **Baked, not an accessory layer.** Mascot ruling R2 says `frames(for:)`
+    /// returns fully composed frames and consumers never OR overlays
+    /// themselves; a `capOverlay` a caller had to remember would reintroduce
+    /// exactly the seam R2 deleted, and it would need a new cache dimension.
+    /// A cap that is a function of the STATE needs none: `spriteKey` already
+    /// distinguishes `sleeping`/`reading` from every other mood.
+    ///
+    /// **Rows 0–4, tassel LEFT.** Rows 0–1 are blank on every base frame and
+    /// `headTop` occupies rows 2–4, so a cap here replaces the head top and
+    /// nothing else — row 5 (the glasses rim, pinned identical across states)
+    /// is untouched. The tassel goes left because rows 0–4 / cols 19–23 are
+    /// the `sleeping` z-glyph corridor (`glyph(zBig, top: 0, left: 19)`): cap
+    /// ink there would be overwritten by a z on one frame and visible on the
+    /// next, which reads as a rendering bug rather than a sleeping worm.
+    ///
+    /// **Palette `o`/`z`/`l`/`w` only.** `BookwormPalette` is contractually
+    /// nine keys (`testPaletteIsExactlyTheNineRoles` fails on a tenth), so the
+    /// cap is drawn in hues the worm already owns rather than in a new one.
+    private static let nightcap: PixelGrid = glyph([
+        ".......oozzzzoo.........",   // 0 crown
+        ".....oozzzzzzzzzzoo.....",   // 1
+        "...oowwwwwwwwwwwwoo.....",   // 2 brim, over the head top
+        "..owwo..................",   // 3 the tassel's pom, hanging left
+    ], top: 0, left: 0)
+
+    /// Puts the cap on one finished frame. Named so the two capped states
+    /// read the same at their call sites and a third can never acquire the
+    /// cap by copying half the expression.
+    private static func capped(_ frame: PixelGrid) -> PixelGrid { merge(frame, nightcap) }
+
     /// Sleep-stage progress: five dots on the bottom row, `stage` of them lit
     /// in accent, the rest in outline so the row reads as a track.
     static func stageDots(_ stage: Int) -> PixelGrid {
@@ -299,12 +332,16 @@ enum BookwormSprites {
             // Idle bob (one cell down) and a blink.
             return ([awakeBase, shift(awakeBase, dy: 1), awakeBase, awakeBlink], 0.5)
         case .sleeping(let stage):
-            // Eyes shut; a z drifts up-right and grows; the belly rises on the middle frame.
+            // Eyes shut; a z drifts up-right and grows; the belly rises on the
+            // middle frame. The cap goes on LAST, after the z: neither ever
+            // touches the other's cells (the cap stops at col 18, the z starts
+            // at col 19 — see `nightcap`), so the order is a statement of
+            // intent rather than a dependency.
             let dots = stageDots(stage)
             return ([
-                merge(merge(sleepBase, glyph(zSmall, top: 2, left: 21)), dots),
-                merge(merge(sleepBreath, glyph(zSmall, top: 1, left: 20)), dots),
-                merge(merge(sleepBase, glyph(zBig, top: 0, left: 19)), dots),
+                capped(merge(merge(sleepBase, glyph(zSmall, top: 2, left: 21)), dots)),
+                capped(merge(merge(sleepBreath, glyph(zSmall, top: 1, left: 20)), dots)),
+                capped(merge(merge(sleepBase, glyph(zBig, top: 0, left: 19)), dots)),
             ], 0.6)
         case .digesting:
             // Chewing on a book held at the right cheek; the book loses a corner.
@@ -351,12 +388,16 @@ enum BookwormSprites {
             // below are 9 columns per row:
             let bookOpen  = ["aaaaaaaaa", "awwwawwwa", "awwwawwwa", "aaaaaaaaa"]
             let bookFlick = ["aaaaaaaaa", "awwwaww.a", "awwwaw..a", "aaaaaaaaa"]
+            //
+            // `.reading` shifts rows 6–8 only, so the cap (rows 0–4) is never
+            // dragged out of place by the head tilt — it is merged onto each
+            // finished frame exactly as it is for `.sleeping`.
             let base = compose(eyes(), mouthSmile)
             return ([
-                merge(shiftRows(base, 6..<9, dx: -1), glyph(bookOpen, top: 15, left: 8)),
-                merge(base, glyph(bookOpen, top: 15, left: 8)),
-                merge(shiftRows(base, 6..<9, dx: 1), glyph(bookFlick, top: 15, left: 8)),
-                merge(base, glyph(bookOpen, top: 15, left: 8)),
+                capped(merge(shiftRows(base, 6..<9, dx: -1), glyph(bookOpen, top: 15, left: 8))),
+                capped(merge(base, glyph(bookOpen, top: 15, left: 8))),
+                capped(merge(shiftRows(base, 6..<9, dx: 1), glyph(bookFlick, top: 15, left: 8))),
+                capped(merge(base, glyph(bookOpen, top: 15, left: 8))),
             ], 0.5)
         case .error:
             // Red pupils, flat mouth; the second frame is a one-cell tear

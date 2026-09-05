@@ -33,6 +33,15 @@ final class SleepViewModel {
     /// `ConsolidationHistoryCard`). `nil` means every row is collapsed.
     var expanded: String?
 
+    /// G125 v3 R-A7 — what the NEXT cycle would run on, both trigger sources,
+    /// from `GET /sleep/engine`. The hero's one Consolidate control renders
+    /// `preview.manual` as its subtitle so the standing ruling (a scheduled
+    /// cycle never spends plan quota) is visible at the moment of choice;
+    /// Task 6's queue footer names `preview.scheduled` only when the two
+    /// differ. `nil` means "not loaded" and renders as NOTHING — a guessed
+    /// engine would be worse than silence.
+    var enginePreview: SleepEnginePreviews?
+
     /// Hook fired exactly once when a cycle transitions ``running`` -> ``idle``
     /// without an exception. The app wires this to ``GraphViewModel.loadGraph``
     /// so Topics/Graph reflect post-Sleep state without an app restart.
@@ -99,6 +108,10 @@ final class SleepViewModel {
     /// real `GET /sleep/history/{commit}` call.
     private let fetchDetail: (String) async throws -> SleepCycleDetail
 
+    /// Injectable, same reasoning as `fetchSleepStatus`. Defaults to the
+    /// real `GET /sleep/engine` call (R-A7).
+    private let fetchEngine: () async throws -> SleepEngineResponse
+
     /// True from the moment `cancel()` is called until the poll loop
     /// observes the cycle has actually stopped (whether because of the
     /// cancel or otherwise) — cooperative cancellation means the backend
@@ -119,6 +132,9 @@ final class SleepViewModel {
         },
         fetchDetail: @escaping (String) async throws -> SleepCycleDetail = {
             try await APIClient.shared.fetchSleepCycleDetail($0)
+        },
+        fetchEngine: @escaping () async throws -> SleepEngineResponse = {
+            try await APIClient.shared.fetchSleepEngine()
         }
     ) {
         self.store = store
@@ -126,6 +142,7 @@ final class SleepViewModel {
         self.requestCancel = requestCancel
         self.fetchHistory = fetchHistory
         self.fetchDetail = fetchDetail
+        self.fetchEngine = fetchEngine
     }
 
     /// `/sleep/status` isn't a Store domain, so this mirrors the Store's
@@ -189,6 +206,12 @@ final class SleepViewModel {
         // called on its own later (a history-only refresh) with the exact
         // same staleness protection.
         async let historyTask: Void = loadHistory()
+        // The fifth fetch (R-A7). Raced alongside the others and guarded by
+        // the same `loadToken`, but its failure is SILENT: an absent engine
+        // preview costs the Consolidate button its subtitle, not the page its
+        // function, and `errorMessage` drives a visible error banner reserved
+        // for failures the reader can act on.
+        async let engineTask = fetchEngine()
 
         // Each result is guarded individually rather than once at the end —
         // the fetches race independently, and a newer `load()` call can
@@ -216,6 +239,9 @@ final class SleepViewModel {
             if token == loadToken { errorMessage = "Schedule: \(error.localizedDescription)" }
         }
         await historyTask
+        if let engine = try? await engineTask, token == loadToken {
+            enginePreview = engine.preview
+        }
 
         // A superseded call must not make poll-loop decisions either — the
         // newer call (or one still in flight) owns that now.

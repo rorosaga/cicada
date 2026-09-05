@@ -332,6 +332,12 @@ class SourceOverview(CamelModel):
     channel_id: Optional[str] = None
     origins: list[str] = []
     harness: Optional[str] = None
+    # R-A16 — captures per UTC calendar day for the last
+    # ``source_overview.ACTIVITY_DAYS`` days, SPARSE (a silent day has no
+    # key). Absolute date keys rather than a rolling array so a 304'd payload
+    # renders a day short instead of a day shifted. Rides the existing
+    # `episodes` ETag component; no `VersionVector` change is owed.
+    activity: dict[str, int] = Field(default_factory=dict)
 
 
 class SourceOverviewResponse(CamelModel):

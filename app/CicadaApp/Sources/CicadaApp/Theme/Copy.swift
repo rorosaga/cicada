@@ -48,10 +48,30 @@ enum Copy {
     /// The study list's footer line (G125) when `ScheduleConfig.mode` is
     /// `"manual"` — there is no next run to name, only the button.
     static let nextRunManual = "Manual only"
-    /// The study list's pointer to where the schedule itself is edited —
-    /// built from `settingsSleep` so a rename can't desync the two halves.
+    /// The long-form pointer to where the schedule itself is edited — built
+    /// from `settingsSleep` so a rename can't desync the two halves. Kept for
+    /// any surface that names the destination with no context around it; the
+    /// queue card's schedule row uses `changeEllipsis` instead, because the
+    /// sentence beside it already says what is being changed.
     static let changeInSettingsSleep = "Change in \(settingsSleep)"
 
+    /// The queue card's schedule ROW says the destination in its own words
+    /// already ("Every 6 h" sits right beside it and the link opens Settings →
+    /// Sleep), so the affordance next to it is the verb alone — the long form
+    /// above stays for the callers that have no such context.
+    static let changeEllipsis = "Change…"
+
+    /// The queue card's footer line, shown ONLY when `preview.manual` and
+    /// `preview.scheduled` name different engines (R-A9). The standing ruling
+    /// — a scheduled cycle never spends plan quota — makes that difference
+    /// real on a plan-backed bank, and this is where it is *shown* rather than
+    /// silently applied. It names the scheduled engine only: which engine THIS
+    /// click would use is the Consolidate button's own subtitle
+    /// (`runsOn(engine:)`), and repeating both here would put the same fact on
+    /// the page twice.
+    static func scheduledRunsOn(engine: String) -> String {
+        "Scheduled runs use \(engineLabel(engine))"
+    }
     // MARK: The `?` popover (Track P)
     //
     // Shown on Graph, Clusters and Feed, so every sentence has to be true on
@@ -86,6 +106,47 @@ enum Copy {
 
     static let consolidateNow = "Consolidate now"
     static let consolidating = "Consolidating…"
+
+    // MARK: The Sleep hero (G125 v3, R-A4…R-A7)
+
+    /// The noun under the hero's promoted numeral. Pluralised, like every
+    /// other count in this file (`clusterCount`, `bracketTail`) — the hero
+    /// draws it only when the count is at least 1, and "1 episodes waiting"
+    /// is the kind of small wrongness that makes a page look generated.
+    static func episodesWaiting(_ count: Int) -> String {
+        count == 1 ? "episode waiting" : "episodes waiting"
+    }
+
+    /// The Consolidate button's subtitle: what THIS click would run on
+    /// (`GET /sleep/engine`'s `preview.manual`). Shown at the moment of
+    /// choice rather than hidden, because the standing ruling — a scheduled
+    /// cycle never spends plan quota — makes manual and scheduled genuinely
+    /// different, and a button that hides which one it is would be lying by
+    /// omission. Absent, never guessed, when the preview hasn't loaded.
+    static func runsOn(engine: String) -> String { "Runs on \(engineLabel(engine))" }
+
+    /// The hero tiles' nouns (R-A6). Each takes its own count so the singular
+    /// is right, and an unknown (`nil`) keeps the plural — the tile shows `—`
+    /// beside it, so "— entities in memory" reads correctly and "— entity in
+    /// memory" would not.
+    static func entitiesInMemory(_ count: Int?) -> String {
+        count == 1 ? "entity in memory" : "entities in memory"
+    }
+
+    static func sourcesFeeding(_ count: Int?) -> String {
+        count == 1 ? "source feeding it" : "sources feeding it"
+    }
+
+    static let lastCycle = "Last cycle"
+
+    /// R-A14/P18 — every `—` on this page carries a hover reason naming why
+    /// the number is unknowable. A cycle's duration is joined from the
+    /// `sleep_run` telemetry ledger by commit hash; with telemetry off (or a
+    /// cycle older than the ledger) there is no row to join, and G107's
+    /// ruling forbids showing a guess in its place.
+    static let noTimingRecorded = "No timing was recorded for that cycle."
+    static let bankListNotLoaded = "The bank list hasn't loaded yet."
+    static let sourceOverviewNotLoaded = "The source overview hasn't loaded yet."
 
     /// The Feed page's "+" / ⌘N affordance for opening the add-source sheet
     /// (G68 §1 — Capture merged into Feed).
@@ -141,6 +202,27 @@ enum Copy {
     static let pauseAutoRun = "Pause auto-run"
     static let resumeAutoRun = "Resume auto-run"
 
+    // MARK: Liveness (G125 v3 Task 8 — spec R-A12)
+
+    /// Why a page is desaturated one step: the backend stopped answering, and
+    /// what is on screen is the last thing it said. Deliberately not an
+    /// error — the Store's whole promise is that a view never blanks, and a
+    /// disconnect is a fact about the connection, not a failure of the cycle.
+    static let notConnectedExplainer = "Not connected — showing the last reading."
+
+    /// The chip that dates a desaturated page. 24-hour, zero-padded, because
+    /// it sits inline next to a title and `4:12 PM` is three glyphs wider for
+    /// no added meaning. `timeZone` is injectable for the same reason
+    /// `SleepHistoryPresentation.timeText` opened that seam: so the assertion
+    /// never depends on the test runner's locale.
+    static func asOf(_ date: Date, timeZone: TimeZone = .current) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        f.timeZone = timeZone
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return "as of \(f.string(from: date))"
+    }
+
     // MARK: Observer
 
     /// The user's own observer label. Never the account holder's first name —
@@ -151,7 +233,12 @@ enum Copy {
 
     static let clustersSubtitle = "Every entity, grouped by type."
     static let feedSubtitle = "Everything Cicada has read, newest first."
-    static let sleepSubtitle = "Fold today's episodes into the graph."
+    /// G125 v3 Task 8: "today's episodes" was the one false string on the
+    /// page. The queue's oldest item is months old on a real bank — the
+    /// queue card's own `oldest <n>d` line says so two cards down — so a subtitle
+    /// promising *today* contradicted a number the same screen was drawing.
+    /// What a cycle actually does is fold whatever is waiting, however old.
+    static let sleepSubtitle = "Fold what's waiting into the graph."
     static let inboxSubtitle = "Questions waiting on you."
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."

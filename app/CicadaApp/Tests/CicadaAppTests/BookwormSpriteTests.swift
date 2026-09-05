@@ -116,6 +116,79 @@ final class BookwormSpriteTests: XCTestCase {
         }
     }
 
+    // MARK: nightcap (G125 v3 Task 3, P14)
+
+    /// Cells that exist only when the cap is on: two on the brim, one on the
+    /// tassel's pom, one on the crown. Chosen inside cols 0…18 on purpose —
+    /// see `testTheCapNeverEntersTheZDriftCorridor`.
+    private static let capCells: [(row: Int, col: Int, char: Character)] =
+        [(0, 10, "z"), (2, 5, "w"), (2, 16, "w"), (3, 3, "w")]
+
+    /// The cap is BAKED into the frames, not merged by a consumer (mascot
+    /// ruling R2): `frames(for:)` returns fully composed frames, and an
+    /// accessory layer would reintroduce the seam R2 deleted. So it is
+    /// asserted on the frames themselves, on EVERY frame — a cap that
+    /// survived only the first frame would flicker once per interval.
+    func testTheNightcapIsOnEveryFrameOfSleepingAndReading() {
+        for state in [BookwormState.sleeping(stage: 1), .sleeping(stage: 5), .reading] {
+            for (i, frame) in BookwormSprites.frames(for: state).frames.enumerated() {
+                for cell in Self.capCells {
+                    XCTAssertEqual(Array(frame[cell.row])[cell.col], cell.char,
+                                   "\(state.caseName) frame \(i) at (\(cell.row), \(cell.col))")
+                }
+            }
+        }
+    }
+
+    /// The cap is a function of the STATE, which is why it can be baked at
+    /// all: `spriteKey` already distinguishes these states in the cache key,
+    /// so no new cache dimension appears. Every other mood is bare-headed.
+    func testNoOtherStateWearsTheCap() {
+        for state in [BookwormState.awake, .happy, .hungry, .curious(count: 3), .digesting, .error] {
+            for (i, frame) in BookwormSprites.frames(for: state).frames.enumerated() {
+                for cell in Self.capCells {
+                    XCTAssertNotEqual(Array(frame[cell.row])[cell.col], cell.char,
+                                      "\(state.caseName) frame \(i) at (\(cell.row), \(cell.col))")
+                }
+            }
+        }
+    }
+
+    /// The tassel is on the LEFT because the right-hand top corner is the
+    /// `sleeping` z-glyph corridor: `zBig` is placed at `top: 0, left: 19`,
+    /// so rows 0…4 / cols 19…23 belong to the drifting z. A cap cell there
+    /// would be overwritten by a z on one frame and visible on the next,
+    /// which reads as a rendering bug rather than a sleeping worm.
+    func testTheCapNeverEntersTheZDriftCorridor() {
+        for state in [BookwormState.sleeping(stage: 3), .reading] {
+            let frames = BookwormSprites.frames(for: state).frames
+            for (i, frame) in frames.enumerated() {
+                for r in 0...4 {
+                    for c in 19...23 {
+                        let ch = Array(frame[r])[c]
+                        XCTAssertTrue(ch == "." || ch == "z" || ch == "o" || ch == "b" || ch == "a",
+                                      "\(state.caseName) frame \(i) (\(r), \(c)) = '\(ch)' — cap ink in the z corridor")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Rows 5…9 are the glasses; the cap occupies rows 0…4 and replaces the
+    /// head top and nothing else. Row 5 is already pinned across states by
+    /// `testGlassesRimIsIdenticalAcrossStates`; this pins the whole band for
+    /// the two capped states, so a cap that grew one row down is caught.
+    func testTheCapNeverReachesTheGlassesBand() {
+        for state in [BookwormState.sleeping(stage: 2), .reading] {
+            let capped = BookwormSprites.frames(for: state).frames[0]
+            for r in 5...9 where r != 6 && r != 7 && r != 8 {
+                XCTAssertEqual(String(capped[r].prefix(19)),
+                               String(BookwormSprites.awakeBase[r].prefix(19)),
+                               "\(state.caseName) row \(r)")
+            }
+        }
+    }
+
     // MARK: helpers
 
     func testShiftAndMergeNeverChangeDimensions() {

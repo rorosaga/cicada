@@ -140,32 +140,23 @@ func deriveSleepPageMood(
 /// that, and the text survived as the caption rather than the character.
 /// It still reuses the SAME `BookwormState` `deriveSleepPageMood` produces,
 /// so the worm and its caption can never disagree about the mood.
+///
+/// Since G125 v3 (R-A4/P8) the sprite has no visible caption at all — the
+/// study room positions the worm by its own box, and a VStack'd caption would
+/// move it off the cushion — so this line survives as the hero group's
+/// VoiceOver label. It is **re-composed, never rewritten**: the numeral is
+/// `heroCount`, the phrase after it is `bracketTail`, and both live in
+/// `SleepHero.swift` beside `heroQualifier`, which the visible chip renders.
+/// One switch, three readers, so the chip and the caption cannot drift apart.
+/// The twelve strings `SleepMoodTests.test_bracketText_*` asserts must
+/// survive this composition byte-for-byte — `SleepHeroTests` re-asserts every
+/// one of them from the other side for exactly that reason.
 func sleepDebtBracketText(_ state: BookwormState, debt: SleepDebtView?) -> String {
-    switch state {
-    case .awake:
-        return "[ awake ]"
-    case .sleeping(let stage):
-        return "[ sleeping · stage \(stage) of 5 ]"
-    case .digesting:
-        return "[ digesting ]"
-    case .happy:
-        return "[ caught up ]"
-    case .curious(let count):
-        return "[ \(count) episode\(count == 1 ? "" : "s") behind ]"
-    case .reading:
-        // Same count the bubble reads (unprocessedCount), but this is the
-        // caption under the sprite, not the bubble's sentence (Task 5
-        // interface: `"[ N to read ]"`) — `0` still says "0 to read" rather
-        // than something bespoke, since `intakeInFlight` can hold `.reading`
-        // with an as-yet-unrefreshed queue count of 0 (R2).
-        return "[ \(debt?.unprocessedCount ?? 0) to read ]"
-    case .hungry:
-        let count = debt?.unprocessedCount ?? 0
-        guard count > 0 else { return "[ overdue — hasn't consolidated in a while ]" }
-        return "[ \(count) episode\(count == 1 ? "" : "s") behind — overdue ]"
-    case .error:
-        return "[ last cycle failed ]"
-    }
+    let numeral = heroCount(state, debt: debt).map(String.init)
+    let parts = [numeral, bracketTail(state, debt: debt)]
+        .compactMap { $0 }
+        .filter { !$0.isEmpty }
+    return "[ " + parts.joined(separator: " ") + " ]"
 }
 
 /// Semantic color per mood, drawn entirely from `CicadaTheme` — no new

@@ -2,7 +2,25 @@ import Foundation
 
 /// Disk persistence for Store snapshots — disposable cache, versioned envelope.
 actor SnapshotCache {
-    static let schema = 1
+    /// Bump this whenever a cached payload gains a field the UI *reads*, in the
+    /// same change that adds the field — the disk cache is the third half of
+    /// CLAUDE.md's "ship the ETag and its client mapping together" rule.
+    ///
+    /// Why it is load-bearing (final review, finding 2): a hydrate restores the
+    /// payload **and its etag**, so the next refresh sends `If-None-Match`,
+    /// takes a 304, and keeps the old body. A field added since that body was
+    /// written therefore stays at its decode default until some unrelated bank
+    /// write moves the server's etag. Version 2 is `SourceOverview.activity`
+    /// (G125 v3): a pre-`activity` payload decodes fine (`[:]`), still passes
+    /// `memorySourceRows`' `episodes > 0` filter, and renders a flat sparkline
+    /// plus "0 of the last 4 weeks had captures" beside a count line reading
+    /// "312 captured" — the page contradicting itself. Dropping the envelope
+    /// costs exactly one cold render on upgrade, which is what this field is
+    /// for.
+    ///
+    /// Nothing pins the value: `load`'s own `env.schema == Self.schema` guard
+    /// is its only reader, and a mismatch is a cache miss, not an error.
+    static let schema = 2
     private struct Envelope<T: Codable>: Codable { let schema: Int; let etag: String?; let savedAt: Date; let payload: T }
 
     private let root: URL

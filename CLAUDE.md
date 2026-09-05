@@ -467,19 +467,18 @@ Integrations; a *one-shot* import (drop an export, sync a folder once) stays whe
 behind the Feed's `+`. Both read the same `channel_registry`, so a channel never drifts between the
 two surfaces.
 
-**Sleep page — the study desk (G125).** The bookworm sits at a desk: a speech bubble
-(`sleepBubbleText`, clock-free per R8 — the line is a pure function of state and counts, never the
-wall clock, so it can't flicker between renders) above a book pile (`bookPileLayout`) whose spine
-heights encode queued characters per source on a log scale — the page's one volume encoding (R1: no
-bars-per-source, no tiles, no age histogram). Below it, `StudyListCard` lists what's waiting one row
-per origin, largest pile first, each disclosing to its queued episodes inline, with the single
-Consolidate/Cancel control in its footer (R10 — the old top-right Sleep/Upload pair left the page).
-`ConsolidationHistoryCard` renders past cycles from `GET /sleep/history` (commit bodies parsed
-server-side, bounded and cached — R4) and expands a row on demand into `GET /sleep/history/{commit}`
-(cached per commit in the view model, R12); a cycle's duration is joined from the `sleep_run`
-telemetry ledger by commit hash and reads "—", never a guess, when telemetry was off or the row is
-missing (R5). `?` opens *How Cicada sleeps* — the five-stage batch in plain language, one prose
-source with the "Core Architecture" section above.
+**Sleep page — the study room (G125 v3).** Two columns above 1000 pt of content width, one 760 pt
+column below. Left: a pixel room (window, cushion, mug, plant, lamp) on one cell lattice at the
+worm's snapped size, whose desk lamp is **lit iff the schedule isn't manual** — art encodes **state,
+never quantity**, every art bit has a text twin, and this side's one volume encoding is the real
+`BookPileView`; a hero of count + qualifier chip (`sleepDebtBracketText` re-composed from it), a
+meter that **never renders without its noun** (`Rested n%` idle, `Read a of b` running), three
+measured tiles and one Consolidate control; the five-stage strip read from `SleepStages.all`, the
+array the `?` popover renders too (only Read carries a fill; a cancel freezes it where it stopped);
+and *In the queue* — what's `waiting` per origin, the schedule sentence, the scheduled engine named
+only when it differs. Right: memory sources (`captured`, never `waiting`) over
+`SourceOverview.activity`, and consolidations with an engine·author pill. `—` is a value with a
+hover reason, never a guess. **Refused: no clusters, no insights, no estimate, no price.**
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and

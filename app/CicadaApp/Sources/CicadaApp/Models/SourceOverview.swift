@@ -28,16 +28,24 @@ struct SourceOverview: Codable, Identifiable, Hashable {
     let channelId: String?
     let origins: [String]
     let harness: String?
+    /// Captures per UTC calendar day for the last `source_overview.ACTIVITY_DAYS`
+    /// days, SPARSE — a silent day has no key (R-A16). Absolute date keys, not a
+    /// rolling array, so a 304'd payload renders a day short rather than a day
+    /// shifted. It rides the existing `episodes` ETag component (which
+    /// `VersionVector.mapping` already routes to `.sourcesOverview`), so the
+    /// ship-together rule is satisfied with no mapping change.
+    let activity: [String: Int]
 
     init(id: String, label: String, kind: SourceKind, mark: String = "", conversations: Int = 0,
          episodes: Int = 0, entities: Int = 0, items: Int = 0, lastActivityAt: String? = nil,
          connected: Bool = false, lastError: String? = nil, actions: [String] = [],
-         channelId: String? = nil, origins: [String] = [], harness: String? = nil) {
+         channelId: String? = nil, origins: [String] = [], harness: String? = nil,
+         activity: [String: Int] = [:]) {
         self.id = id; self.label = label; self.kind = kind; self.mark = mark
         self.conversations = conversations; self.episodes = episodes; self.entities = entities
         self.items = items; self.lastActivityAt = lastActivityAt; self.connected = connected
         self.lastError = lastError; self.actions = actions; self.channelId = channelId
-        self.origins = origins; self.harness = harness
+        self.origins = origins; self.harness = harness; self.activity = activity
     }
 
     /// The Feed items belonging to this row, newest first (R6 — a client-side
@@ -89,7 +97,7 @@ struct SourceOverview: Codable, Identifiable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, label, kind, mark, conversations, episodes, entities, items, lastActivityAt
-        case connected, lastError, actions, channelId, origins, harness
+        case connected, lastError, actions, channelId, origins, harness, activity
     }
 
     init(from decoder: Decoder) throws {
@@ -109,6 +117,9 @@ struct SourceOverview: Codable, Identifiable, Hashable {
         channelId = try c.decodeIfPresent(String.self, forKey: .channelId)
         origins = try c.decodeIfPresent([String].self, forKey: .origins) ?? []
         harness = try c.decodeIfPresent(String.self, forKey: .harness)
+        // Optional-with-default: a payload from before `activity` shipped (a
+        // cached snapshot, or an older backend) must still yield a usable card.
+        activity = try c.decodeIfPresent([String: Int].self, forKey: .activity) ?? [:]
     }
 
     /// `lastActivityAt` parsed for sorting — the same three shapes

@@ -164,3 +164,21 @@ def test_history_endpoints(bank, monkeypatch):
             assert client.get("/sleep/history/0000000").status_code == 404
     finally:
         config.get_settings.cache_clear()
+
+
+def test_history_carries_a_time_of_day_and_still_joins_durations(bank):
+    """R-A11 — `--date=iso-strict` gives the history rows a time of day.
+
+    Both call sites that bound the telemetry read must slice to `[:10]`:
+    unsliced, `date.fromisoformat("2026-09-01T…+02:00")` raises `ValueError`
+    on py3.12 (verified in `api/.venv`) and BOTH endpoints 500 — the trap this
+    test exists to catch, since a green history list would otherwise hide it
+    until the ledger had a row to join.
+    """
+    import asyncio
+    rows = asyncio.run(git_service.get_sleep_history(bank, limit=10))
+    assert rows, "the fixture commits should match the Sleep-cycle grep"
+    assert "T" in rows[0].date and len(rows[0].date) >= 19
+    assert rows[0].duration_ms is None            # telemetry is off in the suite
+    detail = asyncio.run(git_service.get_sleep_cycle_detail(bank, rows[1].commit_hash))
+    assert detail is not None and "T" in detail.date
