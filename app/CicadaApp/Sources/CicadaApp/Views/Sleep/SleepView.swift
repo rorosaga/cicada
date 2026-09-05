@@ -261,7 +261,6 @@ struct SleepView: View {
     /// frames, never the room's geometry.
     private var deskCard: some View {
         let debt = resolveSleepDebt(sse: store.sleepEvent, status: sleepVM.status)
-        let progress = resolveProgressPct(sse: store.sleepEvent, status: sleepVM.status)
         let mood = deriveSleepPageMood(
             status: sleepVM.status, debt: debt, justFinishedAt: justFinishedAt,
             intakeInFlight: store.intakeInFlight
@@ -330,7 +329,24 @@ struct SleepView: View {
                 queuedCount: sleepVM.queuedEpisodes.count
             )
 
-            moodDetailLine(mood: mood, debt: debt, progress: progress)
+            // R-A8 — the five-stage strip, in the slot the old
+            // `Text("Stage N of 5")` + bare `ProgressView` pair occupied.
+            // Every input is the SAME reading the hero and the book pile got
+            // (H1): the stage from the one status snapshot, the two counts
+            // from the one `resolveOriginCounts` call above.
+            SleepStageStrip(
+                pips: stageStripState(
+                    stage: sleepVM.status?.stage ?? 0,
+                    isRunning: sleepVM.isRunning,
+                    cancelled: sleepVM.status?.cancelled == true,
+                    error: !(sleepVM.status?.error ?? "").isEmpty,
+                    read: bubbleCtx.read,
+                    total: bubbleCtx.total
+                ),
+                showsCaughtUpWorm: stageStripShowsCaughtUpWorm(mood: mood, debt: debt)
+            )
+
+            moodDetailLine(mood: mood, debt: debt)
 
             if let engine = sleepVM.status?.lastEngine {
                 engineLine(engine, detail: sleepVM.status?.engineDetail)
@@ -360,30 +376,25 @@ struct SleepView: View {
         .glassCard()
     }
 
-    /// Under the bubble/worm/pile row: while a cycle is running, which of
-    /// the five stages it's on plus the same overall progress bar that used
-    /// to live in the retired `progressCard` (Stage 1's own live percent
-    /// stays visible too — it's the only stage with a natural per-episode
-    /// unit; see `sleep_cycle.progress_pct`'s docstring). While idle, the
-    /// Rested % breakdown — "explainable, not a black box" (spec).
+    /// The IDLE explainer, and only that: the Rested % breakdown —
+    /// "explainable, not a black box" (spec).
+    ///
+    /// G125 v3 Task 5 (R-A8) deleted this function's running branch. It used
+    /// to draw `Text("Stage \(stage) of 5")`, a bare linear `ProgressView`
+    /// over `sleepVM.progressFraction` and `Text("Stage 1: \(progress)%")` —
+    /// a bar that moved in five jumps, a percentage with no noun, and a stage
+    /// number with no idea what that stage does. `SleepStageStrip` says all
+    /// three things at once and says which stage is which, so the running
+    /// readout is now the strip plus the hero's `Read n of m` meter.
+    ///
+    /// The `.sleeping` guard survives as an explicit empty branch rather than
+    /// falling through to the Rested line: Rested % is what the queue looks
+    /// like BETWEEN cycles, and showing it mid-cycle would put a stale
+    /// baseline next to a live one.
     @ViewBuilder
-    private func moodDetailLine(mood: BookwormState, debt: SleepDebtView?, progress: Int?) -> some View {
-        if case .sleeping(let stage) = mood {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text("Stage \(stage) of 5")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                ProgressView(value: sleepVM.progressFraction)
-                    .progressViewStyle(.linear)
-                    .tint(CicadaTheme.accent)
-                    .frame(maxWidth: 240)
-                    .animation(.easeInOut(duration: 0.35), value: sleepVM.progressFraction)
-                if let progress {
-                    Text("Stage 1: \(progress)%")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            }
+    private func moodDetailLine(mood: BookwormState, debt: SleepDebtView?) -> some View {
+        if case .sleeping = mood {
+            EmptyView()
         } else if let debt {
             if let rested = debt.restedPct {
                 Text("Rested \(rested)% — volume \(debt.volumePct)%, age \(debt.agePct)%")
