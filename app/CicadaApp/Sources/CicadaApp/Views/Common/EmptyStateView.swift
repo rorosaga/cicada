@@ -6,20 +6,12 @@ import SwiftUI
 /// bookworm at `.happy` reads as reassurance, not an error.
 ///
 /// Two action shapes, not one, because a PLAIN closure cannot reliably open
-/// the Settings window on this app's target OS: `SidebarView.swift`'s own
-/// `SettingsGearButton` docstring records measuring the private AppKit
-/// window-opening selector as *accepted and silently ignored* on macOS 26 —
-/// `NSApp.sendAction` returns `true`, no window appears — which is why that
-/// button is built from `SettingsLink` (a `View`, not a callable action)
-/// rather than a `Button` with an imperative body (see
-/// `SettingsEntryPointTests.testNoPrivateSettingsSelector`, which fails the
-/// build on that selector literal reappearing anywhere in `Sources/`).
-/// `settingsSection` renders that same `SettingsLink`, pre-seeding which
-/// section it opens to via a `.simultaneousGesture` (runs alongside
-/// `SettingsLink`'s own built-in action, not instead of it) — the moment ANY
-/// empty state needs to send the person to Settings, it must use this path,
-/// never a bare `action:` closure that calls `openSettings()` or the AppKit
-/// selector directly.
+/// the Settings window on this app's target OS — the reasoning, and the one
+/// writer of the section seed, now live in `SettingsSectionLink` (G125 v3,
+/// P5), which this view renders when `settingsSection` is set. The moment ANY
+/// empty state needs to send the person to Settings, it must go through that
+/// view, never a bare `action:` closure that calls `openSettings()` or the
+/// private AppKit selector directly.
 struct EmptyStateView: View {
     let title: String
     let message: String
@@ -37,17 +29,7 @@ struct EmptyStateView: View {
                 .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             if let section = settingsSection, let actionLabel {
-                SettingsLink { Text(actionLabel) }
-                    .buttonStyle(.cicadaPlain).foregroundStyle(CicadaTheme.accent)
-                    // Seeds the section `SettingsScene.onAppear` reads
-                    // (`:19,34` — the same `@AppStorage("cicada.settingsSection")`
-                    // key it already persists to) BEFORE the link's own
-                    // built-in action opens the window, so it opens
-                    // straight to the intended section instead of wherever
-                    // Settings was last left.
-                    .simultaneousGesture(TapGesture().onEnded {
-                        UserDefaults.standard.set(section.rawValue, forKey: "cicada.settingsSection")
-                    })
+                SettingsSectionLink(section: section, label: actionLabel)
             } else if let actionLabel, let action {
                 Button(actionLabel, action: action)
                     .buttonStyle(.cicadaPlain).foregroundStyle(CicadaTheme.accent)

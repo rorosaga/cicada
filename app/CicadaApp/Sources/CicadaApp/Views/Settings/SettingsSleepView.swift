@@ -4,8 +4,8 @@ import SwiftUI
 /// the Sleep cycle runs on its own. This IS settings-shaped configuration
 /// ("visit once, then never again"), matching the pattern the Agents/Plans &
 /// keys tabs already establish — the Sleep page itself only ever points here
-/// (`Copy.changeInSettingsSleep`, on the study list's footer) rather than
-/// duplicating a second picker.
+/// (`SettingsSectionLink(section: .sleep, …)`, on the queue card's schedule
+/// row since G125 v3) rather than duplicating a second picker.
 ///
 /// Four modes (R6/R7): manual (no auto-run — a `daily`/`interval`/
 /// `after_import` config the user turns off keeps its hour/minute/interval,

@@ -48,9 +48,30 @@ enum Copy {
     /// The study list's footer line (G125) when `ScheduleConfig.mode` is
     /// `"manual"` — there is no next run to name, only the button.
     static let nextRunManual = "Manual only"
-    /// The study list's pointer to where the schedule itself is edited —
-    /// built from `settingsSleep` so a rename can't desync the two halves.
+    /// The long-form pointer to where the schedule itself is edited — built
+    /// from `settingsSleep` so a rename can't desync the two halves. Kept for
+    /// any surface that names the destination with no context around it; the
+    /// queue card's schedule row uses `changeEllipsis` instead, because the
+    /// sentence beside it already says what is being changed.
     static let changeInSettingsSleep = "Change in \(settingsSleep)"
+
+    /// The queue card's schedule ROW says the destination in its own words
+    /// already ("Every 6 h" sits right beside it and the link opens Settings →
+    /// Sleep), so the affordance next to it is the verb alone — the long form
+    /// above stays for the callers that have no such context.
+    static let changeEllipsis = "Change…"
+
+    /// The queue card's footer line, shown ONLY when `preview.manual` and
+    /// `preview.scheduled` name different engines (R-A9). The standing ruling
+    /// — a scheduled cycle never spends plan quota — makes that difference
+    /// real on a plan-backed bank, and this is where it is *shown* rather than
+    /// silently applied. It names the scheduled engine only: which engine THIS
+    /// click would use is the Consolidate button's own subtitle
+    /// (`runsOn(engine:)`), and repeating both here would put the same fact on
+    /// the page twice.
+    static func scheduledRunsOn(engine: String) -> String {
+        "Scheduled runs use \(engineLabel(engine))"
+    }
 
     // MARK: Shared action verbs
     //
