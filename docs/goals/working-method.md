@@ -213,11 +213,12 @@ brief written from this table over fighting the cache.
    per-channel seen-set beside `url_index.json`. Removal is a proposal: an inbox item, rendered
    again as a Deletions subsection on the browser's page — one write path, two views.
 
-2. **G125 — Sleep page as the study desk.** A `reading` mascot state while intake is being consumed,
-   the queue as a per-category study list (Claude Code conversations · Safari tabs · saved links…),
-   breakdowns moved to Sources/Settings, a schedule frequency picker, the deprecated toolbar buttons
-   removed. *Why here:* it is the page the owner watches while the bank fills, and G105 now feeds it
-   real per-source volume.
+2. ~~**G125 — Sleep page as the study desk.**~~ — **shipped 2026-09-05, PR #TBD**
+   (`feat/study-desk`): the `reading` mascot state, a clock-free speech bubble, a book pile keyed on
+   queued characters per source, the study list replacing the old queue card + debt breakdown, a
+   server-parsed consolidation history with a per-cycle detail and telemetry-joined duration, and
+   four schedule modes (manual · daily · every N hours · after imports). Open remainder, not this
+   row: the same toolbar audit on Graph/Clusters, and **G122** (engine/model picker).
 3. **G122 — engine and model picker on the Sleep page**, with Ollama guided as a first-class option.
    *Why here:* the ladder exists and works (`CICADA_LLM_MODE=auto` → Claude Max), but choosing it
    means editing `api/.env`. It is also step 1 of onboarding.

@@ -433,6 +433,27 @@ in a native `Settings{}` scene (⌘,). ⌘K opens the Ask panel. `AppTab` raw va
 identity of a tab, and `AppTab.restored(from:)` maps retired ones onto the pages that inherited
 them, so an older selection never traps.
 
+**Sleep page — the study desk (G125).** The bookworm sits at a desk: a speech bubble
+(`sleepBubbleText`, clock-free per R8 — the line is a pure function of state and counts, never the
+wall clock, so it can't flicker between renders) above a book pile (`bookPileLayout`) whose spine
+heights encode queued characters per source on a log scale — the page's one volume encoding (R1: no
+bars-per-source, no tiles, no age histogram). Below it, `StudyListCard` lists what's waiting one row
+per origin, largest pile first, each disclosing to its queued episodes inline, with the single
+Consolidate/Cancel control in its footer (R10 — the old top-right Sleep/Upload pair left the page).
+`ConsolidationHistoryCard` renders past cycles from `GET /sleep/history` (commit bodies parsed
+server-side, bounded and cached — R4) and expands a row on demand into `GET /sleep/history/{commit}`
+(cached per commit in the view model, R12); a cycle's duration is joined from the `sleep_run`
+telemetry ledger by commit hash and reads "—", never a guess, when telemetry was off or the row is
+missing (R5). `?` opens *How Cicada sleeps* — the five-stage batch in plain language, one prose
+source with the "Core Architecture" section above.
+
+**Mascot states (G107).** `BookwormState` gained `reading` for this page only —
+`deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and
+the menu bar's own precedence and sprite meaning are unchanged. `store.intakeInFlight` (set while
+the upload overlay runs) forces `reading` ahead of `happy`/`hungry` but never ahead of
+`sleeping`/`error`/`digesting`. Per-cycle duration *estimates* stay deferred (G107's own ruling);
+only a measured, telemetry-joined duration is ever shown.
+
 ---
 
 ## API Design
@@ -526,6 +547,17 @@ bank's claim lineage in two — **G117 moves the remaining four sites together.*
 
 ### 4. Manual Sleep trigger
 "Run Sleep cycle now" + next-scheduled indicator.
+
+**Schedule modes (G125 R6/R7).** Settings → Schedule offers four modes on `ScheduleConfig.mode`:
+`manual`, `daily` (hour/minute), `interval` (`interval_hours`, 1–168, default 6), and `after_import`
+— no writer hooks an import; `sleep_scheduler` installs a 5-minute `IntervalTrigger` probe that
+fires `run(user_triggered=False)` only once the queue has *settled* (idle, non-empty, and the
+newest unprocessed episode is ≥ `AFTER_IMPORT_SETTLE_MINUTES` (10) old — `SleepDebt` carries
+`newest_unprocessed_at` so the probe and `next_run_at` share one scan). `enabled` is derived
+(`mode != "manual"`) and always written on the wire so an older client still decodes; an old
+`PUT {enabled,hour,minute}` with no `mode` is accepted and mapped onto `daily`/`manual`. Every
+scheduled path — daily, interval, or the settle probe — passes `user_triggered=False`, so a
+scheduled cycle never spends plan quota (the standing ruling in `TODO.md`).
 
 ### 5. Conversation upload
 File picker for JSON/HTML exports; parses and stages into `episodes/`; dedups on timestamp +

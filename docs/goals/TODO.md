@@ -154,7 +154,13 @@ Recommended, decay through the question component, the G98 informational rule
 **App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·
 G62 capture redesign · G63 connections clarity · G64 import walkthroughs · G67 commit-diff views ·
-G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars · G107 pixel mascot + single menu-bar Tamagotchi
+G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars · G107 pixel mascot + single menu-bar Tamagotchi ·
+**G125 the study desk (2026-09-05, PR #TBD)** — Sleep page rebuilt around a `reading` mascot state
+and clock-free speech bubble, a book pile encoding queued characters per source (log scale, no
+charts), a study list replacing the old queue card + debt breakdown, consolidation history with a
+server-parsed per-cycle detail and telemetry-joined duration, four schedule modes (manual · daily ·
+every N hours · after imports, always `user_triggered=False`), and the deprecated top-right
+Sleep/Upload buttons removed from this page
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
@@ -308,9 +314,6 @@ per-source pages with Resume, contributors calendar per model, Advanced counts; 
 11. ~~G100~~ — absorbed into G118 (slice 1 shipped the write-time citation; the derived-span class and
     the viewer are G118 slice 2)
 12. **G103** observer model in the UI — whose belief, who was in the room — S
-12e. **G125** Sleep page as the study desk — `reading` mascot state, the queue as a per-category study list,
-    breakdowns moved to Sources/Settings, schedule frequency picker (`interval_hours`/`after_import`), the
-    deprecated Sleep/Upload toolbar buttons removed — M
 12c. **G108** landing page + navigation — decide *before* building: status vs graph as the front
     door, and linear vs browser-style history (G106 makes history the better bet) — decision
 12b. **G106** two-way conversations ↔ entities browser — the inverse index works today; content
@@ -393,8 +396,6 @@ the report for what was checked)*
 - Sidebar footer: the sun/moon button next to the gear writes `cicada.colorScheme` but the owner reports
   nothing happens on press (2026-09-03) — verify whether the scheme is applied at the root (`preferredColorScheme`)
   and whether the graph page (hard-coded dark d3 palette, see GraphView.swift comment) masks it — XS
-- Graph re-lays out on every return to the Graph tab: `ContentView` rebuilds the `WKWebView` per
-  tab switch *(G109 Swift track — Wave A #1; the physics half shipped in phase 1)*
 - Bank `.git` is 69 MB against 16 MB of markdown — future growth stopped, **history not rewritten**
   (destructive; user's call)
 - 8 date-dependent `test_calendar_registry.py` failures — pre-existing baseline on dev
