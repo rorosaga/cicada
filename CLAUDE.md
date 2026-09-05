@@ -454,6 +454,12 @@ the upload overlay runs) forces `reading` ahead of `happy`/`hungry` but never ah
 `sleeping`/`error`/`digesting`. Per-cycle duration *estimates* stay deferred (G107's own ruling);
 only a measured, telemetry-joined duration is ever shown.
 
+**View menu (G130 slice 1a).** ⌘+ / ⌘− / ⌘0 scale the whole chrome — one persisted `uiScale` behind
+every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the
+PR #49 lesson repeated). The graph canvas keeps its own zoom; ⌘+/⌘− means chrome, not canvas, same
+as a browser's page zoom vs. a map widget's. `Settings` gains a *General* tab (Appearance + a Text
+size slider) alongside Agents, Plans & keys and Schedule.
+
 ---
 
 ## API Design

@@ -63,10 +63,10 @@ struct ChannelSourceView: View {
                 }
                 Spacer()
                 if channel.actions.contains("sync") {
-                    actionButton("Sync now") { try await BrowserImportActions.syncChannel(channel.id, store: store) }
+                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store) }
                 }
                 if channel.actions.contains("poll") {
-                    actionButton("Poll now") { try await pollNow(channel) }
+                    actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
                 }
             }
             if let detail = channel.detail {
@@ -101,18 +101,6 @@ struct ChannelSourceView: View {
             }
         }
         .buttonStyle(.bordered).controlSize(.small).disabled(busy)
-    }
-
-    /// A user-initiated poll still honours the backend's fetch gate: the
-    /// result says so plainly instead of reporting "0 new" as if it had run.
-    private func pollNow(_ channel: SourceChannel) async throws -> String {
-        let disabled = "Live fetch is disabled on this backend — set CICADA_ALLOW_FEED_FETCH=1 and restart."
-        if channel.id == "calendar" {
-            let r = try await APIClient.shared.pollCalendars()
-            return r.skippedNoNetwork > 0 ? disabled : "\(r.new) new event(s)"
-        }
-        let r = try await APIClient.shared.pollFeeds()
-        return r.skippedNoNetwork > 0 ? disabled : "\(r.new) new item(s)"
     }
 
     /// iCloud tabs group by device (the importer writes the device name into

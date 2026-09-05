@@ -47,4 +47,17 @@ final class SettingsEntryPointTests: XCTestCase {
         let text = try String(contentsOf: try XCTUnwrap(sidebar), encoding: .utf8)
         XCTAssertTrue(text.contains("SettingsLink"), "the sidebar footer no longer opens Settings")
     }
+
+    /// G130 R5: the View menu (Zoom In/Out/Actual Size) is a `CommandGroup`
+    /// on the app's own `Scene`, not a view-local shortcut — a source lint
+    /// because a `Scene`'s `.commands` isn't something a unit test can
+    /// render and inspect the menu bar for.
+    func testTheAppStillCarriesTheZoomCommandGroup() throws {
+        let appFile = try sourceFiles().first { $0.lastPathComponent == "CicadaApp.swift" }
+        let text = try String(contentsOf: try XCTUnwrap(appFile), encoding: .utf8)
+        XCTAssertTrue(
+            text.contains("CommandGroup(after: .sidebar)"),
+            "CicadaApp.swift no longer declares the View menu's zoom CommandGroup"
+        )
+    }
 }

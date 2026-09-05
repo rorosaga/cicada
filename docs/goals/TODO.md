@@ -169,12 +169,19 @@ one user-visible "Next run …" text, R6/R7) is calibrated from `sleep_debt.comp
 surface (an agent's primer briefly imprecise right after a schedule-mode change, never a wrong clock
 shown to the user) and left as-is rather than adding a second `sleep_debt.compute` scan to an
 engine-free read path on a late pass — fold in alongside the next `/state` touch.
+· **G130 slice 1a app-wide zoom (2026-09-05,
+PR #54)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
+(⌘=/⌘−/⌘0, plus a ⌘⇧= key monitor), a Settings *General* tab with a text-size slider; the graph
+canvas keeps its own zoom (slice 2 stays open on a measured need; slice 1b, the literal-font
+migration + lint, is its own follow-up)
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
 verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii) ·
 **G124 Sources page (2026-09-03, PR #47)** — Activity → Sources: card grid from /sources/overview,
-per-source pages with Resume, contributors calendar per model, Advanced counts; prices/tokens out of the app
+per-source pages with Resume, contributors calendar per model, Advanced counts; prices/tokens out
+of the app; **Track D (2026-09-05, PR #53)** — grouped-by-kind grid with real logos, G129 status
+lights + hover quick actions, per-source blurbs, and a queue strip with Consolidate now
 **G53 + G75 live state + handshake (2026-09-03, PR #45)** — `_state.md` cursor, `initialize.instructions`,
 `cicada_handshake`, `/state`, `/handshake`
 

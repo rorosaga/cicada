@@ -42,12 +42,16 @@ struct BookwormView: View {
 
     var body: some View {
         let (frames, interval) = BookwormSprites.frames(for: state)
+        // G130 R6: scale the mascot with the rest of the chrome, but snap
+        // back onto a multiple of 24 so a cell never lands on a fractional
+        // point and the renderer's cache key — an `Int` — stays stable.
+        let scaledSize = BookwormRenderer.snappedPointSize(pointSize * CicadaTheme.uiScale)
         VStack(alignment: alignment, spacing: CicadaTheme.spacingSM) {
             TimelineView(.periodic(from: Self.timelineOrigin, by: interval)) { context in
                 let idx = Self.frameIndex(at: context.date, interval: interval, count: frames.count, reduceMotion: reduceMotion)
-                Image(nsImage: BookwormRenderer.cachedImage(state: state, frameIndex: idx, pointSize: pointSize))
+                Image(nsImage: BookwormRenderer.cachedImage(state: state, frameIndex: idx, pointSize: scaledSize))
                     .interpolation(.none)
-                    .frame(width: pointSize, height: pointSize)
+                    .frame(width: scaledSize, height: scaledSize)
                     .accessibilityLabel("\(state.title) — \(state.detail)")
             }
             if let caption {

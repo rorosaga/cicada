@@ -14,6 +14,12 @@ enum Copy {
     // MARK: Destinations
 
     static let settings = "Settings"
+    /// The Settings scene's first tab (G130 R8) — appearance and text size.
+    /// Named after what macOS itself calls this kind of page, not "Display"
+    /// or "Appearance", since it holds both the dark/light toggle and the
+    /// zoom slider, and Track C's future sidebar redesign turns this same
+    /// tab into its General section rather than renaming it again.
+    static let general = "General"
     static let plansAndKeys = "Plans & keys"
     static let agents = "Agents"
     static let feed = "Feed"
@@ -29,6 +35,8 @@ enum Copy {
     static let settingsPlansAndKeys = "\(settings) → \(plansAndKeys)"
     /// Ditto, for the new Schedule tab.
     static let settingsSchedule = "\(settings) → \(schedule)"
+    /// Ditto, for the General tab (G130).
+    static let settingsGeneral = "\(settings) → \(general)"
 
     /// The study list's footer line (G125) when `ScheduleConfig.mode` is
     /// `"manual"` — there is no next run to name, only the button.
@@ -116,6 +124,7 @@ enum Copy {
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."
     static let sourcesSubtitle = "Where your memory comes from, and who wrote it."
     static let scheduleSubtitle = "When Sleep runs on its own, and what powers it."
+    static let generalSubtitle = "Appearance and text size."
 
     // MARK: Pointers
 
