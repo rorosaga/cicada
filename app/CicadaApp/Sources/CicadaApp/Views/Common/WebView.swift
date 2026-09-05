@@ -38,8 +38,20 @@ struct WebView: NSViewRepresentable {
     /// WebKit refuses a `file://` document loaded through `URLRequest` — it
     /// needs `loadFileURL(_:allowingReadAccessTo:)` with an explicit read
     /// scope, which is why a local clip rendered as a blank frame before
-    /// R-V3. Read access is granted to the file's own directory and no wider:
-    /// a WebView in this app only ever loads the media entity's own url.
+    /// R-V3.
+    ///
+    /// **Read access is scoped to the file itself, not its directory.** WebKit
+    /// accepts the file url as its own read-access url and then exposes only
+    /// that one file. The obvious `deletingLastPathComponent()` would hand a
+    /// saved `file:///…/page.html` media item's own scripts fetch access to
+    /// every sibling in, say, the user's Downloads folder — a local-read
+    /// surface this branch newly opened, since before it a `file://` url
+    /// simply did not load at all. **The trade-off is accepted:** a local HTML
+    /// page's relative assets (its `./style.css`, its images) will not
+    /// resolve. No caller needs them — the two call sites pass a media
+    /// entity's own stored url or a `VideoRef`-derived provider embed url, and
+    /// widening the scope again would need a reason stronger than a
+    /// prettier local page.
     ///
     /// A local *video* takes the AVKit path (`VideoPlayerView`), not this one,
     /// because `WKWebView` will not play a bare `.m3u8` manifest as a
@@ -47,7 +59,7 @@ struct WebView: NSViewRepresentable {
     /// `file://` document the app is handed render at all.
     private func load(_ url: URL, into webView: WKWebView) {
         if url.isFileURL {
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            webView.loadFileURL(url, allowingReadAccessTo: url)
         } else {
             webView.load(URLRequest(url: url))
         }
