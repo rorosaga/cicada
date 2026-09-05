@@ -56,4 +56,22 @@ final class SleepHistoryPresentationTests: XCTestCase {
     func testDateTextFallsBackToTheRawStringWhenUnparseable() {
         XCTAssertEqual(SleepHistoryPresentation.dateText("not-a-date"), "not-a-date")
     }
+
+    /// P4: git renders `--date=iso-strict` in the COMMIT's zone. The parser reads
+    /// the offset for real and displays in the reader's zone; the tests pin a zone
+    /// so they never depend on the runner's locale.
+    func testDateAndTimeReadAnIsoStrictStampInTheGivenZone() {
+        let utc = TimeZone(identifier: "UTC")!
+        XCTAssertEqual(SleepHistoryPresentation.dateText("2026-09-05T21:41:00+00:00", timeZone: utc), "Sep 5")
+        XCTAssertEqual(SleepHistoryPresentation.timeText("2026-09-05T21:41:00+00:00", timeZone: utc), "9:41 PM")
+        let plus2 = TimeZone(secondsFromGMT: 7200)!
+        XCTAssertEqual(SleepHistoryPresentation.timeText("2026-09-05T21:41:00+00:00", timeZone: plus2), "11:41 PM")
+    }
+
+    /// A legacy `--date=short` value (a cached snapshot, or an older backend) has
+    /// no time — `—`, never a fabricated midnight (R-A14).
+    func testTimeTextIsADashForALegacyDateOnlyValue() {
+        XCTAssertEqual(SleepHistoryPresentation.timeText("2026-09-01"), "—")
+        XCTAssertEqual(SleepHistoryPresentation.timeText("not-a-date"), "—")
+    }
 }

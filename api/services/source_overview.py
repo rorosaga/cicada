@@ -21,12 +21,44 @@ does and the per-harness conversation rows keep the richer credit.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date as _date, datetime, timedelta, timezone
 from pathlib import Path
 
 from api.services import bank_index
 
 KIND_ORDER = ("harness", "browser", "social", "feed", "messaging", "import")
+
+# R-A16: the Memory-sources sparkline's window. Bounded so the payload cannot
+# grow with the age of the bank, and keyed by ABSOLUTE dates so a 304'd
+# response renders a day short rather than a day shifted.
+ACTIVITY_DAYS = 30
+
+
+def _activity_day(raw: str) -> str | None:
+    """The UTC calendar day an episode was captured, as ``YYYY-MM-DD``.
+
+    Banks hold three timestamp shapes and they are deliberately never
+    migrated: aware ``+00:00`` (G114), legacy naive-LOCAL, and ``Z``-suffixed
+    imports. ``raw[:10]`` would call a naive-local stamp a UTC day — off by
+    one, invisibly, for exactly the rows nobody checks. A naive stamp means
+    what the writer that produced it meant, LOCAL time, so ``astimezone()``
+    (no argument) attaches the system zone before the UTC conversion. Same
+    rule, same reason, as ``sleep_debt._parse_episode_timestamp``'s M1 lesson
+    — do not write a fourth parser.
+
+    Measured in ``api/.venv`` (CPython 3.12.11): ``datetime.fromisoformat``
+    accepts all three shapes, ``Z`` included (3.11+), so there is exactly one
+    parse call here and no hand-rolled ``Z`` -> ``+00:00`` rewrite.
+    """
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.astimezone()
+    return dt.astimezone(timezone.utc).date().isoformat()
 
 
 @dataclass(frozen=True)
@@ -117,22 +149,35 @@ def _new_state(key: str) -> dict:
     return {
         "id": key, "label": label, "kind": kind, "mark": mark,
         "conversations": set(), "episodes": 0, "entities": set(),
+        # Sparse ISO-UTC-day -> captures that day (R-A16); a silent day has no
+        # key, so a gap can never be read as a zero the backend asserted.
+        "activity": {},
         "items": 0, "last_activity_at": "", "connected": False,
         "last_error": None, "actions": [], "channel_id": channel,
         "origins": origins, "harness": harness,
     }
 
 
-def build_overview(memory_path: Path, *, channels: list[dict]) -> list[dict]:
+def build_overview(memory_path: Path, *, channels: list[dict], today: _date | None = None) -> list[dict]:
     """Every source with evidence (R2), ordered by kind then newest activity.
 
     ``channels`` is ``channel_registry.build_channels(...)``'s output — passed
     in, not recomputed, so the router computes it once for both the ETag's
     connector tag and this payload.
+
+    ``today`` is injected so the ``activity`` window is testable without
+    freezing the clock; it defaults to the real UTC day. Known and accepted
+    (R-A16): the window moves at UTC midnight while no ETag component does, so
+    a client holding a 304 keeps yesterday's window until the next real bank
+    write — a day SHORT, never a day SHIFTED, which is exactly why the keys
+    are absolute dates rather than a rolling array.
     """
     memory_path = Path(memory_path)
     states: dict[str, dict] = {}
     episode_key: dict[str, str] = {}
+    today = today or datetime.now(timezone.utc).date()
+    window_start = (today - timedelta(days=ACTIVITY_DAYS - 1)).isoformat()
+    window_end = today.isoformat()
 
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter
@@ -144,6 +189,11 @@ def build_overview(memory_path: Path, *, channels: list[dict]) -> list[dict]:
         if conversation:
             state["conversations"].add(conversation)
         ts = str(fm.get("timestamp") or "")
+        # Bucketed in the loop that already reads this field for
+        # `last_activity_at` — zero extra file reads, no body parse (R-A16).
+        day = _activity_day(ts)
+        if day is not None and window_start <= day <= window_end:
+            state["activity"][day] = state["activity"].get(day, 0) + 1
         if _sortable(ts) > _sortable(state["last_activity_at"]):
             state["last_activity_at"] = ts
 

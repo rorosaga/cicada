@@ -134,7 +134,14 @@ struct SleepEventPayload: Codable, Equatable {
     var cycleId: String?
     var stage: Int
     var totalStages: Int
-    var progress: Double?
+    /// The backend has always sent `state.progress`, the stage SENTENCE
+    /// ("Stage 1/5: Extracting entities from 12 episodes…" —
+    /// `sleep_cycle.py` -> `sync.py`), but this field was typed `Double?` and
+    /// decoded with `try?`, so it silently decoded to `nil` on every event
+    /// since it shipped. Typed to match the wire; the `try?` stays so an older
+    /// backend sending a number degrades to `nil` rather than dropping the
+    /// whole event.
+    var progress: String?
     var error: String?
     var progressPct: Int?
     var restedPct: Int?
@@ -158,7 +165,7 @@ struct SleepEventPayload: Codable, Equatable {
     }
 
     init(status: String, cycleId: String? = nil, stage: Int = 0,
-         totalStages: Int = 5, progress: Double? = nil, error: String? = nil,
+         totalStages: Int = 5, progress: String? = nil, error: String? = nil,
          progressPct: Int? = nil, restedPct: Int? = nil, volumePct: Int? = nil,
          agePct: Int? = nil, unprocessedCount: Int? = nil, hasRunBefore: Bool? = nil,
          hoursSinceLastCycle: Double? = nil, queueByOrigin: [String: Int]? = nil,
@@ -177,7 +184,7 @@ struct SleepEventPayload: Codable, Equatable {
         cycleId = try? c.decodeIfPresent(String.self, forKey: .cycleId)
         stage = (try? c.decode(Int.self, forKey: .stage)) ?? 0
         totalStages = (try? c.decode(Int.self, forKey: .totalStages)) ?? 5
-        progress = try? c.decodeIfPresent(Double.self, forKey: .progress)
+        progress = try? c.decodeIfPresent(String.self, forKey: .progress)
         error = try? c.decodeIfPresent(String.self, forKey: .error)
         progressPct = try? c.decodeIfPresent(Int.self, forKey: .progressPct)
         restedPct = try? c.decodeIfPresent(Int.self, forKey: .restedPct)

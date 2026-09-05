@@ -40,21 +40,47 @@ enum SleepHistoryPresentation {
         return "+\(e.entitiesCreated) new · \(e.entitiesUpdated) updated"
     }
 
-    /// `date` arrives as git's `--date=short` (`yyyy-MM-dd`, anchored UTC —
-    /// see `git_service.get_sleep_history`) with no time component; a raw
-    /// string that fails to parse is shown as-is rather than hidden behind a
-    /// blank field.
-    static func dateText(_ iso: String) -> String {
+    /// `date` arrives as git's `--date=iso-strict` (`2026-09-05T21:41:00+00:00`)
+    /// since R-A11, and as the older `--date=short` (`yyyy-MM-dd`) from any
+    /// snapshot cached before that. git renders BOTH in the COMMIT's own
+    /// zone — the previous comment here claimed `--date=short` was "anchored
+    /// UTC" and the formatter pinned UTC, which would shift the displayed
+    /// hour the moment a time existed. The offset is parsed for real and the
+    /// result displayed in the reader's zone; `timeZone` is injectable so the
+    /// tests never depend on the runner's locale.
+    static func parsed(_ iso: String) -> Date? {
+        let withOffset = ISO8601DateFormatter()
+        withOffset.formatOptions = [.withInternetDateTime]
+        if let d = withOffset.date(from: iso) { return d }
         let dayOnly = DateFormatter()
         dayOnly.dateFormat = "yyyy-MM-dd"
         dayOnly.timeZone = TimeZone(identifier: "UTC")
         dayOnly.locale = Locale(identifier: "en_US_POSIX")
-        guard let date = dayOnly.date(from: String(iso.prefix(10))) else { return iso }
-        let display = DateFormatter()
-        display.dateFormat = "MMM d"
-        display.timeZone = TimeZone(identifier: "UTC")
-        display.locale = Locale(identifier: "en_US_POSIX")
-        return display.string(from: date)
+        return dayOnly.date(from: String(iso.prefix(10)))
+    }
+
+    /// A raw string that fails to parse is shown as-is rather than hidden
+    /// behind a blank field. A date-only value carries no zone of its own, so
+    /// it keeps the UTC anchor it was parsed with — re-projecting a bare day
+    /// into the reader's zone is what would slide it to the previous day.
+    static func dateText(_ iso: String, timeZone: TimeZone = .current) -> String {
+        guard let date = parsed(iso) else { return iso }
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        f.timeZone = iso.contains("T") ? timeZone : TimeZone(identifier: "UTC")
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: date)
+    }
+
+    /// `—`, never a fabricated midnight, for a value that carries no time
+    /// (R-A14): a legacy `--date=short` row genuinely does not know the hour.
+    static func timeText(_ iso: String, timeZone: TimeZone = .current) -> String {
+        guard iso.contains("T"), let date = parsed(iso) else { return "—" }
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        f.timeZone = timeZone
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: date)
     }
 
     /// Which SF Symbol names an engine (G125) — `nil` (no `Cicada-Engine:`

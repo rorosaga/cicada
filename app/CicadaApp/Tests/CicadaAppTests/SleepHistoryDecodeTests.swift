@@ -119,4 +119,28 @@ final class SleepHistoryDecodeTests: XCTestCase {
         XCTAssertNil(p.queueByOrigin)
         XCTAssertNil(p.readByOrigin)
     }
+
+    /// The backend sends `state.progress`, the stage SENTENCE (a String), but the
+    /// field was typed `Double?` and decoded with `try?`, so it has silently been
+    /// `nil` in the app since it shipped (Task 1, R-A11's sibling finding).
+    func testSleepEventProgressDecodesTheStageSentence() throws {
+        let json = #"{"status":"running","stage":1,"totalStages":5,"progress":"Stage 1/5: Extracting entities from 12 episodes…"}"#
+        let p = try JSONDecoder().decode(SleepEventPayload.self, from: Data(json.utf8))
+        XCTAssertEqual(p.progress, "Stage 1/5: Extracting entities from 12 episodes…")
+    }
+
+    /// An older backend that still sends a number must not fail the whole event.
+    func testSleepEventProgressToleratesANumericLegacyValue() throws {
+        let json = #"{"status":"running","stage":1,"totalStages":5,"progress":42}"#
+        let p = try JSONDecoder().decode(SleepEventPayload.self, from: Data(json.utf8))
+        XCTAssertNil(p.progress)
+        XCTAssertEqual(p.stage, 1)
+    }
+
+    /// A payload from before `activity` shipped must still decode (ship-together).
+    func testSourceOverviewDecodesWithoutActivity() throws {
+        let json = #"{"id":"safari-tabs","label":"Safari iCloud tabs","kind":"browser","mark":"safari-tab","episodes":3}"#
+        let row = try JSONDecoder().decode(SourceOverview.self, from: Data(json.utf8))
+        XCTAssertEqual(row.activity, [:])
+    }
 }
