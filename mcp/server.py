@@ -308,7 +308,13 @@ TOOLS = [
                 },
                 "observer": {
                     "type": "string",
-                    "enum": ["owner", "agent", "external"],
+                    # "rodrigo" stays in the enum (not just the description)
+                    # so the schema itself matches the compatibility promise
+                    # made below — R12 in CLAUDE.md: a primer/schema naming
+                    # an argument the schema itself would reject is a bug.
+                    # `agentic_write.write_claim` already normalizes this
+                    # legacy literal to the resolved owner id (G117).
+                    "enum": ["owner", "agent", "external", "rodrigo"],
                     "description": "Who holds this belief. 'owner' = the user stated this themselves (trust-protected). 'agent' = you inferred/extracted this. 'external' = attributed to a third party. Defaults to 'agent'. 'rodrigo' is still accepted for compatibility.",
                 },
                 "confidence": {

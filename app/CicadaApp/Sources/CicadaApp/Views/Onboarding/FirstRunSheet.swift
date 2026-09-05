@@ -160,8 +160,17 @@ struct FirstRunSheet: View {
     /// "Skip setup" at any point — either way the sheet is done with this
     /// bank and won't reopen on its own until Settings → General's "Run
     /// setup again" clears the flag (`OnboardingState.reset`).
+    ///
+    /// Marks `store.bank` — the LIVE active bank — never the `bank` property
+    /// captured when this struct was built. `tryDemoBank()` activates a new
+    /// bank (`POST /banks/demo` + `store.refresh([.banks])`, which flips
+    /// `store.bank` via `Store.hydrate(bank:)`) and then calls `finish()` on
+    /// this SAME instance; `bank` still holds the pre-demo value from
+    /// `ContentView`'s `FirstRunSheet(bank: store.bank)` call site, so
+    /// marking it instead would permanently skip the tour for the person's
+    /// real bank while leaving the demo bank unmarked.
     private func finish() {
-        OnboardingState.markOnboarded(bank: bank)
+        OnboardingState.markOnboarded(bank: store.bank)
         onFinished()
     }
 }

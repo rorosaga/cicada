@@ -308,6 +308,7 @@ def _write_saved_because_claim(
     Never raises — ``write_claim`` returns an error dict rather than throwing,
     and a failed claim must never lose the save that already succeeded.
     """
+    from api.config import get_settings
     from api.services import evidence as evidence_mod
     from api.services.agentic_write import write_claim
 
@@ -329,7 +330,11 @@ def _write_saved_because_claim(
         media_entity_id,
         "saved-because",
         reason,
-        observer=owner_identity.resolve_observer(memory_path, None),
+        # `get_settings()`, not `None` — findings review, G117 follow-up:
+        # this was the one CLAUDE.md names as still hardcoding the resolution
+        # without a live `Settings`, so a `CICADA_OBSERVER_OWNER` override
+        # never reached the Telegram capture path.
+        observer=owner_identity.resolve_observer(memory_path, get_settings()),
         object_kind="literal",
         confidence=0.9,
         source_episode=episode_id or None,

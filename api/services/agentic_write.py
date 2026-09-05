@@ -295,8 +295,15 @@ def write_claim(
     predicate_raw = (predicate or "").strip()
     object_raw = (object or "").strip()
     observer = (observer or "agent").strip() or "agent"
+    from api.config import get_settings
     from api.services import owner_identity
-    resolved_owner = owner_identity.resolve_observer(memory_path, None)
+    # `get_settings()` (not `None`) so a `CICADA_OBSERVER_OWNER` power-user
+    # override reaches this, the MCP `cicada_write_claim` path — findings
+    # review, G117 follow-up: passing `None` here meant rung 1 of
+    # `resolve_observer`'s own documented precedence was unreachable from
+    # every write_claim caller (MCP, telegram) except `inbox_service`, which
+    # is the only site that already threaded a live `Settings` through.
+    resolved_owner = owner_identity.resolve_observer(memory_path, get_settings())
     # G117: the caller may pass either the actual resolved value (every
     # in-process caller that already called `resolve_observer` itself, e.g.
     # `inbox_service`) or one of the two portable keywords an MCP/agent
