@@ -28,6 +28,22 @@ final class SleepViewModelTests: XCTestCase {
         return try JSONDecoder().decode(SleepStatusResponse.self, from: Data(json.utf8))
     }
 
+    /// Builds a `SleepHistoryEntry` fixture the same way — no memberwise
+    /// init, round-tripped through JSON.
+    private func historyEntry(commitHash: String, date: String = "2026-09-01") throws -> SleepHistoryEntry {
+        let json = """
+        {"commitHash":"\(commitHash)","date":"\(date)","message":"Sleep cycle \(date)","filesChanged":[]}
+        """
+        return try JSONDecoder().decode(SleepHistoryEntry.self, from: Data(json.utf8))
+    }
+
+    private func cycleDetail(commitHash: String) throws -> SleepCycleDetail {
+        let json = """
+        {"commitHash":"\(commitHash)","date":"2026-09-01","message":"Sleep cycle 2026-09-01","filesChanged":[]}
+        """
+        return try JSONDecoder().decode(SleepCycleDetail.self, from: Data(json.utf8))
+    }
+
     /// A `Store` whose `.status` snapshot stays "idle" throughout — simulating
     /// the exact staleness window the Critical finding describes: right after
     /// `triggerManually()`, the Store hasn't yet heard about the new cycle.
@@ -366,5 +382,74 @@ final class SleepViewModelTests: XCTestCase {
         await vm.cancel()
 
         XCTAssertEqual(cancelCalls, 0)
+    }
+
+    // MARK: G125 — consolidation history (`load()`'s fourth fetch, `loadDetail`)
+
+    func test_load_populatesHistoryFromInjectedFetchHistory() async throws {
+        let store = idleStore()
+        let entries = [try historyEntry(commitHash: "abc1"), try historyEntry(commitHash: "def2")]
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+            fetchHistory: { entries }
+        )
+
+        await vm.load()
+
+        XCTAssertEqual(vm.history.map(\.commitHash), ["abc1", "def2"])
+    }
+
+    /// Mirrors `test_overlappingLoadCalls_aStaleStatusResponseIsDiscarded`:
+    /// a slower, older `fetchHistory` call must not overwrite a newer one
+    /// that already landed.
+    func test_load_aStaleHistoryResponseIsDiscarded() async throws {
+        let store = idleStore()
+        var gate: CheckedContinuation<Void, Never>?
+        var callCount = 0
+        let fetchHistory: () async throws -> [SleepHistoryEntry] = {
+            callCount += 1
+            if callCount == 1 {
+                await withCheckedContinuation { gate = $0 }   // first call parks here
+                return [try self.historyEntry(commitHash: "stale")]
+            }
+            return [try self.historyEntry(commitHash: "fresh")]
+        }
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+            fetchHistory: fetchHistory
+        )
+
+        let firstLoad = Task { await vm.load() }
+        try await Task.sleep(for: .milliseconds(150))     // let the first call park on the gate
+        await vm.load()                                    // the newer call — wins immediately
+        XCTAssertEqual(vm.history.map(\.commitHash), ["fresh"])
+
+        gate?.resume()                                      // release the stale first call
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(vm.history.map(\.commitHash), ["fresh"], "a stale history response must not overwrite the newer one")
+        await firstLoad.value
+    }
+
+    /// R12 — a second `loadDetail` for an already-cached commit is a
+    /// dictionary hit: the injected fetch must not be called again.
+    func test_loadDetail_cachesAndDoesNotRefetchOnASecondCall() async throws {
+        let store = idleStore()
+        var fetchCalls = 0
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+            fetchDetail: { commit in
+                fetchCalls += 1
+                return try self.cycleDetail(commitHash: commit)
+            }
+        )
+
+        await vm.loadDetail("abc123")
+        await vm.loadDetail("abc123")
+
+        XCTAssertEqual(fetchCalls, 1, "a second click on an open row must not re-fetch")
+        XCTAssertEqual(vm.details["abc123"]?.commitHash, "abc123")
     }
 }

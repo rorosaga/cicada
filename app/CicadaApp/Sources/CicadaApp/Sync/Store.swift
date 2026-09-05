@@ -80,6 +80,15 @@ final class Store {
     /// Latest `event: sleep` payload; SleepViewModel observes this.
     var sleepEvent: SleepEventPayload?
 
+    /// G125 R2 — true while the upload overlay has an import/upload flow in
+    /// flight (conversations, saved media, or import-to-bank). The Sleep
+    /// page's mood reads this to force `.reading` ahead of happy/hungry — the
+    /// worm should look like it's taking in what just arrived, not idle,
+    /// even before Stage 1 of the next cycle has anything to report. Never
+    /// persisted: an app relaunch mid-upload just loses the animation, not
+    /// any data.
+    var intakeInFlight = false
+
     /// Pushed on every status change, carrying the running→idle edge timestamp
     /// so the menu-bar bookworm can show `digesting`. Wired in `CicadaApp`.
     @ObservationIgnored var onStatus: ((StatusSnapshot, Date?) -> Void)?

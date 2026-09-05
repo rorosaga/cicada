@@ -143,7 +143,7 @@ struct SettingsSleepView: View {
     private func commitSchedule() {
         let comps = Calendar.current.dateComponents([.hour, .minute], from: scheduleDate)
         let new = ScheduleConfig(
-            enabled: scheduleEnabled,
+            mode: scheduleEnabled ? "daily" : "manual",
             hour: comps.hour ?? 3,
             minute: comps.minute ?? 0
         )

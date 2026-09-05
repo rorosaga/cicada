@@ -674,6 +674,11 @@ struct SleepStatusResponse: Codable {
     /// number: idle, or Stage 1 has already finished (see the backend's
     /// `sleep_cycle.progress_pct` docstring for the full contract).
     let progressPct: Int?
+    /// G125 R3 — this cycle's selected episodes by source, and how many of
+    /// each Stage 1 has finished. Both `[:]` when idle, and on an older
+    /// backend that predates these fields.
+    let queueByOrigin: [String: Int]
+    let readByOrigin: [String: Int]
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
@@ -681,7 +686,7 @@ struct SleepStatusResponse: Codable {
         case relationshipsCreated, skillsDetected
         case lastEngine, engineDetail
         case episodeCap, episodesQueued, cancelRequested, cancelled
-        case debt, progressPct
+        case debt, progressPct, queueByOrigin, readByOrigin
     }
 
     init(from decoder: Decoder) throws {
@@ -707,6 +712,8 @@ struct SleepStatusResponse: Codable {
         cancelled = try c.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
         debt = try c.decodeIfPresent(SleepDebtInfo.self, forKey: .debt) ?? .unknown
         progressPct = try c.decodeIfPresent(Int.self, forKey: .progressPct)
+        queueByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .queueByOrigin) ?? [:]
+        readByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .readByOrigin) ?? [:]
     }
 }
 
@@ -736,10 +743,14 @@ struct EpisodeQueueItem: Codable, Identifiable {
     let origin: String
     let title: String?
     let preview: String
+    /// G125 R9 — body length in characters, for the Sleep page's book pile
+    /// (a log-scale spine height). 0 on an older backend that predates this
+    /// field, and for an episode whose body genuinely is empty.
+    let chars: Int
     let processed: Bool
 
     enum CodingKeys: String, CodingKey {
-        case id, timestamp, source, origin, title, preview, processed
+        case id, timestamp, source, origin, title, preview, chars, processed
     }
 
     init(from decoder: Decoder) throws {
@@ -750,24 +761,155 @@ struct EpisodeQueueItem: Codable, Identifiable {
         origin = try c.decodeIfPresent(String.self, forKey: .origin) ?? "unknown"
         title = try c.decodeIfPresent(String.self, forKey: .title)
         preview = try c.decode(String.self, forKey: .preview)
+        chars = try c.decodeIfPresent(Int.self, forKey: .chars) ?? 0
         processed = try c.decode(Bool.self, forKey: .processed)
     }
 }
 
+/// When Sleep runs on its own (G125 (4)). `mode` is the truth; `enabled` is a
+/// WIRE convenience the backend always sends for an older reader of
+/// `/status.nextSleepAt` (R6) — never this struct's own source of truth. A
+/// naive `Codable` synthesis would try to assign a decoded `enabled` straight
+/// into a stored property; there is none, so `init(from:)`/`encode(to:)` are
+/// both hand-written below.
 struct ScheduleConfig: Codable, Equatable {
-    var enabled: Bool
+    var mode: String          // manual | daily | interval | after_import
     var hour: Int
     var minute: Int
+    var intervalHours: Int
+    var enabled: Bool { mode != "manual" }
+
+    init(mode: String, hour: Int, minute: Int, intervalHours: Int = 6) {
+        self.mode = mode; self.hour = hour; self.minute = minute; self.intervalHours = intervalHours
+    }
+
+    enum CodingKeys: String, CodingKey { case mode, enabled, hour, minute, intervalHours }
+
+    /// The backend always sends `enabled` (R6), on every version — so it is
+    /// read here ONLY to derive `mode` when `mode` itself is absent (a
+    /// pre-G125 backend); once decoded, `mode` alone drives everything else.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? false
+        let decodedMode = (try? c.decodeIfPresent(String.self, forKey: .mode)) ?? nil   // flatten `String??`
+        mode = decodedMode ?? (decodedEnabled ? "daily" : "manual")
+        hour = (try? c.decodeIfPresent(Int.self, forKey: .hour)) ?? 3
+        minute = (try? c.decodeIfPresent(Int.self, forKey: .minute)) ?? 0
+        intervalHours = (try? c.decodeIfPresent(Int.self, forKey: .intervalHours)) ?? 6
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(mode, forKey: .mode)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(hour, forKey: .hour)
+        try c.encode(minute, forKey: .minute)
+        try c.encode(intervalHours, forKey: .intervalHours)
+    }
 }
 
-/// Minimal mirror of the API's `SleepHistoryEntry` (camelCase on the wire). Only
-/// `date` is consumed by the status compose fallback; the rest are decoded for
-/// completeness so a future caller can reuse the model.
-struct SleepHistoryEntry: Codable {
+/// Mirror of the API's `SleepHistoryEntry` (camelCase on the wire) — one
+/// consolidation as the Sleep page's history lists it (G125 R4). Counts are
+/// parsed server-side; `durationMs` is joined from the `sleep_run` ledger and
+/// is `nil` — never estimated — when no row exists (R5). Every field beyond
+/// the original four is defaulted so an older backend still decodes.
+struct SleepHistoryEntry: Codable, Identifiable, Equatable {
     let commitHash: String
     let date: String
     let message: String
     let filesChanged: [String]
+    let engine: String?
+    /// "sleep" | "decay" (the G85 split's `(decay)` commit) | "inbox".
+    let kind: String
+    let entitiesCreated: Int
+    let entitiesUpdated: Int
+    let episodes: Int
+    let sessions: Int
+    let authors: [String]
+    let durationMs: Int?
+
+    var id: String { commitHash }
+
+    enum CodingKeys: String, CodingKey {
+        case commitHash, date, message, filesChanged, engine, kind
+        case entitiesCreated, entitiesUpdated, episodes, sessions, authors, durationMs
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commitHash = try c.decode(String.self, forKey: .commitHash)
+        date = try c.decode(String.self, forKey: .date)
+        message = try c.decode(String.self, forKey: .message)
+        filesChanged = try c.decodeIfPresent([String].self, forKey: .filesChanged) ?? []
+        engine = try c.decodeIfPresent(String.self, forKey: .engine)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "sleep"
+        entitiesCreated = try c.decodeIfPresent(Int.self, forKey: .entitiesCreated) ?? 0
+        entitiesUpdated = try c.decodeIfPresent(Int.self, forKey: .entitiesUpdated) ?? 0
+        episodes = try c.decodeIfPresent(Int.self, forKey: .episodes) ?? 0
+        sessions = try c.decodeIfPresent(Int.self, forKey: .sessions) ?? 0
+        authors = try c.decodeIfPresent([String].self, forKey: .authors) ?? []
+        durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
+    }
+}
+
+/// `GET /sleep/history/{commit}` — one manifest line (G125).
+struct SleepCycleEntity: Codable, Identifiable, Equatable {
+    let id: String
+    let action: String
+    let trigger: String
+    let sourceEpisode: String?
+}
+
+/// `GET /sleep/history/{commit}` — what one cycle consolidated (G125). A
+/// superset of `SleepHistoryEntry`'s fields (decoded independently here
+/// rather than via inheritance — Swift has no struct subclassing) plus the
+/// per-cycle detail: the resolved entity list, per-origin episode counts and
+/// whether the entity list was capped server-side.
+struct SleepCycleDetail: Codable, Identifiable, Equatable {
+    let commitHash: String
+    let date: String
+    let message: String
+    let filesChanged: [String]
+    let engine: String?
+    let kind: String
+    let entitiesCreated: Int
+    let entitiesUpdated: Int
+    let episodes: Int
+    let sessions: Int
+    let authors: [String]
+    let durationMs: Int?
+    let entities: [SleepCycleEntity]
+    let truncated: Bool
+    let episodesByOrigin: [String: Int]
+    let inboxChanges: Int
+
+    var id: String { commitHash }
+
+    enum CodingKeys: String, CodingKey {
+        case commitHash, date, message, filesChanged, engine, kind
+        case entitiesCreated, entitiesUpdated, episodes, sessions, authors, durationMs
+        case entities, truncated, episodesByOrigin, inboxChanges
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commitHash = try c.decode(String.self, forKey: .commitHash)
+        date = try c.decode(String.self, forKey: .date)
+        message = try c.decode(String.self, forKey: .message)
+        filesChanged = try c.decodeIfPresent([String].self, forKey: .filesChanged) ?? []
+        engine = try c.decodeIfPresent(String.self, forKey: .engine)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "sleep"
+        entitiesCreated = try c.decodeIfPresent(Int.self, forKey: .entitiesCreated) ?? 0
+        entitiesUpdated = try c.decodeIfPresent(Int.self, forKey: .entitiesUpdated) ?? 0
+        episodes = try c.decodeIfPresent(Int.self, forKey: .episodes) ?? 0
+        sessions = try c.decodeIfPresent(Int.self, forKey: .sessions) ?? 0
+        authors = try c.decodeIfPresent([String].self, forKey: .authors) ?? []
+        durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
+        entities = try c.decodeIfPresent([SleepCycleEntity].self, forKey: .entities) ?? []
+        truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+        episodesByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .episodesByOrigin) ?? [:]
+        inboxChanges = try c.decodeIfPresent(Int.self, forKey: .inboxChanges) ?? 0
+    }
 }
 
 enum APIError: Error, LocalizedError {
@@ -1717,12 +1859,35 @@ actor APIClient {
         return try await get("/sleep/schedule")
     }
 
+    /// G125: hand-builds the PUT body rather than `JSONEncoder`-ing `cfg`
+    /// (this client's request helper takes `[String: Any]`, not `Encodable`).
+    /// Before this fix the body only ever carried `enabled/hour/minute` —
+    /// `mode`/`intervalHours` never reached the server, so picking "Every N
+    /// hours" in Settings silently saved as whatever `mode` the (unsent,
+    /// thus default) `enabled` field derived server-side. Every field of
+    /// `ScheduleConfig` must be listed here explicitly.
     func updateSchedule(_ cfg: ScheduleConfig) async throws -> ScheduleConfig {
         return try await put("/sleep/schedule", body: [
+            "mode": cfg.mode,
             "enabled": cfg.enabled,
             "hour": cfg.hour,
             "minute": cfg.minute,
+            "intervalHours": cfg.intervalHours,
         ])
+    }
+
+    /// `GET /sleep/history?limit=` — the consolidation history the Sleep
+    /// page's history card lists, newest first (G125 R4).
+    func fetchSleepHistory(limit: Int = 15) async throws -> [SleepHistoryEntry] {
+        return try await get("/sleep/history?limit=\(limit)")
+    }
+
+    /// `GET /sleep/history/{commit}` — what one cycle consolidated (G125
+    /// R12). The commit hash is `[0-9a-f]+` so no percent-encoding is
+    /// actually needed, but this mirrors every other id-in-path call here.
+    func fetchSleepCycleDetail(_ commit: String) async throws -> SleepCycleDetail {
+        let encoded = commit.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? commit
+        return try await get("/sleep/history/\(encoded)")
     }
 
     // MARK: - Upload
