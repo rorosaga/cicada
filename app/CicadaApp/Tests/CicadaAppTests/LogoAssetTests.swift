@@ -63,6 +63,42 @@ final class LogoAssetTests: XCTestCase {
         }
     }
 
+    /// T2 (R-L7) — every bundled PNG is claimed by some map. Catches an
+    /// orphaned asset (dead bytes in every shipped app) and a renamed id that
+    /// left its file behind. The reverse direction of T1
+    /// (`OriginIconographyTests.testEveryDeclaredLogoExistsInTheBundle`),
+    /// which nothing tested before Track L.
+    func testEveryBundledMarkIsClaimedBySomeMap() throws {
+        // Reserved for G119 (Arc/Firefox/Brave as *channels*): the marks are
+        // fetched and licence-recorded now, while the channel ids that will
+        // claim them do not exist yet (R1 — a deliberate, reviewed state).
+        let reservedForG119: Set<String> = ["firefox", "brave"]
+        // Task 6 introduces `ContributorIdentity.allProviderMarks`; until it
+        // lands, the four names it will return are inlined here so T2 ships
+        // whole with task 4 rather than half-covering the bundle. Replace
+        // this literal with `+ ContributorIdentity.allProviderMarks` there.
+        let providerMarks: [String] = ["claude", "chatgpt", "gemini", "ollama"]
+        // `ConnectView.AgentTile` ids: the setup catalog's own map, which is a
+        // tile list rather than an origin list and so is not reachable from
+        // any of the three switches below.
+        let agentTileMarks: [String] = [
+            "claude-code", "cursor", "openclaw", "codex", "claude-desktop", "hermes", "gemini-cli",
+        ]
+        // Assembled step by step, not as one `+` chain: the chain was a single
+        // expression the type-checker gave up on ("unable to type-check this
+        // expression in reasonable time").
+        var claimed = Set<String>(providerMarks)
+        claimed.formUnion(agentTileMarks)
+        claimed.formUnion(OriginIconography.allKnownOrigins.compactMap(OriginIconography.logoName(for:)))
+        claimed.formUnion(AddSourceTile.allCases.compactMap(\.logoName))
+        claimed.formUnion(ChannelMarks.allChannelIds.compactMap(ConnectedChannelRow.logoName(for:)))
+        for name in try names() {
+            let base = name.hasSuffix("-dark") ? String(name.dropLast(5)) : name
+            XCTAssertTrue(claimed.contains(base) || reservedForG119.contains(base),
+                          "\(name).png is bundled but nothing maps to it")
+        }
+    }
+
     func testEveryDarkSiblingHasABaseMark() throws {
         let all = try names()
         for name in all where name.hasSuffix("-dark") {

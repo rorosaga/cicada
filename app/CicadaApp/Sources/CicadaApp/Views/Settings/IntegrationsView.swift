@@ -132,8 +132,16 @@ private struct IntegrationChannelRow: View {
 
     @ViewBuilder
     private var mark: some View {
-        if let logoName = ConnectedChannelRow.logoName(for: channel.id) {
-            LogoImage.platformTile(name: logoName, size: 28, systemFallback: ConnectedChannelRow.icon(for: channel.id))
+        // R6 — one precedence, three surfaces. A channel with no bundled PNG
+        // but an installed app (Safari, Apple Notes — R2 forbids their PNGs)
+        // must still reach `PlatformTile`, or this page draws a tint circle
+        // where the Sleep desk draws the app's own icon. Keying the branch on
+        // `logoName` alone was the bug that let this page disagree.
+        let logoName = ConnectedChannelRow.logoName(for: channel.id)
+        let bundleId = OriginIconography.appBundleId(for: ConnectedChannelRow.origin(forChannel: channel.id))
+        if logoName != nil || bundleId != nil {
+            LogoImage.platformTile(name: logoName ?? "", bundleId: bundleId, size: 28,
+                                   systemFallback: ConnectedChannelRow.icon(for: channel.id))
         } else {
             ZStack {
                 Circle()
