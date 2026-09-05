@@ -58,6 +58,20 @@ final class CopyConstantsTests: XCTestCase {
         }
     }
 
+    /// Track P — the `?` popover is reachable from Graph, Clusters and Feed,
+    /// so every sentence in it has to be true on all three. Two things it
+    /// used to get wrong: capture was described as an MCP-client property
+    /// (G105 replaced that with the harness's own Stop hook) and
+    /// consolidation was described as automatic (a fresh install's schedule
+    /// is `manual` — `api/services/sleep_scheduler.py::_DEFAULT`).
+    func testTheAboutPopoverDoesNotClaimAutomaticConsolidationOrMCPCapture() {
+        let sleep = Copy.aboutCicadaSleep
+        XCTAssertFalse(sleep.lowercased().contains("automatically"))
+        XCTAssertFalse(sleep.lowercased().contains("mcp client"))
+        XCTAssertTrue(sleep.contains(Copy.settingsSleep), "it must point at the place a schedule is set")
+        XCTAssertFalse(Copy.aboutCicadaCapture.lowercased().contains("mcp client"))
+    }
+
     /// CI-style grep: these literals exist once, in Copy.swift. The whole file
     /// is scanned, comments included — a comment that repeats a label is
     /// exactly how these strings drifted in the first place. "on the Capture

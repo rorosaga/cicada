@@ -52,6 +52,32 @@ enum Copy {
     /// built from `settingsSleep` so a rename can't desync the two halves.
     static let changeInSettingsSleep = "Change in \(settingsSleep)"
 
+    // MARK: The `?` popover (Track P)
+    //
+    // Shown on Graph, Clusters and Feed, so every sentence has to be true on
+    // all three — and on a DEFAULT install, which is where the old "About
+    // these actions" copy went wrong twice over. One paragraph per half of
+    // the Awake/Sleep split. Both interpolate pointers declared LATER in the
+    // file (`settingsIntegrations`, `settingsSleep` above it): `Copy` is an
+    // `enum` of lazily-initialised `static let` globals, so declaration order
+    // does not constrain them.
+
+    /// Awake. Capture is the harness's own Stop hook (G105 — not a model
+    /// choosing to call a tool, and not a property of any one MCP client),
+    /// so the sentence names the harnesses rather than the client.
+    static let aboutCicadaCapture =
+        "Every Claude Code and Codex session is saved as it ends, by the harness's own hook — no button, no tool call. "
+        + "Bookmarks, feeds, calendars and chat exports arrive through \(settingsIntegrations) and the Feed's + button."
+
+    /// Sleep. Nothing consolidates until a schedule is chosen
+    /// (`sleep_scheduler._DEFAULT` is `manual`), so the popover says so and
+    /// points at the one place a schedule is set. The last clause is
+    /// TODO.md ruling 4 — a scheduled cycle passes `user_triggered=False`
+    /// and never spends plan quota — stated rather than hidden.
+    static let aboutCicadaSleep =
+        "Consolidation is not automatic. Sleep runs when you press Consolidate on the Sleep page, or on the schedule you pick in \(settingsSleep) — nightly, every few hours, or after an import. "
+        + "A scheduled cycle never spends your plan quota."
+
     // MARK: Shared action verbs
     //
     // One verb per action, app-wide. The Sleep page used to say "Run now" /

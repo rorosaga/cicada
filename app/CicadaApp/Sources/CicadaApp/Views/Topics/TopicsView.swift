@@ -8,7 +8,6 @@ struct TopicsView: View {
     @State private var selectedLabels: Set<String> = []
     @State private var showLabelPopover = false
     @State private var selectedEntity: Entity?
-    @State private var showUploadOverlay = false
 
     var body: some View {
         ZStack {
@@ -58,17 +57,11 @@ struct TopicsView: View {
                     Spacer()
                     TopBarControls(
                         selectedTab: $selectedTab,
-                        showUploadOverlay: $showUploadOverlay
+                        showUploadOverlay: .constant(false)
                     )
                     .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
-            }
-
-            // Upload overlay
-            if showUploadOverlay {
-                UploadOverlay(isPresented: $showUploadOverlay)
-                    .transition(.opacity)
             }
         }
     }

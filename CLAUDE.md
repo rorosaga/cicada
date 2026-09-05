@@ -446,7 +446,9 @@ in a native `Settings{}` scene (⌘,), a `NavigationSplitView` over five section
 Integrations · Agents · Plans & keys (`SettingsSection`, replacing the earlier four-tab `TabView`).
 ⌘K opens the Ask panel. `AppTab` raw values are the persisted identity of a tab, and
 `AppTab.restored(from:)` maps retired ones onto the pages that inherited them, so an older selection
-never traps.
+never traps. A page's top-right control is the `?` alone — Track P's audit removed the global Sleep
+and Upload buttons, because a cycle starts from the Sleep page's one Consolidate control (G125 R10)
+or the menu-bar bookworm, and a one-shot import lives behind the Feed's `+` (the G126 rule above).
 
 **Settings → Sleep: the engine picker (G122).** A segmented picker over the connections registry's
 candidates (Claude plan, Ollama, a BYOK key; Codex stays permanently `available: false` — G49's
