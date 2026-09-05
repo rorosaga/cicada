@@ -1,26 +1,29 @@
 import SwiftUI
 import WebKit
 
-// MARK: - WebView (G11)
+// MARK: - WebView (G11, Track V)
 //
 // A thin, reusable `NSViewRepresentable` over `ClickableWebView` (defined in
 // GraphView.swift) that loads a SINGLE url. Used for the in-app site preview
-// and the embedded YouTube player.
+// and for a provider's own embedded player (YouTube, Vimeo, TikTok, Loom).
 //
 // SECURITY: the caller only ever passes the media entity's OWN stored
-// `media.url` (for website previews) or the YouTube embed url DERIVED from that
-// stored url (see `MediaPreview`). This view never takes arbitrary request
-// input from anywhere else — there are no message handlers and no JS bridge.
+// `media.url` (for website previews) or the embed url DERIVED from that stored
+// url by `VideoRef` — derived, never fetched and never lifted out of a
+// provider's returned HTML (R-V4). This view never takes arbitrary request
+// input from anywhere else — there are no message handlers and no JS bridge,
+// which is also why space-to-play is a `VideoPlayerView` affordance only
+// (R10): inside here the key belongs to the provider's player.
 struct WebView: NSViewRepresentable {
     let url: URL
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        // Allow inline media playback (YouTube embeds) without forcing fullscreen.
+        // Allow inline media playback (provider embeds) without forcing fullscreen.
         config.mediaTypesRequiringUserActionForPlayback = []
         let webView = ClickableWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
-        webView.load(URLRequest(url: url))
+        load(url, into: webView)
         return webView
     }
 
@@ -28,6 +31,36 @@ struct WebView: NSViewRepresentable {
         // Reload only when the target url actually changes — avoids reloading
         // (and restarting a video) on every SwiftUI re-render.
         if webView.url?.absoluteString != url.absoluteString {
+            load(url, into: webView)
+        }
+    }
+
+    /// WebKit refuses a `file://` document loaded through `URLRequest` — it
+    /// needs `loadFileURL(_:allowingReadAccessTo:)` with an explicit read
+    /// scope, which is why a local clip rendered as a blank frame before
+    /// R-V3.
+    ///
+    /// **Read access is scoped to the file itself, not its directory.** WebKit
+    /// accepts the file url as its own read-access url and then exposes only
+    /// that one file. The obvious `deletingLastPathComponent()` would hand a
+    /// saved `file:///…/page.html` media item's own scripts fetch access to
+    /// every sibling in, say, the user's Downloads folder — a local-read
+    /// surface this branch newly opened, since before it a `file://` url
+    /// simply did not load at all. **The trade-off is accepted:** a local HTML
+    /// page's relative assets (its `./style.css`, its images) will not
+    /// resolve. No caller needs them — the two call sites pass a media
+    /// entity's own stored url or a `VideoRef`-derived provider embed url, and
+    /// widening the scope again would need a reason stronger than a
+    /// prettier local page.
+    ///
+    /// A local *video* takes the AVKit path (`VideoPlayerView`), not this one,
+    /// because `WKWebView` will not play a bare `.m3u8` manifest as a
+    /// top-level document either; this branch is what makes any other
+    /// `file://` document the app is handed render at all.
+    private func load(_ url: URL, into webView: WKWebView) {
+        if url.isFileURL {
+            webView.loadFileURL(url, allowingReadAccessTo: url)
+        } else {
             webView.load(URLRequest(url: url))
         }
     }
@@ -42,8 +75,8 @@ struct WebPreviewSheet: View {
     let title: String
     let url: URL
     /// The original external url to hand off to the system browser. For a
-    /// YouTube embed this is the watch url, not the embed url, so "Open
-    /// externally" lands on the real page.
+    /// provider embed this is the `VideoRef`'s watch url, not the embed url,
+    /// so "Open externally" lands on the real page.
     let externalURL: URL
     @Environment(\.dismiss) private var dismiss
 

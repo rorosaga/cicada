@@ -286,6 +286,20 @@ struct FeedRow: View {
                             .background(CicadaTheme.mediaPink.opacity(0.12))
                             .clipShape(Capsule())
 
+                        // R17: shown only when a provider actually reported a
+                        // duration. No estimate, no computed guess — a video
+                        // whose oEmbed carried none simply has no pill, the
+                        // same rule the Sleep history's "—" follows.
+                        if let duration = VideoRef.durationLabel(item.durationS) {
+                            Text(duration)
+                                .font(CicadaTheme.font(size: 10, design: .monospaced))
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(CicadaTheme.surfaceHover)
+                                .clipShape(Capsule())
+                        }
+
                         if let site = item.site, !site.isEmpty {
                             Text(site)
                                 .font(CicadaTheme.font(size: 10))
@@ -316,8 +330,35 @@ struct FeedRow: View {
         }
     }
 
+    /// R-V5: a row says an item is a video *before* it is opened. The badge is
+    /// drawn over the 44×44 thumbnail, and only for a ref that actually plays
+    /// (R14/R6) — a Twitch link or a `vm.tiktok.com` shortlink resolves as
+    /// `external`, so it gets no badge, because tapping one opens a browser
+    /// rather than a player and a badge there would promise what the tap
+    /// cannot deliver. `nil` (not a video at all) is the common case and
+    /// renders exactly what it rendered before this change.
+    private var playableRef: VideoRef? {
+        guard let ref = VideoRef.resolve(item.url), ref.isPlayable else { return nil }
+        return ref
+    }
+
     @ViewBuilder
     private var thumbnail: some View {
+        ZStack(alignment: .bottomTrailing) {
+            thumbnailImage
+            if playableRef != nil {
+                Image(systemName: "play.fill")
+                    .font(CicadaTheme.font(size: 9))
+                    .foregroundStyle(.white)
+                    .frame(width: 16, height: 16)
+                    .background(Circle().fill(.black.opacity(0.55)))
+                    .padding(2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var thumbnailImage: some View {
         if let thumb = item.thumbnail, let url = URL(string: thumb) {
             AsyncImage(url: url) { phase in
                 switch phase {
@@ -351,6 +392,21 @@ struct FeedRow: View {
             Text("relevance")
                 .font(CicadaTheme.font(size: 8))
                 .foregroundStyle(CicadaTheme.textTertiary)
+        }
+    }
+}
+
+// MARK: - Feed preview sheet geometry (Track V, R-V5)
+
+/// R-V5: a 480 × 270 player inside a 480 × 520 sheet reads as a regression,
+/// not as a player. A pure function so the size is testable without a view —
+/// and so the "which kinds are video" answer lives in exactly one place
+/// (`MediaPreviewModel.Kind`), not in a boolean the sheet computes itself.
+enum FeedPreviewLayout {
+    static func sheetSize(for kind: MediaPreviewModel.Kind) -> CGSize {
+        switch kind {
+        case .embedVideo, .fileVideo: return CGSize(width: 720, height: 560)
+        case .image, .instagram, .website: return CGSize(width: 480, height: 520)
         }
     }
 }
@@ -396,7 +452,7 @@ private struct FeedItemPreviewSheet: View {
                     .padding(CicadaTheme.spacingLG)
             }
         }
-        .frame(width: 480, height: 520)
+        .frame(width: size.width, height: size.height)
         .background(CicadaTheme.background)
         .task {
             // Seed from the row (G102: /sources now carries the excerpt), and
@@ -420,6 +476,11 @@ private struct FeedItemPreviewSheet: View {
         model.description = enrichedDescription
         return model
     }
+
+    /// The sheet is sized from the item's own url (R-V5) — `kind` is derived,
+    /// so the size is settled on the first render and never changes when the
+    /// description arrives from the fallback fetch.
+    private var size: CGSize { FeedPreviewLayout.sheetSize(for: previewModel.kind) }
 
     /// Extract the first present section body under one of the given headers.
     private static func firstSection(_ headers: [String], in markdown: String) -> String? {
