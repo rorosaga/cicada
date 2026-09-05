@@ -24,12 +24,12 @@ struct EpisodeRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     Text(item.title ?? item.id)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(CicadaTheme.font(size: 12, weight: .medium))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
 
                     Text(item.source)
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(CicadaTheme.font(size: 9, design: .monospaced))
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
@@ -39,13 +39,13 @@ struct EpisodeRow: View {
                     Spacer()
 
                     Text(shortTimestamp(item.timestamp))
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(CicadaTheme.font(size: 10, design: .monospaced))
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
 
                 if !item.preview.isEmpty {
                     Text(item.preview)
-                        .font(.system(size: 11))
+                        .font(CicadaTheme.font(size: 11))
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .lineLimit(2)
                 }

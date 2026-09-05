@@ -88,10 +88,10 @@ struct SourceQueueStrip: View {
                 if sleepVM.isRunning {
                     ProgressView().controlSize(.small).frame(width: 12, height: 12)
                 } else {
-                    Image(systemName: "moon.fill").font(.system(size: 12))
+                    Image(systemName: "moon.fill").font(CicadaTheme.font(size: 12))
                 }
                 Text(sleepVM.isRunning ? Copy.consolidating : Copy.consolidateNow)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(CicadaTheme.font(size: 12, weight: .semibold))
             }
             .foregroundStyle(owned.isEmpty && !sleepVM.isRunning ? CicadaTheme.textTertiary : .white)
             .padding(.horizontal, CicadaTheme.spacingLG)

@@ -72,7 +72,7 @@ struct AskPanel: View {
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Image(systemName: "sparkle.magnifyingglass")
-                .font(.system(size: 14))
+                .font(CicadaTheme.font(size: 14))
                 .foregroundStyle(CicadaTheme.accent)
 
             TextField("Ask your memory…", text: Binding(
@@ -80,7 +80,7 @@ struct AskPanel: View {
                 set: { vm?.question = $0 }
             ))
             .textFieldStyle(.plain)
-            .font(.system(size: 15))
+            .font(CicadaTheme.font(size: 15))
             .foregroundStyle(CicadaTheme.textPrimary)
             .focused($questionFocused)
             .onSubmit { submit() }
@@ -93,7 +93,7 @@ struct AskPanel: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
+                    .font(CicadaTheme.font(size: 14))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .buttonStyle(.cicadaPlain)
@@ -118,7 +118,7 @@ struct AskPanel: View {
             if !answer.citations.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     Text("SOURCES")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .tracking(1.2)
 
@@ -133,14 +133,14 @@ struct AskPanel: View {
             if !answer.gaps.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     Text("I don't know:")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(CicadaTheme.font(size: 12, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textSecondary)
 
                     ForEach(answer.gapRows, id: \.id) { row in
                         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
                             Text("•").foregroundStyle(CicadaTheme.textTertiary)
                             Text(row.text)
-                                .font(.system(size: 12))
+                                .font(CicadaTheme.font(size: 12))
                                 .foregroundStyle(CicadaTheme.textSecondary)
                         }
                     }
@@ -156,7 +156,7 @@ struct AskPanel: View {
             HStack(spacing: 6) {
                 LogoImage(entityId: citation.entityId, name: citation.entityName, size: 20)
                 Text("[[\(citation.entityName)]]")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .font(CicadaTheme.font(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(CicadaTheme.accent)
             }
             .padding(.leading, 4)
@@ -172,7 +172,7 @@ struct AskPanel: View {
     private func confidenceMeter(_ confidence: Double) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Text("CONFIDENCE")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
@@ -187,7 +187,7 @@ struct AskPanel: View {
             .frame(height: 4)
 
             Text("\(Int(confidence * 100))%")
-                .font(.system(size: 11, design: .monospaced))
+                .font(CicadaTheme.font(size: 11, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
     }
@@ -200,7 +200,7 @@ struct AskPanel: View {
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
             Text("Answers cite the entities they draw on, and say what they don't know.")
-                .font(.system(size: 11))
+                .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
         .padding(.top, CicadaTheme.spacingSM)
@@ -209,7 +209,7 @@ struct AskPanel: View {
     private func recentQuestions(_ vm: AskViewModel) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text("RECENT")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
@@ -224,7 +224,7 @@ struct AskPanel: View {
                             .lineLimit(1)
                         Spacer()
                         Image(systemName: "arrow.up.left")
-                            .font(.system(size: 10))
+                            .font(CicadaTheme.font(size: 10))
                             .foregroundStyle(CicadaTheme.textTertiary)
                     }
                     .padding(.vertical, CicadaTheme.spacingSM)
@@ -240,10 +240,10 @@ struct AskPanel: View {
     private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.entityColor(for: .deadline))
             Text(message)
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
         .padding(CicadaTheme.spacingSM)

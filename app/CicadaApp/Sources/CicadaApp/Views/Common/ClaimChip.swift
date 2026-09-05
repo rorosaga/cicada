@@ -35,7 +35,7 @@ struct ClaimChip: View {
                 if let onOpenTimeline {
                     Button(action: onOpenTimeline) {
                         Image(systemName: "clock")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(CicadaTheme.font(size: 11, weight: .medium))
                     }
                     .buttonStyle(.cicadaPlain)
                     .foregroundStyle(CicadaTheme.textSecondary)
@@ -70,7 +70,7 @@ struct ObserverBadge: View {
 
     var body: some View {
         Label(observer.label, systemImage: observer.sfSymbol)
-            .font(.system(size: 10, weight: .medium))
+            .font(CicadaTheme.font(size: 10, weight: .medium))
             .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -98,7 +98,7 @@ struct ContextPill: View {
                 .fill(CicadaTheme.contextColor(context))
                 .frame(width: 7, height: 7)
             Text(context)
-                .font(.system(size: 10, weight: .regular))
+                .font(CicadaTheme.font(size: 10, weight: .regular))
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
         .padding(.horizontal, 6)
@@ -117,9 +117,9 @@ struct TrustPill: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: filled ? "checkmark.seal.fill" : "checkmark.seal")
-                .font(.system(size: 9, weight: .medium))
+                .font(CicadaTheme.font(size: 9, weight: .medium))
             Text(trust.label)
-                .font(.system(size: 10, weight: .regular))
+                .font(CicadaTheme.font(size: 10, weight: .regular))
         }
         .foregroundStyle(color)
         .padding(.horizontal, 6)
@@ -158,7 +158,7 @@ struct ConfidenceRing: View {
                 .stroke(ringColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             Text(String(format: "%.0f", confidence * 100))
-                .font(.system(size: 7, weight: .semibold, design: .rounded))
+                .font(CicadaTheme.font(size: 7, weight: .semibold, design: .rounded))
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
         .frame(width: 18, height: 18)
@@ -180,7 +180,7 @@ struct AuthorPill: View {
 
     var body: some View {
         Text(author)
-            .font(.system(size: 10, weight: .regular))
+            .font(CicadaTheme.font(size: 10, weight: .regular))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(color.opacity(0.18))
@@ -201,7 +201,7 @@ struct EpisodePill: View {
 
     var body: some View {
         Label(episode, systemImage: "doc.text")
-            .font(.system(size: 10, weight: .regular, design: .monospaced))
+            .font(CicadaTheme.font(size: 10, weight: .regular, design: .monospaced))
             .foregroundStyle(CicadaTheme.textTertiary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)

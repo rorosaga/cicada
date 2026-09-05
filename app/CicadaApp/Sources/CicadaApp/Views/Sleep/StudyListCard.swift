@@ -48,7 +48,7 @@ struct StudyListCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Text("ON THE DESK")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
@@ -99,7 +99,7 @@ struct StudyListCard: View {
         case .failed(let message):
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 12))
+                    .font(CicadaTheme.font(size: 12))
                     .foregroundStyle(CicadaTheme.danger)
                 Text(message)
                     .font(CicadaTheme.bodyFont)
@@ -107,7 +107,7 @@ struct StudyListCard: View {
                 Spacer()
                 Button("Retry") { Task { await store.refresh([.status]) } }
                     .buttonStyle(.cicadaPlain)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(CicadaTheme.font(size: 12, weight: .semibold))
                     .foregroundStyle(CicadaTheme.accent)
                     .accessibilityLabel("Retry loading the queue")
             }
@@ -147,7 +147,7 @@ struct StudyListCard: View {
         } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: expandedOrigins.contains(row.origin) ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(CicadaTheme.font(size: 9, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .frame(width: 10)
 
@@ -155,7 +155,7 @@ struct StudyListCard: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(row.label)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(CicadaTheme.font(size: 12, weight: .medium))
                         .foregroundStyle(CicadaTheme.textPrimary)
                     if let age = row.oldestAge {
                         Text("oldest \(age)")
@@ -188,7 +188,7 @@ struct StudyListCard: View {
             } else {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     Text("\(read) / \(total)")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .font(CicadaTheme.font(size: 12, weight: .semibold, design: .rounded))
                         .foregroundStyle(CicadaTheme.textSecondary)
                     ProgressView(value: Double(read), total: Double(total))
                         .frame(width: 60)
@@ -196,7 +196,7 @@ struct StudyListCard: View {
             }
         } else {
             Text("\(row.count)")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .font(CicadaTheme.font(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
     }
@@ -252,10 +252,10 @@ struct StudyListCard: View {
                 if sleepVM.isRunning {
                     ProgressView().controlSize(.small).frame(width: 12, height: 12)
                 } else {
-                    Image(systemName: "moon.fill").font(.system(size: 12))
+                    Image(systemName: "moon.fill").font(CicadaTheme.font(size: 12))
                 }
                 Text(sleepVM.isRunning ? Copy.consolidating : Copy.consolidateNow)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(CicadaTheme.font(size: 12, weight: .semibold))
             }
             .foregroundStyle(count == 0 && !sleepVM.isRunning ? CicadaTheme.textTertiary : .white)
             .padding(.horizontal, CicadaTheme.spacingLG)
@@ -282,10 +282,10 @@ struct StudyListCard: View {
                 if sleepVM.isCancelling {
                     ProgressView().controlSize(.small).frame(width: 10, height: 10)
                 } else {
-                    Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+                    Image(systemName: "xmark").font(CicadaTheme.font(size: 10, weight: .semibold))
                 }
                 Text(sleepVM.isCancelling ? Copy.cancellingSleep : Copy.cancelSleep)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(CicadaTheme.font(size: 12, weight: .semibold))
             }
             .foregroundStyle(CicadaTheme.textSecondary)
             .padding(.horizontal, CicadaTheme.spacingMD)

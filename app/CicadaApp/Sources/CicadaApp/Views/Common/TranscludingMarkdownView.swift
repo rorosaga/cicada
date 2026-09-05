@@ -118,7 +118,7 @@ struct TranscludingMarkdownView: View {
     private func cyclicStub(_ ref: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 10))
+                .font(CicadaTheme.font(size: 10))
             Text("cyclic embed · \(ref)")
                 .font(CicadaTheme.captionFont)
         }
@@ -180,13 +180,13 @@ struct TransclusionCard: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Button { collapsed.toggle() } label: {
                 Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(CicadaTheme.font(size: 10, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .buttonStyle(.cicadaPlain)
 
             Image(systemName: "rectangle.on.rectangle.angled")
-                .font(.system(size: 10))
+                .font(CicadaTheme.font(size: 10))
                 .foregroundStyle(CicadaTheme.accent)
 
             // Tap the title → click-through to the embedded entity, via the
@@ -200,7 +200,7 @@ struct TransclusionCard: View {
                 }
             } label: {
                 Text(payload?.title ?? ref)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(CicadaTheme.font(size: 12, weight: .medium))
                     .foregroundStyle(CicadaTheme.accent)
                     .lineLimit(1)
             }
@@ -210,7 +210,7 @@ struct TransclusionCard: View {
             Spacer()
 
             Text("transcluded")
-                .font(.system(size: 9, weight: .regular, design: .monospaced))
+                .font(CicadaTheme.font(size: 9, weight: .regular, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
     }
@@ -263,7 +263,7 @@ struct TransclusionCard: View {
     private var missingStub: some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 10))
+                .font(CicadaTheme.font(size: 10))
             Text("![[\(ref)]] not found")
                 .font(CicadaTheme.captionFont)
         }

@@ -103,7 +103,7 @@ struct FeedView: View {
     private var addButton: some View {
         Button { openSheet(nil) } label: {
             Image(systemName: "plus")
-                .font(.system(size: 13, weight: .semibold))
+                .font(CicadaTheme.font(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
                 .background(Circle().fill(CicadaTheme.accent))
@@ -122,7 +122,7 @@ struct FeedView: View {
         HStack(spacing: CicadaTheme.spacingMD) {
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
+                    .font(CicadaTheme.font(size: 12))
                     .foregroundStyle(CicadaTheme.textTertiary)
                 TextField("Search saved media...", text: Binding(
                     get: { viewModel.searchText },
@@ -134,7 +134,7 @@ struct FeedView: View {
                 if !viewModel.searchText.isEmpty {
                     Button { viewModel.searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
+                            .font(CicadaTheme.font(size: 11))
                             .foregroundStyle(CicadaTheme.textTertiary)
                     }
                     .buttonStyle(.cicadaPlain)
@@ -208,7 +208,7 @@ struct FeedView: View {
                 BookwormView(state: .awake, pointSize: 96)
             } else {
                 Image(systemName: symbol)
-                    .font(.system(size: 40))
+                    .font(CicadaTheme.font(size: 40))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             Text(title)
@@ -248,13 +248,13 @@ struct FeedRow: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.title.isEmpty ? item.url : item.title)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(CicadaTheme.font(size: 13, weight: .medium))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
 
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Text(item.mediaType)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(CicadaTheme.font(size: 10, design: .monospaced))
                             .foregroundStyle(CicadaTheme.mediaPink)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -263,7 +263,7 @@ struct FeedRow: View {
 
                         if let site = item.site, !site.isEmpty {
                             Text(site)
-                                .font(.system(size: 10))
+                                .font(CicadaTheme.font(size: 10))
                                 .foregroundStyle(CicadaTheme.textTertiary)
                                 .lineLimit(1)
                         }
@@ -314,17 +314,17 @@ struct FeedRow: View {
 
     private var placeholderIcon: some View {
         Image(systemName: "photo.on.rectangle.angled")
-            .font(.system(size: 16))
+            .font(CicadaTheme.font(size: 16))
             .foregroundStyle(CicadaTheme.mediaPink.opacity(0.7))
     }
 
     private var relevanceBadge: some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(String(format: "%.0f%%", item.relevance * 100))
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.accent)
             Text("relevance")
-                .font(.system(size: 8))
+                .font(CicadaTheme.font(size: 8))
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
     }
@@ -354,7 +354,7 @@ private struct FeedItemPreviewSheet: View {
                 Spacer()
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(CicadaTheme.font(size: 12, weight: .medium))
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .frame(width: 28, height: 28)
                         .background(CicadaTheme.surfaceHover)

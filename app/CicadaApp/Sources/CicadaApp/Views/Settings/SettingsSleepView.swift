@@ -74,7 +74,7 @@ struct SettingsSleepView: View {
     private var scheduleCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Text("RUNS")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
@@ -123,7 +123,7 @@ struct SettingsSleepView: View {
                 Spacer()
             }
             Text("Next run: \(formattedTime(scheduleDate))")
-                .font(.system(size: 11))
+                .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textSecondary)
         case "interval":
             Stepper(
@@ -141,11 +141,11 @@ struct SettingsSleepView: View {
             .foregroundStyle(CicadaTheme.textPrimary)
         case "after_import":
             Text("Starts about 10 minutes after the last import lands, if nothing is running.")
-                .font(.system(size: 11))
+                .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textTertiary)
         default:
             Text("Only when you press Consolidate now.")
-                .font(.system(size: 11))
+                .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
     }
@@ -153,7 +153,7 @@ struct SettingsSleepView: View {
     private var engineCard: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text("ENGINE")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
             Text("Which model powers Sleep is set on the Claude plan's connection card.")

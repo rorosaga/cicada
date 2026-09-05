@@ -340,8 +340,8 @@ struct AddSourceSheet: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Button(action: back) {
                 HStack(spacing: CicadaTheme.spacingXS) {
-                    Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
-                    Text(parent).font(.system(size: 12, weight: .medium))
+                    Image(systemName: "chevron.left").font(CicadaTheme.font(size: 11, weight: .semibold))
+                    Text(parent).font(CicadaTheme.font(size: 12, weight: .medium))
                 }
                 .foregroundStyle(CicadaTheme.textSecondary)
             }
@@ -492,7 +492,7 @@ struct AddSourceSheet: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     FamilyMarkCluster(family: family)
                     Text(family.title)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(CicadaTheme.font(size: 12, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(family.blurb)
@@ -500,7 +500,7 @@ struct AddSourceSheet: View {
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(footer)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(CicadaTheme.font(size: 10, weight: .semibold))
                         .foregroundStyle(connected > 0 ? CicadaTheme.success : CicadaTheme.textTertiary)
                 }
             }
@@ -525,7 +525,7 @@ struct AddSourceSheet: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     MemberMark(tile: tile, size: 32)
                     Text(tile.title)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(CicadaTheme.font(size: 12, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(state.detail ?? tile.blurb)
@@ -537,7 +537,7 @@ struct AddSourceSheet: View {
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(state.badge)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(CicadaTheme.font(size: 10, weight: .semibold))
                         .foregroundStyle(state.connected ? CicadaTheme.success : CicadaTheme.textTertiary)
                 }
             }

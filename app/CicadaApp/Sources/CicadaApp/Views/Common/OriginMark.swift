@@ -20,7 +20,7 @@ struct OriginMark: View {
                 }
             } else {
                 Image(systemName: OriginIconography.symbol(for: origin))
-                    .font(.system(size: size * 0.8, weight: .medium))
+                    .font(CicadaTheme.font(size: size * 0.8, weight: .medium))
                     .foregroundStyle(OriginIconography.color(for: origin))
             }
         }

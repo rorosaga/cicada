@@ -32,7 +32,7 @@ struct CommandBox: View {
                 }
             } label: {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CicadaTheme.font(size: 11, weight: .medium))
                     .foregroundStyle(copied ? CicadaTheme.success : CicadaTheme.textSecondary)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())

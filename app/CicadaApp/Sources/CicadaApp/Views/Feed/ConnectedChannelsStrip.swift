@@ -59,11 +59,11 @@ struct ConnectedChannelsStrip: View {
             } label: {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(CicadaTheme.font(size: 9, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .rotationEffect(.degrees(isCollapsed ? 0 : 90))
                     Text(Self.stripTitle(connected: connected.count))
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .tracking(1.2)
                     Spacer()
@@ -87,7 +87,7 @@ struct ConnectedChannelsStrip: View {
                 case .failed(let message):
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 12))
+                            .font(CicadaTheme.font(size: 12))
                             .foregroundStyle(CicadaTheme.danger)
                         Text(message)
                             .font(CicadaTheme.bodyFont)

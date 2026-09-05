@@ -103,7 +103,7 @@ struct UploadOverlay: View {
                 BookwormView(state: mascotState, pointSize: 96)
 
                 Text(titleText)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(CicadaTheme.font(size: 18, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
 
                 if let result = uploadResult {
@@ -126,7 +126,7 @@ struct UploadOverlay: View {
                                 }
                                 Text("Switch to \"\(inactiveBank)\"")
                             }
-                            .font(.system(size: 12, weight: .medium))
+                            .font(CicadaTheme.font(size: 12, weight: .medium))
                         }
                         .buttonStyle(.cicadaPlain)
                         .foregroundStyle(CicadaTheme.accent)
@@ -161,7 +161,7 @@ struct UploadOverlay: View {
                 if mode == .sources {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Image(systemName: "link")
-                            .font(.system(size: 12))
+                            .font(CicadaTheme.font(size: 12))
                             .foregroundStyle(CicadaTheme.textTertiary)
                         TextField("https://…", text: $urlText)
                             .textFieldStyle(.plain)
@@ -170,7 +170,7 @@ struct UploadOverlay: View {
                             .onSubmit { saveURL() }
                         Button("Save") { saveURL() }
                             .buttonStyle(.cicadaPlain)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(CicadaTheme.font(size: 12, weight: .medium))
                             .foregroundStyle(urlText.isEmpty ? CicadaTheme.textTertiary : CicadaTheme.accent)
                             .disabled(urlText.isEmpty || isUploading)
                     }
@@ -188,7 +188,7 @@ struct UploadOverlay: View {
                         Image(systemName: "folder")
                         Text("Choose Files or Folder")
                     }
-                    .font(.system(size: 13, weight: .medium))
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
                     .foregroundStyle(CicadaTheme.accent)
                     .padding(.horizontal, CicadaTheme.spacingXL)
                     .padding(.vertical, CicadaTheme.spacingMD)
@@ -234,7 +234,7 @@ struct UploadOverlay: View {
     private var bankTargetSelector: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text("TARGET PROJECT")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 

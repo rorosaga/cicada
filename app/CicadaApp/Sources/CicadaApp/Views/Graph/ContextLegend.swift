@@ -44,13 +44,13 @@ struct ContextLegend: View {
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingXS) {
             Text("CONTEXT")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
             Spacer()
             Button { collapsed.toggle() } label: {
                 Image(systemName: collapsed ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(CicadaTheme.font(size: 9, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .buttonStyle(.cicadaPlain)

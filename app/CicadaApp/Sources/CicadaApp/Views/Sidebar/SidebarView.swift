@@ -144,7 +144,7 @@ private struct SidebarRow: View {
                 ProgressView().controlSize(.small).frame(width: 24)
             } else {
                 Image(systemName: tab.icon)
-                    .font(.system(size: 16))
+                    .font(CicadaTheme.font(size: 16))
                     .foregroundStyle(isSelected ? CicadaTheme.accent : CicadaTheme.textSecondary)
                     .frame(width: 24)
             }
@@ -157,7 +157,7 @@ private struct SidebarRow: View {
 
             if badgeCount > 0 {
                 Text("\(badgeCount)")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CicadaTheme.font(size: 11, weight: .medium))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -190,7 +190,7 @@ private struct ThemeToggleButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: colorScheme == .dark ? "moon.fill" : "sun.max.fill")
-                .font(.system(size: 12, weight: .medium))
+                .font(CicadaTheme.font(size: 12, weight: .medium))
                 .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                 .frame(width: 22, height: 22)
                 .background(
@@ -226,7 +226,7 @@ private struct SettingsGearButton: View {
     var body: some View {
         SettingsLink {
             Image(systemName: "gearshape")
-                .font(.system(size: 12, weight: .medium))
+                .font(CicadaTheme.font(size: 12, weight: .medium))
                 .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                 .frame(width: 22, height: 22)
                 .background(Circle().fill(isHovered ? CicadaTheme.surfaceHover : .clear))
