@@ -18,7 +18,12 @@ struct ObserverFilterBar: View {
         [
             ("All", nil, "circle.grid.2x2"),
             ("Cicada", "agent", "cpu"),
-            (Copy.you, "rodrigo", "person.fill"),
+            // G117 R2: "__owner__" is a synthetic wire, mirroring "external"
+            // above, matching every observer GraphViewModel.setObserver
+            // resolves as the owner — never the literal "rodrigo", which
+            // stopped being the only possible owner-observer string once
+            // onboarding lets a person's name resolve to any slug.
+            (Copy.you, "__owner__", "person.fill"),
             ("External", "external", "quote.bubble.fill"),
         ]
     }
