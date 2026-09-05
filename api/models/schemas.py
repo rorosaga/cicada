@@ -877,6 +877,13 @@ class InboxKind(str, Enum):
     conflict = "conflict"
     clarification = "clarification"
     merge_suggestion = "merge_suggestion"
+    # G113 slice 3: Sleep has written these two kinds for months
+    # (`inbox_generator.py`'s `divergence_nudge`/`normalization_audit`
+    # branches) but `InboxKind` lacked them, so `_item_from_file` raised and
+    # `load_inbox` silently dropped every such item — the user never saw the
+    # question and could never answer it.
+    divergence = "divergence"
+    normalization = "normalization"
 
 
 class RequiredInput(str, Enum):

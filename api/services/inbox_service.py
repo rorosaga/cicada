@@ -47,9 +47,7 @@ def next_inbox_num(inbox_dir: Path) -> int:
 
 
 def _required_input_for(kind: str) -> str:
-    if kind == "decay":
-        return "choice"
-    if kind == "conflict":
+    if kind in ("decay", "conflict", "divergence", "normalization"):
         return "choice"
     if kind == "merge_suggestion":
         return "merge"
@@ -80,7 +78,7 @@ def _item_from_file(
     # deferral on the resolve path, so legacy items (written before G60,
     # no allow_* keys) must not lock the user into the closed option set.
     allow_other = bool(fm.get("allow_other", kind in ("conflict", "clarification")))
-    allow_defer = bool(fm.get("allow_defer", kind in ("conflict", "clarification")))
+    allow_defer = bool(fm.get("allow_defer", kind in ("conflict", "clarification", "divergence")))
 
     extra: dict = {}
     if context is not None:
@@ -760,6 +758,14 @@ async def resolve(
         entity_id, skipped, extra_lines = await _resolve_conflict(
             path, parsed, request, settings
         )
+    elif kind == "divergence":
+        entity_id, skipped, extra_lines = await _resolve_divergence(
+            path, parsed, request, settings, item_id
+        )
+    elif kind == "normalization":
+        entity_id, skipped, extra_lines = await _resolve_normalization(
+            path, parsed, request, settings, item_id
+        )
     elif kind in ("clarification", "merge_suggestion"):
         entity_id, skipped = await _resolve_clarification(
             path, parsed, request, settings
@@ -1150,6 +1156,135 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
 
     path.unlink()
     return entity_id, False, extra_lines
+
+
+async def _resolve_divergence(path, parsed, request, settings, item_id: str) -> tuple[str, bool, list[str]]:
+    """G113 slice 3: "I'm reading something different" — a two-claim variant
+    of `_resolve_conflict` for the narrow case Sleep already writes a
+    dedicated nudge for (`inbox_generator.py`'s `divergence_nudge` branch):
+    exactly one NEW claim (`claim_id`) against exactly one EXISTING one
+    (`existing_claim_id`). Mirrors `_resolve_conflict`'s shape (parse → mutate
+    → `write_claims` → `markdown_parser.write`) rather than reusing it,
+    because the two-claim case has no options list to fall back on and no LLM
+    body synthesis — a divergence never rewrites the entity's prose.
+    """
+    from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+
+    fm = parsed.frontmatter
+    entity_id = _opt_str(fm.get("entity_id")) or ""
+    key = (request.option_key or "").strip()
+
+    if request.action == "skip":
+        return entity_id, True, []
+    if request.action == "dismiss" or key not in ("0", "1", "2"):
+        # An unrecognised key is a client bug, not a "none of these" answer —
+        # `_resolve_conflict` treats the analogous case as a 400 for a modern
+        # question item, but a divergence item always has exactly 3 fixed
+        # options and no free-text path, so there is nothing to interpret.
+        # Removing the item without touching claims is the same "clear the
+        # question" behaviour `_resolve_conflict` gives a missing entity page.
+        path.unlink(missing_ok=True)
+        return entity_id, False, []
+
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        path.unlink(missing_ok=True)
+        return entity_id, False, []
+
+    entity = markdown_parser.parse(entity_path)
+    try:
+        # strict=True: parse_claims defaults to strict=False (silently
+        # degrades a malformed block to []) — `_resolve_conflict` passes
+        # strict=True precisely so a malformed block ABORTS the resolve
+        # instead of silently treating a real claims block as empty and
+        # skipping the write. Omitting it here would never raise, and the
+        # 409 branch below would be dead code.
+        claims = parse_claims(entity.body, strict=True)
+    except MalformedClaimsBlockError as exc:
+        raise HTTPException(status_code=409, detail=f"claims block on {entity_id} will not parse: {exc}") from exc
+    by_id = {c.id: c for c in claims}
+    new = by_id.get(_opt_str(fm.get("claim_id")) or "")
+    existing = by_id.get(_opt_str(fm.get("existing_claim_id")) or "")
+    today = str(date.today())
+    if new is not None and existing is not None:
+        if key == "0":  # keep my statement: the new reading loses
+            _close_today(new, by=existing, today=today)
+            existing.confidence = max(float(existing.confidence or 0), 0.9)
+        elif key == "1":  # update: my old statement loses
+            _close_today(existing, by=new, today=today)
+            new.confidence = max(float(new.confidence or 0), 0.9)
+        else:  # both true — different context
+            for c in (existing, new):
+                if not c.context or c.context == "general":
+                    c.context = f"as of {c.valid_from or today}"
+        efm = entity.frontmatter
+        efm["last_referenced"] = today
+        efm["version"] = int(efm.get("version", 1) or 1) + 1
+        markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
+    path.unlink(missing_ok=True)
+    return entity_id, False, [f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/divergence/resolved)"]
+
+
+async def _resolve_normalization(path, parsed, request, settings, item_id: str) -> tuple[str, bool, list[str]]:
+    """G113 slice 3: confirm/reject a predicate fold `claim_reconciler` already
+    applied. `0` (correct fold) does nothing to the bank — the fold already
+    happened at extraction time, so the resolve is a pure acknowledgement.
+    `1` (wrong fold) is the substantive branch: it un-merges the raw label
+    from `_predicates.yaml`'s synonym map, adds it as its own canonical
+    predicate (R4 — never delete the entity's history, just stop folding the
+    label going forward), and repoints the one claim the nudge was raised for
+    back onto the raw (now canonical) predicate.
+    """
+    from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+
+    fm = parsed.frontmatter
+    entity_id = _opt_str(fm.get("entity_id")) or ""
+    key = (request.option_key or "").strip()
+    if request.action == "skip":
+        return entity_id, True, []
+    extra: list[str] = []
+    if key == "1":  # wrong fold — keep the raw predicate separate
+        import yaml
+
+        raw = _opt_str(fm.get("raw_predicate")) or ""
+        # `predicates` is already imported at module scope; local imports here
+        # match `_resolve_conflict`'s style (`Claim`/`write_claims` imported
+        # locally too) so a divergence/normalization resolve never becomes a
+        # hard module-load dependency for the rest of this file.
+        raw_slug = predicates._slugify_predicate(raw)
+        if raw_slug:
+            runtime = settings.memory_path / predicates.RUNTIME_FILE
+            data = predicates._read_runtime_map(settings.memory_path)
+            syn = {str(k): v for k, v in (data.get("synonyms") or {}).items()}
+            for k in list(syn):
+                if k.strip().lower() in (raw.strip().lower(), raw_slug):
+                    syn.pop(k)
+            canonical = [str(c) for c in (data.get("canonical") or [])]
+            if raw_slug not in canonical:
+                canonical.append(raw_slug)
+            data["synonyms"], data["canonical"] = syn, canonical
+            runtime.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+            extra.append(f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
+            entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+            claim_id = _opt_str(fm.get("claim_id"))
+            if entity_path.exists() and claim_id:
+                entity = markdown_parser.parse(entity_path)
+                try:
+                    claims = parse_claims(entity.body)
+                except MalformedClaimsBlockError:
+                    claims = []
+                hit = False
+                for c in claims:
+                    if c.id == claim_id:
+                        c.predicate = raw_slug
+                        hit = True
+                if hit:
+                    efm = entity.frontmatter
+                    efm["version"] = int(efm.get("version", 1) or 1) + 1
+                    markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
+                    extra.append(f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
+    path.unlink(missing_ok=True)
+    return entity_id, False, extra
 
 
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool]:
