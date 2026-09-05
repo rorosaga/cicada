@@ -100,11 +100,30 @@ final class SleepLivenessTests: XCTestCase {
                        .stale(asOf: then))
     }
 
-    /// R-A12: news stays at full contrast. An error banner is the one thing on
-    /// the page that must not read as "probably out of date".
-    func test_disconnectedWithAnError_staysLive() {
+    /// R-A12: news stays at full contrast. The error meant here is a failed
+    /// **cycle** (`SleepViewModel.lastError`, i.e. `status.error`) — something
+    /// the reader can act on — and it is the one thing on the page that must
+    /// not read as "probably out of date".
+    func test_disconnectedWithAFailedCycle_staysLive() {
         XCTAssertEqual(sleepLiveness(isConnected: false, loadedAt: then, isError: true, now: then),
                        .live)
+    }
+
+    /// The round-1 regression, pinned. A stopped backend makes every `load()`
+    /// fetch fail, which sets `SleepViewModel.errorMessage` — a *transport*
+    /// failure, not news. If that were routed into `isError`, this page would
+    /// report itself `.live` in the exact state liveness exists for, and would
+    /// flip back and forth as fetches succeeded and failed. Only the caller
+    /// can confuse the two, so this test states the contract the call site
+    /// must honour: disconnected + a real `loadedAt` + no cycle failure is
+    /// ALWAYS `.stale`.
+    func test_disconnectedWithOnlyAFailedFetch_isStill_stale() {
+        XCTAssertEqual(sleepLiveness(isConnected: false, loadedAt: then, isError: false, now: then),
+                       .stale(asOf: then))
+        XCTAssertEqual(SleepLiveness.stale(asOf: then).saturation,
+                       SleepLiveness.staleSaturation,
+                       accuracy: 1e-9)
+        XCTAssertNotNil(SleepLiveness.stale(asOf: then).asOf)
     }
 
     /// Nothing has ever loaded, so there is no hour to print. A chip reading

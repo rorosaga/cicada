@@ -94,10 +94,17 @@ enum SleepLiveness: Equatable {
 /// R-A12. Three refusals, in order:
 ///
 /// - Connected → `.live`. Nothing to disclose.
-/// - **An error is on screen → `.live`, even disconnected.** News stays at
-///   full contrast; an error banner desaturated to 85% is a warning
-///   whispered, and the one thing a person opens this page for during a
-///   failure is that banner.
+/// - **A failed CYCLE is on screen → `.live`, even disconnected.** The page is
+///   reporting news the reader can act on, and news at 85% saturation is a
+///   warning whispered. `isError` means `sleepVM.lastError` — `status.error`,
+///   the last cycle's own failure — and **never** the transport failure in
+///   `sleepVM.errorMessage`. Review round 1 caught the confusion: a stopped
+///   backend sets `errorMessage` on every `load()`, so feeding that in made
+///   liveness inert in exactly the case it exists for, and *intermittently* —
+///   the chip appeared until the next fetch failed, then vanished. The error
+///   banner's own contrast is not this function's job: `leftColumn` keeps
+///   `errorBanner` outside every `.saturation` group, so both errors render at
+///   full contrast whatever this returns.
 /// - Nothing has ever loaded → `.live`. There is no hour to print, and a chip
 ///   reading "as of 00:00" would be a fabricated timestamp — the same refusal
 ///   `—` carries everywhere else on this page (P18).
@@ -297,8 +304,12 @@ struct SleepView: View {
 
     /// The one error the page has to tell, if there is one — `lastError`
     /// preferred over the transient `errorMessage`, which is how `leftColumn`
-    /// has always resolved it. Pulled out because liveness needs the same
-    /// answer: an error banner is the R-A12 exemption.
+    /// has always resolved it.
+    ///
+    /// This drives `errorBanner` and nothing else. It is deliberately NOT what
+    /// `liveness` reads: `errorMessage` is a *fetch* failure, which a stopped
+    /// backend raises constantly, so it says "we could not reach it" — the
+    /// same fact the chip is there to state — rather than "a cycle failed".
     private var pageError: String? {
         guard let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty else { return nil }
         return error
@@ -307,12 +318,21 @@ struct SleepView: View {
     /// R-A12. Both domains this page projects are asked for their last
     /// successful refresh; `stalestLoadedAt` takes the older, so the chip
     /// never dates the page by its freshest card.
+    ///
+    /// **`isError` is the CYCLE's error, not the page's** (review round 1).
+    /// `pageError` folds in `sleepVM.errorMessage`, which a stopped backend
+    /// sets on every `load()` — routing that here made a disconnected page
+    /// report itself `.live`, i.e. killed the feature in the one state it was
+    /// built for. `lastError` is `status?.error`: a cycle that actually
+    /// failed, which is real news and stays at full contrast. `pageError`
+    /// keeps its one job — driving `errorBanner`, which `leftColumn` already
+    /// places outside every desaturated group.
     private var liveness: SleepLiveness {
         sleepLiveness(
             isConnected: store.isConnected,
             loadedAt: SleepLiveness.stalestLoadedAt(store.status.loadedAt,
                                                     store.sourcesOverview.loadedAt),
-            isError: pageError != nil
+            isError: sleepVM.lastError != nil
         )
     }
 
@@ -324,6 +344,20 @@ struct SleepView: View {
     /// the error banner sits at full contrast between two dimmed cards. A
     /// group modifier here would be one character shorter and would take the
     /// banner down with it.
+    ///
+    /// `.saturation` is applied UNCONDITIONALLY, at the identity value 1.0
+    /// while live, and that is deliberate (review round 1 asked for a
+    /// conditional). Wrapping it in an `if` produces a `_ConditionalContent`,
+    /// and switching branches is a change of structural identity: SwiftUI
+    /// tears down and rebuilds the subtree, so `StudyListCard`'s
+    /// `@State expandedOrigins` would empty itself every time the connection
+    /// flaps — the reader loses the rows they just opened at the exact moment
+    /// the page is trying to tell them something. That is the same class of
+    /// bug as the `.id()` remounts the View-menu work (G130) was written to
+    /// avoid. The conditional would also not remove the filter from the
+    /// pixel art in the state that matters — a stale page still filters
+    /// `deskCard` either way — so the crispness question is a live-render
+    /// check (it is on the verification list), not a code-shape one.
     @ViewBuilder
     private var leftColumn: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
@@ -496,6 +530,12 @@ struct SleepView: View {
         .background(CicadaTheme.surfaceElevated)
         .clipShape(Capsule())
         .help(Copy.notConnectedExplainer)
+        // Collapse FIRST, then label — the folder's house pattern
+        // (`SleepHero`, `BookPile`, `SleepStageStrip`, `SleepBubble`,
+        // `MemorySourcesCard` all do this). Without it SwiftUI propagates the
+        // container's label to each child and VoiceOver reads the whole
+        // sentence twice, once for the glyph and once for the text.
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(Copy.notConnectedExplainer) \(Copy.asOf(asOf))")
     }
 
