@@ -1273,6 +1273,70 @@ class ScheduleConfig(CamelModel):
         return self
 
 
+# --------------------------------------------------------------------------- #
+# G122 — GET/PUT /sleep/engine: the Settings → Sleep engine & model picker.
+# --------------------------------------------------------------------------- #
+
+
+class SleepEngineCandidate(CamelModel):
+    """One row of the picker's segmented control. Deliberately NOT a reuse of
+    ``ConnectionStatus`` (that schema carries login/billing/price fields no
+    candidate needs, and G124 bans price/token fields from this surface
+    entirely) — a candidate only needs enough to render a segment and, once
+    selected, a model list."""
+    id: str
+    label: str
+    available: bool = False
+    connected: bool = False
+    models: list[str] = Field(default_factory=list)
+    detail: Optional[str] = None
+
+
+class SleepEnginePreview(CamelModel):
+    """What the NEXT cycle would actually run on, for one trigger source.
+    ``engine`` is an ``ENGINE_LABELS`` id (``claude-cli|ollama|litellm``, see
+    ``engine_select.engine_label``), not the picker's ``mode`` — a resolved
+    "auto" or a prefs "byok" both read as "litellm" here, matching what
+    ``sleep_cycle`` itself would stamp as ``last_engine``."""
+    engine: str
+    model: str
+    why: str
+
+
+class SleepEnginePreviews(CamelModel):
+    """Both previews, always both — ruling 4 (a scheduled cycle never spends
+    plan quota) is made VISIBLE here rather than hidden: the picker renders
+    ``manual`` and ``scheduled`` side by side so a prefs-chosen "agent" that
+    silently degrades on the nightly schedule is obvious, never a surprise."""
+    manual: SleepEnginePreview
+    scheduled: SleepEnginePreview
+
+
+class SleepEngineResponse(CamelModel):
+    """The full GET/PUT /sleep/engine body. ``source`` tells the reader WHY
+    ``mode`` is what it is — ``"env"`` (an explicit ``CICADA_LLM_MODE``),
+    ``"prefs"`` (this endpoint's own pref, G122), or ``"default"`` (nobody
+    chose, today's shipped behaviour) — mirroring ``ConnectionStatus.how``'s
+    own "explain the state next to what decided it" shape. No price, no
+    token count, anywhere on this schema (G124)."""
+    mode: str
+    model: str
+    disambiguation_model: str
+    source: str  # "env" | "prefs" | "default"
+    candidates: list[SleepEngineCandidate]
+    preview: SleepEnginePreviews
+
+
+class SleepEngineChoice(CamelModel):
+    """A PUT body. ``model``/``disambiguation_model`` are ``Optional`` so
+    ``sleep_engine_prefs.validate_and_write`` can tell "omitted" from
+    "explicitly cleared" via ``model_fields_set`` — the same idiom
+    ``routers/connections.py::PrefsBody`` already uses for ``tier``."""
+    mode: str
+    model: Optional[str] = None
+    disambiguation_model: Optional[str] = None
+
+
 # --- Conversation Upload ---
 
 

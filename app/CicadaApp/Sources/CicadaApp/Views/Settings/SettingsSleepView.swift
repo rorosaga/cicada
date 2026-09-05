@@ -4,7 +4,7 @@ import SwiftUI
 /// the Sleep cycle runs on its own. This IS settings-shaped configuration
 /// ("visit once, then never again"), matching the pattern the Agents/Plans &
 /// keys tabs already establish — the Sleep page itself only ever points here
-/// (`Copy.changeInSettingsSchedule`, on the study list's footer) rather than
+/// (`Copy.changeInSettingsSleep`, on the study list's footer) rather than
 /// duplicating a second picker.
 ///
 /// Four modes (R6/R7): manual (no auto-run — a `daily`/`interval`/
@@ -16,10 +16,12 @@ import SwiftUI
 /// truth; `enabled` is derived (`mode != "manual"`) and sent for an older
 /// reader (R6).
 ///
-/// Engine selection (which model powers Sleep) already lives in
-/// \(Copy.settingsPlansAndKeys) — the "Use for Sleep" toggle on the Claude
-/// plan's connection card (`ConnectionsView`, G74(a)) — so this tab points
-/// there rather than duplicating it.
+/// Engine selection (G122) is `EngineCard` below — a real mode-and-model
+/// picker over `GET/PUT /sleep/engine`, replacing the pointer this used to
+/// carry to the Claude plan's connection card. The card still coexists with
+/// the "Use for Sleep" toggle on that card (`ConnectionsView`, G74(a)):
+/// `engine_select.py`'s ladder consults the toggle only on the `auto`/`byok`
+/// rungs, one step below the prefs rung this picker writes to.
 struct SettingsSleepView: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @State private var mode: String = "manual"
@@ -36,12 +38,12 @@ struct SettingsSleepView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            PageHeader(title: Copy.schedule, subtitle: Copy.scheduleSubtitle) {}
+            PageHeader(title: Copy.sleepSettings, subtitle: Copy.sleepSettingsSubtitle) {}
 
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     scheduleCard
-                    engineCard
+                    EngineCard()
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, CicadaTheme.spacingXL)
@@ -148,35 +150,6 @@ struct SettingsSleepView: View {
                 .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
-    }
-
-    private var engineCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("ENGINE")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
-            Text("Which model powers Sleep is set on the Claude plan's connection card.")
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-            Text("Change it in \(Copy.settingsPlansAndKeys).")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-            if let engine = sleepVM.status?.lastEngine {
-                Text("Last cycle ran on \(Copy.engineLabel(engine)).")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-            // The toggle this used to point at is gone (R6/R7 replaced it
-            // with the mode picker above) — the Sleep page now only ever
-            // reads the next run, never edits it.
-            Text("The Sleep page shows the next run.")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
     }
 
     private func commitSchedule() {

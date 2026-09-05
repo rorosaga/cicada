@@ -440,3 +440,13 @@ def test_probe_rejects_non_plan_auth_with_the_login_fix():
 def test_probe_reports_a_missing_binary():
     ok, detail = agent_engine.probe(runner=lambda argv, **kw: CliResult(127, "", "not found"))
     assert not ok and "not installed" in detail
+
+
+def test_is_valid_model_id_matches_build_argvs_charset():
+    """G122 — `sleep_engine_prefs` validates a PUT body's model id through
+    this public wrapper rather than reaching into the private `_MODEL_ID_RE`
+    `build_argv` itself enforces (see that function's own docstring)."""
+    for ok in ("sonnet", "claude-sonnet-5", "ollama/llama3.1:8b"):
+        assert agent_engine.is_valid_model_id(ok), ok
+    for bad in ("", "-oops", "rm -rf"):
+        assert not agent_engine.is_valid_model_id(bad), bad

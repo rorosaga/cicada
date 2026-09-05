@@ -116,10 +116,17 @@ G115 Phase 1 landed. Everything about *what to do next and why* now lives in one
 > are not failures, the rails, how to start / resume / land a Workflow track, and the paused queue with
 > the reasoning for its order.
 
-The queue there, in order: **G129 slice 2** (bookmark deletions — item 0, small) → **G125**
-(Sleep as the study desk) → **G122** (engine/model picker) → **G117** (first-run onboarding) → **G126**
-(Integrations page) → **G118 slice 2** (the provenance viewer) → **G93** (cross-stream ask). Then the
-bigger rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a build.
+The queue there, in order: **G129 slice 2** (bookmark deletions — in flight on
+`feat/bookmark-deletions`) → **G117** (first-run onboarding) → **G118 slice 2** (the provenance
+viewer) → **G93** (cross-stream ask). Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**,
+**G76**, and **G127** as a decision, not a build. Shipped 2026-09-05 and no longer queued: G125
+(PR #55), G113 slices 3–7 (PR #59), G122 + the G126 page (Track C, PR #TBD).
+
+**Track C (G122 engine/model picker + G126 Integrations page) shipped** on `feat/settings-redesign`
+(PR #TBD) — a `GET/PUT /sleep/engine` prefs-first endpoint, the five-section Settings sidebar, the
+Sleep section's `EngineCard`, and the Integrations page over the existing channel registry. G126's
+adapter rows (Strava, Todoist/Reminders, YouTube subscriptions, Garmin/Apple Health) stay queued —
+see the G126 backlog row and `working-method.md` §3.
 
 Owner-present checks still unticked, none blocking: the mascot visual pass in light and dark, the G109
 graph eyeball at fit-zoom, the G124 and G115 checks in the paragraphs above, and the README screenshots

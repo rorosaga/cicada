@@ -24,26 +24,33 @@ enum Copy {
     static let agents = "Agents"
     static let feed = "Feed"
     static let sources = "Sources"
-    /// The Settings scene's third tab (G106 amendment) — the schedule
-    /// editor moved out of the Sleep page proper. Named "Schedule", not
-    /// "Sleep", so a reader is never asked to tell it apart from the
-    /// sidebar's own "Sleep" row by context alone.
-    static let schedule = "Schedule"
+    /// The Settings sidebar's Sleep section (Track C: the four-tab `TabView`
+    /// became a five-section `NavigationSplitView`). Named "Sleep", matching
+    /// the main sidebar's own row — the old "Schedule" name predates the
+    /// section holding the schedule editor AND the G122 engine picker, and
+    /// "Schedule" undersold the latter.
+    static let sleepSettings = "Sleep"
+    /// The Settings sidebar's Integrations section (G126) — every connected
+    /// app in one categorized, logo-first page over the existing channel
+    /// registry.
+    static let integrations = "Integrations"
 
     /// The canonical way to send someone to the connections settings. Built
     /// from the parts above so a rename can never desync the two halves.
     static let settingsPlansAndKeys = "\(settings) → \(plansAndKeys)"
-    /// Ditto, for the new Schedule tab.
-    static let settingsSchedule = "\(settings) → \(schedule)"
+    /// Ditto, for the Sleep section.
+    static let settingsSleep = "\(settings) → \(sleepSettings)"
     /// Ditto, for the General tab (G130).
     static let settingsGeneral = "\(settings) → \(general)"
+    /// Ditto, for the Integrations section (G126).
+    static let settingsIntegrations = "\(settings) → \(integrations)"
 
     /// The study list's footer line (G125) when `ScheduleConfig.mode` is
     /// `"manual"` — there is no next run to name, only the button.
     static let nextRunManual = "Manual only"
     /// The study list's pointer to where the schedule itself is edited —
-    /// built from `settingsSchedule` so a rename can't desync the two halves.
-    static let changeInSettingsSchedule = "Change in \(settingsSchedule)"
+    /// built from `settingsSleep` so a rename can't desync the two halves.
+    static let changeInSettingsSleep = "Change in \(settingsSleep)"
 
     // MARK: Shared action verbs
     //
@@ -123,8 +130,13 @@ enum Copy {
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."
     static let sourcesSubtitle = "Where your memory comes from, and who wrote it."
-    static let scheduleSubtitle = "When Sleep runs on its own, and what powers it."
+    /// Rewritten off "Schedule" (which said "Sleep" freely) — the title
+    /// above this is now literally "Sleep", and `CopyConstantsTests`'s
+    /// `testSubtitlesAreShortAndDoNotRepeatTheirTitle` bans a subtitle that
+    /// repeats its own title.
+    static let sleepSettingsSubtitle = "Who runs the nightly cycle, and when."
     static let generalSubtitle = "Appearance and text size."
+    static let integrationsSubtitle = "Every app connected to Cicada, in one place."
 
     // MARK: Pointers
 

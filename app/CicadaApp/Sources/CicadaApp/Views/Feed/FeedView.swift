@@ -7,6 +7,10 @@ import SwiftUI
 struct FeedView: View {
     @Binding var selectedTab: AppTab
     @Environment(FeedViewModel.self) private var viewModel
+    /// G126 R9 — Settings → Integrations' "Import in Feed →" hand-off. The
+    /// router carries a one-shot tile across the sidebar-to-Feed boundary
+    /// without either view importing the other.
+    @Environment(AppRouter.self) private var router
     @State private var showUploadOverlay = false
     @State private var showAddSheet = false
     @State private var sheetTile: AddSourceTile?
@@ -94,6 +98,18 @@ struct FeedView: View {
         .sheet(isPresented: $showAddSheet) {
             AddSourceSheet(initialTile: sheetTile) { showAddSheet = false }
         }
+        // A hand-off can arrive either while Feed is already on screen
+        // (`onChange`) or right as it appears after `AppRouter` just
+        // switched the tab (`onAppear`) — both call the same consumer, and
+        // `consumeAddSource()`'s read-then-clear means a second firing for
+        // the same hand-off is always a no-op.
+        .onAppear { consumePendingAddSource() }
+        .onChange(of: router.pendingAddSource) { _, _ in consumePendingAddSource() }
+    }
+
+    private func consumePendingAddSource() {
+        guard let tile = router.consumeAddSource() else { return }
+        openSheet(tile)
     }
 
     private var header: some View {

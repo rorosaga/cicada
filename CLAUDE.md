@@ -439,9 +439,25 @@ no `$`/token columns, no cost-per-day chart. The `/consumption/*` endpoints and 
 unchanged for future use.
 
 **Navigation.** Six sidebar rows (⌘1–6): Graph, Clusters, Feed, Sleep, Inbox, Sources. Setup lives
-in a native `Settings{}` scene (⌘,). ⌘K opens the Ask panel. `AppTab` raw values are the persisted
-identity of a tab, and `AppTab.restored(from:)` maps retired ones onto the pages that inherited
-them, so an older selection never traps.
+in a native `Settings{}` scene (⌘,), a `NavigationSplitView` over five sections — General · Sleep ·
+Integrations · Agents · Plans & keys (`SettingsSection`, replacing the earlier four-tab `TabView`).
+⌘K opens the Ask panel. `AppTab` raw values are the persisted identity of a tab, and
+`AppTab.restored(from:)` maps retired ones onto the pages that inherited them, so an older selection
+never traps.
+
+**Settings → Sleep: the engine picker (G122).** A segmented picker over the connections registry's
+candidates (Claude plan, Ollama, a BYOK key; Codex stays permanently `available: false` — G49's
+half of the ladder) writes `PUT /sleep/engine`, which lands in the same bank-independent
+`~/.cicada/connections.json` prefs `use_for_sleep` already uses, never `api/.env`. The card shows
+both `preview.manual` and `preview.scheduled` lines rather than hiding **ruling 4** (a scheduled
+cycle never spends plan quota) — the asymmetry stays visible, not silently applied.
+
+**Settings → Integrations (G126).** A categorized, logo-first page over the existing
+`GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
+*standing* connection (sign in once, polled on the Sleep tail, disconnect here) lives in
+Integrations; a *one-shot* import (drop an export, sync a folder once) stays where it already was,
+behind the Feed's `+`. Both read the same `channel_registry`, so a channel never drifts between the
+two surfaces.
 
 **Sleep page — the study desk (G125).** The bookworm sits at a desk: a speech bubble
 (`sleepBubbleText`, clock-free per R8 — the line is a pure function of state and counts, never the

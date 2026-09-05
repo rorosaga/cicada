@@ -21,6 +21,9 @@ struct ContentView: View {
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(ConnectionsViewModel.self) private var connectionsVM
+    /// G126 R9 — consumes a Settings → Integrations "Import in Feed →"
+    /// hand-off by switching the sidebar's own selection.
+    @Environment(AppRouter.self) private var router
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -82,6 +85,15 @@ struct ContentView: View {
                 .buttonStyle(.cicadaPlain)
                 .frame(width: 0, height: 0)
                 .opacity(0)
+        }
+        // G126 R9 — Integrations lives in the `Settings{}` scene, a
+        // separate window from this one, so it cannot just flip
+        // `selectedTab` itself; it stages a tab on the shared `AppRouter`
+        // instead and this view is the one that actually switches.
+        .onChange(of: router.pendingTab) { _, newTab in
+            guard let newTab else { return }
+            withAnimation(.spring(duration: 0.25)) { selectedTab = newTab }
+            router.pendingTab = nil
         }
         .sheet(isPresented: $showAskPanel) {
             // G123: a citation lands ON its node — the graph zooms to that

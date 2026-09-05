@@ -241,6 +241,14 @@ def response_shim(envelope: dict, requested_model: str) -> _D:
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:-]*$")
 
 
+def is_valid_model_id(model: str) -> bool:
+    """Public wrapper around ``_MODEL_ID_RE`` — the same charset ``build_argv``
+    enforces before any subprocess spawns, exposed so `sleep_engine_prefs`
+    (G122's PUT /sleep/engine validation) can check a model id without
+    reaching into a private module-level name."""
+    return bool(model) and bool(_MODEL_ID_RE.match(model))
+
+
 def build_argv(
     *,
     model: str,
