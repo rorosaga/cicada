@@ -39,6 +39,33 @@ final class ThemeScaleTests: XCTestCase {
         XCTAssertEqual(CicadaTheme.bodyFont, Font.system(size: 13, weight: .regular))
     }
 
+    // MARK: - Chrome that has to scale with it (round-2 live check)
+
+    /// The sidebar's minimum width was a bare `180`: ⌘+ grew the rows' font
+    /// while their box stayed put, and at 1.4× "Inbox" wrapped to "Inbo / x".
+    /// A width that ignores `uiScale` is the same bug slice 1b removed for
+    /// every `.system(size:)` literal, so it goes through the same helper.
+    func test_the_sidebar_minimum_width_scales_with_uiScale() {
+        CicadaTheme.uiScale = 1.0
+        XCTAssertEqual(CicadaTheme.scaled(SidebarView.minWidth), SidebarView.minWidth,
+                       "at 1.0 the sidebar must be exactly as wide as it has always been")
+
+        CicadaTheme.uiScale = 1.4
+        XCTAssertEqual(CicadaTheme.scaled(SidebarView.minWidth), 252)
+    }
+
+    /// It grows at every step, never at only the extremes — the label wraps at
+    /// whichever zoom the box stops keeping up.
+    func test_the_sidebar_minimum_width_grows_at_every_zoom_step() {
+        var previous: CGFloat = 0
+        for scale in [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] {
+            CicadaTheme.uiScale = scale
+            let width = CicadaTheme.scaled(SidebarView.minWidth)
+            XCTAssertGreaterThan(width, previous, "the sidebar did not grow at \(scale)×")
+            previous = width
+        }
+    }
+
     // MARK: - Observation (the PR #49 mechanism, applied to scale)
 
     func test_reading_a_font_token_subscribes_the_reader_to_uiScale() {

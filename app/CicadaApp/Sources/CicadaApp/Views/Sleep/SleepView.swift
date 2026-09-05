@@ -733,37 +733,36 @@ struct SleepView: View {
         .glassCard()
     }
 
-    /// The IDLE explainer, and only that: the Rested % breakdown —
-    /// "explainable, not a black box" (spec).
+    /// The one thing the hero's meter CANNOT say: that there is no baseline
+    /// at all.
     ///
-    /// G125 v3 Task 5 (R-A8) deleted this function's running branch. It used
-    /// to draw `Text("Stage \(stage) of 5")`, a bare linear `ProgressView`
-    /// over `sleepVM.progressFraction` and `Text("Stage 1: \(progress)%")` —
-    /// a bar that moved in five jumps, a percentage with no noun, and a stage
-    /// number with no idea what that stage does. `SleepStageStrip` says all
-    /// three things at once and says which stage is which, so the running
-    /// readout is now the strip plus the hero's `Read n of m` meter.
+    /// G125 v3 Task 5 (R-A8) deleted this function's running branch — the
+    /// `Text("Stage \(stage) of 5")` and the bare `ProgressView` the stage
+    /// strip replaced. The round-2 live check deleted its idle branch for the
+    /// same reason one step further on: it drew `Rested n% — volume v%, age
+    /// a%` directly under a hero meter already labelled `Rested n%`, so **the
+    /// same number was on screen twice** (R-A5 — one number, one place). The
+    /// volume/age split did not vanish with it: it is the meter label's hover
+    /// text now (`heroMeterHelp`), which is where a breakdown belongs.
     ///
-    /// The `.sleeping` guard survives as an explicit empty branch rather than
-    /// falling through to the Rested line: Rested % is what the queue looks
-    /// like BETWEEN cycles, and showing it mid-cycle would put a stale
-    /// baseline next to a live one.
+    /// What is left is the branch the meter has no way to draw. `heroMeter`
+    /// returns `nil` when `restedPct` is nil, so without this line a bank
+    /// where Sleep has never run would show nothing at all where the meter
+    /// sits — and silence reads as "fine", which is the opposite of the truth.
+    ///
+    /// The `.sleeping` guard survives as an explicit empty branch: a baseline
+    /// is what the queue looks like BETWEEN cycles, so mid-cycle it would sit
+    /// stale next to a live readout.
     @ViewBuilder
     private func moodDetailLine(mood: BookwormState, debt: SleepDebtView?) -> some View {
         if case .sleeping = mood {
             EmptyView()
-        } else if let debt {
-            if let rested = debt.restedPct {
-                Text("Rested \(rested)% — volume \(debt.volumePct)%, age \(debt.agePct)%")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            } else {
-                // No baseline: the queue is empty and Sleep has never run in
-                // this bank — an honest state, not a fabricated 100%.
-                Text("No baseline yet — Sleep hasn't run in this bank.")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
+        } else if let debt, debt.restedPct == nil {
+            // No baseline: the queue is empty and Sleep has never run in
+            // this bank — an honest state, not a fabricated 100%.
+            Text("No baseline yet — Sleep hasn't run in this bank.")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
         }
     }
 

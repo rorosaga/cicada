@@ -158,6 +158,24 @@ func heroMeter(mood: BookwormState, debt: SleepDebtView?, read: Int, total: Int)
     return .rested(pct: pct)
 }
 
+/// The breakdown behind `Rested n%` — hover text on the meter's label, and
+/// `nil` (no tooltip at all) for everything else.
+///
+/// Round-2 live check, R-A5: the page drew `Rested n%` in the hero's labelled
+/// meter AND again two rows below it as `Rested n% — volume v%, age a%`. One
+/// number on screen twice is exactly what this page refuses; the duplicate
+/// line is gone and its one piece of extra information — which of the two
+/// ratios the backend combined is doing the work — moved here, where a
+/// breakdown belongs.
+///
+/// `.reading` gets nothing: `Read a of b` already shows both of its numbers,
+/// so there is nothing left to explain, and inventing a tooltip for it would
+/// put a second meaning on the same hover.
+func heroMeterHelp(_ meter: HeroMeter, debt: SleepDebtView?) -> String? {
+    guard case .rested = meter, let debt else { return nil }
+    return Copy.restedBreakdown(volumePct: debt.volumePct, agePct: debt.agePct)
+}
+
 // MARK: - The three tiles (R-A6)
 
 /// One hero tile: a measured value and the noun that says what it counts.
@@ -285,11 +303,17 @@ struct SleepHeroView: View {
     /// noun is a bare percentage, which is the thing this page refuses to
     /// show. `heroMeter` returning `nil` is what hides the whole group; there
     /// is no path that draws the blocks alone.
+    ///
+    /// The label is also the only place the Rested breakdown lives now
+    /// (`heroMeterHelp`): the volume/age split is one hover away instead of a
+    /// second copy of `Rested n%` printed under the stage strip. An empty help
+    /// string renders no tooltip, the same way `tilesRow` spells "no reason".
     private func meterView(_ meter: HeroMeter) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             Text(meter.label)
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
+                .help(heroMeterHelp(meter, debt: debt) ?? "")
             HStack(spacing: 3) {
                 ForEach(0..<HeroMeter.blockCount, id: \.self) { index in
                     RoundedRectangle(cornerRadius: 1.5)
@@ -300,7 +324,14 @@ struct SleepHeroView: View {
             .animation(SleepMotion.settle(reduceMotion: reduceMotion), value: meter.filledBlocks)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(meter.label)
+        // A tooltip is sighted-only, and the breakdown it carries is the same
+        // sentence the deleted line used to read out loud. It joins the label
+        // here so VoiceOver keeps hearing it (R-A15: every mark has a text
+        // twin) rather than losing it with the duplicate.
+        .accessibilityLabel(
+            [meter.label, heroMeterHelp(meter, debt: debt)]
+                .compactMap { $0 }
+                .joined(separator: " — "))
     }
 
     // MARK: The three tiles

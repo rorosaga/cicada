@@ -58,6 +58,18 @@ struct SidebarView: View {
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     private var colorScheme: AppColorScheme { AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }
 
+    /// The sidebar's minimum content width **at `uiScale == 1.0`** — the value
+    /// this frame has always carried, now stated once so a test can assert it
+    /// scales (G130 slice 1a: one persisted `uiScale` behind every token).
+    ///
+    /// Round-2 live check: the frame was a bare `180`, so ⌘+ grew the row's
+    /// font while its box stayed put and "Inbox" wrapped to "Inbo / x" at
+    /// 1.4×. Chrome that ignores the zoom is exactly what slice 1b went
+    /// through `Sources/` to remove for fonts; a width is the other half of
+    /// the same bug. `CicadaTheme.scaled` is the one helper, so this reader
+    /// repaints on a zoom like every other.
+    static let minWidth: CGFloat = 180
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             // No section labels. Six rows do not need to be grouped into five
@@ -85,7 +97,7 @@ struct SidebarView: View {
             .padding(.bottom, CicadaTheme.spacingMD)
         }
         .padding(.top, CicadaTheme.spacingXL)
-        .frame(minWidth: 180)
+        .frame(minWidth: CicadaTheme.scaled(Self.minWidth))
         .background(CicadaTheme.background)
     }
 

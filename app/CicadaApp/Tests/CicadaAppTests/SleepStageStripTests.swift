@@ -141,6 +141,39 @@ final class SleepStageStripTests: XCTestCase {
         XCTAssertEqual(StagePip.failed.accessibilityWord, "failed")
     }
 
+    // MARK: - The icons' size (round-2 live check, G130 R6)
+
+    /// The icons were requested at 32 pt and read as grey smudges on the light
+    /// theme; the request is 40 now. What a test can hold is not the number a
+    /// designer picked but the rule it has to pass through: **every zoom step
+    /// lands on a whole number of 16×16 cells**, so no icon is ever resampled
+    /// (G130 R6, the same snap `BookwormView` does). A literal frame size
+    /// would satisfy neither.
+    func test_theStageIconLandsOnAWholeNumberOfCellsAtEveryZoomStep() {
+        for scale in [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] {
+            let pt = PixelRenderer.snappedPointSize(SleepStageStrip.iconPointSize * scale,
+                                                    gridSize: StageIconSprites.size)
+            XCTAssertEqual(pt.truncatingRemainder(dividingBy: CGFloat(StageIconSprites.size)), 0,
+                           "at \(scale)× the icon is \(pt) pt — not a whole number of cells")
+            XCTAssertGreaterThanOrEqual(pt, CGFloat(StageIconSprites.size),
+                                        "at \(scale)× the icon fell below one device point per cell")
+        }
+    }
+
+    /// The two zooms the live check named, pinned as numbers: 1.0 snaps 40 up
+    /// to 48 (three points per cell) and 1.4 snaps 56 up to 64 (four). Both
+    /// are larger than the 32 that was too small — a later edit that quietly
+    /// shrinks the request fails here rather than on someone's screen.
+    func test_theStageIconIsBiggerThanItWasAtBothEndsOfTheZoomRange() {
+        let snap = { (scale: Double) in
+            PixelRenderer.snappedPointSize(SleepStageStrip.iconPointSize * scale,
+                                           gridSize: StageIconSprites.size)
+        }
+        XCTAssertEqual(snap(1.0), 48)
+        XCTAssertEqual(snap(1.4), 64)
+        XCTAssertGreaterThan(snap(1.0), 32)
+    }
+
     // MARK: - The caught-up worm
 
     /// R-A8's right end: the `.happy` worm shows only when there is nothing to
