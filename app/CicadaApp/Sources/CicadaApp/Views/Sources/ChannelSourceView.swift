@@ -80,7 +80,9 @@ struct ChannelSourceView: View {
                     actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
                 }
             }
-            if let detail = channel.detail {
+            // R-S5 — the count no longer arrives pre-formatted inside
+            // `detail`; one composer puts it back in the reader's locale.
+            if let detail = ChannelDetailLine.text(channel) {
                 Text(detail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
             }
             if let error = channel.lastError, !error.isEmpty {

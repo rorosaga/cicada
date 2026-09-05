@@ -16,18 +16,34 @@ struct SourceChannel: Codable, Identifiable, Hashable {
     /// G71 — the last poll's failure, when there was one. Present so a tile can
     /// say "needs attention" instead of showing a stale success.
     let lastError: String?
+    /// R-S5 — the SINGULAR noun `count` counts ("bookmark", "saved item"), or
+    /// nil when this channel's state has nothing to count. The server used to
+    /// bake `f"{n:,} bookmarks"` into `detail`; that printed the SERVER's
+    /// `en_US` grouping to a reader whose system says "1.035" (critique B1),
+    /// so the number and its unit now cross the wire apart and
+    /// `ChannelDetailLine.text` composes them in the reader's locale.
+    /// Pluralised with `+ "s"` — every noun the registry ships is regular, and
+    /// `test_channel_detail_numbers.py` is what keeps that true.
+    let countNoun: String?
+    /// True only for a connector's "items pulled THIS run", which is not a
+    /// channel total — rendered "+N nouns this sync".
+    let countIsDelta: Bool
     let actions: [String]
 
     enum CodingKeys: String, CodingKey {
-        case id, label, connected, count, lastSync, detail, lastError, actions
+        case id, label, connected, count, lastSync, detail, lastError
+        case countNoun, countIsDelta, actions
     }
 
     init(id: String, label: String, connected: Bool = false, count: Int = 0,
          lastSync: String? = nil, detail: String? = nil, lastError: String? = nil,
+         countNoun: String? = nil, countIsDelta: Bool = false,
          actions: [String] = []) {
         self.id = id; self.label = label; self.connected = connected
         self.count = count; self.lastSync = lastSync; self.detail = detail
-        self.lastError = lastError; self.actions = actions
+        self.lastError = lastError
+        self.countNoun = countNoun; self.countIsDelta = countIsDelta
+        self.actions = actions
     }
 
     init(from decoder: Decoder) throws {
@@ -39,6 +55,10 @@ struct SourceChannel: Codable, Identifiable, Hashable {
         lastSync = try c.decodeIfPresent(String.self, forKey: .lastSync)
         detail = try c.decodeIfPresent(String.self, forKey: .detail)
         lastError = try c.decodeIfPresent(String.self, forKey: .lastError)
+        // Optional-with-default: an older backend omits both, and its
+        // already-formatted `detail` then renders unchanged.
+        countNoun = try c.decodeIfPresent(String.self, forKey: .countNoun)
+        countIsDelta = try c.decodeIfPresent(Bool.self, forKey: .countIsDelta) ?? false
         actions = try c.decodeIfPresent([String].self, forKey: .actions) ?? []
     }
 
