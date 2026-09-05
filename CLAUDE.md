@@ -433,6 +433,12 @@ in a native `Settings{}` scene (⌘,). ⌘K opens the Ask panel. `AppTab` raw va
 identity of a tab, and `AppTab.restored(from:)` maps retired ones onto the pages that inherited
 them, so an older selection never traps.
 
+**View menu (G130 slice 1a).** ⌘+ / ⌘− / ⌘0 scale the whole chrome — one persisted `uiScale` behind
+every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the
+PR #49 lesson repeated). The graph canvas keeps its own zoom; ⌘+/⌘− means chrome, not canvas, same
+as a browser's page zoom vs. a map widget's. `Settings` gains a *General* tab (Appearance + a Text
+size slider) alongside Agents, Plans & keys and Schedule.
+
 ---
 
 ## API Design

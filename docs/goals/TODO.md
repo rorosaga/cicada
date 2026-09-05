@@ -154,7 +154,12 @@ Recommended, decay through the question component, the G98 informational rule
 **App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·
 G62 capture redesign · G63 connections clarity · G64 import walkthroughs · G67 commit-diff views ·
-G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars · G107 pixel mascot + single menu-bar Tamagotchi
+G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars ·
+G107 pixel mascot + single menu-bar Tamagotchi · **G130 slice 1a app-wide zoom (2026-09-05,
+PR #TBD)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
+(⌘=/⌘−/⌘0, plus a ⌘⇧= key monitor), a Settings *General* tab with a text-size slider; the graph
+canvas keeps its own zoom (slice 2 stays open on a measured need; slice 1b, the literal-font
+migration + lint, is its own follow-up)
 
 **Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
 trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote

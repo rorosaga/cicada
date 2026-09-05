@@ -37,9 +37,41 @@ final class ThemeStore {
 
     var mode: AppColorScheme
 
+    /// The key `uiScale` persists under (G130).
+    static let scaleKey = "cicada.uiScale"
+    /// R1: one scale, clamped to a floor/ceiling a scaled layout can't clip
+    /// past (R7's fixed frames get the benefit of the doubt up to 1.4).
+    static let scaleRange: ClosedRange<Double> = 0.8...1.4
+    /// R1: ⌘+/⌘− move in steps, not a continuous drag — only the Settings
+    /// slider (Task 2) offers anything finer, and even that snaps here.
+    static let scaleStep = 0.1
+
+    var uiScale: Double
+
     init(defaults: UserDefaults = .standard) {
         let raw = defaults.string(forKey: Self.defaultsKey)
         mode = raw.flatMap(AppColorScheme.init(rawValue:)) ?? .dark
+
+        // `defaults.double(forKey:)` returns exactly 0 both when the key is
+        // absent (fresh install) and when it holds a non-numeric value (a
+        // hand-edited plist). 0 is outside scaleRange, so running it through
+        // clampScale first would silently clamp every fresh install to the
+        // FLOOR (0.8) instead of today's layout (1.0) — the zero-check must
+        // happen BEFORE clampScale. A real stored value still goes through
+        // clampScale so a hand-edited plist can't smuggle an out-of-range or
+        // off-step scale past the setter's guard.
+        let storedScale = defaults.double(forKey: Self.scaleKey)
+        uiScale = storedScale == 0 ? 1.0 : ThemeStore.clampScale(storedScale)
+    }
+
+    /// Snaps to the nearest 0.1 step, then clamps to `scaleRange` — the same
+    /// multiply-by-10/round/divide-by-10 trick `CicadaTheme.scaled(_:)` uses,
+    /// so float noise from repeated +/- 0.1 (e.g. `0.1 + 0.2 ==
+    /// 0.30000000000000004`) never leaves a value that reads as "not on a
+    /// step" to a test's `==` or to `resetZoom`'s callers.
+    static func clampScale(_ value: Double) -> Double {
+        let stepped = (value * 10).rounded() / 10
+        return min(max(stepped, scaleRange.lowerBound), scaleRange.upperBound)
     }
 }
 
@@ -148,20 +180,76 @@ enum CicadaTheme {
         }
     }
 
-    // MARK: - Typography
-    static let titleFont = Font.system(size: 20, weight: .semibold)
-    static let headingFont = Font.system(size: 16, weight: .medium)
-    static let bodyFont = Font.system(size: 13, weight: .regular)
-    static let captionFont = Font.system(size: 11, weight: .regular)
-    static let monoFont = Font.system(size: 12, weight: .regular, design: .monospaced)
+    // MARK: - Zoom (G130: one persisted uiScale behind every theme token)
+    /// Active app-wide scale. Stored in `ThemeStore`, same `@Observable`
+    /// mechanism as `mode` (see its doc comment) — reading any font or
+    /// spacing token below inside a SwiftUI `body` subscribes that view to
+    /// this value, so ⌘+/⌘−/⌘0 repaint the whole tree with no `.id()`
+    /// anywhere (the PR #49 lesson) and no call site touched (R2).
+    static var uiScale: Double {
+        get { ThemeStore.shared.uiScale }
+        set {
+            // clampScale is applied HERE, not by callers — zoomIn/zoomOut do
+            // plain float arithmetic on the current value and rely on this
+            // setter to snap it back onto a step and inside range (R1: "0.1 +
+            // 0.2 arithmetic never drifts"), and the Settings slider's
+            // Binding can hand this raw drag values between steps.
+            let clamped = ThemeStore.clampScale(newValue)
+            // R4: idempotent, and never called from a body — only commands,
+            // the key monitor and the Settings slider write it. Skipping a
+            // redundant write also skips the redundant UserDefaults sync.
+            guard ThemeStore.shared.uiScale != clamped else { return }
+            ThemeStore.shared.uiScale = clamped
+            UserDefaults.standard.set(clamped, forKey: ThemeStore.scaleKey)
+        }
+    }
 
-    // MARK: - Spacing
-    static let spacingXS: CGFloat = 4
-    static let spacingSM: CGFloat = 8
-    static let spacingMD: CGFloat = 12
-    static let spacingLG: CGFloat = 16
-    static let spacingXL: CGFloat = 24
-    static let spacingXXL: CGFloat = 32
+    static func zoomIn() { uiScale = ThemeStore.shared.uiScale + ThemeStore.scaleStep }
+    static func zoomOut() { uiScale = ThemeStore.shared.uiScale - ThemeStore.scaleStep }
+    static func resetZoom() { uiScale = 1.0 }
+
+    // MARK: - Typography (G130: derived from `uiScale`, so ⌘+/⌘− reach every reader)
+    private static var scale: CGFloat { CGFloat(uiScale) }
+
+    /// `pt * scale`, rounded to one decimal so accumulated float noise never
+    /// makes a token drift off a value a snapshot test or a layout constant
+    /// expects. `1.0` is today's layout exactly: `scaled(x) == x` (R1).
+    static func scaled(_ pt: CGFloat) -> CGFloat { (pt * scale * 10).rounded() / 10 }
+
+    /// Replaces every literal `.system(size:)` / `Font.system(size:)` call in
+    /// `Sources/` (R3, migrated in a follow-up track) so a scaled font is one
+    /// call away instead of a hand-rolled `.system(size: CicadaTheme.scaled(N))`
+    /// at each of ~322 sites.
+    ///
+    /// **Measured quirk:** `Font.system(size:weight:)` (2-arg) and
+    /// `Font.system(size:weight:design:)` (3-arg, even passed `.default`
+    /// explicitly) are NOT `==` to each other despite rendering identically —
+    /// verified with a standalone script, not assumed. Every pre-G130 literal
+    /// in this file used the 2-arg form except `monoFont`. Branching on
+    /// `design == .default` reproduces the 2-arg call for those tokens so
+    /// `scaled(x) == x` at `uiScale == 1.0` (R1) means the SAME `Font` value
+    /// today's layout used, not merely a visually-identical one a `==` test
+    /// can't actually observe.
+    static func font(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+        let resolved = scaled(size)
+        return design == .default
+            ? .system(size: resolved, weight: weight)
+            : .system(size: resolved, weight: weight, design: design)
+    }
+
+    static var titleFont: Font { font(size: 20, weight: .semibold) }
+    static var headingFont: Font { font(size: 16, weight: .medium) }
+    static var bodyFont: Font { font(size: 13) }
+    static var captionFont: Font { font(size: 11) }
+    static var monoFont: Font { font(size: 12, design: .monospaced) }
+
+    // MARK: - Spacing (G130: derived from `uiScale` — the 551 call sites are untouched, R2)
+    static var spacingXS: CGFloat { scaled(4) }
+    static var spacingSM: CGFloat { scaled(8) }
+    static var spacingMD: CGFloat { scaled(12) }
+    static var spacingLG: CGFloat { scaled(16) }
+    static var spacingXL: CGFloat { scaled(24) }
+    static var spacingXXL: CGFloat { scaled(32) }
 
     // MARK: - Corner Radius
     static let cornerRadius: CGFloat = 12

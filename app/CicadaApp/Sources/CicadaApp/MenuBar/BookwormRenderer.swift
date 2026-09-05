@@ -9,6 +9,16 @@ import AppKit
 enum BookwormRenderer {
     static let gridSize = BookwormSprites.size
 
+    /// Snaps a scaled point size back onto a multiple of 24 (G130 R6): pages
+    /// request sizes like 96 · `CicadaTheme.uiScale`, and a fractional
+    /// multiple would leave a sprite cell a fractional point AND change the
+    /// `Int(pointSize)` cache key on every frame instead of once per zoom
+    /// step. Floors at one whole cell (24) rather than 0, which a very small
+    /// `pointSize` would otherwise round down to.
+    static func snappedPointSize(_ pointSize: CGFloat) -> CGFloat {
+        max(24, 24 * (pointSize / 24).rounded())
+    }
+
     private static let colors: [Character: NSColor] = BookwormPalette.colors.mapValues { hex in
         NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
                 green: CGFloat((hex >> 8) & 0xFF) / 255,
