@@ -227,7 +227,7 @@ gaps fixed alongside (`install.sh`'s `-s user`, the README `/sleep/trigger` bear
 chosen). **Open remainder:** the onboarding *interview* (G54); entity-merge-across-identity-change
 (R3's disclosed gap).
 
-**Track V in-app video (2026-09-05, `feat/video-renderer`)** — G11's preview half generalized past
+**Track V in-app video (2026-09-05, PR #63, `feat/video-renderer`)** — G11's preview half generalized past
 YouTube. One URL→video classification table written twice (`api/services/video_urls.py` +
 `Views/Common/VideoRef.swift`) and pinned by one fixture (`api/tests/fixtures/video_urls.json`), so
 YouTube (incl. `/live/<id>` and `playlist?list=`), Vimeo, TikTok and Loom play in the provider's own
