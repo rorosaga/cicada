@@ -137,6 +137,18 @@ enum Copy {
         count == 1 ? "source feeding it" : "sources feeding it"
     }
 
+    /// What `Rested n%` is made of, on hover over the meter's label
+    /// (round-2 live check). The backend combines two ratios into one
+    /// percentage — how full the queue is by volume, and how far its oldest
+    /// unread episode has aged — and this is the only place either is spelled
+    /// out now that the duplicate line under the stage strip is gone: the
+    /// hero's meter already draws `Rested n%`, and drawing the same number
+    /// again two rows below it was the R-A5 violation the live check found.
+    /// Both percentages name their noun, as everything on this page must.
+    static func restedBreakdown(volumePct: Int, agePct: Int) -> String {
+        "Volume \(volumePct)% · age \(agePct)% of the way to a full backlog"
+    }
+
     static let lastCycle = "Last cycle"
 
     /// R-A14/P18 — every `—` on this page carries a hover reason naming why

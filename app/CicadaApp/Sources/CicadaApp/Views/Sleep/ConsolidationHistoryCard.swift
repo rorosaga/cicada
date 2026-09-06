@@ -44,9 +44,48 @@ enum SleepHistoryPresentation {
     /// would be a fabricated zero standing in for an unknown.
     static func summaryLine(_ e: SleepHistoryEntry) -> String {
         if e.kind == "decay" { return "decay pass" }
-        let written = "+\(e.entitiesCreated) new · \(e.entitiesUpdated) updated"
-        guard e.episodes > 0 else { return written }
-        return "\(e.episodes) episode\(e.episodes == 1 ? "" : "s") → \(written)"
+        guard let read = readPhrase(e) else { return writtenPhrase(e) }
+        return "\(read) → \(writtenPhrase(e))"
+    }
+
+    /// What the cycle WROTE. Always present — a real cycle that created and
+    /// updated nothing still says so, since `0` here is a measurement, not the
+    /// absent count `episodes` can be.
+    private static func writtenPhrase(_ e: SleepHistoryEntry) -> String {
+        "+\(e.entitiesCreated) new · \(e.entitiesUpdated) updated"
+    }
+
+    /// What the cycle READ, or `nil` when there is no count to state (P18):
+    /// `episodes` decodes to its default zero on an older backend, a cached
+    /// snapshot or an inbox commit, and "0 episodes →" would be a fabricated
+    /// zero standing in for an unknown.
+    private static func readPhrase(_ e: SleepHistoryEntry) -> String? {
+        guard e.episodes > 0 else { return nil }
+        return "\(e.episodes) episode\(e.episodes == 1 ? "" : "s")"
+    }
+
+    /// The headline as the LINES it should be drawn on — the round-2 live
+    /// check's second finding.
+    ///
+    /// The row's headline was one `.lineLimit(1)` line, and in the right
+    /// column (about a third of the page above 1000 pt, and no wider at 1.4×
+    /// zoom while the text grows with it) it truncated mid-word:
+    /// "18 episodes → +5 new · 929 updat…". The counts are the whole content
+    /// of the row, so an ellipsis eats exactly what it exists to report
+    /// (R-A11), and a truncated number is a worse dash than `—` (R-A14).
+    ///
+    /// The compact form breaks at the arrow — what the cycle read on the first
+    /// line, what it wrote on the second — rather than letting the wrap land
+    /// wherever the glyphs happen to run out. The arrow stays on the first
+    /// line as the "continues below" cue.
+    ///
+    /// Two rows have nothing to break and get one line at any width: a decay
+    /// commit ("decay pass" — arithmetic, not extraction) and a cycle with no
+    /// episode count, whose whole headline is already the written half. A
+    /// caller that draws these never gets an empty second line.
+    static func headlineLines(_ e: SleepHistoryEntry, compact: Bool) -> [String] {
+        guard compact, e.kind != "decay", let read = readPhrase(e) else { return [summaryLine(e)] }
+        return ["\(read) →", writtenPhrase(e)]
     }
 
     /// The row's badge slot (G125 v3 Task 7): which engine ran the cycle, and
@@ -194,10 +233,7 @@ struct ConsolidationHistoryCard: View {
                 .frame(width: 58, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(SleepHistoryPresentation.summaryLine(entry))
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.textPrimary)
-                        .lineLimit(1)
+                    headline(entry, isDecay: isDecay)
                     enginePill(entry, isDecay: isDecay)
                 }
 
@@ -213,6 +249,40 @@ struct ConsolidationHistoryCard: View {
         }
         .buttonStyle(.cicadaPlain)
         .accessibilityLabel(Self.rowAccessibilityLabel(entry))
+    }
+
+    /// The row's counts, on one line where they fit and on two where they do
+    /// not — never truncated (round-2 live check; R-A11/R-A14).
+    ///
+    /// `ViewThatFits` does the measuring rather than a width plumbed down from
+    /// `SleepView`: the thing that decides is the text's own rendered width,
+    /// which moves with `uiScale` (⌘+ grows the glyphs while the right column
+    /// keeps its share of the page) and with the reader's window. A pure
+    /// `headlineLines(entry:compact:)` still owns the WORDING of both
+    /// candidates, so what the row can say is asserted in a table test and
+    /// only which of the two is drawn depends on the layout.
+    private func headline(_ entry: SleepHistoryEntry, isDecay: Bool) -> some View {
+        ViewThatFits(in: .horizontal) {
+            headlineText(SleepHistoryPresentation.headlineLines(entry, compact: false), isDecay: isDecay)
+            headlineText(SleepHistoryPresentation.headlineLines(entry, compact: true), isDecay: isDecay)
+        }
+    }
+
+    /// Each line may still wrap to two of its own at an extreme zoom — the
+    /// last candidate `ViewThatFits` is handed is used whether or not it fits,
+    /// so this is what stands between a very narrow column and a clipped
+    /// count. `fixedSize(horizontal: false, vertical: true)` is what lets the
+    /// wrapped line claim the height it needs inside the row's `HStack`.
+    private func headlineText(_ lines: [String], isDecay: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(lines, id: \.self) { line in
+                Text(line)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.textPrimary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     /// Everything the row draws, in words — the pill and the `—` are both

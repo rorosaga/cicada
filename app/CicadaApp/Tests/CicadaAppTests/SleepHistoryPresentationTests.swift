@@ -79,6 +79,72 @@ final class SleepHistoryPresentationTests: XCTestCase {
                        "decay pass")
     }
 
+    // MARK: headlineLines — the row never truncates a count (round-2 live check)
+
+    /// The table: what each kind of row says at each width. The live check
+    /// caught "18 episodes → +5 new · 929 updat…" in the right column, which
+    /// is the row losing precisely the counts it exists to report (R-A11), so
+    /// the compact form breaks at the arrow instead of at whichever glyph the
+    /// column runs out on.
+    func testHeadlineLinesTable() throws {
+        let cases: [(name: String, entry: SleepHistoryEntry, wide: [String], compact: [String])] = [
+            ("a real cycle",
+             try entry(created: 5, updated: 929, episodes: 18),
+             ["18 episodes → +5 new · 929 updated"],
+             ["18 episodes →", "+5 new · 929 updated"]),
+            ("one episode, singular either way",
+             try entry(created: 3, updated: 0, episodes: 1),
+             ["1 episode → +3 new · 0 updated"],
+             ["1 episode →", "+3 new · 0 updated"]),
+            // Nothing to break: the written half IS the whole headline.
+            ("no episode count recorded",
+             try entry(created: 12, updated: 8),
+             ["+12 new · 8 updated"],
+             ["+12 new · 8 updated"]),
+            // G85 — arithmetic, not extraction, and two words at any width.
+            ("a decay pass",
+             try entry(kind: "decay", updated: 5, episodes: 3),
+             ["decay pass"],
+             ["decay pass"]),
+        ]
+        for c in cases {
+            XCTAssertEqual(SleepHistoryPresentation.headlineLines(c.entry, compact: false), c.wide, c.name)
+            XCTAssertEqual(SleepHistoryPresentation.headlineLines(c.entry, compact: true), c.compact, c.name)
+        }
+    }
+
+    /// The wide form IS `summaryLine` — one wording, so the row, the
+    /// VoiceOver sentence (`rowAccessibilityLabel`) and this helper can never
+    /// describe the same commit differently.
+    func testTheWideHeadlineIsTheSummaryLine() throws {
+        for e in [try entry(created: 5, updated: 929, episodes: 18),
+                  try entry(created: 12, updated: 8),
+                  try entry(kind: "decay", updated: 5)] {
+            XCTAssertEqual(SleepHistoryPresentation.headlineLines(e, compact: false),
+                           [SleepHistoryPresentation.summaryLine(e)])
+        }
+    }
+
+    /// Whatever the width, every number the row knows survives into the text —
+    /// the property the `.lineLimit(1)` truncation broke. Never an empty line
+    /// either: a blank second row would read as a missing value.
+    func testNoCountIsLostAtEitherWidth() throws {
+        for e in [try entry(created: 5, updated: 929, episodes: 18),
+                  try entry(created: 0, updated: 0, episodes: 1),
+                  try entry(created: 12, updated: 8)] {
+            for compact in [false, true] {
+                let lines = SleepHistoryPresentation.headlineLines(e, compact: compact)
+                XCTAssertFalse(lines.contains { $0.isEmpty }, "an empty line reads as a missing value")
+                let joined = lines.joined(separator: " ")
+                XCTAssertTrue(joined.contains("+\(e.entitiesCreated) new"), joined)
+                XCTAssertTrue(joined.contains("\(e.entitiesUpdated) updated"), joined)
+                if e.episodes > 0 {
+                    XCTAssertTrue(joined.contains("\(e.episodes) episode"), joined)
+                }
+            }
+        }
+    }
+
     // MARK: enginePill
 
     /// The row's badge slot: which engine ran the cycle, and who authored the
