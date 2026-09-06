@@ -148,22 +148,14 @@ struct LogoImage: View {
     /// without one, so a dark-mode caller can never be gated out of a mark it
     /// actually ships.
     ///
-    /// **The empty-name guard is load-bearing.** Foundation resolves an EMPTY
-    /// resource name to the FIRST matching file in the directory — measured
-    /// against the built bundle, `url(forResource: "", withExtension: "png",
-    /// subdirectory: "Resources/logos")` returns `rss.png`. Three call sites
-    /// pass `logoName ?? ""` because R6 makes them take the tile whenever
-    /// EITHER rung exists (`ConnectedChannelRow.rowIcon`,
-    /// `IntegrationsView.mark`, `MemberMark`), so a channel that has only the
-    /// installed-app rung — Safari, Apple Notes, whose PNGs R2 forbids — would
-    /// fall through to the PNG rung on a Mac where that app is absent and draw
-    /// an unrelated brand mark instead of its SF Symbol. One guard here fixes
-    /// every caller: this is the single lookup that answers "is there a mark".
+    /// The empty-name guard that three `logoName ?? ""` call sites depend on
+    /// (`ConnectedChannelRow.rowIcon`, `IntegrationsView.mark`, `MemberMark`,
+    /// all taking the tile whenever EITHER rung exists per R6) now lives in
+    /// `Bundle.cicadaResource`, which is also what makes this lookup answer
+    /// the same in a `swift test` bundle and in a shipped `Cicada.app` — read
+    /// its docstring before changing the subdirectory here.
     static func exists(name: String) -> Bool {
-        guard !name.isEmpty else { return false }
-        return Bundle.cicadaResources.url(
-            forResource: name, withExtension: "png", subdirectory: "Resources/logos"
-        ) != nil
+        Bundle.cicadaResources.cicadaResource(name, ext: "png", in: "logos") != nil
     }
 
     // MARK: - Bundled cache
@@ -183,9 +175,8 @@ struct LogoImage: View {
         guard let file = resolvedName(for: name) else { return nil }
         if let cached = await MainActor.run(body: { cache[file] }) { return cached }
         let loaded = await Task.detached(priority: .utility) {
-            guard let url = Bundle.cicadaResources.url(
-                forResource: file, withExtension: "png", subdirectory: "Resources/logos"
-            ) else { return nil as NSImage? }
+            guard let url = Bundle.cicadaResources.cicadaResource(file, ext: "png", in: "logos")
+            else { return nil as NSImage? }
             return NSImage(contentsOf: url)
         }.value
         if let loaded { await MainActor.run { cache[file] = loaded } }

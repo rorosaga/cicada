@@ -198,8 +198,10 @@ struct WalkthroughPanel: View {
     }
 
     static func videoURL(for vendor: WalkthroughVendor) -> URL? {
-        Bundle.cicadaResources.url(forResource: vendor.videoName, withExtension: "mp4",
-                          subdirectory: "Resources/walkthroughs")
+        // Same both-layouts rule as the marks (`Bundle.cicadaResource`): the
+        // `Resources/` prefix this used to carry resolves only in the flat
+        // SwiftPM bundle, never in the re-nested one a built Cicada.app ships.
+        Bundle.cicadaResources.cicadaResource(vendor.videoName, ext: "mp4", in: "walkthroughs")
     }
 }
 
