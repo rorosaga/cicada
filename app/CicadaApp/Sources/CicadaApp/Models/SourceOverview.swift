@@ -166,19 +166,54 @@ struct SourceOverview: Codable, Identifiable, Hashable {
     /// all are zero — a row of zeroes reads as a broken card.
     var countLines: [String] {
         var lines: [String] = []
-        switch kind {
-        case .harness where conversations > 0:
-            lines.append(Self.plural(conversations, "conversation"))
-        case .browser, .social:
-            if items > 0 { lines.append(Self.plural(items, "item")) }
-        case .feed:
-            if episodes > 0 { lines.append(Self.plural(episodes, "capture")) }
-            else if items > 0 { lines.append(Self.plural(items, "subscription")) }
-        default:
-            if episodes > 0 { lines.append(Self.plural(episodes, "capture")) }
+        if let headline {
+            // A5 — the harness case used to be `case .harness where
+            // conversations > 0`, and a failing `where` falls THROUGH to
+            // `default:`, which prints episodes as "captures". So a harness row
+            // whose conversations never resolved rendered "1 capture" beside
+            // "1 conversation" under one CHAT & AGENTS header — the unit
+            // changed silently. The unit is now the kind's own, always, and the
+            // sentence says why the number is a capture instead.
+            let phrase = Self.plural(headline.count, headline.noun)
+            lines.append(kind == .harness && conversations == 0
+                         ? phrase + " (no session recorded)"
+                         : phrase)
         }
         if entities > 0 { lines.append(Self.plural(entities, "entity", "entities")) }
         return lines.isEmpty ? ["Nothing yet"] : lines
+    }
+
+    /// The tile's big number and its unit as a **pair**, not a sentence
+    /// (R-S19).
+    ///
+    /// `countLines` is the accessibility label and the detail page's prose;
+    /// the card sets the number and the noun in different fonts on the
+    /// sparkline's baseline, so it needs the two halves apart. Both read the
+    /// SAME switch — one fact, two renderings, so a tile and its spoken label
+    /// can never disagree about what a source has captured.
+    ///
+    /// It is the FIRST count line's pair, never the entity line's: entities are
+    /// what a source *credited* (G124 R3 — `source_episodes` only), a second
+    /// fact that belongs in the sentence and not in the headline.
+    ///
+    /// `nil` when there is nothing to count — the card prints "Nothing yet"
+    /// rather than a zero, because a row of zeroes reads as a broken card.
+    var headline: (count: Int, noun: String)? {
+        switch kind {
+        case .harness:
+            if conversations > 0 { return (conversations, "conversation") }
+            return episodes > 0 ? (episodes, "capture") : nil
+        case .browser, .social:
+            return items > 0 ? (items, "item") : nil
+        case .feed:
+            // R1: RSS episodes carry no origin today, so a feed with no
+            // captures counts the subscriptions its channel reports (`items`
+            // IS the subscription count — `channel_registry._subscription_channel`).
+            if episodes > 0 { return (episodes, "capture") }
+            return items > 0 ? (items, "subscription") : nil
+        default:
+            return episodes > 0 ? (episodes, "capture") : nil
+        }
     }
 
     private static func plural(_ n: Int, _ one: String, _ many: String? = nil) -> String {

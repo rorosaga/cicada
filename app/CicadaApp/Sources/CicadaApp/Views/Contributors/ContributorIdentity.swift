@@ -21,11 +21,36 @@ enum ContributorIdentity {
     /// fallback keys on when an older backend ships no `kind` at all.
     static let systemAuthor = "cicada"
 
-    /// What the row calls this contributor. Every author but the system one is
-    /// its own id: a model id is the honest name of the thing that wrote, and
-    /// prettifying it would hide which build actually ran.
+    /// What the row calls this contributor. A **model** id is still its own
+    /// honest name — prettifying it would hide which build actually ran — but
+    /// the three buckets the app can name are named (R-S13, critique E1):
+    /// `cicada` is system maintenance, `user` is the person holding the
+    /// keyboard, and `unknown` is a legacy untrailered commit from before
+    /// `Cicada-Author:` existed. Rendering those as the raw ids "user" and
+    /// "unknown" made the strip say a stranger wrote the bank.
+    ///
+    /// One function, not two: a second `stripName(...)` beside this one would
+    /// let the chip strip and the drill-down disagree about who wrote what.
     static func displayName(author: String, kind: String?) -> String {
-        kind == "system" || author == systemAuthor ? "Cicada · maintenance" : author
+        if kind == "system" || author == systemAuthor { return "Cicada · maintenance" }
+        if kind == "user" || author == "user" { return Copy.you }
+        if kind == "unknown" || author == "unknown" { return "Before provenance" }
+        return author
+    }
+
+    /// Which bucket a contributor falls in, preferring the backend-derived
+    /// `kind` and falling back to the author string.
+    ///
+    /// Lifted out of the old `ContributorRow` (R-S6) because the strip, the
+    /// avatar and the summary sentence all need the same answer: `cicada`
+    /// against a backend that predates `kind` must classify as system, not as
+    /// a model wearing the grey "?" (R-L6).
+    static func kind(of contributor: Contributor) -> String {
+        if let k = contributor.kind, !k.isEmpty { return k }
+        if contributor.author == "user" { return "user" }
+        if contributor.author == systemAuthor { return "system" }
+        if contributor.author == "unknown" { return "unknown" }
+        return "model"
     }
 
     /// The bundled logo for a provider, or nil when the provider has no mark

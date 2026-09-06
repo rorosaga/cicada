@@ -48,6 +48,40 @@ final class SourcesPageTests: XCTestCase {
         XCTAssertEqual(calendar.countLines, ["7 captures", "2 entities"], "captures win when the origin IS stamped")
     }
 
+    /// A5 — a harness card must never print "capture" under a CHAT & AGENTS
+    /// header. The old `case .harness where conversations > 0` fell through to
+    /// `default:` when the guard failed, silently changing the unit, so
+    /// "Other agents · 1 capture" sat beside "Codex · 1 conversation" under one
+    /// header. The harness case is now unconditional and says WHY the number
+    /// is a capture rather than quietly renaming the unit.
+    func testAHarnessWithNoSessionsStillCountsInItsOwnUnit() {
+        let ghost = SourceOverview(id: "harness:unknown", label: "Other agents", kind: .harness,
+                                   conversations: 0, episodes: 1, entities: 0)
+        XCTAssertEqual(ghost.countLines, ["1 capture (no session recorded)"])
+        XCTAssertEqual(ghost.headline?.count, 1)
+        XCTAssertEqual(ghost.headline?.noun, "capture")
+    }
+
+    /// R-S19 — the tile needs the number and its unit separately (different
+    /// fonts, right-aligned on the sparkline's baseline), and the two must be
+    /// the same fact `countLines` states in a sentence.
+    func testHeadlineIsThePairBehindTheFirstCountLine() {
+        let browser = SourceOverview(id: "safari-bookmarks", label: "Safari", kind: .browser,
+                                     entities: 2, items: 412)
+        XCTAssertEqual(browser.headline?.count, 412)
+        XCTAssertEqual(browser.headline?.noun, "item")
+        let rss = SourceOverview(id: "rss", label: "RSS", kind: .feed, items: 3)
+        XCTAssertEqual(rss.headline?.noun, "subscription")
+        XCTAssertNil(SourceOverview(id: "rss", label: "RSS", kind: .feed).headline,
+                     "a row with nothing to count has no headline — the card says \"Nothing yet\"")
+        // The headline is the FIRST count line's pair, never the entity line's:
+        // a browser's tile shows 412 items, not 2 entities.
+        let harness = SourceOverview(id: "harness:claude-code", label: "Claude Code", kind: .harness,
+                                     conversations: 3, episodes: 9, entities: 5)
+        XCTAssertEqual(harness.headline?.count, 3)
+        XCTAssertEqual(harness.headline?.noun, "conversation")
+    }
+
     func testTitleFilterIsCaseInsensitiveAndKeepsOrder() {
         let rows = [
             ConversationSummary(conversationId: "a", title: "Index choice"),
@@ -144,11 +178,14 @@ final class SourcesPageTests: XCTestCase {
                      "a harness row has no channel actions at all")
     }
 
+    /// R-S4 — the spoken label leads with the SAME brand the card prints, not
+    /// the catalog's long `label` ("Safari bookmarks"). VoiceOver and the eye
+    /// must name a source identically, or the page has two names for one row.
     func testCardAccessibilityLabelAppendsTheStateTitleOnlyWhenALightIsShown() {
         let row = SourceOverview(id: "safari-bookmarks", label: "Safari bookmarks", kind: .browser, items: 3)
-        XCTAssertEqual(SourceCard.accessibilityLabel(for: row, watchState: nil), "Safari bookmarks, 3 items")
-        XCTAssertEqual(SourceCard.accessibilityLabel(for: row, watchState: .watching), "Safari bookmarks, 3 items, Watching")
-        XCTAssertEqual(SourceCard.accessibilityLabel(for: row, watchState: .blocked), "Safari bookmarks, 3 items, Can't read")
+        XCTAssertEqual(SourceCard.accessibilityLabel(for: row, watchState: nil), "Safari, 3 items")
+        XCTAssertEqual(SourceCard.accessibilityLabel(for: row, watchState: .watching), "Safari, 3 items, Watching")
+        XCTAssertEqual(SourceCard.accessibilityLabel(for: row, watchState: .blocked), "Safari, 3 items, Can't read")
     }
 
     // MARK: - Track D: per-source blurb

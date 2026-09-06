@@ -1786,6 +1786,21 @@ class SourceChannel(CamelModel):
     # from an exception type + message only.
     last_error: Optional[str] = None
     detail: Optional[str] = None
+    # R-S5 — the count no longer rides pre-formatted inside `detail`. The
+    # registry baked `f"{n:,}"` into the line and the app printed it verbatim,
+    # so a server-side `en_US` grouping sat beside the app's own locale-correct
+    # one in a single window (critique B1). `count_noun` is the SINGULAR noun
+    # ("bookmark", "saved item"); the client pluralises with `+ "s"` — every
+    # noun the registry and its adapters ship is regular, pinned by
+    # `test_channel_detail_numbers.py::test_every_shipped_noun_pluralises_by_adding_s`.
+    # `None` means this branch has nothing to count, which is what makes
+    # "0 pins · Last sync failed" unrepresentable rather than merely unlikely.
+    count_noun: Optional[str] = None
+    # True only for a connector's "items pulled THIS run"
+    # (`channel_registry._connector_channel`), which is not a channel total —
+    # the client renders it "+N nouns this sync", the words the server used to
+    # bake in itself.
+    count_is_delta: bool = False
     actions: list[str] = []
 
 

@@ -120,7 +120,9 @@ struct ConnectedChannelRow: View {
                             }
                         }
                             .lineLimit(1)
-                        if let detail = channel.detail {
+                        // R-S5 — `detail` no longer carries the count; the
+                        // composer adds it back in the reader's locale.
+                        if let detail = ChannelDetailLine.text(channel) {
                             Text(detail)
                                 .font(CicadaTheme.captionFont)
                                 .foregroundStyle(CicadaTheme.textSecondary)
@@ -132,7 +134,10 @@ struct ConnectedChannelRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.cicadaPlain)
-            .accessibilityLabel(channel.detail.map { "\(channel.label). \($0)" } ?? channel.label)
+            // The same composed line VoiceOver would otherwise miss: the
+            // count lives outside `detail` since R-S5.
+            .accessibilityLabel(ChannelDetailLine.text(channel)
+                .map { "\(channel.label). \($0)" } ?? channel.label)
 
             Image(systemName: "chevron.right")
                 .font(CicadaTheme.font(size: 10, weight: .semibold))

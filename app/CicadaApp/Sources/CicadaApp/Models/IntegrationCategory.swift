@@ -82,7 +82,12 @@ enum IntegrationHarnessRows {
 /// language, so this composes connected-state, a relative last-sync time,
 /// the count and the error into one consistent sentence instead of six.
 enum IntegrationRowState {
-    static func line(_ channel: SourceChannel, now: Date = Date()) -> String {
+    /// R-S5 — `locale:` is a parameter, defaulted, for the same reason
+    /// `UsageFormat.count` takes one: this line and the Sources grid render the
+    /// same channel's count one tab apart, and a test has to be able to assert
+    /// that they group identically without asserting the tester's own Mac.
+    static func line(_ channel: SourceChannel, now: Date = Date(),
+                     locale: Locale = .autoupdatingCurrent) -> String {
         guard channel.connected else { return "Not connected" }
 
         var parts: [String] = []
@@ -92,7 +97,14 @@ enum IntegrationRowState {
             parts.append(fmt.localizedString(for: date, relativeTo: now))
         }
         if channel.count > 0 {
-            parts.append("\(channel.count) item\(channel.count == 1 ? "" : "s")")
+            // R-S5 — this was a bare `\(channel.count)`, which in a
+            // `LocalizedStringKey` grouped in the viewer's locale and in a
+            // plain `String` did not group at all. It is a `parts.append`, not
+            // a `Text("`, so `CountLiteralLintTests`' needle cannot see it —
+            // `SourcesV2Tests.testTheIntegrationsRowCountsInTheSameFormatterAsTheGrid`
+            // is what holds it instead.
+            let n = UsageFormat.count(channel.count, locale: locale)
+            parts.append("\(n) item\(channel.count == 1 ? "" : "s")")
         }
         var line = parts.isEmpty ? "Connected" : parts.joined(separator: " · ")
         if let error = channel.lastError {

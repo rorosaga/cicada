@@ -80,7 +80,9 @@ struct ChannelSourceView: View {
                     actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
                 }
             }
-            if let detail = channel.detail {
+            // R-S5 — the count no longer arrives pre-formatted inside
+            // `detail`; one composer puts it back in the reader's locale.
+            if let detail = ChannelDetailLine.text(channel) {
                 Text(detail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
             }
             if let error = channel.lastError, !error.isEmpty {
@@ -119,7 +121,7 @@ struct ChannelSourceView: View {
     /// `InboxCardView` for the identical open items.
     private var deletionsSection: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("Removed from \(source.label)")
+            Text("Removed from \(source.label)")  // count-lint:ok — a source name, not a count
                 .font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
             VStack(spacing: CicadaTheme.spacingSM) {
                 ForEach(removals) { item in
@@ -145,7 +147,7 @@ struct ChannelSourceView: View {
                 .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             FlowLayout(spacing: 6) {
                 ForEach(groups, id: \.folder) { g in
-                    Text("\(g.folder) · \(g.count)")
+                    Text("\(g.folder) · \(UsageFormat.count(g.count))")
                         .font(CicadaTheme.font(size: 11)).padding(.horizontal, 8).padding(.vertical, 3)
                         .background(CicadaTheme.surfaceHover).clipShape(Capsule())
                 }

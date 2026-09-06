@@ -49,8 +49,15 @@ _NON_CONNECTOR_TAIL = (
 CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 
 
-def _plural(n: int, singular: str, plural: str | None = None) -> str:
-    return f"{n:,} {singular if n == 1 else (plural or singular + 's')}"
+# R-S5 — there is deliberately no `_plural` here any more. It baked
+# `f"{n:,}"` into every `detail` line and the app printed that verbatim, so a
+# server-side `en_US` grouping ("1,035") sat in the same window as the app's
+# own locale-correct one ("1.035" for a Spanish reader) — critique B1. The
+# count now rides `count` + `count_noun` (the SINGULAR noun) + `count_is_delta`
+# and `ChannelDetailLine.text` composes the line client-side, which is the only
+# place that knows the reader's locale. `detail` keeps its non-numeric clauses
+# only; a branch with nothing to count ships `count_noun: None`, so
+# "0 pins · Last sync failed" is unrepresentable rather than merely unlikely.
 
 
 def _short_date(iso: str | None) -> str:
@@ -70,8 +77,7 @@ def _subscription_channel(
     last = _latest([r.get("last_polled") for r in records if isinstance(r, dict)])
     detail = None
     if count:
-        when = f"polled {_short_date(last)}" if last else "not polled yet"
-        detail = f"{_plural(count, noun)} · {when}"
+        detail = f"polled {_short_date(last)}" if last else "not polled yet"
     return {
         "id": channel_id,
         "label": label,
@@ -79,6 +85,10 @@ def _subscription_channel(
         "count": count,
         "last_sync": last,
         "detail": detail,
+        "count_noun": noun if count else None,
+        # Every branch ships both keys, so a consumer never has to tell an
+        # absent flag from a false one; only `_connector_channel` sets it True.
+        "count_is_delta": False,
         "actions": ["poll", "manage"],
     }
 
@@ -96,7 +106,7 @@ def _sync_channel(
     last = entry.get("last_sync") or None
     count = int(entry.get("count") or 0)
     connected = bool(last)
-    detail = f"{_plural(count, noun)} · synced {_short_date(last)}" if connected else None
+    detail = f"synced {_short_date(last)}" if connected else None
     return {
         "id": channel_id,
         "label": label,
@@ -104,6 +114,9 @@ def _sync_channel(
         "count": count,
         "last_sync": last,
         "detail": detail,
+        # A running total, unlike a connector's per-run delta below.
+        "count_noun": noun if connected else None,
+        "count_is_delta": False,
         "actions": ["sync"],
     }
 
@@ -142,6 +155,8 @@ def _connector_channel(
 
     show_error = bool(error) and (not skip_reason or error_at >= skip_at)
 
+    count_noun: str | None = None
+    count_is_delta = False
     if show_error:
         detail = f"Last sync failed · {error}"
     elif skip_reason:
@@ -151,7 +166,11 @@ def _connector_channel(
         # channel total (unlike `_sync_channel`'s bookmarks/notes rows, which
         # really do report a running total) — "+N {noun} this sync" says so,
         # instead of implying "N {noun} exist" the way a bare count read.
-        detail = f"+{_plural(count, noun)} this sync · synced {_short_date(last)}"
+        # R-S5: those words moved to the client with the number itself;
+        # `count_is_delta` is what carries their meaning across the wire, and
+        # it is true in this branch ONLY.
+        detail = f"synced {_short_date(last)}"
+        count_noun, count_is_delta = noun, True
     elif connected:
         detail = "Connected · not synced yet"
     else:
@@ -168,6 +187,8 @@ def _connector_channel(
         "last_sync": last,
         "last_error": error,
         "detail": detail,
+        "count_noun": count_noun,
+        "count_is_delta": count_is_delta,
         "actions": ["sync", "disconnect"] if connected else ["connect"],
     }
 
@@ -178,7 +199,7 @@ def _origin_channel(
     stat = by_origin.get(origin) or {}
     count = int(stat.get("episodeCount") or 0)
     last = stat.get("lastSeen") or None
-    detail = f"{_plural(count, noun)} · imported {_short_date(last)}" if count else None
+    detail = f"imported {_short_date(last)}" if count else None
     return {
         "id": channel_id,
         "label": label,
@@ -186,6 +207,8 @@ def _origin_channel(
         "count": count,
         "last_sync": last,
         "detail": detail,
+        "count_noun": noun if count else None,
+        "count_is_delta": False,
         "actions": ["import"],
     }
 
@@ -236,8 +259,15 @@ def build_channels(
             "connected": bool(telegram_enabled),
             "count": telegram_count,
             "last_sync": (by_origin.get("telegram") or {}).get("lastSeen") or None,
-            "detail": (f"Bot configured · {_plural(telegram_count, 'capture')}"
-                       if telegram_enabled else None),
+            "detail": "Bot configured" if telegram_enabled else None,
+            # R-S5 reorders this one line — the client composes
+            # "<count phrase> · <detail>", so a configured bot with captures
+            # now reads "1 capture · Bot configured" rather than the reverse.
+            # A configured bot with NOTHING captured yet ships no noun at all
+            # (rather than the old "· 0 captures"): same rule as a failed poll
+            # — a branch with nothing to count says nothing about a count.
+            "count_noun": "capture" if telegram_enabled and telegram_count else None,
+            "count_is_delta": False,
             "actions": [],
         },
         "files": {
@@ -246,7 +276,11 @@ def build_channels(
             "connected": saved_count > 0,
             "count": saved_count,
             "last_sync": None,
-            "detail": _plural(saved_count, "saved item") if saved_count else None,
+            # The whole line was the count, so nothing non-numeric is left:
+            # `detail` is None and the client renders the phrase alone.
+            "detail": None,
+            "count_noun": "saved item" if saved_count else None,
+            "count_is_delta": False,
             "actions": ["import"],
         },
     }

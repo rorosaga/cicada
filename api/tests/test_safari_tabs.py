@@ -316,7 +316,11 @@ def test_endpoint_sync_is_idempotent_and_lights_the_channel(tmp_path, monkeypatc
     channels = {c["id"]: c for c in client.get("/sources/channels").json()["channels"]}
     assert channels["safari-tabs"]["connected"] is True
     assert channels["safari-tabs"]["count"] == 2
-    assert channels["safari-tabs"]["detail"].startswith("2 tabs · synced ")
+    # R-S5: the count left `detail` — it rides `countNoun` (singular, camel
+    # on the wire) and the client composes "2 tabs · synced …".
+    assert channels["safari-tabs"]["countNoun"] == "tab"
+    assert channels["safari-tabs"]["countIsDelta"] is False
+    assert channels["safari-tabs"]["detail"].startswith("synced ")
 
 
 def test_endpoint_rejects_bad_base64_and_non_db(tmp_path, monkeypatch):

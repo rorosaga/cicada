@@ -45,12 +45,12 @@ struct ConversationRow: View {
                     // until engine calls carry session refs (G49), so this
                     // badge is deliberately dormant rather than removed.
                     if let model = conversation.model, !model.isEmpty { badge(model) }
-                    Text("\(conversation.episodeCount) episode"
+                    Text("\(UsageFormat.count(conversation.episodeCount)) episode"
                          + (conversation.episodeCount == 1 ? "" : "s"))
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                     if conversation.entityCount > 0 {
-                        badge("\(conversation.entityCount) entit"
+                        badge("\(UsageFormat.count(conversation.entityCount)) entit"
                               + (conversation.entityCount == 1 ? "y" : "ies"))
                     }
                     if let relative = relativeLastSeen {
@@ -98,14 +98,14 @@ struct ConversationRow: View {
                 ForEach(plan.ids, id: \.self) { entityChip($0) }
                 // Deliberately NOT a button: there is no id behind it to open.
                 if plan.hidden > 0 {
-                    Text("+\(plan.hidden) more")
+                    Text("+\(UsageFormat.count(plan.hidden)) more")
                         .font(CicadaTheme.font(size: 11))
                         .lineLimit(1)
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(CicadaTheme.surfaceHover)
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .clipShape(Capsule())
-                        .accessibilityLabel("\(plan.hidden) more entities, not shown")
+                        .accessibilityLabel("\(UsageFormat.count(plan.hidden)) more entities, not shown")
                 }
             }
         }

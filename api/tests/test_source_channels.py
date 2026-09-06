@@ -73,7 +73,8 @@ def test_rss_channel_connected_when_a_feed_is_subscribed(tmp_path):
     assert ch["count"] == 1
     assert ch["label"] == "RSS feeds"
     assert ch["actions"] == ["poll", "manage"]
-    assert "1 feed" in ch["detail"]
+    assert (ch["count"], ch["count_noun"]) == (1, "feed")
+    assert ch["detail"] == "not polled yet", "R-S5: the count left the line"
 
 
 def test_calendar_channel_disconnected_with_empty_registry(tmp_path):
@@ -95,7 +96,8 @@ def test_bookmarks_and_notes_channels_read_sync_state(tmp_path):
         assert row["connected"] is True
         assert row["count"] == 412
         assert row["last_sync"] == "2026-08-29T10:00:00Z"
-        assert row["detail"].startswith("412 bookmarks")
+        assert row["count_noun"] == "bookmark" and row["count_is_delta"] is False
+        assert row["detail"] == "synced 2026-08-29", "R-S5: the count left the line"
         assert row["actions"] == ["sync"]
     assert chans["notes"]["connected"] is False
 
@@ -122,7 +124,8 @@ def test_telegram_channel_follows_the_env_flag_and_counts_episodes(tmp_path):
     ch = _channels(tmp_path, telegram_enabled=True)["telegram"]
     assert ch["connected"] is True
     assert ch["count"] == 1
-    assert ch["detail"] == "Bot configured · 1 capture"
+    assert ch["count_noun"] == "capture"
+    assert ch["detail"] == "Bot configured", "R-S5: the count left the line"
     assert ch["actions"] == []
 
 
@@ -167,8 +170,8 @@ def test_connector_channel_reports_a_successful_sync(tmp_path):
     sync_state.record_sync(tmp_path, "pinterest", count=42, at="2026-08-30T10:00:00Z")
     ch = _channels(tmp_path, connectors_connected={"pinterest": True})["pinterest"]
     assert ch["count"] == 42
-    assert "42 pins" in ch["detail"]
-    assert "2026-08-30" in ch["detail"]
+    assert ch["count_noun"] == "pin" and ch["count_is_delta"] is True
+    assert ch["detail"] == "synced 2026-08-30"
     assert ch["last_error"] is None
 
 
@@ -176,8 +179,8 @@ def test_reddit_channel_reports_a_successful_sync(tmp_path):
     sync_state.record_sync(tmp_path, "reddit", count=42, at="2026-08-30T10:00:00Z")
     ch = _channels(tmp_path, connectors_connected={"reddit": True})["reddit"]
     assert ch["count"] == 42
-    assert "42 saved items" in ch["detail"]
-    assert "2026-08-30" in ch["detail"]
+    assert ch["count_noun"] == "saved item" and ch["count_is_delta"] is True
+    assert ch["detail"] == "synced 2026-08-30"
     assert ch["last_error"] is None
 
 
@@ -221,8 +224,8 @@ def test_x_channel_reports_a_successful_sync_with_the_cost_note(tmp_path):
     sync_state.record_sync(tmp_path, "x", count=17, at="2026-08-30T10:00:00Z")
     ch = _channels(tmp_path, connectors_connected={"x": True})["x"]
     assert ch["count"] == 17
-    assert "17 bookmarks" in ch["detail"]
-    assert "2026-08-30" in ch["detail"]
+    assert ch["count_noun"] == "bookmark" and ch["count_is_delta"] is True
+    assert ch["detail"].startswith("synced 2026-08-30")
     assert ch["detail"].endswith(x_connector.PRICE_NOTE)
     assert ch["last_error"] is None
 
@@ -261,6 +264,28 @@ def test_channels_etag_covers_connector_connectedness(client, monkeypatch):
     assert resp.status_code == 200, "connecting Pinterest must break the ETag"
 
 
+def test_channels_etag_recipe_is_unchanged_by_the_two_new_fields(client):
+    """ETag ship-together: `count_noun` and `count_is_delta` (R-S5) are derived
+    from the same registries and sync_state the recipe already names, so the
+    recipe must NOT move and no `VersionVector.mapping` change is owed. Pinned
+    behaviourally, the way test_source_overview.py:305 pins the overview's —
+    note this one has no `overview|` prefix."""
+    from api.routers.sources import ADAPTERS
+    from api.services import sync_service
+
+    c, path = client
+    r = c.get("/sources/channels")
+    assert r.status_code == 200
+    assert "countNoun" in r.json()["channels"][0]
+    tag = ",".join(f"{k}:{a.is_connected()}" for k, a in sorted(ADAPTERS.items()))
+    expected = sync_service.etag_for(
+        path, "sources", "episodes", "entities",
+        extra=f"telegram:False|connectors:{tag}",
+    )
+    assert r.headers["etag"] == expected
+    assert c.get("/sources/channels", headers={"If-None-Match": expected}).status_code == 304
+
+
 def test_files_channel_counts_the_url_index(tmp_path):
     sources = tmp_path / "sources"
     sources.mkdir(parents=True)
@@ -269,7 +294,7 @@ def test_files_channel_counts_the_url_index(tmp_path):
         encoding="utf-8")
     ch = _channels(tmp_path)["files"]
     assert ch["connected"] is True and ch["count"] == 2
-    assert ch["detail"] == "2 saved items"
+    assert ch["count_noun"] == "saved item" and ch["detail"] is None
     assert ch["actions"] == ["import"]
 
 
