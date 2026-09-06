@@ -6,15 +6,49 @@ import SwiftUI
 /// is never mounted at the same time as this view.
 ///
 /// The header (Track D) leads with the source's own mark and one honest
-/// sentence of what Cicada reads from it (`SourceBlurb`); the queue strip
-/// right under it says what's waiting and what has already been folded in.
+/// sentence of what Cicada reads from it (`SourceBlurb`); `SourceHeaderCard`
+/// under it repeats the grid tile's own five facts at page scale — the brand,
+/// the liveness sentence with the WHOLE error rather than its first clause, and
+/// the 30-day line with the same two nouns (R-S7) — and the queue strip under
+/// THAT says what's waiting and what has already been folded in.
 struct SourceDetailView: View {
     let source: SourceOverview
     let onBack: () -> Void
     var onSelectEntity: ((String) -> Void)?
 
     @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(Store.self) private var store
+    @Environment(BrowserWatcher.self) private var watcher
     @State private var loadedOnce = false
+
+    /// `source` is a snapshot captured at navigation time (`SourcesPageView`'s
+    /// `route` holds it in a plain `let`), so after a Consolidate run its counts
+    /// are stale while the strip below has already moved. Re-resolve by id on
+    /// every render — the same reason, and the same fallback, as
+    /// `SourceQueueStrip.liveSource`.
+    private var live: SourceOverview {
+        store.sourcesOverview.value?.first(where: { $0.id == source.id }) ?? source
+    }
+
+    /// The ONE place this page talks to `BrowserWatcher` or reads a clock; the
+    /// header card is a plain value view over what this resolves (the same split
+    /// `SourceCardTile`/`SourceCard` draws on the grid).
+    private var headerCard: some View {
+        let row = live
+        let today = Date()
+        let watchState = row.channelId.flatMap { watcher.state(for: $0) }
+        return SourceHeaderCard(
+            source: row,
+            // `channel: nil` — `build_overview` already copies the channel's
+            // `actions` onto the row, so no `store.channels` join is needed.
+            liveness: SourceLiveness.of(row: row, channel: nil, watch: watchState),
+            // R-S8: Track A's window function, called where it lives, over the
+            // whole 30 days the payload carries.
+            points: sparklinePoints(activity: row.activity,
+                                    days: SourceCardMetrics.detailSparkDays, today: today),
+            today: today,
+            watchState: watchState)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -28,6 +62,7 @@ struct SourceDetailView: View {
                 .help("Back to all sources (⌘[)")
                 .accessibilityLabel("Back to all sources")
             }
+            headerCard
             SourceQueueStrip(source: source)
             switch source.kind {
             case .harness:

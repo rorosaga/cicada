@@ -23,6 +23,10 @@ struct SourcesPageView: View {
     @Environment(Store.self) private var store
     @Environment(UsageViewModel.self) private var usageVM
     @State private var route: SourcesRoute = .grid
+    /// R-S7/R-S9 — the catalog opens HERE. `AddSourceSheet` owns its own state
+    /// and reads `Store` from the environment, so a second presenter of it is
+    /// not a conflict with the Feed's.
+    @State private var showAddSheet = false
 
     private var rows: [SourceOverview] { SourceOverview.gridOrder(store.sourcesOverview.value ?? []) }
 
@@ -31,12 +35,21 @@ struct SourcesPageView: View {
             switch route {
             case .grid:
                 PageHeader(title: Copy.sources, subtitle: Copy.sourcesSubtitle) {
-                    Toggle("Advanced", isOn: Binding(
-                        get: { usageVM.mode == .advanced },
-                        set: { usageVM.mode = $0 ? .advanced : .minimal }
-                    ))
-                    .toggleStyle(.switch).controlSize(.small)
-                    .accessibilityLabel("Show advanced read and write statistics")
+                    // R-S7 — the way in lives in the header at ALL times. It
+                    // used to exist only inside the empty state, so the moment
+                    // one source existed the page that is *about* where memory
+                    // comes from offered no way to add another (critique F2).
+                    // The Advanced toggle stays beside it for now; rehoming it
+                    // is a later slice.
+                    HStack(spacing: CicadaTheme.spacingMD) {
+                        addSourceButton
+                        Toggle("Advanced", isOn: Binding(
+                            get: { usageVM.mode == .advanced },
+                            set: { usageVM.mode = $0 ? .advanced : .minimal }
+                        ))
+                        .toggleStyle(.switch).controlSize(.small)
+                        .accessibilityLabel("Show advanced read and write statistics")
+                    }
                 }
                 ScrollView {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
@@ -64,6 +77,26 @@ struct SourcesPageView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(CicadaTheme.background)
+        // R-S9: presented in place, never routed through `AppRouter`'s Feed
+        // hand-off — that path stages ONE specific tile (its parameter is a
+        // non-optional `AddSourceTile`), where "Add a source" from this page
+        // means the catalog root. Bouncing to another tab to show a sheet that
+        // works fine here would be a worse answer than presenting it. The name
+        // of the rejected method is deliberately absent: the pin in
+        // `SourcesV2Tests` greps this file for it, and a comment that mentions
+        // it would make the pin unfalsifiable.
+        .sheet(isPresented: $showAddSheet) {
+            AddSourceSheet(initialTile: nil) { showAddSheet = false }
+        }
+    }
+
+    private var addSourceButton: some View {
+        Button { showAddSheet = true } label: {
+            Label("Add a source", systemImage: "plus").labelStyle(.titleAndIcon)
+        }
+        .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .help("Add another source of memory")
+        .accessibilityLabel("Add a source")
     }
 
     private func sectionHeader(_ title: String) -> some View {

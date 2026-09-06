@@ -22,6 +22,14 @@ enum SourceCardMetrics {
     /// of the activity window, no alias and no second name).
     static let sparkDays = 14
     static let weeks = 4
+    /// The detail page's window (R-S7). Thirty days because that is exactly what
+    /// the payload carries — `source_overview.ACTIVITY_DAYS` — so the one page
+    /// with room for the whole history shows the whole history instead of the
+    /// tile's 14-day crop. Asking Track A's window for MORE days than the
+    /// payload holds reads as leading zeros, never a crash, so the two numbers
+    /// drifting apart later degrades into a shorter line rather than a broken
+    /// one.
+    static let detailSparkDays = 30
 }
 
 /// R-S3 — the delta is what makes the sparkline honest. The big number is a

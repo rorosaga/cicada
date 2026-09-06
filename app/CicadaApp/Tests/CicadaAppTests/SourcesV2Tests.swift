@@ -201,4 +201,106 @@ final class SourcesV2Tests: XCTestCase {
         XCTAssertTrue(IntegrationRowState.line(one, locale: de).contains("1 item"),
                       "the singular keeps its noun singular")
     }
+
+    // MARK: Task 6 — the header's `+ Add a source` and the detail page's own
+    // header card (R-S7 / R-S9)
+
+    /// Reads a file under `Sources/CicadaApp/`, resolved from this test file's
+    /// own path (the `FixWaveTests.sourceFile(_:)` pattern) so it works from any
+    /// working directory.
+    private func sourceFile(_ relativePath: String) throws -> String {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // CicadaAppTests
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // CicadaApp package root
+        return try String(contentsOf: packageRoot
+            .appendingPathComponent("Sources/CicadaApp")
+            .appendingPathComponent(relativePath), encoding: .utf8)
+    }
+
+    /// F2/R-S7 — `+ Add a source` has to exist on a POPULATED page, not only in
+    /// the empty state. A rendered-view test cannot see "the button is only in
+    /// the `rows.isEmpty` branch", so this reads the source.
+    func testAddASourceLivesInTheHeaderAndIsPresentedExactlyOnce() throws {
+        let page = try sourceFile("Views/Sources/SourcesPageView.swift")
+        XCTAssertTrue(page.contains("Add a source"),
+                      "the header lost its affordance — F2 all over again")
+        XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 1,
+                       "exactly one presenter of the sheet on this page")
+        XCTAssertTrue(page.contains("initialTile: nil"),
+                      "R-S9 — the header opens the catalog ROOT, not a staged tile")
+        XCTAssertFalse(page.contains("routeToFeedAddSource"),
+                       "R-S9 — no bounce to the Feed tab just to show a sheet")
+    }
+
+    /// R-S7 — the empty state keeps the affordance it already has. R-S9's fix is
+    /// that the page never *loses* a way in, not that both ways be identical, so
+    /// a reviewer removing `EmptyStateView`'s action "because the header has one
+    /// now" is a regression, not a tidy-up.
+    func testTheEmptyStateKeepsItsOwnWayIn() throws {
+        let grid = try sourceFile("Views/Sources/SourceCardGrid.swift")
+        XCTAssertTrue(grid.contains("actionLabel: \"Add a source\""))
+        XCTAssertTrue(grid.contains("settingsSection: .integrations"))
+    }
+
+    /// The detail page's window is the backend's OWN `ACTIVITY_DAYS`
+    /// (`api/services/source_overview.py:34` — 30), not a second number. Asking
+    /// Track A's window for 30 days on a payload that only carries 14 keys reads
+    /// as leading zeros, never a crash — the shape `MemorySourcesTests` already
+    /// pins for the 14-day case.
+    func testTheDetailWindowIsTheBackendsThirtyDaysAndSurvivesAShortPayload() {
+        XCTAssertEqual(SourceCardMetrics.detailSparkDays, 30,
+                       "the detail sparkline covers the whole payload the backend ships")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let today = calendar.date(from: DateComponents(year: 2026, month: 9, day: 5, hour: 12))!
+        let points = sparklinePoints(activity: ["2026-09-05": 4, "2026-08-30": 1],
+                                     days: SourceCardMetrics.detailSparkDays, today: today)
+        XCTAssertEqual(points.count, 30)
+        XCTAssertEqual(Array(points.prefix(20)), Array(repeating: 0, count: 20))
+        XCTAssertEqual(points.last, 4)
+        XCTAssertEqual(points.reduce(0, +), 5)
+        // R-S3's two nouns, on the wider window: the delta names CAPTURES and
+        // takes its span from the array, so the sentence under a 30-day line can
+        // never claim 14 days.
+        XCTAssertEqual(SourceDeltaText.text(points: points, lastActivity: nil, today: today,
+                                            locale: Locale(identifier: "en_US")),
+                       "+5 captured in 30 days")
+    }
+
+    /// R-S19 — the detail header sets the SAME two nouns the grid card does:
+    /// the total is `headline`'s own unit, the line and the delta are captures.
+    /// One projection, two renderings; a second `switch` on `kind` in the header
+    /// card is how a browser's 506 items become 506 "captures" one page over.
+    func testTheHeaderCardReadsTheSameTwoNounsAsTheGridCard() throws {
+        let card = try sourceFile("Views/Sources/SourceHeaderCard.swift")
+        XCTAssertTrue(card.contains("source.headline"),
+                      "the total is `headline`, not a re-derived count")
+        XCTAssertTrue(card.contains("SourceDeltaText.text("),
+                      "the delta is the grid's own sentence, not a second one")
+        XCTAssertFalse(card.contains("switch source.kind"),
+                       "R-S19 — the header must not re-decide the unit")
+        let browser = SourceOverview(id: "chrome-bookmarks", label: "Chrome bookmarks",
+                                     kind: .browser, items: 506)
+        XCTAssertEqual(browser.headline?.noun, "item")
+    }
+
+    /// D2, one page in: the card prints the error's first clause because it has
+    /// one line; the detail page has the room for the whole message, so it says
+    /// the whole message. Both read the SAME `verb`, so the two surfaces can
+    /// never name a failure differently.
+    func testTheDetailSentenceCarriesTheWholeErrorWhereTheCardCarriesAClause() {
+        let long = "Can't read the file. Grant Full Disk Access in System Settings, then sync again."
+        let broken = row("pinterest", actions: ["sync"], channelId: "pinterest", lastError: long)
+        let liveness = SourceLiveness.of(row: broken, channel: nil, watch: nil)
+        XCTAssertEqual(liveness.verb, "Sync failed — Can't read the file")
+        let sentence = SourceHeaderCard.sentence(liveness: liveness, fullError: long)
+        XCTAssertTrue(sentence.contains(long), "the detail page shows the WHOLE error")
+        XCTAssertTrue(sentence.hasPrefix("Sync failed"), "and names the same state as the card")
+        // A healthy source has no error to expand, so the sentence IS the verb.
+        let healthy = SourceLiveness.of(row: row("rss", actions: ["poll"]), channel: nil, watch: nil)
+        XCTAssertEqual(SourceHeaderCard.sentence(liveness: healthy, fullError: nil), healthy.verb)
+        XCTAssertEqual(SourceHeaderCard.sentence(liveness: healthy, fullError: "   "), healthy.verb,
+                       "a blank error is no error — never a dangling em dash")
+    }
 }
