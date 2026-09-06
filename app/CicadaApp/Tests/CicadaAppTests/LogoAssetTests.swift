@@ -41,9 +41,7 @@ final class LogoAssetTests: XCTestCase {
     static let needsDarkVariant: Set<String> = ["chatgpt", "codex", "ollama", "x"]
 
     private func logoURLs() throws -> [URL] {
-        let urls = Bundle.cicadaResources.urls(
-            forResourcesWithExtension: "png", subdirectory: "Resources/logos"
-        ) ?? []
+        let urls = Bundle.cicadaResources.cicadaResources(ext: "png", in: "logos")
         XCTAssertFalse(urls.isEmpty, "no bundled logos found — this test would pass vacuously")
         return urls
     }
@@ -131,6 +129,62 @@ final class LogoAssetTests: XCTestCase {
             XCTAssertTrue(claimed.contains(base) || reservedForG119.contains(base),
                           "\(name).png is bundled but nothing maps to it")
         }
+    }
+
+    /// The regression this file could not see: `swift test` runs against the
+    /// FLAT bundle SwiftPM emits, and every assertion above passed over a
+    /// shipped app where not one mark resolved.
+    ///
+    /// `bundle.sh` re-nests the resource bundle for `codesign` (`Resources` →
+    /// `Contents/Resources`), which consumes the `Resources` path component
+    /// the old `subdirectory: "Resources/logos"` spelled out. Both layouts are
+    /// built here from bytes rather than asserted against whichever one this
+    /// process happens to run in — a test that only checks the live bundle is
+    /// exactly the test that missed this.
+    func testAMarkResolvesInBothBundleLayouts() throws {
+        let png = try Data(contentsOf: XCTUnwrap(try logoURLs().first))
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("logo-layouts-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // Flat: what `swift build` / `swift test` load.
+        let flat = root.appendingPathComponent("Flat.bundle")
+        try write(png, to: flat.appendingPathComponent("Resources/logos/probe.png"))
+
+        // Nested: what every `.app` `bundle.sh` assembles actually ships.
+        let nested = root.appendingPathComponent("Nested.bundle")
+        try write(png, to: nested.appendingPathComponent("Contents/Resources/logos/probe.png"))
+        try write(Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <plist version="1.0"><dict>
+        <key>CFBundleIdentifier</key><string>com.rorosaga.cicada.resources.test</string>
+        <key>CFBundlePackageType</key><string>BNDL</string>
+        </dict></plist>
+        """.utf8), to: nested.appendingPathComponent("Contents/Info.plist"))
+
+        for url in [flat, nested] {
+            let bundle = try XCTUnwrap(Bundle(url: url), "\(url.lastPathComponent) is not a bundle")
+            XCTAssertNotNil(bundle.cicadaResource("probe", ext: "png", in: "logos"),
+                            "a bundled mark is unreachable in the \(url.lastPathComponent) layout "
+                            + "— every provider badge in that build draws a blank square")
+            XCTAssertEqual(bundle.cicadaResources(ext: "png", in: "logos").count, 1,
+                           "\(url.lastPathComponent): the plural lookup disagrees with the single one")
+        }
+    }
+
+    /// Foundation answers an EMPTY resource name with the directory's FIRST
+    /// file, and `logoName ?? ""` call sites would then draw an unrelated
+    /// brand. The guard moved into `Bundle.cicadaResource` with this fix, so
+    /// it is pinned where it now lives.
+    func testAnEmptyNameNeverResolvesToSomeOtherBrand() {
+        XCTAssertNil(Bundle.cicadaResources.cicadaResource("", ext: "png", in: "logos"))
+        XCTAssertFalse(LogoImage.exists(name: ""))
+    }
+
+    private func write(_ data: Data, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try data.write(to: url)
     }
 
     func testEveryDarkSiblingHasABaseMark() throws {
