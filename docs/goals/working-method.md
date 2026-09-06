@@ -146,8 +146,8 @@ merges; agents never push.
 
 ### Next
 
-**G90 README screenshots** from the demo bank (an hour, no track needed), then **G118 slice 2 — the
-provenance viewer** (item 6 below), then **G93** (item 7), then the bigger rocks. Start a track by
+**G118 slice 2 — the provenance viewer** (item 6 below), then **G93** (item 7), then the bigger rocks.
+(G90's README screenshots were re-taken from the demo bank on 2026-09-06.) Start a track by
 writing a brief from its entry and following §2.
 
 ### Done on 2026-09-05, kept here for the reasoning
