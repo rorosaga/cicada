@@ -91,13 +91,13 @@ agent can reason over the record structurally instead of re-reading prose. Every
 
 All screenshots come from a synthetic demo bank. Nothing in them is real.
 
-| Inbox — questions Sleep left for you | Sleep — the queue and the last cycle |
+| Inbox — questions Sleep left for you | Sleep — the study room, the queue and past cycles |
 |---|---|
 | ![Inbox](docs/screenshots/inbox.png) | ![Sleep](docs/screenshots/sleep.png) |
 
-Activity — what was spent, where memory came from, who authored what:
+Sources — where memory comes from, whether each source is live, and who wrote it:
 
-![Activity](docs/screenshots/activity.png)
+![Sources](docs/screenshots/sources.png)
 
 The app is the management layer, not the primary interface. The primary interface is whatever
 agent you already talk to.
