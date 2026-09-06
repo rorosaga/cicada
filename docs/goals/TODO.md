@@ -4,42 +4,42 @@
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (end of 2026-09-05)
+## Where things stand (end of 2026-09-06)
 
-**The queue is un-paused and one track is still in flight** (Track S, below). The owner un-paused
-it on 2026-09-05 with a build brief (the study desk, real logos, zoom, Sources + Settings
-redesigns, "tackle any other pending tickets", small models only for workflows); ten PRs landed
-that day on sonnet/haiku Workflow tracks, each verified by the orchestrator (both suites re-run,
-the diff read, the live app checked).
-The spec that ties them together: `docs/superpowers/specs/2026-09-05-study-desk-zoom-settings-sources-design.md`.
+**Nothing is in flight.** Round 2 (owner brief, evening of 2026-09-05: "improve the Sleep and Sources
+pages by a wide margin, the Chrome logo is wonky, an in-app video renderer, a cuter Sleep page like
+this reference, use opus and spawn the agents you need") landed as seven PRs on opus Workflow tracks
+(owner's permission for that session; the standing small-models rule is otherwise unchanged), each
+verified by the orchestrator (both suites re-run on the merged tree, the diff read, the live app
+checked at 1200 pt, 1560 pt, 1.4× zoom, dark and light). The spec that ties them together:
+`docs/superpowers/specs/2026-09-05-round2-study-room-marks-video-design.md` (Tracks A · L · V · P · S,
+plus the "Decisions taken without the owner" list — review those first).
 
 **`dev` is ahead of `main`.** `main` was promoted at `381cfd3` (evening 2026-09-02); everything
-since is on `dev` only. Merged since that promotion: **#40** G102 link summaries · **#44** G118
-slice 1 (evidence spans) · **#45** G53+G75 (live state + handshake) · **#46** G105 (deterministic
-capture) · **#47** G124 (Sources page) · **#48** G115 Phase 1 (inbox cause + Recommended) ·
-**#49** theme toggle + `saved-link`/`rss` origins · **#50** the backend suite is green ·
-**#51** the sidebar Settings gear · **#52** G129 slice 1 (browser bookmark watch) ·
-**#53** Track D (Sources grid by kind, real marks, status lights, per-source blurb + queue strip) ·
-**#54** G130 slice 1a (app-wide zoom) · **#55** G125 (the study desk) · **#56** the Sleep-history
-window uses git `--grep` · **#57** the pile stacks fattest at the bottom · **#58** the font-literal
-migration + lint (G130 slice 1b) · **#59** G113 slices 3–7 (six inbox kinds, merge rejection that
-sticks, claim write-back, the Feedback rate) · **#60** Track C (Settings sidebar, the G122 engine &
-model picker with both previews, the G126 Integrations page) · **#61** G129 slice 2 (bookmark
-deletions as keep/remove proposals) · **#62** G117 (owner identity, the first-run sheet, empty
-states, a one-click demo bank, three install fixes).
+since is on `dev` only. Merged 2026-09-03 → 09-05: **#40** G102 · **#44** G118 slice 1 · **#45**
+G53+G75 · **#46** G105 · **#47** G124 · **#48** G115 Phase 1 · **#49** theme toggle + origins ·
+**#50** green backend suite · **#51** Settings gear · **#52** G129 slice 1 · **#53** Track D Sources
+grid · **#54** G130 zoom · **#55** G125 study desk · **#56/#57** history fixes · **#58** font lint ·
+**#59** G113 slices 3–7 · **#60** Track C Settings · **#61** G129 slice 2 · **#62** G117 onboarding.
+**Merged in round 2 (2026-09-05 evening → 09-06):** **#63** Track V in-app video (the URL decides
+what plays; AVKit for direct files, the provider's own player for YouTube/Vimeo/TikTok/Loom) ·
+**#64** Track P polish and truth (toolbar audit by deletion, honest onboarding with a nightly toggle,
+six one-liners, `GET /sources` hides archived/junk, calibrated `next_at`, no person's name in a
+prompt, the themed graph canvas) · **#65** Track L real marks (installed app icons → attributed PNGs →
+SF Symbols; the drawn glyphs deleted; `cicada` as a system contributor) · **#66** the first-run gate
+(the G117 sheet fired on every cold launch of an onboarded bank; unknown is never empty) · **#67**
+Track A the study room (Sleep v3: the pixel room with the lamp as the schedule, the labelled meter,
+present-tense tiles, the stage strip as the live instrument, the Memory-sources column, time on
+history rows, `SourceOverview.activity`) · **#68** four Sleep polish fixes from the live check ·
+**#69** Track S Sources v2 (one card system, status verbs, two nouns, one formatter + lint, the
+contributors strip, `+ Add a source` in the header).
 **Per-PR detail is in git — `git log --oneline 381cfd3..dev` — not here.**
 
-**In flight (2026-09-05 evening → 09-06): Track S — Sources v2** (`feat/sources-v2`, awaiting PR)
-— the second pass over the page G124 shipped: one card system (fixed tile height, one scaled
-column count, five bands), a status verb per source instead of one green dot meaning four things,
-one locale-correct number formatter with a source lint, the count out of the server's `detail`
-behind `countNoun`/`countIsDelta`, Contributors as a chip strip over one labelled share bar, and
-`+ Add a source` in the header. Rulings **R-S1 … R-S19** — spec
-`docs/superpowers/specs/2026-09-05-round2-study-room-marks-video-design.md`, plan
-`docs/superpowers/plans/2026-09-06-sources-v2.md`, both cited from the G124 row.
+**Test baselines after round 2:** backend **2225 passed**, Swift **1010 passed**, graph node tests
+green. (`working-method.md` carries the standing notes on the order-dependent case.)
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
-test baselines, the rails, the Workflow-track machinery, and the paused queue with its reasoning.
+test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
 Do not re-derive the queue from this file.
 
 ### Live environment (verified 2026-09-04)
@@ -85,6 +85,14 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   *any* post whose oEmbed returns no first-party player URL and no thumbnail — playing one would
   mean executing a `widgets.js` blob we assembled. Dailymotion/Reddit embeds are mechanical once the
   table exists, but neither endpoint was probed.
+- **Round 2, disclosed not fixed:** the entity Content tab renders the media preview and the hero as
+  siblings, so a direct-file video entity shows two paused players (a one-line gate for a later
+  slice); the Sleep page's Memory-sources rows recompute three day-series per source on every
+  render (fine at six rows, wasteful past that); the nightcap is the one character-specific piece of
+  art on the Sleep page (G127 would throw it away); a time-of-day sky was deliberately left out (art
+  only, state outranks the clock, if it ever ships); `ContentView` caps the sidebar column at
+  260 pt, so the scaled minimum clamps above ~1.44× zoom; the stage icons snap to 48 pt on the
+  16-cell grid (the spec said 40).
 
 
 ## Rulings that cost real work to derive — do not re-litigate without reading them
@@ -138,53 +146,44 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
 
 ## Pick up here
 
-**Nothing is running.** The 2026-09-05 brief has been worked through (see "Where things stand");
-the queue continues at G118 slice 2. Everything about *what to do next and why* lives in one place:
+**Nothing is running.** Round 2 (2026-09-05 evening → 09-06) is merged — see "Where things stand".
+Everything about *what to do next and why* lives in one place:
 
 > **[`working-method.md`](working-method.md)** — the bar a change has to clear, the test baselines that
 > are not failures, the rails, how to start / resume / land a Workflow track, and the queue with the
-> reasoning for its order. Workflow agents run on sonnet/haiku only (owner, 2026-09-05); the
-> orchestrator plans, verifies and merges.
+> reasoning for its order. Workflow agents run on sonnet/haiku unless the owner says otherwise for a
+> session (round 2 ran on opus with that permission); the orchestrator plans, verifies and merges.
 
-The queue there, in order: **G118 slice 2** (the provenance viewer) → **G93** (cross-stream ask).
-Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a
-build. Shipped 2026-09-05 and no longer queued: G125 (PR #55), G113 slices 3–7 (PR #59), G122 + the
-G126 page (Track C, PR #60), G129 slice 2 (bookmark deletions, PR #61), **G117** first-run onboarding
-(PR #62), and **Track L** — real brand marks, one id → mark map, `cicada` as a system contributor
-(PR #65, `feat/real-marks`). **Track S (Sources v2)**, in flight above, does not change the queue
-either: it is a second pass over a page that already shipped, not a new row.
+The queue there, in order: **G118 slice 2** (the provenance viewer — its server half has shipped
+and nothing renders it) → **G93** (cross-stream ask). Then the bigger rocks: **G81 → G95**, **G112
+steps 2–4**, **G76**, and **G127** as a decision, not a build. Before any of them, the cheap one:
+**G90 README screenshots** — every image under `docs/screenshots/` predates the visual rounds and
+one still labels the retired Activity tab; they must come from the **demo** bank, never the live one.
 
-**Small polish left behind by the 2026-09-05 tracks, none blocking:** the Settings sidebar
-cannot be driven by a synthetic `click at` (select its rows through the accessibility API); and a
-Sources card whose count comes from `channel_registry` (every row but `files`) still counts items
-its own page now hides — the archived/dropped/junk filter reached the item list and the `files`
-count, but a channel's own `count` is computed per adapter and was not re-derived.
+**Small polish left behind, none blocking:** the Settings sidebar cannot be driven by a synthetic
+`click at` (select its rows through the accessibility API); a Sources card whose `count` comes from
+`channel_registry` (every row but `files`) still counts items the Feed now hides — a channel's own
+count is computed per adapter and was not re-derived; the contributors strip's provider mark for an
+Anthropic model rendered as an empty tile on the live bank (being fixed on `fix/contributor-mark`
+at the time of writing — check `git log` before touching it).
 
-Track P (2026-09-05, PR #64) closed the rest of that list: the Graph/Clusters toolbar audit (G125 (5)),
-the duplicated chat-export row in Integrations, the missing Reject control on a hintless merge
-suggestion, and `GET /state`'s uncalibrated `sleep.next_at` — plus `TODO(G26)`'s last piece, the
-d3 canvas, which now takes the app's colour scheme instead of staying dark-locked in Light mode.
+**Owner-present checks still unticked, none blocking:** the G109 graph eyeball at fit-zoom, the
+G124 and G115 checks in their rows, and a manual Sleep cycle watched end to end on the new page (the
+stage strip and the per-source countdown were verified by test and by SSE payload shape, not by an
+LLM run — the live bank has never consolidated on this machine).
 
-Owner-present checks still unticked, none blocking: the mascot visual pass in light and dark, the G109
-graph eyeball at fit-zoom, the G124 and G115 checks in the paragraphs above, and the README screenshots
-(G90), which must come from the demo bank rather than the live one.
+**One manual step on any existing install:** re-run `./install.sh` (idempotent) so the G105 `Stop`
+hook is registered in `~/.claude/settings.json`; `make doctor` check 12 confirms it. Done on the
+owner's machine. The launchd plist's missing `CICADA_ALLOW_FEED_FETCH` key (Live environment above)
+is still outstanding.
 
-**One manual step on any existing install:** re-run `./install.sh` (idempotent) so the G105 `Stop` hook is
-registered in `~/.claude/settings.json`; `make doctor` check 12 confirms it. Done on the owner's machine.
+**Worktrees:** every track worktree is removed after its PR merges; `.worktrees/` should be empty
+apart from anything a session left in flight (a fix branch names itself). A worktree's `api/.venv`
+is a symlink to the main checkout's. Never `--force`-remove one without reading
+`git status --porcelain -uall` in it first, and never commit a `*-report.md` left there as scratch.
 
-**Worktrees:** `.worktrees/g113` holds `feat/feedback-ledger` (G113 slices 1–2 merged as PR #31;
-slices 3–7 now shipped on the branch, awaiting PR + merge), and the 2026-09-05→06 round's track
-worktrees — `.worktrees/sources-v2` among them — are removed as each PR merges. Every other track
-worktree was removed after its PR merged. A worktree's `api/.venv` is a symlink to the main
-checkout's. Never
-`--force`-remove one without reading `git status --porcelain -uall` in it first, and never commit a
-`*-report.md` left there as scratch.
-
-_Last synced: **2026-09-05**. Queue still paused beyond finishing `feat/feedback-ledger`. Merged
-since the last sync: #53 (Track D), #54 (G130 slice 1a app-wide zoom), #55 (G125 the study desk),
-#56 (Sleep-history-window fix), #58 (G130 slice 1b font-literal migration). Backlog rows added:
-**G130** (app-wide ⌘+/⌘− zoom) and **G131** (replace the harness's auto-memory with Cicada). Next
-work and its reasoning: [`working-method.md`](working-method.md)._
+_Last synced: **2026-09-06**. Merged since the previous sync: #59–#69 (see "Where things stand").
+Next work and its reasoning: [`working-method.md`](working-method.md)._
 
 ## ✅ Shipped
 

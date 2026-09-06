@@ -136,17 +136,19 @@ where two tracks each added a kind — take the **union**) → push → `gh pr c
 
 ### Running now
 
-**Nothing.** The owner un-paused the queue on 2026-09-05 with a build brief, and ten tracks landed that
-day (PRs #53–#62 — see `TODO.md` "Where things stand"). Every one ran on the sonnet/haiku track script
-(`track-small.js` in the session scratchpad: the same plan → critic → implement/review → two-lens
-shape as the original script, with `model: 'sonnet'` / `'haiku'` on every agent, a `planExists`
-switch for a plan the orchestrator wrote, and a `taskOffset` for resuming a plan mid-way). **Workflow
-agents run on small models only (owner, 2026-09-05); the orchestrator plans, verifies and merges.**
+**Nothing.** Round 2 (2026-09-05 evening → 09-06) landed as PRs #63–#69 on opus Workflow tracks —
+the owner allowed opus for that session; **the standing rule is still small models unless the owner
+says otherwise** — using `track-opus.js` in the session scratchpad (the same plan → critic →
+implement/review → two-lens shape, `model: 'opus'` on the plan/implement/review agents and `'sonnet'`
+on the mechanical ones). Its shape and the phase-1 method (six readers → three designers → two
+judges → one spec) are recorded in the round-2 spec's preamble. The orchestrator plans, verifies and
+merges; agents never push.
 
 ### Next
 
-**G118 slice 2 — the provenance viewer** (item 6 below), then **G93** (item 7), then the bigger rocks.
-Start one by writing a brief from its entry and following §2.
+**G90 README screenshots** from the demo bank (an hour, no track needed), then **G118 slice 2 — the
+provenance viewer** (item 6 below), then **G93** (item 7), then the bigger rocks. Start a track by
+writing a brief from its entry and following §2.
 
 ### Done on 2026-09-05, kept here for the reasoning
 
