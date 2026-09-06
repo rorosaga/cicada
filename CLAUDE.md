@@ -467,6 +467,20 @@ Integrations; a *one-shot* import (drop an export, sync a folder once) stays whe
 behind the Feed's `+`. Both read the same `channel_registry`, so a channel never drifts between the
 two surfaces.
 
+**Sources page — v2 (G124).** One card system: fixed tile height, one column count derived from the
+container width in **scaled** units (`SourceGridColumns`, 2–4) and shared by every section, five
+bands (mark · brand name · one status verb · 14-day capture sparkline + lifetime total · four
+week-dots + delta). The verb is `SourceLiveness.of(row:channel:watch:)` — *Watching* / *Polls
+nightly* / *Captured by hook* / *Syncs when you ask* / *Imported once*, a failure carrying its real
+first clause **on** the card — read off `actions`, `harness` and the browser watch, with **no
+backend field**; the green dot it replaced meant `connected`, which is why a row exists (G124 R2),
+not what it is doing. **Two nouns, never one:** the big number is the row's own unit, the line and
+the delta are always *captured*. Every number in the window goes through
+`UsageFormat.count(_:locale:)` on the viewer's locale, pinned by `CountLiteralLintTests`, and the
+server ships `countNoun`/`countIsDelta` instead of a pre-formatted `detail` (`ChannelDetailLine`
+composes it back). Contributors is one chip strip over one **labelled** share-of-entities bar;
+`cicada`, `user` and `unknown` all have names, so no bucket the app can name renders as "?".
+
 **Sleep page — the study room (G125 v3).** Two columns above 1000 pt of content width, one 760 pt
 column below. Left: a pixel room (window, cushion, mug, plant, lamp) on one cell lattice at the
 worm's snapped size, whose desk lamp is **lit iff the schedule isn't manual** — art encodes **state,

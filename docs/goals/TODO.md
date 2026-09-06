@@ -6,10 +6,11 @@
 
 ## Where things stand (end of 2026-09-05)
 
-**Nothing is running and no worktree is in flight.** The owner un-paused the queue on 2026-09-05 with
-a build brief (the study desk, real logos, zoom, Sources + Settings redesigns, "tackle any other
-pending tickets", small models only for workflows); ten PRs landed that day on sonnet/haiku Workflow
-tracks, each verified by the orchestrator (both suites re-run, the diff read, the live app checked).
+**The queue is un-paused and one track is still in flight** (Track S, below). The owner un-paused
+it on 2026-09-05 with a build brief (the study desk, real logos, zoom, Sources + Settings
+redesigns, "tackle any other pending tickets", small models only for workflows); ten PRs landed
+that day on sonnet/haiku Workflow tracks, each verified by the orchestrator (both suites re-run,
+the diff read, the live app checked).
 The spec that ties them together: `docs/superpowers/specs/2026-09-05-study-desk-zoom-settings-sources-design.md`.
 
 **`dev` is ahead of `main`.** `main` was promoted at `381cfd3` (evening 2026-09-02); everything
@@ -27,6 +28,15 @@ model picker with both previews, the G126 Integrations page) · **#61** G129 sli
 deletions as keep/remove proposals) · **#62** G117 (owner identity, the first-run sheet, empty
 states, a one-click demo bank, three install fixes).
 **Per-PR detail is in git — `git log --oneline 381cfd3..dev` — not here.**
+
+**In flight (2026-09-05 evening → 09-06): Track S — Sources v2** (`feat/sources-v2`, awaiting PR)
+— the second pass over the page G124 shipped: one card system (fixed tile height, one scaled
+column count, five bands), a status verb per source instead of one green dot meaning four things,
+one locale-correct number formatter with a source lint, the count out of the server's `detail`
+behind `countNoun`/`countIsDelta`, Contributors as a chip strip over one labelled share bar, and
+`+ Add a source` in the header. Rulings **R-S1 … R-S19** — spec
+`docs/superpowers/specs/2026-09-05-round2-study-room-marks-video-design.md`, plan
+`docs/superpowers/plans/2026-09-06-sources-v2.md`, both cited from the G124 row.
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the paused queue with its reasoning.
@@ -120,8 +130,10 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   the same timezone bug as the code it tested; and a review predicted "0 deletions" that a sloppy
   `awk` made me briefly misread as 1,851. Independent checks caught all three.
 - **Baseline:** every suite is green (PR #50 removed the last expected failures). Anything red is
-  yours. Backend 2119 passed and Swift 763 passed at the end of 2026-09-05 — re-measure, never trust
-  a remembered count.
+  yours. Backend **2225 passed** and Swift **998 executed, 0 failures** on `feat/sources-v2`
+  (2026-09-06) — re-measure, never trust a remembered count. One known order-dependent case,
+  `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit`,
+  passes alone; if it is the ONLY red, re-run it alone before calling the suite broken.
 - Reports and briefs live in `.superpowers/sdd/<plan>/` (gitignored).
 
 ## Pick up here
@@ -139,7 +151,8 @@ Then the bigger rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G12
 build. Shipped 2026-09-05 and no longer queued: G125 (PR #55), G113 slices 3–7 (PR #59), G122 + the
 G126 page (Track C, PR #60), G129 slice 2 (bookmark deletions, PR #61), **G117** first-run onboarding
 (PR #62), and **Track L** — real brand marks, one id → mark map, `cicada` as a system contributor
-(PR #65, `feat/real-marks`).
+(PR #65, `feat/real-marks`). **Track S (Sources v2)**, in flight above, does not change the queue
+either: it is a second pass over a page that already shipped, not a new row.
 
 **Small polish left behind by the 2026-09-05 tracks, none blocking:** the Settings sidebar
 cannot be driven by a synthetic `click at` (select its rows through the accessibility API); and a
@@ -159,9 +172,11 @@ graph eyeball at fit-zoom, the G124 and G115 checks in the paragraphs above, and
 **One manual step on any existing install:** re-run `./install.sh` (idempotent) so the G105 `Stop` hook is
 registered in `~/.claude/settings.json`; `make doctor` check 12 confirms it. Done on the owner's machine.
 
-**Worktrees:** only `.worktrees/g113` remains, holding `feat/feedback-ledger` (G113 slices 1–2 merged
-as PR #31; slices 3–7 now shipped on the branch, awaiting PR + merge). Every other track worktree
-was removed after its PR merged. A worktree's `api/.venv` is a symlink to the main checkout's. Never
+**Worktrees:** `.worktrees/g113` holds `feat/feedback-ledger` (G113 slices 1–2 merged as PR #31;
+slices 3–7 now shipped on the branch, awaiting PR + merge), and the 2026-09-05→06 round's track
+worktrees — `.worktrees/sources-v2` among them — are removed as each PR merges. Every other track
+worktree was removed after its PR merged. A worktree's `api/.venv` is a symlink to the main
+checkout's. Never
 `--force`-remove one without reading `git status --porcelain -uall` in it first, and never commit a
 `*-report.md` left there as scratch.
 
