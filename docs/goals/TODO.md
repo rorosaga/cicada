@@ -32,10 +32,11 @@ Track A the study room (Sleep v3: the pixel room with the lamp as the schedule, 
 present-tense tiles, the stage strip as the live instrument, the Memory-sources column, time on
 history rows, `SourceOverview.activity`) · **#68** four Sleep polish fixes from the live check ·
 **#69** Track S Sources v2 (one card system, status verbs, two nouns, one formatter + lint, the
-contributors strip, `+ Add a source` in the header).
+contributors strip, `+ Add a source` in the header) · **#70** bundled marks resolve inside the
+assembled app (every provider logo had been falling back to a symbol in shipped builds).
 **Per-PR detail is in git — `git log --oneline 381cfd3..dev` — not here.**
 
-**Test baselines after round 2:** backend **2225 passed**, Swift **1010 passed**, graph node tests
+**Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
@@ -164,9 +165,11 @@ after the next visual change.
 **Small polish left behind, none blocking:** the Settings sidebar cannot be driven by a synthetic
 `click at` (select its rows through the accessibility API); a Sources card whose `count` comes from
 `channel_registry` (every row but `files`) still counts items the Feed now hides — a channel's own
-count is computed per adapter and was not re-derived; the contributors strip's provider mark for an
-Anthropic model rendered as an empty tile on the live bank (being fixed on `fix/contributor-mark`
-at the time of writing — check `git log` before touching it).
+count is computed per adapter and was not re-derived; PR #70 found that NO bundled PNG mark
+resolved inside the assembled app (`bundle.sh` re-nests the resource bundle, eating the `Resources/`
+path component every lookup spelled) — fixed through one `Bundle.cicadaResource` seam with a test
+over both layouts; `GraphView`'s `graph/index` lookup is the mirror image (nested-only) and
+`Resources/walkthroughs/` has never shipped, both left as they are.
 
 **Owner-present checks still unticked, none blocking:** the G109 graph eyeball at fit-zoom, the
 G124 and G115 checks in their rows, and a manual Sleep cycle watched end to end on the new page (the
