@@ -20,6 +20,21 @@ import SwiftUI
 /// never-loaded → loaded-but-empty → content. The never-loaded branch matters
 /// most — "No attributed commits yet" on a cold launch with the backend down is
 /// a claim about the repo, not about the request that failed.
+///
+/// **Empty means no CONTRIBUTORS, never no segments.** The two are different
+/// banks and only one of them has nothing to say. `git_service.get_contributors`
+/// builds `entity_count` from `entities/*.md` paths alone and keeps an author
+/// that touched none, so a fresh install whose only commits are `cicada`'s own
+/// `State snapshot`s — or a bank whose sole author has yet to write an entity
+/// page — arrives here with real attributed commits and zero segments. Branching
+/// the empty sentence on `segments` printed "No attributed commits yet." over a
+/// bank that has them: the same false claim about the repo the never-loaded
+/// branch above exists to prevent, and the deleted `ContributorsSection`
+/// branched on `contributors` precisely to avoid it. Rendering `content` with
+/// no segments is what `ContributorShare.segments`' own docstring promises —
+/// the bar draws its empty track (an empty `ForEach`), and
+/// `ContributorSummary.sentence` supplies the true line, which for that bank is
+/// its maintenance-only branch: "Cicada's own maintenance wrote this bank."
 struct ContributorsStrip: View {
     @Environment(ContributorsViewModel.self) private var viewModel
 
@@ -48,7 +63,7 @@ struct ContributorsStrip: View {
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
-            } else if segments.isEmpty {
+            } else if viewModel.contributors.isEmpty {
                 Text("No attributed commits yet.")
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)

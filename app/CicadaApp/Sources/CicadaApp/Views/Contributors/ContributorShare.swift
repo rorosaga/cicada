@@ -52,9 +52,17 @@ enum ContributorShare {
     /// An author with zero entity pages is not a slice of a bar about entity
     /// pages, so it is dropped rather than drawn as a 0 % chip; a bank where
     /// *every* author is in that state returns `[]`, and the strip draws the
-    /// empty track and `ContributorSummary`'s own empty line. `0/0` is not
-    /// `0.0` — the NaN width that would follow is exactly the kind of silent
-    /// wrong-looking bar E2 is about.
+    /// empty track with `ContributorSummary`'s sentence still under it. `0/0`
+    /// is not `0.0` — the NaN width that would follow is exactly the kind of
+    /// silent wrong-looking bar E2 is about.
+    ///
+    /// **`[]` here is not the strip's empty state.** That bank still has
+    /// attributed commits (a fresh install's `cicada`-authored `State
+    /// snapshot`s are the canonical case), so `ContributorsStrip` branches its
+    /// "No attributed commits yet." on `contributors` and lets `content` render
+    /// with no segments; `sentence` then names the maintenance that really
+    /// wrote it. Reading emptiness off this function instead printed a false
+    /// claim about the repo.
     static func segments(_ contributors: [Contributor], limit: Int = defaultLimit) -> [Segment] {
         guard limit > 0 else { return [] }
         let ranked = contributors

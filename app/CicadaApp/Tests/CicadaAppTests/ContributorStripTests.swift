@@ -49,6 +49,23 @@ final class ContributorStripTests: XCTestCase {
         XCTAssertTrue(ContributorShare.segments([], limit: 6).isEmpty)
     }
 
+    /// A maintenance-only bank has attributed commits and no segments, and the
+    /// two are not the same emptiness. `git_service.get_contributors` counts
+    /// `entity_count` from `entities/*.md` alone and keeps an author that
+    /// touched none, so a fresh install whose only commits are `cicada`'s
+    /// `State snapshot`s lands exactly here. `ContributorsStrip` therefore
+    /// branches its "No attributed commits yet." on `contributors`, never on
+    /// `segments` — over this bank that sentence is simply false, and the true
+    /// line is the one `sentence` returns below.
+    func testAMaintenanceOnlyBankStillGetsATrueSentenceNotAnEmptyClaim() throws {
+        let rows = [try contributor("cicada", kind: "system", entities: 0, commits: 3)]
+        XCTAssertTrue(ContributorShare.segments(rows, limit: 6).isEmpty,
+                      "no entity pages written — nothing to slice the bar into")
+        XCTAssertFalse(rows.isEmpty, "…but the commits are real, so the strip is not the empty state")
+        XCTAssertEqual(ContributorSummary.sentence(rows),
+                       "Across 3 commits, Cicada's own maintenance wrote this bank.")
+    }
+
     func testTheTailFoldsIntoOneRemainderChipAboveTheLimit() throws {
         let rows = try (1...9).map { try contributor("model-\($0)", kind: "model", entities: 10) }
         let segments = ContributorShare.segments(rows, limit: 3)
