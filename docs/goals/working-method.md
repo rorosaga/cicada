@@ -214,6 +214,15 @@ Visual Look Up are not available to third parties, so the equivalent is OCR plus
 through the inbox. "Which artworks influenced me" then falls out of G120 recurrence + G118 provenance +
 G66 decay rather than a new subsystem.
 
+**Filed 2026-09-06, unqueued:** **G132** — sync across devices: the owner's Ubuntu home server runs
+Claude Code sessions that should land in the MacBook's bank and read it back. The row records why the
+code is single-machine today (loopback literals in the hook, the plist, the app client and the MCP
+server; the transcript opened against the backend's own home; ids minted over the local glob) and the
+three shapes judged: lead with *distributed Awake, one Sleep* — the satellite runs the same extractor
+locally and POSTs scrubbed turns to the primary over an overlay network, with a spool, ids still minted
+on the MacBook — then a read-only git mirror for recall. Two owner decisions gate it (thin satellite vs
+full second node; shared bearer vs per-device tokens), so it is DECIDE before APPLY.
+
 Then the standing bigger rocks, unchanged: **G81 → G95** (contacts, then meetings and human-to-human
 conversations — the largest gap between the vision and the code), **G112 steps 2–4** (portable
 skills), **G76** (paste-prompt install), **G127** (mascot identity — decide, don't build).

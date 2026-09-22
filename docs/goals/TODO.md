@@ -462,6 +462,16 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 25. **G54** onboarding interview · **G55** executable skills · **G13** tasks/ideas backlog
 
 ### Research / decisions (not builds)
+- **G132** sync across devices (filed 2026-09-06) — a Claude Code session on the owner's Ubuntu home
+  server should land in the MacBook's bank and, ideally, read it back. Everything assumes one machine
+  today: the hook posts to loopback, the backend opens the transcript against *its own* home and refuses
+  a foreign path unread, the MCP server has three loopback literals and four tools that read bank files
+  directly, and episode ids are max-suffix+1 over the local glob — safe for one writer only. Three shapes
+  designed and judged (2026-09-06); the lead is *distributed Awake, one Sleep*: the satellite runs the
+  same extractor locally and POSTs scrubbed turns (never a path) to a new endpoint over an overlay
+  network, with a disk spool for a closed MacBook, ids still minted on the primary; the read side is a
+  read-only git mirror; a `device:` field on episodes is the shared prerequisite. Two owner forks first:
+  thin satellite vs full second node, and shared bearer vs per-device tokens — then slice 1, M, $0
 - **G131** replace the harness's own auto-memory with Cicada — it is a per-project markdown graph with an
   always-loaded index (`~/.claude/projects/<cwd>/memory/`), i.e. `entities/` + `_state.md` built by someone
   else and invisible to the bank. Cicada wins on decay, provenance, contradiction handling and portability;
