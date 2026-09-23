@@ -180,7 +180,10 @@ Six rails hold across all of them:
   tombstoned (`source_deleted_at`) and never unlinked. A multi-turn source records G118's per-turn
   sidecar `turns: [{offset, ts, speaker}, …]` (R-PB4: an entry only for a turn with a time, the last
   key, outside `content_hash`, capped head-stable at 500) — the one shape `evidence.turn_stamps`
-  reads; the Stop hook's `turns:` stays its integer count and reads as no stamps.
+  reads. The Stop hook writes it too since G141 PJ-4 (R-PJ16): its `role: text` body is the stager's
+  line shape, so `episode_staging.stamps_for` builds the list, and the episode `timestamp` stays the
+  session's start while each turn carries its own time. A Stop-hook episode written before PJ-4 still
+  holds an integer count, which reads as no stamps.
 - **A local source is read by the app and parsed by the backend** (G133/G134). A watched folder:
   security-scoped bookmark, FSEvents, an mtime+size+sha manifest, bytes posted with relative paths to
   `POST /sources/folders/{id}/sync`; files under an agent glob land as `evidence_kind: assistant`,
@@ -344,8 +347,8 @@ exact) or `stale`. A stale span travels without wash offsets; a `derived` span (
 `inbox_context.locate_mention`) exists on read payloads only — never in `EVIDENCE_KINDS`, never
 written. The chat importer and every Local-sources draft keep each turn's time as
 `turns: [{offset, ts, speaker}]` in frontmatter, written by `episode_staging` outside
-`content_hash`; the Stop hook's `turns:` is still a count, and a reader treats any non-list as no
-times.
+`content_hash`; the Stop hook writes the same list (G141 PJ-4), and a reader treats any non-list — an
+older Stop-hook episode's count — as no times.
 
 **Optional frontmatter keys**, each with a narrow meaning — don't conflate them:
 
@@ -838,8 +841,8 @@ the same files (F1's context filter and fence strip); an entity node's hash also
   `GET /intake/jobs/{id}` (process-local — gone after a restart or an hour; the episodes are not). One
   stage runs at a time per process.
 - `POST /conversations/upload` is a deprecated shim over the one intake — new callers use
-  `POST /intake/import`; its `turns` sidecar is a list on imported episodes and an **integer
-  count** on Stop-hook episodes, so a reader checks the type.
+  `POST /intake/import`; its `turns` sidecar is a list, as on Stop-hook episodes since G141 PJ-4 —
+  only a Stop-hook episode written before PJ-4 holds an **integer count**, so a reader checks the type.
 
 ---
 

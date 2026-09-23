@@ -129,7 +129,7 @@ def test_first_firing_creates_one_episode_in_the_importer_shape(roots, memory):
     fm = parsed.frontmatter
     assert fm["origin"] == "claude-code" and fm["source"] == "claude-code" and fm["harness"] == "claude-code"
     assert fm["session_id"] == SID and fm["project_dir"] == "/home/example/alpha-project"
-    assert fm["capture_kind"] == "transcript" and fm["processed"] is False and fm["turns"] == 2
+    assert fm["capture_kind"] == "transcript" and fm["processed"] is False and [e["speaker"] for e in fm["turns"]] == ["user", "assistant"]
     assert fm["title"] == "Should alpha-project move to sqlite-vec?"
     assert fm["timestamp"] == "2026-09-03T10:00:00+00:00"
     assert "processed_by" not in fm
@@ -161,7 +161,7 @@ def test_second_firing_updates_in_place_and_requeues(roots, memory):
     fm2 = markdown_parser.parse(ep).frontmatter
     assert fm2["processed"] is False and "processed_by" not in fm2
     assert fm2["content_hash"] != old_hash and fm2["id"] == first.episode_id
-    assert fm2["turns"] == 3
+    assert [e["speaker"] for e in fm2["turns"]] == ["user", "assistant", "user"]
 
     third = tc.capture_transcript(memory, harness="claude-code", session_id=SID, transcript_path=str(path),
                                   cwd=None, keep_assistant=True)

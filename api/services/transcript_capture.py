@@ -19,6 +19,12 @@ Writes mirror the conversation importer byte-for-byte (``conversations.py``
 rewrites the same file with ``processed: false`` so Sleep re-consolidates
 exactly one episode (the G104-safe path). Ids and stamps come from
 ``episode_ids`` (G114). No LLM anywhere.
+
+Each turn's own time rides in G118's sidecar ``turns: [{offset, ts, speaker}]``
+(G141 PJ-4, R-PJ16), written by ``episode_staging.stamps_for`` — the body here
+is that module's line shape byte for byte — outside the hash, the last key,
+head-stable at 500. The episode ``timestamp`` stays the session's start, so a
+session resumed over three days keeps one id while its day-3 turns read day 3.
 """
 
 from __future__ import annotations
@@ -32,7 +38,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import episode_ids, markdown_parser, session_stats, telemetry
+from api.services import episode_ids, episode_staging, markdown_parser, session_stats, telemetry
 from api.services.transcript_extract import HARNESSES, Conversation, extract
 
 #: 256 MiB. The largest transcript seen on the author's machine during the
@@ -135,6 +141,31 @@ def _body(conv: Conversation) -> str:
     """The importer's exact body shape (``conversations.py:792``), so G118
     spans and ``evidence.speaker_kind`` read a captured episode unchanged."""
     return "\n".join(f"{t.role}: {t.text}" for t in conv.turns)
+
+
+def _turn_sidecar(conv: Conversation, body: str) -> list[dict]:
+    """G141 PJ-4 (R-PJ16, R-CS6): the per-turn ``[{offset, ts, speaker}]``
+    sidecar, in the ONE shape ``evidence.turn_stamps`` reads.
+
+    :func:`_body` renders ``"{role}: {text}"`` lines joined by ``\\n`` — byte
+    for byte ``episode_staging._line`` — so the stager's own ``stamps_for``
+    builds it: one writer of the shape, its head-stable 500 cap, aware-UTC
+    times, and ``[]`` rather than offsets into text the body does not hold.
+    Before this the hook wrote ``turns: <count>`` and every Claude Code turn
+    dated to the session's first day."""
+    draft = episode_staging.EpisodeDraft(turns=[
+        episode_staging.Turn(text=t.text, speaker=t.role, ts=t.ts) for t in conv.turns])
+    return episode_staging.stamps_for(draft, body)
+
+
+def _place_turns(fm: dict, sidecar: list[dict]) -> None:
+    """The sidecar is the LAST key (R-PB4), replaced whole on every rewrite; a
+    body with no timed turn drops the key rather than keep stale offsets — the
+    stager's ``_apply_common`` rule. Never in ``content_hash``: a time never
+    re-queues a session."""
+    fm.pop("turns", None)
+    if sidecar:
+        fm["turns"] = sidecar
 
 
 def _title(conv: Conversation, harness: str) -> str:
@@ -258,10 +289,10 @@ def capture_transcript(
                 "harness": harness,
                 "capture_kind": CAPTURE_KIND,
                 "captured_at": now,
-                "turns": len(conv.turns),
             }
             if cwd:
                 fm["project_dir"] = cwd
+            _place_turns(fm, _turn_sidecar(conv, body))
             path_out = episodes_dir / f"{episode_id}.md"
             markdown_parser.write(path_out, fm, body)
             _episode_cache[(str(episodes_dir.resolve()), harness, session_id)] = path_out
@@ -275,17 +306,18 @@ def capture_transcript(
             _record(harness, session_id, "unchanged", conv, bank)
             return CaptureResult("unchanged", episode_id, kept["user"], kept["assistant"], conv.summary)
 
-        # R3: same file, same id, same original timestamp; new body, re-queued.
+        # R3: same file, same id, same original timestamp; new body, re-queued,
+        # and the whole per-turn sidecar rewritten (G141 PJ-4, R-PJ16).
         # `processed_by` is written only beside `processed: true` (G114 R6),
         # so a re-queued episode must not carry a stale "sleep" stamp.
         fm["title"] = _title(conv, harness)
         fm["content_hash"] = content_hash
         fm["captured_at"] = now
-        fm["turns"] = len(conv.turns)
         fm["processed"] = False
         fm.pop("processed_by", None)
         if cwd and not fm.get("project_dir"):
             fm["project_dir"] = cwd
+        _place_turns(fm, _turn_sidecar(conv, body))
         markdown_parser.write(existing, fm, body)
         _record(harness, session_id, "updated", conv, bank)
         logger.info(f"capture: updated {episode_id} from {harness} session ({len(conv.turns)} turns), re-queued")

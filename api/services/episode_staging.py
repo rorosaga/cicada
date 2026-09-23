@@ -21,9 +21,10 @@ What the move adds — each additive, each inert to an episode that does not use
   that has a time, always the LAST frontmatter key, capped head-stable at
   ``MAX_TURN_STAMPS``, omitted when no turn has a time. (This track first wrote
   a ``turn_index`` of ``[offset, ts, speaker]`` rows, R-LS1/R-LS2, because the
-  Stop hook's ``turns:`` is an integer count; the merge with G118 slice 2 kept
-  ONE key — the hook's int reads as "no stamps" in ``turn_stamps`` — and turn
-  numbering now comes from the body's marker lines, ``evidence.turn_at``.)
+  Stop hook's ``turns:`` was an integer count (until G141 PJ-4); the merge with
+  G118 slice 2 kept ONE key — a pre-PJ-4 hook episode's int reads as "no
+  stamps" in ``turn_stamps`` — and turn numbering now comes from the body's
+  marker lines, ``evidence.turn_at``.)
 * Rename by content — a tombstoned ``source_id`` and a brand-new one in the same
   batch with the same ``content_sha`` and ``#fragment`` repoint the existing
   episode instead of forking a copy (R-F1, R-LS12).
@@ -207,7 +208,9 @@ def render(draft: EpisodeDraft) -> tuple[str, list[dict], int]:
 def stamps_for(draft: EpisodeDraft, body: str) -> list[dict]:
     """The sidecar for ``body`` when it is exactly ``draft``'s own rendering
     (scrubbed or raw), else ``[]`` — the offsets would vouch for text they do
-    not index. For the router's compat wrappers, which take a body as given."""
+    not index. For callers that hold a body as given: the router's compat
+    wrappers, and the Stop hook's writer (``transcript_capture``, G141 PJ-4),
+    whose ``role: text`` body is this module's line shape byte for byte."""
     if draft.body is not None:
         return []
     for texts in ([episode_scrub.scrub(t.text)[0] for t in draft.turns], [t.text for t in draft.turns]):
