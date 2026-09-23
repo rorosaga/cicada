@@ -279,6 +279,7 @@ def write_claim(
     authored_by: str | None = None,
     forbid_owner_observer: bool = False,
     expected_end: str | None = None,
+    today: date | None = None,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
@@ -320,6 +321,10 @@ def write_claim(
     written. Stored on ``Claim.expected_end``, never as a future ``valid_to``
     (every reader takes a set ``valid_to`` to mean closed); Sleep's
     ``claim_expiry`` closes the claim after that day.
+
+    ``today`` (G141 R-PJB7): the demo's pinned day, threaded to Stage 3's
+    ``now_date`` so ``recorded_at`` is deterministic; omitted, ``recorded_at``
+    reads the real clock exactly as before.
 
     Returns ``{subject, entity_id, claim_id, action, observer, evidence, path,
     page_created, expected_end, expected_end_ignored}`` on success (``path`` memory-relative, so the caller can
@@ -486,6 +491,7 @@ def write_claim(
             [new_claim],
             {entity_id: existing_claims},
             settings,
+            now_date=(today or date.today()).isoformat(),
         )
         # G113 — an agent's claim superseding or being rejected against the
         # page is feedback on that agent, same as in the Sleep pipeline.

@@ -996,6 +996,183 @@ class EpisodeCitations(CamelModel):
     partial: bool = False
 
 
+# --- G141 project timelines (PJ-1) — absolute days and instants only (R-PJ7) ---
+
+
+class TimelineParticipant(CamelModel):
+    """A page (or an unlinked name) in a moment or happening. ``derived`` is a
+    read-time relink by name (R-PJ9) — never written."""
+    id: Optional[str] = None
+    name: str = ""
+    type: Optional[str] = None
+    role: Optional[str] = None
+    surface: Optional[str] = None
+    url: Optional[str] = None
+    is_owner: bool = False
+    derived: bool = False
+
+
+class TimelineFact(CamelModel):
+    claim_id: str
+    subject: str
+    predicate: str
+    object: str
+    phrase: str
+    state: str = "said"          # said | changed | ended (R-PJ14)
+    was: Optional[str] = None
+    now: Optional[str] = None
+
+
+class TimelineQuote(CamelModel):
+    episode: str
+    start: Optional[int] = None  # None when stale or not found (R-PB2)
+    end: Optional[int] = None
+    kind: str = "derived"        # an evidence kind, or `derived`
+    status: str = "current"      # current | grown | stale | derived
+
+
+class TimelineConversation(CamelModel):
+    id: Optional[str] = None     # session_id / source_id; None for a lone episode
+    episode_id: str
+    title: str = ""
+    origin: Optional[str] = None
+    harness: Optional[str] = None
+    resumable: bool = False      # per request, isfile only; a 304 may carry a stale true (§7)
+
+
+class TimelineItem(CamelModel):
+    kind: str                    # moment | happening | history | created
+    id: str
+    day: Optional[str] = None    # local day in `tzName`; None = an undated history bullet
+    at: Optional[str] = None     # UTC instant when known
+    date_basis: Optional[str] = None   # stated|turn|episode|person|written, or `day` (wire only)
+    state: Optional[str] = None
+    via: Optional[str] = None
+    project: Optional[str] = None
+    text: str = ""
+    facts: list[TimelineFact] = []
+    more_facts: int = 0
+    participants: list[TimelineParticipant] = []
+    quote: Optional[TimelineQuote] = None
+    conversation: Optional[TimelineConversation] = None
+    claim: Optional[ClaimModel] = None
+    verbatim: bool = False       # the person's own Log words (R-PJ23)
+
+
+class MilestoneRow(CamelModel):
+    slug: str
+    name: str
+    status: str                  # planned | done | missed | dropped | passed-no-word
+    target: Optional[str] = None
+    done_on: Optional[str] = None
+    moved: bool = False
+    source: str = "milestone"    # milestone | due | expectedEnd
+    on: Optional[str] = None     # the sub-project it lives on, when not the project itself
+    claim_id: Optional[str] = None
+    chain: list[ClaimModel] = [] # newest first; the detail only (R-PJ4)
+
+
+class OpenThread(CamelModel):
+    claim_id: str
+    text: str = ""
+    since: str
+    last_heard: str
+    on: Optional[str] = None
+    verbatim: bool = False
+
+
+class ActivityDay(CamelModel):
+    day: str
+    n: int
+
+
+class ClusterMember(CamelModel):
+    id: Optional[str] = None
+    type: Optional[str] = None
+    name: str = ""
+    role_phrase: str = ""
+    fact: str = ""
+    last_seen: Optional[str] = None
+    count: int = 0
+    pending: bool = False        # "mentioned once, not a page yet" (§6.4)
+
+
+class ClusterGroup(CamelModel):
+    label: str
+    members: list[ClusterMember] = []
+    more: int = 0
+
+
+class ProjectCluster(CamelModel):
+    groups: list[ClusterGroup] = []
+    also_uses: list[ClusterMember] = []   # the commons (R-PJ20)
+
+
+class ProjectProgress(CamelModel):
+    done: int = 0
+    total: int = 0
+
+
+class ProjectRef(CamelModel):
+    id: str
+    name: str
+    one_liner: str = ""
+    parent: Optional[str] = None
+    children: list[str] = []
+    status: str = "active"
+    created: Optional[str] = None
+
+
+class ProjectNow(CamelModel):
+    threads: list[OpenThread] = []
+    next: Optional[MilestoneRow] = None
+    last: Optional[TimelineItem] = None
+
+
+class PendingConversations(CamelModel):
+    unconsolidated: int = 0
+    newest_day: Optional[str] = None
+
+
+class TimelineWindow(CamelModel):
+    start: Optional[str] = None
+    end: Optional[str] = None
+
+
+class ProjectRow(ProjectRef):
+    planned: bool = False
+    last_moment_day: Optional[str] = None
+    median_gap_days: Optional[float] = None
+    open_threads: list[OpenThread] = []
+    milestones: list[MilestoneRow] = []
+    progress: ProjectProgress = Field(default_factory=ProjectProgress)
+    activity: list[ActivityDay] = []
+    followups: int = 0
+
+
+class ProjectsResponse(CamelModel):
+    projects: list[ProjectRow] = []
+    tz_name: str = "UTC"
+    partial: bool = False
+
+
+class ProjectTimeline(CamelModel):
+    project: ProjectRef
+    tz_name: str = "UTC"
+    window: TimelineWindow = Field(default_factory=TimelineWindow)
+    now: ProjectNow = Field(default_factory=ProjectNow)
+    pending: PendingConversations = Field(default_factory=PendingConversations)
+    milestones: list[MilestoneRow] = []
+    items: list[TimelineItem] = []
+    activity: list[ActivityDay] = []
+    moment_days: list[str] = []
+    last_moment_day: Optional[str] = None
+    median_gap_days: Optional[float] = None
+    cluster: ProjectCluster = Field(default_factory=ProjectCluster)
+    conversations: list[TimelineConversation] = []
+    partial: bool = False
+
+
 class TransclusionPayload(CamelModel):
     """Resolved ``![[…]]`` embed. ``resolved=False`` → render a soft "not found".
 

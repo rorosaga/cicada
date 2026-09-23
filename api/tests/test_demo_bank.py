@@ -3,10 +3,16 @@ fresh viewer's first click touches. No LLM, no network: pure file + git I/O.
 """
 from __future__ import annotations
 
+import re
+
+from _demo_scenario import T, d, day_one, demo
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import bank_index, bank_registry, demo_bank
+from api.services import bank_index, bank_registry, claim_contexts, demo_bank, markdown_parser
+from api.services.claims import parse_claims
+
+_URL = re.compile(r"https?://[^\s)\"'>\]]+")
 
 
 def _client(tmp_path, monkeypatch):
@@ -35,8 +41,49 @@ def test_populate_is_only_placeholder_names(tmp_path):
     bank_registry.scaffold_bank(bank_dir)
     demo_bank.populate(bank_dir)
     text = "\n".join(p.read_text() for p in bank_dir.rglob("*.md"))
-    assert "http" not in text or "example.com" in text  # no real domains
+    urls = _URL.findall(text)
+    assert urls and all("://example.com" in u or ".example.com" in u for u in urls), urls  # EVERY url (spec §12)
     assert "rodrigo" not in text.lower()
+    for p in (bank_dir / "entities").glob("*.md"):
+        fm = markdown_parser.parse(p).frontmatter
+        if fm.get("type") == "person":
+            assert p.stem.endswith("-example"), p.stem   # people are placeholders by construction
+
+
+def test_the_scenario_is_written_with_its_dates_and_no_facets(tmp_path):
+    bank = day_one(tmp_path, index=False)
+    ents = bank / "entities"
+    for stem in ("rover-arm-project", "pick-and-place-demo", "lab-cluster-example", "hana-example",
+                 "media-example-cluster-guide", "garden-sensor-project"):
+        assert (ents / f"{stem}.md").exists(), stem
+    assert markdown_parser.parse(ents / "rover-arm-project.md").frontmatter["created"] == d(-70)
+    guide = markdown_parser.parse(ents / "media-example-cluster-guide.md").frontmatter
+    assert guide["media"]["url"] == "https://example.com/guides/lab-cluster-onboarding.pdf"
+    assert guide["decay_class"] == "evergreen"
+    for p in ents.glob("*.md"):
+        for c in parse_claims(markdown_parser.parse(p).body):
+            assert not claim_contexts.is_facet(c.context), (p.stem, c.id)   # no satellite (R-PJ4)
+    assert len(list((bank / "inbox").glob("inbox-*.md"))) == 6            # PJ-6's follow-up is off here
+
+
+def test_expiry_closed_the_two_past_dues_in_its_own_commit(tmp_path):
+    import subprocess
+    bank = day_one(tmp_path, index=False)
+    dues = [c for c in parse_claims(markdown_parser.parse(bank / "entities" / "rover-arm-project.md").body)
+            if c.predicate == "due"]
+    assert {c.object: c.valid_to for c in dues if c.valid_to} == {d(-42): d(-42), d(-14): d(-14)}
+    log = subprocess.run(["git", "-C", str(bank), "log", "--format=%s%n%b---"], check=True,
+                         capture_output=True, text=True).stdout
+    assert f"Expiry {T.isoformat()}" in log and "Cicada-Author: cicada" in log
+
+
+def test_a_pinned_today_is_deterministic(tmp_path):
+    a, b = demo(tmp_path / "a", index=False), demo(tmp_path / "b", index=False)
+    for sub in ("entities", "episodes"):
+        for p in sorted((a / sub).glob("*.md")):
+            if p.stem == "bob-example":
+                continue   # ensure_owner_entity stamps its own created day (not the scenario's)
+            assert p.read_bytes() == (b / sub / p.name).read_bytes(), p.name
 
 
 def test_populate_writes_real_git_history_with_trailers(tmp_path):

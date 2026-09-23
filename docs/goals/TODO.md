@@ -271,7 +271,7 @@ now with no app dependency: **PJ-0** (the page-less claim loss: `claim_pipeline.
 subjects keyed by Stage-2 ids), **PJ-1** (the $0 read model and its two GETs, with the demo scenario and a
 `today=` seam on `demo_bank.populate`) and **PJ-4** (the Stop hook writes the `turns` list). The Projects page
 (PJ-5) is the first screen built D-native and waits for the DS shell. Screenshots come from a freshly
-generated demo bank only.
+generated demo bank only. PJ-1's read model and demo scenario are on `feat/g141-read-write` (T1).
 
 **Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
 open is on the row.
@@ -564,7 +564,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     page (after the DS shell + a G108 ruling on the rail cell); **PJ-6** `followup` inbox kind ($0); **PJ-7**
     Sleep happening extraction 💸 (+15–30% Stage-1 on BYOK; built only if M1–M3 say so); **PJ-8** consented
     per-project re-read 💸 — L. Open DECIDEs (rail cell, band colour, pending-store hold) are under Research /
-    decisions below
+    decisions below. PJ-1's read model and demo scenario are on `feat/g141-read-write` (T1)
 14. **G102** site recon — cheap slice shipped 2026-09-02 (see Shipped). Next slice: relate a link to a
     pending candidate when it promotes; fetch-side improvements stay out of scope until a measured
     need — S

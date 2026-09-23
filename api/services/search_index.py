@@ -55,7 +55,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, bank_registry, episode_ids, evidence, inbox_questions, markdown_parser
+from api.services import bank_index, bank_registry, episode_ids, evidence, inbox_questions, markdown_parser, text_fold
 from api.services.claims import is_record, parse_claims, strip_claims_block
 from api.services.graph_builder import summarize
 
@@ -689,6 +689,46 @@ def wait_idle(memory_path: Path, timeout: float = 30.0) -> bool:
         worker.join(timeout)
         return not worker.is_alive()
     return True
+
+
+def claims_about(memory_path: Path, names: list[str]) -> list[tuple[str, dict]] | None:
+    """`(subject page id, claim payload)` for every indexed claim whose
+    `predicate object` column holds one of `names` as a phrase (G141 §6.4's
+    reverse claims). A candidate list — the caller resolves the object exactly.
+    `None` when no usable index answers, so the caller can fall back and say
+    `partial` (§6.6); never raises."""
+    state = ensure_fresh(memory_path)
+    if state not in ("ready", "stale"):
+        return None
+    phrases = []
+    for name in names:
+        toks = [t for t in text_fold.words(name) if t]
+        if toks:
+            phrases.append('keywords : "' + " ".join(toks) + '"')
+    if not phrases:
+        return []
+    try:
+        with Reader(memory_path) as reader:
+            rows = reader.conn.execute(
+                f"SELECT d.ref, c.payload FROM clm c JOIN docs d ON d.id = (c.rowid >> {ROW_BITS}) "
+                "WHERE clm MATCH ? ORDER BY d.ref, c.rowid", (" OR ".join(phrases),)).fetchall()
+    except sqlite3.Error:
+        return None
+    return [(str(ref), json.loads(p or "{}")) for ref, p in rows]
+
+
+def pages_citing(memory_path: Path, episode_id: str) -> list[str] | None:
+    """Pages holding a claim with a SPAN into `episode_id` (R-PJB20), sorted;
+    `None` when no usable index answers."""
+    if ensure_fresh(memory_path) not in ("ready", "stale"):
+        return None
+    try:
+        with Reader(memory_path) as reader:
+            rows = reader.claims_citing(episode_id)
+            docs = reader.docs(sorted({doc_id for doc_id, *_ in rows}))
+    except sqlite3.Error:
+        return None
+    return sorted({d.ref for d in docs.values()})
 
 
 # --- reading ------------------------------------------------------------------

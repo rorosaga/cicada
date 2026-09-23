@@ -7,9 +7,12 @@ R7 (binding): fully deterministic, no LLM call and no `random` anywhere in
 this module — every id, sentence and count below is a Python literal or a
 plain deterministic loop over one, so `test_demo_bank.py` can assert exact
 counts and exact filenames and get the same answer on every run, on every
-machine. The one non-literal piece is `date.today()` itself: episode/entity
-dates are relative to "today" so a demo bank always looks freshly captured
-rather than visibly stale the day after it ships.
+machine. The one non-literal piece is "today": every episode/entity date is
+relative to it so a demo bank always looks freshly captured rather than
+visibly stale the day after it ships. `populate(today=)` pins it (G141
+R-PJB7) — the project-timeline tests assert literal values ("quiet 24 days",
+Q = 20) that must not depend on the day the suite ran; omitted, it is
+`date.today()`.
 
 Reuses production writers end to end rather than hand-rolling shapes that
 would drift from them:
@@ -89,25 +92,32 @@ _EPISODE_SENTENCES = [
 ]
 
 
-def populate(bank_dir: Path) -> None:
+def populate(bank_dir: Path, today: date | None = None) -> None:
     """Fill an already-scaffolded (``bank_registry.scaffold_bank``) empty
     bank directory with the full synthetic graph: entities, episodes, inbox
     items, the placeholder owner, a handful of evidenced claims, and real git
     history. Idempotent only in the trivial sense that every write here is a
     fresh-file write — calling this twice on the same dir just re-stamps the
     same content (the router's ``POST /banks/demo`` refuses a second call by
-    checking bank existence first, so this never needs to guard itself)."""
+    checking bank existence first, so this never needs to guard itself).
+
+    ``today`` (G141 R-PJB7) pins every relative date, ``recorded_at`` included.
+    """
     bank_dir = Path(bank_dir)
-    _write_entities(bank_dir)
-    episodes = _write_episodes(bank_dir)
-    _write_inbox(bank_dir, episodes)
+    today = today or date.today()
+    _write_entities(bank_dir, today)
+    episodes = _write_episodes(bank_dir, today)
+    _write_inbox(bank_dir, episodes, today)
     owner_identity.ensure_owner_entity(bank_dir, "Bob Example")
-    _write_claims_with_evidence(bank_dir, episodes)
-    _commit_history(bank_dir)
+    _write_claims_with_evidence(bank_dir, episodes, today)
+    _commit_history(bank_dir, today)
+    scenario = _write_scenario(bank_dir, today)
+    _commit_scenario(bank_dir, today, scenario)
+    _expire_scenario(bank_dir, today)
 
 
-def _write_entities(bank_dir: Path) -> None:
-    today = str(date.today())
+def _write_entities(bank_dir: Path, day: date) -> None:
+    today = str(day)
     for kind, ids in (
         ("person", _PEOPLE),
         ("project", _PROJECTS),
@@ -137,7 +147,7 @@ def _write_entities(bank_dir: Path) -> None:
             markdown_parser.write(bank_dir / "entities" / f"{entity_id}.md", fm, body)
 
 
-def _write_episodes(bank_dir: Path) -> list[dict]:
+def _write_episodes(bank_dir: Path, day: date) -> list[dict]:
     """~40 episodes across the four capture origins the plan names, dated
     over the last ~30 days. Returns the written records (id, sentence, the
     three entities it names) so ``_write_inbox``/``_write_claims_with_evidence``
@@ -146,7 +156,7 @@ def _write_episodes(bank_dir: Path) -> list[dict]:
     live bank's Sleep cycle produces.
     """
     episodes_dir = bank_dir / "episodes"
-    today = date.today()
+    today = day
     n = len(_ALL_ENTITIES)
     records: list[dict] = []
     for i in range(40):
@@ -191,10 +201,10 @@ def _write_episodes(bank_dir: Path) -> list[dict]:
 # --- Inbox: 6 items across the four `kind`s (G60 question-object shape) ----
 
 
-def _write_inbox(bank_dir: Path, episodes: list[dict]) -> None:
+def _write_inbox(bank_dir: Path, episodes: list[dict], day: date) -> None:
     inbox_dir = bank_dir / "inbox"
-    today = str(date.today())
-    stale = str(date.today() - timedelta(days=45))
+    today = str(day)
+    stale = str(day - timedelta(days=45))
     merge_source = episodes[0]
 
     # Two `decay` items: minimal shape (CLAUDE.md — decay is SERVED as a
@@ -305,7 +315,7 @@ _CLAIM_SPECS: tuple[tuple[str, str, str, int], ...] = (
 )
 
 
-def _write_claims_with_evidence(bank_dir: Path, episodes: list[dict]) -> None:
+def _write_claims_with_evidence(bank_dir: Path, episodes: list[dict], today: date) -> None:
     """Every subject but the owner's own is written with ``observer="agent"``
     — these read as Stage-1 extraction, matching the `Cicada-Author:
     <model>` "Sleep cycle" commits `_commit_history` folds them into below.
@@ -324,6 +334,7 @@ def _write_claims_with_evidence(bank_dir: Path, episodes: list[dict]) -> None:
             confidence=0.75,
             source_episode=record["id"],
             evidence=[{"episode": record["id"], "quote": record["sentence"]}],
+            today=today,
         )
 
 
@@ -352,7 +363,7 @@ def _run_commit(bank_dir: Path, message: str, paths: list[str]) -> None:
         asyncio.run(git_service.commit_paths(bank_dir, message, paths))
 
 
-def _commit_history(bank_dir: Path) -> None:
+def _commit_history(bank_dir: Path, day: date) -> None:
     """A handful of commits grouped roughly the way a real Sleep cycle would
     write them, so `GET /contributors` and entity-history views have
     something real to show on a bank that has never actually run Sleep.
@@ -373,8 +384,8 @@ def _commit_history(bank_dir: Path) -> None:
         check=True, capture_output=True,
     )
 
-    today = str(date.today())
-    earlier = str(date.today() - timedelta(days=1))
+    today = str(day)
+    earlier = str(day - timedelta(days=1))
 
     people_and_projects = [f"entities/{eid}.md" for eid in _PEOPLE + _PROJECTS]
     # Episode paths are re-derived from disk rather than threaded through as
@@ -429,3 +440,196 @@ def _commit_history(bank_dir: Path) -> None:
         ),
         owner_path,
     )
+
+
+# --- G141 scenario (spec §12): a planned robotics project, an unplanned one --
+#
+# Written AFTER the original 60 pages so their ids and sentences stay
+# byte-identical; the episodes are minted after `_write_episodes` through the
+# same `next_episode_id`, so no id is hard-coded. Every date is an offset from
+# `today`. Stand-ins (privacy rule): `hana-example` for <person-a>,
+# `pick-and-place-demo` for <demo-x>. Every URL is on example.com.
+
+_GUIDE_URL = "https://example.com/guides/lab-cluster-onboarding.pdf"
+
+# (id, type, display name, created offset, last_referenced offset, summary)
+_SCENARIO_PAGES = (
+    ("rover-arm-project", "project", "Rover Arm Project", -70, 0, "A small arm that picks parts off a tray."),
+    ("pick-and-place-demo", "project", "Pick And Place Demo", -35, 0, "The first demo of the rover arm picking a part."),
+    ("lab-cluster-example", "tool", "Lab Cluster Example", -1, 0, "The lab's shared compute cluster."),
+    ("hana-example", "person", "Hana Example", -1, 0, "A labmate who looks after the cluster."),
+    ("media-example-cluster-guide", "media", "Lab Cluster Onboarding Guide", -1, 0,
+     "A PDF that walks through connecting to the lab cluster."),
+    ("garden-sensor-project", "project", "Garden Sensor Project", -52, -9, "Soil sensors that report from the garden."),
+)
+
+# (key, offset, origin, session, hour UTC, user line, assistant line, turns sidecar?, processed?)
+_SCENARIO_EPISODES = (
+    ("S1", -70, "claude-code", "ses_demo_rover_01", 9,
+     "Started the Rover Arm Project today: a small arm that picks parts off a tray.", "Noted — a new project.", True, True),
+    ("S2", -63, "claude-code", "ses_demo_rover_01", 10,
+     "Plan for the Rover Arm Project: arm assembled by {m42}, first grasp by {m14}, the Pick And Place Demo "
+     "by {p12} and the lab showcase by {p40}.", "Four dates noted.", True, True),
+    ("S3", -45, "telegram", None, 11,
+     "The arm on the Rover Arm Project is fully assembled, running on Tool Example D.", "Great progress.", False, True),
+    ("S4", -35, "telegram", None, 12,
+     "Scoped the Pick And Place Demo as part of the Rover Arm Project.", "A good first milestone.", False, True),
+    ("S5", -24, "telegram", None, 13,
+     "Started calibrating the gripper camera on the Rover Arm Project with Tool Example F.", "Good luck.", False, True),
+    ("S6", -14, "telegram", None, 14,
+     "First grasp slipped: the Rover Arm Project leans on Tool Example E until the camera is calibrated.",
+     "Understood.", False, True),
+    ("S8", -1, "claude-code", "ses_demo_rover_03", 15,
+     "Lab Cluster Example will host the Pick And Place Demo: it has 4 GPU nodes, runs the Slurm-example "
+     "scheduler, and you log in at login.example.com.", "Noted the specs.", False, True),
+    ("S7", 0, "telegram", None, 16,
+     "Yesterday Hana Example sent me the lab cluster onboarding guide (" + _GUIDE_URL + "). It walks me "
+     "through connecting to Lab Cluster Example, and I'm connecting now so I can run the Pick And Place Demo.",
+     "Good luck with the login.", True, True),
+    # R-PJB8: S9 names the project too, so the Sleep queue's pending line counts it.
+    ("S9", 0, "claude-code", "ses_demo_rover_04", 17,
+     "Still connecting to Lab Cluster Example for the Pick And Place Demo; the login node asks for a key.",
+     "Try the key from the guide.", True, False),     # spec §12: S1, S2, S7 and S9 carry the sidecar
+    ("G1", -52, "telegram", None, 9,
+     "Started the Garden Sensor Project with Carol Example.", "Nice.", False, True),
+    ("G2", -30, "telegram", None, 9,
+     "The Garden Sensor Project now uses Tool Example C for the soil readings.", "Noted.", False, True),
+    ("G3", -9, "telegram", None, 9,
+     "The Garden Sensor Project reports every hour now, through Tool Example G.", "Nice.", False, True),
+)
+
+_SCENARIO_TITLES = {
+    "S1": "Starting the rover arm", "S2": "The rover arm plan", "S3": "Arm assembled", "S4": "Scoping the demo",
+    "S5": "Gripper camera", "S6": "First grasp slipped", "S7": "Notes on the lab cluster", "S8": "Lab cluster specs",
+    "S9": "Connecting to the cluster", "G1": "Garden sensors", "G2": "Soil readings", "G3": "Hourly reports",
+}
+
+# (episode key, subject, predicate, object, object_kind, claim text, quote). R-PJB22: a due's
+# date is a LITERAL here (Stage 1 writes a node, which draws a dangling edge to a date).
+_SCENARIO_CLAIMS = (
+    ("S1", "bob-example", "works-on", "rover-arm-project", "node", "Bob Example works on Rover Arm Project",
+     "Started the Rover Arm Project today"),
+    ("S2", "rover-arm-project", "due", "{m42}", "literal", "Arm assembled due {m42}", "arm assembled by {m42}"),
+    ("S2", "rover-arm-project", "due", "{m14}", "literal", "First grasp due {m14}", "first grasp by {m14}"),
+    ("S2", "pick-and-place-demo", "due", "{p12}", "literal", "Pick And Place Demo due {p12}",
+     "the Pick And Place Demo by {p12}"),
+    ("S2", "rover-arm-project", "due", "{p40}", "literal", "Lab showcase due {p40}", "the lab showcase by {p40}"),
+    ("S3", "rover-arm-project", "uses", "tool-example-d", "node", "Rover Arm Project uses Tool Example D",
+     "fully assembled, running on Tool Example D"),
+    ("S4", "pick-and-place-demo", "part-of", "rover-arm-project", "node",
+     "Pick And Place Demo is part of Rover Arm Project", "Scoped the Pick And Place Demo as part of the Rover Arm Project"),
+    ("S5", "rover-arm-project", "uses", "tool-example-f", "node", "Rover Arm Project uses Tool Example F",
+     "Started calibrating the gripper camera on the Rover Arm Project with Tool Example F"),
+    ("S6", "rover-arm-project", "uses", "tool-example-e", "node", "Rover Arm Project uses Tool Example E",
+     "the Rover Arm Project leans on Tool Example E"),
+    ("S8", "lab-cluster-example", "spec", "4 GPU nodes", "literal", "Lab Cluster Example has 4 GPU nodes", "it has 4 GPU nodes"),
+    ("S8", "lab-cluster-example", "spec", "Slurm-example scheduler", "literal",
+     "Lab Cluster Example runs the Slurm-example scheduler", "runs the Slurm-example scheduler"),
+    ("S8", "lab-cluster-example", "spec", "login.example.com", "literal",
+     "Lab Cluster Example logs in at login.example.com", "you log in at login.example.com"),
+    # R-PJB8: the node claim that lets the list's FTS path see the T-1 day, so list and detail agree.
+    ("S8", "lab-cluster-example", "hosts", "pick-and-place-demo", "node",
+     "Lab Cluster Example hosts Pick And Place Demo", "Lab Cluster Example will host the Pick And Place Demo"),
+    # The three S7 facts a moment leads with quote the WHOLE sentence (the §4.4 span): the lead rule's
+    # width tie-break then orders them by claim id, deterministically, ahead of the narrower one.
+    ("S7", "hana-example", "provides", "media-example-cluster-guide", "node",
+     "Hana Example provides Lab Cluster Onboarding Guide", "{s7}"),
+    ("S7", "pick-and-place-demo", "runs-on", "lab-cluster-example", "node",
+     "Pick And Place Demo runs on Lab Cluster Example", "{s7}"),
+    ("S7", "bob-example", "connects-to", "lab-cluster-example", "node", "Bob Example connects to Lab Cluster Example",
+     "{s7}"),
+    ("S7", "media-example-cluster-guide", "references", "lab-cluster-example", "node",
+     "Lab Cluster Onboarding Guide references Lab Cluster Example", "It walks me through connecting to Lab Cluster Example"),
+    ("G1", "bob-example", "works-on", "garden-sensor-project", "node", "Bob Example works on Garden Sensor Project",
+     "Started the Garden Sensor Project with Carol Example"),
+    ("G1", "carol-example", "works-on", "garden-sensor-project", "node", "Carol Example works on Garden Sensor Project",
+     "Started the Garden Sensor Project with Carol Example"),
+    ("G2", "garden-sensor-project", "uses", "tool-example-c", "node", "Garden Sensor Project uses Tool Example C",
+     "The Garden Sensor Project now uses Tool Example C"),
+    ("G3", "garden-sensor-project", "uses", "tool-example-g", "node", "Garden Sensor Project uses Tool Example G",
+     "reports every hour now, through Tool Example G"),
+)
+
+
+def _dates(today: date) -> dict[str, str]:
+    """The format fields every scenario string may use: four dates, and `s7`,
+    the owner's whole S7 sentence (a quote that is the entire user line)."""
+    s7 = next(e[5] for e in _SCENARIO_EPISODES if e[0] == "S7")   # (key, offset, origin, session, hour, USER, …)
+    return {"m42": str(today - timedelta(days=42)), "m14": str(today - timedelta(days=14)),
+            "p12": str(today + timedelta(days=12)), "p40": str(today + timedelta(days=40)), "s7": s7}
+
+
+def _write_scenario(bank_dir: Path, today: date) -> dict:
+    """Pages, episodes and ordinary claims — nothing an event writer adds (that
+    is PJ-3's). Returns ``{"episodes": {key: id}, "paths": [...]}``."""
+    from api.services import media_ingestor
+
+    ents, eps = bank_dir / "entities", bank_dir / "episodes"
+    paths: list[str] = []
+    for eid, etype, name, created, last, summary in _SCENARIO_PAGES:
+        cls = decay_policy.default_class_for(etype)       # media → evergreen (G66), the rest active
+        # 0.9 > the generic pages' 0.7, so `_state.md`'s top-7 project rows hold the scenario on any
+        # run day (`state_dictionary._score` divides both by the same age when last_referenced is T).
+        fm = {"name": name, "type": etype, "status": "active", "confidence": 0.9,
+              "created": str(today + timedelta(days=created)),
+              "last_referenced": str(today + timedelta(days=last)),
+              **decay_policy.frontmatter_fields(cls),
+              "source_episodes": [], "tags": [], "related": [], "version": 1, "layout_version": 2}
+        if etype == "media":
+            fm["media"] = {"url": _GUIDE_URL, "media_type": "document", "site": "example.com", "channel": None,
+                           "thumbnail": None, "saved_at": f"{today + timedelta(days=created)}T15:00:00+00:00",
+                           "url_hash": media_ingestor.url_hash(_GUIDE_URL)}
+        body = entity_body.compose_body_v2(summary=summary, key_facts=[], history_entries=[], related=[],
+                                           links=[], open_questions=[])
+        markdown_parser.write(ents / f"{eid}.md", fm, body)
+        paths.append(f"entities/{eid}.md")
+
+    dates = _dates(today)
+    ids: dict[str, str] = {}
+    for key, offset, origin, session, hour, user, assistant, stamped, processed in _SCENARIO_EPISODES:
+        day = str(today + timedelta(days=offset))
+        ep_id = episode_ids.next_episode_id(eps, day)
+        user_line = f"user: {user.format(**dates)}"
+        body = episode_scrub.scrub_body(f"{user_line}\nassistant: {assistant}", writer="demo", bank=bank_dir.name)
+        fm: dict = {"id": ep_id, "timestamp": f"{day}T{hour:02d}:00:00+00:00", "processed": processed,
+                    "origin": origin, "title": _SCENARIO_TITLES[key]}
+        if processed:
+            fm["processed_by"] = "sleep"
+        if origin == "claude-code":
+            fm["harness"] = "claude-code"
+        if session:
+            fm["session_id"] = session
+        if stamped:   # the episode_staging sidecar shape (R-PB4), always the LAST key
+            fm["turns"] = [{"offset": 0, "ts": f"{day}T{hour:02d}:04:00+00:00", "speaker": "user"},
+                           {"offset": body.index("\nassistant: ") + 1, "ts": f"{day}T{hour:02d}:05:00+00:00",
+                            "speaker": "assistant"}]
+        markdown_parser.write(eps / f"{ep_id}.md", fm, body)
+        ids[key] = ep_id
+        paths.append(f"episodes/{ep_id}.md")
+
+    for key, subject, predicate, obj, kind, text, quote in _SCENARIO_CLAIMS:
+        ep = ids[key]
+        write_claim(bank_dir, subject, predicate, obj.format(**dates), observer="agent", confidence=0.75,
+                    source_episode=ep, object_kind=kind, text=text.format(**dates),
+                    evidence=[{"episode": ep, "quote": quote.format(**dates)}], today=today)
+    for eid in ("bob-example", "carol-example"):
+        paths.append(f"entities/{eid}.md")
+    return {"episodes": ids, "paths": paths}
+
+
+def _commit_scenario(bank_dir: Path, today: date, scenario: dict) -> None:
+    _run_commit(bank_dir, git_service.build_commit_message(
+        f"Sleep cycle {today}",
+        [f"{p}: updated (source: n/a, trigger: sleep/extraction)" for p in scenario["paths"]],
+        authors=["gpt-5.4-mini"], engine="litellm"), scenario["paths"])
+
+
+def _expire_scenario(bank_dir: Path, today: date) -> None:
+    """The night the scenario's first two dates passed: expiry closes them, so
+    they read "passed, no word on how it went" (R-PJ4) — the shape a live bank
+    holds when a plan was never touched again."""
+    from api.services import claim_expiry
+
+    report = claim_expiry.expire(bank_dir, today)
+    if report.paths:
+        _run_commit(bank_dir, claim_expiry.commit_message(report, today), report.paths)
