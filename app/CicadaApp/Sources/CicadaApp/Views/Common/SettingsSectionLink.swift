@@ -28,29 +28,43 @@ import SwiftUI
 ///    the same gesture, as `<row>@<unix ms>` — the nonce lets `SettingsScene`
 ///    tell a new deep link from one it already consumed without ever clearing
 ///    the key (clearing would be a second writer).
-struct SettingsSectionLink: View {
+///
+/// The label is generic so a whole row can be the link (L final review,
+/// finding 1: a folder or Wispr Flow row on the Feed strip has its settings in
+/// Integrations, and a closure-driven row `Button` cannot get there). The seed
+/// still has exactly one writer — this body.
+struct SettingsSectionLink<Label: View>: View {
     let section: SettingsSection
     /// G139 (R-O15) — land on (scroll to and briefly wash) this row once
     /// Settings opens. Written in the SAME gesture as the section seed, in this
     /// file only, so the P5 one-writer rule covers both keys.
-    var row: SettingsRowID? = nil
-    let label: String
+    let row: SettingsRowID?
+    let accessibilityText: String
+    let label: Label
     /// G137 R-M18: an empty state's one action is the page's one prominent
     /// action — same link, same seed write, drawn through
-    /// `primaryActionStyle()` instead of as accent text. Off by default, so
-    /// every other caller (the Sleep page's schedule link) renders exactly
-    /// as before.
+    /// `primaryActionStyle()` (its label through `primaryActionInk()`) instead
+    /// of as accent text. Off by default, so every other caller (the Sleep
+    /// page's schedule link, a Feed-strip row) renders exactly as before.
     var prominent: Bool = false
+
+    init(section: SettingsSection, row: SettingsRowID? = nil, accessibilityText: String,
+         prominent: Bool = false, @ViewBuilder label: () -> Label) {
+        self.section = section
+        self.row = row
+        self.accessibilityText = accessibilityText
+        self.prominent = prominent
+        self.label = label()
+    }
 
     var body: some View {
         Group {
             if prominent {
-                SettingsLink { Text(label).primaryActionInk() }
+                SettingsLink { label.primaryActionInk() }
                     .primaryActionStyle()
             } else {
-                SettingsLink { Text(label) }
+                SettingsLink { label }
                     .buttonStyle(.cicadaPlain)
-                    .foregroundStyle(CicadaTheme.accent)
             }
         }
         .simultaneousGesture(TapGesture().onEnded {
@@ -59,6 +73,16 @@ struct SettingsSectionLink: View {
                 UserDefaults.standard.set(SettingsRowFocusSeed.encode(row, at: Date()), forKey: "cicada.settingsRowFocus")
             }
         })
-        .accessibilityLabel("\(label), opens \(Copy.settings) — \(section.title)")
+        .accessibilityLabel("\(accessibilityText), opens \(Copy.settings) — \(section.title)")
+    }
+}
+
+extension SettingsSectionLink where Label == Text {
+    /// The text link every earlier call site uses: accent-coloured text, or —
+    /// `prominent` — the page's one prominent action (the body inks it).
+    init(section: SettingsSection, row: SettingsRowID? = nil, label: String, prominent: Bool = false) {
+        self.init(section: section, row: row, accessibilityText: label, prominent: prominent) {
+            prominent ? Text(label) : Text(label).foregroundStyle(CicadaTheme.accent)
+        }
     }
 }

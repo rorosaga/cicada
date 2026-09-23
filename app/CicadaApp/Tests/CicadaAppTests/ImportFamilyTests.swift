@@ -21,7 +21,7 @@ final class ImportFamilyTests: XCTestCase {
     func testFamiliesMatchTheBrief() {
         XCTAssertEqual(ImportFamily.browsers.members, [.safari, .chrome])
         XCTAssertEqual(ImportFamily.websites.members, [.tiktok, .instagram, .youtube, .linkedin, .reddit, .pinterest, .x])
-        XCTAssertEqual(ImportFamily.chatExports.members, [.chatExport])
+        XCTAssertEqual(ImportFamily.chatExports.members, [.claudeExport, .chatgptExport, .geminiExport])
         XCTAssertEqual(ImportFamily.feedsAndCalendars.members, [.rssFeed, .calendar, .telegram])
         XCTAssertEqual(ImportFamily.files.members, [.bookmarksFile, .pasteLink, .appleNotes])
         XCTAssertEqual(ImportFamily.allCases.map(\.title), ["Browsers", "Websites & apps", "Chat exports", "Feeds & calendars", "Files"])
@@ -40,15 +40,16 @@ final class ImportFamilyTests: XCTestCase {
     func testFamilyPreviewMarksAreItsFirstBrandedMembers() {
         XCTAssertEqual(ImportFamily.browsers.previewMarks, [.safari, .chrome])
         XCTAssertEqual(ImportFamily.websites.previewMarks, [.tiktok, .instagram, .youtube, .linkedin])
-        XCTAssertEqual(ImportFamily.chatExports.previewMarks, [.chatExport])
+        XCTAssertEqual(ImportFamily.chatExports.previewMarks, [.claudeExport, .chatgptExport, .geminiExport])
     }
 
-    /// A family whose members carry no PNG and no installed-app icon still
-    /// wears marks — never an empty cluster on the top-level tile. Files
-    /// stopped being that family in Track L (R-L1 gave Apple Notes a bundle
-    /// id, so it is the family's one branded member); `chatExports` is, and
-    /// `testFamilyPreviewMarksAreItsFirstBrandedMembers` pins it. What is
-    /// asserted here is the shape every family must hold.
+    /// A family whose members carry no PNG and no installed-app icon would
+    /// still wear marks — never an empty cluster on the top-level tile. No
+    /// family is markless now: Files stopped being one in Track L (R-L1 gave
+    /// Apple Notes a bundle id, so it is the family's one branded member), and
+    /// chat exports in Track I T5 (R-IA21 split the one tile into three, each
+    /// wearing its vendor's real mark). What is asserted here is the shape
+    /// every family must hold.
     func testEveryFamilyWearsBetweenOneAndFourMarks() {
         XCTAssertEqual(ImportFamily.files.previewMarks, [.appleNotes],
                        "Apple Notes is the Files family's only branded member (R-L1)")

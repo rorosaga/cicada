@@ -277,14 +277,36 @@ struct ContributorDrillDown: View {
 //   unknown -> a muted question-mark glyph — the ONE place a "?" is honest,
 //              because a legacy untrailered commit genuinely has no author.
 //
+//   harness -> the app's own mark (G118 slice 2): a remote write is authored
+//              by the connector's app label (`Cicada-Author: claude-web`, R-R5),
+//              which `author_identity` buckets as `harness` — the same
+//              `OriginMark` every other surface draws for that app.
+//
 // R-S14 — internal, not `private`: the chip strip reuses this exact view
 // rather than re-deriving a mark, so a chip and its drill-down can never wear
-// two different faces for one author.
+// two different faces for one author. G118 slice 2 widens it to any size and
+// to the bare `(author, kind, provider)` a claim or a history row carries, so
+// the ClaimChip footer, the History tab and "Where this came from" draw the
+// SAME face the strip does (design §4.6).
 struct ContributorAvatar: View {
-    let contributor: Contributor
+    let author: String
     let kind: String
+    let provider: String?
+    let avatarUrl: String?
+    var size: CGFloat = 22
 
-    private static let size: CGFloat = 22
+    init(contributor: Contributor, kind: String, size: CGFloat = 22) {
+        self.init(author: contributor.author, kind: kind, provider: contributor.provider,
+                  avatarUrl: contributor.avatarUrl, size: size)
+    }
+
+    init(author: String, kind: String, provider: String?, avatarUrl: String? = nil, size: CGFloat = 22) {
+        self.author = author
+        self.kind = kind
+        self.provider = provider
+        self.avatarUrl = avatarUrl
+        self.size = size
+    }
 
     var body: some View {
         switch kind {
@@ -292,11 +314,13 @@ struct ContributorAvatar: View {
             userAvatar
         case "system":
             systemAvatar
+        case "harness":
+            OriginMark(origin: author, size: size)
         case "unknown":
             Image(systemName: "questionmark.circle.fill")
-                .font(CicadaTheme.font(size: Self.size))
+                .font(CicadaTheme.font(size: size))
                 .foregroundStyle(CicadaTheme.textTertiary)
-                .frame(width: Self.size, height: Self.size)
+                .frame(width: size, height: size)
         default:
             providerBadge
         }
@@ -311,13 +335,13 @@ struct ContributorAvatar: View {
         Image(nsImage: BookwormRenderer.cachedImage(state: .happy, frameIndex: 0, pointSize: 24))
             .interpolation(.none)
             .resizable()
-            .frame(width: Self.size, height: Self.size)
+            .frame(width: size, height: size)
             .clipShape(Circle())
     }
 
     @ViewBuilder
     private var userAvatar: some View {
-        if let urlStr = contributor.avatarUrl, let url = URL(string: urlStr) {
+        if let urlStr = avatarUrl, let url = URL(string: urlStr) {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):
@@ -328,7 +352,7 @@ struct ContributorAvatar: View {
                     userFallback
                 }
             }
-            .frame(width: Self.size, height: Self.size)
+            .frame(width: size, height: size)
             .clipShape(Circle())
         } else {
             userFallback
@@ -337,9 +361,9 @@ struct ContributorAvatar: View {
 
     private var userFallback: some View {
         Image(systemName: "person.crop.circle.fill")
-            .font(CicadaTheme.font(size: Self.size))
+            .font(CicadaTheme.font(size: size))
             .foregroundStyle(CicadaTheme.info)
-            .frame(width: Self.size, height: Self.size)
+            .frame(width: size, height: size)
     }
 
     /// R8 — the real mark when the provider ships one, else the provider's
@@ -357,16 +381,18 @@ struct ContributorAvatar: View {
     /// rounded square — went on screen instead of the author's initials.
     @ViewBuilder
     private var providerBadge: some View {
-        if let logo = ContributorIdentity.logoName(provider: contributor.provider),
+        if let logo = ContributorIdentity.logoName(provider: provider),
            LogoImage.exists(name: logo) {
-            LogoImage(name: logo, size: Self.size)
+            LogoImage(name: logo, size: size)
         } else {
             Circle()
-                .fill(Self.providerColor(contributor.provider))
-                .frame(width: Self.size, height: Self.size)
+                .fill(Self.providerColor(provider))
+                .frame(width: size, height: size)
                 .overlay(
-                    Text(ContributorIdentity.monogram(for: contributor.author))
-                        .font(CicadaTheme.font(size: 10, weight: .bold))
+                    // 10 pt at the strip's 22 pt: the initials scale with the
+                    // circle so a 14 pt claim-chip avatar stays legible.
+                    Text(ContributorIdentity.monogram(for: author))
+                        .font(CicadaTheme.font(size: size * 10 / 22, weight: .bold))
                         .foregroundStyle(.white)
                 )
         }

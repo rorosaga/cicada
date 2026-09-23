@@ -1,0 +1,12 @@
+{
+  "root": "/R/cicada",
+  "memory": "/M/memory",
+  "cases": [
+    {"agent": "claude-code", "step": "mcp",
+     "argv": ["claude", "mcp", "add", "cicada", "--scope", "user", "--env", "CICADA_MEMORY_PATH=/M/memory",
+              "--", "/R/cicada/api/.venv/bin/python", "/R/cicada/mcp/server.py"]},
+    {"agent": "codex", "step": "mcp",
+     "argv": ["codex", "mcp", "add", "cicada", "--env", "CICADA_MEMORY_PATH=/M/memory",
+              "--", "/R/cicada/api/.venv/bin/python", "/R/cicada/mcp/server.py"]}
+  ]
+}

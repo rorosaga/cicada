@@ -19,6 +19,12 @@ struct IntegrationsView: View {
 
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
+    @Environment(LocalSourceWatcher.self) private var localSources
+    /// Looked up once per appearance, not per body evaluation: it is a
+    /// synchronous LaunchServices call on the main actor (task 7 review r1).
+    /// Re-checked on every appearance so installing Obsidian while the app
+    /// runs shows the row the next time the page opens.
+    @State private var obsidianInstalled = false
 
     /// One row per export-only social platform: no persisted backend
     /// channel exists for these (`AddSourceTile.channelIds` is `[]` for all
@@ -97,8 +103,7 @@ struct IntegrationsView: View {
                 case .loaded:
                     ForEach(IntegrationCategory.allCases) { category in
                         let rows = channels.filter { IntegrationCategory.of(channelId: $0.id) == category }
-                        let extraRows = category == .chatAndAgents ? harnessRows.count
-                            : category == .socialAndSaved ? Self.exportOnlyTiles.count : 0
+                        let extraRows = extraRowCount(category, rows: rows)
                         // A section renders only when it has evidence (mirrors
                         // `SourceSections.group`'s own rule) — an empty category
                         // reads as a broken page, not a completeness signal.
@@ -111,6 +116,24 @@ struct IntegrationsView: View {
             .padding(CicadaTheme.spacingXL)
         }
         .background(CicadaTheme.background)
+        .onAppear { obsidianInstalled = AddFolderRow.isObsidianInstalled() }
+    }
+
+    /// Rows a category renders beyond its channels — the informational harness
+    /// rows, the export-only platforms, the "Add a folder" rows (G133) and the
+    /// Wispr Flow row once Wispr Flow is on this Mac (G134).
+    private func extraRowCount(_ category: IntegrationCategory, rows: [SourceChannel]) -> Int {
+        switch category {
+        case .chatAndAgents: harnessRows.count
+        case .socialAndSaved: Self.exportOnlyTiles.count
+        case .notesAndFiles: 1
+        case .voiceAndMeetings: showsWispr(rows) ? 1 : 0
+        default: 0
+        }
+    }
+
+    private func showsWispr(_ rows: [SourceChannel]) -> Bool {
+        localSources.wisprInstalled || rows.contains { $0.id == LocalSourceWatcher.wisprChannel }
     }
 
     /// Three grey rows under a spinner rather than a bare spinner: the page's
@@ -155,7 +178,18 @@ struct IntegrationsView: View {
                     }
                 }
                 ForEach(rows) { channel in
-                    IntegrationChannelRow(channel: channel)
+                    if channel.id.hasPrefix("folder:") {
+                        FolderChannelRow(channel: channel)
+                    } else if channel.id != LocalSourceWatcher.wisprChannel {
+                        IntegrationChannelRow(channel: channel)
+                    }
+                }
+                if category == .notesAndFiles {
+                    AddFolderRow.folder
+                    if obsidianInstalled { AddFolderRow.obsidian }
+                }
+                if category == .voiceAndMeetings, showsWispr(rows) {
+                    WisprFlowRow(channel: rows.first { $0.id == LocalSourceWatcher.wisprChannel })
                 }
                 if category == .socialAndSaved {
                     ForEach(Self.exportOnlyTiles) { tile in
@@ -184,6 +218,10 @@ struct IntegrationsView: View {
 private struct IntegrationChannelRow: View {
     let channel: SourceChannel
     @Environment(Store.self) private var store
+    /// Track I T1: a Sync now here is consent for a watched browser, so it goes
+    /// through the watcher. The `Settings{}` scene injects it for this reason.
+    @Environment(BrowserWatcher.self) private var watcher
+    @Environment(LocalSourceWatcher.self) private var localSources
     @State private var vendor: WalkthroughVendor = .claude
     @State private var showConnectorPopover = false
     @State private var busy = false
@@ -276,13 +314,13 @@ private struct IntegrationChannelRow: View {
         } else if channel.actions.contains("disconnect") {
             HStack(spacing: CicadaTheme.spacingSM) {
                 if channel.actions.contains("sync") {
-                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store) }
+                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources) }
                 }
                 Button("Manage") { showConnectorPopover = true }
                     .buttonStyle(.bordered)
             }
         } else if channel.actions.contains("sync") {
-            actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store) }
+            actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources) }
         } else if channel.actions.contains("poll") {
             actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
         }

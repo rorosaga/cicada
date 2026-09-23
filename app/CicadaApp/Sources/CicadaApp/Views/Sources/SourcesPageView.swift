@@ -21,6 +21,7 @@ struct SourcesPageView: View {
     var onSelectEntity: ((String) -> Void)?
 
     @Environment(Store.self) private var store
+    @Environment(AppRouter.self) private var router
     @Environment(UsageViewModel.self) private var usageVM
     @State private var route: SourcesRoute = .grid
     /// R-S7/R-S9 — the catalog opens HERE. `AddSourceSheet` owns its own state
@@ -72,11 +73,21 @@ struct SourcesPageView: View {
                     .padding(.bottom, CicadaTheme.spacingXL)
                 }
             case .detail(let source):
+                // G136 R-SU18 (critic) — one identity per source: a hand-off from
+                // one open source to another must rebuild the detail, or the
+                // first source's conversation list (`@State`) stays under the
+                // second one's header.
                 SourceDetailView(source: source, onBack: { route = .grid }, onSelectEntity: onSelectEntity)
+                    .id(source.id)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(CicadaTheme.background)
+        // Track Z §7.1 — a Sleep spine's "Open in Sources ›" lands here with
+        // the tab switch; `onAppear` covers arriving from another tab and
+        // `onChange` a hand-off made while this page is already showing.
+        .onAppear { openPendingSource() }
+        .onChange(of: router.pendingSourceDetail) { _, _ in openPendingSource() }
         // R-S9: presented in place, never routed through `AppRouter`'s Feed
         // hand-off — that path stages ONE specific tile (its parameter is a
         // non-optional `AddSourceTile`), where "Add a source" from this page
@@ -88,6 +99,14 @@ struct SourcesPageView: View {
         .sheet(isPresented: $showAddSheet) {
             AddSourceSheet(initialTile: nil) { showAddSheet = false }
         }
+    }
+
+    /// Track Z §7.1 — land on the source a Sleep spine named. A source id that
+    /// no longer resolves (the overview changed underneath) leaves the grid
+    /// showing rather than guessing a neighbour.
+    private func openPendingSource() {
+        guard let id = router.consumeSourceDetail(), let source = rows.first(where: { $0.id == id }) else { return }
+        route = .detail(source)
     }
 
     private var addSourceButton: some View {

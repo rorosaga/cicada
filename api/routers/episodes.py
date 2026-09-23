@@ -51,16 +51,20 @@ async def get_episode_span(
     settings: Settings = Depends(get_settings),
 ):
     """The evidence text at ``[start, end)`` with ``context`` chars either side."""
-    text = evidence.source_text(settings.memory_path, episode_id)
-    if text is None:
+    doc = evidence.source_document(settings.memory_path, episode_id)
+    if doc is None:
         raise HTTPException(404, f"No stored document {episode_id!r}")
+    fm, text = doc
     if end <= start or end > len(text):
         raise HTTPException(422, f"span [{start}, {end}) is outside the document (length {len(text)})")
     # A7: one freshness rule for every reader (R-PB1) — a Stop-hook episode
     # that took another turn is `grown`, not `stale`; a page never grows.
-    status = evidence.span_status(
-        text, end=end, hash=hash, appendable=evidence.is_episode_id(episode_id),
-    )
+    is_episode = evidence.is_episode_id(episode_id)
+    status = evidence.span_status(text, end=end, hash=hash, appendable=is_episode)
+    # R-LS7: a folder file's declared authorship; R-LS2: which turn, from the
+    # episode's `turns` sidecar (R-PB4) — both read from the one parse above.
+    override = str(fm.get("evidence_kind") or "") or None
+    turn = evidence.turn_at(text, start, evidence.turn_stamps(fm)) if is_episode else None
     return EpisodeSpan(
         episode=episode_id,
         text=text[start:end],
@@ -71,7 +75,15 @@ async def get_episode_span(
         length=len(text),
         stale=status == evidence.SPAN_STALE,
         grown=status == evidence.SPAN_GROWN,
-        kind=evidence.speaker_kind(text, start) if evidence.is_episode_id(episode_id) else "page",
+        kind=evidence.kind_for(episode_id, text, start, override),
+        # G140 Q-R9: seconds into the video for a span on a timed `video [m:ss]:`
+        # line — the same marker grammar and override as `kind`, so `t` is set
+        # exactly where `kind` is `media`.
+        t=evidence.media_time(text, start, override) if is_episode else None,
+        turn_number=turn["number"] if turn else None,
+        turn_count=turn["of"] if turn else None,
+        turn_ts=turn["ts"] if turn else None,
+        turn_speaker=turn["speaker"] if turn else None,
     )
 
 

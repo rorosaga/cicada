@@ -36,15 +36,41 @@ contributors strip, `+ Add a source` in the header) · **#70** bundled marks res
 assembled app (every provider logo had been falling back to a symbol in shipped builds).
 **Per-PR detail is in git — `git log --oneline 381cfd3..dev` — not here.**
 
+**Round 3, Track I part a** (`feat/intake-onboarding`): one intake for every chat export and every way a file arrives
+(sniff → preview → import → a card that never closes itself; `UploadOverlay` and the Feed's Upload
+button retired), consent before any browser read, the Gemini channel and the export-origin
+backfill, `GET /agents/wiring`, and the tested pure logic part b's Welcome and Home consume. Part b
+(T8 Welcome, T9 Home + ⌘1–7, T10 reminders, T11 docs, T12 live pass) is next.
+
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
+**Measured on `feat/intake-onboarding` (Track I part a, 2026-09-23):** backend **2273 passed**, Swift
+**1141 executed, 0 failures**, graph node tests **7 passed**.
 
 **Round 3, Track S-back — G136 server half (2026-09-23, `feat/search-everywhere`, PR #75).** `/search`
 moved into the threadpool with `kinds`, exact lexical `totals`, spans and `mode=prefix|hybrid` over a
 derived FTS5 index beside the vector index (`search_index.db`: excluded through `.git/info/exclude`,
 rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conversations/recent?q=`.
 Backend **2287 passed** on the branch. The palette (design §6 S3–S6) starts after the Meadow foundation
-(M1) merges; MCP recall adoption is Track R's — see the plan's hand-off.
+(M1) merges; MCP recall adopted the G136 helpers with G140 Q-R1 (Track Q).
+
+**Round 3, Track Q — memory quality from the Instinct comparison + the video watch record (2026-09-23,
+`feat/memory-quality`, G140).** Recall reads aliases, words and claims (the G136 hand-off) and shows bounded
+dated history; `cicada_timeline`, `cicada_retract_claim` and `cicada_record_watch` are new; stated ends
+(`expected_end`, `due`) close on Sleep's tail in a `cicada` `Expiry` commit; the primer is Standing/Current
+with the person, their timezone and How to work with me (contract v3); the video chain's four defects are
+fixed and `media` is the sixth evidence kind (after Track L's `speaker`; one marker grammar reads both). Backend **2869 passed** on the branch (2714 on its base). P9
+(the rubric eval) is open in G140. Hand-offs: Track P renders `media` spans and `t`; Track O's skills
+manifest names `cicada_record_watch`; the Local-sources scrub wraps the two new episode writers
+(`write_note_episode`, `watch_record` — done in the merge of `dev`).
+
+**Round 3 · Track L — local sources (G133 + G134).** A watched folder the app reads and the backend
+parses (one episode per file through the shared `episode_staging` stager; agent-written globs never
+credited to the owner), papers as `media` pages with `media.kind: paper` (arXiv/Crossref details under
+the connector gate, why-it-matters from the owner's own spans, the abstract a dated world-tier cache),
+and Wispr Flow meetings and notes with their speakers (dictation opt-in). One scrub on every episode
+writer. Baselines with it: backend **≥ 2322 passed**, Swift **≥ 1039 executed** — replace these with
+the measured numbers when the PR merges.
 
 **Round 3, Track O — G139 Settings v3 + G138 recommended skills (2026-09-23, `feat/settings-v3`, not yet a PR).** The
 settings kit, a sidebar grouped Cicada · Customize · Engines & keys, General with a System appearance
@@ -53,7 +79,7 @@ only. Final-review ruling on the design doc's A3: the moved `use_for_sleep` swit
 API key card as "Use my Claude plan when I start a cycle", because `engine_select` never reads it under
 Auto. Tasks 3–7 of `docs/superpowers/plans/2026-09-23-settings-v3.md` are built (From anywhere's own
 row, search, the Cicada-group pages, and G138's server half: the reviewed catalog, `GET /skills/recommended`,
-the handshake bridge at `CONTRACT_VERSION` 3), and Task 8 closes the plan: Settings → Skills — Cicada's
+the handshake bridge — `CONTRACT_VERSION` 4 since the merge of `dev`, one past G140's 3), and Task 8 closes the plan: Settings → Skills — Cicada's
 own two skills written by the app with a `.cicada-managed.json` marker (never over a changed copy), at
 most five recommended cards that open a detail sub-page (breadcrumb, ⌘[ and Esc back), and a consent
 sheet that shows the exact command before the agent's own installer runs (`SkillInstaller`: argv only,
@@ -163,6 +189,15 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
    short-circuit makes per-turn firing idempotent. Revisit only if `capture.log` starts showing
    timeout `error:` lines (the hook's 3 s budget, `TIMEOUT_S` in `api/hooks/capture.py`) on the live
    bank — the hook logs no timing, so a blown budget surfaces as an `error:` line, not a latency figure.
+8. **The Sleep page shows the ACTIVE stage, and there is one translation** (Track Z R-Z14). The
+   wire's `stage` counts completed stages (`sleep_cycle.py` sets 1 only after Stage 1 returns);
+   three derivations clamped it without adding one, so the worm, the bracket line and VoiceOver
+   said "stage 1" while Sort ran. `activeStage(completed:)` is the only way any view turns the
+   wire number into a stage. Revisit only if the backend starts reporting the stage in flight.
+9. **Pixel art beside the worm is checked against the real worm, per weather** (Track Z
+   Z-P13). A hand-approximated worm passed two window clouds the real frames hide (the head's
+   shake uncovers a column); `WindowSpritesTests` masks with every look of every mood that shows
+   that weather. Any new art near the worm gets the same test.
 
 ## How work is run here
 
@@ -195,15 +230,19 @@ Everything about *what to do next and why* lives in one place:
 > reasoning for its order. Workflow agents run on sonnet/haiku unless the owner says otherwise for a
 > session (round 2 ran on opus with that permission); the orchestrator plans, verifies and merges.
 
-The queue there, in order: **G118 slice 2** (the provenance viewer — slice 1's spans and slice 2's
-read routes are server-side; nothing renders them yet) → **G93** (cross-stream ask). Then the bigger
+The queue there, in order: **G118 slice 2** (server merged PR #72; the app is built on
+`feat/provenance-ui` and awaits the live check and merge; P6 rides Track S — drop this from the
+queue once it merges) → **G93** (cross-stream ask). Then the bigger
 rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a build. Before
 any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 from the **demo** bank
 (Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
 demo bank, never the live one, after the next visual change.
 
-**Search (G136):** the server half has shipped. Next is the ⌘K find palette (design §6 S3–S6), after
-M1; it builds against "The wire" in `docs/superpowers/plans/2026-09-23-search-backend.md`.
+**Search (G136):** the server half has shipped, and so has the palette's S3 (`feat/find-palette`): ⌘K
+(Find in Memory…) opens a find palette over the local tier with Ask as a mode on ⌘⏎; ⌘K/⌘F are menu
+commands in `Support/FindCommands.swift`, guarded by `HiddenShortcutLintTests`. Next is S4 (the server
+tier — conversations and beliefs), then S5 (in-page search fields) and S6 (`GraphNode.aliases`), per
+`docs/superpowers/plans/2026-09-23-find-palette.md`.
 
 **Small polish left behind, none blocking:** the Settings sidebar cannot be driven by a synthetic
 `click at` (select its rows through the accessibility API); a Sources card whose `count` comes from
@@ -245,14 +284,15 @@ G47 saved-content importer family · G58 sync engine
 LinkedIn/TikTok/Reddit parsers, one adapter registry) · **G105 hook-driven deterministic capture
 (2026-09-03, PR #46)** — Claude Code `Stop` hook → `POST /capture/transcript`, block-level extractor
 (person's turns + agent's final replies; tool blocks/code/secrets never), one episode per session
-updated in place, Sleep-queue source marks (`OriginMark`)
+updated in place, Sleep-queue source marks (`OriginMark`) · **G133 watched folders + papers** and
+**G134 Wispr Flow** (round 3 Track L)
 
 **Memory model** — G60 conflict resolution with time-aware questions · G61 fact sources ·
 G66 decay classes · A5 gap analysis · **G115 Phase 1 / G97 (2026-09-03)** — cause on the card,
 Recommended, decay through the question component, the G98 informational rule
 
 **Search** — **G136 server half (2026-09-23)** — the derived FTS5 index beside the vector index, `/search`
-with kinds / lexical totals / spans / prefix and hybrid, `/conversations/recent?q=`; the palette is open
+with kinds / lexical totals / spans / prefix and hybrid, `/conversations/recent?q=`; the ⌘K find palette's S3 (local tier, Ask as a mode); S4–S6 open
 
 **App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·
@@ -381,7 +421,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 | What | State | Next action |
 |---|---|---|
 | **G135 remote connector** | S0–S2 on `feat/remote-connector` (PR #75): SSRF guard, honest agent commits, `mcp_tools`, remote runtime and door, the From anywhere page | Merge after the orchestrator's live check; then the owner-present claude.ai + phone check (needs a tunnel the owner runs); S3 OAuth next |
-| **G118 slice 2 — server half** | **Merged** from `feat/provenance-viewer` (plan `2026-09-23-provenance-backend.md`): `grown` spans, `/episodes/{id}/text`, `/entities/{id}/provenance`, `/episodes/{id}/citations`, `/ask` evidence, per-turn import times. | Next: the Swift viewer track (P1–P6 client), now that Meadow M1 has landed. |
+| **G118 slice 2** | **Server merged** (PR #72, plan `2026-09-23-provenance-backend.md`). **App merged** (PR #78) from `feat/provenance-ui` (plan `2026-09-23-provenance-ui.md`): evidence chips with a hover quote, the Reader inspector (turns, washed span, honest banners, navigator, "Noted from this conversation"), "Where this came from" on the entity card, contributor faces in the claim footer and History, "Show in conversation" from the inbox, evidence under Ask answers. | Orchestrator live check on the demo bank (the plan's Verification), then merge. P6 (palette → Reader) rides Track S; the server hand-offs are listed in the G118 row. |
 | **G137 Meadow (round 3)** | **M1 foundation merged** (PR #71) from `feat/meadow-foundation` — Meadow tokens, Instrument Serif, `CicadaMotion` + hover modifiers, `liquidGlass`, the art set + manifest, the glass sidebar, the empty state. Plan: `docs/superpowers/plans/2026-09-23-meadow-foundation.md`. | Live-checked by the orchestrator in both themes at 1.0×; still open: 1.4×, Reduce Motion / Transparency / Increase Contrast (both themes, 1.0×/1.4×, Reduce Motion / Transparency / Increase Contrast; the empty state's one action on 26 (`.glassProminent`) with the window key AND not key, both themes — its ink is `onAccent` only while key, measured on `.borderedProminent`, unverified on glass), merge to `dev`; then the M2 pass. Builds on a macOS 14/15 SDK: every 26/15-only call is also behind `#if canImport(SwiftUI, _version:)`. |
 | **G129 bookmarks** | **Both slices shipped** — slice 1 (PR #52): file watch, catch-up sync, six-state light. Slice 2 (PR #61): seen-set, removal proposals, Deletions subsection. | G119 (Arc/Brave/Firefox) generalizes for free once added to `CHANNEL_BY_ORIGIN`. |
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
@@ -451,10 +491,9 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 9b. **G118 full provenance** — spans (not copies) on every claim, the contributor's rationale as a
     citable source, the prompt/turn that triggered every agent write, and a raw-source viewer with the
     cited passage highlighted (NotebookLM, but bi-temporal and attributed). Owner-marked central to
-    the vision (2026-09-02). Slice 1 shipped (spans + agent citations + span endpoint, PR #44); next:
-    slice 2 viewer (Swift `Evidence` model, chips → raw pane with highlight), then triggers (G105 shipped —
-    unblocked),
-    then rationale — L
+    the vision (2026-09-02). Slice 1 shipped (spans + agent citations + span endpoint, PR #44); slice 2
+    shipped (server PR #72; the app's chips, Reader and "Where this came from", plan
+    `2026-09-23-provenance-ui.md`); next: triggers (G105 shipped — unblocked), then rationale — L
 9e. **G122 Sleep engine & model picker** — `GET/PUT /sleep/engine`, an Engine card on the Sleep page
     (Auto · Claude plan · Codex · Ollama · Key, live state + model, next-cycle preview), Ollama guided as a
     first-class option; prefs in `~/.cicada/connections.json`, never `api/.env` — M
@@ -489,7 +528,8 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     adapters in this order: YouTube subscriptions (Takeout parser, no key) → Strava (OAuth, weekly aggregates)
     → Todoist/Reminders (tasks → G13) → Garmin/Apple Health exports — S/M + S–M each
 15. **G81** contacts — identity anchors *(prerequisite for 16; absorbs G46)* — M
-16. **G95** meetings & human↔human conversations — M/L
+16. **G95** meetings & human↔human conversations — M/L — *first slice shipped as G134 (Wispr Flow
+    meetings with speakers); a consent surface and the other note-takers remain*
 17. **G101** raw-conversation evidence layer — what to keep, what to discard — M
 18. **G91** share-to-Cicada *(needs G88's signed app; absorbs G37)* — M
 19. **G94** life-data streams — aggregates, never samples — L

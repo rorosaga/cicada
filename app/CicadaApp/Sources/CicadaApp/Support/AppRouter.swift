@@ -20,6 +20,10 @@ final class AppRouter {
     /// `showFirstRun` on `ContentView` itself), so it stages a flag here and
     /// `ContentView` is the one that actually presents the sheet.
     var pendingFirstRun = false
+    /// Track Z §7.1 — a Sleep spine's "Open in Sources ›". The source id rides
+    /// with the tab switch, like the Feed hand-off, and `SourcesPageView`
+    /// consumes it once it is on screen.
+    var pendingSourceDetail: String?
 
     /// Sets both fields together — a `pendingAddSource` with no matching
     /// tab-switch would stage a sheet nobody ever sees, since `FeedView`
@@ -27,6 +31,14 @@ final class AppRouter {
     func routeToFeedAddSource(_ tile: AddSourceTile) {
         pendingTab = .feed
         pendingAddSource = tile
+        activateMainWindow()
+    }
+
+    /// Sets both fields together, for the same reason `routeToFeedAddSource`
+    /// does: a staged source with no tab switch would never be consumed.
+    func routeToSourceDetail(_ sourceID: String) {
+        pendingTab = .sources
+        pendingSourceDetail = sourceID
         activateMainWindow()
     }
 
@@ -76,6 +88,50 @@ final class AppRouter {
         activateMainWindow()
     }
 
+    // MARK: G136 — the find palette's hand-offs
+
+    /// ⌘K (from any window, through `FindCommands`) and every "Search all of
+    /// memory for …" row stage a request; `ContentView` opens or closes the
+    /// palette (round-3 design §1.4). The request carries a nonce, so two ⌘K
+    /// presses are two changes.
+    var pendingPalette: PaletteRequest?
+    /// A palette inbox row lands on its card, expanded (design §3.3).
+    var pendingInboxItem: String?
+    /// A palette entity row's ⌥⏎ opens it in Clusters (design §3.3).
+    var pendingClustersEntity: String?
+    /// Until the Reader lands (R-SU18), a conversation row opens its source's
+    /// conversations filtered to its title; `HarnessConversationsView` reads this.
+    var pendingConversationQuery: String?
+
+    func requestPalette(prefill: String = "", mode: FindMode = .find) {
+        pendingPalette = PaletteRequest(prefill: prefill, mode: mode)
+        activateMainWindow()
+    }
+
+    @discardableResult
+    func consumePalette() -> PaletteRequest? {
+        defer { pendingPalette = nil }
+        return pendingPalette
+    }
+
+    @discardableResult
+    func consumeInboxItem() -> String? {
+        defer { pendingInboxItem = nil }
+        return pendingInboxItem
+    }
+
+    @discardableResult
+    func consumeClustersEntity() -> String? {
+        defer { pendingClustersEntity = nil }
+        return pendingClustersEntity
+    }
+
+    @discardableResult
+    func consumeConversationQuery() -> String? {
+        defer { pendingConversationQuery = nil }
+        return pendingConversationQuery
+    }
+
     /// Reads then clears in one call so a caller (`FeedView.onAppear` AND
     /// its `onChange(of: router.pendingAddSource)`, which can both fire for
     /// the same hand-off) can never re-consume a stale tile.
@@ -100,5 +156,13 @@ final class AppRouter {
     func consumeRevealEntity() -> String? {
         defer { pendingRevealEntity = nil }
         return pendingRevealEntity
+    }
+
+    /// Read-then-clear, for the same double-firing reason as `consumeAddSource`
+    /// (`SourcesPageView.onAppear` and its `onChange` can both see one hand-off).
+    @discardableResult
+    func consumeSourceDetail() -> String? {
+        defer { pendingSourceDetail = nil }
+        return pendingSourceDetail
     }
 }

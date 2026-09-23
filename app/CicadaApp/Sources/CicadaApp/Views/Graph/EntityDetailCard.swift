@@ -20,6 +20,17 @@ struct EntityCardNavigation {
 }
 
 struct EntityDetailCard: View {
+    /// G133 — should the card ask `GET /entities/{id}/paper`? Any `media`
+    /// entity whose kind is unknown (the graph-node stub carries no `media`
+    /// block) or known to be a paper. Only a media block that says it is NOT
+    /// a paper skips the call. Pure so the stub case is pinned by a test
+    /// (task 7 review r1: the stub never fetched, so a first open showed no
+    /// paper card and — with the `!isPaper` preview guard — no preview).
+    static func wantsPaperDetail(type: EntityType, media: MediaBlock?) -> Bool {
+        guard type == .media else { return false }
+        return media?.isPaper ?? true
+    }
+
     let entity: Entity
     @Environment(GraphViewModel.self) private var graphVM
     /// `nil` (the default) means "use `graphVM`'s own history" — see
@@ -48,6 +59,8 @@ struct EntityDetailCard: View {
     // Fact sources (G61) — "where to look this fact up" refresh references.
     // Loaded on every entity (unlike repos/location, not gated by entity type).
     @State private var sources: [EntitySource] = []
+    /// G133 — a paper page's two tiers, fetched once per open.
+    @State private var paperDetail: PaperDetail?
     @State private var newSourceRef = ""
 
     // History tab (G68 §2.10). `entity.history` is empty BOTH before the full
@@ -65,6 +78,16 @@ struct EntityDetailCard: View {
     /// PUT is in flight. Cleared once the reload lands (or on failure, so the
     /// chip snaps back to the server's truth).
     @State private var pendingDecayClass: DecayClass?
+
+    /// G118 slice 2 — "Where this came from" (§4.5), one `/provenance` call per
+    /// card, cached in memory by `ProvenanceCache` (never a Store domain,
+    /// R-PB11). Loaded at the card level, not the Content tab's, because the
+    /// same payload names the agent on every evidence chip in Perspectives and
+    /// Timeline (`evidenceDocIndex`) and maps a history row's conversation to
+    /// an episode the Reader can open.
+    @State private var provenanceState: ProvenanceSectionState = .loading
+    @Environment(ProvenanceCache.self) private var provenanceCache: ProvenanceCache?
+    @Environment(ProvenanceRouter.self) private var provenanceRouter: ProvenanceRouter?
 
     // G67 — per-commit diffs in the History tab, fetched on demand and cached
     // per (entity, commit) — `DiffCacheKey`, not commit hash alone: one
@@ -166,6 +189,28 @@ struct EntityDetailCard: View {
         .sheet(item: $timelineKey) { key in
             beliefTimelineSheet(key)
         }
+        // A chip in the Belief Timeline sheet opens the Reader beside this
+        // card; the sheet steps aside so the sentence is not under a modal
+        // (the rule `ContentView` applies to the Ask sheet, R-PU20).
+        .onChange(of: provenanceRouter?.revision ?? 0) { _, _ in timelineKey = nil }
+        // Outermost on purpose: the Belief Timeline sheet's chips read it too.
+        .environment(\.evidenceDocIndex, EvidenceDocIndex.from(provenanceState.value))
+        .task(id: entity.id) { await loadProvenance() }
+    }
+
+    /// One `/provenance` per entity (ETag-revalidated by the cache). A 404 —
+    /// an older backend — hides the section rather than showing an error.
+    private func loadProvenance() async {
+        guard let provenanceCache else {
+            provenanceState = .unavailable
+            return
+        }
+        provenanceState = .loading
+        let result = await provenanceCache.provenance(entityId: entity.id)
+        // A card swapped to another entity cancels this task; a late answer
+        // for the old one must not land under the new name.
+        guard !Task.isCancelled else { return }
+        provenanceState = ProvenanceSectionState(result)
     }
 
     // MARK: - Header
@@ -329,8 +374,13 @@ struct EntityDetailCard: View {
                 .help("Copy markdown")
             }
 
-            // G11: rich media preview above the body for `media`-type entities.
-            if entity.type == .media, let media = entity.media, media.hasURL {
+            // G133: a paper leads with why it is in memory, then the dated
+            // abstract — and never loads arxiv.org in a preview (R-LS19).
+            if let paperDetail {
+                PaperCard(detail: paperDetail)
+                Divider().background(CicadaTheme.border)
+            } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
+                // G11: rich media preview above the body for `media`-type entities.
                 MediaPreview(model: MediaPreviewModel(
                     block: media,
                     title: entity.name,
@@ -360,6 +410,9 @@ struct EntityDetailCard: View {
 
             Divider().background(CicadaTheme.border)
             metadataSection
+
+            Divider().background(CicadaTheme.border)
+            WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
         }
         .padding(CicadaTheme.spacingLG)
         .task(id: entity.id) {
@@ -373,6 +426,7 @@ struct EntityDetailCard: View {
             locationListing = nil
             repoContexts = []
             sources = []
+            paperDetail = nil
             newSourceRef = ""
             pendingDecayClass = nil
             activeEntityId = entity.id
@@ -381,6 +435,14 @@ struct EntityDetailCard: View {
             loadingCommits = []
             diffErrors = []
             sources = (try? await APIClient.shared.fetchEntitySources(entityId: entity.id)) ?? []
+            // Gated on what the graph-node STUB already knows (task 7 review
+            // r1): the card opens on a stub whose `media` is nil, and the
+            // full-entity swap below keeps the same `.task(id:)`, so a check
+            // on `media?.isPaper` alone never fired on a first open. The
+            // endpoint 404s for a non-paper, which `try?` reads as nil.
+            if Self.wantsPaperDetail(type: entity.type, media: entity.media) {
+                paperDetail = try? await APIClient.shared.fetchPaperDetail(id: entity.id)
+            }
             // §5.7 — the card opened on the graph-node stub, whose
             // `markdownContent` is the server's short `summary` (already
             // rendered above, so there is never an empty card). Upgrade it to
@@ -679,7 +741,9 @@ struct EntityDetailCard: View {
     /// a cheat-sheet for REFRESHING a fact.
     private var sourcesSection: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("Sources")
+            // G118 slice 2 (§4.5) — renamed from "Sources": this is where to
+            // REFRESH a fact; where a belief CAME FROM is the section below.
+            Text(Copy.Provenance.lookItUpAt)
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
 
@@ -1134,7 +1198,8 @@ struct EntityDetailCard: View {
                 .accessibilityLabel("Commit \(entry.date) by \(entry.author)")
             }
 
-            FromConversationButton(sessionIds: entry.sessions)
+            FromConversationButton(sessionIds: entry.sessions,
+                                   openEpisode: ProvenanceSummary.episodeByConversation(provenanceState.value))
         }
     }
 
@@ -1149,18 +1214,11 @@ struct EntityDetailCard: View {
                 Text(entry.date)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
-                // M3 (backlog A2): who authored this commit.
+                // M3 (backlog A2): who authored this commit — with the same
+                // face and name the claim footer and the contributors strip
+                // give them (G118 slice 2, §4.6).
                 if !entry.author.isEmpty {
-                    Text(entry.author)
-                        .font(CicadaTheme.captionFont)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(
-                            (entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
-                                .opacity(0.18)
-                        )
-                        .clipShape(Capsule())
-                        .foregroundStyle(entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
+                    AuthorPill(entry.author, kind: entry.authorKind, provider: entry.authorProvider)
                 }
             }
 

@@ -47,7 +47,7 @@ from api.models.schemas import (
     ProvenanceTotals,
 )
 from api.services import bank_index, episode_ids, evidence, git_service, inbox_context, markdown_parser
-from api.services.claims import Claim, Evidence, parse_claims
+from api.services.claims import Claim, Evidence, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
 
 # The Reader's cap (R-PB5). A Stop-hook episode is already capped at 100,000
@@ -68,10 +68,12 @@ def _opt(value) -> str | None:
     return text or None
 
 
-def _asserted_focus(text: str, start: int, end: int, hash: str | None, *,  # noqa: A002
-                    is_episode: bool) -> EpisodeFocus:
+def _asserted_focus(doc_id: str, text: str, start: int, end: int, hash: str | None, *,  # noqa: A002
+                    is_episode: bool, override: str | None = None) -> EpisodeFocus:
     status = evidence.span_status(text, end=end, hash=hash, appendable=is_episode)
-    kind = evidence.speaker_kind(text, start) if is_episode else "page"
+    # R-LS7: the one kind decision — a folder file's declared authorship wins
+    # over markers, exactly as the stored span's kind was minted.
+    kind = evidence.kind_for(doc_id, text, start, override)
     if status == evidence.SPAN_STALE:
         return EpisodeFocus(kind=kind, stale=True)  # R-PB2: no offsets to wash
     return EpisodeFocus(start=start, end=end, kind=kind, grown=status == evidence.SPAN_GROWN)
@@ -123,7 +125,8 @@ def episode_document(
         raise SpanOutOfRange(f"span [{start}, {end}) is outside the document (length {length})")
 
     stamps = evidence.turn_stamps(fm) if is_episode else {}
-    spans = evidence.turns(text, page=not is_episode, stamps=stamps)
+    override = (str(fm.get("evidence_kind") or "") or None) if is_episode else None
+    spans = evidence.turns(text, page=not is_episode, stamps=stamps, override=override)
     truncated = length > MAX_TEXT_CHARS
     if truncated:
         spans = [
@@ -133,7 +136,8 @@ def episode_document(
 
     focus_model: EpisodeFocus | None = None
     if start is not None:
-        focus_model = _asserted_focus(text, start, end, hash, is_episode=is_episode)
+        focus_model = _asserted_focus(doc_id, text, start, end, hash, is_episode=is_episode,
+                                      override=override)
     elif focus:
         focus_model = _derived_focus(memory_path, text, focus)
 
@@ -428,6 +432,12 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
         if doc_id in [str(e) for e in (pfm.get("source_episodes") or [])]:
             entities.append(EpisodeCitationEntity(entity_id=subject_id, name=subject_name, type=subject_type))
         for claim in parse_claims(parsed.body):
+            # A withdrawal record (G140 Q-R5) cites the conversation it was
+            # written in, but it is bookkeeping, not a belief: listed, the
+            # reader showed the agent's reason struck through as a "No longer
+            # current" belief (final review).
+            if is_record(claim):
+                continue
             base = {
                 "claim_id": claim.id, "subject_id": subject_id, "subject_name": subject_name,
                 "subject_type": subject_type, "text": claim.text, "current": _current(claim),

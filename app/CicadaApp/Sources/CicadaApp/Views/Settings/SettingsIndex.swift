@@ -26,20 +26,39 @@ struct SettingsEntry: Identifiable, Hashable {
         self.keywords = keywords
         self.detail = detail
         self.anchor = anchor ?? id
-        var fields = [QuickMatch.Field(title, weight: QuickMatch.titleWeight)]
-        fields += keywords.map { QuickMatch.Field($0, weight: QuickMatch.keywordWeight) }
-        if let detail { fields.append(QuickMatch.Field(detail, weight: QuickMatch.detailWeight)) }
+        var fields = [QuickMatch.Field(title, weight: QuickMatch.Weight.name)]
+        fields += keywords.map { QuickMatch.Field($0, weight: QuickMatch.Weight.keyword) }
+        if let detail { fields.append(QuickMatch.Field(detail, weight: QuickMatch.Weight.body)) }
         // R-O14 — rows also match their section's title, at low weight, so
         // "sleep" finds Sleep's rows beneath the section itself.
-        fields.append(QuickMatch.Field(section.title, weight: QuickMatch.detailWeight))
+        fields.append(QuickMatch.Field(section.title, weight: QuickMatch.Weight.body))
         self.fields = fields
+    }
+
+    // `fields` is folded from the other stored properties, so equality and
+    // hashing over those is equality over the entry (`QuickMatch.Field` is
+    // not `Hashable`, and need not be).
+    static func == (lhs: SettingsEntry, rhs: SettingsEntry) -> Bool {
+        lhs.id == rhs.id && lhs.section == rhs.section && lhs.title == rhs.title
+            && lhs.keywords == rhs.keywords && lhs.detail == rhs.detail && lhs.anchor == rhs.anchor
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(section)
+        hasher.combine(title)
+        hasher.combine(keywords)
+        hasher.combine(detail)
+        hasher.combine(anchor)
     }
 }
 
 struct SettingsHit: Identifiable, Hashable {
     let entry: SettingsEntry
     let score: Double
-    let titleRanges: [Range<Int>]
+    /// `[start, end)` runs in the title's ORIGINAL Unicode scalars —
+    /// `QuickMatch.Match.ranges(inField: 0)`, the unit every other surface bolds in.
+    let titleRanges: [[Int]]
     let order: Int
     var id: SettingsRowID { entry.id }
 }
@@ -162,7 +181,7 @@ enum SettingsIndex {
         return entries.enumerated()
             .compactMap { index, entry in
                 QuickMatch.match(tokens, fields: entry.fields).map {
-                    SettingsHit(entry: entry, score: $0.score, titleRanges: $0.titleRanges, order: index)
+                    SettingsHit(entry: entry, score: $0.score, titleRanges: $0.ranges(inField: 0), order: index)
                 }
             }
             .sorted { $0.score != $1.score ? $0.score > $1.score : $0.order < $1.order }
@@ -186,14 +205,21 @@ enum SettingsIndex {
     }
 
     /// The result's title with the matched letters in semibold (design §2.4).
-    /// A range past the end is skipped rather than trusted.
-    static func attributedTitle(_ title: String, ranges: [Range<Int>]) -> AttributedString {
+    /// `ranges` are `[start, end)` Unicode-scalar offsets (`QuickMatch`'s unit,
+    /// as in `ExcerptText.attributed`); a range past the end is skipped
+    /// rather than trusted.
+    static func attributedTitle(_ title: String, ranges: [[Int]]) -> AttributedString {
         var out = AttributedString(title)
-        let chars = Array(title)
-        for range in ranges where range.upperBound <= chars.count {
-            let lower = out.index(out.startIndex, offsetByCharacters: range.lowerBound)
-            let upper = out.index(out.startIndex, offsetByCharacters: range.upperBound)
-            out[lower..<upper].font = CicadaTheme.font(size: 13, weight: .semibold)
+        let scalars = title.unicodeScalars
+        let count = scalars.count
+        for pair in ranges where pair.count == 2 {
+            let (start, end) = (pair[0], pair[1])
+            guard start >= 0, end > start, end <= count else { continue }
+            let lower = scalars.index(scalars.startIndex, offsetBy: start)
+            let upper = scalars.index(scalars.startIndex, offsetBy: end)
+            guard let aLower = AttributedString.Index(lower, within: out),
+                  let aUpper = AttributedString.Index(upper, within: out) else { continue }
+            out[aLower..<aUpper].font = CicadaTheme.font(size: 13, weight: .semibold)
         }
         return out
     }

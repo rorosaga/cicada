@@ -87,12 +87,81 @@ def _extract_description_section(body: str) -> str:
     return (parse_sections(strip_claims_block(body)).get("Description", "") or "").strip()
 
 
+# A ``describes`` claim is a gist, not a copy of the page (G140 final review).
+DESCRIBES_CLAIM_LIMIT = 400
+
+
+def _claim_description(text: str, min_len: int = 0) -> str:
+    """The part of a ``## Description`` that may become a ``describes`` claim.
+
+    Why a clip: G140 Q-R12 keeps a Vimeo/Loom description (up to
+    ``media_ingestor.DESCRIPTION_LIMIT`` = 5,000 chars — chapter stamps,
+    credits, sign-up links). Before that the field was ``""``, so a video page
+    took the fetch+summarize tier and got a short summary. Kept whole, the
+    zero-LLM reuse tier copied all 4,433 chars of a probe description word
+    for word into the claim's text AND object, and ``get_perspective`` /
+    recall printed it unclipped. The full description stays on the page and
+    in the episode — "spans, not copies" (G118); the claim carries its gist.
+
+    The rule, deterministic and engine-free: drop every line that opens with a
+    timestamp (``video_chapters.opens_with_stamp`` — the parser's own reading,
+    so the two can never disagree about which lines are chapters), take the
+    first paragraph, and only when that paragraph is shorter than ``min_len``
+    keep adding the next ones (a one-line hook above the real blurb must not
+    push an otherwise substantive page to the paid fetch tier). Newlines fold
+    to spaces; the result is cut at ``DESCRIBES_CLAIM_LIMIT`` on a word
+    boundary. The substantive check runs on THIS text, so the tier a page
+    takes matches what would actually be written.
+    """
+    from api.services import video_chapters
+
+    paragraphs: list[str] = []
+    current: list[str] = []
+    for line in (text or "").splitlines():
+        if not line.strip():
+            if current:
+                paragraphs.append(" ".join(current))
+                current = []
+            continue
+        if video_chapters.opens_with_stamp(line):
+            continue
+        current.append(line.strip())
+    if current:
+        paragraphs.append(" ".join(current))
+
+    out = ""
+    for para in paragraphs:
+        out = f"{out} {para}".strip() if out else para
+        if len(out) >= max(min_len, 1):
+            break
+    return _cap_claim_text(out)
+
+
+def _cap_claim_text(text: str) -> str:
+    """Fold whitespace and cut at ``DESCRIBES_CLAIM_LIMIT`` on a word boundary.
+
+    The ellipsis counts toward the limit, so a capped text capped again is
+    unchanged — ``_build_describes_claim`` applies this as the last guard for
+    every tier (a fetched summary is short by prompt, not by construction),
+    and the reuse tier's text has already been through it.
+    """
+    out = " ".join((text or "").split())
+    if len(out) <= DESCRIBES_CLAIM_LIMIT:
+        return out
+    cut = out[: DESCRIBES_CLAIM_LIMIT - 1]
+    space = cut.rfind(" ")
+    if space > DESCRIBES_CLAIM_LIMIT // 2:
+        cut = cut[:space]
+    return cut.rstrip(" ,;:-–—") + "…"
+
+
 def _claim_id(prefix: str, *parts: str) -> str:
     digest = hashlib.sha1("\x00".join(parts).encode("utf-8")).hexdigest()[:8]
     return f"{prefix}_{digest}"
 
 
 def _build_describes_claim(media_id: str, text: str, episode: str, today: str, model: str) -> Claim:
+    text = _cap_claim_text(text)
     return Claim(
         id=_claim_id("clm_describes", media_id, text[:64]),
         text=text,
@@ -188,7 +257,15 @@ def _excluded_media(url: str, mtype: str) -> bool:
     description at save time by design, so it would be the *first* thing a
     Sleep-time live fetch picks up and scrapes). Shared by the in-cycle
     ``_candidates`` and the backfill scan so the two can never disagree
-    about what is off-limits."""
+    about what is off-limits.
+
+    Paper links and arxiv.org pages too (``papers.never_scraped``, L final
+    review finding 4): a bookmarked arXiv link that no folder made a paper page
+    was still a backfill candidate."""
+    from api.services.papers import never_scraped
+
+    if never_scraped(url):
+        return True
     url = (url or "").lower()
     mtype = (mtype or "").lower()
     if mtype in ("youtube", "video") or "youtube.com" in url or "youtu.be" in url:
@@ -213,6 +290,12 @@ def _candidates(memory_path: Path, max_per_cycle: int) -> list[Path]:
             continue
         fm = parsed.frontmatter or {}
         if fm.get("type") != "media" or fm.get("enrichment_attempted"):
+            continue
+        # R-LS19: a paper page is described by the arXiv/Crossref APIs
+        # (`paper_metadata`), never by a page fetch of arxiv.org.
+        from api.services.papers import is_paper
+
+        if is_paper(fm):
             continue
         media = fm.get("media") or {}
         mtype = str(media.get("media_type", ""))
@@ -396,7 +479,7 @@ async def enrich_media_links(
         episode = str(episodes[0]) if episodes else ""
 
         # §2a reuse path: a substantive on-page description -> claim, no LLM.
-        desc = _extract_description_section(parsed.body)
+        desc = _claim_description(_extract_description_section(parsed.body), min_len)
         description: str | None = None
         if _is_substantive(desc, min_len):
             description = desc
@@ -683,6 +766,12 @@ def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> 
         fm = parsed.frontmatter or {}
         if fm.get("type") != "media" or fm.get("enrichment_status") == "junk":
             continue
+        # R-LS19: a paper page is described by the arXiv/Crossref APIs
+        # (`paper_metadata`), never by a page fetch of arxiv.org.
+        from api.services.papers import is_paper
+
+        if is_paper(fm):
+            continue
         media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
         url = str(media.get("url") or "")
         if _excluded_media(url, str(media.get("media_type") or "")):
@@ -702,7 +791,7 @@ def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> 
         cand = _Candidate(
             path=fp, media_id=fp.stem, title=title, url=url,
             episode=str(episodes[0]) if episodes else "",
-            description=_extract_description_section(parsed.body),
+            description=_claim_description(_extract_description_section(parsed.body), min_len),
             sort_key=_saved_sort_key(fm),
         )
         if _is_substantive(cand.description, min_len):

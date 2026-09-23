@@ -459,3 +459,57 @@ def test_in_cycle_candidates_now_skip_junk(tmp_path):
     _media(memory, "media-consent", "Before you continue to Google Search", "https://www.google.com/search", saved_at="2025-01-01")
     _media(memory, "media-ok", "OK", "https://example.com/ok", saved_at="2026-01-01")
     assert [p.stem for p in link_enrichment._candidates(memory, 20)] == ["media-ok"]
+
+
+# --- G140 final review: a kept video description is clipped before it is a claim
+
+_VIDEO_BLURB = (
+    "A walkthrough of the alpha-project robotics stack: how the planner, the "
+    "controller and the simulator fit together, with a live demo at the end."
+)
+
+
+def _long_video_description() -> str:
+    """A synthetic Vimeo-style description: blurb, chapter stamps, credits, links
+    — several paragraphs, thousands of characters (the review's probe was 4,433)."""
+    chapters = "\n".join(f"{m}:00 Part {m}" for m in range(0, 30))
+    credits = "\n".join(f"Credit line {i}: bob-example and friends. See https://example.com/{i}." for i in range(40))
+    return f"{_VIDEO_BLURB}\n\n{chapters}\n\n{credits}"
+
+
+def test_long_video_description_becomes_a_short_describes_claim(tmp_path):
+    """The page keeps the whole description; the claim carries its first
+    paragraph with no chapter stamps, under ``DESCRIBES_CLAIM_LIMIT``."""
+    memory = _bank(tmp_path)
+    desc = _long_video_description()
+    assert len(desc) > 3000
+    _media(memory, "media-video", "Video", "https://vimeo.com/123", saved_at="2026-02-01", description=desc)
+    report = _backfill(memory, _settings(memory), limit=20, summarize_fn=None, fetch_fn=_fetch_boom, commit=False)
+    assert report.reused == 1
+    claim = [c for c in _claims(memory, "media-video") if c.predicate == "describes"][0]
+    assert claim.text == _VIDEO_BLURB and claim.object == _VIDEO_BLURB
+    body = markdown_parser.parse(memory / "entities" / "media-video.md").body
+    assert "Credit line 39" in body and "29:00 Part 29" in body
+
+
+def test_chapter_only_first_paragraph_is_skipped_and_the_cap_holds(tmp_path):
+    """Stamps above the blurb are dropped, a one-line hook is joined to the next
+    paragraph rather than sending the page to the paid fetch tier, and a single
+    run-on paragraph is cut on a word boundary with the ellipsis inside the cap."""
+    hook = "Watch this."
+    text = "0:00 Intro\n1:30 Setup\n\n" + hook + "\n\n" + _VIDEO_BLURB
+    out = link_enrichment._claim_description(text, 120)
+    assert out == f"{hook} {_VIDEO_BLURB}"
+
+    run_on = ("word " * 300).strip() + "."
+    capped = link_enrichment._claim_description(run_on, 120)
+    assert len(capped) <= link_enrichment.DESCRIBES_CLAIM_LIMIT and capped.endswith("…")
+    assert link_enrichment._cap_claim_text(capped) == capped  # idempotent
+
+
+def test_description_of_only_chapter_stamps_goes_to_the_fetch_tier(tmp_path):
+    memory = _bank(tmp_path)
+    stamps = "\n".join(f"{m}:00 A chapter about part {m} of the talk." for m in range(0, 12))
+    _media(memory, "media-stamps", "Stamps", "https://vimeo.com/9", saved_at="2026-02-01", description=stamps)
+    scan = link_enrichment.scan_backfill(memory, _settings(memory), today=date(2026, 9, 2))
+    assert [c.media_id for c in scan.fetch] == ["media-stamps"] and scan.reuse == []

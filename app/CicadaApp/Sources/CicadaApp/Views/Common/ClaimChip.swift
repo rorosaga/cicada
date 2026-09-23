@@ -14,6 +14,8 @@ struct ClaimChip: View {
     /// Optional clock-icon callback — opens the §4 belief timeline for this
     /// claim's `(subject, predicate, context)` key. Hidden when nil.
     var onOpenTimeline: (() -> Void)? = nil
+    /// G118 slice 2 — "+N more" evidence chips expand in place (R-PU10).
+    @State private var showAllEvidence = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
@@ -30,8 +32,17 @@ struct ClaimChip: View {
                 ContextPill(claim.context)
                 TrustPill(claim.sourceTrust)
                 ConfidenceRing(claim.confidence)
-                AuthorPill(claim.authoredBy)
-                if let ep = claim.sourceEpisodes.first { EpisodePill(ep) }
+                AuthorPill(claim.authoredBy, kind: claim.authorKind, provider: claim.authorProvider)
+                // G118 slice 2 (A9) — every piece of evidence, not the first
+                // episode id as inert monospace: hover for the words, click
+                // for the conversation.
+                EvidenceChipRun(
+                    chips: EvidenceChipModel.chips(evidence: claim.evidence,
+                                                   sourceEpisodes: claim.sourceEpisodes,
+                                                   subjectId: claim.subject),
+                    subjectId: claim.subject.isEmpty ? nil : claim.subject,
+                    expanded: $showAllEvidence
+                )
                 if let onOpenTimeline {
                     Button(action: onOpenTimeline) {
                         Image(systemName: "clock")
@@ -172,42 +183,42 @@ struct ConfidenceRing: View {
     }
 }
 
-/// Which model (or `user`) authored the claim — same styling as the
-/// Contributors view / EntityDetailCard history author badge.
+/// Who wrote the claim, with the face the contributors strip gives them
+/// (G118 slice 2, §4.6): `ContributorAvatar` at 14 pt beside the display
+/// name — a provider's real mark, "You", or Cicada's own bookworm — instead
+/// of the raw model id as text. A long model id is its own honest name
+/// (`ContributorIdentity.displayName`), so it is elided, never replaced, and
+/// the full id is on hover.
 struct AuthorPill: View {
     let author: String
-    init(_ author: String) { self.author = author }
+    let kind: String
+    let provider: String?
 
-    var body: some View {
-        Text(author)
-            .font(CicadaTheme.font(size: 10, weight: .regular))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.18))
-            .clipShape(Capsule())
-            .foregroundStyle(color)
+    init(_ author: String, kind: String? = nil, provider: String? = nil) {
+        self.author = author
+        self.kind = ContributorIdentity.kind(author: author, serverKind: kind)
+        self.provider = provider
     }
 
-    private var color: Color {
-        author == "user" ? CicadaTheme.info : CicadaTheme.accent
-    }
-}
-
-/// The source episode chip. Tapping it is the provenance jump (future: opens
-/// the raw episode) — inert for now but visually present.
-struct EpisodePill: View {
-    let episode: String
-    init(_ episode: String) { self.episode = episode }
+    private var name: String { ContributorIdentity.displayName(author: author, kind: kind) }
 
     var body: some View {
-        Label(episode, systemImage: "doc.text")
-            .font(CicadaTheme.font(size: 10, weight: .regular, design: .monospaced))
-            .foregroundStyle(CicadaTheme.textTertiary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(CicadaTheme.surfaceHover.opacity(0.6))
-            .clipShape(Capsule())
-            .lineLimit(1)
+        HStack(spacing: 4) {
+            ContributorAvatar(author: author, kind: kind, provider: provider, size: CicadaTheme.scaled(14))
+            Text(name)
+                .font(CicadaTheme.font(size: 10, weight: .regular))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .foregroundStyle(CicadaTheme.textSecondary)
+        .padding(.leading, 2)
+        .padding(.trailing, 6)
+        .padding(.vertical, 1)
+        .background(CicadaTheme.surfaceHover.opacity(0.6))
+        .clipShape(Capsule())
+        .help(author)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Written by \(name)")
     }
 }
 

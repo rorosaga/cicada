@@ -33,6 +33,20 @@ func queueRowState(_ row: StudyRow) -> QueueRowState {
     return .reading(read: read, total: total, fill: Double(read) / Double(total))
 }
 
+/// A queue row's state in words (Track Z §7.1) — the spine popover's header
+/// and a spine's tooltip, in the same nouns the row prints: `waiting` idle,
+/// `read` while running. Counts go through `UsageFormat.count` so "1,234"
+/// follows the viewer's locale, as every count on the Sources page does.
+func queueRowWords(_ state: QueueRowState, locale: Locale = .autoupdatingCurrent) -> String {
+    switch state {
+    case .waiting(let n): "\(UsageFormat.count(n, locale: locale)) waiting"
+    case .reading(let read, let total, _):
+        "\(UsageFormat.count(read, locale: locale)) of \(UsageFormat.count(total, locale: locale)) read"
+    case .done: "all read"
+    case .nextCycle: "next cycle"
+    }
+}
+
 // MARK: - The schedule sentence (P11 / R-A3)
 
 /// The desk lamp is lit iff `mode != "manual"`. **Art never carries a fact
@@ -67,16 +81,43 @@ func scheduledEngineLine(preview: SleepEnginePreviews?) -> String? {
     return Copy.scheduledRunsOn(engine: preview.scheduled.engine)
 }
 
+/// The date half of the next-run line — `nil` when there is none to state:
+/// a manual bank, or a snapshot with no `nextSleepAt`. Hoisted from the queue
+/// card's footer (Track Z Z0) because the whisper line (Z2) and the worm's
+/// "when" answer (Z5) both need it; `locale`/`timeZone` are injected so a
+/// test never depends on the runner's.
+func nextRunWhen(_ schedule: ScheduleConfig, nextSleepAt: String?,
+                 locale: Locale = .current, timeZone: TimeZone = .current) -> String? {
+    guard schedule.mode != "manual", let date = StatusSnapshot.parseDate(nextSleepAt) else { return nil }
+    let f = DateFormatter()
+    f.dateFormat = "MMM d, h:mm a"
+    f.locale = locale
+    f.timeZone = timeZone
+    return f.string(from: date)
+}
+
+/// "Manual only" / "Next run Sep 24, 3:00 AM" / "Next run after the next
+/// import" / "Next run —" (R-A14: an unknown is a dash, never a guess).
+func nextRunSentence(_ schedule: ScheduleConfig, nextSleepAt: String?,
+                     locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+    if schedule.mode == "manual" { return Copy.nextRunManual }
+    if let when = nextRunWhen(schedule, nextSleepAt: nextSleepAt, locale: locale, timeZone: timeZone) {
+        return "Next run \(when)"
+    }
+    return schedule.mode == "after_import" ? "Next run after the next import" : "Next run —"
+}
+
 /// "What is waiting for the next cycle", grouped by source (G125 — replaces
 /// the old `SleepQueueCard` + `SleepDebtBreakdown` pair, R1/R11). One row per
 /// origin, largest pile first; a chevron discloses that origin's episodes
 /// inline. The one Consolidate/Cancel control lives in the hero since G125 v3
 /// (R-A7) — the ruling is still "exactly one on this page", only its home
-/// moved — which leaves this card saying, top to bottom, exactly one thing:
-/// **what is waiting, and when it will be read.** Under the rows sits the
-/// schedule row (the desk lamp's mandatory text twin, P11/R-A3) and then the
-/// footer: the next run, and the engine a *scheduled* run would use whenever
-/// that differs from a manual one.
+/// moved — which leaves this card saying exactly one thing: **what is
+/// waiting.** When it will be read moved out in Track Z Z2 (Z-P4): the
+/// schedule row (the desk lamp's text twin, P11/R-A3) and the next-run footer
+/// became the page's whisper line under the room, taking the "Scheduled runs
+/// use …" difference line with them, so the schedule is stated once, beside
+/// the lamp it describes.
 ///
 /// A projection over `Store.status` plus `SleepViewModel`; starts no fetches
 /// of its own. `rows` is computed by the caller (`studyRows`, in
@@ -91,14 +132,19 @@ struct StudyListCard: View {
 
     let rows: [StudyRow]
     let episodes: [EpisodeQueueItem]
+    /// Track Z Z1 — resolved once by the page (`SleepPageModel.queueLoad`,
+    /// through the static `loadState` below) rather than re-derived from the
+    /// Store here, so the card and the room read one snapshot per body.
+    let queueLoad: LoadState
     var onSelectEntity: ((String) -> Void)?
+    /// Track Z §7.1 (I5, I7) — the room's hover link: a row under the pointer
+    /// lifts its spine, and a spine under the pointer tints its row. `nil`
+    /// outside the Sleep page, where there is no pile to link to.
+    var room: RoomModel? = nil
 
     /// Which origins are disclosed. Local UI state, not persisted — a fresh
     /// visit to the page starts every row collapsed.
     @State private var expandedOrigins: Set<String> = []
-
-    private var status: StatusSnapshot? { store.status.value }
-    private var isLoading: Bool { store.status.isEmpty && store.status.isRefreshing }
 
     /// PR #19 review (moved verbatim from `SleepQueueCard`, R11): a missing
     /// `store.status` is not one state, it's two — a fetch still in flight
@@ -122,23 +168,14 @@ struct StudyListCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text("IN THE QUEUE")
+            // "What's waiting" — the Details section's own name (Track Z
+            // §4.2), in the plain words the sentence above already uses.
+            Text("WHAT'S WAITING")
                 .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)
 
             content
-
-            Divider().background(CicadaTheme.border).padding(.vertical, CicadaTheme.spacingXS)
-
-            scheduleRow
-
-            // R-A7 (upgrading G125 R10): the one Consolidate/Cancel control
-            // moved to the hero, where the decision is actually made — the
-            // count, the meter and the engine it would run on are all right
-            // there. This footer keeps only the lines that say WHEN the next
-            // run happens, and on what, without anyone clicking anything.
-            footer
 
             if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
                 Text(err)
@@ -155,7 +192,7 @@ struct StudyListCard: View {
 
     @ViewBuilder
     private var content: some View {
-        switch Self.loadState(status: status, isLoading: isLoading, error: store.domainErrors[.status]) {
+        switch queueLoad {
         case .loading:
             HStack(spacing: CicadaTheme.spacingSM) {
                 ProgressView().controlSize(.small)
@@ -190,7 +227,7 @@ struct StudyListCard: View {
                         rowView(row)
                         if expandedOrigins.contains(row.origin) {
                             LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                                ForEach(episodesForOrigin(row.origin)) { ep in
+                                ForEach(episodesForOrigin(row.origin, in: episodes)) { ep in
                                     EpisodeRow(item: ep)
                                 }
                             }
@@ -238,6 +275,9 @@ struct StudyListCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
+        .background(room?.hoveredOrigin == row.origin ? CicadaTheme.surfaceHover : Color.clear,
+                    in: RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .onHover { inside in room?.hover(origin: row.origin, inside: inside) }
         .accessibilityLabel(Self.rowAccessibilityLabel(row))
     }
 
@@ -245,7 +285,12 @@ struct StudyListCard: View {
     /// both silent to VoiceOver, so the state has to arrive here instead.
     static func rowAccessibilityLabel(_ row: StudyRow) -> String {
         switch queueRowState(row) {
-        case .waiting(let count): return "\(row.label), \(count) queued"
+        // Design I5 — the spine and the row speak one sentence, in the page's
+        // own noun ("waiting", never "queued") and with the oldest age the
+        // row prints beside its name.
+        case .waiting(let count):
+            return ["\(row.label), \(count) waiting", row.oldestAge.map { "oldest \($0)" }]
+                .compactMap { $0 }.joined(separator: ", ")
         case .reading(let read, let total, _): return "\(row.label), \(read) of \(total) read"
         case .done: return "\(row.label), fully read"
         case .nextCycle: return "\(row.label), waiting for the next cycle"
@@ -301,68 +346,5 @@ struct StudyListCard: View {
         .frame(height: 3)
         .padding(.bottom, -1)
         .accessibilityHidden(true)
-    }
-
-    // MARK: The schedule row — the lamp's text twin (P11 / R-A3)
-
-    /// The desk scene's lamp is lit exactly when Sleep is scheduled. **No art
-    /// bit on this page carries a fact alone**, so the same state is stated
-    /// here in words, with the one link that opens where it is changed.
-    private var scheduleRow: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "moon.zzz")
-                .font(CicadaTheme.font(size: 11))
-                .foregroundStyle(CicadaTheme.textTertiary)
-            Text(scheduleSentence(sleepVM.schedule))
-                .font(CicadaTheme.font(size: 12, weight: .medium))
-                .foregroundStyle(CicadaTheme.textSecondary)
-            SettingsSectionLink(section: .sleep, label: Copy.changeEllipsis)
-                .font(CicadaTheme.captionFont)
-            Spacer(minLength: 0)
-        }
-    }
-
-    /// `nextRunText`, plus the scheduled engine ONLY when it differs from what
-    /// a manual run would use (R-A9) — the standing quota ruling made visible
-    /// rather than applied behind the reader's back.
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(nextRunText)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-            if let line = scheduledEngineLine(preview: sleepVM.enginePreview) {
-                Text(line)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func episodesForOrigin(_ origin: String) -> [EpisodeQueueItem] {
-        episodes
-            .filter { $0.origin == origin }
-            .sorted {
-                (parseEpisodeTimestamp($0.timestamp) ?? .distantPast)
-                    > (parseEpisodeTimestamp($1.timestamp) ?? .distantPast)
-            }
-    }
-
-    // MARK: Footer — when the next run happens
-
-    /// "Manual only" / "Next run …" / "… after the next import". The pointer
-    /// to Settings → Sleep moved up to `scheduleRow`, where the sentence it
-    /// would change is: two links to one destination, eighteen points apart,
-    /// is a choice the reader should not have to make.
-    private var nextRunText: String {
-        if sleepVM.schedule.mode == "manual" {
-            return Copy.nextRunManual
-        }
-        guard let date = StatusSnapshot.parseDate(status?.nextSleepAt) else {
-            return sleepVM.schedule.mode == "after_import" ? "Next run after the next import" : "Next run —"
-        }
-        let f = DateFormatter()
-        f.dateFormat = "MMM d, h:mm a"
-        return "Next run \(f.string(from: date))"
     }
 }

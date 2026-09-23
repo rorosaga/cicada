@@ -9,6 +9,8 @@ only** — never from the transient result of a button press:
   legacy combined ``bookmarks`` entry, R4)
 * ``telegram``            -> ``CICADA_TELEGRAM_BOT_TOKEN`` is configured
 * ``chat-export:*`` / ``files`` -> origin counts / the saved-URL index
+* ``folder:<id>`` -> one row per registered folder (G133), appended after the
+  fixed ids (R-LS25)
 
 Pure filesystem + one env flag passed in by the router. No network, no LLM,
 never raises: a corrupt registry or a missing directory yields a
@@ -22,9 +24,11 @@ from pathlib import Path
 from api.services import (
     calendar_registry,
     feed_registry,
+    folder_source,
     media_ingestor,
     origin_stats,
     sync_state,
+    wispr_flow,
 )
 from api.services.connectors import ADAPTERS
 
@@ -35,6 +39,7 @@ from api.services.connectors import ADAPTERS
 _NON_CONNECTOR_HEAD = (
     "chat-export:claude",
     "chat-export:chatgpt",
+    "chat-export:gemini",
     "chrome-bookmarks",
     "safari-bookmarks",
     "safari-tabs",
@@ -213,6 +218,40 @@ def _origin_channel(
     }
 
 
+def _local_channel(channel_id: str, label: str, state: dict, noun: str) -> dict:
+    """A source the APP reads and posts (G133 folders, G134 note-takers).
+
+    `_sync_channel`'s shape with two differences: the row can be managed
+    (`manage` opens its settings in Settings → Integrations), and a recorded
+    failure wins the detail line (`_connector_channel`'s rule —
+    `record_sync` replaces the entry, so an error present is newer than the
+    last success). Appended after `CHANNEL_IDS` rather than listed in it
+    (R-LS25): the fixed list and its four mirrors stay what they are.
+    """
+    entry = state.get(channel_id) or {}
+    last = entry.get("last_sync") or None
+    error = entry.get("last_error") or None
+    connected = bool(last)
+    if error:
+        detail = f"Last sync failed · {error}"
+    elif connected:
+        detail = f"synced {_short_date(last)}"
+    else:
+        detail = "Not synced yet"
+    return {
+        "id": channel_id,
+        "label": label,
+        "connected": connected,
+        "count": int(entry.get("count") or 0),
+        "last_sync": last,
+        "last_error": error,
+        "detail": detail,
+        "count_noun": noun if connected and not error else None,
+        "count_is_delta": False,
+        "actions": ["sync", "manage"],
+    }
+
+
 def build_channels(
     memory_path: Path,
     *,
@@ -228,7 +267,8 @@ def build_channels(
         url_index = media_ingestor.load_url_index(memory_path)
     except Exception:
         url_index = {}
-    saved_count = len(url_index)
+    # R-LS14: an alias entry is the same paper under its other URL.
+    saved_count = sum(1 for e in url_index.values() if not (isinstance(e, dict) and e.get("alias_of")))
 
     telegram_count = int((by_origin.get("telegram") or {}).get("episodeCount") or 0)
 
@@ -237,6 +277,10 @@ def build_channels(
             "chat-export:claude", "Claude chat export", "claude-export", by_origin, "conversation"),
         "chat-export:chatgpt": _origin_channel(
             "chat-export:chatgpt", "ChatGPT chat export", "chatgpt-export", by_origin, "conversation"),
+        # Track I (R-IA14): a Takeout entry is one prompt and its reply, so the
+        # noun is "prompt"; before this row the Gemini card rested on episodes alone.
+        "chat-export:gemini": _origin_channel(
+            "chat-export:gemini", "Gemini chat export", "gemini-export", by_origin, "prompt"),
         # R4: one row per browser — the catalog has one tile per browser and a
         # channel must map to exactly one tile, so the old shared
         # "Chrome & Safari bookmarks" row could no longer be honest.
@@ -290,4 +334,12 @@ def build_channels(
             connected=bool(connected_map.get(cid)),
             price_note=getattr(adapter, "PRICE_NOTE", None),
         )
-    return [channels[cid] for cid in CHANNEL_IDS]
+    rows = [channels[cid] for cid in CHANNEL_IDS]
+    for folder in folder_source.list_folders(memory_path):
+        rows.append(_local_channel(folder_source.channel_id(folder["id"]),
+                                   str(folder.get("label") or "Folder"), state, "note"))
+    # G134: shown once the person turned it on (or it has ever synced), so an
+    # unused note-taker is not a disconnected row on every install (R-LS25).
+    if wispr_flow.load_settings(memory_path)["enabled"] or state.get(wispr_flow.CHANNEL_ID):
+        rows.append(_local_channel(wispr_flow.CHANNEL_ID, "Wispr Flow", state, "capture"))
+    return rows

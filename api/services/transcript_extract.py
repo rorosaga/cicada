@@ -36,6 +36,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from api.services.episode_scrub import REDACTED, scrub as _scrub  # R-LS6: one rule set
+
 HARNESSES = ("claude-code", "codex")
 
 #: ~2,000 chars is the ruling's per-turn cap: enough for a real question or
@@ -46,7 +48,6 @@ TURN_CAP_CHARS = 2000
 #: point into — do not move between two hook firings on the same session.
 SESSION_CAP_CHARS = 100_000
 
-REDACTED = "[redacted]"
 CODE_OMITTED = "[code omitted]"
 
 # Harness-injected user text, by the tag it opens with (R5). Verified against
@@ -71,27 +72,6 @@ _OPEN_FENCE_RE = re.compile(r"```.*\Z", re.DOTALL)
 # always contains this; an attachment / file-history-snapshot line usually
 # does not, and those are the bulk of a large transcript.
 _CLAUDE_PREFILTER = re.compile(r'"type"\s*:\s*"(?:user|assistant)"')
-
-# Secret shapes (R6). Ordered longest-context first so a PEM block is taken
-# whole before its base64 body is chewed up piecemeal. The hex and base64
-# runs are deliberately long (32 / 64) so a short git SHA or an ordinary
-# word survives; a base64 candidate with three or more ``/`` is a path, not
-# a token, and is kept (see ``_scrub_base64``).
-_SECRET_RES: tuple[re.Pattern[str], ...] = tuple(re.compile(p, f) for p, f in (
-    (r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL),
-    (r"\bsk-[A-Za-z0-9_-]{16,}", 0),
-    (r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}", 0),
-    (r"\bgithub_pat_[A-Za-z0-9_]{20,}", 0),
-    (r"\bxox[abopr]s?-[A-Za-z0-9-]{10,}", 0),
-    (r"\bAKIA[0-9A-Z]{16}\b", 0),
-    (r"\bAIza[0-9A-Za-z_-]{30,}", 0),
-    (r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}", 0),
-    (r"\bbearer\s+[A-Za-z0-9._~+/=-]{16,}", re.IGNORECASE),
-    (r"\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|client[_-]?secret|password|passwd|token)\b\s*[=:]\s*['\"]?[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),
-    (r"\b[0-9a-fA-F]{32,}\b", 0),
-))
-_BASE64_RUN_RE = re.compile(r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{64,}={0,2}(?![A-Za-z0-9+/])")
-
 
 @dataclass
 class Turn:
@@ -124,25 +104,13 @@ def strip_code_fences(text: str) -> str:
     return out.strip()
 
 
-def _scrub_base64(m: re.Match[str]) -> str:
-    return m.group(0) if m.group(0).count("/") >= 3 else REDACTED
-
-
 def scrub_secrets(text: str) -> tuple[str, int]:
-    """Redact API keys, bearer tokens, vendor-prefixed tokens, JWTs, private
-    keys, ``key=value`` credentials, and long hex / base64 runs. Returns the
-    scrubbed text and how many replacements were made (a count for the
-    ledger — never what was replaced)."""
-    count = 0
-    for rx in _SECRET_RES:
-        text, n = rx.subn(REDACTED, text)
-        count += n
-    # The base64 pass keeps path-like runs (three or more ``/``), so count
-    # only the matches that were actually replaced — ``subn`` would count
-    # every match, kept or not.
-    count += sum(1 for m in _BASE64_RUN_RE.finditer(text) if m.group(0).count("/") < 3)
-    text = _BASE64_RUN_RE.sub(_scrub_base64, text)
-    return text, count
+    """The extractor's name for :func:`api.services.episode_scrub.scrub` (R-LS6).
+
+    The rules moved out so every episode writer — not only this Stop-hook path —
+    scrubs with the same list (R-N3); the one-time-code family arrived with the
+    move, so a code pasted into a session is now redacted here too."""
+    return _scrub(text)
 
 
 def _first_tag(text: str) -> str | None:

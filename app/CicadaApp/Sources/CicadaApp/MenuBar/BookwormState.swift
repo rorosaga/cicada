@@ -7,7 +7,8 @@ enum BookwormState: Equatable {
     /// Cold-start / unknown (before the first poll resolves, or when /status is
     /// unreachable). Idle worm with an occasional blink.
     case awake
-    /// A sleep cycle is running; `stage` is clamped to 1...5 for the progress dots.
+    /// A sleep cycle is running; `stage` is the ACTIVE stage, 1…5 —
+    /// `activeStage(completed:)`.
     case sleeping(stage: Int)
     /// Brief chewing loop right after a cycle finishes (running -> idle, no error).
     case digesting
@@ -181,6 +182,18 @@ extension StatusSnapshot {
 
 // MARK: - Pure state derivation
 
+/// The stage a RUNNING cycle is in (Track Z R-Z14, design §13.1).
+///
+/// The wire's `stage` counts COMPLETED stages — `sleep_cycle.py` sets it to 1
+/// only after Stage 1 returns — so the stage in flight is one ahead. Three
+/// derivations used to clamp the raw number instead (the menu bar here, the
+/// Sleep page's `deriveSleepPageMood`, onboarding), so while Sort ran the
+/// worm's dots, the bracket line and VoiceOver all said "stage 1" while the
+/// strip lit Sort. One translation, read by all four (the strip included).
+func activeStage(completed: Int) -> Int {
+    max(1, min(5, completed + 1))
+}
+
 /// Maps a status snapshot to a ``BookwormState``. Pure so the precedence logic
 /// is unit-testable. Precedence (highest wins):
 /// sleeping > error > digesting > hungry > curious > happy > awake.
@@ -190,7 +203,7 @@ func deriveBookwormState(
     now: Date = .now
 ) -> BookwormState {
     if s.sleep.status == "running" {
-        return .sleeping(stage: max(1, min(5, s.sleep.stage)))
+        return .sleeping(stage: activeStage(completed: s.sleep.stage))
     }
     if let err = s.sleep.error, !err.isEmpty {
         return .error

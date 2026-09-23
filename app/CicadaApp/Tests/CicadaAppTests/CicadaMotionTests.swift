@@ -9,6 +9,8 @@ final class CicadaMotionTests: XCTestCase {
         ("press", CicadaMotion.press), ("hover", CicadaMotion.hover), ("snap", CicadaMotion.snap),
         ("standard", CicadaMotion.standard), ("panel", CicadaMotion.panel), ("expand", CicadaMotion.expand),
         ("lift", CicadaMotion.lift), ("settle", CicadaMotion.settle), ("morph", CicadaMotion.morph),
+        ("paletteIn", CicadaMotion.paletteIn), ("paletteOut", CicadaMotion.paletteOut),
+        ("groupExpand", CicadaMotion.groupExpand),
     ]
 
     /// `nil` is SwiftUI for "jump to the new value" — the terminal frame.
@@ -22,7 +24,9 @@ final class CicadaMotionTests: XCTestCase {
     func testEveryDurationIsInsideTheBudget() {
         let durations = [CicadaMotion.pressDuration, CicadaMotion.hoverDuration, CicadaMotion.snapDuration,
                          CicadaMotion.standardDuration, CicadaMotion.panelDuration, CicadaMotion.expandDuration,
-                         CicadaMotion.liftDuration, CicadaMotion.settleDuration, CicadaMotion.morphDuration]
+                         CicadaMotion.liftDuration, CicadaMotion.settleDuration, CicadaMotion.morphDuration,
+                         CicadaMotion.paletteInDuration, CicadaMotion.paletteOutDuration,
+                         CicadaMotion.groupExpandDuration]
         for d in durations { XCTAssertLessThanOrEqual(d, CicadaMotion.maxDuration) }
         XCTAssertLessThanOrEqual(CicadaMotion.maxDuration, 0.4, "the same 400 ms ceiling SleepMotion holds")
         XCTAssertEqual(CicadaMotion.settleDuration, SleepMotion.settleDuration, "one settle, two pages")
@@ -59,5 +63,30 @@ final class CicadaMotionTests: XCTestCase {
         XCTAssertEqual(IconHover.nextBump(3, entering: false, reduceMotion: false), 3)
         XCTAssertEqual(IconHover.nextBump(3, entering: true, reduceMotion: true), 3)
         XCTAssertEqual(IconHover.nextBump(Int.max, entering: true, reduceMotion: false), Int.min, "wraps, never traps")
+    }
+
+    func testTheIntakeMotionNamesSitUnderTheBudgetAndVanishUnderReduceMotion() {
+        for d in [CicadaMotion.markNodDuration, CicadaMotion.dropVeilDuration, CicadaMotion.successDuration] {
+            XCTAssertLessThanOrEqual(d, CicadaMotion.maxDuration)
+        }
+        XCTAssertEqual(CicadaMotion.revealStagger, 0.04)
+        XCTAssertEqual(CicadaMotion.revealMaxRows, 8)
+        XCTAssertNil(CicadaMotion.dropVeil(reduceMotion: true))
+        XCTAssertNil(CicadaMotion.success(reduceMotion: true))
+        XCTAssertNil(CicadaMotion.reveal(index: 3, reduceMotion: true))
+        XCTAssertNotNil(CicadaMotion.reveal(index: 30, reduceMotion: false), "capped, never dropped")
+    }
+
+    /// `MarkHover` (design §7): a transform-only nod — never a tint — that is a
+    /// 1 pt ring under Reduce Motion instead.
+    func testTheMarkNodIsATransformAndARingUnderReduceMotion() {
+        XCTAssertEqual(MarkHover.rotationKeys, [-5, 3, 0])
+        XCTAssertEqual(MarkHover.scaleKeys, [1.08, 1])
+        XCTAssertEqual(MarkHover.nextNod(0, entering: true, reduceMotion: false), 1)
+        XCTAssertEqual(MarkHover.nextNod(0, entering: true, reduceMotion: true), 0)
+        XCTAssertEqual(MarkHover.nextNod(0, entering: false, reduceMotion: false), 0)
+        XCTAssertEqual(MarkHover.nextNod(Int.max, entering: true, reduceMotion: false), Int.min, "wraps, never traps")
+        XCTAssertTrue(MarkHover.showsRing(hovering: true, reduceMotion: true))
+        XCTAssertFalse(MarkHover.showsRing(hovering: true, reduceMotion: false))
     }
 }

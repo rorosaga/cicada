@@ -27,7 +27,10 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 from loguru import logger
 
-from api.services import decay_policy, episode_ids, markdown_parser, net_guard, saved_at, video_urls
+from api.services import (
+    bank_index, decay_policy, episode_ids, episode_scrub, markdown_parser, net_guard, saved_at,
+    video_chapters, video_urls,
+)
 from api.services.id_utils import sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
@@ -42,6 +45,7 @@ _MAX_READ = 1_500_000  # 1.5 MB cap on a fetched page body
 # runaway guard, not accounting.
 _OEMBED_TIMEOUT = 4.0
 _OEMBED_MAX_BYTES = 512_000
+DESCRIPTION_LIMIT = 5000  # G140 Q-R12: a description is kept, cut here — a field, not a document
 MAX_BATCH = 2000
 _INLINE_ENRICH_LIMIT = 10  # small batches enrich inline so saves feel instant
 
@@ -117,6 +121,9 @@ class MediaMeta:
     # never computed; absent means absent).
     provider: str | None = None
     duration_s: int | None = None
+    # G140 Q-R12 — chapters parsed from the provider's own description
+    # (`video_chapters.parse`), never inferred; `None` when there is no list.
+    chapters: list[dict] | None = None
 
 
 @dataclass
@@ -282,6 +289,13 @@ async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMet
         if media_type == "instagram":
             # Login-walled — never attempt scraping; URL-only by design.
             return fallback
+        from api.services.papers import never_scraped  # lazy: papers imports this module
+
+        if never_scraped(url):
+            # An arXiv/DOI link or any arxiv.org page (G133 rail, L final review
+            # finding 4): the paper's details come from the arXiv and Crossref
+            # APIs only, never from a page or PDF fetch.
+            return fallback
         if media_type == "linkedin":
             # ToS-walled (G69: §8.2 bans fetching the post body) — never
             # attempt scraping; URL-only by design, same as Instagram above.
@@ -327,7 +341,10 @@ async def _enrich_oembed(provider: str, url: str, client, fallback: MediaMeta) -
 
     Modelled on ``_enrich_youtube`` and bound by the same ToS rail (R-V4): it
     reads the response's FIELDS — ``title``, ``author_name``,
-    ``thumbnail_url``, ``duration`` — and **never its ``html`` blob**. The
+    ``thumbnail_url``, ``duration``, ``description`` (G140: Vimeo and Loom
+    return one, and it used to be discarded) — and **never its ``html``
+    blob**. Chapters are parsed from that description text
+    (``video_chapters.parse``), never inferred. The
     player URL is derived from the id ourselves (``video_urls.resolve``), which
     is exactly what the shipped YouTube path already does; parsing or injecting
     a provider's returned markup would be the first time this app executed
@@ -356,10 +373,14 @@ async def _enrich_oembed(provider: str, url: str, client, fallback: MediaMeta) -
     # did, "1 second" is the harmless reading.)
     is_int = isinstance(duration, int) and not isinstance(duration, bool)
     duration_s = duration if is_int and duration > 0 else None
+    # G140 Q-R12 (R5 §5.6) — kept, cut at DESCRIPTION_LIMIT: the episode and
+    # the page already render `## Description`, so keeping the field is enough.
+    description = str(data.get("description") or "").strip()[:DESCRIPTION_LIMIT]
 
     return MediaMeta(
         title=data.get("title") or fallback.title,
-        description="",
+        description=description,
+        chapters=video_chapters.parse(description) or None,
         site=fallback.site,
         channel=data.get("author_name") or None,
         thumbnail=data.get("thumbnail_url") or None,
@@ -1488,6 +1509,7 @@ def _episode_body(
     folder: str | None = None,
     reason: str | None = None,
     content_saved_at: str | None = None,
+    note_by_agent: bool = False,
 ) -> str:
     lines = [
         f"# {meta.title}",
@@ -1512,7 +1534,15 @@ def _episode_body(
     if reason:
         lines += ["", "## Saved because", reason]
     if note:
-        lines += ["", "## User note", note]
+        # G140 Q-R10: an agent's note is the agent's words. The tool cannot
+        # know a note relays the person, so it is written under an
+        # `assistant:` marker — never where `evidence.speaker_kind` would read
+        # it as theirs (the R-N2/R-F2 rule; G135 R-R12 calls an MCP save the
+        # agent's). The person's own note keeps its heading.
+        if note_by_agent:
+            lines += ["", "## Note", "assistant: " + " ".join(note.split())]
+        else:
+            lines += ["", "## User note", note]
     return "\n".join(lines)
 
 
@@ -1544,10 +1574,12 @@ def write_media_episode(
     # raw value into frontmatter or the body.
     validated_added = saved_at.validate(item.added)
 
-    body = _episode_body(
+    body = episode_scrub.scrub_body(_episode_body(
         meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason,
         content_saved_at=validated_added,
-    )
+        # G140 Q-R10 — a save carrying a session id came from an agent.
+        note_by_agent=bool((item.session_id or "").strip()),
+    ), writer="media", bank=episodes_dir.parent.name)
     content_hash = hashlib.sha256(normalize_url(item.url).encode()).hexdigest()[:12]
 
     frontmatter = {
@@ -1691,6 +1723,10 @@ def write_media_entity(
         frontmatter["media"]["provider"] = meta.provider
     if meta.duration_s:
         frontmatter["media"]["duration_s"] = meta.duration_s
+    # G140 Q-R12 — same R15 rule: written only when the description held a
+    # real chapter list, so every other page stays byte-identical.
+    if meta.chapters:
+        frontmatter["media"]["chapters"] = [dict(c) for c in meta.chapters]
     body = _entity_body(meta, item.note)
     markdown_parser.write(entities_dir / f"{entity_id}.md", frontmatter, body)
 
@@ -1714,6 +1750,71 @@ def save_url_index(memory_path: Path, idx: dict) -> None:
     (sources_dir / "url_index.json").write_text(
         json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+
+
+def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult) -> tuple[str, bool] | None:
+    """A note given for a URL that is ALREADY saved (G140 Q-R10, R5 §2 defect 1).
+
+    ``ingest_one`` returns ``duplicate`` before it reads ``item.note`` — right
+    for a re-import (a Takeout re-run must not mint a note per bookmark), wrong
+    for the one-link saves, where the note IS the point: G22's chain is "save
+    a video, watch it later, write back what it covers", and that second
+    save's summary vanished. So the two single-save paths (``POST
+    /sources/save`` and ``cicada_save_url``'s backend-down path) call this on a
+    duplicate; the batch paths never do.
+
+    A NEW episode rather than an appended section (Telegram's ``## Saved
+    because`` path): appending prose to an episode that may already be cited
+    would turn its spans ``stale`` (G118's ``grown`` needs a turn-boundary
+    prefix), and a ``processed: true`` episode is never read by Sleep again.
+    A new one is citable at once and consolidated next cycle.
+
+    One episode per (media page, note): its ``content_hash`` is read back
+    through ``bank_index``'s frontmatter cache, so a repeat returns the same
+    id. An agent's note (the call carries a session id) is written under an
+    ``assistant:`` marker, as in ``_episode_body``. Returns ``(episode id,
+    newly written)``, or ``None`` for an empty note.
+    """
+    note = (item.note or "").strip()
+    if not note:
+        return None
+    by_agent = bool((item.session_id or "").strip())
+    if by_agent:
+        # One line, so no line of the note can pose as a turn marker.
+        note = " ".join(note.split())
+    # R-N3 / R-LS6: scrubbed before hashing (the Telegram writer's order), so a
+    # repeat of the same note still finds its episode and no secret is stored.
+    note, scrubbed = episode_scrub.scrub(note)
+    content_hash = hashlib.sha256(f"{existing.media_entity_id}\x00{note}".encode("utf-8")).hexdigest()[:12]
+    for f in bank_index.files(memory_path, "episodes"):
+        if f.frontmatter.get("content_hash") == content_hash:
+            return f.stem, False
+    episodes_dir = Path(memory_path) / "episodes"
+    episodes_dir.mkdir(parents=True, exist_ok=True)
+    episode_id = episode_ids.next_episode_id(episodes_dir, datetime.now().strftime("%Y-%m-%d"))
+    body, more = episode_scrub.scrub("\n".join([f"# Note on {existing.title}", "", f"**URL:** {item.url}", "",
+                                                "## Note", f"assistant: {note}" if by_agent else note]))
+    episode_scrub.record("media", scrubbed + more, bank=Path(memory_path).name)
+    frontmatter = {
+        "id": episode_id,
+        "timestamp": episode_ids.utc_now_iso(),
+        "source": existing.media_type,
+        "title": f"Note on {existing.title}"[:120],
+        "processed": False,
+        "content_hash": content_hash,
+        "url": item.url,
+        "media_entity_id": existing.media_entity_id,
+    }
+    if item.origin:
+        frontmatter["origin"] = item.origin
+    if item.session_id:
+        frontmatter["session_id"] = item.session_id
+        if item.harness and item.harness != "unknown":
+            frontmatter["harness"] = item.harness
+        if item.project_dir:
+            frontmatter["project_dir"] = item.project_dir
+    markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
+    return episode_id, True
 
 
 # --- Single-item ingest + batch ---

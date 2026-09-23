@@ -105,16 +105,6 @@ def test_parse_kinds_accepts_palette_names_and_keeps_group_order():
     assert search_service.parse_kinds("nonsense") == ["entity"]
 
 
-def test_rrf_fuse_matches_the_mcp_helper_exactly():
-    # The recall helper moved to api.services.mcp_tools with G135 (the stdio
-    # server re-exports it); `mcp.server` now names the official SDK, so the
-    # parity check reads the one implementation both servers share.
-    from api.services import mcp_tools as mcp
-    semantic = [{"entity_id": "a"}, {"entity_id": "b"}, {"entity_id": "c"}]
-    keyword = [{"entity_id": "b"}, {"entity_id": "a"}, {"id": "d"}]
-    assert search_service.rrf_fuse(semantic, keyword) == mcp._rrf_fuse(semantic, keyword)
-
-
 def test_quick_score_orders_exact_then_prefix_then_word_start():
     fields = lambda name: [(name, 1.0, "name")]  # noqa: E731
     exact, _ = search_service.quick_score(["alpha"], fields("Alpha"))
