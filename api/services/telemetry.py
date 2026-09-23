@@ -22,6 +22,7 @@ from api.services.auth import cicada_home
 KINDS = (
     "llm_call", "sleep_run", "agentic_write", "ask", "import", "throttle",
     "resolution", "audit", "dedup_verdict", "capture", "handshake", "read",
+    "remote_call", "connector_auth",
 )
 # G113: grounded-feedback rows — a user's verdict on an inbox item, a reconcile
 # supersede/reject, a dedup judgement. Ids/enums/numbers only, never claim text
@@ -36,8 +37,10 @@ FEEDBACK_KINDS = ("resolution", "audit", "dedup_verdict")
 # R12: a `read` row (an entity page opened by the app or served to an agent by
 # cicada_recall/recall_detail) is the same class. All join the feedback kinds
 # in being excluded from connection/cost rollups so they never surface as an
-# "unknown" connection.
-NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture", "handshake", "read")
+# "unknown" connection. G135: a remote call and a connector
+# create/rotate/revoke/deny event are ids and enums with no spend and no
+# connection, the same class.
+NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture", "handshake", "read", "remote_call", "connector_auth")
 
 
 def now_iso() -> str:
@@ -142,13 +145,18 @@ def telemetry_dir() -> Path:
 # (`/contributors/top-entities`) is fetched on demand and folds the reads
 # file's mtime into its own ETag.
 READS_KIND = "read"
+# G135 R-R36: a `remote_call` row is written on EVERY remote tool call, reads
+# included, so it is filed beside `read` for the reason above (G124 M2): a row
+# in the events file ticks the app's consumption domain and refetches every
+# `/consumption/*` endpoint.
+SIBLING_KINDS = frozenset({READS_KIND, "remote_call"})
 _PREFIX_EVENTS = "events"
 _PREFIX_READS = "reads"
 
 
 def ledger_file(month: str, *, kind: str = "") -> Path:
     """The ledger file a ``kind`` lands in for ``month`` (``YYYY-MM``)."""
-    prefix = _PREFIX_READS if kind == READS_KIND else _PREFIX_EVENTS
+    prefix = _PREFIX_READS if kind in SIBLING_KINDS else _PREFIX_EVENTS
     return telemetry_dir() / f"{prefix}-{month}.jsonl"
 
 

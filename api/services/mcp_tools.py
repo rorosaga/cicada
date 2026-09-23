@@ -18,6 +18,12 @@ cannot even import them (R-R3: never remote). This module never imports the
 Moved verbatim from `mcp/server.py` at `f2d31ef`; the only edits are the
 context substitutions listed in the ToolContext docstring. The stdio replies
 are pinned byte for byte by `api/tests/test_mcp_stdio_golden.py`.
+
+The remote flags on `ToolContext` (`connector_id`, `available`,
+`raw_excerpts`, `sources_limit`) came after the move (G135 Task 5). Every
+default is stdio's behaviour, so the golden fixture still holds; a remote call
+gets scope-gated excerpts and hints, capped sources, `remote:<id>` claims and
+a commit per write under its app (R-R11, R-R22..R-R25, R-R28).
 """
 from __future__ import annotations
 
@@ -70,6 +76,38 @@ class ToolContext:
     headers: Callable[[], dict[str, str]] | None = None
     backend_url: str = "http://127.0.0.1:8000"
     read_surface: str = "mcp"
+    # G135 remote (R-R22..R-R25). Every default is the stdio server's behaviour,
+    # so `mcp/server.py::_ctx` needs no change and the golden replies hold.
+    connector_id: str | None = None
+    available: frozenset[str] | None = None   # None = every tool (stdio)
+    raw_excerpts: bool = True                 # recall's verbatim episode excerpts
+    sources_limit: tuple[int | None, int] = (None, 2000)
+
+    @property
+    def is_remote(self) -> bool:
+        return self.connector_id is not None
+
+    @property
+    def author(self) -> str:
+        return agent_commits.author_for(self.harness)
+
+    @property
+    def trigger(self) -> str:
+        return f"{'remote' if self.is_remote else 'mcp'}/{self.author}"
+
+    @property
+    def commit_subject(self) -> str:
+        return "Remote write" if self.is_remote else "Agent write"
+
+    @property
+    def claim_origin(self) -> str | None:
+        """R-R5/R-R23: a remote claim is user-shaped in nothing — `remote:<id>`
+        can never earn `claim_reconciler.is_human` protection. Stdio keeps
+        G71's derivation (`None`)."""
+        return f"remote:{self.connector_id}" if self.is_remote else None
+
+    def can(self, tool: str) -> bool:
+        return self.available is None or tool in self.available
 
     def session_frontmatter(self) -> dict:
         """G48's episode keys — additive and inert (see the old
@@ -79,6 +117,9 @@ class ToolContext:
             fm["harness"] = self.harness
         if self.project_dir:
             fm["project_dir"] = self.project_dir
+        if self.connector_id:
+            # R-R25: which connector wrote it — the app's own id, never a token.
+            fm["connector"] = self.connector_id
         return fm
 
     def backend_headers(self) -> dict[str, str]:
@@ -186,30 +227,33 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
         return "Error: URL must start with http:// or https://"
 
     # Path 1: the FastAPI backend, if it's up.
-    try:
-        import urllib.request
+    # R-R11: a remote save commits as its app; POST /sources/save would stamp
+    # it as an MCP save from this Mac.
+    if not ctx.is_remote:
+        try:
+            import urllib.request
 
-        payload = json.dumps({
-            "url": url,
-            "note": note,
-            "sessionId": ctx.session_id,
-            "harness": ctx.harness,
-            "projectDir": ctx.project_dir,
-        }).encode("utf-8")
-        req = urllib.request.Request(
-            f"{ctx.backend_url}/sources/save",
-            data=payload,
-            headers=ctx.backend_headers(),
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return (
-            f"Saved \"{data.get('title', url)}\" as {data.get('mediaType', 'url')} media "
-            f"(entity {data.get('mediaEntityId', '?')}). {data.get('message', '')}"
-        )
-    except Exception:
-        pass
+            payload = json.dumps({
+                "url": url,
+                "note": note,
+                "sessionId": ctx.session_id,
+                "harness": ctx.harness,
+                "projectDir": ctx.project_dir,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                f"{ctx.backend_url}/sources/save",
+                data=payload,
+                headers=ctx.backend_headers(),
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            return (
+                f"Saved \"{data.get('title', url)}\" as {data.get('mediaType', 'url')} media "
+                f"(entity {data.get('mediaEntityId', '?')}). {data.get('message', '')}"
+            )
+        except Exception:
+            pass
 
     # Path 2: direct ingestion (backend down). Enrichment degrades offline.
     try:
@@ -243,6 +287,17 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
             return result
 
         result = asyncio.run(_save())
+        if ctx.is_remote and result.status == "created":
+            # R-R11: the three files this save wrote, committed on their own
+            # under the app that saved them (the batch path's own path list).
+            paths = ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
+                     f"episodes/{result.episode_id}.md"]
+            agent_commits.commit_write(
+                memory_path, subject=ctx.commit_subject,
+                lines=[f"sources/url_index.json: updated (trigger: {ctx.trigger})",
+                       f"entities/{result.media_entity_id}.md: created (source: {result.episode_id}, trigger: {ctx.trigger})",
+                       f"episodes/{result.episode_id}.md: created (trigger: {ctx.trigger})"],
+                paths=paths, author=ctx.author, session=ctx.session_id)
         if result.status == "duplicate":
             return f"Already saved: \"{result.title}\""
         return (
@@ -373,7 +428,8 @@ def recall(ctx: ToolContext, query: str) -> str:
     # process emits, and only there — a block that was never emitted (nothing
     # to suggest) does not consume it.
     state_hint = None if ctx.state_hint_sent else _state_hint(memory_path)
-    hints_block = _hints_block(suggested, relevant_hub, hub_member_ids, state=state_hint)
+    hints_block = _hints_block(suggested, relevant_hub, hub_member_ids, state=state_hint,
+                               available=ctx.available)
     if hints_block:
         output_parts.append(hints_block)
         if state_hint is not None:
@@ -428,15 +484,17 @@ def recall(ctx: ToolContext, query: str) -> str:
         output_parts.append("**Related (one hop out):**\n" + "\n".join(hop_blurbs))
 
     # === Related conversation excerpts from LEANN episode index ===
-    episode_hits = _leann_search_episodes(memory_path, query, top_k=3)
-    if episode_hits:
-        ep_lines = ["**Related conversation excerpts:**"]
-        for ep in episode_hits:
-            meta = ep.get("metadata", {}) or {}
-            ep_id = meta.get("episode_id", "unknown")
-            snippet = (ep.get("text") or "")[:400].strip().replace("\n", " ")
-            ep_lines.append(f"- [{ep_id}] {snippet}")
-        output_parts.append("\n".join(ep_lines))
+    # R-R22: the person's words verbatim — the "sources" scope, not "search".
+    if ctx.raw_excerpts:
+        episode_hits = _leann_search_episodes(memory_path, query, top_k=3)
+        if episode_hits:
+            ep_lines = ["**Related conversation excerpts:**"]
+            for ep in episode_hits:
+                meta = ep.get("metadata", {}) or {}
+                ep_id = meta.get("episode_id", "unknown")
+                snippet = (ep.get("text") or "")[:400].strip().replace("\n", " ")
+                ep_lines.append(f"- [{ep_id}] {snippet}")
+            output_parts.append("\n".join(ep_lines))
 
     return "\n\n".join(output_parts).strip() or f"No entities found matching '{query}'."
 
@@ -531,6 +589,7 @@ def _hints_block(
     relevant_hub: str | None,
     hub_members: list[str],
     state: dict | None = None,
+    available: frozenset[str] | None = None,
 ) -> str:
     """Render the machine-parseable ``cicada-hints`` fenced JSON block.
 
@@ -540,15 +599,27 @@ def _hints_block(
     so a consumer that only knows the older keys is unaffected. The early
     ``return ""`` when there is nothing to suggest is a kept contract: the
     cursor rides in a block that exists, never in a block of its own.
+
+    ``available`` (G135 R-R22) is the caller's tool set, ``None`` on stdio.
+    A remote connection holding ``search`` but not ``read`` has no
+    ``cicada_recall_detail``, and a hint naming it is G75 R12's bug; it is
+    pointed at ``cicada_open_hub`` instead, which shares recall's scope and so
+    is always present when recall is.
     """
     if not suggested_entities and not relevant_hub:
         return ""
+    if available is None or "cicada_recall_detail" in available:
+        next_tool = "cicada_recall_detail"
+        note = "Call cicada_recall_detail with each suggested_entity id for full pages, or cicada_open_hub with relevant_hub for a topic index."
+    else:
+        next_tool = "cicada_open_hub"
+        note = "Call cicada_open_hub with relevant_hub for a topic index."
     payload = {
         "suggested_entities": suggested_entities,
         "relevant_hub": relevant_hub,
         "hub_members_preview": hub_members[:8],
-        "next_tool": "cicada_recall_detail",
-        "note": "Call cicada_recall_detail with each suggested_entity id for full pages, or cicada_open_hub with relevant_hub for a topic index.",
+        "next_tool": next_tool,
+        "note": note,
     }
     if state:
         payload["state"] = state
@@ -637,9 +708,14 @@ def sources(ctx: ToolContext, entity_id: str) -> str:
     eps = bundle.get("episodes", [])
     if not eps:
         return f"No source episodes found for '{entity_id}'."
+    # R-R28: a remote connection sees at most 3 episodes x 1,000 characters;
+    # stdio's (None, 2000) is the old behaviour. Cut before the header so the
+    # count it prints is the count shown.
+    max_episodes, max_chars = ctx.sources_limit
+    eps = eps[:max_episodes] if max_episodes else eps
     parts = [f"**Sources for `{entity_id}`** ({len(eps)} episode(s)):"]
     for e in eps:
-        parts.append(f"\n### episode {e['id']}\n{(e.get('chunk') or '').strip()[:2000]}")
+        parts.append(f"\n### episode {e['id']}\n{(e.get('chunk') or '').strip()[:max_chars]}")
     return "\n".join(parts)
 
 
@@ -666,7 +742,7 @@ def write_claim(
     # One bank resolution per call: the write, the ledger row and the commit
     # must all name the same bank even if the active bank flips mid-call.
     memory_path = ctx.memory_path()
-    author = agent_commits.author_for(ctx.harness)
+    author = ctx.author
     result = agentic_write.write_claim(
         memory_path,
         subject,
@@ -687,6 +763,10 @@ def write_claim(
         # G135 R-R11: the claim carries its real author instead of the shim's
         # "mcp-agentic-write" placeholder.
         authored_by=author,
+        # G135 R-R5/R-R23: a remote claim is `remote:<id>` and may never carry
+        # the person's own observer; stdio passes None/False (unchanged).
+        origin=ctx.claim_origin,
+        forbid_owner_observer=ctx.is_remote,
     )
 
     if result.get("action") == "ambiguous_subject":
@@ -706,21 +786,26 @@ def write_claim(
 
     from api.services import telemetry
 
+    refs = {
+        "entity_id": result.get("entity_id"),
+        "claim_id": result.get("claim_id"),
+        "episode_id": source_episode,
+        "action": result.get("action"),
+        # G48: the ledger becomes the model<->conversation join key, and
+        # `GET /conversations/recent` reads `refs.session_id` back out.
+        "session_id": ctx.session_id,
+        "harness": ctx.harness,
+        "client_name": ctx.client_name,
+        "client_version": ctx.client_version,
+    }
+    if ctx.is_remote:
+        # Only on a remote write: `test_run_events.py` pins the stdio refs exactly.
+        refs["connector_id"] = ctx.connector_id
     telemetry.record(telemetry.UsageEvent(
-        kind="agentic_write", stage="driver", connection="session", engine="mcp-client",
+        kind="agentic_write", stage="driver", connection="session",
+        engine="mcp-remote" if ctx.is_remote else "mcp-client",
         model=None, bank=memory_path.name, billing="subscription", invocations=1,
-        refs={
-            "entity_id": result.get("entity_id"),
-            "claim_id": result.get("claim_id"),
-            "episode_id": source_episode,
-            "action": result.get("action"),
-            # G48: the ledger becomes the model<->conversation join key, and
-            # `GET /conversations/recent` reads `refs.session_id` back out.
-            "session_id": ctx.session_id,
-            "harness": ctx.harness,
-            "client_name": ctx.client_name,
-            "client_version": ctx.client_version,
-        },
+        refs=refs,
     ))
 
     # G135 R-R11: the page this write touched is committed on its own, under
@@ -730,8 +815,8 @@ def write_claim(
         change = "created" if result.get("page_created") else "updated"
         agent_commits.commit_write(
             memory_path,
-            subject="Agent write",
-            lines=[f"{result['path']}: {change} (source: {source_episode or 'n/a'}, trigger: mcp/{author})"],
+            subject=ctx.commit_subject,
+            lines=[f"{result['path']}: {change} (source: {source_episode or 'n/a'}, trigger: {ctx.trigger})"],
             paths=[result["path"]],
             author=author,
             session=ctx.session_id,
@@ -1235,6 +1320,8 @@ def resolve_inbox(
     records the pair in ``_merge_rejected.yaml`` so it is never re-proposed;
     unlike ``skip`` it is a real, remembered answer, not a no-op.
     """
+    if ctx.is_remote:
+        answer = None  # R-R22: option picks only — an app never invents the person's words
     item_id = (item_id or "").strip()
     if not item_id:
         return "Error: id is required (e.g. 'inbox-001')."
@@ -1256,7 +1343,8 @@ def resolve_inbox(
         if answer:
             payload["answer"] = str(answer)
         if not option_key and not answer:
-            return "Error: pass option_key, answer, or defer=true."
+            return ("Error: pass option_key, or defer=true." if ctx.is_remote
+                    else "Error: pass option_key, answer, or defer=true.")
 
     try:
         result = ctx.backend_post(f"/inbox/{item_id}/resolve", payload)
@@ -1338,7 +1426,8 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     frontmatter = {
         "id": episode_id,
         "timestamp": timestamp,
-        "source": "mcp",
+        # R-R25: `origin` stays in G9's closed vocabulary; `source` says remote.
+        "source": "mcp-remote" if ctx.is_remote else "mcp",
         "origin": "mcp",
         "title": title or "MCP capture",
         "processed": False,
@@ -1358,6 +1447,14 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
 
         fm_str = yaml.safe_dump(frontmatter, default_flow_style=False, sort_keys=False).strip()
         filepath.write_text(f"---\n{fm_str}\n---\n\n{content}\n", encoding="utf-8")
+
+    if ctx.is_remote:
+        # R-R11: a remote episode commits alone, under its app. Stdio's episode
+        # save stays uncommitted (byte-identical to before G135, by ruling).
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"episodes/{episode_id}.md: created (trigger: {ctx.trigger})"],
+            paths=[f"episodes/{episode_id}.md"], author=ctx.author, session=ctx.session_id)
 
     return f"Episode saved as {episode_id}. It will be processed during the next Sleep cycle."
 
