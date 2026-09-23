@@ -535,24 +535,18 @@ struct SleepView: View {
     // MARK: Header
 
     private var headerRow: some View {
-        // SleepView's scroll content already carries `spacingXL` padding around
-        // the whole VStack, so this header strips PageHeader's outer padding and
-        // just reuses its title typography for visual parity.
+        // The title is `PageTitle`, the same view `PageHeader` draws (Z-B4):
+        // the page keeps its own row because the title sits inside the centred
+        // column (R-Z6) with the staleness chip beside it (R-A12).
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                // The subtitle stopped rendering (Track Z §4.1: the room and
-                // its sentence say what the page does); it survives as the
-                // title's VoiceOver hint. On this one `Text`, NOT the page's
-                // `ZStack`: an accessibility modifier on a container that is
-                // not itself an element spreads to every element inside it,
-                // so every button on the page would carry it as its hint.
-                Text("Sleep Cycle")
-                    .font(CicadaTheme.titleFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
+            HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                // The subtitle stopped rendering (Track Z §4.1); it survives as
+                // the title's VoiceOver hint — on this one element, not the
+                // page's `ZStack`, where it would spread to every button.
+                PageTitle(Copy.sleepPageTitle)
                     .accessibilityHint(Copy.sleepSubtitle)
-                // R-A12: the chip is the *explanation* for the dimming below
-                // it, so it stays at full contrast and sits outside every
-                // desaturated group.
+                // R-A12: the chip explains the dimming below it, so it stays at
+                // full contrast and sits outside every desaturated group.
                 if let asOf = liveness.asOf {
                     stalenessChip(asOf)
                 }

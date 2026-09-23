@@ -123,11 +123,11 @@ final class DeskSceneLayoutTests: XCTestCase {
         }
     }
 
-    /// The pile is the REAL `BookPileView`, whose widest spine is
-    /// `BookPileView.maxSpineWidth`. A reserved column narrower than that
-    /// would push a full-width spine out of the scene — the geometry reason
-    /// the lattice is as wide as it is, recorded as an assertion so nobody
-    /// "tidies" the scene narrower.
+    /// The pile is the REAL `BookPileView`, whose widest spine is the column
+    /// itself (`fitPile`, Z-B3) — at 1.0× the 150 pt the pile was authored
+    /// for. A reserved column narrower than that would push a full-width
+    /// spine out of the scene — the geometry reason the lattice is as wide as
+    /// it is, recorded as an assertion so nobody "tidies" the scene narrower.
     func testThePileColumnFitsAFullWidthSpine() {
         let l = deskSceneLayout(pointSize: 120, uiScale: 1.0)
         XCTAssertGreaterThanOrEqual(l.pileFrame.width, 150)

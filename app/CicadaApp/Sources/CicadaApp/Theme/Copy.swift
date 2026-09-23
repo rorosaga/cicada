@@ -325,6 +325,8 @@ enum Copy {
     /// promising *today* contradicted a number the same screen was drawing.
     /// What a cycle actually does is fold whatever is waiting, however old.
     static let sleepSubtitle = "Fold what's waiting into the graph."
+    /// The Sleep page's title, drawn by `PageTitle` like every page's (Z-B4).
+    static let sleepPageTitle = "Sleep Cycle"
     /// The Sleep page's one disclosure (Track Z R-Z6): everything past the
     /// room, the sentence, the button and the whisper line lives behind it.
     static let sleepDetails = "Details"

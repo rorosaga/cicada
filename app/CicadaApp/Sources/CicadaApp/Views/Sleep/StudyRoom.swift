@@ -110,7 +110,7 @@ struct StudyRoom: View {
             // The REAL pile, in the column the layout reserves for it —
             // never a painted stack (P10).
             BookPileView(books: page.books, rows: page.rows, episodes: episodes, room: room,
-                         onOpenDetails: onOpenDetails)
+                         onOpenDetails: onOpenDetails, layout: scene)
                 .frame(width: scene.pileFrame.width, height: scene.pileFrame.height, alignment: .bottomLeading)
                 .offset(x: scene.pileFrame.minX, y: -scene.pileFrame.minY)
             if let lamp = spots[.lamp] {

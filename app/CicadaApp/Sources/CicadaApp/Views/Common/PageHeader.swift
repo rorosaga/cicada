@@ -1,14 +1,33 @@
 import SwiftUI
 
+/// A page's title in its one face (G137 R-M16): Instrument Serif at 28 pt in
+/// `textPrimary`. `PageHeader` draws its title through this, and so does the
+/// Sleep page's header, which sits inside its centred column with the
+/// staleness chip beside it (Z-B4) — the live check found that header still
+/// in SF 20 semibold because it had copied the old font instead of sharing it.
+struct PageTitle: View {
+    static let size: CGFloat = 28
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(CicadaTheme.displayFont(size: Self.size))
+            .foregroundStyle(CicadaTheme.textPrimary)
+    }
+}
+
 /// Shared page header (Linear/Notion convention): a title, an optional one-line
 /// subtitle, and an optional right-aligned trailing action. Promotes the
 /// ad-hoc header that SleepView established into one reusable component so every
 /// primary screen (Graph, Clusters, Feed, Sleep, Inbox, Contributors) lays out
 /// identically: `spacingXL` outer padding, a display-serif title in
-/// `textPrimary` (G137 R-M16: Instrument Serif 28 pt sets the same width as
-/// the SF 20 semibold it replaced, ±6% — "Integrations" 110 → 114 pt,
-/// "Chrome bookmarks" 179 → 189 pt — so every call site keeps its line),
-/// `bodyFont` subtitle in `textSecondary`.
+/// `textPrimary` (`PageTitle`, shared with the Sleep page's header; G137
+/// R-M16: Instrument Serif 28 pt sets the same width as the SF 20 semibold it
+/// replaced, ±6% — "Integrations" 110 → 114 pt, "Chrome bookmarks" 179 →
+/// 189 pt — so every call site keeps its line), `bodyFont` subtitle in
+/// `textSecondary`.
 struct PageHeader<Trailing: View>: View {
     let title: String
     var subtitle: String? = nil
@@ -26,9 +45,7 @@ struct PageHeader<Trailing: View>: View {
         HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingMD) {
             if let leading { leading }
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text(title)
-                    .font(CicadaTheme.displayFont(size: 28))
-                    .foregroundStyle(CicadaTheme.textPrimary)
+                PageTitle(title)
                 if let subtitle {
                     Text(subtitle)
                         .font(CicadaTheme.bodyFont)
