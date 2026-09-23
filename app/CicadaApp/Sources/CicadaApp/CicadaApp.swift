@@ -254,11 +254,13 @@ struct CicadaApp: App {
         switch mode {
         case .dark:
             window.appearance = NSAppearance(named: .darkAqua)
-            window.backgroundColor = NSColor(red: 14 / 255, green: 15 / 255, blue: 20 / 255, alpha: 1)
         case .light:
             window.appearance = NSAppearance(named: .aqua)
-            window.backgroundColor = NSColor(red: 245 / 255, green: 246 / 255, blue: 250 / 255, alpha: 1)
         }
+        // G137 R-M10: the one AppKit surface that paints a theme colour reads
+        // the token — the hand-copied RGB that was here went stale the moment
+        // the neutrals moved.
+        window.backgroundColor = CicadaTheme.windowBackground(for: mode)
     }
 
     /// Reparents the window's existing (SwiftUI-owned) content view under a
