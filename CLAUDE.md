@@ -144,7 +144,7 @@ Sources are many and the pipeline is **source-agnostic**: MCP-native clients, ho
 capture, chat exports, browsers (bookmarks and Safari tabs), Telegram, direct saved-content
 connectors (Pinterest/Reddit/X), RSS, calendars, files. The per-channel detail lives in
 `api/services/` and in the backlog rows that introduced each one — read the code, not a list here.
-Six rails hold across all of them:
+Seven rails hold across all of them:
 
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
@@ -180,15 +180,35 @@ Six rails hold across all of them:
   tombstoned (`source_deleted_at`) and never unlinked. A multi-turn source records G118's per-turn
   sidecar `turns: [{offset, ts, speaker}, …]` (R-PB4: an entry only for a turn with a time, the last
   key, outside `content_hash`, capped head-stable at 500) — the one shape `evidence.turn_stamps`
-  reads; the Stop hook's `turns:` stays its integer count and reads as no stamps.
+  reads. The Stop hook writes it too since G141 PJ-4 (R-PJ16): its `role: text` body is the stager's
+  line shape, so `episode_staging.stamps_for` builds the list, and the episode `timestamp` stays the
+  session's start while each turn carries its own time. A Stop-hook episode written before PJ-4 still
+  holds an integer count, which reads as no stamps.
 - **A local source is read by the app and parsed by the backend** (G133/G134). A watched folder:
   security-scoped bookmark, FSEvents, an mtime+size+sha manifest, bytes posted with relative paths to
   `POST /sources/folders/{id}/sync`; files under an agent glob land as `evidence_kind: assistant`,
-  already processed, so an agent's sweep is never the owner's words. Wispr Flow: its SQLite opened
+  already processed, so an agent's sweep is never the owner's words. Saving new rules re-derives
+  every existing episode of the folder in place — frontmatter only, the hash unchanged; agent → owner
+  is queued, owner → agent is parked unless Sleep already read it — in one `user` commit (trigger
+  `folder/authorship`), and the papers' why-claims follow (F2-back R-B6, R-B7). Wispr Flow: its SQLite opened
   read-only by the app through a column whitelist (never audio, screenshots, accessibility or pasted
   text); meetings and notes by default, dictation only when the person turns it on. A meeting line is
   `speaker:<label>:` and counts as `user` evidence only when its label is one of the owner's listed
   names.
+- **Capture never writes into a demo bank** (G117's synthetic bank; G141 capture-side track). A bank
+  is the demo when `<bank>/_bank.yaml` says `kind: demo` — written first by `demo_bank.populate` and
+  committed as `cicada` — or, for a demo made before that file, when its `.git/config` carries the
+  generator's identity; never by its name (`api/services/demo_guard.py`). While it is active: every
+  POST/PUT under `/capture/` and `/sources/` answers **409** (one route dependency,
+  `refuse_capture_into_demo`, and a test that fails for a new route that is neither gated nor named);
+  the intake checks the bank it writes into, so `?bank=` into your own memory still works; the MCP
+  write tools refuse with a sentence the agent relays; Telegram answers 200 with a reply saying
+  nothing was saved; and the Stop hook saves the session into the real bank left most recently
+  (`last_active_at`, stamped by `activate_bank`; the response says `bank` and `redirectedFrom`), or
+  answers 409 when it cannot tell which — the next reply after switching back saves the whole
+  session. A demo bank's Sleep consolidates its own made-up episodes, but its tail skips the
+  connector, feed/calendar, link-backfill, paper and Wispr to-do steps (connector credentials are
+  machine-global). The generator itself is never gated.
 
 **Conversation identity (G48).** An MCP episode carries `session_id` plus `harness` and
 `project_dir` when exposed — minted once per MCP process from `CLAUDE_CODE_SESSION_ID` →
@@ -344,8 +364,8 @@ exact) or `stale`. A stale span travels without wash offsets; a `derived` span (
 `inbox_context.locate_mention`) exists on read payloads only — never in `EVIDENCE_KINDS`, never
 written. The chat importer and every Local-sources draft keep each turn's time as
 `turns: [{offset, ts, speaker}]` in frontmatter, written by `episode_staging` outside
-`content_hash`; the Stop hook's `turns:` is still a count, and a reader treats any non-list as no
-times.
+`content_hash`; the Stop hook writes the same list (G141 PJ-4), and a reader treats any non-list — an
+older Stop-hook episode's count — as no times.
 
 **Optional frontmatter keys**, each with a narrow meaning — don't conflate them:
 
@@ -482,7 +502,12 @@ Cicada-Session: <id>
   literal **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits,
   and **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
   migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` commit). Built by
-  `git_service.build_commit_message(...)`, parsed by `_parse_authors`. Powers `GET /contributors`.
+  `git_service.build_commit_message(...)`, parsed by `_parse_authors`.
+  `git_service.author_identity` buckets a harness label (and `agent`) as kind `harness`, which the app
+  names and marks as that app; the pre-G135 `mcp-agentic-write` claim placeholder reads as `agent`
+  through `canonical_author`, never rewritten (F2-back R-B9, R-B10). A read whose body carries an
+  author kind folds `git_service.AUTHOR_SHAPE` into its ETag; bump it when the buckets move.
+  Powers `GET /contributors`.
 - **`Cicada-Engine:`** — exactly one per main commit (`claude-cli|ollama|litellm`), **omitted
   entirely rather than guessed** when no LLM ran. Read back via git's own
   `%(trailers:key=…,valueonly)` directive, not a Python parse of `%b` — pulling the whole body to
@@ -501,6 +526,17 @@ behavior rather than aborting the cycle. **Known asymmetry, disclosed not fixed:
 path-granular, not hunk-granular, so a subject that is both decay-eligible and claim-touched in the
 same cycle lands whole in the `cicada` commit. Narrow in practice; fixing it needs hunk-level
 staging.
+
+**One git writer per bank (F2-back R-B1 … R-B4).** Every mutating git command — `git_service`'s
+commits, a `_run_git` write, the one-shot migrations, the expiry restore — runs in a worker thread
+under one re-entrant lock per resolved bank path, so tasks, threads and `asyncio.run` bridges queue
+instead of colliding on `index.lock`; the backend is one process, git's own lock is the cross-process
+guard, and only its `File exists` refusal is retried (five tries, the lock never deleted). Reads pass
+`GIT_OPTIONAL_LOCKS=0`, and `test_git_write_lock.py` refuses a git write spawned anywhere else.
+A folder, paper or Wispr commit that still fails keeps its paths in `cicada-pending-commits.json`
+in the bank's own git dir (a worktree's, never the shared common dir), says so on its channel, and
+lands on that writer's next run — or at the start of the next Sleep cycle, before any stage writes —
+under its own author (R-B5).
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
@@ -684,8 +720,9 @@ commit), after a consent sheet that shows the exact command, as an argv with
 `CICADA_CAPTURE=off`; hosted MCP servers are copy-only. The app writes files only for Cicada's
 own `cicada` and `cicada-librarian` (`SkillInstaller`, a `.cicada-managed.json` marker, never
 over a changed copy). The handshake gains a capability line only for an installed, active bridge
-whose tool exists; the video and meeting bridges stay inactive until they are wired to the watch
-record (`cicada_record_watch`) and speaker-aware evidence, both of which have landed (G140, G134).
+whose tool exists: papers (`cicada_save_url`), video (`cicada_record_watch`) and meetings
+(`cicada_save_episode`, one `speaker:<name>:` line per utterance, never `user:`) are active;
+documents stays off until something says who wrote a document (F2-back R-B14).
 
 **Sources page — v2 (G124).** One card system: fixed tile height, one column count derived from the
 container width in **scaled** units (`SourceGridColumns`, 2–4) and shared by every section, five
@@ -885,8 +922,8 @@ the same files (F1's context filter and fence strip); an entity node's hash also
   `GET /intake/jobs/{id}` (process-local — gone after a restart or an hour; the episodes are not). One
   stage runs at a time per process.
 - `POST /conversations/upload` is a deprecated shim over the one intake — new callers use
-  `POST /intake/import`; its `turns` sidecar is a list on imported episodes and an **integer
-  count** on Stop-hook episodes, so a reader checks the type.
+  `POST /intake/import`; its `turns` sidecar is a list, as on Stop-hook episodes since G141 PJ-4 —
+  only a Stop-hook episode written before PJ-4 holds an **integer count**, so a reader checks the type.
 
 ---
 
@@ -1042,7 +1079,8 @@ Three gates, and they do **not** mean the same thing — read the difference bef
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
 (`CICADA_REMOTE_PORT`) serves **only MCP** — none of the FastAPI routers — to cloud AI apps
 through a tunnel **the person** runs (Tailscale Funnel or ngrok); **Cicada never starts, stops or
-reconfigures a tunnel** — `GET /remote/status` only detects one. Access is a per-connector
+reconfigures a tunnel** — `GET /remote/status` only detects one — on PATH or in
+the standard install folders, since an older LaunchAgent's PATH is bare (F2-back R-B15). Access is a per-connector
 capability token `cic_rc_<id>_<secret>`: shown once, only its sha256 stored in
 `~/.cicada/remote/connectors.db` (0600, never in a bank), scoped (`search`/`read`/`record` default;
 `sources`/`answer`/`ask` opt-in — `sources` gates every verbatim word of the person's, recall's

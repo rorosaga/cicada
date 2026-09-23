@@ -1587,7 +1587,7 @@ only on the ingest/enrich path, under the gates that path already has.
 
   And one sentence in § Companion App: video plays in the Feed sheet, the entity Content tab and the entity hero through `MediaPreview`/`HeroPreview`; the provider is derived from the URL at read time (R-V1), so a bank never needs rewriting to teach the app a new one.
 
-- [ ] **Step 4: `TODO.md`.** A Shipped entry (Track V — in-app video, PR #TBD), and under "Known and disclosed" the two follow-ups by name: the `/live/` normaliser + dedup-index migration, and Twitch/X playback with the blocker each waits on. Privacy rule throughout.
+- [ ] **Step 4: `TODO.md`.** A Shipped entry (Track V — in-app video, PR #88), and under "Known and disclosed" the two follow-ups by name: the `/live/` normaliser + dedup-index migration, and Twitch/X playback with the blocker each waits on. Privacy rule throughout.
 
 - [ ] **Step 5: commit.**
 

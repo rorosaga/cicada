@@ -1880,7 +1880,7 @@ s = p.read_text()
 
 old_118 = "APPLY, L (four slices, each shippable) | 🔲 |"
 assert s.count(old_118) == 1, "G118 row tail not found exactly once"
-new_118 = ("APPLY, L (four slices, each shippable). **Slice 1 shipped 2026-09-03 (PR #TBD, `feat/provenance-spans`):** "
+new_118 = ("APPLY, L (four slices, each shippable). **Slice 1 shipped 2026-09-03 (PR #88, `feat/provenance-spans`):** "
            "`Claim.evidence: [{episode, start, end, kind, hash}]` (offsets into the parsed body, ```claims fence excluded for a page; "
            "`sha256[:12]` → `stale` on mismatch; kinds `user|assistant|page|reasoning`, speaker by the last `<role>:` marker, no marker = user); "
            "one engine-free module `api/services/evidence.py` (exact → whitespace → case-insensitive, never fuzzy; unlocatable = `reasoning`, claim still written); "
@@ -1888,7 +1888,7 @@ new_118 = ("APPLY, L (four slices, each shippable). **Slice 1 shipped 2026-09-03
            "`evidence: [{episode, quote}]`; link recon `page` spans on the media entity; Telegram `saved-because` cites its section; `_reinforce` merges spans; "
            "`evidence` on `/claims`, `/timeline`, `/transclude`; `GET /episodes/{id}/span`. Legacy claims: no evidence, no backfill, `to_dict` omits the empty key. "
            "**Open:** slice 2 viewer (entity → claim → chip → raw pane, Swift `Evidence` model), slice 3 trigger traces, slice 4 rationale, G100's derived-span class, "
-           "`describes` claims on link enrichment (a whole-section span — trivial once the viewer wants it). | 🛠️ slice 1 ✅ (PR #TBD); slices 2–4 open |")
+           "`describes` claims on link enrichment (a whole-section span — trivial once the viewer wants it). | 🛠️ slice 1 ✅ (PR #88); slices 2–4 open |")
 s = s.replace(old_118, new_118)
 
 old_100 = "strengthens the thesis's provenance claim. | 🔲 |"
@@ -1897,7 +1897,7 @@ new_100 = ("strengthens the thesis's provenance claim. **Absorbed into G118 (202
            "shipped as G118 slice 1 (`evidence: [{episode, quote}]` on `cicada_write_claim`, `evidence_quote` in Stage 1); (ii) is settled the other way "
            "(offsets + hash only, never the quote — the bank holds the text, `stale` replaces the repair path); the immutability dependency is verified for the body "
            "(`markdown_parser.parse` strips it identically on every rewrite; `mark_processed` never reflows it). (iii) derived spans and (iv) the viewer stay open under G118 slices 2+. "
-           "| ⤴ absorbed into G118 — (i)/(ii) shipped in slice 1 (PR #TBD); (iii)/(iv) open |")
+           "| ⤴ absorbed into G118 — (i)/(ii) shipped in slice 1 (PR #88); (iii)/(iv) open |")
 s = s.replace(old_100, new_100)
 p.write_text(s)
 print("ok")
@@ -1907,16 +1907,16 @@ PY
 - [ ] **Step 3: TODO.md**
 
 1. `## Where things stand (2026-09-02)` → `(2026-09-03)`; add a paragraph after the opening one: "**G118 slice 1 — evidence spans — is on `feat/provenance-spans` (worktree `.worktrees/g118`), awaiting a PR against `dev`:** every new claim carries `evidence` spans (offsets + hash into the stored body, never copies), `cicada_write_claim` cites `{episode, quote}`, and `GET /episodes/{id}/span` slices the source back out. No Swift change; legacy claims show no evidence, honestly."
-2. Under `## ✅ Shipped` ▸ **Provenance**, append: "· **G118 slice 1 evidence spans (2026-09-03, PR #TBD)** — `Claim.evidence` offsets + hash, Stage-1 quote verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii)".
-3. Wave C item `9b`: replace "Slice 1 = span capture in Stage-1 + resolver; absorbs G100 — L" with "Slice 1 shipped (spans + agent citations + span endpoint, PR #TBD); next: slice 2 viewer (Swift `Evidence` model, chips → raw pane with highlight), then triggers (needs G105), then rationale — L".
+2. Under `## ✅ Shipped` ▸ **Provenance**, append: "· **G118 slice 1 evidence spans (2026-09-03, PR #88)** — `Claim.evidence` offsets + hash, Stage-1 quote verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii)".
+3. Wave C item `9b`: replace "Slice 1 = span capture in Stage-1 + resolver; absorbs G100 — L" with "Slice 1 shipped (spans + agent citations + span endpoint, PR #88); next: slice 2 viewer (Swift `Evidence` model, chips → raw pane with highlight), then triggers (needs G105), then rationale — L".
 4. Item `11. **G100** …`: replace with "11. ~~G100~~ — absorbed into G118 (slice 1 shipped the write-time citation; the derived-span class and the viewer are G118 slice 2)".
 5. `## Pick up here`: change the first line to name `feat/provenance-spans` as the branch awaiting a PR (keep the `feat/link-summaries` note if it is still unmerged), and in `0b.` mark G118 slice 1 as done so the order reads "**G118 slice 2 (viewer) → G105 → G93 → …**". Add `.worktrees/g118` to the **Worktrees** paragraph.
 6. `_Last synced:` line: prepend "2026-09-03 (G118 slice 1 on `feat/provenance-spans`, PR pending); " to the existing text.
 
 - [ ] **Step 4: Verify the docs say nothing personal and nothing stale**
 
-Run: `cd <worktree>/ && grep -n "evidence_quote\|/episodes/{id}/span\|Evidence spans (G118" CLAUDE.md | head; grep -c "PR #TBD" docs/goals/memory-evolution.md docs/goals/TODO.md; grep -n "G118 slice 1 → G105" docs/goals/TODO.md`
-Expected: the three CLAUDE.md hits; `PR #TBD` counted ≥ 1 in each goals file (the merge step fixes the number); no hit for the old `G118 slice 1 → G105` ordering.
+Run: `cd <worktree>/ && grep -n "evidence_quote\|/episodes/{id}/span\|Evidence spans (G118" CLAUDE.md | head; grep -c "PR #88" docs/goals/memory-evolution.md docs/goals/TODO.md; grep -n "G118 slice 1 → G105" docs/goals/TODO.md`
+Expected: the three CLAUDE.md hits; `PR #88` counted ≥ 1 in each goals file (the merge step fixes the number); no hit for the old `G118 slice 1 → G105` ordering.
 
 - [ ] **Step 5: Commit**
 

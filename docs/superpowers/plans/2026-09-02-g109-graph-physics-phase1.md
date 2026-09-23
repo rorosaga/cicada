@@ -50,7 +50,7 @@
 | `app/CicadaApp/Tests/graph/graph-physics.bench.js` (new) | prints the metrics table for the three synthetics; `GRAPH_JS=` env to bench a patched copy |
 | `app/CicadaApp/Tests/graph/graph-physics.test.js` (new) | asserts the thresholds; Task 2 block, then Task 3 block appended |
 | `CLAUDE.md` | "Why d3-force" line carries the ruling |
-| `docs/goals/memory-evolution.md` | G109 row: ruling + "Phase 1 shipped (PR #TBD)" + measured numbers |
+| `docs/goals/memory-evolution.md` | G109 row: ruling + "Phase 1 shipped (PR #88)" + measured numbers |
 | `docs/goals/TODO.md` | G109 In progress → Shipped (phase 1); handoff header refreshed |
 
 ---
@@ -1142,7 +1142,7 @@ EOF
 
 **Interfaces:** none (prose).
 
-**`PR #TBD` is deliberate.** This plan never pushes or opens a PR, so the literal `PR #TBD` is committed as-is — seven occurrences: 0 in `CLAUDE.md`, 2 in the (single-line) G109 row, 5 in `TODO.md`. Whoever opens the PR replaces every one with the real number in one follow-up docs commit; `grep -rn 'PR #TBD' CLAUDE.md docs/goals` finds them. Do not invent a number.
+**`PR #88` is deliberate.** This plan never pushes or opens a PR, so the literal `PR #88` is committed as-is — seven occurrences: 0 in `CLAUDE.md`, 2 in the (single-line) G109 row, 5 in `TODO.md`. Whoever opens the PR replaces every one with the real number in one follow-up docs commit; `grep -rn 'PR #88' CLAUDE.md docs/goals` finds them. Do not invent a number.
 
 - [ ] **Step 1: CLAUDE.md — the ruling in one sentence**
 
@@ -1163,14 +1163,14 @@ relates **G107** (the same "we hand-rolled art/physics that a library does bette
 ```
 with:
 ```
-relates **G107** (the same "we hand-rolled art/physics that a library does better" question). **Ruling (2026-09-02, research run: inventory → five candidates → three judges → decision memo + critic):** keep d3-force and fix `graph.js` (judges 8.33/10; runner-up sigma.js + graphology + ForceAtlas2 at 5.64 — measured to contain isolates natively and 60 fps in a real WKWebView, but no velocity model, an esbuild step, and a 12–20-day port of the earned behaviours; Pixi is a renderer-only stage deferred behind the flip trigger; cosmos rebuilds velocity in the shader so a throw is impossible; ngraph's isolates are unbounded and `stable` never fires; d3-force-3d is byte-identical in 2D). The symptoms were three local bugs: (a) `hubGravityForce` ignored `alpha` — a permanent 5 %/tick spring against the never-alpha-scaled `forceCollide`, the real origin of the "1,500 nodes bounce forever" folklore that justified `velocityDecay` 0.45 / `alphaMin` 0.05 (bench: KE/node at tick 400 = 13–23 with alpha at 1e-9; 4e-6 once scaled); (b) the release path's `alpha(max(alpha, 0.2))` reheated the whole graph (~1,000 wu mean displacement of every other node) and let the link springs cancel a throw in one tick; (c) `forceCenter` is a uniform translation and cannot pull a node, so nothing opposed charge on degree-0 nodes. **Flip trigger:** p95 tick+draw > 16.7 ms on the live bank after phases 1–2 with isolates excluded (phase 3), or > ~10k nodes. **Phase 1 shipped (PR #TBD)** — `graph.js` only, no Swift, no dependency: hub gravity alpha-scaled (nominal 0.05 kept, id map hoisted into `initialize`); release `alphaTarget(0).restart()` with no bump; hold `alphaTarget(0.1)`; `alphaMin` 0.001; `velocityDecay` 0.2; `alphaDecay` 0.05 and `distanceMax` 700 unchanged; each isolate (`!hub && !memberToHub && !neighborsById` — visible degree 0 from `visibleLinks`, orphan facets included) owns a stable per-type free-list slot on a phyllotaxis disc (c = 20) centred on its type anchor, pulled by the existing `forceX/forceY` at 0.3 and exerting −30 charge; a last-registered `clampSpeed` at 60 wu/tick. Measured through `graph.js` itself on synthetic 300 / 1,500 / 1,500-dense graphs (`Tests/graph/graph-physics.bench.js`, real d3): KE/node@400 13 / 20 / 23 → 4e-16 / 4e-6 / 4e-5; a 28 wu/tick flick from rest 0 → 12–13 ticks, 0 → 63 / 99 / 100 wu; other-node displacement over the second after a release 979 / 1,194 / 1,275 → 1.8 / 8.8 / 28 wu; isolate max radius 2.0× → 1.3× core p90 on the 1,500-node graphs and never beyond 1.1× the farthest connected node; core median within 3 %; ms/tick unchanged (~6.5–6.9). Superseded memo values: isolate pull 0.10 (measured to leave the ring at 1.6×; the anchor scale 1.0–1.8 does not move the outcome because per-node charge sets what a body *exerts*, not what it receives), and the "≤ 1.2× core p90" / "no isolate beyond 700 wu" criteria (geometrically incompatible with a disc beside its type cluster; replaced by the four asserted above). Disclosed: reheats run longer at `alphaMin` 0.001 (cold 59 → 135 ticks, a 0.3 reheat 35 → 112) and the cold layout still freezes at the alpha cut-off while relaxing; a new isolate from a delta seeds at its type anchor and transits to its slot. **Open — phase 2** (own the rAF loop: physical settle criterion, one tick per frame, `__cicadaPerf.report()` with tick/draw p50/p95 and the isolate/core radii, then the live-bank tuning pass over `ISOLATE_ANCHOR_STRENGTH` 0.2–0.5 / spacing 12–20 / hold 0.05–0.1 / vd 0.15–0.2); **phase 3** (exclude isolates from the simulation: tick 6.7 → 4.5 ms measured, containment by construction, `pickNode` fallback scan); and the **Swift track** — `ContentView.swift:137-139` rebuilds the `WKWebView` on every tab switch, which is where "explosion on return" comes from (keep one web view alive; reset `isGraphReady` on teardown). | 🛠️ **phase 1 shipped (PR #TBD); phases 2–3 + Swift track open** |
+relates **G107** (the same "we hand-rolled art/physics that a library does better" question). **Ruling (2026-09-02, research run: inventory → five candidates → three judges → decision memo + critic):** keep d3-force and fix `graph.js` (judges 8.33/10; runner-up sigma.js + graphology + ForceAtlas2 at 5.64 — measured to contain isolates natively and 60 fps in a real WKWebView, but no velocity model, an esbuild step, and a 12–20-day port of the earned behaviours; Pixi is a renderer-only stage deferred behind the flip trigger; cosmos rebuilds velocity in the shader so a throw is impossible; ngraph's isolates are unbounded and `stable` never fires; d3-force-3d is byte-identical in 2D). The symptoms were three local bugs: (a) `hubGravityForce` ignored `alpha` — a permanent 5 %/tick spring against the never-alpha-scaled `forceCollide`, the real origin of the "1,500 nodes bounce forever" folklore that justified `velocityDecay` 0.45 / `alphaMin` 0.05 (bench: KE/node at tick 400 = 13–23 with alpha at 1e-9; 4e-6 once scaled); (b) the release path's `alpha(max(alpha, 0.2))` reheated the whole graph (~1,000 wu mean displacement of every other node) and let the link springs cancel a throw in one tick; (c) `forceCenter` is a uniform translation and cannot pull a node, so nothing opposed charge on degree-0 nodes. **Flip trigger:** p95 tick+draw > 16.7 ms on the live bank after phases 1–2 with isolates excluded (phase 3), or > ~10k nodes. **Phase 1 shipped (PR #88)** — `graph.js` only, no Swift, no dependency: hub gravity alpha-scaled (nominal 0.05 kept, id map hoisted into `initialize`); release `alphaTarget(0).restart()` with no bump; hold `alphaTarget(0.1)`; `alphaMin` 0.001; `velocityDecay` 0.2; `alphaDecay` 0.05 and `distanceMax` 700 unchanged; each isolate (`!hub && !memberToHub && !neighborsById` — visible degree 0 from `visibleLinks`, orphan facets included) owns a stable per-type free-list slot on a phyllotaxis disc (c = 20) centred on its type anchor, pulled by the existing `forceX/forceY` at 0.3 and exerting −30 charge; a last-registered `clampSpeed` at 60 wu/tick. Measured through `graph.js` itself on synthetic 300 / 1,500 / 1,500-dense graphs (`Tests/graph/graph-physics.bench.js`, real d3): KE/node@400 13 / 20 / 23 → 4e-16 / 4e-6 / 4e-5; a 28 wu/tick flick from rest 0 → 12–13 ticks, 0 → 63 / 99 / 100 wu; other-node displacement over the second after a release 979 / 1,194 / 1,275 → 1.8 / 8.8 / 28 wu; isolate max radius 2.0× → 1.3× core p90 on the 1,500-node graphs and never beyond 1.1× the farthest connected node; core median within 3 %; ms/tick unchanged (~6.5–6.9). Superseded memo values: isolate pull 0.10 (measured to leave the ring at 1.6×; the anchor scale 1.0–1.8 does not move the outcome because per-node charge sets what a body *exerts*, not what it receives), and the "≤ 1.2× core p90" / "no isolate beyond 700 wu" criteria (geometrically incompatible with a disc beside its type cluster; replaced by the four asserted above). Disclosed: reheats run longer at `alphaMin` 0.001 (cold 59 → 135 ticks, a 0.3 reheat 35 → 112) and the cold layout still freezes at the alpha cut-off while relaxing; a new isolate from a delta seeds at its type anchor and transits to its slot. **Open — phase 2** (own the rAF loop: physical settle criterion, one tick per frame, `__cicadaPerf.report()` with tick/draw p50/p95 and the isolate/core radii, then the live-bank tuning pass over `ISOLATE_ANCHOR_STRENGTH` 0.2–0.5 / spacing 12–20 / hold 0.05–0.1 / vd 0.15–0.2); **phase 3** (exclude isolates from the simulation: tick 6.7 → 4.5 ms measured, containment by construction, `pickNode` fallback scan); and the **Swift track** — `ContentView.swift:137-139` rebuilds the `WKWebView` on every tab switch, which is where "explosion on return" comes from (keep one web view alive; reset `isGraphReady` on teardown). | 🛠️ **phase 1 shipped (PR #88); phases 2–3 + Swift track open** |
 ```
 
 - [ ] **Step 3: TODO.md — handoff header**
 
 (a) In "## Where things stand", append after the "**#29 — wikilinks (merged 2026-09-01).**" paragraph (i.e. before the "**Live environment (verified):**" paragraph) this new paragraph:
 ```
-**G109 phase 1 — graph physics (2026-09-02, PR #TBD against `dev`).** The research run ruled: keep
+**G109 phase 1 — graph physics (2026-09-02, PR #88 against `dev`).** The research run ruled: keep
 d3-force, fix `graph.js` — the "no deceleration" and "orphan ring" were three local bugs, not the
 engine (an un-alpha-scaled custom force, a release-path reheat, nothing opposing charge on degree-0
 nodes). Three `graph.js` commits plus a committed headless bench (`Tests/graph/graph-physics.bench.js`,
@@ -1191,7 +1191,7 @@ phase 2 (own the loop + `__cicadaPerf`), phase 3 (isolates out of the sim), and 
 ```
 with:
 ```
-1. **G109 phase 1 is in PR #TBD** — merge it after an independent re-run of
+1. **G109 phase 1 is in PR #88** — merge it after an independent re-run of
    `node app/CicadaApp/Tests/graph/graph-physics.test.js`, the four sibling JS tests and
    `swift test`, then have Rodrigo eyeball the live bank at fit-zoom (isolates should read as discs
    on their type clusters, not a halo). Then the **Swift track** (one long-lived `WKWebView`, reset
@@ -1205,7 +1205,7 @@ _Last synced: 2026-09-01 evening (PRs #21–#29 merged, no open PRs; G88 shipped
 ```
 with:
 ```
-_Last synced: 2026-09-02 (G109 phase 1 in PR #TBD; PRs #21–#29 merged; G88 shipped; G112–G114 filed)._
+_Last synced: 2026-09-02 (G109 phase 1 in PR #88; PRs #21–#29 merged; G88 shipped; G112–G114 filed)._
 ```
 
 - [ ] **Step 4: TODO.md — execution view**
@@ -1218,7 +1218,7 @@ Insert immediately after that line:
 ```
 
 **2026-09-02**
-- **G109 phase 1** graph physics (PR #TBD) — alpha-scaled hub gravity, no reheat on release,
+- **G109 phase 1** graph physics (PR #88) — alpha-scaled hub gravity, no reheat on release,
   `velocityDecay` 0.2 / `alphaMin` 0.001, per-isolate phyllotaxis slots, speed clamp; headless
   physics bench + test under `Tests/graph/`; numbers in the G109 row
 ```
@@ -1229,7 +1229,7 @@ Insert immediately after that line:
 ```
 with:
 ```
-| **G109 graph physics** | **Phase 1 in PR #TBD** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
+| **G109 graph physics** | **Phase 1 in PR #88** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
 ```
 
 (c) In "### Wave A", replace item 1 exactly:
@@ -1260,9 +1260,9 @@ with:
 - [ ] **Step 5: Verify the docs edits landed and nothing else moved**
 
 ```sh
-cd <worktree>/ && git diff --stat && for f in CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md; do printf '%s %s\n' "$f" "$(grep -o 'PR #TBD' "$f" | wc -l | tr -d ' ')"; done && grep -n "^| G109 |" docs/goals/memory-evolution.md | tail -c 80
+cd <worktree>/ && git diff --stat && for f in CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md; do printf '%s %s\n' "$f" "$(grep -o 'PR #88' "$f" | wc -l | tr -d ' ')"; done && grep -n "^| G109 |" docs/goals/memory-evolution.md | tail -c 80
 ```
-Expected: exactly three files in the stat (`CLAUDE.md`, `docs/goals/memory-evolution.md`, `docs/goals/TODO.md`); `CLAUDE.md 0`, `docs/goals/memory-evolution.md 2`, `docs/goals/TODO.md 5` (occurrences, not lines — the G109 row is ONE line holding both of its `PR #TBD`s, which is why `grep -c` would say 1 there); the last 80 bytes of the row end `phases 2–3 + Swift track open** |`.
+Expected: exactly three files in the stat (`CLAUDE.md`, `docs/goals/memory-evolution.md`, `docs/goals/TODO.md`); `CLAUDE.md 0`, `docs/goals/memory-evolution.md 2`, `docs/goals/TODO.md 5` (occurrences, not lines — the G109 row is ONE line holding both of its `PR #88`s, which is why `grep -c` would say 1 there); the last 80 bytes of the row end `phases 2–3 + Swift track open** |`.
 
 - [ ] **Step 6: Commit**
 

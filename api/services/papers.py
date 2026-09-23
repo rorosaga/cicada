@@ -86,6 +86,57 @@ FENCE_RE = re.compile(r"^[ \t]*(`{3}|~{3})")
 _ARXIV_DOI_PREFIX = "10.48550/arxiv."
 _TRAILING = ".,;:)]}>'\""
 
+# F2-back R-B12: a folder's markdown cross-references its own notes —
+# `builds on [N50](#note-n50).` — and the note became a claim's words verbatim,
+# so the anchor showed on the card. These strip what only means something INSIDE
+# the file; the episode keeps it (G118: spans point into the stored text).
+_ANCHOR_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(#[^)\s]*\)")
+_FOOTNOTE_RE = re.compile(r"\[\^[^\]\s]+\]")
+_REF_LABEL_RE = re.compile(r"^\^?[A-Za-z]{0,4}[-_.]?\d{1,4}[a-z]?$")
+_SPACE_RUN_RE = re.compile(r"[ \t]{2,}")
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"[ \t]+([,.;:!?)\]])")
+_EMPTY_BRACKETS_RE = re.compile(r"\(\s*\)|\[\s*\]")
+_REPEATED_SEPARATOR_RE = re.compile(r"([,;])(?:[ \t]*[,;])+")
+
+
+def _anchor_label(m: re.Match) -> str:
+    label = m.group(1).strip()
+    if not label or _REF_LABEL_RE.match(label) or not any(ch.isalnum() for ch in label):
+        return ""  # a reference label (`N50`, `12`, `fn3`) or a glyph (`↩`) says nothing
+    return label  # prose that happened to be a link keeps its words
+
+
+def clean_claim_text(text: str) -> str:
+    """A paper claim's words without in-document anchors or footnote markers
+    (R-B12). Text with neither is returned byte-identical; an external link is
+    never touched."""
+    raw = text or ""
+    if not (_ANCHOR_LINK_RE.search(raw) or _FOOTNOTE_RE.search(raw)):
+        return raw
+    out = _ANCHOR_LINK_RE.sub(_anchor_label, raw)
+    out = _FOOTNOTE_RE.sub("", out)
+    out = _EMPTY_BRACKETS_RE.sub("", out)
+    out = _SPACE_RUN_RE.sub(" ", out)
+    out = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", out)
+    out = _REPEATED_SEPARATOR_RE.sub(r"\1", out)
+    return out.strip().rstrip(",;").strip()
+
+
+def repair_claim_text(claim: Claim) -> bool:
+    """Clean a paper claim's ``text`` and, when literal, its ``object`` (R-B13).
+    The id is left alone — it was minted from the raw words (R-FX5) and the
+    writer mints it from them again. Words that clean to nothing are kept: the
+    writer's next re-parse closes that claim. Returns whether anything changed."""
+    changed = False
+    text = clean_claim_text(claim.text)
+    if text and text != claim.text:
+        claim.text, changed = text, True
+    if claim.object_kind == "literal":
+        obj = clean_claim_text(claim.object)
+        if obj and obj != claim.object:
+            claim.object, changed = obj, True
+    return changed
+
 
 def normalise_arxiv(raw: str) -> str:
     return re.sub(r"v\d+$", "", (raw or "").strip().lower())
@@ -366,12 +417,20 @@ def desired_claims(*, entity_id: str, citations: list[Citation], episode_id: str
         cid = claim_id(entity_id, predicate, obj, observer, slot)
         if cid in out:
             return
+        # R-B12: the id above is minted from the RAW words (R-FX5, so every
+        # existing id is minted again); what the claim says is the clean words,
+        # and its evidence still quotes the raw ones the episode holds.
+        shown = clean_claim_text(obj) if literal else obj
+        words = clean_claim_text(text_)
+        if not shown or not words:
+            return  # a note that was nothing but anchors says nothing about why
         made = Claim(
-            id=cid, text=text_, subject=entity_id, predicate=predicate, object=obj,
+            id=cid, text=words, subject=entity_id, predicate=predicate, object=shown,
             object_kind="literal" if literal else "node", observer=observer, context=PAPER_CONTEXT,
             epistemic="explicit", source_trust=trust, confidence=_CONFIDENCE[who][predicate],
             valid_from=valid_from, recorded_at=today, source_episodes=[episode_id],
-            authored_by="user" if who == "user" else None, origin=ORIGIN,
+            authored_by=who,  # F2-back R-B11: `user` or `agent`, from the file's authorship
+            origin=ORIGIN,
             evidence=[evidence.verify(None, episode_id, quote, text=text, window=window, kind_override=kind)],
         )
         # Read by `_same_slot`; `Claim.to_dict` is `asdict`, which never
@@ -403,7 +462,10 @@ def _same_slot(old: Claim, new: Claim) -> bool:
     question exactly — the job "same predicate + same context" did while the
     section lived in the context. Two sections' notes on one page share a
     predicate and (since F1) a context, so without this an edited note could be
-    marked superseded by its sibling's."""
+    marked superseded by its sibling's. A note whose raw words had anchors is
+    stored clean, so its stored object no longer reproduces its id and this
+    answers False: an edit closes it with no ``superseded_by`` — never a wrong
+    one (F2-back R-B12)."""
     slot = getattr(new, "_slot", None) or new.context
     return claim_id(old.subject, old.predicate, old.object, old.observer, slot) == old.id
 
@@ -444,6 +506,8 @@ def apply_claims(page: Path, episode_id: str, desired: list[Claim], today: str) 
         # label, so the writer's current one wins — a sync repairs a pre-F1
         # `folder:<id>:<section>` context on any claim it re-reads.
         old.context = new.context
+        # R-B13: a sync repairs anchor noise on any claim it re-reads, as it repairs a pre-F1 context.
+        repair_claim_text(old)
     for c in claims:
         if c.origin != ORIGIN or c.valid_to or c.id in wanted:
             continue

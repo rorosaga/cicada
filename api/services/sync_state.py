@@ -151,3 +151,19 @@ def record_error(
     state[channel] = entry
     _write_state(memory_path, state)
     return state
+
+
+def clear_error(memory_path: Path, channel: str, error: str) -> None:
+    """Drop ``channel``'s ``last_error`` only while it still reads ``error``:
+    the failure a later success of the same kind fixed (F2-back R-B5, a kept
+    commit that has now landed). Any other error stays, and so does the rest of
+    the entry — its last success included."""
+    state = read_sync_state(memory_path)
+    entry = state.get(channel)
+    if not isinstance(entry, dict) or entry.get("last_error") != error:
+        return
+    entry = dict(entry)
+    entry.pop("last_error", None)
+    entry.pop("last_error_at", None)
+    state[channel] = entry
+    _write_state(memory_path, state)

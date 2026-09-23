@@ -33,8 +33,8 @@ import subprocess
 from datetime import date, timedelta
 from pathlib import Path
 
-from api.services import (decay_policy, entity_body, episode_ids, episode_scrub, fact_sources, git_service,
-                          markdown_parser, owner_identity)
+from api.services import (decay_policy, demo_guard, entity_body, episode_ids, episode_scrub, fact_sources,
+                          git_service, markdown_parser, owner_identity)
 from api.services.agentic_write import write_claim
 
 # --- Entity roster (~60 total + the owner page `ensure_owner_entity` adds) --
@@ -102,8 +102,13 @@ def populate(bank_dir: Path) -> None:
     history. Idempotent only in the trivial sense that every write here is a
     fresh-file write — calling this twice on the same dir just re-stamps the
     same content (the router's ``POST /banks/demo`` refuses a second call by
-    checking bank existence first, so this never needs to guard itself)."""
+    checking bank existence first, so this never needs to guard itself).
+
+    The bank is marked demo FIRST (`demo_guard.write_manifest`, G141
+    capture-side track R-CS10), so a populate that fails half-way still
+    leaves a bank every capture writer refuses."""
     bank_dir = Path(bank_dir)
+    demo_guard.write_manifest(bank_dir)
     _write_entities(bank_dir)
     episodes = _write_episodes(bank_dir)
     _write_inbox(bank_dir, episodes)
@@ -371,12 +376,25 @@ def _commit_history(bank_dir: Path) -> None:
     every other name in this module.
     """
     subprocess.run(
-        ["git", "-C", str(bank_dir), "config", "user.email", "demo@cicada.example"],
+        ["git", "-C", str(bank_dir), "config", "user.email", demo_guard.GENERATOR_EMAIL],
         check=True, capture_output=True,
     )
     subprocess.run(
         ["git", "-C", str(bank_dir), "config", "user.name", "Cicada Demo"],
         check=True, capture_output=True,
+    )
+    # R-CS10: the manifest is a fact about the bank, so it is versioned —
+    # committed alone, first, as `cicada` (no model wrote it, no person's words
+    # are in it). Untracked, the next `git add -A` would sweep it into a Sleep
+    # commit under a model's name (the G85 smear).
+    _run_commit(
+        bank_dir,
+        git_service.build_commit_message(
+            "Demo bank",
+            [f"{demo_guard.MANIFEST}: created (trigger: user/companion_app)"],
+            authors=["cicada"],
+        ),
+        [demo_guard.MANIFEST],
     )
 
     today = str(date.today())

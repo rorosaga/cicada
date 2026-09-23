@@ -18,6 +18,27 @@ from api.services.id_utils import sanitize_id
 from api.services.vector_index import PendingEntity, SqliteVecIndexer
 
 
+def endpoint_id(name: str, name_to_id: dict[str, str]) -> str | None:
+    """The id Stage 2 resolved ``name`` to, or ``None`` — the edge rule, as one function.
+
+    Exact (lower-cased) first, then the first ``fuzz.ratio > 85`` over
+    ``name_to_id`` in insertion order, exactly as the relationship loop in
+    :func:`resolve` always did inline. G141 PJ-0 (R-PJ17) made it a function so
+    Sleep's claims key their subject and object through the SAME rule as the
+    edge between them: a claim used to be keyed by ``sanitize_id(raw name)``,
+    so a short name Stage 2 had matched ("Hana" → ``hana-example``) keyed a
+    page that did not exist, and the claim was dropped while its edge landed.
+    """
+    key = (name or "").lower()
+    hit = name_to_id.get(key)
+    if hit:
+        return hit
+    for known_name, known_id in name_to_id.items():
+        if fuzz.ratio(key, known_name) > 85:
+            return known_id
+    return None
+
+
 async def resolve(
     extracted: list[dict],
     existing: list[dict],
@@ -312,24 +333,10 @@ async def resolve(
     resolved_edges: list[dict] = []
     seen_edges: set[tuple[str, str, str]] = set()
     for rel in all_relationships:
-        source_name = rel.get("source", "").lower()
-        target_name = rel.get("target", "").lower()
         label = rel.get("label", "related to")
-
-        source_id = name_to_id.get(source_name)
-        target_id = name_to_id.get(target_name)
-
-        # Also try fuzzy match for relationship endpoints
-        if not source_id:
-            for known_name, known_id in name_to_id.items():
-                if fuzz.ratio(source_name, known_name) > 85:
-                    source_id = known_id
-                    break
-        if not target_id:
-            for known_name, known_id in name_to_id.items():
-                if fuzz.ratio(target_name, known_name) > 85:
-                    target_id = known_id
-                    break
+        # Exact, then fuzzy — one rule, shared with Sleep's claims (G141 PJ-0).
+        source_id = endpoint_id(rel.get("source", ""), name_to_id)
+        target_id = endpoint_id(rel.get("target", ""), name_to_id)
 
         if source_id and target_id and source_id != target_id:
             key = (source_id, target_id, label.lower())
@@ -377,6 +384,9 @@ async def resolve(
         "changes": resolved,
         "relationships": resolved_edges,
         "episode_cooccurrences": episode_cooccurrences,
+        # G141 PJ-0 (R-PJ17): the map the edges above resolved through, so
+        # Stage 5.56's claims land on the same pages (`claim_pipeline`).
+        "name_to_id": dict(name_to_id),
     }
 
 

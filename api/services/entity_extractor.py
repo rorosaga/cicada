@@ -497,7 +497,9 @@ def _emit_claim_id(subject: str, predicate: str, obj: str, valid_from: str) -> s
     return f"clm_{base}_{digest}"
 
 
-def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
+def entities_to_claims(
+    extracted: list[dict], memory_path: Path | None, *, resolve_id: Callable[[str], str] | None = None,
+) -> list:
     """Project Stage-1 extraction output into perspectival ``Claim`` objects.
 
     Each relationship ``{source, target, label}`` becomes one claim
@@ -509,10 +511,17 @@ def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
     ``memory_path`` resolves the predicate normalizer; ``None`` slugifies labels
     deterministically (used by hermetic tests). Deterministic claim ids keep the
     projection idempotent across Sleep cycles.
+
+    ``resolve_id`` (G141 PJ-0, R-CS1) maps an endpoint's raw name to a page id:
+    Sleep passes ``claim_pipeline.subject_resolver`` over Stage 2's own
+    ``name_to_id``, so a claim lands on the page its edge does. Without it the
+    id is ``sanitize_id(name)`` — the pre-PJ-0 key every hermetic caller keeps.
     """
     from api.services import predicates
     from api.services.claims import Claim, Evidence
     from api.services.id_utils import sanitize_id
+
+    to_id = resolve_id or sanitize_id
 
     normalize = predicates.load_normalizer(memory_path) if memory_path is not None else None
 
@@ -527,8 +536,8 @@ def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
             raw_label = str(rel.get("label", "") or "").strip() or "relates to"
             if not source or not target:
                 continue
-            subject = sanitize_id(source)
-            obj = sanitize_id(target)
+            subject = to_id(source)
+            obj = to_id(target)
             if subject == obj:
                 continue
             if normalize is not None:

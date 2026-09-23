@@ -1228,7 +1228,7 @@ page.)
 
 ```
 per-source pages with Resume, contributors calendar per model, Advanced counts; prices/tokens out
-of the app; **Track D (2026-09-05, PR #TBD)** — grouped-by-kind grid with real logos, G129 status
+of the app; **Track D (2026-09-05, PR #88)** — grouped-by-kind grid with real logos, G129 status
 lights + hover quick actions, per-source blurbs, and a queue strip with Consolidate now
 ```
 

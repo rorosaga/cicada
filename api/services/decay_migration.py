@@ -25,7 +25,6 @@ commit is authored by the reserved ``cicada`` literal.
 
 from __future__ import annotations
 
-import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -140,13 +139,6 @@ def _commit_backfill(memory_path: Path, counts: dict, written: list[Path]) -> No
     rel = [str(p.relative_to(memory_path)) for p in written]
     if not rel:
         return
-    subprocess.run(["git", "add", "--", *rel], cwd=str(memory_path), check=True)
-    status = subprocess.run(
-        ["git", "status", "--porcelain", "--", *rel],
-        cwd=str(memory_path), check=True, capture_output=True, text=True,
-    )
-    if not status.stdout.strip():
-        return
     message = git_service.build_commit_message(
         f"Backfill decay classes {date.today().isoformat()}",
         [
@@ -156,8 +148,4 @@ def _commit_backfill(memory_path: Path, counts: dict, written: list[Path]) -> No
         ],
         authors=["cicada"],
     )
-    subprocess.run(
-        ["git", "commit", "-m", message, "--", *rel],
-        cwd=str(memory_path),
-        check=True,
-    )
+    git_service.commit_paths_sync(memory_path, message, rel)  # F2-back R-B1

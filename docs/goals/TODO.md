@@ -110,6 +110,31 @@ Pro Display — semibold titles tracked 2 % tight behind the same `displayFont`,
 (R-FX12, R-FX13). Baselines: backend **2954 passed**, Swift **1433 executed, 0 failures**, graph JS
 7/7 — measured on `fix/owner-feedback-1`; replace with the merged numbers.
 
+**Round 3 · Track F2-back — backend fixes, batch 2 (2026-09-23, `fix/backend-batch-2`, plan
+`docs/superpowers/plans/2026-09-23-backend-batch-2.md`).**
+- One git writer per bank: every mutating git command queues on one per-bank lock, another
+  process's `index.lock` is waited out and never deleted, readers never take it, and a lint keeps
+  it that way (R-B1 … R-B4).
+- A folder, paper or Wispr commit git still refuses is kept, said on its channel, and landed by
+  the writer's next run or the next Sleep cycle's start under its own author (R-B5).
+- Saving a folder's authorship rules re-derives its existing episodes in place — same bytes, same
+  hash, agent → owner re-queued, owner → agent parked unless Sleep already read it — and its papers'
+  why-claims follow; the app no longer has to re-post a byte (R-B6 … R-B8).
+- Agent writes are labelled by their harness: `author_identity` has a `harness` kind, a write that
+  names no author is `agent`, deterministic writers name whose words they hold, and the pre-G135
+  placeholder reads as `agent` everywhere without rewriting history (R-B9 … R-B11). `/contributors`,
+  `/entities/{id}/provenance` and `/episodes/{id}/citations` fold `git_service.AUTHOR_SHAPE` into
+  their ETags, so no cache keeps the old kinds (R-B10).
+- Paper why-claims no longer carry in-document anchors (`[N50](#note-n50)`) or footnote markers;
+  the episode keeps them, ids are unchanged, a sync repairs what it re-reads, and existing banks are
+  repaired once as `cicada` (R-B12, R-B13).
+- The video and meeting skill bridges are active (`cicada_record_watch`; `cicada_save_episode` with
+  `speaker:<name>:` lines, never `user:`); documents stays off (R-B14).
+- `GET /remote/status` finds ngrok and Tailscale in the standard install folders, not only on
+  launchd's PATH (R-B15); `/state`'s `sleep.next_at` was already calibrated (Track P) and is now
+  pinned against `/status` in all four modes (R-B16).
+- Baselines: backend **3252 passed** on `fix/backend-batch-2` (measured by the orchestrator on the merged head, 2026-09-23).
+
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
 Do not re-derive the queue from this file.
@@ -279,6 +304,12 @@ subjects keyed by Stage-2 ids), **PJ-1** (the $0 read model and its two GETs, wi
 (PJ-5) is the first screen built D-native and waits for the DS shell. Screenshots come from a freshly
 generated demo bank only.
 
+**PJ-0 and PJ-4 shipped (PR #88, `feat/g141-capture-side`)**, with a fix found the same day: capture can no
+longer write into a demo bank (`api/services/demo_guard.py` — the Stop hook saves into the real bank left most
+recently, every other writer refuses; CLAUDE.md's seventh Awake rail). Next on the backend: **PJ-0b** (hold a
+page-less subject's claims with its pending entity, ruled 2026-09-23; the seam is
+`claim_pipeline.hold_page_less`) and **PJ-1**.
+
 **Filed 2026-09-23 — G61 phase 2, check the source before asking the person.** The spec is committed
 (`docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`). Its three backend-only slices are built on
 `feat/g61-sources-checkable` (plan `docs/superpowers/plans/2026-09-23-g61-s0-s2.md`): **S0** (Stage 5.57's ungated `default_summarize`, the
@@ -350,15 +381,8 @@ and clock-free speech bubble, a book pile encoding queued characters per source 
 charts), a study list replacing the old queue card + debt breakdown, consolidation history with a
 server-parsed per-cycle detail and telemetry-joined duration, four schedule modes (manual · daily ·
 every N hours · after imports, always `user_triggered=False`), and the deprecated top-right
-Sleep/Upload buttons removed from this page. **Disclosed gap:** `GET /status`'s `next_sleep` (the
-one user-visible "Next run …" text, R6/R7) is calibrated from `sleep_debt.compute`'s
-`last_cycle_at`/`newest_unprocessed_at`; `GET /state`'s own `sleep.next_at`
-(`api/routers/state.py:100`, feeding the MCP handshake's now-view, not the app) is not — it calls
-`sleep_scheduler.next_run_at` with neither, so `interval` mode reads "N hours from now" instead of
-"N hours from the last real cycle" and `after_import` always reads `null`. Lower-stakes than the app
-surface (an agent's primer briefly imprecise right after a schedule-mode change, never a wrong clock
-shown to the user) and left as-is rather than adding a second `sleep_debt.compute` scan to an
-engine-free read path on a late pass — fold in alongside the next `/state` touch.
+Sleep/Upload buttons removed from this page. **Closed:** `GET /state`'s `sleep.next_at` is calibrated with the same inputs as `/status`'s
+"Next run" (Track P R6, `7d1de42`) and pinned against it in all four modes (F2-back R-B16).
 · **G130 slice 1a+1b app-wide zoom (2026-09-05,
 PR #54, PR #58)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
 (⌘=/⌘−/⌘0, plus a ⌘⇧= key monitor), a Settings *General* tab with a text-size slider; the graph
@@ -585,13 +609,14 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     claims (a done one born closed, `is_event` for history readers), dates decided in Python, nothing relative
     stored. Order: derive → write → spend. Spec
     `docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md` (R-PJ1…R-PJ23). Slices:
-    **PJ-0** page-less claim fix · **PJ-1** read model + `GET /projects[/{id}/timeline]` · **PJ-4** Stop-hook
-    turn stamps — all three backend, $0, **start now**; then **PJ-2** `cicada_project` + `_state.md` v3 +
+    **PJ-0** page-less claim fix ✅ · **PJ-4** Stop-hook turn stamps ✅ (both PR #88) · **PJ-0b** hold
+    page-less claims with the pending entity (ruled 2026-09-23) · **PJ-1** read model +
+    `GET /projects[/{id}/timeline]` — backend, $0, **start now**; then **PJ-2** `cicada_project` + `_state.md` v3 +
     handshake · **PJ-3** event claims + `cicada_note_progress` + in-app writes ($0); **PJ-5** the Projects
     page (after the DS shell + a G108 ruling on the rail cell); **PJ-6** `followup` inbox kind ($0); **PJ-7**
     Sleep happening extraction 💸 (+15–30% Stage-1 on BYOK; built only if M1–M3 say so); **PJ-8** consented
-    per-project re-read 💸 — L. Open DECIDEs (rail cell, band colour, pending-store hold) are under Research /
-    decisions below
+    per-project re-read 💸 — L. The three DECIDEs (rail cell, band colour, pending-store hold) were ruled
+    2026-09-23 — see Research / decisions below
 14. **G102** site recon — cheap slice shipped 2026-09-02 (see Shipped). Next slice: relate a link to a
     pending candidate when it promotes; fetch-side improvements stay out of scope until a measured
     need — S
@@ -670,8 +695,9 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
   after Sources — Home took ⌘1 in #86, so no shortcut moves; (b) the band's progress is a **meadow-green fill
   that fills up to Today**, every node on it clickable (DESIGN_RULES §9 records it; the one place a Meadow hue
   encodes progress); (c) **yes** — Sleep holds an unpromoted subject's claims with the pending entity and
-  writes them on promotion: a new slice **PJ-0b** after PJ-0. R-PJ16 (the Stop hook writes the per-turn
-  `turns` list) is accepted.
+  writes them on promotion: a new slice **PJ-0b** after PJ-0 — its seam,
+  `claim_pipeline.hold_page_less`, shipped with PJ-0 (PR #88) and holds nothing until PJ-0b. R-PJ16 (the Stop
+  hook writes the per-turn `turns` list) is accepted.
 
 ### Parked — no near-term work
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
