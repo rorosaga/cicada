@@ -356,12 +356,15 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
             for r in p.get("repos", []) or [] if r.get("state") == "ok"
         )
         tail = f" — {p['one_liner']}" if p.get("one_liner") else ""
+        # The G141 cursor is profile, not the "save notes, links and facts" a
+        # record-only connection was promised (G140's ruling): `now:`/`next:`
+        # ride the same `personal` gate as the one-liner (G141 final review).
         cursor = ""
         now = p.get("now")
-        if now:
+        if now and personal:
             text = "a note of yours" if (remote and now.get("verbatim") and not raw) else now["text"]
             cursor += f" · now: {text} (since {now['since']})"
-        if p.get("next"):
+        if p.get("next") and personal:
             cursor += f" · next: {p['next']['name']}, {p['next'].get('target') or 'no date'}"
         lines.append(f"  - `{p['id']}` {p['name']}{tail}{cursor}" + (f" [{repos}]" if repos else ""))
     focus = (state.get("focus") or []) if personal else []

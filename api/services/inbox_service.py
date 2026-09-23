@@ -1189,8 +1189,13 @@ async def _resolve_followup(path, parsed, request, settings, item_id: str,
                     raise HTTPException(400, FOLLOWUP_BAD_DATE)
                 basis = "stated"
             name = str(fm.get("entity_name") or entity_id)
+            # The REAL instant, never `anchor.instant` (noon today): two answers the same
+            # day minted one `source_id` and staging rewrote the first episode in place,
+            # staling its claim's span and losing the person's words (G141 final review).
+            # The item id keys the note too, so even a same-second pair stays two episodes.
+            now = datetime.combine(today, datetime.now(tz).time(), tzinfo=tz)
             ep = progress.write_note_episode(memory, answer, origin="inbox", title=f"Answer on {name}",
-                                             now=anchor.instant)
+                                             now=now, key=path.stem)
             result = progress.record_happening(
                 memory, subject=entity_id, text=text, status="done", settles=claim.id,
                 participants=progress.link_participants(memory, text),
@@ -1539,6 +1544,15 @@ async def _resolve_divergence(path, parsed, request, settings, item_id: str) -> 
         elif key == "1":  # update: my old statement loses
             _close_today(existing, by=new, today=today)
             new.confidence = max(float(new.confidence or 0), 0.9)
+        elif new.predicate == "milestone" or existing.predicate == "milestone":
+            # A milestone slot holds ONE state (R-PJ4): "both true" cannot
+            # leave two open heads on one slug — the read model and PATCH
+            # /milestones/{slug} key on it (G141 final review). The agent's
+            # reading loses; the person's head stays.
+            from api.services.claim_reconciler import is_human
+
+            loser, winner = (existing, new) if is_human(new) and not is_human(existing) else (new, existing)
+            _close_today(loser, by=winner, today=today)
         else:  # both true — different context
             for c in (existing, new):
                 if not c.context or c.context == "general":

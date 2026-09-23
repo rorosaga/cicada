@@ -37,7 +37,7 @@ from api.config import Settings, get_settings
 from api.models.schemas import (HappeningCreate, MilestoneCreate, MilestonePatch, ProjectsResponse,
                                 ProjectTimeline, ProjectWriteResponse, ThreadSettle, WithdrawRequest)
 from api.services import (bank_index, episode_scrub, git_service, handshake, markdown_parser, owner_identity,
-                          progress, project_timeline, sync_service, telemetry, when)
+                          progress, project_timeline, search_index, sync_service, telemetry, when)
 from api.services.claim_reconciler import is_human
 from api.services.claims import HAPPENED, MILESTONE, Claim, MalformedClaimsBlockError, is_event, parse_claims
 from api.services.id_utils import resolve_entity_file
@@ -60,6 +60,23 @@ def _project_stem(memory_path, project_id: str) -> str:
     return page.stem
 
 
+def _index_state(mp) -> str:
+    return search_index.ensure_fresh(mp)
+
+
+def _unpin_degraded(response: Response, index_state: str, result) -> None:
+    """The ETag covers bank content, but the body also depends on the FTS
+    index: while it is `building` the reverse-claims layer falls back to a
+    capped raw scan (`partial`), and while `stale` it answers from before the
+    last bulk change with no flag. A degraded body must never be revalidated
+    into a 304 until the bank next changes, so it goes out with no ETag
+    (G141 final review — SCHEMA_VERSION 3 makes the first request after an
+    upgrade exactly this case)."""
+    if index_state != "ready" or getattr(result, "partial", False):
+        if "etag" in response.headers:   # MutableHeaders has no `pop`
+            del response.headers["etag"]
+
+
 @router.get("/projects", response_model=ProjectsResponse)
 async def list_projects(request: Request, response: Response, settings: Settings = Depends(get_settings)):
     mp, tz = settings.memory_path, _tz()
@@ -67,7 +84,10 @@ async def list_projects(request: Request, response: Response, settings: Settings
                                  extra=f"projects|{project_timeline.PROJECT_SHAPE}|{tz}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
-    return await run_in_threadpool(project_timeline.list_projects, mp, tz_name=tz)
+    index_state = await run_in_threadpool(_index_state, mp)
+    result = await run_in_threadpool(project_timeline.list_projects, mp, tz_name=tz)
+    _unpin_degraded(response, index_state, result)
+    return result
 
 
 @router.get("/projects/{project_id}/timeline", response_model=ProjectTimeline)
@@ -85,9 +105,11 @@ async def get_project_timeline(project_id: str, request: Request, response: Resp
                                  extra=f"project|{stem}|{since_day or ''}|{project_timeline.PROJECT_SHAPE}|{tz}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
+    index_state = await run_in_threadpool(_index_state, mp)
     result = await run_in_threadpool(project_timeline.build, mp, stem, tz_name=tz, since=since_day)
     if result is None:
         raise HTTPException(404, f"{stem!r} is not a project")
+    _unpin_degraded(response, index_state, result)
     # A 200 is an open (a 304 revalidation is not): ids and an enum only (G124 R11).
     telemetry.record_read(stem, surface="project", bank=telemetry.bank_name(settings))
     return result

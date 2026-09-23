@@ -309,6 +309,56 @@ def test_a_free_text_sentence_on_a_thread_is_the_persons_note(bank, client):
     assert "second try yesterday" in (bank / "episodes" / f"{ep}.md").read_text()
 
 
+def test_two_free_text_answers_on_one_day_are_two_episodes_and_both_spans_hold(bank, client):
+    """G141 final review: every note was stamped noon today, so the second
+    answer's `source_id` matched the first and staging rewrote it in place —
+    the first claim's span went stale and pointed into the other project."""
+    from api.services import evidence
+
+    for pid in ("orchard-j-project", "orchard-k-project"):
+        _project(bank, pid)
+    first = _thread(bank, "orchard-j-project", 30, text="Planting the north rows")
+    second = _thread(bank, "orchard-k-project", 30, text="Pruning the west hedge")
+    _propose(bank)
+    answers = {first: ("orchard-j-project", "The north rows are all in the ground"),
+               second: ("orchard-k-project", "The west hedge got its trim at last")}
+    for cid, (_pid, words) in answers.items():
+        r = _resolve(client, _item(bank, cid), answer=words)
+        assert r.status_code == 200, r.text
+    eps = []
+    for cid, (pid, words) in answers.items():
+        claims = _claims(bank, pid)
+        closer = next(c for c in claims if c.id == next(x for x in claims if x.id == cid).superseded_by)
+        span = next(e for e in closer.evidence if e.episode)
+        eps.append(span.episode)
+        text = markdown_parser.parse(bank / "episodes" / f"{span.episode}.md").body
+        assert words in text and text[span.start:span.end] == words
+        assert evidence.span_status(text, end=span.end, hash=span.hash) == evidence.SPAN_CURRENT
+    assert eps[0] != eps[1]
+
+
+def test_a_free_text_answer_is_the_persons_words_and_a_remote_reader_without_sources_never_sees_it(
+        bank, client, monkeypatch):
+    """R-PJ23 (G141 final review): the inbox note path writes the person's own
+    sentence with `origin: clarification`; the verbatim test read only
+    `companion_app`, so a remote `cicada_project` printed it in full."""
+    from api.remote import catalog
+
+    monkeypatch.setattr(mcp_tools, "_today_in", lambda tz: T)
+    _propose(bank)
+    camera = _camera(bank)
+    r = _resolve(client, _item(bank, camera.id), answer="It finally focused on the second try yesterday")
+    assert r.status_code == 200, r.text
+    bank_index.invalidate()
+    remote = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="rc_x", harness="claude-web",
+                                   connector_id="abcd1234", available=catalog.tool_names_for({"search", "read"}),
+                                   raw_excerpts=False, read_surface="remote")
+    out = mcp_tools.project(remote, "rover-arm-project")
+    assert "focused on the second try" not in out
+    local = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="ses_test", harness="claude-code")
+    assert "focused on the second try" in mcp_tools.project(local, "rover-arm-project")
+
+
 def test_a_milestone_moves_by_its_words_and_refuses_what_it_cannot_read(bank, client):
     _project(bank, "orchard-k-project")
     ms = _overdue(bank, "orchard-k-project", 4)

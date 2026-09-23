@@ -39,7 +39,10 @@ from api.services import (
     bank_index, claim_expiry, entity_body, evidence, inbox_context, project_state,
     search_index, session_stats, when,
 )
-from api.services.claims import HAPPENED, MILESTONE, Claim, Evidence, is_event, is_record, parse_claims, strip_claims_block
+from api.services.claim_reconciler import is_human
+from api.services.claims import (
+    HAPPENED, MILESTONE, Claim, Evidence, is_event, is_persons_words, is_record, parse_claims, strip_claims_block,
+)
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import sanitize_id
 from api.services.transclusion_resolver import claim_to_model
@@ -692,9 +695,19 @@ def _milestones(bank: _Bank, tree: list[str]) -> list[MilestoneRow]:
         return slug
 
     for page in tree:
+        # One row per (page, slug) — the slot is the identity PATCH and PJ-5 key
+        # on. When an agent's state sits beside the person's open head (rule 3),
+        # the person's head is the row; the agent's reading lives in the
+        # divergence item, never as a second row that doubles the progress
+        # count (G141 final review).
+        heads: dict[str, Claim] = {}
         for c in bank.claims(page):
             if c.predicate != MILESTONE or not _open(c) or not c.object:
                 continue
+            held = heads.get(str(c.object))
+            if held is None or (is_human(c) and not is_human(held)):
+                heads[str(c.object)] = c
+        for c in heads.values():
             # The real slug, never de-duplicated: it is what `progress.advance`
             # keys the slot on, and `on` tells two pages' same-named slots apart.
             slugs.add(str(c.object))
@@ -791,7 +804,7 @@ def _happening(bank: _Bank, owner: str | None, c: Claim, page: str) -> TimelineI
             is_owner=eid is not None and eid == owner, derived=derived))
     return TimelineItem(kind="happening", id=c.id, day=_day(c.valid_from), date_basis=c.date_basis,
                         state=c.status, project=page, text=c.text or "", participants=participants, quote=quote,
-                        conversation=conversation, claim=claim_to_model(c), verbatim=c.origin == "companion_app")
+                        conversation=conversation, claim=claim_to_model(c), verbatim=is_persons_words(c))
 
 
 def _last_heard(bank: _Bank, c: Claim) -> str:
@@ -820,7 +833,7 @@ def _threads(bank: _Bank, root: str, events: list[tuple[Claim, str]], *,
     return [OpenThread(claim_id=c.id, text=c.text or "", since=_day(c.valid_from),
                        last_heard=(_last_heard(bank, c) if heard else "") or _day(c.valid_from),
                        on=page if page != root else None,
-                       verbatim=c.origin == "companion_app") for c, page in rows]
+                       verbatim=is_persons_words(c)) for c, page in rows]
 
 
 def _event_members(bank: _Bank, tree: list[str], owner: str | None,

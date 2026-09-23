@@ -215,6 +215,21 @@ def _entity_page(memory_path: Path, ref: str) -> Path | None:
     return path if path is not None and path.is_file() else None
 
 
+def _scrub(text: str, memory_path: Path, origin: str) -> str:
+    """R-N3 for the one event writer (G141 final review): an agent's
+    `cicada_note_progress` summary or milestone name reaches the claim fence and,
+    from there, the committed `_state.md` cursor and every primer — so it is
+    scrubbed like every episode writer and G140's watch record, and the count is
+    ledgered. The person's own paths scrub before calling; scrubbing twice is a
+    no-op, so the rail holds whichever door a sentence came through."""
+    from api.services import episode_scrub
+
+    cleaned, n = episode_scrub.scrub(text)
+    writer = "other" if origin in ("companion_app", "clarification") else "mcp"
+    episode_scrub.record(writer, n, bank=Path(memory_path).name)
+    return cleaned
+
+
 def _participants(memory_path: Path, raw, text: str) -> list[dict]:
     """Who took part, linked where the bank already knows them.
 
@@ -277,7 +292,12 @@ def _participants(memory_path: Path, raw, text: str) -> list[dict]:
         if entity:
             entry["entity"] = entity
         if role == "document" and item.get("url"):
-            entry["url"] = str(item["url"])
+            # A link that carried a secret is dropped, never stored scrubbed:
+            # a half-redacted URL points nowhere (G141 final review, R-N3).
+            from api.services import episode_scrub
+
+            if episode_scrub.scrub(str(item["url"]))[1] == 0:
+                entry["url"] = str(item["url"])
         if "surface" in entry or "entity" in entry:
             out.append(entry)
     return clean_participants(out)
@@ -351,8 +371,12 @@ def _outcome(claim: Claim, claims: list[Claim], audit: list[dict]) -> str:
 
 
 def _open_head(claims: list[Claim], slug: str) -> Claim | None:
-    return next((c for c in claims if c.predicate == MILESTONE and c.valid_to is None
-                 and (c.object or "") == slug), None)
+    """The slot's one head. An agent's state on the person's milestone opens a
+    second head beside theirs (rule 3, plus a divergence item); the person's
+    head wins so a PATCH or a follow-up acts on what they said, never on
+    whichever claim happens to sit first in the fence (G141 final review)."""
+    heads = [c for c in claims if c.predicate == MILESTONE and c.valid_to is None and (c.object or "") == slug]
+    return next((c for c in heads if is_human(c)), heads[0] if heads else None)
 
 
 def _free_slug(claims: list[Claim], base: str) -> str:
@@ -405,7 +429,7 @@ def record_happening(memory_path: Path, *, subject: str, text: str, status: str,
     — `claim_id` is the claim it folded into when `reinforced`."""
     try:
         memory_path = Path(memory_path)
-        text = " ".join(str(text or "").split())
+        text = " ".join(_scrub(str(text or ""), memory_path, origin).split())
         if status not in EVENT_STATUSES[HAPPENED]:
             return _error(f"a happening is ongoing, done or dropped — not {status!r}; nothing was written")
         if not text:
@@ -482,7 +506,7 @@ def set_milestone(memory_path: Path, *, subject: str, name: str, target: str | N
     already holds that name, so two plans that share a name stay two plans."""
     try:
         memory_path = Path(memory_path)
-        name = " ".join(str(name or "").split())
+        name = " ".join(_scrub(str(name or ""), memory_path, origin).split())
         if not name:
             return _error("a milestone needs a name; nothing was written")
         if when_mod.has_relative(name):
@@ -614,7 +638,7 @@ def rename_milestone(memory_path: Path, *, subject: str, slug: str, name: str) -
     Callers allow it for the person only."""
     try:
         memory_path = Path(memory_path)
-        name = " ".join(str(name or "").split())
+        name = " ".join(_scrub(str(name or ""), memory_path, "companion_app").split())
         if not name or when_mod.has_relative(name):
             return _error("give the milestone a name without a day in it; nothing was written")
         got = _page(memory_path, subject)
@@ -689,17 +713,20 @@ MIN_NAME_CHARS = 3
 _ROLE_BY_TYPE = {"person": "with", "tool": "used", "directory": "used", "media": "document", "project": "project"}
 
 
-def write_note_episode(memory_path: Path, text: str, *, origin: str, title: str, now: datetime) -> str:
+def write_note_episode(memory_path: Path, text: str, *, origin: str, title: str, now: datetime,
+                       key: str | None = None) -> str:
     """R-PJ18: the person's Log text is a SPAN, not a copy — a small companion
     episode holding the person's words exactly (scrubbed like every writer, R-N3),
     already processed (`processed_by: user`) so Sleep never re-extracts it, with a
     turn stamp so the Reader shows when it was written. `source_id` carries the
-    instant: two identical notes on two days are two episodes, never a dedup."""
+    instant: two identical notes on two days are two episodes, never a dedup.
+    `key` (an inbox item id) is appended when a caller can answer several items in
+    one second, so their notes never share a `source_id` (G141 final review)."""
     from api.services import episode_staging
 
     instant = when_mod.utc_z(now)
     draft = episode_staging.EpisodeDraft(
-        title=title, source_id=f"companion-app:{instant}", timestamp=instant,
+        title=title, source_id=f"companion-app:{instant}" + (f":{key}" if key else ""), timestamp=instant,
         original_date=now.date().isoformat(),
         source="companion_app", origin=origin, turns=[episode_staging.Turn(text=text, speaker="user", ts=instant)],
         queue_for_sleep=False, processed_by="user", writer="companion_app")

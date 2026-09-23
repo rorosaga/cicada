@@ -313,6 +313,18 @@ def is_event(claim) -> bool:
     return getattr(claim, "predicate", "") in EVENT_PREDICATES
 
 
+PERSONS_WORDS_ORIGINS = frozenset({"companion_app", "clarification"})
+
+
+def is_persons_words(claim) -> bool:
+    """R-PJ23's one test: is this claim's `text` the person's own sentence?
+    A Log entry (`companion_app`) and a follow-up answered in free text
+    (`clarification`) both are, so a remote reader without `sources` is shown
+    neither (G141 final review — the inbox note path had leaked). Over-hiding
+    a "Still going" that restated an extractor's sentence is the safe side."""
+    return (getattr(claim, "origin", None) or "") in PERSONS_WORDS_ORIGINS
+
+
 def event_cardinality(predicate: str) -> str | None:
     """R-PJ5: `multi` for the event predicates, in CODE — an existing bank's
     `_predicates.yaml` is stale and `build_cardinality_fn` reads only it. The

@@ -139,3 +139,34 @@ def test_a_projects_log_note_is_scrubbed(tmp_path):
     parsed = markdown_parser.parse(memory / "episodes" / f"{ep}.md")
     assert SECRET not in parsed.body and parsed.body.startswith("user: set the key to")
     assert (parsed.frontmatter["processed"], parsed.frontmatter["processed_by"]) == (True, "user")
+
+
+def test_cicada_note_progress_is_scrubbed(tmp_path, monkeypatch):
+    """G141 final review: `progress.py` is the one event writer, and an agent's
+    summary and milestone name reach the claim fence — and from there the
+    committed `_state.md` cursor and every primer — so they are scrubbed like
+    every episode writer (R-N3). A document link that carried a secret is
+    dropped rather than stored half-redacted."""
+    from datetime import UTC, datetime
+
+    from _demo_scenario import day_one
+    from api.services import handshake, mcp_tools
+    from api.services.claims import parse_claims
+
+    monkeypatch.setattr(handshake, "local_timezone", lambda: "UTC")
+    monkeypatch.setattr(mcp_tools, "_now_in", lambda tz: datetime(2026, 9, 23, 18, tzinfo=UTC))
+    bank = day_one(tmp_path, index=False)
+    ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="ses_test", harness="claude-code")
+    leaky = f"https://example.com/guide?token={SECRET}"
+    mcp_tools.note_progress(ctx, "pick-and-place-demo", "happened", f"Bob read the guide and set the arm key to {SECRET}", "done",
+                            when="2026-09-22",
+                            participants=[{"name": "guide", "role": "document", "url": leaky}])
+    mcp_tools.note_progress(ctx, "pick-and-place-demo", "milestone", f"Rotate {SECRET}", "planned",
+                            target="2026-11-02")
+    page = (bank / "entities" / "pick-and-place-demo.md").read_text()
+    assert SECRET not in page
+    claims = parse_claims(markdown_parser.parse(bank / "entities" / "pick-and-place-demo.md").body)
+    assert any(c.predicate == "happened" and c.text.startswith("Bob read the guide") for c in claims)
+    assert any(c.predicate == "milestone" and c.text.startswith("Rotate") for c in claims)
+    docs = [p for c in claims for p in c.participants if p.get("role") == "document"]
+    assert docs and all("url" not in p for p in docs)

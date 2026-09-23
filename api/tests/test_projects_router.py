@@ -98,3 +98,35 @@ def test_opening_a_project_records_an_ids_only_read(client, monkeypatch):
     assert reads and reads[-1].refs == {"entity_id": "rover-arm-project", "surface": "project"}
     ledger = "".join(p.read_text() for p in telemetry.telemetry_dir().glob("*.jsonl"))
     assert "Hana" not in ledger and "cluster" not in ledger.lower()
+
+
+@pytest.mark.parametrize("state", ["building", "stale"])
+def test_a_body_built_without_a_ready_index_carries_no_etag(client, monkeypatch, state):
+    """G141 final review: the ETag covers bank content, but the reverse-claims
+    layer reads the FTS index. A body built while it is `building` (a capped
+    raw scan, `partial`) or `stale` must never be revalidated into a 304."""
+    from api.routers import projects as projects_router
+
+    c, _ = client
+    monkeypatch.setattr(projects_router, "_index_state", lambda mp: state)
+    for url in ("/projects", "/projects/rover-arm-project/timeline"):
+        r = c.get(url)
+        assert r.status_code == 200 and "etag" not in r.headers, url
+
+
+def test_a_partial_body_carries_no_etag(client, monkeypatch):
+    from api.routers import projects as projects_router
+    from api.services import project_timeline
+
+    c, _ = client
+    monkeypatch.setattr(projects_router, "_index_state", lambda mp: "ready")
+    real = project_timeline.list_projects
+
+    def partial(*a, **kw):
+        out = real(*a, **kw)
+        out.partial = True
+        return out
+
+    monkeypatch.setattr(project_timeline, "list_projects", partial)
+    r = c.get("/projects")
+    assert r.status_code == 200 and r.json()["partial"] is True and "etag" not in r.headers

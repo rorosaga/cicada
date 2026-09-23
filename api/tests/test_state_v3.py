@@ -56,3 +56,21 @@ def test_seven_projects_with_now_fit_in_six_kilobytes(tmp_path):
     assert len(state_dictionary.state_path(memory).read_bytes()) <= state_dictionary.MAX_BYTES
     rows = [p for p in state_dictionary.read_state(memory)["projects"] if p["id"].startswith("omega-")]
     assert len(rows) == 7 and all(p.get("now") and p.get("next") for p in rows)
+
+
+def test_a_record_only_connection_gets_no_project_cursor(tmp_path):
+    """G140's ruling: a record-only connection was promised "save notes,
+    links and facts", not a profile. The G141 cursor (`now:` quotes a thread,
+    `next:` names a plan and its date) rides the same `personal` gate as the
+    one-liner (G141 final review)."""
+    from api.remote import catalog
+
+    bank = day_one(tmp_path, index=False)
+    state_dictionary.refresh(bank, None, force=True, today=T, probe_repos=False)
+    state = state_dictionary.read_state(bank)
+    record_only = handshake.build_remote(state, tools=catalog.tool_names_for({"record"}), bank="demo", tz="UTC")
+    assert "`rover-arm-project`" in record_only
+    assert " · now: " not in record_only and " · next: " not in record_only
+    reader = handshake.build_remote(state, tools=catalog.tool_names_for({"search", "read", "record"}), bank="demo",
+                                    tz="UTC")
+    assert " · next: Pick And Place Demo" in reader

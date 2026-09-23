@@ -290,8 +290,8 @@ or a passed `due` raises one follow-up (one per project, three in the bank) from
 expiry (`Follow-ups <date>`, `cicada`, `sleep/followup`), served as a question at read with a 30-day
 "not now", answered through `progress.py` and graded against the extractor (R-PJB24). **Status: PJ-1,
 PJ-2, PJ-3 (3a+3b), PJ-6 built on `feat/g141-read-write`; PJ-0, PJ-4 on their own tracks; PJ-5 waits for
-the DS shell; PJ-7/PJ-8 gated.** The Swift `followup` case (its kind label reads "Update available" until
-then) and `GraphNode` dates ride PJ-5.
+the DS shell; PJ-7/PJ-8 gated.** The Swift `followup` case landed with the final review (label "Follow-up",
+clarification's hue); `GraphNode` dates ride PJ-5.
 
 **Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
 open is on the row.

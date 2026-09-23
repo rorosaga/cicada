@@ -393,7 +393,9 @@ def followup_question(item_kind: str, claim, *, name: str, today: str, verbatim_
              "description": "Nothing changes; asked again after that", "claim_id": None}
     if item_kind == "happened":
         heard = claim.recorded_at or claim.valid_from
-        own_words = (claim.origin or "") == "companion_app"
+        from api.services.claims import is_persons_words
+
+        own_words = is_persons_words(claim)
         words = f"“{_clip(claim.text)}”" if verbatim_ok or not own_words else f"A thread you logged on {name}"
         return {"question": f"{words} — last heard {humanize_age(heard, today)}. How did it go?",
                 "options": [

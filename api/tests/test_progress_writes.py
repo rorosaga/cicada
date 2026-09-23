@@ -275,3 +275,37 @@ def test_claim_pipeline_relabels_a_stray_event_label_without_an_audit_card(tmp_p
     assert not [n for n in result["nudges"] if n.get("action") == "normalization_audit"]
     claims = _claims(memory, "cicada")
     assert [c.predicate for c in claims] == ["relates-to"]
+
+
+# G141 final review -----------------------------------------------------------
+
+def test_an_agents_state_beside_the_persons_milestone_is_one_row_and_both_true_closes_it(tmp_path):
+    """Rule 3 lets an agent's `done` sit beside the person's open head (plus a
+    divergence item). The slot is the identity PATCH and PJ-5 key on, so the
+    read model shows ONE row — the person's — and `_open_head` picks theirs;
+    "Both true" cannot leave two heads in one slot, so it closes the agent's."""
+    import asyncio
+
+    from api.services import inbox_service, project_timeline
+    from api.services.claim_reconciler import is_human
+
+    memory = _fresh(tmp_path)
+    person = dict(observer="owner", origin="companion_app", authored_by="user", today=DAY, tz_name=TZ)
+    r = progress.set_milestone(memory, subject="alpha-project", name="First grasp", target="2026-10-01", **person)
+    mine = r["claim_id"]
+    progress.advance(memory, subject="alpha-project", slug="first-grasp", status="done", on=DAY, **AGENT)
+    heads = [c for c in _claims(memory) if c.predicate == "milestone" and c.valid_to is None]
+    assert len(heads) == 2                                       # rule 3 holds: the agent never closed it
+    assert progress._open_head(_claims(memory), "first-grasp").id == mine
+    fu = [(m.slug, m.status) for m in project_timeline.build(memory, "alpha-project", tz_name=TZ).milestones
+          if m.source == "milestone"]
+    assert fu == [("first-grasp", "planned")]
+
+    item = next(p for p in sorted((memory / "inbox").glob("inbox-*.md"))
+                if markdown_parser.parse(p).frontmatter.get("kind") == "divergence")
+    parsed = markdown_parser.parse(item)
+    settings = SimpleNamespace(memory_path=memory)
+    request = SimpleNamespace(action="resolve", option_key="2", answer=None)
+    asyncio.run(inbox_service._resolve_divergence(item, parsed, request, settings, item.stem))
+    heads = [c for c in _claims(memory) if c.predicate == "milestone" and c.valid_to is None]
+    assert [c.id for c in heads] == [mine] and is_human(heads[0])

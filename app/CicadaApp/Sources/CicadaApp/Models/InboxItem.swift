@@ -15,6 +15,10 @@ enum InboxKind: String, Codable {
     // G129 slice 2: a bookmark removed from the browser — keep it or archive
     // the media entity it named.
     case removal
+    // G141 PJ-6: a quiet thread or a passed milestone — "How did it go?".
+    // Sleep's tail writes it; before this case it decoded as `.unknown` and
+    // wore the "Update available" label, which reads as a software update.
+    case followup
     // Forward-compat fallback (matches `EntityType`/`Epistemic`/`SourceTrust`'s
     // existing pattern in this codebase). Before this, an unrecognized raw
     // value threw `DecodingError.dataCorrupted` out of `InboxItem.init(from:)`,
@@ -38,6 +42,7 @@ enum InboxKind: String, Codable {
         case .divergence: "Divergence"
         case .normalization: "Predicate fold"
         case .removal: "Removed bookmark"
+        case .followup: "Follow-up"
         case .unknown: "Update available"
         }
     }
@@ -52,6 +57,7 @@ enum InboxKind: String, Codable {
         case .divergence: "arrow.triangle.branch"
         case .normalization: "arrow.triangle.merge"
         case .removal: "bookmark.slash"
+        case .followup: "arrow.uturn.backward.circle"
         case .unknown: "questionmark.circle"
         }
     }
