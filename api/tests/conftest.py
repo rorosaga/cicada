@@ -90,6 +90,17 @@ def _default_public_logo_resolver(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _default_public_net_guard_resolver(monkeypatch):
+    """G135 R-R10: `net_guard` resolves every hostname a fetcher is about to
+    request, exactly as the logo ladder above does — so the same fixed public
+    address stands in for DNS, or every `example.com` fixture would fail closed
+    in a network-less run. Tests of the guard itself pass `resolver=`."""
+    from api.services import net_guard
+
+    monkeypatch.setattr(net_guard, "_resolve_host", lambda host: ["93.184.216.34"])
+
+
+@pytest.fixture(autouse=True)
 def _disable_telemetry(monkeypatch):
     monkeypatch.setenv("CICADA_TELEMETRY", "off")
 
