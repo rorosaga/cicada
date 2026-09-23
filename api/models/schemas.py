@@ -400,6 +400,15 @@ class ResumeDescriptor(CamelModel):
     display_command: str = ""
 
 
+class VideoChapter(CamelModel):
+    """One chapter of a saved video (G140 Q-R12): seconds from the start and a
+    title — parsed from the provider's own description or recorded by an
+    agent's watch, never inferred."""
+
+    t: int
+    title: str
+
+
 class EntityMedia(CamelModel):
     """Structured media metadata for a ``type: media`` entity (G11).
 
@@ -430,6 +439,11 @@ class EntityMedia(CamelModel):
     # (R17).
     provider: Optional[str] = None
     duration_s: Optional[int] = None
+    # G140 Q-R12 — additive + defaulted, the same argument as Track V's two
+    # keys: present only on a page written after G140 (the description held a
+    # real chapter list), so an older page decodes unchanged and no ETag
+    # input moves beyond the page write itself.
+    chapters: Optional[list[VideoChapter]] = None
     # G133 — `paper` for a paper page (`papers.KIND`); absent for every other
     # media page.
     kind: Optional[str] = None
@@ -680,8 +694,9 @@ class EvidenceModel(CamelModel):
     """One evidence span on a claim (G118 slice 1) — offsets into a stored
     document, never a copy. ``episode`` is a source-document id: ``ep_*`` is an
     episode, anything else an entity page (a ``page`` span cites the media
-    entity). ``kind`` is ``user`` | ``assistant`` | ``page`` | ``reasoning``;
-    a ``reasoning`` entry has ``start == end == -1``. Resolve a span with
+    entity). ``kind`` is one of the six ``claims.EVIDENCE_KINDS`` — ``user`` |
+    ``assistant`` | ``page`` | ``reasoning`` | ``speaker`` (G134) | ``media``
+    (G140); a ``reasoning`` entry has ``start == end == -1``. Resolve a span with
     ``GET /episodes/{episode}/span?start=&end=&hash=``.
     """
 
@@ -776,6 +791,8 @@ class EpisodeSpan(CamelModel):
     stale: bool = False
     grown: bool = False
     kind: str = "user"
+    # G140 Q-R9: for a span on a video line, seconds into the video — derived, never stored.
+    t: Optional[int] = None
     # R-LS2 — which turn the span starts in (`evidence.turn_at`), with its time
     # from the episode's `turns: [{offset, ts, speaker}]` sidecar (R-PB4); all
     # four absent for an episode that stores no sidecar.
@@ -789,9 +806,11 @@ class EpisodeTurn(CamelModel):
     """One turn of a document (G118 slice 2, design §4.8.1) — offsets into the
     evidence text, never a copy of it. See ``evidence.TurnSpan``: ``role`` is
     ``user`` | ``assistant`` | ``speaker`` (a note-taker's ``speaker:<label>:``
-    line, R-LS7) | ``page``; ``marker`` is the word as written (``None`` for a
-    marker-less block); ``ts``/``speaker`` exist only where the episode stores
-    a ``turns`` sidecar entry for this turn."""
+    line, R-LS7) | ``media`` (a timed ``video [m:ss]:`` line, G140) | ``page``;
+    ``marker`` is the word as written (``None`` for a marker-less block);
+    ``ts``/``speaker`` exist only where the episode stores a ``turns`` sidecar
+    entry for this turn; ``t`` = seconds into the video for a media turn
+    (G140)."""
 
     index: int
     start: int
@@ -801,6 +820,7 @@ class EpisodeTurn(CamelModel):
     marker: Optional[str] = None
     speaker: Optional[str] = None
     ts: Optional[str] = None
+    t: Optional[int] = None
 
 
 class EpisodeFocus(CamelModel):
@@ -1041,6 +1061,10 @@ class GraphNode(CamelModel):
     # (`owner_identity.ensure_owner_entity`). Additive/optional: an older
     # client ignores it; the app renders "Name (you)" when true.
     is_owner: bool = False
+    # G136 S6 — the page's `aliases:` (≤ 8, `graph_builder.node_aliases`), for the
+    # app's instant search tier. Shipped after measuring the payload (plan
+    # R-SU23; the number is on the G136 row). Additive/defaulted.
+    aliases: list[str] = []
 
 
 class GraphLink(CamelModel):
@@ -1394,6 +1418,13 @@ class StatusEpisodes(CamelModel):
     last_ingested_at: Optional[str] = None
 
 
+class StatusGates(CamelModel):
+    """G139 — the three outbound gates, booleans only (R-O21)."""
+    connector_fetch: bool = True
+    feed_fetch: bool = False
+    logo_fetch: bool = True
+
+
 class StatusResponse(CamelModel):
     sleep: StatusSleep
     inbox: StatusInbox
@@ -1401,6 +1432,11 @@ class StatusResponse(CamelModel):
     last_sleep_at: Optional[str] = None
     next_sleep_at: Optional[str] = None
     connections: Optional["StatusConnections"] = None
+    # G139 — facts about this backend that name nothing: whether the usage
+    # ledger records, the outbound gates, and which env switches are set (names).
+    telemetry: Optional[str] = None
+    gates: Optional[StatusGates] = None
+    env_overrides: list[str] = []
 
 
 # --- Health (liveness probe for installer / doctor) ---
@@ -1646,7 +1682,7 @@ class ScheduleConfig(CamelModel):
 
 
 # --------------------------------------------------------------------------- #
-# G122 — GET/PUT /sleep/engine: the Settings → Sleep engine & model picker.
+# G122 — GET/PUT /sleep/engine: the Settings → Engines engine & model picker.
 # --------------------------------------------------------------------------- #
 
 
@@ -1697,7 +1733,7 @@ class SleepEngineResponse(CamelModel):
     source: str  # "env" | "prefs" | "default"
     candidates: list[SleepEngineCandidate]
     preview: SleepEnginePreviews
-    allow_overage: bool = False  # R-E13: Settings → Sleep "Keep going on extra usage"
+    allow_overage: bool = False  # R-E13: Settings → Engines "Keep going on extra usage"
 
 
 class SleepEngineChoice(CamelModel):
@@ -1758,11 +1794,28 @@ class BankInfo(CamelModel):
     episode_count: int = 0
     created_at: str = ""
     description: str = ""
+    # G139 R-O18 — the in-place bank that IS the memory folder; the app hides
+    # it from Delete (the server refuses it too, 409).
+    legacy: bool = False
 
 
 class BankListResponse(CamelModel):
     banks: list[BankInfo] = []
     active: str = ""
+
+
+class BankTrashResponse(BankListResponse):
+    """G139 — the roster after a delete, and where the bank went, relative to
+    the memory folder (never an absolute path on the wire)."""
+    trashed_to: str = ""
+
+
+class SearchIndexStatus(CamelModel):
+    """G139 — Settings → Memory's search-index row. `state` is
+    `search_index.ensure_fresh`'s own word."""
+    state: str
+    built_at: Optional[str] = None
+    documents: Optional[int] = None
 
 
 class BankCreateRequest(CamelModel):
@@ -1958,6 +2011,7 @@ class SourceSaveResponse(CamelModel):
     media_type: str
     thumbnail: Optional[str] = None
     message: str
+    note_episode_id: Optional[str] = None  # G140 Q-R10 — the kept note's episode on a duplicate
 
 
 class SourceUploadResponse(CamelModel):

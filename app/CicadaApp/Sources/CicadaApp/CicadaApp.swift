@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 /// A transparent AppKit passthrough container that accepts the first mouse
 /// click even when its window isn't key yet. `ClickableWebView`
@@ -25,7 +26,7 @@ struct CicadaApp: App {
     @State private var graphVM: GraphViewModel
     @State private var inboxVM: InboxViewModel
     @State private var sleepVM: SleepViewModel
-    /// G122: Settings → Sleep's engine-and-model picker. No `Store`
+    /// G122: the engine-and-model picker (Settings → Engines since G139 A3). No `Store`
     /// dependency (ruling 6 — a plain `APIClient` round trip, nothing else
     /// observes this domain) — constructed bare, unlike every view model
     /// above it.
@@ -44,6 +45,9 @@ struct CicadaApp: App {
     @State private var contributorsVM: ContributorsViewModel
     @State private var connectionsVM: ConnectionsViewModel
     @State private var usageVM: UsageViewModel
+    /// G136 — the ⌘K find palette's state, one per app, so its Ask history,
+    /// recents and instant index survive the palette closing.
+    @State private var findModel: FindPaletteModel
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
     /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
@@ -73,7 +77,11 @@ struct CicadaApp: App {
     // doesn't pick up from SwiftUI state automatically — see
     // `syncWindowChrome` below.
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
-    private var appColorScheme: AppColorScheme { AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }
+    /// R-O4 — the preference resolved against the system appearance
+    /// `ThemeStore` tracks (observable, so a macOS flip repaints this scene).
+    private var appColorScheme: AppColorScheme {
+        AppearancePreference.stored(colorSchemeRaw).resolved(systemIsDark: ThemeStore.shared.systemIsDark)
+    }
 
     init() {
         // Swift Package executable targets launch without an Info.plist, so AppKit
@@ -83,6 +91,10 @@ struct CicadaApp: App {
         // bug. Explicitly requesting .regular activation fixes it.
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
+
+        // G139 final review: the System-appearance observer lives at app
+        // scope, not on one window — see `ThemeStore.observeSystemAppearance`.
+        ThemeStore.shared.observeSystemAppearance()
 
         // Build the Store as a plain local value first — referencing `self`
         // (which `store` would, via the property wrapper) isn't allowed yet
@@ -103,6 +115,7 @@ struct CicadaApp: App {
         _contributorsVM = State(initialValue: ContributorsViewModel(store: store))
         _connectionsVM = State(initialValue: ConnectionsViewModel(store: store))
         _usageVM = State(initialValue: UsageViewModel(store: store))
+        _findModel = State(initialValue: FindPaletteModel(store: store))
     }
 
     var body: some Scene {
@@ -121,6 +134,7 @@ struct CicadaApp: App {
                 .environment(connectionsVM)
                 .environment(usageVM)
                 .environment(store)
+                .environment(findModel)
                 .environment(browserWatcher)
                 .environment(localSources)
                 .environment(intakeRouter)
@@ -128,12 +142,15 @@ struct CicadaApp: App {
                 // second one (the router, and its overlay, live in this one).
                 .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
-                .onChange(of: colorSchemeRaw) { _, newValue in
-                    let mode = AppColorScheme(rawValue: newValue) ?? .dark
-                    CicadaTheme.mode = mode
-                    if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
-                        syncWindowChrome(window, mode: mode)
-                    }
+                .onChange(of: colorSchemeRaw) { _, _ in applyAppearance() }
+                .onReceive(DistributedNotificationCenter.default()
+                    .publisher(for: AppearancePreference.systemChangedNotification)
+                    .receive(on: RunLoop.main)) { _ in
+                    // The app-scope observer re-resolves the tokens; this one
+                    // exists for the AppKit chrome only. Refreshing here too
+                    // makes the two orderless (both writes are guarded).
+                    ThemeStore.shared.refreshSystemAppearance()
+                    applyAppearance()
                 }
                 // G133 / G134: folders and Wispr Flow settings are per memory, so a
                 // bank switch re-reads them and re-arms the watches.
@@ -190,6 +207,9 @@ struct CicadaApp: App {
                     inboxVM.onResolved = { [menuBarManager] in
                         await menuBarManager.refreshAfterAction()
                     }
+                    // G139 final review: a reopened window re-reads the system
+                    // appearance rather than trusting the last one this scene saw.
+                    ThemeStore.shared.refreshSystemAppearance()
                     // Ensure the main window is key so TextFields can accept input.
                     if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
                         syncWindowChrome(window, mode: appColorScheme)
@@ -262,6 +282,8 @@ struct CicadaApp: App {
                 Button("Actual Size") { CicadaTheme.resetZoom() }
                     .keyboardShortcut("0", modifiers: .command)
             }
+            // G136 A6 — ⌘K (Find in Memory…) and ⌘F (Find on This Page…).
+            FindCommands(router: appRouter)
             // Track I T5 — File → Import… (⌘⇧I): the keyboard and VoiceOver twin
             // of every drop (design §5.1).
             CommandGroup(after: .newItem) {
@@ -294,6 +316,16 @@ struct CicadaApp: App {
                 // now, so this window's own token reads repaint it on a theme
                 // flip. The comment it carried — "static reads SwiftUI doesn't
                 // track" — described the bug, not a rule.
+        }
+    }
+
+    /// One place the resolved mode reaches the tokens and the AppKit chrome —
+    /// a preference change and a system flip both land here.
+    private func applyAppearance() {
+        let mode = appColorScheme
+        CicadaTheme.mode = mode
+        if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
+            syncWindowChrome(window, mode: mode)
         }
     }
 

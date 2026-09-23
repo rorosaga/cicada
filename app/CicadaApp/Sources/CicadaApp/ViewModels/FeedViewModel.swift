@@ -57,23 +57,39 @@ final class FeedViewModel {
         return rendered.count > 1
     }
 
+    /// G136 S5 — `FeedSearch`'s one field list (title, site, channel, origin,
+    /// tags, description, url, about — and a paper's authors, arXiv id and DOI,
+    /// G133), filtered in the Feed's own order (R-SU20). The fields are folded
+    /// once per snapshot (`foldedFields`), never per keystroke: a render reads
+    /// this two or three times, and re-folding every description and URL of
+    /// ~1,500 saved items on each read measured ~100 ms a pass in a debug
+    /// build while planning (QuickMatch's own rule, R-SU21).
     var filteredItems: [MediaFeedItem] {
-        guard !searchText.isEmpty else { return items }
-        return items.filter { Self.matches($0, query: searchText) }
+        let tokens = QuickMatch.tokens(searchText)
+        guard !tokens.isEmpty else { return items }
+        let folded = foldedFields()
+        return items.filter { QuickMatch.match(tokens, fields: folded[$0.id] ?? FeedSearch.fields($0)) != nil }
     }
 
-    /// Title, site and tags — and for a paper its authors, arXiv id and DOI
-    /// (G133, R7 §5.2): a substring over the snapshot, so still no network.
-    nonisolated static func matches(_ item: MediaFeedItem, query: String) -> Bool {
-        let q = query.lowercased()
-        if item.title.lowercased().contains(q) || (item.site?.lowercased().contains(q) ?? false)
-            || item.tags.contains(where: { $0.lowercased().contains(q) }) {
-            return true
+    /// Keyed on the snapshot's change token and size — the pair
+    /// `GraphViewModel.clusterSearchIndex()` uses for the same job.
+    @ObservationIgnored private var searchCache: (stamp: Date?, count: Int, fields: [String: [QuickMatch.Field]])?
+
+    private func foldedFields() -> [String: [QuickMatch.Field]] {
+        let all = store.sources.value ?? []
+        if let cache = searchCache, cache.stamp == store.sources.loadedAt, cache.count == all.count {
+            return cache.fields
         }
-        guard let paper = item.paper else { return false }
-        return paper.authors.contains { $0.lowercased().contains(q) }
-            || (paper.arxivId?.lowercased().contains(q) ?? false)
-            || (paper.doi?.lowercased().contains(q) ?? false)
+        let fields = Dictionary(all.map { ($0.id, FeedSearch.fields($0)) }, uniquingKeysWith: { first, _ in first })
+        searchCache = (store.sources.loadedAt, all.count, fields)
+        return fields
+    }
+
+    /// One saved item against the words, through `FeedSearch`'s one field
+    /// list (R-SU21) — kept as Track F's entry point, which `PaperCardTests`
+    /// pins.
+    nonisolated static func matches(_ item: MediaFeedItem, query: String) -> Bool {
+        FeedSearch.matches(item, query: query)
     }
 
     func load() async {

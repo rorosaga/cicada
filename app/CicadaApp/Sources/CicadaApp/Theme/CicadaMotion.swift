@@ -42,9 +42,23 @@ enum CicadaMotion {
     static let liftDuration: TimeInterval = 0.18
     static let settleDuration: TimeInterval = 0.35
     static let morphDuration: TimeInterval = 0.35
+    /// G136 — the ⌘K palette arriving (`snappy`, with a 0.98 → 1 scale) and
+    /// leaving (fade), and a group's "Show all" (round-3 design §1.1).
+    static let paletteInDuration: TimeInterval = 0.16
+    static let paletteOutDuration: TimeInterval = 0.12
+    static let groupExpandDuration: TimeInterval = 0.2
     /// G118 slice 2 (design §1.1): the Reader's cited-span wash fading in
     /// after it lands. Short — the eye is already moving to the words.
     static let spanRevealDuration: TimeInterval = 0.25
+
+    /// G139 (design §1.1, R-O7) — a landed Settings row holds its wash, then fades.
+    /// Under Reduce Motion the wash is held for both and removed with no fade.
+    /// Deliberately outside `maxDuration` and NOT added to
+    /// `CicadaMotionTests.testEveryDurationIsInsideTheBudget`: this is how long
+    /// an emphasis lingers so the eye can find the row, not a transition
+    /// between two layouts — the 400 ms budget is for the latter.
+    static let rowHighlightHold: TimeInterval = 1.2
+    static let rowHighlightFadeDuration: TimeInterval = 0.6
 
     /// Clouds drift, grass never moves (R-M6): at most 8 pt either way over a
     /// 60–120 s period — peripheral, never noticed as movement — at no more
@@ -65,6 +79,12 @@ enum CicadaMotion {
     static func lift(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .snappy(duration: liftDuration) }
     static func settle(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .easeInOut(duration: settleDuration) }
     static func morph(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .smooth(duration: morphDuration) }
+    static func rowHighlightFade(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeOut(duration: rowHighlightFadeDuration)
+    }
+    static func paletteIn(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .snappy(duration: paletteInDuration) }
+    static func paletteOut(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .easeOut(duration: paletteOutDuration) }
+    static func groupExpand(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .snappy(duration: groupExpandDuration) }
 
     // Track I T4 (design §7). The drifting cloud reuses `ambientDefaultPeriod` /
     // `ambientMaxAmplitude` — two names for one value is the drift this file

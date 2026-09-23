@@ -225,7 +225,7 @@ full second node; shared bearer vs per-device tokens), so it is DECIDE before AP
 
 Then the standing bigger rocks, unchanged: **G81 → G95** (contacts, then meetings and human-to-human
 conversations — the largest gap between the vision and the code), **G112 steps 2–4** (portable
-skills), **G76** (paste-prompt install), **G127** (mascot identity — decide, don't build).
+skills), **G76** (paste-prompt install), **G127** (a character/mascot selector — owner 2026-09-23; the worm-vs-robot trial becomes its first two entries).
 
 ### Known-broken, small, unclaimed
 

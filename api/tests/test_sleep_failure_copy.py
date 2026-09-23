@@ -6,7 +6,9 @@ from api.services.sleep_cycle import _stage1_failure_message
 def test_no_engine_chosen_reads_as_a_choice_not_a_diagnosis():
     msg = _stage1_failure_message("litellm", engine_detail="no Sleep engine chosen — using the configured API model")
     assert "no engine chosen" in msg.lower()
-    assert "Settings" in msg and "Sleep" in msg
+    # G139 A3 moved the engine picker to Settings → Engines; the message must
+    # send people to the page that actually has the control.
+    assert "Settings → Engines" in msg
     assert "credit" not in msg.lower()
 
 

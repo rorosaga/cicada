@@ -57,7 +57,7 @@ struct FeedView: View {
             // button on every Feed render (G68 §1, round 2). Feed is the only
             // page that pairs a PageHeader trailing action with the floating
             // TopBarControls row, so folding the button into this same row
-            // (same pattern as GraphContainerView's AskButton) removes the
+            // (same pattern as GraphContainerView's SearchButton) removes the
             // collision entirely instead of just tuning padding.
             VStack {
                 HStack {
@@ -126,29 +126,8 @@ struct FeedView: View {
 
     private var searchAndSortRow: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "magnifyingglass")
-                    .font(CicadaTheme.font(size: 12))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                TextField("Search saved media...", text: Binding(
-                    get: { viewModel.searchText },
-                    set: { viewModel.searchText = $0 }
-                ))
-                    .textFieldStyle(.plain)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                if !viewModel.searchText.isEmpty {
-                    Button { viewModel.searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(CicadaTheme.font(size: 11))
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                    .buttonStyle(.cicadaPlain)
-                }
-            }
-            .padding(.horizontal, CicadaTheme.spacingMD)
-            .padding(.vertical, CicadaTheme.spacingSM)
-            .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            CicadaSearchField(text: Binding(get: { viewModel.searchText }, set: { viewModel.searchText = $0 }),
+                              prompt: "Search saved media…")
 
             Picker("", selection: Binding(
                 get: { viewModel.sort },
@@ -179,6 +158,19 @@ struct FeedView: View {
                 title: "Couldn't load the feed",
                 subtitle: err
             )
+        } else if viewModel.filteredItems.isEmpty, !viewModel.items.isEmpty,
+                  !SearchAllMemoryRow.trimmed(viewModel.searchText).isEmpty {
+            // Something is saved; nothing matched — say that, not "Nothing
+            // saved yet" (G136 S5), and offer the same words everywhere.
+            VStack(spacing: CicadaTheme.spacingSM) {
+                Spacer()
+                Text("Nothing saved matches “\(SearchAllMemoryRow.trimmed(viewModel.searchText))”.")
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                SearchAllMemoryRow(query: viewModel.searchText)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
         } else if viewModel.filteredItems.isEmpty {
             emptyState(
                 symbol: "tray",
@@ -419,7 +411,8 @@ enum FeedPreviewLayout {
 // open is only the fallback for a row an older backend served without one.
 // Degrades quietly: if that fetch fails, the preview still renders without a
 // description.
-private struct FeedItemPreviewSheet: View {
+/// Internal since G136: the ⌘K palette previews a saved item in place.
+struct FeedItemPreviewSheet: View {
     let item: MediaFeedItem
     @Environment(\.dismiss) private var dismiss
     @State private var enrichedDescription: String?

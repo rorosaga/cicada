@@ -38,6 +38,10 @@ final class ThemeStore {
 
     var mode: AppColorScheme
 
+    /// G139 (R-O4) — the system appearance, observable like `mode`, so a
+    /// `system` preference repaints both scenes when macOS flips.
+    var systemIsDark: Bool
+
     /// The key `uiScale` persists under (G130).
     static let scaleKey = "cicada.uiScale"
     /// R1: one scale, clamped to a floor/ceiling a scaled layout can't clip
@@ -49,9 +53,17 @@ final class ThemeStore {
 
     var uiScale: Double
 
-    init(defaults: UserDefaults = .standard) {
-        let raw = defaults.string(forKey: Self.defaultsKey)
-        mode = raw.flatMap(AppColorScheme.init(rawValue:)) ?? .dark
+    /// Where the preference and `AppleInterfaceStyle` are re-read on a flip —
+    /// a test hands in a suite, the app the standard domain.
+    @ObservationIgnored private let defaults: UserDefaults
+    /// The one distributed-notification observer (see `observeSystemAppearance`).
+    @ObservationIgnored private var systemObserver: NSObjectProtocol?
+
+    init(defaults: UserDefaults = .standard, systemIsDark: Bool? = nil) {
+        self.defaults = defaults
+        let dark = systemIsDark ?? AppearancePreference.systemIsDark(defaults)
+        self.systemIsDark = dark
+        mode = AppearancePreference.stored(defaults.string(forKey: Self.defaultsKey)).resolved(systemIsDark: dark)
 
         // `defaults.double(forKey:)` returns exactly 0 both when the key is
         // absent (fresh install) and when it holds a non-numeric value (a
@@ -73,6 +85,32 @@ final class ThemeStore {
     static func clampScale(_ value: Double) -> Double {
         let stepped = (value * 10).rounded() / 10
         return min(max(stepped, scaleRange.lowerBound), scaleRange.upperBound)
+    }
+
+    /// Re-reads the system appearance and re-resolves `mode` from the stored
+    /// preference. Writes only on a real change — `@Observable` notifies on
+    /// every write, and `CicadaTheme.mode`'s setter documents why a redundant
+    /// notification is how an invalidation loop starts.
+    func refreshSystemAppearance() {
+        let dark = AppearancePreference.systemIsDark(defaults)
+        if systemIsDark != dark { systemIsDark = dark }
+        let resolved = AppearancePreference.stored(defaults.string(forKey: Self.defaultsKey))
+            .resolved(systemIsDark: dark)
+        if mode != resolved { mode = resolved }
+    }
+
+    /// G139 final review (R-O4): the macOS appearance observer used to hang off
+    /// the main window's `ContentView` alone, so a flip while that window was
+    /// closed — menu-bar only, or only Settings open — was missed, and the
+    /// window reopened in the old mode until the next flip. Registered once at
+    /// app scope (`CicadaApp.init`) instead, so every scene follows whichever
+    /// windows are open. Idempotent; never called from `init` so a headless
+    /// test's `ThemeStore` never listens to the real system.
+    func observeSystemAppearance() {
+        guard systemObserver == nil else { return }
+        systemObserver = DistributedNotificationCenter.default().addObserver(
+            forName: AppearancePreference.systemChangedNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.refreshSystemAppearance() }
     }
 }
 
@@ -186,6 +224,11 @@ enum CicadaTheme {
         case .night: [Color(hex: 0x0A0F1E), Color(hex: 0x172538)]
         }
     }
+
+    /// Track Z Z10 — the Sleep page's optional sky band, at this strength over
+    /// the page in both modes. `SkyBandTests` holds it to a tint (≤ 1.35:1
+    /// against the page) that keeps text ≥ 7:1 over it, for every sky.
+    static let skyBandOpacity: Double = 0.12
 
     /// The window's AppKit background for `mode` — the one place `NSWindow`
     /// gets a theme colour (R-M10). Takes the mode explicitly because
@@ -312,6 +355,9 @@ enum CicadaTheme {
     static var bodyFont: Font { font(size: 13) }
     static var captionFont: Font { font(size: 11) }
     static var monoFont: Font { font(size: 12, design: .monospaced) }
+    /// The small uppercase group label (design §1.3; it was retyped by hand in
+    /// ~12 files as 10 pt monospaced semibold with 1.2 tracking).
+    static var labelFont: Font { font(size: 10, weight: .semibold, design: .monospaced) }
 
     // MARK: - Display + quote faces (G137, spec R-M3; F1 R-FX12)
     /// Display is a role, not a face: page titles, onboarding headlines,

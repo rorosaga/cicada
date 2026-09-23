@@ -20,8 +20,16 @@ struct ContentView: View {
     // `IntegrationsView`'s `.chatAndAgents` category (`harnessRows`), so
     // nothing it offered is lost, only the old single-step framing.
     @State private var showFirstRun = false
-    // ⌘K Ask panel (G52, spec §5.9).
-    @State private var showAskPanel = false
+    /// G136 — the ⌘K find palette (Find, with Ask as a mode; round-3 design
+    /// §3). An overlay on this root, not a sheet (A11).
+    @State private var paletteOpen = false
+    /// A palette saved-item row previews the item in place (design §3.3).
+    @State private var previewItem: MediaFeedItem?
+    /// "Switch to light/dark" writes the key `CicadaApp` already observes.
+    @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw = AppColorScheme.dark.rawValue
+    @Environment(FindPaletteModel.self) private var find
+    /// "Switch to <bank>" makes `BankSwitcher`'s own call (R-SU13).
+    @Environment(BanksViewModel.self) private var banksVM
 
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(InboxViewModel.self) private var inboxVM
@@ -42,6 +50,45 @@ struct ContentView: View {
     @State private var dropTargeted = false
 
     var body: some View {
+        // Split in two (the merge of `dev` into settings-v3): the whole chain in
+        // one expression outgrew the type checker's budget. The window and its
+        // observers first, then the cross-window hand-offs staged on `AppRouter`.
+        windowWithObservers
+        // G126 R9 — Integrations lives in the `Settings{}` scene, a
+        // separate window from this one, so it cannot just flip
+        // `selectedTab` itself; it stages a tab on the shared `AppRouter`
+        // instead and this view is the one that actually switches.
+        .onChange(of: router.pendingTab) { _, newTab in
+            guard let newTab else { return }
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
+            router.pendingTab = nil
+        }
+        // G139 — Settings → You → "Show on graph": the tab switch above and
+        // the reveal here are staged together by `routeToEntity`.
+        .onChange(of: router.pendingRevealEntity) { _, id in
+            guard id != nil, let id = router.consumeRevealEntity() else { return }
+            graphVM.revealEntity(id: id)
+        }
+        // G117 — Settings → General's "Run setup again" hand-off. Settings
+        // is a separate window/scene (same reason `pendingTab` exists above
+        // for G126 R9's Feed hand-off) so it cannot flip `showFirstRun`
+        // directly; it stages this flag on the shared `AppRouter` instead.
+        .onChange(of: router.pendingFirstRun) { _, isPending in
+            guard isPending else { return }
+            showFirstRun = true
+            router.pendingFirstRun = false
+        }
+        // G118 slice 2 (P5) — an evidence chip inside the palette's Ask mode
+        // opens the Reader, which lives on THIS window; the palette steps
+        // aside so the person sees the sentence instead of an overlay
+        // covering it (the Ask sheet did the same before G136).
+        .onChange(of: provenance.revision) { _, _ in if paletteOpen { closePalette() } }
+        .sheet(item: $previewItem) { item in
+            FeedItemPreviewSheet(item: item)
+        }
+    }
+
+    private var windowWithObservers: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 selectedTab: $selectedTab,
@@ -135,50 +182,18 @@ struct ContentView: View {
         .sheet(isPresented: $showFirstRun) {
             FirstRunSheet(bank: store.bank) { showFirstRun = false }
         }
-        // ⌘K opens the Ask panel (G52) from anywhere in the app — a hidden
-        // button is the standard SwiftUI way to attach a global keyboard
-        // shortcut that isn't tied to a visible control.
-        .background {
-            Button("") { showAskPanel = true }
-                .keyboardShortcut("k", modifiers: .command)
-                .buttonStyle(.cicadaPlain)
-                .frame(width: 0, height: 0)
-                .opacity(0)
-        }
-        // G126 R9 — Integrations lives in the `Settings{}` scene, a
-        // separate window from this one, so it cannot just flip
-        // `selectedTab` itself; it stages a tab on the shared `AppRouter`
-        // instead and this view is the one that actually switches.
-        .onChange(of: router.pendingTab) { _, newTab in
-            guard let newTab else { return }
-            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
-            router.pendingTab = nil
-        }
-        // G117 — Settings → General's "Run setup again" hand-off. Settings
-        // is a separate window/scene (same reason `pendingTab` exists above
-        // for G126 R9's Feed hand-off) so it cannot flip `showFirstRun`
-        // directly; it stages this flag on the shared `AppRouter` instead.
-        .onChange(of: router.pendingFirstRun) { _, isPending in
-            guard isPending else { return }
-            showFirstRun = true
-            router.pendingFirstRun = false
-        }
-        // G118 slice 2 (P5) — an evidence chip inside the Ask sheet opens the
-        // Reader, which lives on THIS window; the sheet steps aside so the
-        // person sees the sentence instead of a modal covering it.
-        .onChange(of: provenance.revision) { _, _ in showAskPanel = false }
-        .sheet(isPresented: $showAskPanel) {
-            // G123: a citation lands ON its node — the graph zooms to that
-            // node's neighbourhood, not just opens its card. An answer's
-            // citation is a claim about where something sits in the graph, and
-            // showing the card while the viewport stays wherever it was left
-            // makes the reader hunt for it.
-            AskPanel { entityId in
-                withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .graph }
-                graphVM.revealEntity(id: entityId)
-                showAskPanel = false
+        // G136 — ⌘K is a menu command (`FindCommands`, A6) that stages a
+        // request on the router, so it works from the Settings window too.
+        .overlay {
+            if paletteOpen {
+                FindPalette(model: find, open: openFind, close: closePalette)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
         }
+        .onChange(of: router.pendingPalette) { _, _ in consumePaletteRequest() }
+        // R-SU5 — the instant tier is rebuilt off the main actor whenever an
+        // input moves, open or not, so the first ⌘K never waits on a build.
+        .background { FindIndexTask() }
     }
 
     /// G117 — the one place the first-run sheet is raised automatically.
@@ -200,6 +215,92 @@ struct ContentView: View {
             graphIsEmpty: store.graph.value?.nodes.isEmpty ?? false
         ) {
             showFirstRun = true
+        }
+    }
+
+    private func consumePaletteRequest() {
+        guard let request = router.consumePalette() else { return }
+        switch PaletteToggle.outcome(for: request, isOpen: paletteOpen, firstRunShowing: showFirstRun) {
+        case .open(let prefill, let mode):
+            find.present(prefill: prefill, mode: mode)
+            withAnimation(CicadaMotion.paletteIn(reduceMotion: reduceMotion)) { paletteOpen = true }
+        case .close:
+            closePalette()
+        case .ignore:
+            break
+        }
+    }
+
+    private func closePalette() {
+        withAnimation(CicadaMotion.paletteOut(reduceMotion: reduceMotion)) { paletteOpen = false }
+        find.dismissed()
+    }
+
+    /// The one place a palette row becomes navigation (design §3.3). The
+    /// palette has already closed itself; `.ask`, `.askedBefore` and
+    /// `.settings` never arrive here (`FindPaletteModel.activate`).
+    private func openFind(_ destination: FindDestination) {
+        switch destination {
+        case .entity(let id), .belief(let id, _):
+            // Seam (Track P): a belief should also open the card on
+            // Perspectives, scrolled to the claim — the card is Track P's.
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .graph }
+            graphVM.revealEntity(id: id)
+        case .entityInClusters(let id):
+            router.pendingClustersEntity = id
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .clusters }
+        case .feedItem(let id):
+            if let item = store.sources.value?.first(where: { $0.mediaEntityId == id }) {
+                previewItem = item
+            } else {
+                openFind(.entity(id: id))
+            }
+        case .openURL(let raw):
+            if let url = URL(string: raw) { NSWorkspace.shared.open(url) }
+        case .source(let id):
+            router.routeToSourceDetail(id)
+        case .conversations(let harness, let origin, let query):
+            if let id = ConversationSource.sourceId(harness: harness, origin: origin,
+                                                    rows: store.sourcesOverview.value ?? []) {
+                router.pendingConversationQuery = query
+                router.routeToSourceDetail(id)
+            } else {
+                withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .sources }
+            }
+        case .conversation(let target):
+            // R-SU18 — the Reader lands on the best passage; the source's own
+            // list, filtered to the title, stays one ⌥⏎ away (`.conversations`).
+            provenance.open(FindReaderRoute.target(for: target.span, title: target.title, harness: target.harness))
+        case .evidence(let span):
+            // A belief's "where it was said" (R-SU18); offered only while
+            // `FindReaderSeam.isAvailable`.
+            provenance.open(FindReaderRoute.target(for: span))
+        case .inbox(let id):
+            router.pendingInboxItem = id
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .inbox }
+        case .tab(let tab):
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = tab }
+        case .action(let action):
+            run(action)
+        case .bank(let name):
+            // `BankSwitcher.switchTo`'s own pair (R-SU13).
+            Task { if await banksVM.activate(name) { await graphVM.loadGraph() } }
+        case .settings, .ask, .askedBefore:
+            break
+        }
+    }
+
+    /// R-SU13 — the same calls the owning pages make.
+    private func run(_ action: PaletteAction) {
+        switch action {
+        // `SleepControlRow`'s own call: trigger, then refresh what it changed.
+        case .consolidate: Task { await sleepVM.triggerManually(); await store.refresh([.status, .channels]) }
+        case .stopConsolidating: Task { await sleepVM.cancel() }
+        case .zoomIn: CicadaTheme.zoomIn()
+        case .zoomOut: CicadaTheme.zoomOut()
+        case .actualSize: CicadaTheme.resetZoom()
+        case .lightMode: colorSchemeRaw = AppColorScheme.light.rawValue
+        case .darkMode: colorSchemeRaw = AppColorScheme.dark.rawValue
         }
     }
 
@@ -238,7 +339,7 @@ struct ContentView: View {
     @ViewBuilder
     private var detailContent: some View {
         ZStack {
-            GraphContainerView(selectedTab: $selectedTab, showAskPanel: $showAskPanel)
+            GraphContainerView(selectedTab: $selectedTab)
                 .opacity(selectedTab == .graph ? 1 : 0)
                 .allowsHitTesting(selectedTab == .graph)
                 .accessibilityHidden(selectedTab != .graph)
@@ -284,7 +385,6 @@ struct ContentView: View {
 
 struct GraphContainerView: View {
     @Binding var selectedTab: AppTab
-    @Binding var showAskPanel: Bool
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(BanksViewModel.self) private var banksVM
     /// Track I T5 (R-IA27) — the empty graph takes a dropped export itself.
@@ -312,13 +412,13 @@ struct GraphContainerView: View {
                 )
             }
 
-            // Top-right: Ask + Help (Track P: the audit removed Sleep/Upload —
+            // Top-right: Search + Help (Track P: the audit removed Sleep/Upload —
             // a cycle starts on the Sleep page, an import behind the Feed's +)
             VStack {
                 HStack {
                     Spacer()
                     HStack(spacing: CicadaTheme.spacingSM) {
-                        AskButton(showAskPanel: $showAskPanel)
+                        SearchButton()
                         TopBarControls(
                             selectedTab: $selectedTab,
                             showUploadOverlay: .constant(false)
@@ -337,7 +437,7 @@ struct GraphContainerView: View {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                         HStack(spacing: CicadaTheme.spacingSM) {
                             BankSwitcher(banksVM: banksVM)
-                            GraphSearchField()
+                            GraphSearchField(isActive: selectedTab == .graph)
                         }
                         ObserverFilterBar()
                     }
@@ -552,23 +652,21 @@ struct ZoomControls: View {
     }
 }
 
-// MARK: - Ask Button (G52)
+// MARK: - Search Button (G136)
 
-/// Toolbar entry point for the ⌘K Ask panel — the keyboard shortcut works
-/// from anywhere in `ContentView`, this just gives it a discoverable button
-/// alongside Sleep/Upload/Help.
-struct AskButton: View {
-    @Binding var showAskPanel: Bool
+/// The graph's visible twin of ⌘K (design §3.1: "`AskButton` … is renamed
+/// Search and opens Find"). Ask is one keystroke away inside (⌘⏎).
+struct SearchButton: View {
+    @Environment(AppRouter.self) private var router
     @State private var isHovered = false
 
     var body: some View {
-        Button {
-            showAskPanel = true
-        } label: {
+        Button { router.requestPalette() } label: {
             HStack(spacing: CicadaTheme.spacingXS) {
-                Image(systemName: "sparkle.magnifyingglass")
+                Image(systemName: "magnifyingglass")
                     .font(CicadaTheme.font(size: 12))
-                Text("Ask")
+                    .iconHover(hovering: isHovered)
+                Text("Search")
                     .font(CicadaTheme.font(size: 12, weight: .medium))
             }
             .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.accent)
@@ -577,7 +675,8 @@ struct AskButton: View {
         }
         .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
         .onHover { isHovered = $0 }
-        .help("Ask your memory (⌘K)")
+        .help("Search your memory (⌘K)")
+        .accessibilityLabel("Search your memory")
     }
 }
 
@@ -602,102 +701,114 @@ private struct ZoomButton: View {
     }
 }
 
-// MARK: - Graph node search (G123)
+// MARK: - Graph node search (G123, on the shared field — G136 S5)
 
-/// A small typeahead over the graph snapshot: ⌘F focuses it, ↑/↓ move, ⏎
-/// zooms to the node's neighbourhood and opens its card, Esc clears. Matching
-/// is local (`GraphViewModel.searchMatches`) — no request per keystroke.
+/// A small typeahead over the graph snapshot: ⏎ zooms to the node's
+/// neighbourhood and opens its card (`revealEntity`), and with nothing
+/// matched it hands the words to the ⌘K palette. ⌘F lands here only while
+/// the Graph tab is showing (R-SU10).
 struct GraphSearchField: View {
+    /// R-SU10 — the graph stays mounted under every other tab, so it claims
+    /// ⌘F only while it is the visible page.
+    var isActive = true
     @Environment(GraphViewModel.self) private var graphVM
+    @Environment(AppRouter.self) private var router
     @State private var query = ""
     @State private var highlighted = 0
-    @FocusState private var focused: Bool
+    @State private var focused = false
+    @State private var hovered: String?
 
-    private var matches: [GraphNode] { graphVM.searchMatches(query) }
+    private var hits: [GraphViewModel.SearchHit] { graphVM.searchHits(query) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                Image(systemName: "magnifyingglass")
-                    .font(CicadaTheme.font(size: 11))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                TextField("Find a node", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(CicadaTheme.font(size: 12))
-                    .focused($focused)
-                    .frame(width: 160)
-                    .onSubmit { pick(highlighted) }
-                    .onKeyPress(.downArrow) { move(1); return .handled }
-                    .onKeyPress(.upArrow) { move(-1); return .handled }
-                    .onKeyPress(.escape) { clear(); return .handled }
-                    .onChange(of: query) { _, _ in highlighted = 0 }
-                if !query.isEmpty {
-                    Button { clear() } label: {
-                        Image(systemName: "xmark.circle.fill").font(CicadaTheme.font(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            }
-            .padding(.horizontal, CicadaTheme.spacingSM)
-            .padding(.vertical, 6)
-            .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
-            // ⌘F from anywhere on the page focuses the field.
-            .background(
-                Button("") { focused = true }
-                    .keyboardShortcut("f", modifiers: .command)
-                    .opacity(0)
-                    .frame(width: 0, height: 0)
-            )
-
-            if focused, !query.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    if matches.isEmpty {
-                        Text("No node matches")
-                            .font(CicadaTheme.font(size: 12))
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .padding(.horizontal, CicadaTheme.spacingSM)
-                            .padding(.vertical, 6)
-                    }
-                    ForEach(Array(matches.enumerated()), id: \.element.id) { index, node in
-                        HStack(spacing: CicadaTheme.spacingXS) {
-                            Circle().fill(CicadaTheme.entityColor(for: node.type)).frame(width: 7, height: 7)
-                            Text(node.name).font(CicadaTheme.font(size: 12)).lineLimit(1)
-                            Spacer(minLength: 0)
-                            Text(node.type.rawValue)
-                                .font(CicadaTheme.font(size: 10))
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                        .padding(.horizontal, CicadaTheme.spacingSM)
-                        .padding(.vertical, 5)
-                        .background(index == highlighted ? CicadaTheme.surfaceHover : .clear)
-                        .contentShape(Rectangle())
-                        .onTapGesture { pick(index) }
-                    }
-                }
-                .frame(width: 220)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .padding(.top, 4)
+            CicadaSearchField(text: $query, prompt: "Find a node", style: .overCanvas, findEnabled: isActive,
+                              width: CicadaTheme.scaled(200), onSubmit: submit, onMove: move,
+                              onFocusChange: { focused = $0 })
+                .onChange(of: query) { _, _ in highlighted = 0 }
+            if focused, !SearchAllMemoryRow.trimmed(query).isEmpty {
+                dropdown.padding(.top, CicadaTheme.spacingXS)
             }
         }
     }
 
+    private var dropdown: some View {
+        let list = hits
+        return VStack(alignment: .leading, spacing: 0) {
+            if list.isEmpty {
+                Text("No node matches")
+                    .font(CicadaTheme.font(size: 12))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .padding(.horizontal, CicadaTheme.spacingSM)
+                    .padding(.top, CicadaTheme.spacingSM)
+                SearchAllMemoryRow(query: query)
+                    .padding(.horizontal, CicadaTheme.spacingSM)
+                    .padding(.vertical, CicadaTheme.spacingXS)
+            }
+            ForEach(Array(list.enumerated()), id: \.element.node.id) { index, hit in
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    LogoImage(entityId: hit.node.id, name: hit.node.name, type: hit.node.type, size: CicadaTheme.scaled(18))
+                    Circle().fill(CicadaTheme.entityColor(for: hit.node.type))
+                        .frame(width: CicadaTheme.scaled(7), height: CicadaTheme.scaled(7))
+                    Text(ExcerptText.attributed(hit.node.name, bold: hit.ranges))
+                        .font(CicadaTheme.font(size: 12))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(hit.node.type.label)
+                        .font(CicadaTheme.font(size: 10))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                .padding(.horizontal, CicadaTheme.spacingSM)
+                .padding(.vertical, CicadaTheme.spacingXS)
+                .background(index == highlighted || hovered == hit.node.id ? CicadaTheme.surfaceHover : Color.clear)
+                .contentShape(Rectangle())
+                .onHover { inside in hovered = inside ? hit.node.id : (hovered == hit.node.id ? nil : hovered) }
+                .onTapGesture { pick(index) }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(hit.node.type.label), \(hit.node.name)")
+                .accessibilityAddTraits(index == highlighted ? [.isButton, .isSelected] : .isButton)
+            }
+        }
+        .frame(width: CicadaTheme.scaled(260))
+        .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+    }
+
+    private func submit() {
+        if hits.isEmpty {
+            router.requestPalette(prefill: SearchAllMemoryRow.trimmed(query))
+        } else {
+            pick(highlighted)
+        }
+    }
+
     private func move(_ delta: Int) {
-        let count = matches.count
+        let count = hits.count
         guard count > 0 else { return }
         highlighted = (highlighted + delta + count) % count
     }
 
     private func pick(_ index: Int) {
-        let list = matches
+        let list = hits
         guard list.indices.contains(index) else { return }
-        graphVM.revealEntity(id: list[index].id)
-        clear()
-    }
-
-    private func clear() {
+        graphVM.revealEntity(id: list[index].node.id)
         query = ""
         highlighted = 0
-        focused = false
+    }
+}
+
+/// R-SU5 — keeps the palette's instant tier current. Its own view, so the
+/// inputs it watches (the graph, the inbox, Sleep's status, the theme) move
+/// this empty view when they change, never `ContentView`'s whole body.
+private struct FindIndexTask: View {
+    @Environment(Store.self) private var store
+    @Environment(FindPaletteModel.self) private var find
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .task(id: QuickIndexInputs.token(store, askHistoryCount: find.ask.history.count)) {
+                await find.rebuildIndex()
+            }
     }
 }

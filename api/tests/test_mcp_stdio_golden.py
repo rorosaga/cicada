@@ -72,6 +72,11 @@ def _bank(tmp_path: Path) -> Path:
     for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "t"],
                  ["add", "."], ["commit", "-q", "-m", "seed"]):
         subprocess.run(["git", "-C", str(memory), *args], check=True, capture_output=True)
+    # G140 Q-R16: recall's lexical legs read the FTS index — build it inline
+    # so the first recall never races the background builder.
+    from api.services import search_index
+
+    search_index.ensure_fresh(memory, wait=True)
     return memory
 
 

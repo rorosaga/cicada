@@ -10,11 +10,21 @@ from api.models.schemas import (
     HealthResponse,
     StatusConnections,
     StatusEpisodes,
+    StatusGates,
     StatusInbox,
     StatusResponse,
     StatusSleep,
 )
-from api.services import bank_index, git_service, inbox_service, sleep_debt, sleep_scheduler, sync_service
+from api.services import (
+    bank_index,
+    env_overrides,
+    git_service,
+    inbox_service,
+    sleep_debt,
+    sleep_scheduler,
+    sync_service,
+    telemetry,
+)
 from api.services.sleep_cycle import get_sleep_state
 
 router = APIRouter()
@@ -126,6 +136,12 @@ async def get_status(settings: Settings = Depends(get_settings)):
         last_sleep_at=last_sleep,
         next_sleep_at=next_sleep,
         connections=StatusConnections(connected=connected_ids, engine=engine),
+        # G139 (R-O21/R-O22): Privacy & data and Advanced read these; each
+        # gate comes from the function that enforces it, and env switches
+        # travel by NAME only — a value can be a secret or an owner's path.
+        telemetry="on" if telemetry.enabled() else "off",
+        gates=StatusGates(**env_overrides.gates()),
+        env_overrides=env_overrides.present(settings.model_fields_set),
     )
 
 

@@ -15,6 +15,7 @@ memory. Covers:
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -354,14 +355,13 @@ def test_cicada_write_claim_registered_in_tools():
     desc = tool["description"].lower()
     # Track P R8 — the legacy observer VALUE stays accepted, but the tool
     # description stops advertising it: an agent should send 'owner', and the
-    # compatibility promise now lives where a client can act on it (the enum),
+    # compatibility promise now lives where a client can act on it (the pattern),
     # not in prose that reaches every agent on `initialize` carrying a real
     # person's name. Read from the constant so no test types the name.
     assert "observer='owner'" in desc
     assert owner_identity.LEGACY_OBSERVER not in desc
-    assert owner_identity.LEGACY_OBSERVER in (
-        tool["inputSchema"]["properties"]["observer"]["enum"]
-    )
+    assert re.fullmatch(tool["inputSchema"]["properties"]["observer"]["pattern"],
+                        owner_identity.LEGACY_OBSERVER), "still accepted (Q-R11), never advertised"
     assert "agent" in desc
     assert set(tool["inputSchema"]["required"]) == {"subject", "predicate", "object"}
 

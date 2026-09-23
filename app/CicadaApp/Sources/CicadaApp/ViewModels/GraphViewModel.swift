@@ -434,34 +434,54 @@ final class GraphViewModel {
         selectEntity(id: id)
     }
 
-    /// Typeahead over the graph snapshot already in memory — no request per
-    /// keystroke. Prefix and word-start matches on the name, ranked by where
-    /// the match starts, then by degree (busier nodes first), then name.
-    func searchMatches(_ query: String, limit: Int = 8) -> [GraphNode] {
-        let ids = Self.rankNames(nodes.map { ($0.id, $0.name, $0.degree) }, query: query, limit: limit)
-        let byId = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
-        return ids.compactMap { byId[$0] }
+    /// A typeahead row: the node and the scalar runs to bold in its name.
+    struct SearchHit {
+        let node: GraphNode
+        let ranges: [[Int]]
     }
 
+    /// G123 through `QuickMatch` (G136 S5): the name, then tags — the
+    /// palette's ranker, so the two never order one name differently. Over
+    /// the graph snapshot already in memory — no request per keystroke.
+    func searchHits(_ query: String, limit: Int = 8) -> [SearchHit] {
+        QuickMatch.rank(nodes, query: query, limit: limit, fields: Self.searchFields,
+                        tieBreak: { Double($0.degree) }, name: { $0.name.lowercased() })
+            .map { SearchHit(node: $0.item, ranges: $0.match.ranges(inField: 0)) }
+    }
+
+    nonisolated static func searchFields(_ node: GraphNode) -> [QuickMatch.Field] {
+        [QuickMatch.Field(node.name, weight: QuickMatch.Weight.name)]
+            + node.aliases.map { QuickMatch.Field($0, weight: QuickMatch.Weight.alias) }
+            + node.tags.map { QuickMatch.Field($0, weight: QuickMatch.Weight.keyword) }
+    }
+
+    func searchMatches(_ query: String, limit: Int = 8) -> [GraphNode] {
+        searchHits(query, limit: limit).map(\.node)
+    }
+
+    @ObservationIgnored private var clusterSearchCache: (stamp: Date?, count: Int, index: ClusterSearchIndex)?
+
+    /// Clusters' index (G136 S5): folded once per graph snapshot, on the first
+    /// keystroke after it changed — never per keystroke, and never for a
+    /// snapshot nobody searches. `entities` and `lastSyncedLoadedAt` move
+    /// together in `syncFromStore`, so the pair is the snapshot's identity.
+    func clusterSearchIndex() -> ClusterSearchIndex {
+        if let cache = clusterSearchCache, cache.stamp == lastSyncedLoadedAt, cache.count == entities.count {
+            return cache.index
+        }
+        let index = ClusterSearchIndex(entities)
+        clusterSearchCache = (lastSyncedLoadedAt, entities.count, index)
+        return index
+    }
+
+    /// G123's ranking, now `QuickMatch`'s (G136 R-SU4): the palette and this
+    /// typeahead can never order one name differently. `GraphSearchRankTests`
+    /// pins the behaviour it had before.
     nonisolated static func rankNames(_ items: [(id: String, name: String, degree: Int)], query: String, limit: Int = 8) -> [String] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return [] }
-        var scored: [(id: String, rank: Int, degree: Int, name: String)] = []
-        for item in items {
-            let name = item.name.lowercased()
-            let rank: Int
-            if name.hasPrefix(q) { rank = 0 }
-            else if name.split(separator: " ").contains(where: { $0.hasPrefix(q) }) { rank = 1 }
-            else if name.contains(q) { rank = 2 }
-            else { continue }
-            scored.append((item.id, rank, item.degree, name))
-        }
-        scored.sort { a, b in
-            if a.rank != b.rank { return a.rank < b.rank }
-            if a.degree != b.degree { return a.degree > b.degree }
-            return a.name < b.name
-        }
-        return Array(scored.prefix(limit)).map(\.id)
+        QuickMatch.rank(items, query: query, limit: limit,
+                        fields: { [QuickMatch.Field($0.name, weight: QuickMatch.Weight.name)] },
+                        tieBreak: { Double($0.degree) },
+                        name: { $0.name.lowercased() }).map { $0.item.id }
     }
 
     /// Navigate DEEPER from within an already-open card — a wikilink tap, a
@@ -545,6 +565,10 @@ final class GraphViewModel {
         guard let fullEntity = await store.entity(id) else { return }
         if let idx = entities.firstIndex(where: { $0.id == id }) {
             entities[idx] = fullEntity
+            // The body just grew from the node summary to the full page, and
+            // Clusters searches it (G136 S5) — refold on the next keystroke
+            // rather than serve the stub's text from `clusterSearchIndex()`.
+            clusterSearchCache = nil
         }
         if selectedEntity?.id == id {
             selectedEntity = fullEntity

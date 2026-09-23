@@ -49,16 +49,19 @@ _CLAIMS_BLOCK_RE = re.compile(
     re.DOTALL | re.MULTILINE,
 )
 
-# G118 slice 1 — the evidence kinds, five since G134. `user`/`assistant` are
+# G118 slice 1 — the evidence kinds, six since G140. `user`/`assistant` are
 # spans into a conversation episode, attributed by the turn marker at or before
 # the span (R4) or by the episode's declared `evidence_kind` (R-LS7); `speaker`
-# (R-N2 / R-LS7) is a meeting utterance by someone other than the owner, marked
-# `speaker:<label>:`; `page` is a span into an entity page's prose (a saved
-# link's stored description — link recon); `reasoning` is the contributor's own
-# inference and carries no offsets. The set is closed on purpose: a viewer
-# renders each kind differently, and G100's derived-span class, if it ever
-# ships, will be a sixth value rather than a flag on one of these.
-EVIDENCE_KINDS = ("user", "assistant", "page", "reasoning", "speaker")
+# (G134, R-N2 / R-LS7) is a meeting utterance by someone other than the owner,
+# marked `speaker:<label>:`; `media` (G140 Q-R9) is what a video said — a watch
+# record's cited excerpt, a timed `video [m:ss]:` line; `page` is a span into an
+# entity page's prose (a saved link's stored description — link recon);
+# `reasoning` is the contributor's own inference and carries no offsets. The set
+# is closed on purpose: a viewer renders each kind differently, and G100's
+# derived-span class, if it ever ships, will be a seventh value rather than a
+# flag on one of these. Append-only: an older reader degrades an unknown kind to
+# `reasoning`.
+EVIDENCE_KINDS = ("user", "assistant", "page", "reasoning", "speaker", "media")
 
 
 @dataclass
@@ -171,6 +174,14 @@ class Claim:
     # field existed (no backfill, R6); at least one entry on every claim
     # written since, `reasoning` when the writer had no source text.
     evidence: list[Evidence] = field(default_factory=list)
+    # G140 Q-R6 (R3 P8) — a STATED end: the date the fact itself says it stops
+    # being true ("exams this weekend" → the Sunday; "until Friday"). NOT
+    # `valid_to`, which thirteen readers take to mean CLOSED — a future date
+    # there would hide the fact the day it was written. `claim_expiry` copies
+    # it into `valid_to` once it has passed. Omitted from the YAML when unset
+    # (G118 R7's reason: re-rendering a page must never diff every legacy
+    # claim for a field it lacks).
+    expected_end: str | None = None
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -192,6 +203,9 @@ class Claim:
         # never diffs ~2,300 legacy claims for a field they do not have.
         if not data.get("evidence"):
             data.pop("evidence", None)
+        # G140 Q-R6: same rule for a stated end — absent unless one was stated.
+        if data.get("expected_end") is None:
+            data.pop("expected_end", None)
         return data
 
     @classmethod
@@ -224,7 +238,29 @@ class Claim:
             evidence=[
                 Evidence.from_dict(e) for e in (data.get("evidence") or []) if isinstance(e, dict)
             ],
+            expected_end=_opt_str(data.get("expected_end")),
         )
+
+
+# G140 Q-R5 — the predicate of a withdrawal record. `cicada_retract_claim`
+# closes the withdrawn claim and appends one of these beside it: the agent's
+# reason as `text`, the withdrawn claim's id as `object`. It lives here, not in
+# `agentic_write`, because every READER of a claims fence must drop it — and a
+# reader should not import the write path to learn what to skip.
+RETRACT_PREDICATE = "retracts"
+
+
+def is_record(claim: Claim) -> bool:
+    """Is ``claim`` a withdrawal record rather than a belief? (G140 Q-R5)
+
+    A record is bookkeeping ABOUT a claim, never a belief of its own. Served
+    as one, it read as a belief named with the agent's reason: a ``/search``
+    claim hit under "Beliefs", and a struck-through "No longer current" row in
+    an episode's citations (final review). Every surface that lists claims —
+    MCP history, the claim endpoints, the search index, episode citations —
+    filters through this one test, so a new surface has one thing to call.
+    """
+    return claim.predicate == RETRACT_PREDICATE
 
 
 def _opt_str(value: Any) -> str | None:

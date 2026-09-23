@@ -1025,11 +1025,15 @@ Z9 and Z10 are the only gated tasks.
 
 1. **The sky band (Z10).** Ship the state-following wash above the page, or keep the page plain and
    let only the window carry weather? Recommendation: decide from the Z11 screenshots, and keep it
-   only if a light-mode night band reads as tint rather than dirt.
+   only if a light-mode night band reads as tint rather than dirt. **Answered (spec decision 16,
+   2026-09-23):** ships only if the screenshots say calm. Decided from the composites: OFF — the
+   light-mode night and dusk bands read as a grey haze on the title (plan Z-B16, TODO ruling 10).
 2. **Details by default.** Closed (recommended, and remembered per viewer), or open on the first
-   visit so the history is discovered?
+   visit so the history is discovered? **Answered (spec decision 16):** closed by default,
+   remembered per viewer (`cicada.sleep.detailsOpen`) — shipped in part a.
 3. **Answer rung 4 points off the page** to the Inbox. Recommendation: yes. It is the one cross-page
-   question a status surface should answer.
+   question a status surface should answer. **Answered (spec decision 16):** yes — the last rung
+   may point to the Inbox; shipped in part a.
 
 **Not verified:**
 - Instrument Serif metrics at 30/22 pt inside the column, and the 80-character tail budget on two

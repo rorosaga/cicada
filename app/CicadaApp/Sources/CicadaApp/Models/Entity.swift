@@ -913,12 +913,16 @@ struct GraphNode: Codable, Sendable {
     /// drives the graph node's own "this is you" render alongside
     /// `Entity.isOwner`'s twin on the detail card.
     let isOwner: Bool
+    /// G136 S6 — the page's other names (≤ 8), for the palette's instant tier
+    /// and the graph typeahead. Decode-tolerant: an older backend and an
+    /// on-disk cache omit it.
+    let aliases: [String]
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, tags
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
-        case summary, contentHash, hasLogo, decayClass, isOwner
+        case summary, contentHash, hasLogo, decayClass, isOwner, aliases
     }
 
     init(
@@ -928,7 +932,8 @@ struct GraphNode: Codable, Sendable {
         hubId: String? = nil, observers: [String] = [], contexts: [String] = [],
         isFacet: Bool = false, parentId: String? = nil, context: String? = nil,
         summary: String? = nil, contentHash: String = "", hasLogo: Bool = false,
-        decayClass: DecayClass = .active, isOwner: Bool = false
+        decayClass: DecayClass = .active, isOwner: Bool = false,
+        aliases: [String] = []
     ) {
         self.id = id
         self.name = name
@@ -951,6 +956,7 @@ struct GraphNode: Codable, Sendable {
         self.hasLogo = hasLogo
         self.decayClass = decayClass
         self.isOwner = isOwner
+        self.aliases = aliases
     }
 
     init(from decoder: Decoder) throws {
@@ -981,5 +987,6 @@ struct GraphNode: Codable, Sendable {
         hasLogo = try c.decodeIfPresent(Bool.self, forKey: .hasLogo) ?? false
         decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
         isOwner = try c.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
+        aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
     }
 }

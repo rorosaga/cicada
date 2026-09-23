@@ -44,6 +44,27 @@ def content_hash(fm: dict, body: str) -> str:
     return hashlib.sha1((json.dumps(fm, sort_keys=True, default=str) + "\n" + (body or "")).encode()).hexdigest()[:12]
 
 
+MAX_NODE_ALIASES = 8
+
+
+def node_aliases(fm: dict) -> list[str]:
+    """G136 S6 — a page's ``aliases:`` for ``GraphNode.aliases``, so the app's
+    instant tier finds a node by another name before the server answers.
+    Strings (and numbers) only, blanks dropped, order kept, at most
+    ``MAX_NODE_ALIASES`` — the cap ``search_service`` already applies, so both
+    tiers see the same eight. A hand-written scalar (``aliases: alpha``) is one
+    alias, not five letters. Already inside ``content_hash`` (it hashes the
+    frontmatter), so a changed alias repaints the node's delta."""
+    raw = fm.get("aliases")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    out = [str(a).strip() for a in raw
+           if isinstance(a, (str, int, float)) and not isinstance(a, bool) and str(a).strip()]
+    return out[:MAX_NODE_ALIASES]
+
+
 def synthetic_hash(*parts) -> str:
     """Deterministic 12-hex fingerprint for a node with no file behind it.
 
@@ -182,6 +203,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 has_logo=eid in logo_ids,
                 decay_class=decay_policy.resolve(fm)[0],
                 is_owner=bool(fm.get("owner")),
+                aliases=node_aliases(fm),
             )
         )
         for repo_decl in fm.get("repos") or []:

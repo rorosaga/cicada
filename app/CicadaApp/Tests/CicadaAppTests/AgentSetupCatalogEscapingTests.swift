@@ -101,17 +101,15 @@ final class AgentSetupCatalogEscapingTests: XCTestCase {
 
     func testClaudeCodeCommandsSingleQuoteEveryPath() throws {
         let cmds = commands("claude-code", home: home)
-        XCTAssertEqual(cmds.count, 2)
+        // G138 — the skill copy step moved to Settings → Skills, which writes
+        // Cicada's own skill with a marker instead of a pasted `cp`.
+        XCTAssertEqual(cmds.count, 1)
         let quotedPython = #"'/Users/Jane Doe/it'\''s "here"\x/api/.venv/bin/python'"#
         let quotedServer = #"'/Users/Jane Doe/it'\''s "here"\x/mcp/server.py'"#
         let quotedMemory = #"'/Users/Jane Doe/it'\''s "here"\x/memory'"#
         XCTAssertEqual(
             cmds[0],
             "claude mcp add cicada --scope user --env CICADA_MEMORY_PATH=\(quotedMemory) -- \(quotedPython) \(quotedServer)"
-        )
-        XCTAssertEqual(
-            cmds[1],
-            #"mkdir -p ~/.claude/skills/cicada && cp '/Users/Jane Doe/it'\''s "here"\x/SKILL.md' ~/.claude/skills/cicada/SKILL.md"#
         )
         // The env assignment concatenates a bare prefix with a quoted word;
         // sh must still produce one argument holding the exact path.
@@ -169,7 +167,6 @@ final class AgentSetupCatalogEscapingTests: XCTestCase {
         let plain = "/x/repo"
         XCTAssertEqual(commands("claude-code", home: plain), [
             "claude mcp add cicada --scope user --env CICADA_MEMORY_PATH=/x/repo/memory -- /x/repo/api/.venv/bin/python /x/repo/mcp/server.py",
-            "mkdir -p ~/.claude/skills/cicada && cp /x/repo/SKILL.md ~/.claude/skills/cicada/SKILL.md",
         ])
         XCTAssertEqual(commands("openclaw", home: plain), [
             #"openclaw mcp add cicada --command "/x/repo/api/.venv/bin/python" --arg "/x/repo/mcp/server.py" --env CICADA_MEMORY_PATH="/x/repo/memory""#,

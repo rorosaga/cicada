@@ -6,13 +6,19 @@ import SwiftUI
 /// cycle (G115 R12). Replaces the separate Nudges + Clarifications tabs.
 struct InboxListView: View {
     @Environment(InboxViewModel.self) private var viewModel
+    @Environment(AppRouter.self) private var router
     @State private var kindFilter: InboxKind?
+    /// G136 — the item a palette row landed on; its card opens expanded.
+    @State private var focusedItem: String?
+    /// G136 S5 — the page's own field. It filters and highlights but keeps
+    /// the Inbox's priority order (R-SU20).
+    @State private var query = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var visibleItems: [InboxItem] {
         let base = kindFilter.map { k in viewModel.items.filter { $0.kind == k } }
             ?? viewModel.items
-        return base.sorted {
+        return InboxSearch.filter(base, query: query).sorted {
             if $0.priority != $1.priority { return $0.priority > $1.priority }
             return $0.createdDateValue > $1.createdDateValue
         }
@@ -33,38 +39,76 @@ struct InboxListView: View {
                 loadingState
             } else if viewModel.items.isEmpty {
                 emptyState
+            } else if visibleItems.isEmpty && !query.isEmpty {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    Text("No question matches “\(SearchAllMemoryRow.trimmed(query))”.")
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                    SearchAllMemoryRow(query: query)
+                }
+                .padding(CicadaTheme.spacingXL)
+                Spacer(minLength: 0)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: CicadaTheme.spacingSM) {
-                        ForEach(visibleItems) { item in
-                            InboxCardView(item: item) { resolution in
-                                await viewModel.resolve(
-                                    id: item.id,
-                                    action: resolution.action,
-                                    answer: resolution.answer,
-                                    optionKey: resolution.optionKey,
-                                    remindDays: resolution.remindDays,
-                                    mergeTarget: resolution.mergeTarget,
-                                    mergeSurvivor: resolution.mergeSurvivor
-                                )
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: CicadaTheme.spacingSM) {
+                            ForEach(visibleItems) { item in
+                                InboxCardView(item: item, startsExpanded: item.id == focusedItem) { resolution in
+                                    await viewModel.resolve(
+                                        id: item.id,
+                                        action: resolution.action,
+                                        answer: resolution.answer,
+                                        optionKey: resolution.optionKey,
+                                        remindDays: resolution.remindDays,
+                                        mergeTarget: resolution.mergeTarget,
+                                        mergeSurvivor: resolution.mergeSurvivor
+                                    )
+                                }
+                                .id(item.id)
+                                .transition(.asymmetric(
+                                    insertion: .opacity,
+                                    removal: .opacity.combined(with: .scale(scale: 0.96)).combined(with: .move(edge: .trailing))
+                                ))
                             }
-                            .transition(.asymmetric(
-                                insertion: .opacity,
-                                removal: .opacity.combined(with: .scale(scale: 0.96)).combined(with: .move(edge: .trailing))
-                            ))
                         }
+                        .padding(CicadaTheme.spacingXL)
+                        .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: viewModel.items.map(\.id))
                     }
-                    .padding(CicadaTheme.spacingXL)
-                    .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: viewModel.items.map(\.id))
+                    // G136 — a palette inbox row lands here: every kind shown,
+                    // the card scrolled to and opened.
+                    .onAppear { land(proxy) }
+                    .onChange(of: router.pendingInboxItem) { _, _ in land(proxy) }
                 }
             }
         }
+        // G136 — a palette hand-off is observed here as well as in the list:
+        // while the page shows "No question matches", the list (and its
+        // `land(proxy)`) is not mounted, so the id would sit unconsumed until
+        // the filter was cleared by hand (S-ui final review). Clearing the
+        // filters mounts the list, whose `onAppear` consumes it and scrolls.
+        .onAppear { clearFiltersForHandOff(router.pendingInboxItem) }
+        .onChange(of: router.pendingInboxItem) { _, id in clearFiltersForHandOff(id) }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // The title bar is darkened at the window level (titlebarAppearsTransparent
         // + dark backgroundColor in CicadaApp), so the content background must NOT
         // ignoreSafeArea here — combined with maxHeight:.infinity that extended the
         // content under the menu bar and stretched the whole window to full height.
         .background(CicadaTheme.background)
+    }
+
+    private func clearFiltersForHandOff(_ id: String?) {
+        guard id != nil else { return }
+        query = ""
+        kindFilter = nil
+    }
+
+    private func land(_ proxy: ScrollViewProxy) {
+        guard let id = router.consumeInboxItem() else { return }
+        kindFilter = nil
+        // A palette hand-off is never hidden by an old filter.
+        query = ""
+        focusedItem = id
+        withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { proxy.scrollTo(id, anchor: .top) }
     }
 
     // MARK: - Header (title + kind filter chips)
@@ -100,14 +144,21 @@ struct InboxListView: View {
                 }
                 .padding(.horizontal, CicadaTheme.spacingXL)
                 .padding(.bottom, CicadaTheme.spacingMD)
+
+                CicadaSearchField(text: $query, prompt: "Search questions…")
+                    .frame(maxWidth: CicadaTheme.scaled(320))
+                    .padding(.horizontal, CicadaTheme.spacingXL)
+                    .padding(.bottom, CicadaTheme.spacingMD)
             }
         }
     }
 
-    /// Kinds present in the current inbox, in a stable display order.
+    /// Kinds present in the current inbox, in a stable display order. The two
+    /// kinds Sleep writes (G113 slice 3) finally get their chips (R6 §2.6).
     private var orderedKinds: [InboxKind] {
         let present = Set(viewModel.items.map(\.kind))
-        return [.decay, .conflict, .clarification, .mergeSuggestion, .removal].filter { present.contains($0) }
+        return [.decay, .conflict, .clarification, .mergeSuggestion, .removal, .divergence, .normalization]
+            .filter { present.contains($0) }
     }
 
     // MARK: - Empty state ("Nothing pending" + the truth, featuring the bookworm)

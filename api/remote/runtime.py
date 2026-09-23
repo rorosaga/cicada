@@ -172,15 +172,22 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_open_hub": lambda c, a: mcp_tools.open_hub(c, str(a.get("hub") or "")),
     "cicada_recall_detail": lambda c, a: mcp_tools.recall_detail(c, str(a.get("entity_id") or "")),
     "cicada_get_perspective": lambda c, a: mcp_tools.get_perspective(
-        c, str(a.get("subject") or ""), a.get("observer"), a.get("context")),
+        c, str(a.get("subject") or ""), a.get("observer"), a.get("context"), bool(a.get("history", False))),
     "cicada_check_nudges": lambda c, a: mcp_tools.check_nudges(c, a.get("topic"), a.get("entity_ids")),
     "cicada_sources": lambda c, a: mcp_tools.sources(c, str(a.get("entity_id") or "")),
+    "cicada_timeline": lambda c, a: mcp_tools.timeline(c, a.get("since")),
     "cicada_save_episode": lambda c, a: mcp_tools.save_episode(c, str(a.get("content") or ""), a.get("title")),
     "cicada_write_claim": lambda c, a: mcp_tools.write_claim(
         c, str(a.get("subject") or ""), str(a.get("predicate") or ""), str(a.get("object") or ""),
         a.get("observer") or "agent", a.get("confidence"), a.get("context"), a.get("source_episode"),
-        bool(a.get("force_new_entity", False)), a.get("sources"), a.get("evidence")),
+        bool(a.get("force_new_entity", False)), a.get("sources"), a.get("evidence"),
+        expected_end=a.get("expected_end")),
+    "cicada_retract_claim": lambda c, a: mcp_tools.retract_claim(
+        c, str(a.get("subject") or ""), str(a.get("claim_id") or ""), str(a.get("reason") or ""),
+        a.get("evidence")),
     "cicada_save_url": lambda c, a: mcp_tools.save_url(c, str(a.get("url") or ""), a.get("note")),
+    "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
+        c, str(a.get("url") or ""), str(a.get("summary") or ""), a.get("excerpts"), a.get("chapters")),
     "cicada_resolve_inbox": lambda c, a: mcp_tools.resolve_inbox(
         c, str(a.get("id") or ""), a.get("option_key"), None, bool(a.get("defer", False)), a.get("remind_days"),
         skip=bool(a.get("skip", False)), reject=bool(a.get("reject", False))),

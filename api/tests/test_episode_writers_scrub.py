@@ -82,3 +82,43 @@ def test_mcp_save_episode_scrubs(tmp_path, monkeypatch):
     assert "Episode saved" in server.handle_save_episode(f"deploy key {SECRET}", "T")
     (path,) = (memory / "episodes").glob("*.md")
     assert SECRET not in markdown_parser.parse(path).body
+
+
+def test_the_note_on_a_saved_link_is_scrubbed_before_its_hash(tmp_path):
+    """G140 Q-R10's new writer (`write_note_episode`) joins R-LS6: the note is
+    scrubbed before the hash, so a repeat still finds the same episode."""
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    existing = media_ingestor.IngestResult(status="duplicate", media_entity_id="media-a", episode_id="",
+                                           title="A", media_type="url", url="https://example.com/a")
+    item = media_ingestor.RawItem(url="https://example.com/a", note=f"key {SECRET} code: 123456",
+                                  session_id="ses_x")
+    ep_id, fresh = media_ingestor.write_note_episode(memory, item, existing)
+    body = markdown_parser.parse(memory / "episodes" / f"{ep_id}.md").body
+    assert fresh and SECRET not in body and "123456" not in body
+    assert "assistant: key [redacted]" in body
+    assert media_ingestor.write_note_episode(memory, item, existing) == (ep_id, False)
+
+
+def test_a_watch_record_is_scrubbed(tmp_path, monkeypatch):
+    """G140 Q-R8's watch episode joins R-LS6: the summary and every quote are
+    scrubbed before the body is built, so neither the episode nor the
+    `describes` claim holds a secret."""
+    from api.services import agentic_write, watch_record
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir(parents=True)
+    seen = {}
+
+    def fake_write_claim(memory_path, subject, predicate, obj, **kw):
+        seen["object"] = obj
+        return {"action": "created", "claim_id": "c1", "evidence": [], "path": f"entities/{subject}.md"}
+
+    monkeypatch.setattr(agentic_write, "write_claim", fake_write_claim)
+    target = watch_record.Target(entity_id="media-a", title="A", url="https://example.com/v")
+    r = watch_record.record(memory, target, summary=f"it shows {SECRET}",
+                            excerpts=[{"t": "0:10", "quote": "the passcode: 998877"}])
+    body = markdown_parser.parse(memory / "episodes" / f"{r['episode_id']}.md").body
+    assert SECRET not in body and "998877" not in body and "video [0:10]:" in body
+    assert SECRET not in seen["object"]

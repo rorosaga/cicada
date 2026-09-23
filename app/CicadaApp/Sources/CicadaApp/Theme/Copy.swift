@@ -61,10 +61,12 @@ enum Copy {
     /// above stays for the callers that have no such context.
     static let changeEllipsis = "Change…"
 
-    /// The worm's accessibility hint (Track Z §11). The design's second clause
-    /// ("Drop a file to import it.") lands with feeding — a hint must be true
-    /// the day it ships (Z-P16).
-    static let wormHint = "Click to ask what it's doing."
+    /// The worm's accessibility hint (Track Z §11) — both clauses now that
+    /// feeding shipped (Z9; Z-P16 held the second back until it was true).
+    static let wormHint = "Click to ask what it's doing. Drop a file to import it."
+    /// Z9 (I16) — the worm's named action and context-menu item: the intake's
+    /// own picker, for anyone without a file to drag.
+    static let feedAFile = "Feed a file…"
     /// The worm's named action and context-menu item: every answer at once.
     static let wormWhatAreYouDoing = "What are you doing?"
     /// Track Z §6.5 / §11 — the cheer's text twin, announced when a real
@@ -213,8 +215,6 @@ enum Copy {
         }
     }
 
-    static let sleepEngineTitle = "Use for Sleep"
-
     /// The three honest things about running Sleep on a subscription: what it
     /// spends, who starts it, and what a throttle does. Not "free" — plan
     /// quota is a real budget, just not a dollar one.
@@ -251,7 +251,6 @@ enum Copy {
         + "On: Sleep keeps going on extra usage, which Anthropic bills separately."
     static let scheduledNeverSpendsPlans =
         "Scheduled cycles never use your Claude or ChatGPT plan — only a cycle you start yourself does."
-    static let yourMaxTier = "Your Max tier"
 
     // MARK: Sleep control (cancel + episode cap)
 
@@ -325,6 +324,8 @@ enum Copy {
     /// promising *today* contradicted a number the same screen was drawing.
     /// What a cycle actually does is fold whatever is waiting, however old.
     static let sleepSubtitle = "Fold what's waiting into the graph."
+    /// The Sleep page's title, drawn by `PageTitle` like every page's (Z-B4).
+    static let sleepPageTitle = "Sleep Cycle"
     /// The Sleep page's one disclosure (Track Z R-Z6): everything past the
     /// room, the sentence, the button and the whisper line lives behind it.
     static let sleepDetails = "Details"
@@ -336,8 +337,10 @@ enum Copy {
     /// above this is now literally "Sleep", and `CopyConstantsTests`'s
     /// `testSubtitlesAreShortAndDoNotRepeatTheirTitle` bans a subtitle that
     /// repeats its own title.
-    static let sleepSettingsSubtitle = "Who runs the nightly cycle, and when."
-    static let generalSubtitle = "Appearance and text size."
+    /// G139 (A3): the engine moved to Settings → Engines, so "Who runs…"
+    /// stopped being true of this section.
+    static let sleepSettingsSubtitle = "When Cicada consolidates what it captured."
+    static let generalSubtitle = "Appearance, text size and setup."
     static let integrationsSubtitle = "Every app connected to Cicada, in one place."
 
     // MARK: Remote connector (G135) — pinned by RemoteConnectorTests

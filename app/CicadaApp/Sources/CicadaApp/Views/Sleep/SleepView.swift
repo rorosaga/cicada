@@ -174,6 +174,8 @@ struct SleepView: View {
     // open.
     @Environment(Store.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Track Z Z10 — Increase Contrast hides the optional sky band (§11).
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var loadedOnce: Bool = false
     // PR #19 review: rapid live-count changes (a capture landing, then
     // another one right behind it) fired an untracked `sleepVM.load()` Task
@@ -212,6 +214,16 @@ struct SleepView: View {
             // bar and stretched the window to full screen height.
             CicadaTheme.background
 
+            // Track Z Z10 (spec decision 16) — the optional sky band: behind
+            // everything, fixed across the top, following the window's weather.
+            // `SkyBand.ships` is the one switch (Z-B16).
+            if SkyBand.isDrawn(contrast: contrast) {
+                VStack(spacing: 0) {
+                    SleepSkyBand(weather: windowWeather(for: page.mood))
+                    Spacer(minLength: 0)
+                }
+            }
+
             // One column at every width (R-Z6): the room card, the one
             // Details row, and Details itself only while it is open.
             ScrollViewReader { proxy in
@@ -224,7 +236,9 @@ struct SleepView: View {
                         // it every time the connection flaps.
                         roomCard(page)
                             .saturation(liveness.saturation)
-                        detailsDisclosure
+                        DetailsDisclosureRow(open: detailsOpen) {
+                            withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) { detailsOpen.toggle() }
+                        }
                         if detailsOpen {
                             SleepDetails(page: page, liveness: liveness, pageError: pageError,
                                          status: sleepVM.status, episodes: sleepVM.queuedEpisodes,
@@ -237,8 +251,9 @@ struct SleepView: View {
                     .frame(maxWidth: SleepLayout.contentWidth)
                     .frame(maxWidth: .infinity, alignment: .top)
                     // I4 — a mood change resets the ladder: an answer about
-                    // the state that just ended is no longer true.
-                    .onChange(of: page.mood.caseName) { _, _ in room.dismissAnswers() }
+                    // the state that just ended is no longer true, and any
+                    // feed line about a moment that has passed (Z-B11).
+                    .onChange(of: page.mood.caseName) { _, _ in room.dismissSlot() }
                 }
                 // Details is built only while open, so an anchor inside it
                 // exists one update after `detailsOpen` flips: scroll then.
@@ -402,28 +417,6 @@ struct SleepView: View {
         pendingScroll = section
     }
 
-    /// The one row that opens the second surface (R-Z6). `if detailsOpen {}`
-    /// in `body`, not an opacity, is what keeps a closed Details free.
-    private var detailsDisclosure: some View {
-        Button {
-            withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) { detailsOpen.toggle() }
-        } label: {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: detailsOpen ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.font(size: 10, weight: .semibold))
-                    .frame(width: 12)
-                Text(Copy.sleepDetails)
-                    .font(CicadaTheme.font(size: 13, weight: .semibold))
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(CicadaTheme.textSecondary)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .accessibilityLabel(Copy.sleepDetails)
-        .accessibilityValue(detailsOpen ? "expanded" : "collapsed")
-    }
-
     /// PR #19 round-4 review: a single `sleepVM.load()` was fired per live
     /// count change with no follow-up. `load()` swallows its own per-fetch
     /// errors into `sleepVM.errorMessage` rather than throwing (each of
@@ -535,24 +528,18 @@ struct SleepView: View {
     // MARK: Header
 
     private var headerRow: some View {
-        // SleepView's scroll content already carries `spacingXL` padding around
-        // the whole VStack, so this header strips PageHeader's outer padding and
-        // just reuses its title typography for visual parity.
+        // The title is `PageTitle`, the same view `PageHeader` draws (Z-B4):
+        // the page keeps its own row because the title sits inside the centred
+        // column (R-Z6) with the staleness chip beside it (R-A12).
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                // The subtitle stopped rendering (Track Z §4.1: the room and
-                // its sentence say what the page does); it survives as the
-                // title's VoiceOver hint. On this one `Text`, NOT the page's
-                // `ZStack`: an accessibility modifier on a container that is
-                // not itself an element spreads to every element inside it,
-                // so every button on the page would carry it as its hint.
-                Text("Sleep Cycle")
-                    .font(CicadaTheme.titleFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
+            HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                // The subtitle stopped rendering (Track Z §4.1); it survives as
+                // the title's VoiceOver hint — on this one element, not the
+                // page's `ZStack`, where it would spread to every button.
+                PageTitle(Copy.sleepPageTitle)
                     .accessibilityHint(Copy.sleepSubtitle)
-                // R-A12: the chip is the *explanation* for the dimming below
-                // it, so it stays at full contrast and sits outside every
-                // desaturated group.
+                // R-A12: the chip explains the dimming below it, so it stays at
+                // full contrast and sits outside every desaturated group.
                 if let asOf = liveness.asOf {
                     stalenessChip(asOf)
                 }
@@ -628,7 +615,8 @@ struct SleepView: View {
             // from this group's label onto the worm's own element as its value.
             StudyRoom(page: page, statusLine: status, answers: answers, room: room,
                       episodes: sleepVM.queuedEpisodes, onOpenDetails: openDetails,
-                      onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() })
+                      onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() },
+                      reachable: liveness == .live)
                 .accessibilitySortPriority(RoomA11yOrder.room)
 
             // R-Z5 — the one slot the worm speaks in; an answer replaces the
@@ -636,6 +624,7 @@ struct SleepView: View {
             // Task 8 (Z-P5's seam is gone), so the switch is exhaustive: a
             // new action cannot ship without somewhere to go.
             RoomSentenceView(line: status, answers: answers, room: room,
+                             feedAsleep: feedIsAsleep(page.mood),
                              perform: { action in
                                  switch action {
                                  case .retry: Task { await store.refresh([.status]) }
@@ -678,6 +667,7 @@ struct SleepView: View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "moon.zzz")
                     .font(CicadaTheme.font(size: 11))
+                    .iconHover()
                 Text(whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
                                  lampLit: page.lampLit))
                     .font(CicadaTheme.captionFont)
@@ -695,5 +685,39 @@ struct SleepView: View {
                                       set: { if !$0 { room.lampPopover = nil } }),
                  arrowEdge: .bottom) { LampPopover(page: page) }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The one row that opens Details (R-Z6), with Meadow's hover (Z-B15): the
+/// chevron acknowledges the pointer once (`iconHover`) and the words brighten
+/// — a fill change, never a lift, because a row is not a card (R-M14). Its
+/// own `@State`, so a hover never re-evaluates the page. `if detailsOpen {}`
+/// in the page's `body`, not an opacity, is what keeps a closed Details free.
+private struct DetailsDisclosureRow: View {
+    let open: Bool
+    let toggle: () -> Void
+
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: open ? "chevron.down" : "chevron.right")
+                    .font(CicadaTheme.font(size: 10, weight: .semibold))
+                    .frame(width: 12)
+                    .iconHover(hovering: hovering)
+                Text(Copy.sleepDetails)
+                    .font(CicadaTheme.font(size: 13, weight: .semibold))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+            .animation(SleepMotion.hover(reduceMotion: reduceMotion), value: hovering)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel(Copy.sleepDetails)
+        .accessibilityValue(open ? "expanded" : "collapsed")
     }
 }
