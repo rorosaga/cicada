@@ -1706,6 +1706,62 @@ actor APIClient {
         return try await post("/sources/sync-notes")
     }
 
+    // MARK: - Local sources (G133 / G134)
+
+    /// `GET /sources/folders` — the active memory's watched folders.
+    func fetchFolders() async throws -> [FolderRegistration] {
+        let response: FolderListResponse = try await get("/sources/folders")
+        return response.folders
+    }
+
+    /// `POST /sources/folders` — register (or re-pick) a folder; the backend
+    /// stamps the device and anchors the project by name (R-LS9, R-LS13).
+    func registerFolder(label: String, path: String, projectName: String,
+                        authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration {
+        try await post("/sources/folders", body: [
+            "label": label, "path": path, "projectName": projectName,
+            "authorship": authorship.map { ["glob": $0.glob, "authorship": $0.authorship] },
+        ])
+    }
+
+    func updateFolder(id: String, authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration {
+        try await put("/sources/folders/\(encodedID(id))", body: [
+            "authorship": authorship.map { ["glob": $0.glob, "authorship": $0.authorship] },
+        ])
+    }
+
+    func removeFolder(id: String) async throws {
+        _ = try await delete("/sources/folders/\(encodedID(id))")
+    }
+
+    /// `POST /sources/folders/{id}/sync` — file bytes as base64 (R-LS8).
+    func syncFolder(id: String, files: [FolderUpload], deleted: [String], preview: Bool,
+                    resolve: Bool) async throws -> FolderSyncResult {
+        let body: [String: Any] = [
+            "files": files.map { ["relpath": $0.relpath, "mtime": $0.mtime, "sha256": $0.sha256,
+                                  "contentB64": $0.data.base64EncodedString()] },
+            "deleted": deleted,
+        ]
+        return try await post("/sources/folders/\(encodedID(id))/sync?preview=\(preview)&resolve=\(resolve)", body: body)
+    }
+
+    func fetchWisprSettings() async throws -> WisprFlowSettings {
+        try await get("/capture/local-source/wispr-flow/settings")
+    }
+
+    func saveWisprSettings(_ settings: WisprFlowSettings) async throws -> WisprFlowSettings {
+        try await put("/capture/local-source/wispr-flow/settings", body: [
+            "enabled": settings.enabled, "includeDictation": settings.includeDictation,
+            "ownerSpeakerNames": settings.ownerSpeakerNames,
+        ])
+    }
+
+    /// `POST /capture/local-source/wispr-flow` — a projection already serialised
+    /// off the main actor by `WisprFlowReader`, so only `Data` crosses into the actor.
+    func postWisprFlow(_ json: Data) async throws -> WisprFlowSyncResult {
+        try await postData("/capture/local-source/wispr-flow", json: json)
+    }
+
     // MARK: - RSS feed subscriptions (G9)
 
     /// `GET /sources/feeds` → every subscribed RSS/Atom feed, in subscription order.
@@ -2070,6 +2126,21 @@ actor APIClient {
         return try decoder.decode(T.self, from: data)
     }
 
+    private func postData<T: Decodable>(_ path: String, json: Data) async throws -> T {
+        var request = makeRequest(path, method: "POST")
+        request.httpBody = json
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverUnreachable
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.httpError(http.statusCode, msg)
+        }
+        return try decoder.decode(T.self, from: data)
+    }
+
     @discardableResult
     private func post(_ path: String, body: [String: Any]? = nil) async throws -> Data {
         var request = makeRequest(path, method: "POST")
@@ -2394,3 +2465,6 @@ extension APIClient: SyncAPI {
         return (SSELineSplitter.lines(from: bytes), http)
     }
 }
+
+/// G133 / G134 — `LocalSourceWatcher` talks to the backend through this seam.
+extension APIClient: LocalSourcesAPI {}
