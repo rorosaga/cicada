@@ -12,6 +12,11 @@ enum FoundTurnOnResult: Equatable {
     /// Cursor asks the person itself; nothing more for Cicada to know.
     case openedApp
     case finishInSettings(SettingsSection)
+    /// Re-probed and still not on, with nothing Cicada could run: no verdict of
+    /// its own — the host clears its row so the fresh derived readiness shows
+    /// (I-b final review, finding 1: a sticky `.failed` here outlived a later
+    /// healthy probe for the rest of the session).
+    case rechecked
 }
 
 /// Everything a turn-on touches, injected (FoundTurnOnTests), all main-actor
@@ -64,7 +69,15 @@ enum FoundTurnOn {
                 return .failed(Copy.foundBackendDown)
             }
             if agent.connect.isEmpty {
-                return agent.recall == "on" && agent.autosave == "on" ? .on(nil) : .failed(Copy.foundCouldNotCheck)
+                // No steps: usually a probe that timed out (`unknown`), so the
+                // row reads "couldn't check". Its Retry is a re-probe, as part
+                // a's strip was (`AgentConnect.run([])` → `.done` → refresh):
+                // ask again, and let the fresh answer decide — never a
+                // `.failed` that a later healthy probe cannot clear.
+                if Self.isOn(agent) { return .on(nil) }
+                await deps.refresh()
+                let fresh = deps.wiring()?.agents.first { $0.id == agentId }
+                return fresh.map(Self.isOn) == true ? .on(nil) : .rechecked
             }
             let outcome = await deps.connect(agent.connect, deps.installRoot, Set(wiring.agents.compactMap(\.binary)))
             await deps.refresh()
@@ -93,4 +106,6 @@ enum FoundTurnOn {
             return .finishInSettings(.integrations)
         }
     }
+
+    private static func isOn(_ agent: AgentWiring) -> Bool { agent.recall == "on" && agent.autosave == "on" }
 }

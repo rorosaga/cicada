@@ -70,6 +70,9 @@ struct SettingsGeneralView: View {
                         // index lands on both.
                         Button(Copy.gsShowChecklist) {
                             GettingStartedState.record(bank: store.bank, enabled: [])
+                            // A card already seen done this session would
+                            // otherwise reopen as "You're set up." (finding 4).
+                            runner.sawDoneThisSession = false
                             runner.checklistChanged()
                             router.pendingTab = .home
                             router.activateMainWindow()

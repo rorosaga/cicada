@@ -35,6 +35,34 @@ final class FoundTurnOnTests: XCTestCase {
         XCTAssertEqual(invalid, .failed(Copy.foundInvalidSettings))
     }
 
+    private func unprobed(recall: String = "unknown", autosave: String = "unknown") -> AgentWiringResponse {
+        AgentWiringResponse(agents: [AgentWiring(id: "codex", installed: true, binary: "/bin/codex", recall: recall,
+                                                 autosave: autosave, connect: [], detail: nil)],
+                            python: "/R/api/.venv/bin/python", repo: "/R", memory: "/M")
+    }
+
+    /// I-b final review, finding 1 — a probe that timed out has no steps; its
+    /// Retry re-probes, and a healthy answer turns the row on.
+    func testNoStepsReprobesAndAHealthyAnswerIsOn() async {
+        var current = unprobed()
+        var refreshes = 0
+        let d = FoundTurnOnDeps(wiring: { current }, installRoot: URL(fileURLWithPath: "/R"),
+                                connect: { _, _, _ in XCTFail("nothing to run"); return .done },
+                                syncBrowser: { _ in "" }, readiness: { _ in nil }, open: { _ in },
+                                commitDrop: { _ in nil },
+                                refresh: { refreshes += 1; current = self.unprobed(recall: "on", autosave: "on") })
+        let r = await FoundTurnOn.run(.agent("codex"), deps: d)
+        XCTAssertEqual(refreshes, 1, "Retry is a re-probe")
+        XCTAssertEqual(r, .on(nil))
+    }
+
+    /// …and a probe still unanswered hands the row back to the derived
+    /// readiness (`.rechecked`), never a sticky `.failed` a later probe cannot clear.
+    func testNoStepsAndStillUnknownIsNeverAStickyFailure() async {
+        let r = await FoundTurnOn.run(.agent("codex"), deps: deps(wiring: unprobed()))
+        XCTAssertEqual(r, .rechecked)
+    }
+
     func testNoWiringMeansTheBackendIsDownNotThatTheAgentIsOff() async {
         let r = await FoundTurnOn.run(.agent("codex"), deps: deps(wiring: nil))
         XCTAssertEqual(r, .failed(Copy.foundBackendDown))

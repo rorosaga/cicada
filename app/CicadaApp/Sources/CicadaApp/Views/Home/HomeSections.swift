@@ -231,7 +231,10 @@ struct LastReadSection: View {
 
     var body: some View {
         HomeCard(title: Copy.homeLastRead) {
-            switch HomeFigures.lastRead(sleepVM.history, loaded: sleepVM.historyLoaded) {
+            switch HomeFigures.lastRead(sleepVM.history, loaded: sleepVM.historyLoaded,
+                                        hasRunBefore: sleepVM.status?.debt.hasRunBefore
+                                            ?? store.status.value.map { $0.lastSleepAt != nil },
+                                        lastSleepAt: store.status.value?.lastSleepAt) {
             case .loading:
                 HomeUnknown()
                     .padding(.horizontal, CicadaTheme.spacingSM)
@@ -242,6 +245,24 @@ struct LastReadSection: View {
                     .padding(.horizontal, CicadaTheme.spacingSM)
             case .entry(let entry):
                 read(entry)
+            case .earlier(let at):
+                // Off the history page: the day the status gives, and the page
+                // that owns the rest — never counts this card did not read.
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    if let day = at.flatMap({ HomeFigures.day($0, locale: .autoupdatingCurrent) }) {
+                        Text(day)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                    } else {
+                        HomeUnknown()
+                    }
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    Button(Copy.homeOpenSleep) { selectedTab = .sleep }
+                        .buttonStyle(.cicadaPlain)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.accent)
+                }
+                .padding(.horizontal, CicadaTheme.spacingSM)
             }
         }
     }

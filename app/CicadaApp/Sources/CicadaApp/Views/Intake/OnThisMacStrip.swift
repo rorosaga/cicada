@@ -111,7 +111,7 @@ struct OnThisMacStrip: View {
         refused[item.id] = nil
         let result = await FoundTurnOn.run(item.id, deps: .live(inventory: inventory, watcher: watcher, intake: intake))
         switch result {
-        case .on, .openedApp, .finishInSettings, .needsPermission:
+        case .on, .openedApp, .finishInSettings, .needsPermission, .rechecked:
             states[item.id] = nil
         case .refused(let lines):
             states[item.id] = nil

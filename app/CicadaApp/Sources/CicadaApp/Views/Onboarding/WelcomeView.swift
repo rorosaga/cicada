@@ -38,6 +38,10 @@ struct WelcomeView: View {
     @State private var owner: OwnerSettings?
     @State private var editingName = false
     @FocusState private var nameFocused: Bool
+    /// The Welcome's own keyboard anchor (I-b final review, finding 3): with the
+    /// window underneath inert, something here must hold focus, or Esc
+    /// (`onExitCommand`, R-IB16) reaches no one.
+    @FocusState private var rootFocused: Bool
     @AccessibilityFocusState private var headlineFocused: Bool
     @State private var ticked: Set<FoundItemID> = []
     @State private var touched: Set<FoundItemID> = []
@@ -81,6 +85,13 @@ struct WelcomeView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .focusable()
+        .focusEffectDisabled()
+        .focused($rootFocused)
+        .defaultFocus($rootFocused, true)
+        // `defaultFocus` answers when the window first settles focus; the
+        // Welcome can rise later (a bank switch, Run setup again), so claim it.
+        .onAppear { Task { @MainActor in if !editingName { rootFocused = true } } }
         .onExitCommand { if mode == .rerun { onClose() } }
         .task { await load() }
         // W5 — a Full Disk Access grant lands while Cicada is in the background:
@@ -105,7 +116,9 @@ struct WelcomeView: View {
         }
         .onChange(of: editingName) { _, editing in
             // The field exists only once this update lands, so focus it after.
-            if editing { Task { @MainActor in nameFocused = true } }
+            // Leaving the field hands focus back to the Welcome's anchor, so
+            // Esc and Start's Return still land here (finding 3).
+            Task { @MainActor in if editing { nameFocused = true } else { rootFocused = true } }
         }
     }
 

@@ -16,6 +16,9 @@ struct HomeToday: Equatable {
 enum HomeLastRead: Equatable {
     case loading, never
     case entry(SleepHistoryEntry)
+    /// A read happened, but its commit is past the history page (the status's
+    /// `lastSleepAt`, when it has one, dates it).
+    case earlier(String?)
 }
 
 struct HomeNeedsYou {
@@ -59,9 +62,21 @@ enum HomeFigures {
     }
 
     /// A decay split or an inbox commit is not a read (G85): only `kind == "sleep"`.
-    static func lastRead(_ history: [SleepHistoryEntry], loaded: Bool) -> HomeLastRead {
+    ///
+    /// No sleep row on the page is not "never" (R-A14, never a guess): `GET
+    /// /sleep/history` returns the newest 15 commits, inbox resolutions included,
+    /// so fifteen answers since the last read push it off the page — and a decay
+    /// commit only exists because a Sleep ran. "Nothing read yet" needs the
+    /// status to say no read ever ran; a read that did run but is off the page
+    /// is `.earlier` (I-b final review, finding 5). `hasRunBefore` nil = unknown.
+    static func lastRead(_ history: [SleepHistoryEntry], loaded: Bool,
+                         hasRunBefore: Bool?, lastSleepAt: String?) -> HomeLastRead {
         if let e = history.first(where: { $0.kind == "sleep" }) { return .entry(e) }
-        return loaded ? .never : .loading
+        guard loaded else { return .loading }
+        if hasRunBefore == true || lastSleepAt != nil || history.contains(where: { $0.kind == "decay" }) {
+            return .earlier(lastSleepAt)
+        }
+        return hasRunBefore == false ? .never : .loading
     }
 
     static func lastReadLine(_ e: SleepHistoryEntry, locale: Locale = .autoupdatingCurrent) -> String {

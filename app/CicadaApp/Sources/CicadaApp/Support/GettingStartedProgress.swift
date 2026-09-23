@@ -102,8 +102,16 @@ enum GettingStartedProgress {
 
     /// R-IB18: done is every row On (or settled), a first read that happened,
     /// and a schedule answer — the three things the card exists to see through.
-    static func isDone(rows: [GettingStartedRow], hasRunBefore: Bool, scheduleAnswered: Bool) -> Bool {
-        rows.allSatisfy { $0.state == .on } && hasRunBefore && scheduleAnswered
+    ///
+    /// An EMPTY checklist is not "every row On" while Also found still offers
+    /// something: *Show setup checklist* records no rows, and on an established
+    /// bank the vacuous `allSatisfy` made the card say only "You're set up." and
+    /// hide itself — never listing what was found, the one thing that button is
+    /// for (R-IB17; I-b final review, finding 4).
+    static func isDone(rows: [GettingStartedRow], hasRunBefore: Bool, scheduleAnswered: Bool,
+                       alsoFoundIsEmpty: Bool = true) -> Bool {
+        guard !rows.isEmpty || alsoFoundIsEmpty else { return false }
+        return rows.allSatisfy { $0.state == .on } && hasRunBefore && scheduleAnswered
     }
 
     /// R-IB17: only a bank the Welcome ran on (or *Show setup checklist*

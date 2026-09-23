@@ -59,9 +59,10 @@ struct GettingStartedCard: View {
         // R-IB20: unknown is never an answer — a placeholder `manual` is not "asked".
         let scheduleAnswered = record.scheduleAsked
             || (sleepVM.scheduleLoaded && !ScheduleChoice.asks(sleepVM.schedule))
-        let done = GettingStartedProgress.isDone(rows: rows, hasRunBefore: hasRunBefore,
-                                                 scheduleAnswered: scheduleAnswered)
         let alsoFound = GettingStartedProgress.alsoFound(inputs)
+        let done = GettingStartedProgress.isDone(rows: rows, hasRunBefore: hasRunBefore,
+                                                 scheduleAnswered: scheduleAnswered,
+                                                 alsoFoundIsEmpty: alsoFound.isEmpty)
         let hasDrop = rows.contains { if case .dropped = $0.id { return true }; return false }
 
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {

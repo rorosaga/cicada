@@ -35,7 +35,13 @@ enum OnboardingFlow {
         if mode == .firstRun {
             steps += [.markOnboarded, .recordGettingStarted(ticked), .showHome]
         } else {
-            steps += [.recordGettingStarted(ticked), .close]
+            // Run setup again reset the bank's flag before raising the Welcome,
+            // so a saved rerun marks it again — as `FirstRunSheet.finish()`
+            // always did. Without it an empty bank re-raised the first-run
+            // Welcome (demo link, no Esc) at the next launch or graph reload
+            // (I-b final review, finding 2). Close with no changes keeps
+            // "shows again next launch".
+            steps += [.markOnboarded, .recordGettingStarted(ticked), .close]
         }
         steps += ticked.map { StartStep.turnOn($0) }
         return steps

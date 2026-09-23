@@ -191,6 +191,13 @@ struct ContentView: View {
         // backed by an `@Observable` store, so each view that reads a token
         // subscribes to the mode itself and repaints on its own.
         .navigationSplitViewStyle(.prominentDetail)
+        // The Welcome is an overlay, not a modal sheet, so without this the
+        // split view under it stays live: Home's field takes keyboard focus and
+        // swallows typing, Tab and VoiceOver reach the hidden sidebar and cards,
+        // ⌘1–7 switch a hidden tab, and in rerun mode Home's Esc answers before
+        // the Welcome's (I-b final review, finding 3). Inert while it shows.
+        .disabled(showFirstRun)
+        .accessibilityHidden(showFirstRun)
         // Track I T5 (R-IA24) — drop anywhere: one window-level target, the veil
         // while a file hovers, the overlay while the router shows it.
         .overlay { IntakeLayer(dropTargeted: dropTargeted && !showFirstRun) }

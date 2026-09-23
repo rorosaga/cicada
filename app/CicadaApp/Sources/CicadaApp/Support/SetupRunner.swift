@@ -115,7 +115,7 @@ final class SetupRunner {
         case .openedApp:
             rows[id] = .on
             effects.settle(id)
-        case .finishInSettings:
+        case .finishInSettings, .rechecked:
             rows[id] = nil
         }
     }

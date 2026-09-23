@@ -44,9 +44,24 @@ final class HomeFiguresTests: XCTestCase {
 
     func testLastReadIsTheNewestSleepCommitNeverADecayOrInboxOne() throws {
         let decay = try entry("d1", kind: "decay"), sleep = try entry("s1"), older = try entry("s0")
-        XCTAssertEqual(HomeFigures.lastRead([decay, sleep, older], loaded: true), .entry(sleep))
-        XCTAssertEqual(HomeFigures.lastRead([decay], loaded: true), .never)
-        XCTAssertEqual(HomeFigures.lastRead([], loaded: false), .loading, "history is not disk-cached — '—' until it lands")
+        XCTAssertEqual(HomeFigures.lastRead([decay, sleep, older], loaded: true, hasRunBefore: true, lastSleepAt: nil),
+                       .entry(sleep))
+        XCTAssertEqual(HomeFigures.lastRead([], loaded: false, hasRunBefore: nil, lastSleepAt: nil), .loading,
+                       "history is not disk-cached — '—' until it lands")
+        XCTAssertEqual(HomeFigures.lastRead([], loaded: true, hasRunBefore: false, lastSleepAt: nil), .never)
+    }
+
+    /// I-b final review, finding 5 — the history page is the newest 15 commits,
+    /// inbox answers included: a read pushed off it is not "Nothing read yet".
+    func testALastReadOffTheHistoryPageIsNeverNothingReadYet() throws {
+        let decay = try entry("d1", kind: "decay"), inbox = try entry("i1", kind: "inbox")
+        XCTAssertEqual(HomeFigures.lastRead([decay], loaded: true, hasRunBefore: nil, lastSleepAt: nil), .earlier(nil),
+                       "a decay commit only exists because a Sleep ran")
+        XCTAssertEqual(HomeFigures.lastRead(Array(repeating: inbox, count: 15), loaded: true,
+                                            hasRunBefore: true, lastSleepAt: "2026-09-20T03:00:00Z"),
+                       .earlier("2026-09-20T03:00:00Z"))
+        XCTAssertEqual(HomeFigures.lastRead([inbox], loaded: true, hasRunBefore: nil, lastSleepAt: nil), .loading,
+                       "the status not yet known is never a guess either way")
     }
 
     func testLastReadLineStatesTheDayAndOnlyTheCountsThatHappened() throws {

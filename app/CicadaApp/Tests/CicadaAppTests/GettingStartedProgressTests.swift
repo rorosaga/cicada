@@ -70,6 +70,20 @@ final class GettingStartedProgressTests: XCTestCase {
         XCTAssertFalse(GettingStartedProgress.isDone(rows: on, hasRunBefore: true, scheduleAnswered: false))
     }
 
+    /// I-b final review, finding 4 — *Show setup checklist* records no rows; on
+    /// an established bank that must list Also found, not declare itself done.
+    func testAnEmptyChecklistIsNotDoneWhileSomethingIsStillOffered() {
+        XCTAssertFalse(GettingStartedProgress.isDone(rows: [], hasRunBefore: true, scheduleAnswered: true,
+                                                     alsoFoundIsEmpty: false))
+        XCTAssertTrue(GettingStartedProgress.isDone(rows: [], hasRunBefore: true, scheduleAnswered: true,
+                                                    alsoFoundIsEmpty: true),
+                      "nothing offered and nothing ticked: set up")
+        let on = [GettingStartedRow(id: .agent("codex"), title: "Codex", detail: "", state: .on)]
+        XCTAssertTrue(GettingStartedProgress.isDone(rows: on, hasRunBefore: true, scheduleAnswered: true,
+                                                    alsoFoundIsEmpty: false),
+                      "a checklist someone saw through is done; an untouched offer does not hold it open")
+    }
+
     func testTheCardShowsOnlyForARecordedUnhiddenBank() {
         XCTAssertFalse(GettingStartedProgress.visible(record: nil))
         XCTAssertTrue(GettingStartedProgress.visible(record: GettingStartedRecord()))
