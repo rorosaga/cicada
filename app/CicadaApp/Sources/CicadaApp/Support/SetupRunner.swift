@@ -42,6 +42,10 @@ final class SetupRunner {
     private(set) var engineError: String?
     /// "You're set up." shows for the rest of the session once, then the card hides.
     var sawDoneThisSession = false
+    /// W14: after Start, VoiceOver focus moves to the Getting started heading —
+    /// once. Held here, not in the card, because Home is rebuilt on every tab
+    /// switch (R-IB3) and a view's own flag would move focus on every ⌘1.
+    var movedFocusToChecklist = false
     /// Bumped after every `GettingStartedState` write, so Home and the card —
     /// which read the record straight from defaults in `body` (four keys) —
     /// re-render when it changes. Defaults are not observable; this is.

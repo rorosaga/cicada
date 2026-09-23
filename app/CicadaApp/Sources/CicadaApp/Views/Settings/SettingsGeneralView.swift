@@ -16,6 +16,7 @@ struct SettingsGeneralView: View {
     // `AppRouter` use — see that type's own doc comment).
     @Environment(AppRouter.self) private var router
     @Environment(Store.self) private var store
+    @Environment(SetupRunner.self) private var runner
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -111,6 +112,18 @@ struct SettingsGeneralView: View {
             Button("Run setup again") {
                 OnboardingState.reset(bank: store.bank)
                 router.requestFirstRun()
+            }
+            .buttonStyle(.cicadaPlain)
+            .foregroundStyle(CicadaTheme.accent)
+            // R-IB17 — the checklist is re-openable: records an (empty) Getting
+            // started card for the active bank and lands on Home, where it
+            // lists what was found. The design's "Show setup checklist" row,
+            // until Track O moves it into Settings v3.
+            Button(Copy.gsShowChecklist) {
+                GettingStartedState.record(bank: store.bank, enabled: [])
+                runner.checklistChanged()
+                router.pendingTab = .home
+                router.activateMainWindow()
             }
             .buttonStyle(.cicadaPlain)
             .foregroundStyle(CicadaTheme.accent)

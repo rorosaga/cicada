@@ -159,7 +159,7 @@ struct TodaySection: View {
                     .foregroundStyle(CicadaTheme.textPrimary)
             }
             Spacer(minLength: CicadaTheme.spacingSM)
-            // A link to the page that owns the queue — never `triggerManually` (G125 R10).
+            // A link to the page that owns the queue — never a Sleep trigger (G125 R10).
             Button(Copy.homeOpenSleep) { selectedTab = .sleep }
                 .buttonStyle(.cicadaPlain)
                 .font(CicadaTheme.captionFont)

@@ -16,11 +16,11 @@ import SwiftUI
 struct HomeView: View {
     let open: (FindDestination) -> Void
     @Binding var selectedTab: AppTab
-    /// Task 3 fills this from the Getting started record; while its read row
-    /// shows, TODAY omits its own waiting clause (`HomeLayout`, every number once).
-    var gettingStartedVisible = false
 
     @Environment(HomeSearch.self) private var search
+    /// Getting started's record lives in defaults (not observable); the
+    /// runner's revision is what makes a record write re-render Home.
+    @Environment(SetupRunner.self) private var runner
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -30,15 +30,25 @@ struct HomeView: View {
                                                    mode: search.model.mode)
         // One clock per evaluation, so every section agrees on which UTC day "today" is.
         let today = Date()
+        let _ = runner.checklistRevision
+        // While the card's read row shows, TODAY omits its own waiting clause
+        // (`HomeLayout`, every number once).
+        let gettingStartedVisible = GettingStartedProgress.visible(record: GettingStartedState.load(bank: store.bank))
+            || runner.sawDoneThisSession
         VStack(spacing: 0) {
             band
             VStack(spacing: CicadaTheme.spacingLG) {
                 fieldColumn(showsResults: showsResults)
                 if !showsResults {
                     ScrollView {
-                        HomeSections(today: today, gettingStartedVisible: gettingStartedVisible,
-                                     selectedTab: $selectedTab)
-                            .padding(.bottom, CicadaTheme.spacingXL)
+                        VStack(spacing: CicadaTheme.spacingLG) {
+                            // Between the field and TODAY, and only while the cards
+                            // show (R-IB6): the first keystroke replaces it too.
+                            GettingStartedCard(selectedTab: $selectedTab)
+                            HomeSections(today: today, gettingStartedVisible: gettingStartedVisible,
+                                         selectedTab: $selectedTab)
+                        }
+                        .padding(.bottom, CicadaTheme.spacingXL)
                     }
                     .scrollIndicators(.automatic)
                     .transition(.opacity)
@@ -52,8 +62,10 @@ struct HomeView: View {
         .background(CicadaTheme.background)
         // Sleep history is not disk-cached (design §6.3): fetch it on every
         // arrival so LAST READ is "—" only until it lands, never a stale read.
+        // A load whose schedule fetch failed is retried here too, or Getting
+        // started's schedule question would never be asked (R-IB20).
         .task {
-            if sleepVM.status == nil { await sleepVM.load() } else { await sleepVM.loadHistory() }
+            if sleepVM.status == nil || !sleepVM.scheduleLoaded { await sleepVM.load() } else { await sleepVM.loadHistory() }
         }
     }
 
