@@ -112,6 +112,11 @@ final class SleepViewModel {
     /// real `GET /sleep/engine` call (R-A7).
     private let fetchEngine: () async throws -> SleepEngineResponse
 
+    /// Injectable, same reasoning as `fetchSleepStatus` (Track Z Z-P18) — the
+    /// lamp's toggle needs the write's outcome tested without a network.
+    /// Defaults to the real `PUT /sleep/schedule` call.
+    private let putSchedule: (ScheduleConfig) async throws -> ScheduleConfig
+
     /// True from the moment `cancel()` is called until the poll loop
     /// observes the cycle has actually stopped (whether because of the
     /// cancel or otherwise) — cooperative cancellation means the backend
@@ -135,6 +140,9 @@ final class SleepViewModel {
         },
         fetchEngine: @escaping () async throws -> SleepEngineResponse = {
             try await APIClient.shared.fetchSleepEngine()
+        },
+        putSchedule: @escaping (ScheduleConfig) async throws -> ScheduleConfig = {
+            try await APIClient.shared.updateSchedule($0)
         }
     ) {
         self.store = store
@@ -143,6 +151,7 @@ final class SleepViewModel {
         self.fetchHistory = fetchHistory
         self.fetchDetail = fetchDetail
         self.fetchEngine = fetchEngine
+        self.putSchedule = putSchedule
     }
 
     /// `/sleep/status` isn't a Store domain, so this mirrors the Store's
@@ -326,11 +335,18 @@ final class SleepViewModel {
         }
     }
 
-    func updateSchedule(_ new: ScheduleConfig) async {
+    /// Writes the schedule and says whether it landed (Track Z Z-P18): the Sleep
+    /// lamp's toggle snaps back with a caption on `false`. Settings and
+    /// onboarding ignore the result, as before. A failure leaves `schedule`
+    /// at what the backend still has.
+    @discardableResult
+    func updateSchedule(_ new: ScheduleConfig) async -> Bool {
         do {
-            schedule = try await APIClient.shared.updateSchedule(new)
+            schedule = try await putSchedule(new)
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 

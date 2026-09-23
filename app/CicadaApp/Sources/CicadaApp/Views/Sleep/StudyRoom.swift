@@ -85,6 +85,10 @@ struct StudyRoom: View {
     let statusLine: SentenceLine
     let answers: [SentenceLine]
     let room: RoomModel
+    /// Track Z Z6 — what a spine's popover lists, and where its "+N more" and
+    /// the remainder spine go (Details › What's waiting).
+    let episodes: [EpisodeQueueItem]
+    let onOpenDetails: (DetailsSection) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -100,9 +104,27 @@ struct StudyRoom: View {
                 .offset(x: scene.wormOrigin.x, y: -scene.wormOrigin.y)   // R-Z4: the lattice placement, whole cells
             // The REAL pile, in the column the layout reserves for it —
             // never a painted stack (P10).
-            BookPileView(books: page.books)
+            BookPileView(books: page.books, rows: page.rows, episodes: episodes, room: room,
+                         onOpenDetails: onOpenDetails)
                 .frame(width: scene.pileFrame.width, height: scene.pileFrame.height, alignment: .bottomLeading)
                 .offset(x: scene.pileFrame.minX, y: -scene.pileFrame.minY)
+            if let lamp = spots[.lamp] {
+                // I8/I9 — the lamp opens the schedule; the art never previews
+                // (P11): it relights only when `sleepVM.schedule` changes.
+                Button { room.lampPopover = .lamp } label: { Color.clear.contentShape(Rectangle()) }
+                    .buttonStyle(.cicadaPlain)
+                    .frame(width: lamp.width, height: lamp.height)
+                    .roomLinkCursor()
+                    .help(page.lampLit ? "\(page.scheduleText) · \(page.nextRunText)" : Copy.lampOffExplainer)
+                    .accessibilityLabel(lampAccessibilityLabel(lampLit: page.lampLit, scheduleText: page.scheduleText,
+                                                               nextRunText: page.nextRunText))
+                    .accessibilityHint(Copy.lampHint)
+                    .accessibilitySortPriority(RoomA11yOrder.lamp)
+                    .popover(isPresented: Binding(get: { room.lampPopover == .lamp },
+                                                  set: { if !$0 { room.lampPopover = nil } }),
+                             arrowEdge: .top) { LampPopover(page: page) }
+                    .offset(x: lamp.minX, y: -lamp.minY)
+            }
             if let worm = spots[.worm] {
                 WormHotspot(mood: page.mood, bracket: sleepDebtBracketText(page.mood, debt: page.debt),
                             help: statusLine.spoken, answers: answers, room: room)

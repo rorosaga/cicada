@@ -33,6 +33,9 @@ struct SleepDetails: View {
     let expanded: String?
     let onToggleHistory: (String) -> Void
     var onSelectEntity: ((String) -> Void)?
+    /// Track Z Z6 (I5, I7) — hands the room to What's waiting, so a row and
+    /// its spine answer each other's hover.
+    var room: RoomModel? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
@@ -43,7 +46,7 @@ struct SleepDetails: View {
                     .id(DetailsSection.lastCycle.anchorID)
             }
             StudyListCard(rows: page.rows, episodes: episodes, queueLoad: page.queueLoad,
-                          onSelectEntity: onSelectEntity)
+                          onSelectEntity: onSelectEntity, room: room)
                 .id(DetailsSection.waiting.anchorID)
                 .saturation(liveness.saturation)
             SleepReadoutView(mood: page.mood, debt: page.debt, read: page.read, total: page.total,

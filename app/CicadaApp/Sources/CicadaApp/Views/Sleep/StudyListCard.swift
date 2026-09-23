@@ -33,6 +33,20 @@ func queueRowState(_ row: StudyRow) -> QueueRowState {
     return .reading(read: read, total: total, fill: Double(read) / Double(total))
 }
 
+/// A queue row's state in words (Track Z §7.1) — the spine popover's header
+/// and a spine's tooltip, in the same nouns the row prints: `waiting` idle,
+/// `read` while running. Counts go through `UsageFormat.count` so "1,234"
+/// follows the viewer's locale, as every count on the Sources page does.
+func queueRowWords(_ state: QueueRowState, locale: Locale = .autoupdatingCurrent) -> String {
+    switch state {
+    case .waiting(let n): "\(UsageFormat.count(n, locale: locale)) waiting"
+    case .reading(let read, let total, _):
+        "\(UsageFormat.count(read, locale: locale)) of \(UsageFormat.count(total, locale: locale)) read"
+    case .done: "all read"
+    case .nextCycle: "next cycle"
+    }
+}
+
 // MARK: - The schedule sentence (P11 / R-A3)
 
 /// The desk lamp is lit iff `mode != "manual"`. **Art never carries a fact
@@ -123,6 +137,10 @@ struct StudyListCard: View {
     /// Store here, so the card and the room read one snapshot per body.
     let queueLoad: LoadState
     var onSelectEntity: ((String) -> Void)?
+    /// Track Z §7.1 (I5, I7) — the room's hover link: a row under the pointer
+    /// lifts its spine, and a spine under the pointer tints its row. `nil`
+    /// outside the Sleep page, where there is no pile to link to.
+    var room: RoomModel? = nil
 
     /// Which origins are disclosed. Local UI state, not persisted — a fresh
     /// visit to the page starts every row collapsed.
@@ -257,6 +275,9 @@ struct StudyListCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
+        .background(room?.hoveredOrigin == row.origin ? CicadaTheme.surfaceHover : Color.clear,
+                    in: RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .onHover { inside in room?.hover(origin: row.origin, inside: inside) }
         .accessibilityLabel(Self.rowAccessibilityLabel(row))
     }
 
@@ -264,7 +285,12 @@ struct StudyListCard: View {
     /// both silent to VoiceOver, so the state has to arrive here instead.
     static func rowAccessibilityLabel(_ row: StudyRow) -> String {
         switch queueRowState(row) {
-        case .waiting(let count): return "\(row.label), \(count) queued"
+        // Design I5 — the spine and the row speak one sentence, in the page's
+        // own noun ("waiting", never "queued") and with the oldest age the
+        // row prints beside its name.
+        case .waiting(let count):
+            return ["\(row.label), \(count) waiting", row.oldestAge.map { "oldest \($0)" }]
+                .compactMap { $0 }.joined(separator: ", ")
         case .reading(let read, let total, _): return "\(row.label), \(read) of \(total) read"
         case .done: return "\(row.label), fully read"
         case .nextCycle: return "\(row.label), waiting for the next cycle"

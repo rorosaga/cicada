@@ -79,6 +79,26 @@ enum Copy {
     static func scheduledRunsOn(engine: String) -> String {
         "Scheduled runs use \(engineLabel(engine))"
     }
+
+    // Track Z §7 — the room's props as controls (the lamp's popover, a
+    // spine's popover). Plain words: the lamp is the schedule, and lighting
+    // it is the one thing the toggle does.
+    static let whenIRead = "When I read"
+    static let lampOn = "The lamp is on."
+    static let lampOff = "The lamp is off."
+    static let lampOffExplainer = "I read only when you press Consolidate now."
+    static let lampHint = "Opens the schedule"
+    static let readOnSchedule = "Read on a schedule"
+    static let rhythmAndTime = "Rhythm and time:"
+    static let scheduleWriteFailed = "Couldn't change the schedule — nothing changed."
+    static let openInSources = "Open in Sources ›"
+    static func moreInDetails(_ n: Int) -> String { "+\(UsageFormat.count(n)) more in Details" }
+    /// The lamp popover's line while the lamp is off (§7.2): what a scheduled
+    /// run WOULD use, shown before the person lights it (ruling 4 at the
+    /// moment of choice).
+    static func scheduledRunsWouldUse(engine: String) -> String {
+        "If you light it, scheduled runs would use \(engineLabel(engine))"
+    }
     // MARK: The `?` popover (Track P)
     //
     // Shown on Graph, Clusters and Feed, so every sentence has to be true on

@@ -230,7 +230,7 @@ struct SleepView: View {
                                          status: sleepVM.status, episodes: sleepVM.queuedEpisodes,
                                          history: sleepVM.history, details: sleepVM.details,
                                          expanded: sleepVM.expanded, onToggleHistory: toggleHistory,
-                                         onSelectEntity: onSelectEntity)
+                                         onSelectEntity: onSelectEntity, room: room)
                         }
                     }
                     .padding(CicadaTheme.spacingXL)
@@ -582,18 +582,19 @@ struct SleepView: View {
             // the worm on its lattice, the real pile, and a hotspot layer
             // derived from the same pure layout. The bracket line (P8) moved
             // from this group's label onto the worm's own element as its value.
-            StudyRoom(page: page, statusLine: status, answers: answers, room: room)
+            StudyRoom(page: page, statusLine: status, answers: answers, room: room,
+                      episodes: sleepVM.queuedEpisodes, onOpenDetails: openDetails)
                 .accessibilitySortPriority(RoomA11yOrder.room)
 
             // R-Z5 — the one slot the worm speaks in; an answer replaces the
             // status here (R-Z7). Z-P5: an action renders as a link only once
-            // its destination exists — `.retry`, `.openDetails` and, from Z5,
-            // `.openInbox`; the lamp and the completion link stay words until
-            // the tasks that build them land.
+            // its destination exists — `.retry`, `.openDetails`, `.openInbox`
+            // (Z5) and `.openLamp` (Z6); the completion link stays words until
+            // Task 8 builds it.
             RoomSentenceView(line: status, answers: answers, room: room,
                              canPerform: { action in
                                  switch action {
-                                 case .retry, .openDetails, .openInbox: true
+                                 case .retry, .openDetails, .openInbox, .openLamp: true
                                  default: false
                                  }
                              },
@@ -602,6 +603,9 @@ struct SleepView: View {
                                  case .retry: Task { await store.refresh([.status]) }
                                  case .openDetails(let section): openDetails(section)
                                  case .openInbox: selectedTab = .inbox
+                                 // Z-P25 — the sentence names the lamp, so the
+                                 // popover points at the lamp, not the whisper line.
+                                 case .openLamp: room.lampPopover = .lamp
                                  default: break
                                  }
                              })
@@ -625,34 +629,33 @@ struct SleepView: View {
     }
 
     /// The schedule in one quiet line (§7.2) — the lamp's text twin (R-A3),
-    /// replacing the queue card's schedule row and footer (Z-P4). The
-    /// "Scheduled runs use …" difference line stays under it until the lamp's
-    /// popover (Task 7) shows the scheduled engine always: ruling 4 is never
-    /// off the page, not even for one commit.
+    /// replacing the queue card's schedule row and footer (Z-P4). Since Z6 it
+    /// is a control: it opens the same `LampPopover` the lamp does, anchored
+    /// here (Z-P25). Its "Change…" link and the "Scheduled runs use …" note
+    /// left with that step — the popover carries both, and its engine line
+    /// shows the scheduled engine ALWAYS, not only when it differs, so ruling
+    /// 4 is on screen at the moment someone chooses to schedule.
     private func whisperRow(_ page: SleepPageModel) -> some View {
-        VStack(spacing: 2) {
+        Button { room.lampPopover = .whisper } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "moon.zzz")
                     .font(CicadaTheme.font(size: 11))
                 Text(whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
                                  lampLit: page.lampLit))
                     .font(CicadaTheme.captionFont)
-                SettingsSectionLink(section: .sleep, label: Copy.changeEllipsis)
-                    .font(CicadaTheme.captionFont)
             }
             .foregroundStyle(CicadaTheme.textTertiary)
-            // R-A14 — "Next run —" is a value with a reason; an empty help
-            // string renders no tooltip, so a real time carries none.
-            .help(page.nextRunText.hasSuffix("—") ? Copy.nextRunUnknownReason : "")
-            if let note = page.scheduledEngineNote, let engine = page.scheduledEngine {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    EngineMark(engine: engine, size: 12)   // Z-P26 — a named engine wears its mark
-                    Text(note)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.cicadaPlain)
+        .roomLinkCursor()
+        // R-A14 — "Next run —" is a value with a reason; an empty help
+        // string renders no tooltip, so a real time carries none.
+        .help(page.nextRunText.hasSuffix("—") ? Copy.nextRunUnknownReason : "")
+        .accessibilityHint(Copy.lampHint)
+        .popover(isPresented: Binding(get: { room.lampPopover == .whisper },
+                                      set: { if !$0 { room.lampPopover = nil } }),
+                 arrowEdge: .bottom) { LampPopover(page: page) }
         .frame(maxWidth: .infinity)
     }
 }

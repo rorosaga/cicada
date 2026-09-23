@@ -24,6 +24,17 @@ final class AppRouterTests: XCTestCase {
         XCTAssertNil(router.consumeAddSource())
     }
 
+    /// Track Z §7.1 — a spine's "Open in Sources ›" stages the tab AND the
+    /// source together, and the Sources page consumes it exactly once.
+    func testRouteToSourceDetailStagesTheTabAndTheSourceOnce() {
+        let router = AppRouter()
+        router.routeToSourceDetail("harness:claude-code")
+        XCTAssertEqual(router.pendingTab, .sources)
+        XCTAssertEqual(router.consumeSourceDetail(), "harness:claude-code")
+        XCTAssertNil(router.pendingSourceDetail)
+        XCTAssertNil(router.consumeSourceDetail())
+    }
+
     /// recent-work #8 — both Settings → main-window hand-offs only mutated a
     /// flag. `ContentView` consumes it on the MAIN window, but nothing
     /// activated the app or ordered that window front, so Settings stayed key

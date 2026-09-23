@@ -76,4 +76,15 @@ final class RoomModelTests: XCTestCase {
         room.dismissAnswers()
         XCTAssertNil(room.answerIndex)
     }
+
+    /// I5 / I7 — an out-of-order exit never clears the neighbour's highlight.
+    func test_hoverSurvivesAnOutOfOrderExit() {
+        let room = RoomModel()
+        room.hover(origin: "claude-code", inside: true)
+        room.hover(origin: "rss", inside: true)
+        room.hover(origin: "claude-code", inside: false)
+        XCTAssertEqual(room.hoveredOrigin, "rss")
+        room.hover(origin: "rss", inside: false)
+        XCTAssertNil(room.hoveredOrigin)
+    }
 }

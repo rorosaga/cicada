@@ -87,6 +87,8 @@ final class SleepNumbersLintTests: XCTestCase {
         XCTAssertEqual(SleepMotion.beatFrameInterval, BookwormSprites.reactionInterval,
                        "one beat clock — the sprite's and the page's")
         XCTAssertEqual(SleepMotion.answerDwell, .seconds(12))
+        // Track Z Z6 — a spine lifting under the pointer.
+        XCTAssertLessThanOrEqual(SleepMotion.hoverDuration, SleepMotion.maxDuration)
     }
 
     /// Reduce Motion holds every animation at its terminal frame. `nil` is how
@@ -102,6 +104,8 @@ final class SleepNumbersLintTests: XCTestCase {
         XCTAssertNotNil(SleepMotion.disclosure(reduceMotion: false))
         XCTAssertNil(SleepMotion.sentence(reduceMotion: true))
         XCTAssertNotNil(SleepMotion.sentence(reduceMotion: false))
+        XCTAssertNil(SleepMotion.hover(reduceMotion: true))
+        XCTAssertNotNil(SleepMotion.hover(reduceMotion: false))
     }
 
     /// Design §10 — the pointer is read in ONE place under `Views/Sleep/`, the

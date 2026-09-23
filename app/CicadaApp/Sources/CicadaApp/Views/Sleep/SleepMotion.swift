@@ -57,6 +57,12 @@ enum SleepMotion {
     /// after this long with the pointer outside the room and the sentence.
     static let answerDwell: Duration = .seconds(12)
 
+    // Track Z Z6 — the props become controls.
+
+    /// A spine lifting under the pointer (§7.1), and — with feeding — the drop
+    /// outline. Quick, because it answers a pointer that is already there.
+    static let hoverDuration: TimeInterval = 0.15
+
     static func settle(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeInOut(duration: settleDuration)
     }
@@ -71,5 +77,9 @@ enum SleepMotion {
 
     static func sentence(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeInOut(duration: sentenceDuration)
+    }
+
+    static func hover(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeOut(duration: hoverDuration)
     }
 }

@@ -2,10 +2,10 @@ import CoreGraphics
 
 /// The room's three hotspots (Track Z §6.2). Spines are their own buttons
 /// inside `BookPileView` — their frames are SwiftUI layout, not lattice cells
-/// (Z-P14). Z-P14 also means only `.worm` is drawn as a button in Z5: the lamp
-/// lands with its popover (Z6) and the window with its legend (Z8), because a
-/// hotspot that opens nothing would break R-Z2. Their rectangles are derived
-/// and tested now so those tasks only add the button.
+/// (Z-P14). Z-P14 also means a hotspot is drawn as a button only once the
+/// thing it opens exists: the worm from Z5, the lamp with its popover (Z6),
+/// the window with its legend (Z8) — a hotspot that opens nothing would break
+/// R-Z2. Every rectangle is derived and tested here regardless.
 enum DeskHotspot: Hashable, CaseIterable {
     case worm, lamp, window
 }

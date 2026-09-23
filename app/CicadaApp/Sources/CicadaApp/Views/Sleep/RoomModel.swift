@@ -22,6 +22,13 @@ final class RoomModel {
     /// `nil` = the status sentence; otherwise the answer rung on show (§6.3).
     var answerIndex: Int?
     var pointerInSentence = false
+    /// Track Z Z6 (I5, I7) — the origin whose spine or Details row is under
+    /// the pointer, so the other one of the pair can answer it. Written only
+    /// on a change (`hover(origin:inside:)`).
+    var hoveredOrigin: String?
+    /// Z-P25 — one lamp popover, two anchors: which control presented it, or
+    /// `nil` while it is closed.
+    var lampPopover: LampAnchor?
 
     @ObservationIgnored private var pointerInWorm = false
     @ObservationIgnored private var lastPerkAt: Date?
@@ -61,6 +68,18 @@ final class RoomModel {
     /// so a mood change on a page nobody poked costs no observation.
     func dismissAnswers() {
         if answerIndex != nil { answerIndex = nil }
+    }
+
+    /// I5 / I7 — one spine or row reports the pointer. An exit clears the
+    /// highlight only if it still names this origin: moving from row A to
+    /// row B can deliver B's enter BEFORE A's exit, and a plain
+    /// `inside ? origin : nil` would then wipe B's highlight.
+    func hover(origin: String, inside: Bool) {
+        if inside {
+            if hoveredOrigin != origin { hoveredOrigin = origin }
+        } else if hoveredOrigin == origin {
+            hoveredOrigin = nil
+        }
     }
 
     /// Starts a beat if §6.4 allows it for `state` and Reduce Motion is off.
