@@ -30,6 +30,10 @@ struct ContentView: View {
     /// G126 R9 — consumes a Settings → Integrations "Import in Feed →"
     /// hand-off by switching the sidebar's own selection.
     @Environment(AppRouter.self) private var router
+    /// G118 slice 2 — drives the Reader inspector below; a bank switch
+    /// closes it and empties the cache (R-PU26).
+    @Environment(ProvenanceRouter.self) private var provenance
+    @Environment(ProvenanceCache.self) private var provenanceCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -49,6 +53,15 @@ struct ContentView: View {
                 // nothing on screen) posts `store.toast`; show it at the
                 // bottom of whatever page is open (§5.4).
                 .overlay(alignment: .bottom) { toastBanner }
+                // G118 slice 2 (design §4.4) — the Reader opens BESIDE whatever
+                // is showing, never over it: the entity card stays up, so a
+                // belief and the sentence it came from are on screen together.
+                // Content, not chrome, so it is never glass (R-M5).
+                .inspector(isPresented: Bindable(provenance).isPresented) {
+                    ReaderInspector()
+                        .inspectorColumnWidth(min: CicadaTheme.scaled(360), ideal: CicadaTheme.scaled(440),
+                                              max: CicadaTheme.scaled(560))
+                }
         }
         // No `.id(colorSchemeRaw)` here any more. Keying this subtree on the
         // mode string used to be what repainted it, because the tokens were
@@ -81,6 +94,14 @@ struct ContentView: View {
         // (from the on-disk cache or the network), are the two events that turn
         // an unknown input into a known one.
         .onChange(of: store.bank) { _, _ in evaluateFirstRun() }
+        // G118 slice 2 (R-PU26) — the Reader and its cache belong to no bank:
+        // episode ids restart every day in every bank, so a switch closes the
+        // Reader and forgets every cached document rather than show another
+        // bank's conversation under this one.
+        .onChange(of: store.bank) { _, _ in
+            provenance.close()
+            provenanceCache.reset()
+        }
         .onChange(of: store.banks.loadedAt) { _, _ in evaluateFirstRun() }
         .onChange(of: store.graph.loadedAt) { _, _ in evaluateFirstRun() }
         .onChange(of: selectedTab) { _, newValue in
