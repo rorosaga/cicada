@@ -1,9 +1,14 @@
 import SwiftUI
 
 /// Everything `sleepBubbleText` needs to pick a line, gathered by the caller
-/// (`SleepView`) from the same status/debt/queue data it already holds — the
-/// function itself never reaches into a view model (G125 R8: clock-free,
-/// side-effect-free, so a snapshot test never flakes).
+/// from the status/debt/queue data it already holds — the function itself
+/// never reaches into a view model (G125 R8: clock-free, side-effect-free, so
+/// a snapshot test never flakes).
+///
+/// Track Z Z2 retired the Sleep page's bubble (R-Z5: the worm speaks in one
+/// slot under the room, `roomSentence`). This context and `sleepBubbleText`
+/// stay as a shared pure function — round 3's other designs reuse the lines
+/// for Home's footer (design §3, R-A4 amended).
 struct BubbleContext: Equatable {
     var unprocessed: Int = 0
     var topOriginLabel: String?
@@ -46,77 +51,5 @@ func sleepBubbleText(_ state: BookwormState, _ ctx: BubbleContext) -> String {
         }
         return pick(["Overdue. Wake me when you can.", "\(n) to read and no night off in sight."])
     case .error: return "Last night didn't go well — see below."
-    }
-}
-
-/// The Sleep page's speech bubble (G125): a small rounded plate with a
-/// triangular tail pointing at the mascot, carrying whatever
-/// `sleepBubbleText` returns. `tail` names the edge the mascot sits on, so
-/// the caller can flip the tail without the bubble knowing its own layout
-/// context.
-struct SpeechBubbleView: View {
-    let text: String
-    var tail: Edge = .bottom
-
-    private let tailSize: CGFloat = 8
-
-    var body: some View {
-        Text(text)
-            .font(CicadaTheme.bodyFont)
-            .foregroundStyle(CicadaTheme.textPrimary)
-            .padding(CicadaTheme.spacingMD)
-            .background(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
-                    .fill(CicadaTheme.surfaceElevated)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
-                    .stroke(CicadaTheme.border, lineWidth: 1)
-            )
-            .overlay(alignment: tailAlignment) { tailShape }
-            .frame(maxWidth: 260, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Cicada says: \(text)")
-    }
-
-    private var tailAlignment: Alignment {
-        switch tail {
-        case .top: .top
-        case .bottom: .bottom
-        case .leading: .leading
-        case .trailing: .trailing
-        }
-    }
-
-    /// A small triangle pointing away from the bubble toward the mascot,
-    /// drawn (not an asset) for the same portability reason the sprites are
-    /// code-defined pixel grids — no image pipeline anywhere in the mascot.
-    @ViewBuilder
-    private var tailShape: some View {
-        Path { path in
-            switch tail {
-            case .bottom:
-                path.move(to: CGPoint(x: -tailSize, y: 0))
-                path.addLine(to: CGPoint(x: tailSize, y: 0))
-                path.addLine(to: CGPoint(x: 0, y: tailSize))
-            case .top:
-                path.move(to: CGPoint(x: -tailSize, y: 0))
-                path.addLine(to: CGPoint(x: tailSize, y: 0))
-                path.addLine(to: CGPoint(x: 0, y: -tailSize))
-            case .leading:
-                path.move(to: CGPoint(x: 0, y: -tailSize))
-                path.addLine(to: CGPoint(x: 0, y: tailSize))
-                path.addLine(to: CGPoint(x: -tailSize, y: 0))
-            case .trailing:
-                path.move(to: CGPoint(x: 0, y: -tailSize))
-                path.addLine(to: CGPoint(x: 0, y: tailSize))
-                path.addLine(to: CGPoint(x: tailSize, y: 0))
-            }
-        }
-        .fill(CicadaTheme.surfaceElevated)
-        .frame(width: tailSize * 2, height: tailSize)
-        .offset(x: tail == .bottom || tail == .top ? 20 : 0,
-                y: tail == .bottom ? tailSize : (tail == .top ? -tailSize : 0))
     }
 }

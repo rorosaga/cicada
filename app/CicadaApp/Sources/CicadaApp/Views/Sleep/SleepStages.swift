@@ -17,6 +17,10 @@ struct SleepStage: Identifiable, Equatable {
     let number: Int
     /// The strip's word: one syllable of the pipeline, no numeral.
     let shortLabel: String
+    /// The sentence's word for this stage while it runs ("Sorting…", Track Z
+    /// L5) — stored beside `shortLabel` so the strip and the sentence read one
+    /// array (P16) instead of a second map that could drift.
+    let progressive: String
     /// The popover's sentence.
     let detail: String
     /// SF Symbol for the popover row (the strip draws a pixel icon instead —
@@ -37,19 +41,19 @@ struct SleepStage: Identifiable, Equatable {
 /// five stages `CLAUDE.md`, `sleep_cycle.py` and this popover already agree on.
 enum SleepStages {
     static let all: [SleepStage] = [
-        SleepStage(id: "stage1", number: 1, shortLabel: "Read",
+        SleepStage(id: "stage1", number: 1, shortLabel: "Read", progressive: "Reading",
                    detail: "Each episode is read once for people, projects, tools and ideas.",
                    symbol: "book"),
-        SleepStage(id: "stage2", number: 2, shortLabel: "Sort",
+        SleepStage(id: "stage2", number: 2, shortLabel: "Sort", progressive: "Sorting",
                    detail: "New mentions are matched against what you already have.",
                    symbol: "arrow.triangle.merge"),
-        SleepStage(id: "stage3", number: 3, shortLabel: "Decide",
+        SleepStage(id: "stage3", number: 3, shortLabel: "Decide", progressive: "Deciding",
                    detail: "Contradictions become questions in your Inbox; old beliefs fade.",
                    symbol: "questionmark.circle"),
-        SleepStage(id: "stage4", number: 4, shortLabel: "Notice",
+        SleepStage(id: "stage4", number: 4, shortLabel: "Notice", progressive: "Noticing",
                    detail: "Habits that recur become skills.",
                    symbol: "sparkles"),
-        SleepStage(id: "stage5", number: 5, shortLabel: "File",
+        SleepStage(id: "stage5", number: 5, shortLabel: "File", progressive: "Filing",
                    detail: "Everything is written to the graph and committed with its provenance.",
                    symbol: "checkmark.seal"),
     ]

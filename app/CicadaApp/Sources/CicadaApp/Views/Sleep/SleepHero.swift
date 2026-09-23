@@ -227,18 +227,20 @@ func heroTiles(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?) -> [H
 
 // MARK: - The hero view
 
-/// The readout that sits under the study room: the promoted count with its
-/// qualifier chip, the 24-block meter that always names its noun, the three
-/// measured tiles, and **the one** Consolidate/Cancel control the Sleep page
-/// keeps (R-A7, upgrading G125 R10 — the study list's footer lost its
-/// button, and `FixWaveTests` now walks all of `Views/Sleep/` to keep it
-/// that way).
+/// The readout that sits under the study room: the 24-block meter that
+/// always names its noun, and the three measured tiles. Nothing else.
+///
+/// Track Z Z2 took its other halves away: the promoted count and its
+/// qualifier chip became the room's sentence lead (`roomSentence`, which asks
+/// `heroCount`/`heroQualifier` rather than re-deriving them — parity by
+/// construction), and the one Consolidate/Cancel control became
+/// `SleepControlRow` below. Task 4 (Z3) moves what is left into Details as
+/// the Readout.
 ///
 /// Every input is resolved by the caller, once per body evaluation (H1), so
-/// the hero can never disagree with the book pile or the queue card about
+/// the readout can never disagree with the book pile or the queue about
 /// which cycle's counts it is showing.
 struct SleepHeroView: View {
-    @Environment(SleepViewModel.self) private var sleepVM
     @Environment(Store.self) private var store
     /// R-A13: the meter's blocks ease between two readings, and Reduce Motion
     /// has to reach that easing. It did not before Task 8 — the modifier took
@@ -251,9 +253,6 @@ struct SleepHeroView: View {
     /// The sums of `resolveOriginCounts` — the running meter's two numbers.
     let read: Int
     let total: Int
-    /// `sleepVM.queuedEpisodes.count`, passed in rather than re-derived: it
-    /// is what the Consolidate button enables on, and the page already has it.
-    let queuedCount: Int
     /// The newest `kind == "sleep"` commit's measured duration
     /// (`SleepPageModel.lastCycle`, Z-P3). It used to be read here as
     /// `history.first { $0.kind != "decay" }`, which also matched an inbox
@@ -262,46 +261,12 @@ struct SleepHeroView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            countRow
             if let meter = heroMeter(mood: mood, debt: debt, read: read, total: total) {
                 meterView(meter)
             }
             tilesRow
-            controlRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: The count + its qualifier chip
-
-    private var countRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
-            if let count = heroCount(mood, debt: debt), count > 0 {
-                Text("\(count)")
-                    .font(CicadaTheme.font(size: 44, weight: .semibold, design: .rounded))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text(Copy.episodesWaiting(count))
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-            }
-            qualifierChip
-            Spacer(minLength: 0)
-        }
-        // The bracket line survives here as the group's VoiceOver label — the
-        // numeral and the chip are two halves of one sentence, and reading
-        // them as separate elements would say "205" then "behind" (P8).
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(sleepDebtBracketText(mood, debt: debt))
-    }
-
-    private var qualifierChip: some View {
-        Text(heroQualifier(mood, debt: debt))
-            .font(CicadaTheme.font(size: 11, weight: .semibold))
-            .foregroundStyle(sleepDebtBracketColor(mood))
-            .padding(.horizontal, CicadaTheme.spacingSM)
-            .padding(.vertical, 3)
-            .background(sleepDebtBracketColor(mood).opacity(0.12))
-            .clipShape(Capsule())
     }
 
     // MARK: The meter
@@ -377,33 +342,48 @@ struct SleepHeroView: View {
     private var feedingSourceCount: Int? {
         store.sourcesOverview.value.map { rows in rows.filter { $0.episodes > 0 }.count }
     }
+}
 
-    // MARK: The one Consolidate/Cancel control (R-A7)
+// MARK: - The one control (R-A7, Track Z §4.2)
 
-    private var controlRow: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                consolidateButton
-                if sleepVM.isRunning {
-                    cancelButton
+/// What the caption under the one control says: the engine THIS click would
+/// run on (ruling 4, at the moment of choice), or what Cancel does while a
+/// cycle runs; `nil` until the preview loads — a guessed engine is worse than
+/// silence.
+func controlCaption(isRunning: Bool, manualEngine: String?) -> String? {
+    if isRunning { return Copy.cancelCaption }
+    return manualEngine.map { Copy.runsOn(engine: $0) }
+}
+
+/// The page's ONE Consolidate/Cancel control (R-A7, G125 R10). While a cycle
+/// runs the one control IS Cancel — the disabled "Consolidating…" twin pill is
+/// gone (design §4.2). `FixWaveTests` pins `sleepVM.triggerManually()` to this
+/// file.
+///
+/// `consolidateEnabled` and `queuedCount` come from `SleepPageModel`, the one
+/// reading the sentence above it also drew from, so the button can never be
+/// live while the sentence says there is nothing to read.
+struct SleepControlRow: View {
+    @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(Store.self) private var store
+
+    let consolidateEnabled: Bool
+    let queuedCount: Int
+    let manualEngine: String?
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            if sleepVM.isRunning { cancelButton } else { consolidateButton }
+            if let caption = controlCaption(isRunning: sleepVM.isRunning, manualEngine: manualEngine) {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    if !sleepVM.isRunning, let engine = manualEngine { EngineMark(engine: engine) }
+                    Text(caption)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
                 }
-                Spacer(minLength: 0)
-            }
-            // The standing quota ruling, shown at the moment of choice rather
-            // than hidden: what THIS button would spend. Absent when the
-            // preview hasn't loaded — a guess would be worse than silence.
-            if let manual = sleepVM.enginePreview?.manual {
-                Text(Copy.runsOn(engine: manual.engine))
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-            if sleepVM.isRunning {
-                Text(Copy.cancelSleepExplainer)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var consolidateButton: some View {
@@ -422,25 +402,23 @@ struct SleepHeroView: View {
                 Text(sleepVM.isRunning ? Copy.consolidating : Copy.consolidateNow)
                     .font(CicadaTheme.font(size: 12, weight: .semibold))
             }
-            .foregroundStyle(isIdleAndEmpty ? CicadaTheme.textTertiary : .white)
+            .foregroundStyle(consolidateEnabled ? .white : CicadaTheme.textTertiary)
             .padding(.horizontal, CicadaTheme.spacingLG)
             .padding(.vertical, CicadaTheme.spacingSM)
-            .background(isIdleAndEmpty ? CicadaTheme.surfaceElevated : CicadaTheme.accent.opacity(0.9))
+            .background(consolidateEnabled ? CicadaTheme.accent.opacity(0.9) : CicadaTheme.surfaceElevated)
             .clipShape(Capsule())
         }
         .buttonStyle(.cicadaPlain)
-        .disabled(sleepVM.isRunning || queuedCount == 0)
+        .disabled(!consolidateEnabled)
         .help(queuedCount == 0 ? "Nothing queued right now" : "Run the Sleep cycle now")
         .accessibilityLabel(Copy.consolidateNow)
     }
 
-    private var isIdleAndEmpty: Bool { queuedCount == 0 && !sleepVM.isRunning }
-
-    /// Only shown while a cycle is running — it is the one live control the
-    /// running state offers (the trigger itself is disabled and read-only for
-    /// "Consolidating…"), which is why it moved here with the button rather
-    /// than staying in the queue card's footer. Cooperative, not instant;
-    /// `Copy.cancelSleepExplainer` says so both here and in the caption.
+    /// Only shown while a cycle is running, and then INSTEAD of Consolidate
+    /// (design §4.2): the one control is Cancel for as long as there is a
+    /// cycle to stop. Cooperative, not instant — the long
+    /// `Copy.cancelSleepExplainer` is its tooltip, and the one-line
+    /// `Copy.cancelCaption` beside it says the short form.
     private var cancelButton: some View {
         Button {
             Task { await sleepVM.cancel() }
@@ -464,5 +442,27 @@ struct SleepHeroView: View {
         .disabled(sleepVM.isCancelling)
         .help(Copy.cancelSleepExplainer)
         .accessibilityLabel(Copy.cancelSleep)
+    }
+}
+
+/// The engine a caption names, with its real mark (round-3 brief: "use logos
+/// whenever possible"; Z-P26). `claude-cli` IS Claude Code, so it borrows that
+/// origin's mark; an API key has no vendor to show.
+struct EngineMark: View {
+    let engine: String
+    var size: CGFloat = 14
+
+    var body: some View {
+        switch engine {
+        case "claude-cli":
+            OriginMark(origin: "claude-code", size: size)
+        case "ollama":
+            LogoImage(name: "ollama", size: size)
+        default:
+            Image(systemName: "key")
+                .font(CicadaTheme.font(size: size * 0.8, weight: .medium))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .frame(width: size, height: size)
+        }
     }
 }

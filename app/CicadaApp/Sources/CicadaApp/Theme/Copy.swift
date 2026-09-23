@@ -207,6 +207,13 @@ enum Copy {
         + "housekeeping checks (logos, connectors) can still run right after, "
         + "so \"Cancelling…\" may stay up a few seconds longer than expected."
 
+    /// The control row's one-line caption while a cycle runs (Track Z §4.1
+    /// sketch B); the long explainer stays the button's tooltip.
+    static let cancelCaption = "Stops at the next safe point — nothing is lost."
+    /// The whisper line's hover reason when the next run is "—" (R-A14: a dash
+    /// is a value with a reason).
+    static let nextRunUnknownReason = "The backend hasn't said when the next run is."
+
     /// Pause/resume the nightly auto-run schedule — the third quick control
     /// on the Sleep page (alongside run + cancel). The full time editor
     /// lives in Settings → Schedule (`settingsSchedule`); this only flips

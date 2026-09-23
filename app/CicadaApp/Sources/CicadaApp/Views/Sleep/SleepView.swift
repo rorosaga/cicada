@@ -600,8 +600,8 @@ struct SleepView: View {
 
     // MARK: The desk (G106 amendment; G107 art; G125 the study desk)
 
-    /// The mascot card, now "the study room" (G125 v3 Task 3): the speech
-    /// bubble over a night window, a floor lamp, a plant, a cushion and a mug,
+    /// The mascot card, now "the study room" (G125 v3 Task 3): a night
+    /// window, a floor lamp, a plant, a cushion and a mug,
     /// with the 24×24 colour bookworm (G107) sitting on the cushion at 120 pt
     /// — five whole cells per point-row, so the pixels stay crisp (ruling R3)
     /// — and the REAL `BookPileView` standing in the column
@@ -616,24 +616,17 @@ struct SleepView: View {
     /// The scene box is a FIXED height at a given zoom (R-A2), so idle →
     /// running → idle never reflows the art: the mood changes the worm's
     /// frames, never the room's geometry.
+    ///
+    /// Track Z Z2 (R-Z5): the bubble that floated above the room is gone. The
+    /// worm speaks in one fixed slot directly under it — the serif sentence —
+    /// then the one control and the whisper line, all centred on the room.
     private func deskCard(_ page: SleepPageModel) -> some View {
         let mood = page.mood
         let debt = page.debt
-        let bubbleCtx = BubbleContext(
-            unprocessed: page.debt?.unprocessedCount ?? 0,
-            topOriginLabel: page.rows.first?.label,
-            topOriginCount: page.rows.first?.count ?? 0,
-            stage: sleepVM.status?.stage ?? 0,
-            read: page.read,
-            total: page.total,
-            hoursSinceLastCycle: page.debt?.hoursSinceLastCycle
-        )
 
         let scene = deskSceneLayout(pointSize: Self.wormPointSize)
 
-        return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            SpeechBubbleView(text: sleepBubbleText(mood, bubbleCtx))
-
+        return VStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
             ZStack(alignment: .bottomLeading) {
                 // R-A3: lit exactly when Sleep is scheduled. `enabled` is
                 // `mode != "manual"` by definition (`ScheduleConfig`), so the
@@ -661,18 +654,27 @@ struct SleepView: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel(sleepDebtBracketText(mood, debt: debt))
 
-            // R-A4…R-A7 — the promoted count, the meter that names its noun,
-            // the three measured tiles and the page's one Consolidate/Cancel
-            // control. Every number it draws is resolved ABOVE, once per body
-            // evaluation (H1), and handed down: the hero can never disagree
-            // with the book pile or the queue card about which cycle's counts
-            // it is showing.
+            // R-Z5 — the one slot the worm speaks in. Z-P5: only `.retry` can
+            // be performed yet, so every other tail action renders as words
+            // until the destination it names lands (Details, the Inbox, the
+            // lamp, the completion link).
+            RoomSentenceView(line: roomSentence(page.roomContext()),
+                             canPerform: { $0 == .retry },
+                             perform: { action in
+                                 if action == .retry { Task { await store.refresh([.status]) } }
+                             })
+            SleepControlRow(consolidateEnabled: page.consolidateEnabled,
+                            queuedCount: page.queuedCount, manualEngine: page.manualEngine)
+            whisperRow(page)
+
+            // R-A5/R-A6 — the meter that names its noun and the three measured
+            // tiles, until Task 4 folds them into Details. Every number is
+            // resolved ABOVE, once per body evaluation (H1), and handed down.
             SleepHeroView(
                 mood: mood,
                 debt: debt,
                 read: page.read,
                 total: page.total,
-                queuedCount: page.queuedCount,
                 lastDurationMs: page.lastCycle?.durationMs
             )
 
@@ -715,8 +717,40 @@ struct SleepView: View {
             }
         }
         .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
         .glassCard()
+    }
+
+    /// The schedule in one quiet line (§7.2) — the lamp's text twin (R-A3),
+    /// replacing the queue card's schedule row and footer (Z-P4). The
+    /// "Scheduled runs use …" difference line stays under it until the lamp's
+    /// popover (Task 7) shows the scheduled engine always: ruling 4 is never
+    /// off the page, not even for one commit.
+    private func whisperRow(_ page: SleepPageModel) -> some View {
+        VStack(spacing: 2) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: "moon.zzz")
+                    .font(CicadaTheme.font(size: 11))
+                Text(whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
+                                 lampLit: page.lampLit))
+                    .font(CicadaTheme.captionFont)
+                SettingsSectionLink(section: .sleep, label: Copy.changeEllipsis)
+                    .font(CicadaTheme.captionFont)
+            }
+            .foregroundStyle(CicadaTheme.textTertiary)
+            // R-A14 — "Next run —" is a value with a reason; an empty help
+            // string renders no tooltip, so a real time carries none.
+            .help(page.nextRunText.hasSuffix("—") ? Copy.nextRunUnknownReason : "")
+            if let note = page.scheduledEngineNote, let engine = page.scheduledEngine {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    EngineMark(engine: engine, size: 12)   // Z-P26 — a named engine wears its mark
+                    Text(note)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     /// The one thing the hero's meter CANNOT say: that there is no baseline

@@ -98,11 +98,12 @@ func nextRunSentence(_ schedule: ScheduleConfig, nextSleepAt: String?,
 /// origin, largest pile first; a chevron discloses that origin's episodes
 /// inline. The one Consolidate/Cancel control lives in the hero since G125 v3
 /// (R-A7) — the ruling is still "exactly one on this page", only its home
-/// moved — which leaves this card saying, top to bottom, exactly one thing:
-/// **what is waiting, and when it will be read.** Under the rows sits the
-/// schedule row (the desk lamp's mandatory text twin, P11/R-A3) and then the
-/// footer: the next run, and the engine a *scheduled* run would use whenever
-/// that differs from a manual one.
+/// moved — which leaves this card saying exactly one thing: **what is
+/// waiting.** When it will be read moved out in Track Z Z2 (Z-P4): the
+/// schedule row (the desk lamp's text twin, P11/R-A3) and the next-run footer
+/// became the page's whisper line under the room, taking the "Scheduled runs
+/// use …" difference line with them, so the schedule is stated once, beside
+/// the lamp it describes.
 ///
 /// A projection over `Store.status` plus `SleepViewModel`; starts no fetches
 /// of its own. `rows` is computed by the caller (`studyRows`, in
@@ -126,10 +127,6 @@ struct StudyListCard: View {
     /// Which origins are disclosed. Local UI state, not persisted — a fresh
     /// visit to the page starts every row collapsed.
     @State private var expandedOrigins: Set<String> = []
-
-    /// Read only by `footer`'s next-run line, until Task 3 moves that line
-    /// out of this card.
-    private var status: StatusSnapshot? { store.status.value }
 
     /// PR #19 review (moved verbatim from `SleepQueueCard`, R11): a missing
     /// `store.status` is not one state, it's two — a fetch still in flight
@@ -159,17 +156,6 @@ struct StudyListCard: View {
                 .tracking(1.2)
 
             content
-
-            Divider().background(CicadaTheme.border).padding(.vertical, CicadaTheme.spacingXS)
-
-            scheduleRow
-
-            // R-A7 (upgrading G125 R10): the one Consolidate/Cancel control
-            // moved to the hero, where the decision is actually made — the
-            // count, the meter and the engine it would run on are all right
-            // there. This footer keeps only the lines that say WHEN the next
-            // run happens, and on what, without anyone clicking anything.
-            footer
 
             if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
                 Text(err)
@@ -332,41 +318,5 @@ struct StudyListCard: View {
         .frame(height: 3)
         .padding(.bottom, -1)
         .accessibilityHidden(true)
-    }
-
-    // MARK: The schedule row — the lamp's text twin (P11 / R-A3)
-
-    /// The desk scene's lamp is lit exactly when Sleep is scheduled. **No art
-    /// bit on this page carries a fact alone**, so the same state is stated
-    /// here in words, with the one link that opens where it is changed.
-    private var scheduleRow: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "moon.zzz")
-                .font(CicadaTheme.font(size: 11))
-                .foregroundStyle(CicadaTheme.textTertiary)
-            Text(scheduleSentence(sleepVM.schedule))
-                .font(CicadaTheme.font(size: 12, weight: .medium))
-                .foregroundStyle(CicadaTheme.textSecondary)
-            SettingsSectionLink(section: .sleep, label: Copy.changeEllipsis)
-                .font(CicadaTheme.captionFont)
-            Spacer(minLength: 0)
-        }
-    }
-
-    /// `nextRunSentence`, plus the scheduled engine ONLY when it differs from what
-    /// a manual run would use (R-A9) — the standing quota ruling made visible
-    /// rather than applied behind the reader's back.
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(nextRunSentence(sleepVM.schedule, nextSleepAt: status?.nextSleepAt))
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-            if let line = scheduledEngineLine(preview: sleepVM.enginePreview) {
-                Text(line)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

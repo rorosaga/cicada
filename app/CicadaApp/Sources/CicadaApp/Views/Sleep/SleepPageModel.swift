@@ -129,3 +129,13 @@ struct SleepPageModel: Equatable {
 func lastCycleEntry(_ history: [SleepHistoryEntry]) -> SleepHistoryEntry? {
     history.first { $0.kind == "sleep" }
 }
+
+extension SleepPageModel {
+    /// The sentence's inputs (Track Z §5), from this one reading.
+    func roomContext(locale: Locale = .autoupdatingCurrent) -> RoomContext {
+        RoomContext(mood: mood, debt: debt, queueLoad: queueLoad, activeStage: runningStage,
+                    read: read, total: total, cycleError: cycleError, cancelled: cancelled,
+                    capped: capped, indexWarning: indexWarning, scheduleMode: schedule.mode,
+                    topOriginLabel: topOriginLabel, topOrigin: topOrigin, locale: locale)
+    }
+}
