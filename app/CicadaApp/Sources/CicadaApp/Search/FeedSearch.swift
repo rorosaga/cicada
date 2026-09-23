@@ -2,8 +2,8 @@ import Foundation
 
 /// Every field a saved item is found by — ONE list, read by the Feed page and
 /// by the palette (design §3.7: title, site, tags plus description, about, url,
-/// channel, origin). Paper authors / arXiv id / DOI join here when Track F's
-/// `MediaFeedItem.paper` is on the wire (R-SU21).
+/// channel, origin) — and, for a paper (Track F's `MediaFeedItem.paper`), its
+/// authors, arXiv id and DOI (R-SU21).
 enum FeedSearch {
     static func fields(_ item: MediaFeedItem) -> [QuickMatch.Field] {
         var fields = [QuickMatch.Field(item.title.isEmpty ? item.url : item.title, weight: QuickMatch.Weight.name)]
@@ -16,6 +16,13 @@ enum FeedSearch {
         }
         fields.append(QuickMatch.Field(item.url, weight: QuickMatch.Weight.body))
         fields += (item.about ?? []).map { QuickMatch.Field($0, weight: QuickMatch.Weight.body) }
+        // G133 (Track F) — a paper is found by its authors, arXiv id and DOI.
+        if let paper = item.paper {
+            fields += paper.authors.map { QuickMatch.Field($0, weight: QuickMatch.Weight.alias) }
+            for id in [paper.arxivId, paper.doi].compactMap({ $0 }) where !id.isEmpty {
+                fields.append(QuickMatch.Field(id, weight: QuickMatch.Weight.keyword))
+            }
+        }
         return fields
     }
 

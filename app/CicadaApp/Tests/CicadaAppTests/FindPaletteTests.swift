@@ -11,7 +11,9 @@ final class FindPaletteTests: XCTestCase {
     private func model(_ inputs: QuickIndexInputs = FindFixtures.inputs()) -> FindPaletteModel {
         let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
-        let model = FindPaletteModel(store: store)
+        // G136 S4 — a fake server tier and a clock that never waits: no test
+        // builds a palette that could reach `APIClient.shared`.
+        let model = FindPaletteModel(store: store, api: FakeFindSearch(), sleeper: { _ in try Task.checkCancellation() })
         model.install(QuickIndex.build(inputs))
         return model
     }

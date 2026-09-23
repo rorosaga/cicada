@@ -264,11 +264,13 @@ struct FindResults: Equatable, Sendable {
 }
 
 /// R-SU18 — whether the provenance Reader (Track P's `ProvenanceRouter`,
-/// round-3 design §1.4/§4.4) is in this build. `false` until that track
-/// merges: a conversation row then opens its source's conversation list
-/// filtered to its title, and a belief's "where it was said" secondary is
-/// withheld rather than offered and dropped. Flip it in the same commit that
-/// routes `.conversation` / `.evidence` through the Reader (`ContentView.openFind`).
+/// round-3 design §1.4/§4.4) is in this build. It is (G118 slice 2 merged
+/// before Task 4): a conversation row opens the Reader on its best passage
+/// and a belief offers "where it was said" as its secondary, both routed by
+/// `ContentView.openFind` through `FindReaderRoute`. Were the Reader ever
+/// removed, this goes back to `false` in the same commit: a conversation
+/// then opens its source's list filtered to its title, and the belief's
+/// secondary is withheld rather than offered and dropped.
 enum FindReaderSeam {
-    static let isAvailable = false
+    static let isAvailable = true
 }

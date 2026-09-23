@@ -6,9 +6,9 @@ import Foundation
 enum FindFixtures {
     static func node(_ id: String, _ name: String, type: EntityType = .project, tags: [String] = [],
                      summary: String? = nil, degree: Int = 0, isHub: Bool = false,
-                     isFacet: Bool = false) -> GraphNode {
+                     isFacet: Bool = false, aliases: [String] = []) -> GraphNode {
         GraphNode(id: id, name: name, type: type, tags: tags, degree: degree, isHub: isHub,
-                  isFacet: isFacet, summary: summary)
+                  isFacet: isFacet, summary: summary, aliases: aliases)
     }
 
     static func media(_ entity: String, title: String, url: String = "https://example.com/a",

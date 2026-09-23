@@ -683,6 +683,18 @@ size slider) alongside Agents, Plans & keys and Schedule. Slice 1b (PR #58) fini
 every literal `.font(.system(size:))` / `Font.system(size:)` in `Sources/` now goes through
 `CicadaTheme.font(size:...)`, and `FontLiteralLintTests` fails the build on a new one.
 
+**Find palette (G136).** ⌘K ("Find in Memory…") and ⌘F ("Find on This Page…") are menu commands in
+`Support/FindCommands.swift` — a lint (`HiddenShortcutLintTests`) keeps both shortcuts there, and ⌘F
+reaches only the visible page's field. The palette is an overlay, chrome glass around an opaque
+body, whose instant tier (`QuickIndex`) is rebuilt off the main actor from the Store's snapshots and
+answers every keystroke with no network; ~150 ms later `GET /search` (prefix, then hybrid) appends
+conversations, beliefs (superseded ones as history) and whatever the local tier missed — a shown row
+never moves. Ask is a mode (⌘⏎) hosting the unchanged `AskPanel` body. One ranker, `QuickMatch`,
+folds text exactly like the server's `text_fold`; every in-page field is `CicadaSearchField`.
+Recents are `(kind, id)` pairs in the cache-only `.quickRecents` domain; the query is never stored,
+logged or sent anywhere but `/search` and `/conversations/recent?q=`. `FindPanelBody` is the hostable
+body (Home).
+
 **Brand marks (Track L).** One map, `OriginIconography.logoName(for:)`, and one precedence:
 **installed app icon → bundled PNG → SF Symbol**. Apple's marks are never committed (Safari and
 Apple Notes resolve through `NSWorkspace` by bundle id, then their own SF Symbol); every other mark
@@ -756,7 +768,8 @@ connectors registry rather than hardcoding a literal per adapter.
 `/banks` all return an `ETag` and honor `If-None-Match` with a `304`. This matters: `/graph` on the
 live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET /inbox` ETags over
 `inbox`+`entities`+`episodes`, and `VersionVector.swift` maps `entities` and `episodes` onto
-`.inbox`; change one half, change both.
+`.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
+(`graph.NODE_SHAPE`), bumped when a node gains a field a client must see.
 
 **Endpoint traps worth knowing before you touch them:**
 

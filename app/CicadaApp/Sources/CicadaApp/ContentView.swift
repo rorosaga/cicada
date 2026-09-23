@@ -268,13 +268,13 @@ struct ContentView: View {
                 withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .sources }
             }
         case .conversation(let target):
-            // Seam (R-SU18 → Track P, P6): the Reader opens `target.span` here
-            // once `ProvenanceRouter` lands; until then its own source lists it,
-            // filtered to its title.
-            openFind(.conversations(harness: target.harness, origin: target.origin, query: target.title))
-        case .evidence:
-            // Produced only when `FindReaderSeam.isAvailable` (R-SU18).
-            break
+            // R-SU18 — the Reader lands on the best passage; the source's own
+            // list, filtered to the title, stays one ⌥⏎ away (`.conversations`).
+            provenance.open(FindReaderRoute.target(for: target.span, title: target.title, harness: target.harness))
+        case .evidence(let span):
+            // A belief's "where it was said" (R-SU18); offered only while
+            // `FindReaderSeam.isAvailable`.
+            provenance.open(FindReaderRoute.target(for: span))
         case .inbox(let id):
             router.pendingInboxItem = id
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .inbox }
@@ -701,103 +701,98 @@ private struct ZoomButton: View {
     }
 }
 
-// MARK: - Graph node search (G123)
+// MARK: - Graph node search (G123, on the shared field — G136 S5)
 
-/// A small typeahead over the graph snapshot: ⌘F focuses it, ↑/↓ move, ⏎
-/// zooms to the node's neighbourhood and opens its card, Esc clears. Matching
-/// is local (`GraphViewModel.searchMatches`) — no request per keystroke.
+/// A small typeahead over the graph snapshot: ⏎ zooms to the node's
+/// neighbourhood and opens its card (`revealEntity`), and with nothing
+/// matched it hands the words to the ⌘K palette. ⌘F lands here only while
+/// the Graph tab is showing (R-SU10).
 struct GraphSearchField: View {
     /// R-SU10 — the graph stays mounted under every other tab, so it claims
     /// ⌘F only while it is the visible page.
     var isActive = true
     @Environment(GraphViewModel.self) private var graphVM
-    @Environment(FindPaletteModel.self) private var find: FindPaletteModel?
+    @Environment(AppRouter.self) private var router
     @State private var query = ""
     @State private var highlighted = 0
-    @FocusState private var focused: Bool
+    @State private var focused = false
+    @State private var hovered: String?
 
-    private var matches: [GraphNode] { graphVM.searchMatches(query) }
+    private var hits: [GraphViewModel.SearchHit] { graphVM.searchHits(query) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                Image(systemName: "magnifyingglass")
-                    .font(CicadaTheme.font(size: 11))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                TextField("Find a node", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(CicadaTheme.font(size: 12))
-                    .focused($focused)
-                    .frame(width: 160)
-                    .onSubmit { pick(highlighted) }
-                    .onKeyPress(.downArrow) { move(1); return .handled }
-                    .onKeyPress(.upArrow) { move(-1); return .handled }
-                    .onKeyPress(.escape) { clear(); return .handled }
-                    .onChange(of: query) { _, _ in highlighted = 0 }
-                if !query.isEmpty {
-                    Button { clear() } label: {
-                        Image(systemName: "xmark.circle.fill").font(CicadaTheme.font(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            }
-            .padding(.horizontal, CicadaTheme.spacingSM)
-            .padding(.vertical, 6)
-            .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
-            // ⌘F (the menu's Find on This Page…, G136 A6) focuses the field —
-            // only while the graph is showing and the palette is closed.
-            .publishesPageFind(enabled: isActive && !(find?.isPresented ?? false)) { focused = true }
-
-            if focused, !query.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    if matches.isEmpty {
-                        Text("No node matches")
-                            .font(CicadaTheme.font(size: 12))
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .padding(.horizontal, CicadaTheme.spacingSM)
-                            .padding(.vertical, 6)
-                    }
-                    ForEach(Array(matches.enumerated()), id: \.element.id) { index, node in
-                        HStack(spacing: CicadaTheme.spacingXS) {
-                            Circle().fill(CicadaTheme.entityColor(for: node.type)).frame(width: 7, height: 7)
-                            Text(node.name).font(CicadaTheme.font(size: 12)).lineLimit(1)
-                            Spacer(minLength: 0)
-                            Text(node.type.rawValue)
-                                .font(CicadaTheme.font(size: 10))
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                        .padding(.horizontal, CicadaTheme.spacingSM)
-                        .padding(.vertical, 5)
-                        .background(index == highlighted ? CicadaTheme.surfaceHover : .clear)
-                        .contentShape(Rectangle())
-                        .onTapGesture { pick(index) }
-                    }
-                }
-                .frame(width: 220)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .padding(.top, 4)
+            CicadaSearchField(text: $query, prompt: "Find a node", style: .overCanvas, findEnabled: isActive,
+                              width: CicadaTheme.scaled(200), onSubmit: submit, onMove: move,
+                              onFocusChange: { focused = $0 })
+                .onChange(of: query) { _, _ in highlighted = 0 }
+            if focused, !SearchAllMemoryRow.trimmed(query).isEmpty {
+                dropdown.padding(.top, CicadaTheme.spacingXS)
             }
         }
     }
 
+    private var dropdown: some View {
+        let list = hits
+        return VStack(alignment: .leading, spacing: 0) {
+            if list.isEmpty {
+                Text("No node matches")
+                    .font(CicadaTheme.font(size: 12))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .padding(.horizontal, CicadaTheme.spacingSM)
+                    .padding(.top, CicadaTheme.spacingSM)
+                SearchAllMemoryRow(query: query)
+                    .padding(.horizontal, CicadaTheme.spacingSM)
+                    .padding(.vertical, CicadaTheme.spacingXS)
+            }
+            ForEach(Array(list.enumerated()), id: \.element.node.id) { index, hit in
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    LogoImage(entityId: hit.node.id, name: hit.node.name, type: hit.node.type, size: CicadaTheme.scaled(18))
+                    Circle().fill(CicadaTheme.entityColor(for: hit.node.type))
+                        .frame(width: CicadaTheme.scaled(7), height: CicadaTheme.scaled(7))
+                    Text(ExcerptText.attributed(hit.node.name, bold: hit.ranges))
+                        .font(CicadaTheme.font(size: 12))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(hit.node.type.label)
+                        .font(CicadaTheme.font(size: 10))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+                .padding(.horizontal, CicadaTheme.spacingSM)
+                .padding(.vertical, CicadaTheme.spacingXS)
+                .background(index == highlighted || hovered == hit.node.id ? CicadaTheme.surfaceHover : Color.clear)
+                .contentShape(Rectangle())
+                .onHover { inside in hovered = inside ? hit.node.id : (hovered == hit.node.id ? nil : hovered) }
+                .onTapGesture { pick(index) }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(hit.node.type.label), \(hit.node.name)")
+                .accessibilityAddTraits(index == highlighted ? [.isButton, .isSelected] : .isButton)
+            }
+        }
+        .frame(width: CicadaTheme.scaled(260))
+        .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+    }
+
+    private func submit() {
+        if hits.isEmpty {
+            router.requestPalette(prefill: SearchAllMemoryRow.trimmed(query))
+        } else {
+            pick(highlighted)
+        }
+    }
+
     private func move(_ delta: Int) {
-        let count = matches.count
+        let count = hits.count
         guard count > 0 else { return }
         highlighted = (highlighted + delta + count) % count
     }
 
     private func pick(_ index: Int) {
-        let list = matches
+        let list = hits
         guard list.indices.contains(index) else { return }
-        graphVM.revealEntity(id: list[index].id)
-        clear()
-    }
-
-    private func clear() {
+        graphVM.revealEntity(id: list[index].node.id)
         query = ""
         highlighted = 0
-        focused = false
     }
 }
 

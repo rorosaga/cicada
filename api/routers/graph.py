@@ -16,6 +16,14 @@ def _split(value: str | None) -> set[str] | None:
     return parts or None
 
 
+# G136 S6 (plan R-SU23) — nodes gained `aliases`. The ETag's components did not
+# move (aliases already live in the entity files), so an app holding a pre-S6
+# `/graph` would 304 into an alias-less cache until some entity changed. The
+# node shape rides `extra`: every client pays one 200, once. Bump it whenever a
+# node gains a field a client must see; no `VersionVector` change is needed.
+NODE_SHAPE = "aliases"
+
+
 @router.get("/graph", response_model=GraphResponse)
 async def get_graph(
     request: Request,
@@ -28,7 +36,7 @@ async def get_graph(
     hubs_only: bool = False,
     settings: Settings = Depends(get_settings),
 ):
-    extra = f"{types}|{statuses}|{min_confidence}|{tags}|{include_hubs}|{hubs_only}"
+    extra = f"{types}|{statuses}|{min_confidence}|{tags}|{include_hubs}|{hubs_only}|{NODE_SHAPE}"
     etag = sync_service.etag_for(
         # "logos": `has_logo` rides every node's content_hash but lives in the
         # machine-global logo cache, not in the bank — see sync_service.
