@@ -488,23 +488,135 @@ def ensure_project(memory_path: Path, name: str, *, path: str, device: str) -> t
     return eid, True
 
 
-# --- Commits (R-LS30) -------------------------------------------------------
+# --- Commits (R-LS30, F2-back R-B5) -----------------------------------------
+
+#: The commits git refused, kept in the bank's own git dir — never in the tree,
+#: where the ledger would be swept into the next `git add -A` commit (G136 R2).
+PENDING_COMMITS_FILENAME = "cicada-pending-commits.json"
+#: What a folder, paper or Wispr card says while its save waits (R-B5). Plain
+#: words; the Sources card shows the first clause.
+COMMIT_FAILED_MESSAGE = ("Couldn't save the latest changes to your memory's history. "
+                         "Cicada will try again on the next sync.")
+MAX_PENDING_PATHS = 5000
+_PENDING_LOCK = threading.Lock()
+
+
+def _pending_file(memory_path: Path) -> Path | None:
+    from api.services import bank_registry
+
+    git_dir = bank_registry.git_dir(Path(memory_path))
+    return None if git_dir is None else git_dir / PENDING_COMMITS_FILENAME
+
+
+def pending_commits(memory_path: Path) -> dict[str, dict]:
+    """``{writer key: {paths, since, subject, trigger, author, channel}}`` — the
+    commits still waiting. ``{}`` for a bank without git, or when none wait."""
+    path = _pending_file(memory_path)
+    if path is None:
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+
+
+def _update_pending(memory_path: Path, key: str, *, add=(), drop=(), meta: dict | None = None) -> None:
+    """Edit one writer's entry BY PATH (R-B5): ``drop`` what just landed (or
+    whose file is gone), ``add`` what must still land. Never a whole-entry
+    set or clear: the watcher's batch and a manual Sync of one folder are two
+    runs of one writer, and a run that lands must not erase the paths the
+    other has just written ahead. An entry with no paths left is removed, and
+    the file with the last entry."""
+    path = _pending_file(memory_path)
+    if path is None:
+        return
+    with _PENDING_LOCK:
+        data = pending_commits(memory_path)
+        entry = dict(data.get(key) or {})
+        gone = set(drop)
+        paths = sorted({*(p for p in entry.get("paths") or [] if p not in gone), *add})[:MAX_PENDING_PATHS]
+        if paths:
+            data[key] = {**entry, **(meta or {}), "paths": paths,
+                         "since": entry.get("since") or episode_ids.utc_now_iso()}
+        elif key in data:
+            data.pop(key)
+        else:
+            return
+        if not data:
+            path.unlink(missing_ok=True)
+            return
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        tmp.replace(path)
 
 
 async def commit_paths_for(memory_path: Path, paths: list[str], *, subject: str, trigger: str,
-                           author: str = "user") -> None:
-    """A commit scoped to exactly ``paths`` — never ``git add -A``. Best effort:
-    a bank that is not a git repo (most unit tests) must not fail a sync."""
-    from api.services import git_service
+                           author: str = "user", channel: str | None = None) -> bool:
+    """A commit scoped to exactly ``paths`` — never ``git add -A`` (R-LS30) — plus
+    whatever this same writer could not commit last time (F2-back R-B5).
 
-    rels = sorted({p for p in paths if p})
+    ``True`` when nothing is left to commit: it landed, nothing moved, or the
+    bank has no ``.git`` of its own (most unit tests — and ``git`` would climb
+    into an enclosing repo, the ``agent_commits`` refusal). ``False`` when git
+    still refused after R-B2's retries. Then the paths stay in the ledger under
+    this writer's key, and ``channel`` (when given) records
+    :data:`COMMIT_FAILED_MESSAGE`, so the failure surfaces instead of the pages
+    riding the next ``git add -A`` writer's commit under its author — the
+    paper-details incident of the owner's 2026-09-23 review."""
+    from api.services import git_service, sync_state
+
+    memory_path = Path(memory_path)
+    if _pending_file(memory_path) is None:
+        return True
+    key = f"{trigger}|{author}|{channel or ''}"
+    kept = [p for p in (pending_commits(memory_path).get(key) or {}).get("paths") or [] if p]
+    # A kept path whose file is gone is dropped: `git add` of an untracked
+    # missing path fails, and it would fail every later run too.
+    gone = [p for p in kept if not (memory_path / p).exists()]
+    rels = sorted({p for p in [*paths, *kept] if p and p not in gone})
     if not rels:
-        return
+        _update_pending(memory_path, key, drop=gone)
+        return True
     lines = [f"{p}: updated (trigger: {trigger})" for p in rels[:200]]
     if len(rels) > 200:
         lines.append(f"… and {len(rels) - 200} more (trigger: {trigger})")
     message = git_service.build_commit_message(subject, lines, authors=[author])
+    meta = {"subject": subject, "trigger": trigger, "author": author, "channel": channel}
+    # Written ahead of the commit (the `.decay_watermarked.pending` shape): a
+    # crash mid-commit still leaves the next run a list to finish.
+    _update_pending(memory_path, key, add=rels, drop=gone, meta=meta)
     try:
-        await git_service.commit_paths(Path(memory_path), message, rels)
-    except Exception as e:  # pragma: no cover - non-git workspace
-        logger.warning(f"folder commit failed: {type(e).__name__}: {e}")
+        await git_service.commit_paths(memory_path, message, rels)
+    except Exception as e:  # noqa: BLE001 - kept and said, never raised into a sync
+        logger.warning(f"{trigger} commit refused — {len(rels)} path(s) kept for its next run: "
+                       f"{type(e).__name__}: {e}")
+        # Again, not only ahead: an overlapping run of this writer that landed
+        # meanwhile dropped the paths it committed, and these must stay kept.
+        _update_pending(memory_path, key, add=rels, meta=meta)
+        if channel:
+            sync_state.record_error(memory_path, channel, COMMIT_FAILED_MESSAGE)
+        return False
+    _update_pending(memory_path, key, drop=rels)
+    if channel:
+        sync_state.clear_error(memory_path, channel, COMMIT_FAILED_MESSAGE)
+    return True
+
+
+async def flush_pending_commits(memory_path: Path) -> int:
+    """Commit every kept writer's paths under that writer's own subject, trigger
+    and author (R-B5). ``sleep_cycle.run`` calls it before any stage writes, so
+    ``_finalize``'s ``git add -A`` never sweeps them under the cycle's model.
+    Returns how many writers landed. Never raises."""
+    landed = 0
+    for key, entry in pending_commits(memory_path).items():
+        try:
+            ok = await commit_paths_for(
+                memory_path, [], subject=str(entry.get("subject") or "Saved changes"),
+                trigger=str(entry.get("trigger") or key.split("|", 1)[0]),
+                author=str(entry.get("author") or "cicada"), channel=entry.get("channel") or None)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"kept commit not landed: {type(e).__name__}")
+            continue
+        landed += int(ok)
+    return landed

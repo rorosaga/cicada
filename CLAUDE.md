@@ -495,6 +495,10 @@ under one re-entrant lock per resolved bank path, so tasks, threads and `asyncio
 instead of colliding on `index.lock`; the backend is one process, git's own lock is the cross-process
 guard, and only its `File exists` refusal is retried (five tries, the lock never deleted). Reads pass
 `GIT_OPTIONAL_LOCKS=0`, and `test_git_write_lock.py` refuses a git write spawned anywhere else.
+A folder, paper or Wispr commit that still fails keeps its paths in `cicada-pending-commits.json`
+in the bank's own git dir (a worktree's, never the shared common dir), says so on its channel, and
+lands on that writer's next run — or at the start of the next Sleep cycle, before any stage writes —
+under its own author (R-B5).
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage

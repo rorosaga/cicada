@@ -113,6 +113,8 @@ Pro Display — semibold titles tracked 2 % tight behind the same `displayFont`,
 - One git writer per bank: every mutating git command queues on one per-bank lock, another
   process's `index.lock` is waited out and never deleted, readers never take it, and a lint keeps
   it that way (R-B1 … R-B4).
+- A folder, paper or Wispr commit git still refuses is kept, said on its channel, and landed by
+  the writer's next run or the next Sleep cycle's start under its own author (R-B5).
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.

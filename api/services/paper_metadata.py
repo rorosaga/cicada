@@ -470,14 +470,17 @@ async def run_locked(memory_path: Path, **kwargs) -> dict | None:
     finally:
         # T4 review round 1, finding 2: whatever was written is committed as `cicada` and the
         # outcome recorded even when the run raised — a page left dirty here would ride the next
-        # `git add -A` writer's commit under its author (the G85-class smear).
+        # `git add -A` writer's commit under its author (the G85-class smear). F2-back R-B5: a
+        # refused commit already said so on the `papers` line; a success stamp would erase it.
         try:
-            await folder_source.commit_paths_for(memory_path, report["paths"], subject="Paper details",
-                                                 trigger="papers/metadata", author="cicada")
-            try:
-                record(memory_path, report)
-            except Exception as e:  # noqa: BLE001 - a status line never outranks the commit
-                logger.warning(f"paper details: outcome not recorded: {type(e).__name__}")
+            committed = await folder_source.commit_paths_for(
+                memory_path, report["paths"], subject="Paper details", trigger="papers/metadata",
+                author="cicada", channel="papers")
+            if committed:
+                try:
+                    record(memory_path, report)
+                except Exception as e:  # noqa: BLE001 - a status line never outranks the commit
+                    logger.warning(f"paper details: outcome not recorded: {type(e).__name__}")
         finally:
             _run_lock.release()
 

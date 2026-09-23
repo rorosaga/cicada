@@ -61,7 +61,8 @@ async def register_folder(req: FolderRegisterRequest, settings: Settings = Depen
     if project_id:
         paths.append(f"entities/{project_id}.md")
     await folder_source.commit_paths_for(
-        memory_path, paths, subject=f"Folder added ({folder['label']})", trigger="user/companion_app")
+        memory_path, paths, subject=f"Folder added ({folder['label']})", trigger="user/companion_app",
+        channel=folder_source.channel_id(folder["id"]))
     return _record(folder)
 
 
@@ -74,7 +75,8 @@ async def update_folder(folder_id: str, req: FolderUpdateRequest, settings: Sett
         raise HTTPException(404, f"No folder {folder_id!r}")
     await folder_source.commit_paths_for(
         settings.memory_path, [f"sources/{folder_source.FOLDERS_FILENAME}"],
-        subject=f"Folder settings ({folder['label']})", trigger="user/companion_app")
+        subject=f"Folder settings ({folder['label']})", trigger="user/companion_app",
+        channel=folder_source.channel_id(folder_id))
     return _record(folder)
 
 
@@ -156,7 +158,8 @@ async def sync_folder(
     # launch) must not churn git or the sources ETag (Task 2 review, R-LS30).
     if paths:
         await folder_source.commit_paths_for(
-            memory_path, paths, subject=f"Folder sync ({folder['label']})", trigger="folder/sync")
+            memory_path, paths, subject=f"Folder sync ({folder['label']})", trigger="folder/sync",
+            channel=folder_source.channel_id(folder_id))
     if resolve:
         # R-LS18: the person asked (first add, or "Sync now") — fetch details
         # after the response, one run per process, skipped while Sleep runs.
@@ -176,7 +179,7 @@ async def put_wispr_settings(req: WisprFlowSettings, settings: Settings = Depend
                                      owner_speaker_names=req.owner_speaker_names)
     await folder_source.commit_paths_for(
         settings.memory_path, [f"sources/{wispr_flow.SETTINGS_FILENAME}"],
-        subject="Wispr Flow settings", trigger="user/companion_app")
+        subject="Wispr Flow settings", trigger="user/companion_app", channel=wispr_flow.CHANNEL_ID)
     return WisprFlowSettings(**saved)
 
 
@@ -204,5 +207,5 @@ async def capture_wispr_flow(req: WisprFlowPayload, settings: Settings = Depends
                                      defer_todos=sleeping)
     sync_state.record_sync(memory_path, wispr_flow.CHANNEL_ID, count=report.pop("live"))
     await folder_source.commit_paths_for(memory_path, report.pop("paths"), subject="Wispr Flow sync",
-                                         trigger="wispr-flow/sync")
+                                         trigger="wispr-flow/sync", channel=wispr_flow.CHANNEL_ID)
     return WisprFlowCaptureResponse(**report)

@@ -124,6 +124,29 @@ def _git_dir(path: Path) -> Path | None:
     return git_dir if git_dir.is_dir() else None
 
 
+def git_dir(path: Path) -> Path | None:
+    """This checkout's OWN git dir, or None: ``<bank>/.git``, or the ``gitdir:``
+    target of a worktree's or submodule's ``.git`` file — never the common dir
+    :func:`_git_dir` follows for ``info/exclude``. The pending-commit ledger
+    (F2-back R-B5) is per checkout: two worktree banks share one common dir,
+    and one bank's kept paths must never be committed by the other's writer.
+    It lives in a git dir for the reason ``info/exclude`` does (G136 R2): a
+    file in the tree is swept into the next ``git add -A`` commit under the
+    wrong author."""
+    dot = Path(path) / ".git"
+    if dot.is_dir():
+        return dot
+    # Same decoding guard as `_git_dir` (S-back final review): git writes bytes.
+    try:
+        head = dot.read_text(encoding="utf-8", errors="surrogateescape").strip() if dot.is_file() else ""
+        if not head.startswith("gitdir:"):
+            return None
+        own = (dot.parent / head[len("gitdir:"):].strip()).resolve()
+    except (OSError, UnicodeError, ValueError):
+        return None
+    return own if own.is_dir() else None
+
+
 def _append_exclude(path: Path, names: tuple[str, ...], header: str) -> bool:
     """Append the missing ``names`` to the repo's ``.git/info/exclude`` under
     ``header`` — never ``.gitignore`` (G136 R2: a tracked file dirtied here is
