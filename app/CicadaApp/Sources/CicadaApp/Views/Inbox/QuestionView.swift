@@ -180,7 +180,7 @@ struct QuestionView: View {
                         .foregroundStyle(CicadaTheme.textPrimary)
                     if option.recommended {
                         Text("(Recommended)")
-                            .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
+                            .font(CicadaTheme.font(size: 10, weight: .semibold))
                             .foregroundStyle(CicadaTheme.accent)
                     }
                 }
@@ -194,7 +194,7 @@ struct QuestionView: View {
             Spacer(minLength: CicadaTheme.spacingSM)
             if let capsule = option.ageCapsule {
                 Text(capsule)
-                    .font(CicadaTheme.font(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10).monospacedDigit())
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)

@@ -75,9 +75,8 @@ enum PaperCardText {
 struct PaperCard: View {
     let detail: PaperDetail
 
-    /// R-LS28 — New York italic for a provenance quote; the Meadow `quoteFont`
-    /// replaces this when M1 lands (the M2 pass).
-    private var quote: Font { CicadaTheme.font(size: 13, design: .serif).italic() }
+    /// R-LS28, re-seated by DR-18: the one quote door (SF, not italic, not serif).
+    private var quote: Font { CicadaTheme.quoteFont(size: 13) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {

@@ -154,10 +154,7 @@ struct IntegrationsView: View {
     @ViewBuilder
     private func categorySection(_ category: IntegrationCategory, rows: [SourceChannel]) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text(category.title.uppercased())
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel(category.title)
 
             VStack(spacing: 2) {
                 // Chat & agents also carries the informational harness rows

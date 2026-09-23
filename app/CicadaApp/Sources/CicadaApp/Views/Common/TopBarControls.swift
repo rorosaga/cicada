@@ -108,10 +108,7 @@ struct TopBarControls: View {
 struct AboutCicadaPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            Text("ABOUT CICADA")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("About Cicada")
 
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                 Image(systemName: "antenna.radiowaves.left.and.right")

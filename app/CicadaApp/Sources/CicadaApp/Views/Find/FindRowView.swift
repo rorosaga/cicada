@@ -59,7 +59,7 @@ struct FindRowView: View {
                 .lineLimit(1)
             if let badge = row.badge {
                 Text(badge)
-                    .font(CicadaTheme.font(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .padding(.horizontal, CicadaTheme.spacingXS)
                     .background(Capsule().fill(CicadaTheme.surfaceHover))
@@ -87,7 +87,7 @@ struct FindRowView: View {
             Text("⏎ \(FindRowText.primaryVerb(row.destination))")
             if let verb = FindRowText.secondaryVerb(row.secondary) { Text("⌥⏎ \(verb)") }
         }
-        .font(CicadaTheme.font(size: 10, design: .monospaced))
+        .font(CicadaTheme.font(size: 10))
         .foregroundStyle(CicadaTheme.textTertiary)
         .accessibilityHidden(true)
     }

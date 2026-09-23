@@ -154,7 +154,7 @@ struct WalkthroughPanel: View {
                 ForEach(Array(vendor.steps.enumerated()), id: \.offset) { index, step in
                     HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                         Text("\(index + 1)")
-                            .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
+                            .font(CicadaTheme.font(size: 10, weight: .semibold).monospacedDigit())
                             .foregroundStyle(CicadaTheme.accent)
                             .frame(width: 14, alignment: .trailing)
                         Text(step)

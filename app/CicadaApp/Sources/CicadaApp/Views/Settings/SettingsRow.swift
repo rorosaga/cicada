@@ -92,11 +92,7 @@ struct SettingsGroupHeader: View {
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text.uppercased())
-            .font(CicadaTheme.labelFont)
-            .foregroundStyle(CicadaTheme.textTertiary)
-            .tracking(1.2)
-            .accessibilityAddTraits(.isHeader)
+        SectionLabel(text)
     }
 }
 

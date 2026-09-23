@@ -65,7 +65,7 @@ struct CicadaSearchField: View {
                 .accessibilityLabel("Clear search")
             } else if Self.showsFindHint(text: text, focused: focused) {
                 Text("⌘F")
-                    .font(CicadaTheme.font(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .help("Find on this page (⌘F)")
                     .accessibilityHidden(true)

@@ -368,7 +368,7 @@ private struct TypeSectionHeader: View {
                     .foregroundStyle(CicadaTheme.textPrimary)
 
                 Text("\(count)")
-                    .font(CicadaTheme.font(size: 10, weight: .medium, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10, weight: .medium).monospacedDigit())
                     .foregroundStyle(CicadaTheme.entityColor(for: type))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
@@ -443,7 +443,7 @@ private struct TypeChip: View {
                     .foregroundStyle(isFocused ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
 
                 Text("\(count)")
-                    .font(CicadaTheme.font(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10).monospacedDigit())
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .padding(.horizontal, CicadaTheme.spacingMD)
@@ -468,10 +468,7 @@ private struct TopicsFilterPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Text("FILTER BY TYPE")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Filter by type")
                 .padding(.bottom, CicadaTheme.spacingXS)
 
             ForEach(EntityType.selectableCases) { type in
@@ -534,10 +531,7 @@ private struct TopicsLabelPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Text("FILTER BY LABEL")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Filter by label")
                 .padding(.bottom, CicadaTheme.spacingXS)
 
             HStack(spacing: CicadaTheme.spacingSM) {
@@ -583,7 +577,7 @@ private struct TopicsLabelPopover: View {
                                     Spacer()
 
                                     Text("\(count)")
-                                        .font(CicadaTheme.font(size: 10, design: .monospaced))
+                                        .font(CicadaTheme.font(size: 10).monospacedDigit())
                                         .foregroundStyle(CicadaTheme.textTertiary)
                                 }
                                 .padding(.horizontal, 4)
@@ -648,7 +642,7 @@ private struct TopicRowListItem: View {
                     .lineLimit(1)
 
                 Text(entity.type.label)
-                    .font(CicadaTheme.font(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -658,7 +652,7 @@ private struct TopicRowListItem: View {
                 Spacer()
 
                 Text(String(format: "%.0f%%", entity.confidence * 100))
-                    .font(CicadaTheme.font(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10).monospacedDigit())
                     .foregroundStyle(CicadaTheme.textTertiary)
 
                 Image(systemName: "chevron.right")

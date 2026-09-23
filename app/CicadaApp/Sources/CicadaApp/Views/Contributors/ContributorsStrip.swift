@@ -49,10 +49,7 @@ struct ContributorsStrip: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text("WHO WROTE YOUR MEMORY")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Who wrote your memory")
 
             if let err = viewModel.errorMessage {
                 errorState(err)

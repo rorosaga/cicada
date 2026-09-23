@@ -572,10 +572,7 @@ struct FilterPopoverContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Text("FILTER CATEGORIES")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Filter categories")
                 .padding(.bottom, CicadaTheme.spacingXS)
 
             ForEach(EntityType.selectableCases) { type in
@@ -602,10 +599,7 @@ struct FilterPopoverContent: View {
                 .background(CicadaTheme.border)
                 .padding(.vertical, CicadaTheme.spacingXS)
 
-            Text("STATUS")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Status")
                 .padding(.bottom, CicadaTheme.spacingXS)
 
             ForEach(EntityStatus.allCases, id: \.self) { status in
@@ -633,13 +627,10 @@ struct FilterPopoverContent: View {
                 .padding(.vertical, CicadaTheme.spacingXS)
 
             HStack {
-                Text("MIN CONFIDENCE")
-                    .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .tracking(1.2)
+                SectionLabel("Minimum confidence")
                 Spacer()
                 Text(String(format: "%.0f%%", graphVM.filter.minConfidence * 100))
-                    .font(CicadaTheme.font(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10).monospacedDigit())
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
 

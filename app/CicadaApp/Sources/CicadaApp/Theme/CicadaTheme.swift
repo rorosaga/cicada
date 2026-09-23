@@ -422,29 +422,38 @@ enum CicadaTheme {
             : .system(size: resolved, weight: weight, design: design)
     }
 
+    // MARK: - The type ladder (DESIGN_RULES §4, DR-16). SF only (DR-15).
     static var titleFont: Font { font(size: 20, weight: .semibold) }
-    static var headingFont: Font { font(size: 16, weight: .medium) }
+    /// Error-card titles and panel headings: 17 semibold (DR-16; was 16 medium).
+    static var headingFont: Font { font(size: 17, weight: .semibold) }
+    /// 13 regular — body off detail surfaces, and the command bar's placeholder. R-DS9: a global
+    /// 14 would resize 136 bodies on list pages, where the ladder wants 13.
     static var bodyFont: Font { font(size: 13) }
+    /// 14 regular — body on a detail surface (the focus card, the Reader), adopted by DS-2.
+    static var detailBodyFont: Font { font(size: 14) }
+    /// A row's title, a list question: 13 medium.
+    static var rowFont: Font { font(size: 13, weight: .medium) }
+    /// Meta, the eyebrow, source lines: 12 regular; links and the eyebrow's medium: 12 medium.
+    static var metaFont: Font { font(size: 12) }
+    static var metaMediumFont: Font { font(size: 12, weight: .medium) }
     static var captionFont: Font { font(size: 11) }
+    /// DR-19 — only for what a person would copy (MonospaceLintTests holds the list).
     static var monoFont: Font { font(size: 12, design: .monospaced) }
-    /// The small uppercase group label (design §1.3; it was retyped by hand in
-    /// ~12 files as 10 pt monospaced semibold with 1.2 tracking).
-    static var labelFont: Font { font(size: 10, weight: .semibold, design: .monospaced) }
+    /// DR-20 — the one section label: 11 medium, sentence case, never mono, never tracked.
+    /// `SectionLabel` is its one reader (SectionLabelLintTests).
+    static var labelFont: Font { font(size: 11, weight: .medium) }
+    /// The rail's pending numeral: 10 semibold, tabular at the call site (DR-16, DR-22).
+    static var badgeFont: Font { font(size: 10, weight: .semibold) }
 
-    // MARK: - Display + quote faces (G137, spec R-M3; F1 R-FX12)
-    /// Display is a role, not a face: page titles, onboarding headlines,
-    /// empty-state titles — never a number, never body text. The floor keeps
-    /// the role honest (a 13 pt "display" title is a heading), and
-    /// `FontLiteralLintTests` fails a literal below it.
-    static let displayMinimumSize: CGFloat = 22
+    // MARK: - Display + quote (DR-15, DR-18)
+    /// Display is a role, not a face: page titles, the question H1, onboarding headlines,
+    /// empty-state titles — never a number, never body text. Floor 20 (DR-15; was 22): the
+    /// Reader title and an empty state's title are 20.
+    static let displayMinimumSize: CGFloat = 20
 
-    /// SF Pro Display — the system face at display sizes (macOS picks the
-    /// Display cut itself above 20 pt): semibold for a title, regular italic
-    /// for a headline's quieter second line. The owner found the bundled
-    /// Instrument Serif too ornate (2026-09-23: "Change it to something more
-    /// minimal"), so nothing is bundled or registered and the API every caller
-    /// used is unchanged. Scaled by `uiScale` like every token and clamped to
-    /// `displayMinimumSize`.
+    /// SF Pro Display — the system face at display sizes (macOS picks the Display cut itself
+    /// above 20 pt): semibold for a title, regular italic for a headline's quieter second line.
+    /// Instrument Serif and New York are retired (owner, 2026-09-23; DESIGN_RULES §9).
     static func displayFont(size: CGFloat, italic: Bool = false) -> Font {
         let resolved = scaled(max(size, displayMinimumSize))
         return italic
@@ -452,20 +461,38 @@ enum CicadaTheme {
             : Font.system(size: resolved, weight: .semibold, design: .default)
     }
 
-    /// A roman display title sits 2 % tighter than SF's own display spacing —
-    /// the difference between a system header and a set headline. `Font`
-    /// cannot carry tracking, so each roman call site pairs
-    /// `.font(displayFont(size: n))` with `.tracking(displayTracking(size: n))`;
-    /// `FontLiteralLintTests` counts the pairs. Italic keeps SF's spacing.
+    /// DR-15 — −0.3 at 20 pt, −0.4 at 22 pt and above, scaled with the face (uiScale). `Font`
+    /// cannot carry tracking, so each roman call site pairs `.font(displayFont(size: n))` with
+    /// `.tracking(displayTracking(size: n))`; FontLiteralLintTests counts the pairs.
     static func displayTracking(size: CGFloat) -> CGFloat {
-        -0.02 * scaled(max(size, displayMinimumSize))
+        (max(size, displayMinimumSize) >= 22 ? -0.4 : -0.3) * scale
     }
 
-    /// The person's own words — provenance excerpts and quoted snippets. New
-    /// York italic ships with macOS (zero bundle cost) and is optically sized
-    /// for text.
-    static var quoteFont: Font { quoteFont(size: 13) }
-    static func quoteFont(size: CGFloat) -> Font { font(size: size, design: .serif).italic() }
+    /// DR-18 — the person's own words and an agent's: SF 15 regular — not italic, not serif.
+    /// The cited span is washed and underlined (`CitedSpan`); inside a quote there is no bold
+    /// and no italic.
+    static var quoteFont: Font { quoteFont(size: 15) }
+    static func quoteFont(size: CGFloat) -> Font { font(size: size) }
+    /// A quote's line is 25 pt (DR-16): SF 15's natural line is 18 pt, so 7 pt of spacing.
+    static var quoteLineSpacing: CGFloat { scaled(7) }
+
+    // MARK: - Icons (DR-53)
+    enum IconRole {
+        case rail, railFoot, titlebar, sidebar, list, commandBar, inline, badge
+        var points: CGFloat {
+            switch self {
+            case .rail: 18
+            case .railFoot: 17
+            case .titlebar, .sidebar: 16
+            case .list: 14
+            case .commandBar: 13
+            case .inline: 12
+            case .badge: 10
+            }
+        }
+    }
+    static func icon(_ role: IconRole) -> Font { font(size: role.points) }
+    static func iconPoints(_ role: IconRole) -> CGFloat { scaled(role.points) }
 
     // MARK: - Spacing (G130: derived from `uiScale` — the 551 call sites are untouched, R2)
     static var spacingXS: CGFloat { scaled(4) }

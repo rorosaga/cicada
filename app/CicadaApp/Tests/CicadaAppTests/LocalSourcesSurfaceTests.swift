@@ -39,7 +39,7 @@ final class LocalSourcesSurfaceTests: XCTestCase {
         let json = #"{"id": "wispr-flow", "label": "Wispr Flow", "kind": "voice", "episodes": 2}"#
         let row = try JSONDecoder().decode(SourceOverview.self, from: Data(json.utf8))
         XCTAssertEqual(row.kind, .voice)
-        XCTAssertEqual(SourceSections.group([row]).first?.title, "VOICE & MEETINGS")
+        XCTAssertEqual(SourceSections.group([row]).first?.title, "Voice & meetings")
         XCTAssertEqual(SourceKind.order.firstIndex(of: .voice), SourceKind.order.firstIndex(of: .import).map { $0 - 1 })
     }
 

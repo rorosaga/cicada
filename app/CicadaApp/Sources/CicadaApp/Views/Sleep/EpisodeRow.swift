@@ -29,7 +29,7 @@ struct EpisodeRow: View {
                         .lineLimit(1)
 
                     Text(item.source)
-                        .font(CicadaTheme.font(size: 9, design: .monospaced))
+                        .font(CicadaTheme.font(size: 9))
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
@@ -39,7 +39,7 @@ struct EpisodeRow: View {
                     Spacer()
 
                     Text(shortTimestamp(item.timestamp))
-                        .font(CicadaTheme.font(size: 10, design: .monospaced))
+                        .font(CicadaTheme.font(size: 10).monospacedDigit())
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
 

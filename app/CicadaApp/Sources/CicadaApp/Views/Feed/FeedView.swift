@@ -269,7 +269,7 @@ struct FeedRow: View {
                         // G133: a paper says so, and shows its byline where a
                         // link shows its site.
                         Text(item.isPaper ? "paper" : item.mediaType)
-                            .font(CicadaTheme.font(size: 10, design: .monospaced))
+                            .font(CicadaTheme.font(size: 10))
                             .foregroundStyle(CicadaTheme.mediaPink)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -282,7 +282,7 @@ struct FeedRow: View {
                         // same rule the Sleep history's "—" follows.
                         if let duration = VideoRef.durationLabel(item.durationS) {
                             Text(duration)
-                                .font(CicadaTheme.font(size: 10, design: .monospaced))
+                                .font(CicadaTheme.font(size: 10).monospacedDigit())
                                 .foregroundStyle(CicadaTheme.textSecondary)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -382,7 +382,7 @@ struct FeedRow: View {
     private var relevanceBadge: some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(String(format: "%.0f%%", item.relevance * 100))
-                .font(CicadaTheme.font(size: 11, weight: .semibold, design: .monospaced))
+                .font(CicadaTheme.font(size: 11, weight: .semibold).monospacedDigit())
                 .foregroundStyle(CicadaTheme.accent)
             Text("relevance")
                 .font(CicadaTheme.font(size: 8))

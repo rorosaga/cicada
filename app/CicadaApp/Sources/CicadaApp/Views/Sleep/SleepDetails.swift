@@ -81,10 +81,7 @@ struct LastCycleSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("LAST CYCLE")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Last cycle")
             if let error = pageError {
                 errorBanner(error)
             }
