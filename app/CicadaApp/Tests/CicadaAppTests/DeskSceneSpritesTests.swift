@@ -89,16 +89,15 @@ final class DeskSceneSpritesTests: XCTestCase {
         }
     }
 
-    /// The window is the worked grid: night glass, a hand-drawn crescent, a
-    /// static star field (R-A13 — idle is still, so the stars never twinkle)
-    /// and a sill on the band's bottom row.
-    func testWindowCarriesGlassAMoonStarsAndASill() {
-        let w = DeskSceneSprites.window
-        XCTAssertTrue(w.contains { $0.contains("k") }, "night glass")
-        XCTAssertTrue(w.contains { $0.contains("m") }, "moonlight")
-        XCTAssertTrue(w.contains { $0.contains("n") }, "moon terminator")
-        XCTAssertEqual(w.filter { $0.contains("s") }.count, 4, "four static stars, one per pane")
-        XCTAssertEqual(w[22], String(repeating: "d", count: 20) + "....", "the sill is the band's last row")
+    /// Track Z §7.3 — the window is a frame; the night sky, the hand-drawn
+    /// crescent and the four static stars live in the night pane behind it.
+    func testTheNightPaneCarriesGlassAMoonAndFourStars() {
+        let night = DeskSceneSprites.pane(.night)
+        XCTAssertTrue(night.contains { $0.contains("k") }, "night glass")
+        XCTAssertTrue(night.contains { $0.contains("m") }, "moonlight")
+        XCTAssertTrue(night.contains { $0.contains("n") }, "moon terminator")
+        XCTAssertEqual(night.joined().filter { $0 == "s" }.count, 4, "four static stars")
+        XCTAssertEqual(DeskSceneSprites.window[22], String(repeating: "d", count: 20) + "....", "the sill")
     }
 
     func testInkBoundsIsNilForAnEmptyGrid() {

@@ -61,17 +61,6 @@ final class DeskHotspotTests: XCTestCase {
         XCTAssertEqual(spots[.window], CGRect(x: 100, y: 40, width: 50, height: 80), "glass cols 20–29 × rows 8–23")
     }
 
-    /// The window's glass rectangle is named once, and today's worked grid
-    /// agrees with it: every non-frame cell lies inside it.
-    func test_theGlassRectangleMatchesTheWorkedGrid() {
-        let glass = DeskSceneSprites.windowGlass
-        for (r, row) in DeskSceneSprites.window.enumerated() {
-            for (c, ch) in row.enumerated() where ch != "." && ch != "f" && ch != "d" {
-                XCTAssertTrue(glass.rows.contains(r) && glass.cols.contains(c), "(\(r),\(c)) '\(ch)'")
-            }
-        }
-    }
-
     func test_sceneBottomLeadingFlipsY() {
         let layout = deskSceneLayout(pointSize: 120, uiScale: 1.0)
         XCTAssertEqual(sceneBottomLeading(CGPoint(x: 200, y: 70), in: layout), CGPoint(x: 200, y: 70))

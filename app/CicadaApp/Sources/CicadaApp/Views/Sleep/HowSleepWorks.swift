@@ -32,6 +32,13 @@ struct HowSleepWorksContent: View {
                 row(icon: stage.symbol, title: stage.title, detail: stage.detail)
             }
 
+            // Track Z §7.3 (P16) — a pointer to the window's legend, never a
+            // copy of it: `WindowWeather.all` is the one list of skies.
+            Text(Copy.windowLegendPointer)
+                .font(CicadaTheme.font(size: 11))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Divider().background(CicadaTheme.border)
 
             // Names the destination through `Copy.settingsSleep` rather

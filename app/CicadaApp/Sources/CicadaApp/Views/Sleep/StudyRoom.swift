@@ -101,8 +101,10 @@ struct StudyRoom: View {
         ZStack(alignment: .bottomLeading) {
             // R-A3: lit exactly when Sleep is scheduled — the lamp and the
             // whisper line read the same field, so the art never disagrees
-            // with the words.
-            DeskSceneView(pointSize: SleepView.wormPointSize, lampLit: page.lampLit)
+            // with the words. R-Z11: the window's sky is the mood alone —
+            // the same `page.mood` the sentence and the worm read.
+            DeskSceneView(pointSize: SleepView.wormPointSize, lampLit: page.lampLit,
+                          weather: windowWeather(for: page.mood))
             WormStage(mood: page.mood, room: room, pointSize: SleepView.wormPointSize)
                 .offset(x: scene.wormOrigin.x, y: -scene.wormOrigin.y)   // R-Z4: the lattice placement, whole cells
             // The REAL pile, in the column the layout reserves for it —
@@ -127,6 +129,21 @@ struct StudyRoom: View {
                                                   set: { if !$0 { room.lampPopover = nil } }),
                              arrowEdge: .top) { LampPopover(page: page) }
                     .offset(x: lamp.minX, y: -lamp.minY)
+            }
+            if let window = spots[.window] {
+                let weather = windowWeather(for: page.mood)
+                // I11 — the window opens its legend: the weather's text twin.
+                Button { room.legendShown = true } label: { Color.clear.contentShape(Rectangle()) }
+                    .buttonStyle(.cicadaPlain)
+                    .frame(width: window.width, height: window.height)
+                    .roomLinkCursor()
+                    .help("\(weather.title): \(weather.meaning)")
+                    .accessibilityLabel("Window, \(weather.title): \(weather.meaning)")
+                    .accessibilityHint(Copy.windowHint)
+                    .accessibilitySortPriority(RoomA11yOrder.window)
+                    .popover(isPresented: Binding(get: { room.legendShown }, set: { room.legendShown = $0 }),
+                             arrowEdge: .top) { WindowLegend(current: weather) }
+                    .offset(x: window.minX, y: -window.minY)
             }
             if let worm = spots[.worm] {
                 WormHotspot(mood: page.mood, bracket: sleepDebtBracketText(page.mood, debt: page.debt),

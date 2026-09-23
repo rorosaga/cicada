@@ -63,6 +63,12 @@ enum SleepMotion {
     /// outline. Quick, because it answers a pointer that is already there.
     static let hoverDuration: TimeInterval = 0.15
 
+    // Track Z Z8 — the window shows weather.
+
+    /// The window's pane crossfading on a mood change (R-Z12's one state beat
+    /// besides the cheer) — at the ceiling, never above it.
+    static let weatherDuration: TimeInterval = 0.4
+
     static func settle(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeInOut(duration: settleDuration)
     }
@@ -81,5 +87,9 @@ enum SleepMotion {
 
     static func hover(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeOut(duration: hoverDuration)
+    }
+
+    static func weather(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeInOut(duration: weatherDuration)
     }
 }

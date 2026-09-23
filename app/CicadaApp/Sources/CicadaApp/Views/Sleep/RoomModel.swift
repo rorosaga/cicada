@@ -53,6 +53,8 @@ final class RoomModel {
     /// Z-P25 — one lamp popover, two anchors: which control presented it, or
     /// `nil` while it is closed.
     var lampPopover: LampAnchor?
+    /// Track Z Z8 (I11) — the window's legend, the weather's text twin.
+    var legendShown = false
     /// T7's link target — the commit the last real completion produced.
     /// Cleared on click, when the next cycle starts, and (by construction —
     /// `SleepView` owns this model as `@State`) when the page goes away.

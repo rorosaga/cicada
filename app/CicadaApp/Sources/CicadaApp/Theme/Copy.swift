@@ -104,6 +104,10 @@ enum Copy {
     static func scheduledRunsWouldUse(engine: String) -> String {
         "If you light it, scheduled runs would use \(engineLabel(engine))"
     }
+    // Track Z §7.3 — the window's weather and its legend (the text twin).
+    static let windowLegendHeader = "The window shows how Cicada is doing, not the time of day."
+    static let windowLegendPointer = "The window in the room shows how Sleep is doing — click it to see what each sky means."
+    static let windowHint = "Shows what the sky means"
     // MARK: The `?` popover (Track P)
     //
     // Shown on Graph, Clusters and Feed, so every sentence has to be true on

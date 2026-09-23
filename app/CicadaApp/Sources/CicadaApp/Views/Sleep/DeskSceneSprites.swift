@@ -1,13 +1,14 @@
 import Foundation
 
-/// The five things in the room (G125 v3 Task 3). There is deliberately no
+/// The five things in the room (G125 v3 Task 3), and the window's weather
+/// pane, which sits behind the frame (Track Z §7.3). There is deliberately no
 /// `shelfBooks` case: the page's ONE volume encoding is the real
 /// `BookPileView`, and a painted spine stack at the same pixel scale
 /// eighteen points away would ask the reader to tell a chart from wallpaper
 /// by taste (P10). `deskSceneLayout` reserves a column for the real pile
 /// instead, and `DeskSceneLayoutTests` proves no prop reaches into it.
 enum DeskProp: String, CaseIterable, Hashable {
-    case window, lamp, plant, cushion, mug
+    case pane, window, lamp, plant, cushion, mug
 }
 
 /// The study room's art: five 24×24 grids in the same `PixelGrid` encoding
@@ -27,9 +28,10 @@ enum DeskProp: String, CaseIterable, Hashable {
 /// worm's baseline is the cushion's top row" and mean it.
 ///
 /// **Static, on purpose (R-A13).** The stars do not twinkle, the moon does
-/// not phase, nothing here is a `TimelineView`. Idle is still; the only thing
-/// in this room that ever changes is the lamp, and it changes because the
-/// SCHEDULE changed (P11) — every art bit has a text twin.
+/// not phase, nothing here is a `TimelineView`. Idle is still; the only things
+/// in this room that ever change are the lamp, because the SCHEDULE changed
+/// (P11), and the window's pane, because the MOOD changed (Track Z R-Z11) —
+/// every art bit has a text twin (the whisper line, the window's legend).
 enum DeskSceneSprites {
 
     /// Where each prop's paint lives inside its own grid. Asserted by
@@ -38,6 +40,7 @@ enum DeskSceneSprites {
     /// a prop upward fails a test instead of silently pushing furniture into
     /// the worm's cells.
     static let rowBand: [DeskProp: ClosedRange<Int>] = [
+        .pane: 4...19,
         .window: 2...22,
         .lamp: 4...23,
         .plant: 10...23,
@@ -51,17 +54,19 @@ enum DeskSceneSprites {
     /// `DeskHotspotTests` checks the worked grid below agrees with it.
     static let windowGlass = (rows: 4...19, cols: 2...17)
 
-    /// The canonical grid per prop. The lamp's entry is the LIT variant; the
-    /// dark one is reached through `grid(_:lampLit:)`, which is the only
-    /// state-dependent lookup in the scene.
+    /// The canonical grid per prop. The lamp's entry is the LIT variant and
+    /// the pane's the NIGHT sky; the others are reached through
+    /// `grid(_:lampLit:weather:)`, the scene's only state-dependent lookup.
     static var all: [DeskProp: PixelGrid] {
-        [.window: window, .lamp: lampLit, .plant: plant, .cushion: cushion, .mug: mug]
+        [.pane: pane(.night), .window: window, .lamp: lampLit, .plant: plant, .cushion: cushion, .mug: mug]
     }
 
-    /// The grid to draw for `prop`. Only the lamp reads `lampLit` — P11: the
-    /// scene encodes STATE, never quantity, and the lamp is its one bit.
-    static func grid(_ prop: DeskProp, lampLit isLit: Bool) -> PixelGrid {
+    /// The grid to draw for `prop`. Only the lamp reads `lampLit` and only the
+    /// pane reads `weather` — P11 / R-Z11: the scene encodes STATE, never
+    /// quantity, and those are its two bits (the schedule, the mood).
+    static func grid(_ prop: DeskProp, lampLit isLit: Bool, weather: WindowWeather = .night) -> PixelGrid {
         switch prop {
+        case .pane: return pane(weather)
         case .window: return window
         case .lamp: return isLit ? lampLit : lampDark
         case .plant: return plant
@@ -89,37 +94,39 @@ enum DeskSceneSprites {
 
     // MARK: - The window (rows 2…22, cols 0…19)
 
-    /// The worked grid. A 2-cell dusk-plum frame (`f`) around night glass
-    /// (`k`) — cols 0–1 and 18–19 are the jambs, cols 9–10 and rows 11–12 the
-    /// mullions that split it into four panes — four static stars (`s`, one
-    /// per pane), a `d` sill on the band's last row, and the crescent.
+    /// The frame, mullions and sill — every glass cell transparent; the sky
+    /// is the pane behind it (Track Z §7.3). A 2-cell dusk-plum frame (`f`):
+    /// cols 0–1 and 18–19 are the jambs, cols 9–10 and rows 11–12 the
+    /// mullions that split the glass into four panes, and a `d` sill on the
+    /// band's last row. Because the frame is drawn OVER the pane, the jambs
+    /// and mullions occlude the weather for free — occlusion is the only
+    /// depth cue a pixel window has.
     ///
-    /// The crescent is **hand-drawn, seven rows**, not generated: at seven
-    /// cells a computed disc-minus-disc reads as a blob, because the
-    /// anti-aliasing that makes that construction work is exactly what a pixel
-    /// grid does not have. Two hues — `m` for the lit face, `n` for the
-    /// terminator — so the moon has a direction instead of being a flat shape.
+    /// The night sky, the hand-drawn crescent and the four static stars that
+    /// used to be painted here now live in `nightPane`, unchanged cell for
+    /// cell except the stars, which moved off the cells the worm covers
+    /// (design defect 8).
     static let window: PixelGrid = [
         "........................",
         "........................",
         "ffffffffffffffffffff....",   // 2  top frame
         "ffffffffffffffffffff....",   // 3
-        "ffkkkmmnkffkkkkkkkff....",   // 4  the crescent begins
-        "ffkkmmnkkffkkkkkkkff....",   // 5
-        "ffkmmnkkkffkkkskkkff....",   // 6  star · upper-right pane
-        "ffkmmnkkkffkkkkkkkff....",   // 7
-        "ffkmmnkkkffkkkkkkkff....",   // 8
-        "ffkkmmnkkffkkkkkskff....",   // 9  star · upper-right pane
-        "ffkkkmmnkffkkkkkkkff....",   // 10 the crescent ends
+        "ff.......ff.......ff....",   // 4
+        "ff.......ff.......ff....",   // 5
+        "ff.......ff.......ff....",   // 6
+        "ff.......ff.......ff....",   // 7
+        "ff.......ff.......ff....",   // 8
+        "ff.......ff.......ff....",   // 9
+        "ff.......ff.......ff....",   // 10
         "ffffffffffffffffffff....",   // 11 horizontal mullion
         "ffffffffffffffffffff....",   // 12
-        "ffkkkkkkkffkkkkkkkff....",   // 13
-        "ffkkkkkkkffkkkkkkkff....",   // 14
-        "ffkkkskkkffkkkkkkkff....",   // 15 star · lower-left pane
-        "ffkkkkkkkffkkkkkkkff....",   // 16
-        "ffkkkkkkkffkkkskkkff....",   // 17 star · lower-right pane
-        "ffkkkkkkkffkkkkkkkff....",   // 18
-        "ffkkkkkkkffkkkkkkkff....",   // 19
+        "ff.......ff.......ff....",   // 13
+        "ff.......ff.......ff....",   // 14
+        "ff.......ff.......ff....",   // 15
+        "ff.......ff.......ff....",   // 16
+        "ff.......ff.......ff....",   // 17
+        "ff.......ff.......ff....",   // 18
+        "ff.......ff.......ff....",   // 19
         "ffffffffffffffffffff....",   // 20 bottom frame
         "ffffffffffffffffffff....",   // 21
         "dddddddddddddddddddd....",   // 22 sill
@@ -267,5 +274,222 @@ enum DeskSceneSprites {
         "iiii....................",   // 21
         "iiii....................",   // 22
         "dddd....................",   // 23 shadow
+    ]
+
+    // MARK: - The weather pane (Track Z §7.3, R-Z11)
+
+    /// The sky behind the frame: 16×16 of ink (the window's glass rows 4…19,
+    /// cols 2…17), authored flush to column 0 and placed at `cellX: 20`, so the
+    /// frame's jambs and mullions occlude it for free. One grid per weather;
+    /// the weather is a function of the mood alone. `WindowSpritesTests` proves
+    /// the sun, moon, stars and bolt clear the worm's union ink over every
+    /// frame, pose and reaction of the moods that show them, and every cloud is
+    /// at least half visible.
+    static func pane(_ weather: WindowWeather) -> PixelGrid {
+        switch weather {
+        case .night: nightPane
+        case .dawn: dawnPane
+        case .clear: clearPane
+        case .fair: fairPane
+        case .overcast: overcastPane
+        case .storm: stormPane
+        case .curtains: curtainsPane
+        }
+    }
+
+    /// The legend's thumbnail: the pane's 16×16 of glass, as its own grid.
+    static func paneThumbnail(_ weather: WindowWeather) -> PixelGrid {
+        pane(weather)[windowGlass.rows].map { String($0.prefix(windowGlass.cols.count)) }
+    }
+
+    /// Today's crescent, cell for cell, on night glass; four static stars moved
+    /// off the cells the worm covers (design defect 8); the meadow a silhouette.
+    ///
+    /// The crescent is **hand-drawn, seven rows**, not generated: at seven
+    /// cells a computed disc-minus-disc reads as a blob, because the
+    /// anti-aliasing that makes that construction work is exactly what a pixel
+    /// grid does not have. Two hues — `m` for the lit face, `n` for the
+    /// terminator — so the moon has a direction instead of being a flat shape.
+    private static let nightPane: PixelGrid = [
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+        "kkkmmnkkkkkkkkkk........",   // 4  the crescent begins
+        "kkmmnkkkkkskkkkk........",   // 5  star
+        "kmmnkkkkkkkkkkkk........",   // 6
+        "kmmnkkkkkkkkkkkk........",   // 7
+        "kmmnkskkkkkkkkkk........",   // 8  star
+        "kkmmnkkkkkkkkkkk........",   // 9
+        "kkkmmnkkkkkkkkkk........",   // 10 the crescent ends
+        "kkkkkkkkkkkkkkkk........",   // 11 (behind the mullion)
+        "kkkkkkkkkkkkkkkk........",   // 12 (behind the mullion)
+        "kkkskkkkkkkkkkkk........",   // 13 star
+        "kkkkkkkkkkskkkkk........",   // 14 star
+        "dkkkkkkkkkkkkkkd........",   // 15 the meadow, a silhouette
+        "dddkkkkkkkkkkddd........",   // 16
+        "dddddkkkkkkddddd........",   // 17
+        "dddddddddddddddd........",   // 18
+        "dddddddddddddddd........",   // 19
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+    ]
+
+    /// A cycle just finished: cushion-plum over terracotta, a half sun rising
+    /// behind the right slope.
+    private static let dawnPane: PixelGrid = [
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+        "cccccccccccccccc........",   // 4
+        "cccccccccccccccc........",   // 5
+        "cccccccccccccccc........",   // 6
+        "cccccccccccccccc........",   // 7
+        "cccccccccccccccc........",   // 8
+        "cccccccccccccccc........",   // 9
+        "cccccccccccccccc........",   // 10
+        "cccccccccccccccc........",   // 11
+        "cccccccccccccccc........",   // 12
+        "ttttttttttnntttt........",   // 13 the sun's rim
+        "tttttttttnmmnttt........",   // 14
+        "gttttttttttttttg........",   // 15
+        "gggttttttttttggg........",   // 16
+        "pggggttttttggggp........",   // 17
+        "ppggggggggggggpp........",   // 18
+        "ppppggppppggpppp........",   // 19
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+    ]
+
+    /// Caught up: day sky, haze, the meadow bowl with three dandelions and one seed clock.
+    private static let clearPane: PixelGrid = [
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+        "yyyyyyyyyyyyyyyy........",   // 4
+        "yymmyyyyyyyyyyyy........",   // 5  the sun (the moon's cream, a gold rim)
+        "ymmmnyyyyyyyyyyy........",   // 6
+        "ymmmnyyyyyyyyyyy........",   // 7
+        "yynnyyyyyyyyyyyy........",   // 8
+        "yyyyyyyyyyyyyyyy........",   // 9
+        "yyyyyyyyyyyyyyyy........",   // 10
+        "yyyyyyyyyyyyyyyy........",   // 11
+        "yyyyyyyyyyyyyyyy........",   // 12
+        "vvvvvvvvvvvvvvvv........",   // 13 haze
+        "vvvvvvvvvvvvvvvv........",   // 14
+        "hvsvvvvvvvvvvvuh........",   // 15 dandelion, seed clock
+        "hhhvsvvvvvvvshhh........",   // 16
+        "ghhhhvvvvvvhhhhg........",   // 17
+        "gghhhhhhhhhhhhgg........",   // 18
+        "gggghhgggghhgggg........",   // 19
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+    ]
+
+    /// Things are waiting: the clear sky with two clouds, the sun half behind one.
+    private static let fairPane: PixelGrid = [
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+        "yyyyyyyyyyyyyyyy........",   // 4
+        "yymmyyyyyyjjyyyy........",   // 5  sun; the second cloud peeks out
+        "ymmmnyyyyjjjjyyy........",   // 6
+        "ymmmjjjyyxxxxyyy........",   // 7  the first cloud crosses the sun
+        "yynjjjjjjyyyyyyy........",   // 8
+        "yyjjjjjjjyyyyyyy........",   // 9
+        "yyyxxxxxyyyyyyyy........",   // 10 its shaded underside
+        "yyyyyyyyyyyyyyyy........",   // 11
+        "yyyyyyyyyyyyyyyy........",   // 12
+        "vvvvvvvvvvvvvvvv........",   // 13
+        "vvvvvvvvvvvvvvvv........",   // 14
+        "hvsvvvvvvvvvvvuh........",   // 15
+        "hhhvsvvvvvvvshhh........",   // 16
+        "ghhhhvvvvvvhhhhg........",   // 17
+        "gghhhhhhhhhhhhgg........",   // 18
+        "gggghhgggghhgggg........",   // 19
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+    ]
+
+    /// Overdue: a grey sky, two clouds, and the dandelions closed — they close
+    /// in bad weather (a small true thing, not an encoding).
+    private static let overcastPane: PixelGrid = [
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+        "xxxxxxxxxxjjxxxx........",   // 4
+        "xjjjxxxxxjjjxxxx........",   // 5
+        "jjjjjjxxxNNNxxxx........",   // 6
+        "NNNNNNxxxxxxxxxx........",   // 7
+        "xxxxxxxxxxxxxxxx........",   // 8
+        "xxxxxxxxxxxxxxxx........",   // 9
+        "xxxxxxxxxxxxxxxx........",   // 10
+        "xxxxxxxxxxxxxxxx........",   // 11
+        "xxxxxxxxxxxxxxxx........",   // 12
+        "vvvvvvvvvvvvvvvv........",   // 13
+        "vvvvvvvvvvvvvvvv........",   // 14
+        "hvvvvvvvvvvvvvvh........",   // 15
+        "hhhvvvvvvvvvvhhh........",   // 16
+        "ghhhhvvvvvvhhhhg........",   // 17
+        "gghhhhhhhhhhhhgg........",   // 18
+        "gggghhgggghhgggg........",   // 19
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+    ]
+
+    /// The last cycle failed: a dark sky, two clouds, rain in both panes, a
+    /// static bolt (no flash — refused, §7.3), the meadow a silhouette.
+    private static let stormPane: PixelGrid = [
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+        "KNNNKKKKKKNNKKKK........",   // 4
+        "NxxxNNKKKNxNKKKK........",   // 5
+        "NNNNsNNKKNNNKKKK........",   // 6  the bolt starts
+        "KKKKsKKKKKKKKKKK........",   // 7
+        "UKKsUKKKUKKKUKKK........",   // 8  rain
+        "KUsKKUKKKUKKKUKK........",   // 9
+        "KKsKKKUKKKUKKKUK........",   // 10 the bolt ends above the mullion
+        "KKKKKKKKKKKKKKKK........",   // 11
+        "KKKKKKKKKKKKKKKK........",   // 12
+        "UKKKUKKKUKKKUKKK........",   // 13
+        "KUKKKUKKKUKKKUKK........",   // 14
+        "dKUKKKUKKKUKKKUd........",   // 15
+        "dddKKKKKKKKKKddd........",   // 16
+        "dddddKKKKKKddddd........",   // 17
+        "dddddddddddddddd........",   // 18
+        "dddddddddddddddd........",   // 19
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+    ]
+
+    /// No reading yet: the curtains are drawn, a fold every third column.
+    private static let curtainsPane: PixelGrid = [
+        "........................",
+        "........................",
+        "........................",
+        "........................",
+    ] + Array(repeating: "ccpccpccpccpccpc........", count: 16) + [
+        "........................",
+        "........................",
+        "........................",
+        "........................",
     ]
 }

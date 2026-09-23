@@ -89,6 +89,8 @@ final class SleepNumbersLintTests: XCTestCase {
         XCTAssertEqual(SleepMotion.answerDwell, .seconds(12))
         // Track Z Z6 — a spine lifting under the pointer.
         XCTAssertLessThanOrEqual(SleepMotion.hoverDuration, SleepMotion.maxDuration)
+        // Track Z Z8 — the window's pane crossfading on a mood change.
+        XCTAssertLessThanOrEqual(SleepMotion.weatherDuration, SleepMotion.maxDuration)
     }
 
     /// Reduce Motion holds every animation at its terminal frame. `nil` is how
@@ -106,6 +108,8 @@ final class SleepNumbersLintTests: XCTestCase {
         XCTAssertNotNil(SleepMotion.sentence(reduceMotion: false))
         XCTAssertNil(SleepMotion.hover(reduceMotion: true))
         XCTAssertNotNil(SleepMotion.hover(reduceMotion: false))
+        XCTAssertNil(SleepMotion.weather(reduceMotion: true))
+        XCTAssertNotNil(SleepMotion.weather(reduceMotion: false))
     }
 
     /// Design §10 — the pointer is read in ONE place under `Views/Sleep/`, the
