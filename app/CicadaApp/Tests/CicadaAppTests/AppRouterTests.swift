@@ -39,8 +39,8 @@ final class AppRouterTests: XCTestCase {
     /// flag. `ContentView` consumes it on the MAIN window, but nothing
     /// activated the app or ordered that window front, so Settings stayed key
     /// and the button read as broken. Worse inside onboarding, where
-    /// `FirstRunSheet` embeds `IntegrationsView` whole: the hand-off fired
-    /// from inside a modal sheet that never dismissed.
+    /// the retired first-run sheet embedded `IntegrationsView` whole: the
+    /// hand-off fired from inside a modal sheet that never dismissed.
     ///
     /// Which window is "main" is a pure predicate so it can be tested at all —
     /// an NSWindow cannot be stood up in this suite, and the app's existing

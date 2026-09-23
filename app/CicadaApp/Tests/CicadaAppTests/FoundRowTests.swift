@@ -25,4 +25,12 @@ final class FoundRowTests: XCTestCase {
         XCTAssertNil(FoundRow.defaultActionTitle(.on))
         XCTAssertNil(FoundRow.defaultActionTitle(.working("…")))
     }
+
+    /// W4 — a ticked row reads its tick, not its machine state: the tick is the consent.
+    func testATickReadsAsOnOrOff() {
+        XCTAssertEqual(FoundRow.tickLabel(title: "Chrome", detail: Copy.foundBrowserDetail, ticked: true),
+                       "Chrome. \(Copy.foundBrowserDetail). On.")
+        XCTAssertEqual(FoundRow.tickLabel(title: "Codex", detail: Copy.foundAgentDetail, ticked: false),
+                       "Codex. \(Copy.foundAgentDetail). Off.")
+    }
 }

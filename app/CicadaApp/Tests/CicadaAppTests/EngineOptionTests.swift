@@ -57,4 +57,30 @@ final class EngineOptionTests: XCTestCase {
         XCTAssertFalse(EngineOption.showsOverageToggle(selectedMode: "codex"))
         XCTAssertFalse(EngineOption.showsOverageToggle(selectedMode: "local"))
     }
+
+    /// G117 (owner 2026-09-04) — each option states its cost model before it is chosen; never a price.
+    func testEveryCompactCardStatesItsCostModelAndNeverAPrice() throws {
+        for id in ["agent", "codex", "local", "byok"] {
+            let line = try XCTUnwrap(EngineOption.costModel(for: id), id)
+            XCTAssertFalse(line.contains("$"), line)
+            XCTAssertNil(line.rangeOfCharacter(from: .decimalDigits), "a cost model, not a price: \(line)")
+        }
+        XCTAssertNil(EngineOption.costModel(for: "auto"))
+    }
+
+    func testTheCompactRowHidesAutoBecauseUntouchedMeansAuto() {
+        XCTAssertEqual(EngineOption.compactCandidates([card("auto"), card("agent"), card("byok")]).map(\.id), ["agent", "byok"])
+    }
+
+    func testTheRingFollowsThePickThenAnEngineThatCanRun() {
+        XCTAssertEqual(EngineOption.ringed(pick: "local", readiness: .ready(candidate: "agent")), "local")
+        XCTAssertEqual(EngineOption.ringed(pick: nil, readiness: .ready(candidate: "agent")), "agent")
+        XCTAssertNil(EngineOption.ringed(pick: nil, readiness: .needsChoice))
+    }
+
+    func testAKeyCardSaysWhetherAKeyExists() {
+        XCTAssertEqual(EngineOption.compactCaption(for: card("byok"), hasKey: false), Copy.engineAddKey)
+        XCTAssertEqual(EngineOption.compactCaption(for: card("byok"), hasKey: true), Copy.engineKeySaved)
+        XCTAssertEqual(EngineOption.compactCaption(for: card("codex"), hasKey: false), "Signed in")
+    }
 }

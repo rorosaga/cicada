@@ -42,6 +42,12 @@ final class MenuBarManager: NSObject {
     private var onSaveClipboardURL: (() async -> Void)?
     /// Track I T5 (R-IA26) — "Import a file…" opens the one intake.
     private var onImportFile: (() -> Void)?
+    /// Track I part b (R-IB22) — the export waits of the active memory, as the
+    /// menu's lines. Set by the app; a closure, not state to observe, so it is
+    /// read when the menu is built or opened and never re-renders anything.
+    @ObservationIgnored var exportWaitLines: () -> [String] = { [] }
+    /// Tags the reminder lines so a menu open can swap them without a rebuild.
+    static let exportWaitTag = 9_101
 
     // MARK: - Setup
 
@@ -217,6 +223,8 @@ final class MenuBarManager: NSObject {
         let nextItem = NSMenuItem(title: "Next sleep: \(nextSleepDescription())", action: nil, keyEquivalent: "")
         nextItem.isEnabled = false
         menu.addItem(nextItem)
+        // R-IB22 — the text twin of an export reminder, permission or not.
+        insertExportWaitItems(in: menu, at: menu.items.count)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -247,7 +255,24 @@ final class MenuBarManager: NSObject {
         quitItem.target = self
         menu.addItem(quitItem)
 
+        menu.delegate = self
         statusItem?.menu = menu
+    }
+
+    /// Swaps the tagged reminder lines for the current ones, right after "Next sleep".
+    fileprivate func refreshExportWaitItems(in menu: NSMenu) {
+        for item in menu.items where item.tag == Self.exportWaitTag { menu.removeItem(item) }
+        let anchor = menu.items.firstIndex { $0.title.hasPrefix("Next sleep:") }
+        insertExportWaitItems(in: menu, at: anchor.map { $0 + 1 } ?? 0)
+    }
+
+    private func insertExportWaitItems(in menu: NSMenu, at index: Int) {
+        for (offset, line) in exportWaitLines().enumerated() {
+            let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            item.tag = Self.exportWaitTag
+            menu.insertItem(item, at: index + offset)
+        }
     }
 
     private func relativeLastSleep() -> String {
@@ -365,3 +390,11 @@ extension MenuBarManager {
     }
 }
 #endif
+
+extension MenuBarManager: NSMenuDelegate {
+    /// "requested 2 hours ago" must be true when the menu opens, not when it was
+    /// last rebuilt — AppKit calls this just before showing the menu.
+    nonisolated func menuNeedsUpdate(_ menu: NSMenu) {
+        MainActor.assumeIsolated { self.refreshExportWaitItems(in: menu) }
+    }
+}

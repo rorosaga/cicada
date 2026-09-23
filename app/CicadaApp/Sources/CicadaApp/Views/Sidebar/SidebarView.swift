@@ -1,9 +1,14 @@
 import SwiftUI
 
-/// The six primary views. Raw values are this tab's **stable identity** —
+/// The seven primary views. Raw values are this tab's **stable identity** —
 /// the persisted selection (`cicada.selectedTab`) and the ⌘-slot order in
 /// `allCases` — so a surviving tab's raw value must never move, even when its
 /// label changes.
+///
+/// G108 (ruled 2026-09-23, spec decision 12): Home is the front door at ⌘1,
+/// so a fresh install opens on it. A stored selection is still restored, so
+/// an existing user reopens where they were — nobody who lives in the graph
+/// is moved (R-IB2).
 ///
 /// G68 retired five tabs: Capture merged into Feed, Contributors + Usage
 /// merged into Activity, and Connections + Connect became Settings tabs
@@ -11,6 +16,7 @@ import SwiftUI
 /// still sit in some user's defaults, so decode through `restored(from:)` —
 /// never `AppTab(rawValue:)!`.
 enum AppTab: String, CaseIterable {
+    case home = "Home"
     case graph = "Graph"
     case clusters = "Clusters"
     case feed = "Feed"
@@ -19,20 +25,21 @@ enum AppTab: String, CaseIterable {
     case sources = "Sources"
 
     /// Decodes a persisted selection, mapping every retired tab to whichever
-    /// page inherited its content. Anything unrecognised falls back to Graph.
+    /// page inherited its content. Anything unrecognised falls back to Home.
     static func restored(from raw: String?) -> AppTab {
-        guard let raw, !raw.isEmpty else { return .graph }
+        guard let raw, !raw.isEmpty else { return .home }
         if let tab = AppTab(rawValue: raw) { return tab }
         switch raw {
         case "Capture": return .feed
         case "Activity", "Contributors", "Usage": return .sources   // G124: Activity → Sources
         case "Connections", "Connect": return .graph   // now Settings tabs (⌘,)
-        default: return .graph
+        default: return .home
         }
     }
 
     var icon: String {
         switch self {
+        case .home: "house"
         case .graph: "point.3.connected.trianglepath.dotted"
         case .clusters: "circle.grid.2x2"
         case .feed: "photo.stack"
@@ -81,7 +88,7 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            // No section labels. Six rows do not need to be grouped into five
+            // No section labels. Seven rows do not need to be grouped into five
             // buckets — the labels were longer than the lists they introduced.
             ForEach(AppTab.allCases, id: \.self) { tab in
                 sidebarButton(for: tab)
@@ -118,7 +125,7 @@ struct SidebarView: View {
 
     /// Wraps `SidebarRow` in a real `Button` so VoiceOver and UI automation
     /// (which drive the accessibility tree, not gesture recognizers) can
-    /// activate a tab, and attaches ⌘1–⌘6 in visual order.
+    /// activate a tab, and attaches ⌘1–⌘7 in visual order.
     @ViewBuilder
     private func sidebarButton(for tab: AppTab) -> some View {
         let count = badgeCount(for: tab)

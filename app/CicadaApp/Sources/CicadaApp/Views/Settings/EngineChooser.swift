@@ -256,15 +256,28 @@ struct EngineChooser: View {
 
 /// One card in the engine row. Hover uses the codebase's `.onHover`
 /// highlight pattern (R-E27) — Track M2 swaps in Meadow's `hoverLift` /
-/// `iconHover` once they land.
-private struct EngineOptionCard: View {
+/// `iconHover` once they land. Internal, not private: `EngineCard`'s
+/// `.compact` form (the Welcome, R-IB13) draws the same card.
+struct EngineOptionCard: View {
     let candidate: SleepEngineCandidate
     let isSelected: Bool
     let isSelectable: Bool
+    /// `.compact` only (R-IB13): how the option is paid for, in words (G117) —
+    /// declared before `onSelect` so `.full`'s trailing-closure call is untouched.
+    var costModel: String? = nil
+    /// `.compact`'s state caption (the key card reads `Store.connections`, F6);
+    /// nil keeps `.full`'s `EngineOption.caption(for:)` byte for byte.
+    var caption: String? = nil
+    var showsWillRead = false
     let onSelect: () -> Void
     @State private var isHovered = false
 
     private var markSize: CGFloat { CicadaTheme.scaled(28) }
+    private var captionText: String { caption ?? EngineOption.caption(for: candidate) }
+    private var accessibilityText: String {
+        [candidate.label, costModel, captionText, showsWillRead ? Copy.welcomeWillRead : nil]
+            .compactMap { $0 }.joined(separator: ", ")
+    }
 
     var body: some View {
         Button(action: onSelect) {
@@ -274,10 +287,21 @@ private struct EngineOptionCard: View {
                     .font(CicadaTheme.font(size: 13, weight: .medium))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
-                Text(EngineOption.caption(for: candidate))
+                if let costModel {
+                    Text(costModel)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text(captionText)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .lineLimit(1)
+                if showsWillRead {
+                    Text(Copy.welcomeWillRead)
+                        .font(CicadaTheme.font(size: 11, weight: .semibold))
+                        .foregroundStyle(CicadaTheme.accent)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(CicadaTheme.spacingSM)
@@ -294,7 +318,7 @@ private struct EngineOptionCard: View {
         .disabled(!isSelectable)
         .opacity(isSelectable ? 1 : 0.55)
         .onHover { isHovered = $0 }
-        .accessibilityLabel("\(candidate.label), \(EngineOption.caption(for: candidate))")
+        .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 

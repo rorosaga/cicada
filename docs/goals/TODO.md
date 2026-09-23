@@ -39,8 +39,10 @@ assembled app (every provider logo had been falling back to a symbol in shipped 
 **Round 3, Track I part a** (`feat/intake-onboarding`): one intake for every chat export and every way a file arrives
 (sniff → preview → import → a card that never closes itself; `UploadOverlay` and the Feed's Upload
 button retired), consent before any browser read, the Gemini channel and the export-origin
-backfill, `GET /agents/wiring`, and the tested pure logic part b's Welcome and Home consume. Part b
-(T8 Welcome, T9 Home + ⌘1–7, T10 reminders, T11 docs, T12 live pass) is next.
+backfill, `GET /agents/wiring`, and the tested pure logic part b's Welcome and Home consume. **Part b** (`feat/welcome-home`): the one-screen Welcome (the four-step
+sheet and F2 retired), Home at ⌘1 with Getting started, and export reminders with text twins; T12 (the
+live pass and screenshots) is the orchestrator's. Measured on the branch: Swift **1539 executed, 0
+failures**, backend **2902 passed** (unchanged — no Python in this track).
 
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
@@ -273,6 +275,13 @@ subjects keyed by Stage-2 ids), **PJ-1** (the $0 read model and its two GETs, wi
 (PJ-5) is the first screen built D-native and waits for the DS shell. Screenshots come from a freshly
 generated demo bank only.
 
+**Filed 2026-09-23 — G61 phase 2, check the source before asking the person.** The spec is committed
+(`docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`). Three backend-only slices can
+start now, in parallel with anything app-side: **S0** (Stage 5.57's ungated `default_summarize`, the
+duplicate `source_episode` key, the hint's voice), **S1** (checkable sources, `cicada_add_source`) and
+**S2** (a read-only checkability census that decides whether S3–S8 are built). Its five owner decisions
+are listed under Research / decisions.
+
 **Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
 open is on the row.
 
@@ -494,6 +503,20 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     ledger so agreement becomes a rate and a training set — S/M, after G118 slice 1 (needs the cause spans)
     + research-resolvable conflicts: the same judge may grep a linked repo / read a declared source and must
     cite what it checked; multi-valued predicates (`uses`) never open a conflict at all (G98)
+4e. **G61 phase 2 — check the source before asking the person** *(owner 2026-09-23: "some things can be
+    clarified by checking a link to a website or an app using browser harness or computer use … before
+    scaling it to the user itself")* — spec `docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`.
+    An escalation ladder: Cicada's own public fetch → an agent the person runs (`cicada_record_check`,
+    the G140 watch-record shape, a seventh evidence kind `source`) → the person, with the check on the card.
+    Two-witness settle (a local agent's reading + Cicada's own re-read of the same site); never a human
+    claim, never the owner's page, never a remote report; `cicada`-authored, reviewable in `inbox/settled/`,
+    one-tap "Ask me instead". Ships in **shadow** first — the owner flips auto with the numbers in view.
+    **S0–S2 are backend-only and can start now:** S0 truth + fetch hygiene (Stage 5.57's ungated
+    `default_summarize`, `add_source` on `(ref, predicate)`, the hint voiced by `added_by` and derived at
+    read, the duplicate `source_episode` key, organic resolution on `is_human`), S1 checkable sources
+    (`access`, `kind: app|repo`, predicate `locus`, `cicada_add_source`), S2 a read-only checkability
+    census that decides whether S3–S8 are worth it. S3 waits on D-AC3 and D-AC5; S7 on D-AC1 and G116(a).
+    S0–S7 $0; S8 💸 — M each
 4d′. ~~**G115 Phase 1**~~ — **shipped 2026-09-03 (`feat/inbox-phase1`)** — inbox redesign, first
    slice: one question object for every kind, `cause` on the
    card (three tiers, `[ no source recorded ]` served), `(Recommended)` = the option `_verdict` scores
@@ -625,14 +648,26 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
   rule-executed Stage-5 write (recommended `cicada`, rule string in the manifest line — not yet
   ruled); (b) whether an in-conversation resolve carries `Cicada-Session:` on its `user` commit
   (recommended no — the session ref lives in the `resolution` ledger event; not yet ruled). $0.
+  — G61 phase 2 (2026-09-23) adds a second caller (a source-settled item); rule (a) once for both.
+- **G61 phase 2 owner decisions — ruled 2026-09-23** (owner: "i'd go with your suggestions"; he named browser
+  harnesses and computer use in the ask itself): **D-AC1** shadow first — the owner flips auto-settling on at
+  ≥ 20 shadow settles and ≥ 95 % agreement, never automatically (working-method §4's "never auto-applied"
+  stands until he flips it); **D-AC2** the alternative, because the owner asked for browser agents by name: a
+  host Cicada refuses to fetch (LinkedIn-class) gets a `Check first:` line for an agent **in the person's own
+  already-open session only — never signing in, never passing a login** — and that finding is inform-only
+  forever (it never settles); **D-AC3** yes, a seventh evidence kind `source`; **D-AC4** = G116(a): `cicada`
+  authors a rule- or check-executed write, the rule in the manifest; **D-AC5** yes, contract step 2 lets an
+  agent check before asking.
 - **G77** voice packets · **G10** bulk re-extraction *(re-filed 2026-09-01 — its D2 architecture
   gate is resolved; now purely a 💸 spend decision, read alongside G74/G80/G78)*
-- **G141 DECIDEs** — (a) a Projects rail cell (spends a rail slot and a ⌘ number; default the seventh cell,
-  ⌘7, after Sources, so no shortcut moves; this is G108's call; the fallback is "Open project ›" on the
-  card, plus a Home "In motion" section once Home exists); (b) the timeline band's colour: neutral shapes,
-  or DESIGN_RULES §10's "dots use data hues" (R-PJ21; shown to the owner on the demo bank in PJ-5, his answer
-  recorded as a §9 line); (c) whether Sleep holds an unpromoted subject's claims with the pending entity and
-  writes them on promotion (changes the pending store; split out of PJ-0 on purpose). $0.
+- **G141 DECIDEs — ruled 2026-09-23** (owner: "on the things you mention as my decision, i'd go with your
+  suggestions, and as to the timeline colors, maybe like a green bar that fills up? something that fits the
+  aesthetic. make nodes in the timeline clickable and stuff."): (a) Projects is the **eighth** rail item, ⌘8,
+  after Sources — Home took ⌘1 in #86, so no shortcut moves; (b) the band's progress is a **meadow-green fill
+  that fills up to Today**, every node on it clickable (DESIGN_RULES §9 records it; the one place a Meadow hue
+  encodes progress); (c) **yes** — Sleep holds an unpromoted subject's claims with the pending entity and
+  writes them on promotion: a new slice **PJ-0b** after PJ-0. R-PJ16 (the Stop hook writes the per-turn
+  `turns` list) is accepted.
 
 ### Parked — no near-term work
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
