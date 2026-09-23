@@ -227,3 +227,29 @@ def test_the_contract_names_the_new_tools():
         assert needle in text, needle
     remote = handshake.build_remote(None, tools=frozenset(catalog.TOOL_SCOPE), bank="memory")
     assert "cicada_retract_claim" in remote and "deletes or rewrites" not in remote
+
+
+def test_a_record_only_remote_primer_carries_nothing_about_the_person():
+    """G140 final review: a connection granted only ``record`` was told "Save
+    notes, links and facts" — not the person's summary, timezone, working
+    agreements, long-standing pages or what is in focus. The owner id stays
+    (a write needs a subject); every describing row needs a ``read`` tool."""
+    state = {"type": "state", "generated_at": NOW.isoformat(), "bank": "memory", "engine": {}, "sleep": {},
+             "inbox": {}, "owner_id": "bob-example", "owner_one_liner": "Builds robots in a small lab.",
+             "projects": [{"id": "alpha-project", "name": "Alpha Project", "one_liner": "Alpha."}],
+             "people": [], "conversations": [],
+             "focus": [{"id": "focus-page", "name": "Focus Page"}],
+             "standing": [{"id": "lasting-page", "name": "Lasting Page"}],
+             "preferences": [{"id": "ask-first", "name": "Ask First", "one_liner": "Ask before acting."}]}
+    personal = ("Builds robots", "Europe/Madrid", "How to work with me", "Ask before acting",
+                "Long-standing", "lasting-page", "In focus", "focus-page")
+    record_only = catalog.tool_names_for(frozenset({"record"}))
+    for st in (state, None):
+        text = handshake.build_remote(st, tools=record_only, bank="memory", tz="Europe/Madrid")
+        for needle in personal:
+            assert needle not in text, needle
+    assert "`bob-example`" in handshake.build_remote(state, tools=record_only, bank="memory", tz="Europe/Madrid")
+    with_read = handshake.build_remote(state, tools=catalog.tool_names_for(frozenset({"record", "read"})),
+                                       bank="memory", tz="Europe/Madrid")
+    for needle in personal:
+        assert needle in with_read, needle

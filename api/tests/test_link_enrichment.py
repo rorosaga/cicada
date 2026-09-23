@@ -170,3 +170,23 @@ def test_no_media_entities_is_noop(tmp_path):
     )
     n = asyncio.run(link_enrichment.enrich_media_links(memory, [], _settings(memory)))
     assert n == 0
+
+
+def test_in_cycle_reuse_clips_a_long_video_description(tmp_path):
+    """G140 final review: a kept Vimeo/Loom description (chapters, credits) was
+    copied whole into the in-cycle ``describes`` claim. Only the first
+    paragraph, minus chapter stamps and capped, becomes the claim."""
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+    blurb = ("A walkthrough of the alpha-project robotics stack, from the planner "
+             "to the simulator, with a live demo at the end of the session.")
+    chapters = "\n".join(f"{m}:00 Part {m}" for m in range(0, 20))
+    credits = "\n".join(f"Credit {i}: bob-example. More at https://example.com/{i}." for i in range(60))
+    _media(memory, "media-talk", "Talk", "https://vimeo.com/1", episode="ep_2026-06-17_003",
+           description=f"{blurb}\n\n{chapters}\n\n{credits}")
+    n = asyncio.run(link_enrichment.enrich_media_links(memory, [], _settings(memory), summarize_fn=None))
+    assert n == 1
+    desc = [c for c in parse_claims(markdown_parser.parse(memory / "entities" / "media-talk.md").body)
+            if c.predicate == "describes"]
+    assert desc[0].text == blurb and desc[0].object == blurb
+    assert len(desc[0].text) <= link_enrichment.DESCRIBES_CLAIM_LIMIT

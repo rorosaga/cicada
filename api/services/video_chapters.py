@@ -26,6 +26,17 @@ _LINE = re.compile(
 )
 
 
+
+def opens_with_stamp(line: str) -> bool:
+    """True when ``line`` OPENS with a timestamp the way a chapter row does.
+
+    The one reading of "this line is a chapter stamp" outside ``parse`` —
+    link enrichment drops such lines before a description becomes a
+    ``describes`` claim (G140 final review), and it must not disagree with
+    the parser about which lines those are.
+    """
+    return bool(_LINE.match(line or ""))
+
 def seconds(raw) -> int | None:
     """``m:ss`` / ``h:mm:ss`` / whole seconds (int or digits) → seconds;
     ``None`` when unreadable. Minutes and seconds after the first field must

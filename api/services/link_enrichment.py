@@ -87,12 +87,81 @@ def _extract_description_section(body: str) -> str:
     return (parse_sections(strip_claims_block(body)).get("Description", "") or "").strip()
 
 
+# A ``describes`` claim is a gist, not a copy of the page (G140 final review).
+DESCRIBES_CLAIM_LIMIT = 400
+
+
+def _claim_description(text: str, min_len: int = 0) -> str:
+    """The part of a ``## Description`` that may become a ``describes`` claim.
+
+    Why a clip: G140 Q-R12 keeps a Vimeo/Loom description (up to
+    ``media_ingestor.DESCRIPTION_LIMIT`` = 5,000 chars — chapter stamps,
+    credits, sign-up links). Before that the field was ``""``, so a video page
+    took the fetch+summarize tier and got a short summary. Kept whole, the
+    zero-LLM reuse tier copied all 4,433 chars of a probe description word
+    for word into the claim's text AND object, and ``get_perspective`` /
+    recall printed it unclipped. The full description stays on the page and
+    in the episode — "spans, not copies" (G118); the claim carries its gist.
+
+    The rule, deterministic and engine-free: drop every line that opens with a
+    timestamp (``video_chapters.opens_with_stamp`` — the parser's own reading,
+    so the two can never disagree about which lines are chapters), take the
+    first paragraph, and only when that paragraph is shorter than ``min_len``
+    keep adding the next ones (a one-line hook above the real blurb must not
+    push an otherwise substantive page to the paid fetch tier). Newlines fold
+    to spaces; the result is cut at ``DESCRIBES_CLAIM_LIMIT`` on a word
+    boundary. The substantive check runs on THIS text, so the tier a page
+    takes matches what would actually be written.
+    """
+    from api.services import video_chapters
+
+    paragraphs: list[str] = []
+    current: list[str] = []
+    for line in (text or "").splitlines():
+        if not line.strip():
+            if current:
+                paragraphs.append(" ".join(current))
+                current = []
+            continue
+        if video_chapters.opens_with_stamp(line):
+            continue
+        current.append(line.strip())
+    if current:
+        paragraphs.append(" ".join(current))
+
+    out = ""
+    for para in paragraphs:
+        out = f"{out} {para}".strip() if out else para
+        if len(out) >= max(min_len, 1):
+            break
+    return _cap_claim_text(out)
+
+
+def _cap_claim_text(text: str) -> str:
+    """Fold whitespace and cut at ``DESCRIBES_CLAIM_LIMIT`` on a word boundary.
+
+    The ellipsis counts toward the limit, so a capped text capped again is
+    unchanged — ``_build_describes_claim`` applies this as the last guard for
+    every tier (a fetched summary is short by prompt, not by construction),
+    and the reuse tier's text has already been through it.
+    """
+    out = " ".join((text or "").split())
+    if len(out) <= DESCRIBES_CLAIM_LIMIT:
+        return out
+    cut = out[: DESCRIBES_CLAIM_LIMIT - 1]
+    space = cut.rfind(" ")
+    if space > DESCRIBES_CLAIM_LIMIT // 2:
+        cut = cut[:space]
+    return cut.rstrip(" ,;:-–—") + "…"
+
+
 def _claim_id(prefix: str, *parts: str) -> str:
     digest = hashlib.sha1("\x00".join(parts).encode("utf-8")).hexdigest()[:8]
     return f"{prefix}_{digest}"
 
 
 def _build_describes_claim(media_id: str, text: str, episode: str, today: str, model: str) -> Claim:
+    text = _cap_claim_text(text)
     return Claim(
         id=_claim_id("clm_describes", media_id, text[:64]),
         text=text,
@@ -396,7 +465,7 @@ async def enrich_media_links(
         episode = str(episodes[0]) if episodes else ""
 
         # §2a reuse path: a substantive on-page description -> claim, no LLM.
-        desc = _extract_description_section(parsed.body)
+        desc = _claim_description(_extract_description_section(parsed.body), min_len)
         description: str | None = None
         if _is_substantive(desc, min_len):
             description = desc
@@ -702,7 +771,7 @@ def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> 
         cand = _Candidate(
             path=fp, media_id=fp.stem, title=title, url=url,
             episode=str(episodes[0]) if episodes else "",
-            description=_extract_description_section(parsed.body),
+            description=_claim_description(_extract_description_section(parsed.body), min_len),
             sort_key=_saved_sort_key(fm),
         )
         if _is_substantive(cand.description, min_len):

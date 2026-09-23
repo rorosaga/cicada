@@ -254,7 +254,24 @@ def local_timezone() -> str | None:
     return f"UTC{offset[:3]}:{offset[3:]}" if offset else None
 
 
-def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str | None = None) -> str:
+def _holds_read_scope(tools: frozenset[str]) -> bool:
+    """True when a remote connection holds any ``read``-scope tool.
+
+    Why (G140 final review): the Standing rows describe the PERSON — their
+    one-line summary, their timezone, how they like to work, their
+    long-standing pages — and the pages in focus say what they are thinking
+    about. A connection granted only ``record`` was promised "Save notes,
+    links and facts" in its consent copy, not a description of who and where
+    the person is. The scope table is ``api.remote.catalog``'s, so a new read
+    tool widens this without a second list to keep in step.
+    """
+    from api.remote.catalog import TOOL_SCOPE
+
+    return any(TOOL_SCOPE.get(t) == "read" for t in tools)
+
+
+def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str | None = None,
+               personal: bool = True) -> str:
     """``remote`` (G135 R-R15) drops what a caller off this Mac must not see
     or cannot act on: the `GET /state` hint (a loopback endpoint) and every
     repo path. Repo paths never leave the Mac. Stdio output is unchanged.
@@ -264,8 +281,16 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
     (durable/evergreen) — and **Current** — projects, pages in focus this
     fortnight, people, recent conversations (active/volatile). Every row is
     an id or a one-liner already on a page; ``tz`` comes from
-    ``load_or_build`` per request and never from the file."""
-    tz_line = f"- Their timezone: {tz}." if tz else None
+    ``load_or_build`` per request and never from the file.
+
+    ``personal=False`` (a remote connection with no ``read``-scope tool, see
+    ``_holds_read_scope``) drops every row that describes the person: the
+    one-liner beside their entity id, the timezone, *How to work with me*,
+    *Long-standing* and *In focus*. The id itself stays — every write needs a
+    subject. Projects, people ids and conversation titles predate G140 and
+    reach such a connection too; that older exposure is recorded in G135's
+    open list rather than silently changed here."""
+    tz_line = f"- Their timezone: {tz}." if tz and personal else None
     if state is None and remote:
         head = f"## Now\n- Bank `{bank}` has no now-view yet; the contract above still applies."
         return head + (f"\n{tz_line}" if tz_line else "")
@@ -287,14 +312,14 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
     ]
     standing: list[str] = []
     if state.get("owner_id"):
-        one = state.get("owner_one_liner")
+        one = state.get("owner_one_liner") if personal else None
         standing.append(f"- The person's own entity: `{state['owner_id']}`" + (f" — {one}" if one else "."))
     if tz_line:
         standing.append(tz_line)
-    prefs = state.get("preferences") or []
+    prefs = (state.get("preferences") or []) if personal else []
     if prefs:
         standing.append("- How to work with me: " + "; ".join(p.get("one_liner") or p["name"] for p in prefs))
-    lasting = state.get("standing") or []
+    lasting = (state.get("standing") or []) if personal else []
     if lasting:
         standing.append("- Long-standing: " + "; ".join(f"`{s['id']}` {s['name']}" for s in lasting))
     if standing:
@@ -309,7 +334,7 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
         )
         tail = f" — {p['one_liner']}" if p.get("one_liner") else ""
         lines.append(f"  - `{p['id']}` {p['name']}{tail}" + (f" [{repos}]" if repos else ""))
-    focus = state.get("focus") or []
+    focus = (state.get("focus") or []) if personal else []
     if focus:
         lines.append(f"- In focus (last {state_dictionary.FOCUS_WINDOW_DAYS} days): "
                      + ", ".join(f"`{f['id']}` {f['name']}" for f in focus))
@@ -367,10 +392,14 @@ def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None)
 def build_remote(state: dict | None, *, tools: frozenset[str], bank: str, tz: str | None = None) -> str:
     """The primer a remote connection receives (G135 R-R15): no resume, no
     `CICADA_SESSION_ID`, no repo paths, no loopback endpoint, and only the tools
-    this connection holds (G75 R12). Carries `CONVERSATION_SLOT`."""
+    this connection holds (G75 R12). Carries `CONVERSATION_SLOT`. The rows
+    that describe the person need a ``read``-scope tool (G140 final review,
+    ``_holds_read_scope``)."""
     tools = frozenset(tools)
+    personal = _holds_read_scope(tools)
     return _fit(lambda st: "\n\n".join([
-        _WHAT, _REMOTE_PRELUDE, _remote_contract(tools), _now_block(st, bank, remote=True, tz=tz),
+        _WHAT, _REMOTE_PRELUDE, _remote_contract(tools),
+        _now_block(st, bank, remote=True, tz=tz, personal=personal),
         _remote_capabilities(tools)]), state)
 
 
