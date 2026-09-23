@@ -126,29 +126,8 @@ struct FeedView: View {
 
     private var searchAndSortRow: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "magnifyingglass")
-                    .font(CicadaTheme.font(size: 12))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                TextField("Search saved media...", text: Binding(
-                    get: { viewModel.searchText },
-                    set: { viewModel.searchText = $0 }
-                ))
-                    .textFieldStyle(.plain)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                if !viewModel.searchText.isEmpty {
-                    Button { viewModel.searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(CicadaTheme.font(size: 11))
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                    .buttonStyle(.cicadaPlain)
-                }
-            }
-            .padding(.horizontal, CicadaTheme.spacingMD)
-            .padding(.vertical, CicadaTheme.spacingSM)
-            .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            CicadaSearchField(text: Binding(get: { viewModel.searchText }, set: { viewModel.searchText = $0 }),
+                              prompt: "Search saved media…")
 
             Picker("", selection: Binding(
                 get: { viewModel.sort },
@@ -179,6 +158,19 @@ struct FeedView: View {
                 title: "Couldn't load the feed",
                 subtitle: err
             )
+        } else if viewModel.filteredItems.isEmpty, !viewModel.items.isEmpty,
+                  !SearchAllMemoryRow.trimmed(viewModel.searchText).isEmpty {
+            // Something is saved; nothing matched — say that, not "Nothing
+            // saved yet" (G136 S5), and offer the same words everywhere.
+            VStack(spacing: CicadaTheme.spacingSM) {
+                Spacer()
+                Text("Nothing saved matches “\(SearchAllMemoryRow.trimmed(viewModel.searchText))”.")
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                SearchAllMemoryRow(query: viewModel.searchText)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
         } else if viewModel.filteredItems.isEmpty {
             emptyState(
                 symbol: "tray",

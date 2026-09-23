@@ -47,7 +47,7 @@ green. (`working-method.md` carries the standing notes on the order-dependent ca
 **Measured on `feat/intake-onboarding` (Track I part a, 2026-09-23):** backend **2273 passed**, Swift
 **1141 executed, 0 failures**, graph node tests **7 passed**.
 
-**Round 3, Track S-back — G136 server half (2026-09-23, `feat/search-everywhere`, PR #75).** `/search`
+**Round 3, Track S-back — G136 server half (2026-09-23, `feat/search-everywhere`, PR #74).** `/search`
 moved into the threadpool with `kinds`, exact lexical `totals`, spans and `mode=prefix|hybrid` over a
 derived FTS5 index beside the vector index (`search_index.db`: excluded through `.git/info/exclude`,
 rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conversations/recent?q=`.
@@ -63,6 +63,11 @@ fixed and `media` is the sixth evidence kind (after Track L's `speaker`; one mar
 (the rubric eval) is open in G140. Hand-offs: Track P renders `media` spans and `t`; Track O's skills
 manifest names `cicada_record_watch`; the Local-sources scrub wraps the two new episode writers
 (`write_note_episode`, `watch_record` — done in the merge of `dev`).
+
+**Round 3, Track S-ui — G136 app half (2026-09-23, `feat/find-palette`).** ⌘K is a find palette
+with Ask as a mode (⌘⏎), a server tier appended without moving a row, one `CicadaSearchField` on every
+page, and `GraphNode.aliases` on `/graph` after measuring +5.8 % on the synthetic fixture. Measured on
+the branch: backend **2906 passed**, Swift **1496 executed, 0 failures**, graph node tests **7 passed**.
 
 **Round 3 · Track L — local sources (G133 + G134).** A watched folder the app reads and the backend
 parses (one episode per file through the shared `episode_staging` stager; agent-written globs never
@@ -218,11 +223,8 @@ any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 fr
 (Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
 demo bank, never the live one, after the next visual change.
 
-**Search (G136):** the server half has shipped, and so has the palette's S3 (`feat/find-palette`): ⌘K
-(Find in Memory…) opens a find palette over the local tier with Ask as a mode on ⌘⏎; ⌘K/⌘F are menu
-commands in `Support/FindCommands.swift`, guarded by `HiddenShortcutLintTests`. Next is S4 (the server
-tier — conversations and beliefs), then S5 (in-page search fields) and S6 (`GraphNode.aliases`), per
-`docs/superpowers/plans/2026-09-23-find-palette.md`.
+**Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
+open is on the row.
 
 **Small polish left behind, none blocking:** the Settings sidebar cannot be driven by a synthetic
 `click at` (select its rows through the accessibility API); a Sources card whose `count` comes from
@@ -272,7 +274,9 @@ G66 decay classes · A5 gap analysis · **G115 Phase 1 / G97 (2026-09-03)** — 
 Recommended, decay through the question component, the G98 informational rule
 
 **Search** — **G136 server half (2026-09-23)** — the derived FTS5 index beside the vector index, `/search`
-with kinds / lexical totals / spans / prefix and hybrid, `/conversations/recent?q=`; the ⌘K find palette's S3 (local tier, Ask as a mode); S4–S6 open
+with kinds / lexical totals / spans / prefix and hybrid, `/conversations/recent?q=`; **G136 app half** — the ⌘K find palette (local tier, server tier appended
+without moving a row, Ask as a mode on ⌘⏎), one `CicadaSearchField` on every page, `GraphNode.aliases`
+after the payload measurement
 
 **App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·

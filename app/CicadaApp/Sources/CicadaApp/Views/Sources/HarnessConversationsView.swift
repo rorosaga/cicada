@@ -15,14 +15,17 @@ struct HarnessConversationsView: View {
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
 
-    private var visible: [ConversationSummary] { ConversationFilter.apply(viewModel.conversations, query: query) }
+    /// R-SU20/R-SU22 — the loaded page filtered in place (newest first, never
+    /// re-ranked), then any older matches the capped page could not hold.
+    private var visible: [ConversationSummary] {
+        ConversationSearch.merge(local: ConversationFilter.apply(viewModel.conversations, query: query),
+                                 server: viewModel.beyondCap(for: query))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            TextField("Filter by title", text: $query)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 320)
-                .accessibilityLabel("Filter conversations by title")
+            CicadaSearchField(text: $query, prompt: "Filter by title")
+                .frame(maxWidth: CicadaTheme.scaled(320))
             if let err = viewModel.errorMessage {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     Text(err).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
@@ -36,8 +39,11 @@ struct HarnessConversationsView: View {
                     Text("Loading conversations…").font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
                 }
             } else if visible.isEmpty {
-                Text(query.isEmpty ? "No conversations from this source yet." : "No titles match “\(query)”.")
-                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    Text(query.isEmpty ? "No conversations from this source yet." : "No titles match “\(query)”.")
+                        .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
+                    if !query.isEmpty { SearchAllMemoryRow(query: query) }
+                }
             } else {
                 ScrollView {
                     VStack(spacing: CicadaTheme.spacingSM) {
@@ -66,6 +72,15 @@ struct HarnessConversationsView: View {
             loadedOnce = true
             await load()
         }
+        .task(id: "\(viewModel.conversations.count)|\(query)") {
+            // R-SU22 — debounced like the palette; only a capped page asks.
+            // Keyed on the loaded count too: a hand-off sets `query` before
+            // the first page lands, and the widening must run once it has.
+            try? await Task.sleep(for: SearchTiming.serverDebounce)
+            guard !Task.isCancelled else { return }
+            await viewModel.searchBeyondCap(query: query, harness: source.harness,
+                                            origin: source.harness == nil ? source.origins.first : nil)
+        }
     }
 
     /// Chat exports are harness-kind rows keyed by origin; MCP harnesses by
@@ -74,9 +89,9 @@ struct HarnessConversationsView: View {
     /// before it (R5), so this is "everything this source has, up to the cap".
     private func load() async {
         if let harness = source.harness {
-            await viewModel.load(limit: 200, harness: harness)
+            await viewModel.load(limit: ConversationSearch.cap, harness: harness)
         } else {
-            await viewModel.load(limit: 200, origin: source.origins.first)
+            await viewModel.load(limit: ConversationSearch.cap, origin: source.origins.first)
         }
     }
 
