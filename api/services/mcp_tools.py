@@ -1082,6 +1082,69 @@ def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, ev
 
 
 
+def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None = None,
+               access: str | None = None, kind: str | None = None) -> str:
+    """Record WHERE a fact can be checked when there is no claim to write — "the
+    person told me the team page lists this" (G61 phase 2 S1, spec §5.3, plan R-AC31).
+
+    Only a source the person named, never one the agent guessed — the tool's
+    description says so, because nothing here can tell. The subject must be an
+    existing page (a source never mints one); the predicate is slugged exactly as
+    ``cicada_write_claim`` slugs its own, so a claim and its source agree. A
+    remote app may not name a path or a repo on this Mac, or ``access: local``:
+    refused, nothing written. A new entry commits alone under the harness
+    (``agent_commits``, G135 R-R11) — not while Sleep runs, as ``write_claim``.
+    Cicada fetches nothing. Replies name no other tool: a remote caller may not
+    hold it.
+    """
+    from api.services import fact_sources
+    from api.services.id_utils import resolve_entity_file, sanitize_id
+
+    memory_path = ctx.memory_path()
+    # G141 capture side (R-CS13) meets G61 S1: a source is a write like any
+    # other, so the demo refusal covers this tool too — one bank per call.
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    ref_text = (ref or "").strip()
+    if not ref_text:
+        return "Nothing added — `ref` is empty."
+    page = resolve_entity_file(memory_path, (subject or "").strip()) if (subject or "").strip() else None
+    if page is None:
+        return f"No page named '{subject}' — nothing added. Use the page's id as `subject`."
+    entity_id = page.stem
+    kind_value = (kind or "").strip().lower() or fact_sources.infer_kind(ref_text)
+    access_value = (access or "").strip().lower() or None
+    # The ref's own shape is checked too, whatever kind the caller stated: a
+    # path sent as kind "note" or "app" still names a file on this Mac (R-AC31;
+    # G61 final review, findings 2 and 4).
+    if ctx.is_remote and (kind_value in fact_sources.LOCAL_KINDS
+                          or fact_sources.infer_kind(ref_text) in fact_sources.LOCAL_KINDS
+                          or access_value == fact_sources.ACCESS_LOCAL):
+        return ("Nothing added — a remote app can't name a file or folder on this Mac as a source. "
+                "The person can add it in the Cicada app.")
+    predicate_slug = sanitize_id(predicate) if (predicate or "").strip() else None
+    before = len(fact_sources.list_sources(memory_path, entity_id))
+    try:
+        entry = fact_sources.add_source(memory_path, entity_id, ref_text, kind=kind_value,
+                                        predicate=predicate_slug, added_by=ctx.author, access=access_value)
+    except fact_sources.InvalidSource as exc:
+        return f"Nothing added — {exc}."
+    if entry is None:
+        return "Nothing added."
+    what = f"'s {predicate_slug}" if predicate_slug else ""
+    if len(fact_sources.list_sources(memory_path, entity_id)) == before:
+        return f"Already listed: {entry['ref']} is where to check {entity_id}{what}."
+    if not ctx.sleep_running():
+        path = f"entities/{entity_id}.md"
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"{path}: updated (trigger: {ctx.trigger})"], paths=[path],
+            author=ctx.author, session=ctx.session_id,
+        )
+    return (f"Added {entry['ref']} as where to check {entity_id}{what}. "
+            "The person sees it on the page, marked as yours.")
+
+
 def get_perspective(
     ctx: ToolContext,
     subject: str, observer: str | None = None, context: str | None = None, history: bool = False,
@@ -1640,12 +1703,15 @@ def _agent_question(
     the single-item tests want.
     """
     try:
-        from api.services import inbox_context, inbox_questions, inbox_service
+        from api.services import fact_sources, inbox_context, inbox_questions, inbox_service
 
         fm = dict(fm)
         if ctx is None:
             ctx = inbox_context.InboxContext(memory_path, today=today)
         entity_id = str(fm.get("entity_id") or "")
+        # G61 phase 2 S0: the same derived hint the app is served (served_hint).
+        page = ctx.entity(entity_id)
+        fm["hint"] = fact_sources.served_hint(fm, page.frontmatter.get("sources") if page is not None else None)
         options = inbox_questions.normalize_options(fm.get("options"))
         if str(fm.get("kind") or "") == "decay" and not options:
             question = inbox_questions.decay_question(

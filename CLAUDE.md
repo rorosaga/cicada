@@ -373,8 +373,21 @@ older Stop-hook episode's count — as no times.
   which repos; live git context (branch, ahead/behind, dirty, worktrees) is resolved **on demand,
   never cached** — `git_service` shells out fresh on every call.
 - `sources:` (G61) — *where to look a fact up*, distinct from `source_episodes` (where a belief came
-  from) and from the body's `## Links`. Conflict generation consults them for a "Source to check"
-  hint. Nothing is fetched.
+  from) and from the body's `## Links`. Keyed on `(ref, predicate)`, so one link can serve two facts.
+  A conflict card's `hint` is **derived at read** from them (`fact_sources.served_hint` — the wire,
+  the MCP render and the lexical row), never stored since G61 phase 2 S0, and its voice follows
+  `added_by`: "You said …" only when the person added it; "Claude Code added …", "Cicada found …",
+  "An agent found …" otherwise, the ref always in the sentence. An older item whose sources no longer
+  match keeps its stored hint. Each entry is `{ref, kind: url|path|note|app|repo, predicate?, access?,
+  added_by, added_at, accepted?, only_me?}` (phase 2 S1): `access` (`public|signed_in|local|unknown`)
+  is stored only when stated, else inferred at read (`fact_sources.effective_access`: a refused or
+  login host is `signed_in`, a path or repo `local`, an app `signed_in`); `accepted` marks an
+  agent-found source the person took; `only_me` is the person's "Only I know" for one predicate —
+  never a hint. The person's repeat of an entry applies those three; an agent's never changes one.
+  Stage 5.56 attaches a URL found verbatim in a new Stage-1 claim's cited span as a source for that
+  predicate (`added_by: <model>`, zero LLM) when the predicate's `locus:` is `world` or `artifact` —
+  the vocabulary's where-the-truth-lives marking (seed + bank map, the most conservative winning:
+  `person` > `artifact` > `world`; unseen is `unknown`). Nothing is fetched.
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
@@ -547,6 +560,11 @@ answers "what changed" from the commit manifests on demand — ids and counts on
 `read` scope remotely. **`cicada_record_watch`** records what an agent's own tools saw in a saved
 video — a summary and ≤ 12 timestamped quotes as `media` spans; Cicada never downloads or watches a
 video, and never keeps a transcript.
+**`cicada_add_source(subject, ref, predicate?, access?, kind?)`** (G61 phase 2 S1) records where a
+fact can be checked when there is no claim to write — only a source the person named, never one the
+agent guessed; it is not `cicada_sources` (conversations). `record` scope remotely, where a path, a
+repo or `access: local` is refused; it commits alone under the harness. `cicada_write_claim(sources=)`
+takes a string or `{ref, access}`. The primer does not name `cicada_add_source` until S3's contract.
 
 **Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
 clarification naturally in the flow when the conversation touches its entity, and offer related
@@ -955,6 +973,14 @@ three tiers (item → claim → entity), engine-free. The excerpt is ±240 chars
 on word boundaries, **offsets recomputed on every read and never stored**. Nothing resolves →
 `tier: none` and a literal `[ no source recorded ]`, served — never a hidden card.
 
+**Checkability (G61 phase 2 S2).** Every item also carries `check` — `{state:
+checkable|needs_source|inform_only|never, reason, locus, targets[], rungs[], settle_eligible}` —
+derived at read by `source_check.for_item` from the item, the subject page's `sources:`, `owner:`
+flag and claims, and the predicate `locus`: pure, engine-free, zero-network, never stored. Nothing
+acts on it yet (no check, hold or settle — S3+), and the app does not read it. `GET
+/inbox/check-census` and `scripts/check-census.sh <bank>` report it as ids-free counts — the coverage
+gate for S3–S8.
+
 **Decay is no longer the special case.** Served as `Still tracking {name}?` with `archive` / `keep`,
 synthesised at read from the page's `last_referenced`, never written. Its question sets
 `allow_other: false` and **the whole stack now means it**: free text on resolve is a `400`.
@@ -1035,10 +1061,14 @@ previews and stages nothing; `POST /intake/import` stages. `/conversations/uploa
 
 Three gates, and they do **not** mean the same thing — read the difference before adding a fourth:
 
-- **`CICADA_ALLOW_CONNECTOR_FETCH`** gates ONLY the unattended nightly connector poll's default
-  transport. It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite
-  sets). A user-initiated `sync_now` and every OAuth `authorize_url`/`exchange_code` call are
-  **never** gated by it — they always need the network to do what the user just asked.
+- **`CICADA_ALLOW_CONNECTOR_FETCH`** gates the default transport of every fetch Sleep starts on its
+  own: the unattended nightly connector poll, **link enrichment's page read** — Stage 5.57's
+  in-cycle pass (`sleep_cycle._link_summarizer`, G61 phase 2 S0) and the G102 tail backfill, both
+  through `link_enrichment.default_fetch`, the rail's reference transport — and paper details
+  (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
+  A user-initiated `sync_now`, `POST /maintenance/enrich-links` and every OAuth
+  `authorize_url`/`exchange_code` call are **never** gated by it — they always need the network to
+  do what the user just asked.
 - **`CICADA_ALLOW_FEED_FETCH`** gates RSS/ICS polling and is **opt-IN** (`=1`). A fresh install's
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
   older plist needs the key added by hand.

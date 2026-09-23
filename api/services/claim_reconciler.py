@@ -294,6 +294,8 @@ def _conflict_nudge(existing: Claim, new: Claim, today: str) -> dict:
         # G97/G115: the conversation that raised the question. The freshest
         # (new) claim's last episode — what `inbox_context` would pick anyway,
         # persisted so the item stays answerable if the claim is later closed.
+        # G61 phase 2 S0: this is the only source_episode key — a second,
+        # older literal ([0]) used to override it.
         "source_episode": (new.source_episodes or [None])[-1],
         "question": predicates.predicate_question(new.predicate, name),
         "allow_other": True,
@@ -312,7 +314,6 @@ def _conflict_nudge(existing: Claim, new: Claim, today: str) -> dict:
                 "claim_id": None,
             },
         ],
-        "source_episode": (new.source_episodes or [""])[0],
         "trigger": "sleep/conflict_resolution",
         "claim_id": new.id,
         "existing_claim_id": existing.id,

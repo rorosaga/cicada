@@ -55,7 +55,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, bank_registry, episode_ids, evidence, inbox_questions, markdown_parser
+from api.services import (bank_index, bank_registry, episode_ids, evidence, fact_sources, inbox_questions,
+                          markdown_parser)
 from api.services.claims import is_record, parse_claims, strip_claims_block
 from api.services.graph_builder import summarize
 
@@ -464,6 +465,12 @@ def _index_inbox(conn, doc_key: str, f, fm: dict, body: str) -> None:
         "priority": _float(fm.get("priority")),
         "remind_after": str(fm.get("remind_after") or "") or None,
     }
+    # G61 phase 2 S0 (R-AC23): the served hint, derived at index time — only a
+    # conflict derives one, so only a conflict reads its subject page (an inbox
+    # of thousands of decay items costs no extra parse). A source added later
+    # reaches this row at the next rebuild.
+    sources = fact_sources.list_sources(f.path.parents[1], entity_id) if kind == "conflict" else None
+    hint = fact_sources.served_hint(fm, sources) or ""
     doc_id = _insert_doc(conn, doc_key, "inbox", ref, f, meta)
     conn.execute(
         "INSERT INTO inb(rowid, title, aliases, keywords, body) VALUES (?, ?, ?, ?, ?)",
@@ -472,7 +479,7 @@ def _index_inbox(conn, doc_key: str, f, fm: dict, body: str) -> None:
             title,
             entity_name,
             " ".join(x for x in (kind, str(fm.get("predicate") or "")) if x),
-            str(fm.get("hint") or ""),
+            hint,
         ),
     )
 

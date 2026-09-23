@@ -131,23 +131,6 @@ def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
     return True
 
 
-def _refresh_hint(path: Path, hint: str | None) -> None:
-    """Refresh the ``hint`` on an already-open item after a merge (G61).
-
-    A merge-on-collision keeps the original item, so a source added after it
-    was first written would otherwise never surface. ``None`` leaves the
-    existing hint untouched — a merge with no computable hint should not
-    erase one set by an earlier cycle.
-    """
-    if hint is None:
-        return
-    parsed = markdown_parser.parse(path)
-    if parsed.frontmatter.get("hint") == hint:
-        return
-    parsed.frontmatter["hint"] = hint
-    markdown_parser.write(path, parsed.frontmatter, parsed.body)
-
-
 async def generate(
     changes: list[dict],
     skills: list[dict],
@@ -210,19 +193,10 @@ async def generate(
         elif action == "conflict_nudge":
             entity_id = change["id"]
             entity_name = change.get("entity", {}).get("name", entity_id.replace("-", " ").title())
-            hint = None
-            try:
-                from api.services import fact_sources
-
-                # Entity-path conflicts carry no predicate (key on the literal
-                # "description"), so ANY url-kind source is a match here.
-                hint = fact_sources.hint_for(memory_path, entity_id, "description")
-            except Exception:
-                hint = None
+            # G61 phase 2 S0: no hint is stored — it is served at read (fact_sources.served_hint).
             open_path = find_open(memory_path, "conflict", entity_id, "description")
             if open_path is not None:
                 merge_options_into(open_path, change.get("options") or [], str(date.today()))
-                _refresh_hint(open_path, hint)
                 continue
             item_id = f"inbox-{next_num:03d}"
             next_num += 1
@@ -240,7 +214,6 @@ async def generate(
                 "question": change.get("question"),
                 "allow_other": True,
                 "allow_defer": True,
-                "hint": hint,
                 # G97: `conflict_resolver` already puts the raising episode on
                 # the change (`conflict_resolver.py:137`); the entity path used
                 # to drop it at the write, so the card had no cause to show.
@@ -319,15 +292,9 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
             except Exception:
                 pass
 
-        hint = None
         if action == "conflict_nudge":
             predicate = str(nudge.get("predicate", "") or "description")
-            try:
-                from api.services import fact_sources
-
-                hint = fact_sources.hint_for(memory_path, entity_id, predicate)
-            except Exception:
-                hint = None
+            # G61 phase 2 S0: no hint is stored — it is served at read (fact_sources.served_hint).
             # G98 (2026-09-03 evidence): a predicate the vocabulary marks
             # multi-valued never opens a conflict — seven true `uses` values
             # are a set, not a contradiction. The reconciler already gates on
@@ -339,7 +306,6 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
             open_path = find_open(memory_path, "conflict", entity_id, predicate)
             if open_path is not None:
                 merge_options_into(open_path, nudge.get("options") or [], str(date.today()))
-                _refresh_hint(open_path, hint)
                 merged += 1
                 continue
             kind, priority, required = "conflict", 0.8, "choice"
@@ -382,10 +348,8 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
             # card's cause survives the claim being closed later.
             "source_episode": nudge.get("source_episode"),
             "trigger": nudge.get("trigger", "sleep/conflict_resolution"),
-            # G61 — which declared source refreshes this fact, "conflict"-only.
-            "hint": hint,
             # G113 slice 3 — "normalization"-only; null for every other kind,
-            # the same way `predicate`/`question`/`hint` already go null for
+            # the same way `predicate`/`question` already go null for
             # kinds that don't use them (`markdown_parser.write` does not
             # strip `None` values, and that's fine and consistent).
             "raw_predicate": nudge.get("raw_predicate"),

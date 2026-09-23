@@ -400,6 +400,28 @@ async def _poll_feeds_and_calendars_safely(memory_path: Path) -> None:
             logger.warning(f"{label} poll failed: {type(e).__name__}: {e}")
 
 
+def _link_summarizer():
+    """Stage 5.57's page summarizer, or ``None`` when Sleep may not read pages.
+
+    G61 phase 2 S0 (spec §2, plan R-AC18): the in-cycle pass read a web page on
+    every cycle with no gate at all, while its tail twin
+    (``_backfill_links_safely``) has been behind ``CICADA_ALLOW_CONNECTOR_FETCH``
+    since G102. Same gate, same reason — a fetch Cicada starts on its own — and
+    regardless of ``user_triggered``, exactly like the tail; the person's way to
+    read pages on demand is ``POST /maintenance/enrich-links``, never gated.
+    With ``None`` the pass still runs its zero-network §2a reuse; a thin page is
+    stamped ``no_description`` as in any hermetic run, which retires nothing:
+    ``scan_backfill`` never reads ``enrichment_attempted``.
+    """
+    from api.services.connectors.base import network_allowed
+    from api.services.link_enrichment import default_summarize
+
+    if network_allowed():
+        return default_summarize
+    logger.info("Stage 5.57: page read skipped — CICADA_ALLOW_CONNECTOR_FETCH is off (reuse still runs)")
+    return None
+
+
 async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
     """G102 cheap slice: describe + relate ``link_enrich_backfill_per_cycle``
     saved links a night, oldest-imported first, until the bank is drained.
@@ -1386,15 +1408,17 @@ async def _run_stages(
         logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
 
     # Stage 5.57 (M5f): link-enrichment subagent — when a saved media link
-    # (e.g. a website Prof. John recommended) lacks a meaningful description,
-    # a bounded subagent fetches + summarizes it and records a `describes`
+    # (e.g. a website a person recommended) lacks a meaningful description,
+    # a bounded subagent reads + summarizes it and records a `describes`
     # claim + `recommends` claims, with bidirectional ![[…]] transclusion
-    # (m5-prep/link-enrichment.md). Offline-safe, LLM-call-capped; any failure
-    # logs a warning and continues — the cycle is never hard-blocked.
+    # (m5-prep/link-enrichment.md). The page read is the rail's
+    # (`default_fetch`) and only behind CICADA_ALLOW_CONNECTOR_FETCH
+    # (G61 phase 2 S0, `_link_summarizer`). Offline-safe, LLM-call-capped;
+    # any failure logs a warning and continues — the cycle is never hard-blocked.
     try:
-        from api.services.link_enrichment import default_summarize, enrich_media_links
+        from api.services.link_enrichment import enrich_media_links
         n_enriched = await enrich_media_links(
-            memory_path, changes, settings, summarize_fn=default_summarize
+            memory_path, changes, settings, summarize_fn=_link_summarizer()
         )
         if n_enriched:
             logger.info(f"Stage 5.57: enriched {n_enriched} media link(s)")

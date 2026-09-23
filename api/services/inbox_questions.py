@@ -211,9 +211,19 @@ def _refresh_one(
     option_claim_ids = [str(o["claim_id"]) for o in options if o.get("claim_id")]
 
     # --- 2. organic resolution ---------------------------------------------
+    # G61 phase 2 S0 (plan R-AC25): "the person answered" means
+    # `claim_reconciler.is_human` — user_stated AND a human origin (manual edit,
+    # clarification), the same predicate that earns overwrite protection. A bare
+    # `source_trust == "user_stated"` also matched a folder paper the person
+    # authored or an MCP write naming its own origin, deleting a live question on
+    # a label no human confirmed. Those still close it the usual way, when the
+    # reconciler supersedes an option claim (`_really_superseded`). Imported here:
+    # claim_reconciler imports this module.
+    from api.services.claim_reconciler import is_human
+
     human_answer = any(
         c.predicate == predicate
-        and c.source_trust == "user_stated"
+        and is_human(c)
         and c.valid_to is None
         and str(c.valid_from or "") > str(fm.get("created_date", "") or "")
         for c in subject_claims
