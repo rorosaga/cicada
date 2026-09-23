@@ -190,7 +190,12 @@ def test_the_paper_endpoint_leads_with_why_then_context(bank, client):
     assert body["agentOnly"] is False
     assert body["context"].startswith("We study") and body["contextSource"] == "arxiv"
     assert body["absUrl"] == "https://arxiv.org/abs/2401.00001" and body["doiUrl"] == "https://doi.org/10.9999/alpha.2024"
-    assert client.get(f"/entities/{NINE}/paper").json()["agentOnly"] is True
+    assert body["metadataStatus"] is None  # described: nothing failed
+    nine = client.get(f"/entities/{NINE}/paper").json()
+    assert nine["agentOnly"] is True
+    # L final review (finding 6): a failed lookup reaches the card, which then
+    # stops promising details "with the next sync".
+    assert nine["metadataStatus"] == "not_found" and nine["context"] is None
     assert client.get("/entities/alpha-project/paper").status_code == 404
     assert client.get("/entities/..%2Fsecrets/paper").status_code == 404
 

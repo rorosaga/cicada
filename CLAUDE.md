@@ -735,7 +735,9 @@ failure or as a stale success.
 `CICADA_ALLOW_CONNECTOR_FETCH`; a folder sync the person asked for (`?resolve=true`) is not. Only two
 APIs are ever called — `export.arxiv.org/api/query` (≤ 50 ids a request, ≥ 3 s apart) and
 `api.crossref.org/works/{doi}` (public pool; no email is ever sent) — at the rail's 4 s / ≤ 512 KB;
-arxiv.org pages and PDFs are never fetched, and a 403/429 stops that API for the run.
+arxiv.org pages and PDFs are never fetched, and a 403/429 stops that API for the run. That holds for
+a paper link saved any other way too (a bookmark, `cicada_save_url`, Telegram): `papers.never_scraped`
+keeps arXiv/DOI links and every arxiv.org page out of save-time enrichment and the link backfill.
 
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a

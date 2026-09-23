@@ -506,6 +506,8 @@ class PaperDetailResponse(CamelModel):
     context: Optional[str] = None
     context_source: Optional[str] = None
     context_as_of: Optional[str] = None
+    #: ``not_found`` / ``unreadable`` once a details lookup failed, else None.
+    metadata_status: Optional[str] = None
 
 
 class EntityDecayUpdate(CamelModel):
@@ -1992,6 +1994,8 @@ class WisprFlowCaptureResponse(CamelModel):
     tombstoned: int = 0
     todo_claims: int = 0
     todos_skipped_no_owner: int = 0
+    # Meetings whose to-do claims wait for a running Sleep cycle to end (L final review, finding 5).
+    todos_pending: int = 0
 
 
 # --- Saved-content connectors (G71 §2) ---

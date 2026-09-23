@@ -41,6 +41,14 @@ async def list_folders(settings: Settings = Depends(get_settings)):
 @router.post("/sources/folders", response_model=FolderRecord)
 async def register_folder(req: FolderRegisterRequest, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
+    from api.services import sleep_cycle
+
+    if sleep_cycle.get_sleep_state().status == "running":
+        # L final review (finding 5): `ensure_project` writes a project page —
+        # `paths:` onto one Stage 5 may be rewriting, or a new page Sleep's
+        # `git add -A` would sweep under the model's name. Adding a folder is a
+        # person's click, so asking again in a minute is the honest answer.
+        raise HTTPException(409, "Cicada is tidying up your memory right now — add the folder again in a minute.")
     device = local_refs.current_device_id()
     name = req.label if req.project_name is None else req.project_name
     project_id, created = await run_in_threadpool(
@@ -186,7 +194,14 @@ async def capture_wispr_flow(req: WisprFlowPayload, settings: Settings = Depends
     # `by_alias=False` is load-bearing: `CamelModel` sets `serialize_by_alias=True`, so a bare
     # `model_dump()` returns `deletedMeetingIds`/`deletedNoteIds` and `ingest` (which reads the
     # snake_case keys) would silently never tombstone anything. `test_the_routes` pins it.
-    report = await run_in_threadpool(wispr_flow.ingest, memory_path, req.model_dump(by_alias=False), current)
+    from api.services import sleep_cycle
+
+    # L final review (finding 5): a to-do claim lands on the owner's page, which
+    # Stage 5 rewrites — while a cycle runs the episodes stage now and the
+    # claims wait for the next sync or the Sleep tail (the R-LS17 rule).
+    sleeping = sleep_cycle.get_sleep_state().status == "running"
+    report = await run_in_threadpool(wispr_flow.ingest, memory_path, req.model_dump(by_alias=False), current,
+                                     defer_todos=sleeping)
     sync_state.record_sync(memory_path, wispr_flow.CHANNEL_ID, count=report.pop("live"))
     await folder_source.commit_paths_for(memory_path, report.pop("paths"), subject="Wispr Flow sync",
                                          trigger="wispr-flow/sync")

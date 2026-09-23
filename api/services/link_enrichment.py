@@ -188,7 +188,15 @@ def _excluded_media(url: str, mtype: str) -> bool:
     description at save time by design, so it would be the *first* thing a
     Sleep-time live fetch picks up and scrapes). Shared by the in-cycle
     ``_candidates`` and the backfill scan so the two can never disagree
-    about what is off-limits."""
+    about what is off-limits.
+
+    Paper links and arxiv.org pages too (``papers.never_scraped``, L final
+    review finding 4): a bookmarked arXiv link that no folder made a paper page
+    was still a backfill candidate."""
+    from api.services.papers import never_scraped
+
+    if never_scraped(url):
+        return True
     url = (url or "").lower()
     mtype = (mtype or "").lower()
     if mtype in ("youtube", "video") or "youtube.com" in url or "youtu.be" in url:

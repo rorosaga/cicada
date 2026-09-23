@@ -189,3 +189,65 @@ def test_the_routes(client, bank):
     # (a bare `req.model_dump()` in the route drops it silently: CamelModel dumps by alias).
     gone = dict(body, meetings=[], deletedMeetingIds=["m-1"])
     assert client.post("/capture/local-source/wispr-flow", json=gone).json()["tombstoned"] == 1
+
+
+def _owner_page(bank):
+    markdown_parser.write(bank / "entities" / "owner.md", {"name": "Owner", "type": "person", "owner": True},
+                          "## Summary\nx")
+
+
+def _todo_claims(bank):
+    return [c for c in parse_claims(markdown_parser.parse(bank / "entities" / "owner.md").body)
+            if c.predicate == "committed-to"]
+
+
+def test_a_sync_during_sleep_stages_the_meeting_and_defers_its_todos(bank):
+    """L final review, finding 5: the owner's page is Stage 5's to rewrite, so a
+    sync mid-cycle stages the episode and leaves the claims for later — then the
+    next sync outside a cycle writes them from the STORED episode."""
+    _owner_page(bank)
+    wf.save_settings(bank, enabled=True, include_dictation=False, owner_speaker_names=[])
+    out = wf.ingest(bank, _payload(), _settings(), defer_todos=True)
+    assert out["created"] == 2 and out["todo_claims"] == 0 and out["todos_pending"] == 1
+    assert "entities/owner.md" not in out["paths"] and "sources/wispr_flow.json" in out["paths"]
+    assert _todo_claims(bank) == [] and wf.load_todos_pending(bank) == ["wispr:meeting:m-1"]
+    # The person's settings survive the pending list, and a settings save keeps it.
+    assert wf.load_settings(bank)["enabled"] is True
+    wf.save_settings(bank, enabled=True, include_dictation=False, owner_speaker_names=["Ada Example"])
+    assert wf.load_todos_pending(bank) == ["wispr:meeting:m-1"]
+
+    later = wf.ingest(bank, _payload(meetings=[], notes=[], todos=[]), _settings())
+    assert later["todo_claims"] == 1 and later["todos_pending"] == 0
+    assert "entities/owner.md" in later["paths"]
+    assert [c.object for c in _todo_claims(bank)] == ["Send the deck"]
+    assert wf.load_todos_pending(bank) == []
+
+
+def test_the_sleep_tail_replays_deferred_todos(bank):
+    _owner_page(bank)
+    wf.ingest(bank, _payload(), _settings(), defer_todos=True)
+    report = wf.replay_pending_todos(bank)
+    assert (report["replayed"], report["written"]) == (1, 1)
+    assert "entities/owner.md" in report["paths"]
+    assert wf.replay_pending_todos(bank) == {"replayed": 0, "written": 0, "paths": []}
+
+
+def test_the_route_defers_todos_while_sleep_runs(client, bank, monkeypatch):
+    from types import SimpleNamespace
+
+    from api.services import sleep_cycle
+
+    _owner_page(bank)
+    client.put("/capture/local-source/wispr-flow/settings",
+               json={"enabled": True, "includeDictation": False, "ownerSpeakerNames": []})
+    body = {"meetings": [_meeting()], "notes": [], "deletedMeetingIds": [], "deletedNoteIds": [],
+            "todos": [{"meetingId": "m-1", "title": "Send the deck", "status": "open", "isDeleted": 0}]}
+    monkeypatch.setattr(sleep_cycle, "get_sleep_state", lambda: SimpleNamespace(status="running"))
+    r = client.post("/capture/local-source/wispr-flow", json=body).json()
+    assert (r["todoClaims"], r["todosPending"]) == (0, 1)
+    # Adding a folder writes a project page: refused, in words, while a cycle runs.
+    refused = client.post("/sources/folders", json={"label": "alpha-project", "path": "/Users/example/alpha-project"})
+    assert refused.status_code == 409 and "folder:" not in refused.json()["detail"]
+    monkeypatch.setattr(sleep_cycle, "get_sleep_state", lambda: SimpleNamespace(status="idle"))
+    r = client.post("/capture/local-source/wispr-flow", json=dict(body, meetings=[], todos=[])).json()
+    assert (r["todoClaims"], r["todosPending"]) == (1, 0)

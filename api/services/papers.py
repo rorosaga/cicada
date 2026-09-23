@@ -36,6 +36,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from urllib.parse import urlparse
 
 from loguru import logger
 
@@ -128,6 +129,24 @@ def key_from_url(url: str) -> PaperKey | None:
     if m:
         return key_for_doi(m.group("doi"))
     return None
+
+
+def never_scraped(url: str) -> bool:
+    """A paper link, or any arxiv.org page: no page or PDF fetch, ever.
+
+    L final review (finding 4): the rail says arxiv.org pages and PDFs are never
+    fetched (spec R-F3, "never scrape arxiv.org"), but only pages ``is_paper``
+    had already marked were skipped — an arXiv or DOI link arriving as an
+    ordinary bookmark, a ``cicada_save_url`` or a Telegram save was still
+    OpenGraph-fetched at save time and again by the enrichment backfill, back to
+    back across a bookmark import, ignoring arXiv's crawl-delay. Details for a
+    paper come only from ``paper_metadata``'s two APIs. Shared by
+    ``media_ingestor.enrich`` and ``link_enrichment._excluded_media`` so the save
+    path and the Sleep-time passes cannot disagree."""
+    if key_from_url(url) is not None:
+        return True
+    host = (urlparse(url or "").hostname or "").lower()
+    return host == "arxiv.org" or host.endswith(".arxiv.org")
 
 
 @dataclass
@@ -518,11 +537,42 @@ def _concept_matcher(memory_path: Path):
     return match
 
 
+def _replay_aliases(memory_path: Path, ops: list[tuple[PaperKey, str, str | None, str]]) -> bool:
+    """This run's ``index_aliases`` calls, replayed onto a FRESH ``url_index.json``
+    load and saved at once — ``paper_metadata._replay_index``'s shape (T4 review
+    finding 1). The working copy ``reconcile`` held across its page loop was
+    loaded before it; saving THAT dropped any row a bookmark, Telegram or
+    ``cicada_save_url`` save added meanwhile (L final review, finding 3)."""
+    if not ops:
+        return False
+    idx = media_ingestor.load_url_index(memory_path)
+    changed = False
+    for key, entity_id, title, episode_id in ops:
+        changed |= index_aliases(idx, key, entity_id, title=title, episode_id=episode_id)
+    if changed:
+        media_ingestor.save_url_index(memory_path, idx)
+    return changed
+
+
 def reconcile(memory_path: Path, folder: dict, *, touched: dict[str, str], tombstoned: dict[str, str],
               renamed=()) -> dict:
     """Re-parse the episodes a sync touched and bring paper pages, claims and
-    removal proposals in line. Idempotent: running it twice changes nothing."""
-    memory_path = Path(memory_path)
+    removal proposals in line. Idempotent: running it twice changes nothing.
+
+    Held under ``folder_source._LOCK`` (re-entrant) end to end. L final review,
+    finding 3: this runs in the threadpool after ``folder_source.sync`` released
+    that lock, and it load→mutate→saves the whole of ``folder_citations.json`` —
+    two folders syncing at once (two FSEvents streams, a watched folder inside
+    another) each saved their own stale copy, and the lost row made the next
+    edit's ``previous`` empty, so claims the file no longer supports never
+    closed and no removal was proposed."""
+    with folder_source._LOCK:
+        return _reconcile_locked(Path(memory_path), folder, touched=touched, tombstoned=tombstoned,
+                                 renamed=renamed)
+
+
+def _reconcile_locked(memory_path: Path, folder: dict, *, touched: dict[str, str], tombstoned: dict[str, str],
+                      renamed=()) -> dict:
     today = date.today().isoformat()
     cites = load_citations(memory_path)
     cites_before = {k: list(v) for k, v in cites.items()}
@@ -537,7 +587,9 @@ def reconcile(memory_path: Path, folder: dict, *, touched: dict[str, str], tombs
     project_name = _name_of(memory_path, project_id)
     report = {"papers_found": 0, "papers_created": 0, "claims_changed": 0, "removals_proposed": 0}
     paths: set[str] = set()
-    idx_changed = False
+    # `idx` is a working copy — what this run's own pages already claimed; the
+    # file is written only by `_replay_aliases`, from these recorded calls.
+    alias_ops: list[tuple[PaperKey, str, str | None, str]] = []
     revisit: set[str] = set()
     for sid, ep_id in touched.items():
         text, fm = evidence.source_document(memory_path, ep_id)
@@ -549,7 +601,10 @@ def reconcile(memory_path: Path, folder: dict, *, touched: dict[str, str], tombs
                 memory_path, c.key, title=c.title, section=c.section, episode_id=ep_id,
                 idx=idx, known=known, today=today)
             known.setdefault(c.key, eid)
-            idx_changed |= index_changed
+            if index_changed:
+                # `ensure_page` names a NEW page's Feed row after it; an existing one keeps its title.
+                title = ((c.title or "").strip() or _placeholder(c.key)) if created else None
+                alias_ops.append((c.key, eid, title, ep_id))
             report["papers_created"] += int(created)
             if page_changed:
                 paths.add(f"entities/{eid}.md")
@@ -579,8 +634,7 @@ def reconcile(memory_path: Path, folder: dict, *, touched: dict[str, str], tombs
     written = propose_removals(memory_path, sorted(revisit - cited_now), folder)
     report["removals_proposed"] = len(written)
     paths.update(written)
-    if idx_changed:
-        media_ingestor.save_url_index(memory_path, idx)
+    if _replay_aliases(memory_path, alias_ops):
         paths.add("sources/url_index.json")
     # Written only when it moved, so a sync that changed nothing leaves no path
     # to commit (the Task 2 no-churn rule the route keeps).
@@ -600,8 +654,15 @@ def reparse_folder(memory_path: Path, folder: dict, *, tombstoned: dict[str, str
     claims never closed and no removal was ever asked. So the stale rows are
     read back from the episode index itself — a tombstoned source is a
     deletion, a source id a live episode lists in ``previous_source_ids`` is a
-    rename (Task 3 review)."""
-    memory_path = Path(memory_path)
+    rename (Task 3 review).
+
+    The scan and the reconcile share one hold of ``folder_source._LOCK`` so a
+    sync cannot stage between them (L final review, finding 3)."""
+    with folder_source._LOCK:
+        return _reparse_folder_locked(Path(memory_path), folder, tombstoned=tombstoned)
+
+
+def _reparse_folder_locked(memory_path: Path, folder: dict, *, tombstoned: dict[str, str] | None) -> dict:
     index, _ = episode_staging.scan(memory_path / "episodes")
     mine = {sid: e for sid, e in index.items() if e.fm.get("folder_id") == folder["id"]}
     touched = {sid: e.id for sid, e in mine.items() if not e.fm.get("source_deleted_at")}
@@ -622,16 +683,20 @@ def reparse_folder(memory_path: Path, folder: dict, *, tombstoned: dict[str, str
 
 def reconcile_pending(memory_path: Path) -> dict:
     """The Sleep tail's deterministic half: re-parse folders a running cycle
-    deferred. Returns ``{"folders": n, "paths": [...]}``."""
+    deferred. Returns ``{"folders": n, "paths": [...]}``.
+
+    Under ``folder_source._LOCK`` like ``reconcile`` (L final review, finding 3):
+    the flag read and its clear must not straddle a sync that sets it again."""
     paths: set[str] = set()
     done = 0
-    for folder in folder_source.list_folders(memory_path):
-        if not folder.get("papers_pending"):
-            continue
-        report = reparse_folder(memory_path, folder)
-        folder_source.set_flags(memory_path, folder["id"], papers_pending=False)
-        paths.update(report["paths"])
-        done += 1
+    with folder_source._LOCK:
+        for folder in folder_source.list_folders(memory_path):
+            if not folder.get("papers_pending"):
+                continue
+            report = reparse_folder(memory_path, folder)
+            folder_source.set_flags(memory_path, folder["id"], papers_pending=False)
+            paths.update(report["paths"])
+            done += 1
     if done:
         paths.add(f"sources/{folder_source.FOLDERS_FILENAME}")
     return {"folders": done, "paths": sorted(paths)}
@@ -729,4 +794,8 @@ def detail(memory_path: Path, entity_id: str) -> dict | None:
         "context": describes.object if describes else None,
         "context_source": paper.get("metadata_source") if describes else None,
         "context_as_of": describes.recorded_at if describes else None,
+        # L final review (finding 6): the card's empty state names what really
+        # happened — a lookup that failed (and waits `RETRY_DAYS`) is not
+        # "arriving with the next sync".
+        "metadata_status": paper.get("metadata_status") if not describes else None,
     }

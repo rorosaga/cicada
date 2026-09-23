@@ -52,7 +52,20 @@ enum PaperCardText {
 
     static let agentOnly = "Found by an agent's research sweep — not cited in your own notes."
     static let noWhy = "Nothing you wrote cites this paper right now."
-    static let noContext = "Details from arXiv haven't been fetched yet — they arrive with the next sync."
+
+    /// The empty context line, true in every case (L final review, finding 6).
+    /// The old single sentence named arXiv for a DOI-only paper (Crossref
+    /// answers those), and promised "the next sync" to a paper whose lookup had
+    /// failed and waits 30 days, or to a bank whose background lookups are off.
+    /// So it says which service, and never when.
+    static func noContext(arxivId: String?, metadataStatus: String?) -> String {
+        let service = (arxivId?.isEmpty == false) ? "arXiv" : "Crossref"
+        switch metadataStatus {
+        case "not_found": return "\(service) has no details for this paper."
+        case "unreadable": return "\(service) sent details for this paper that Cicada couldn't read."
+        default: return "Details from \(service) haven't been fetched yet."
+        }
+    }
 }
 
 /// G133 / G121 — a paper page leads with why it is in the person's memory,
@@ -117,7 +130,8 @@ struct PaperCard: View {
             Text(PaperCardText.contextHeading(source: detail.contextSource, asOf: detail.contextAsOf))
                 .font(CicadaTheme.font(size: 13, weight: .semibold))
                 .foregroundStyle(CicadaTheme.textPrimary)
-            Text(detail.context ?? PaperCardText.noContext)
+            Text(detail.context ?? PaperCardText.noContext(arxivId: detail.arxivId,
+                                                           metadataStatus: detail.metadataStatus))
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(detail.context == nil ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

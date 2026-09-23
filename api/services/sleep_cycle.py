@@ -504,6 +504,24 @@ async def _resolve_papers_safely(memory_path: Path) -> None:
         logger.warning(f"Paper details failed: {type(e).__name__}: {e}")
 
 
+async def _replay_wispr_todos_safely(memory_path: Path) -> None:
+    """G134: write the Wispr Flow to-do claims a sync deferred because this cycle
+    was running (L final review, finding 5 — the owner's page is Stage 5's to
+    rewrite). Deterministic, no LLM; its commit is scoped to what it wrote, in
+    the clean-tree-guarded branch for the same reason as the paper step. The
+    claims are Wispr Flow's, not the cycle model's, so the author is
+    ``cicada``. Never fatal."""
+    try:
+        from api.services import folder_source, wispr_flow
+
+        report = await asyncio.to_thread(wispr_flow.replay_pending_todos, memory_path)
+        if report["paths"]:
+            await folder_source.commit_paths_for(memory_path, report["paths"], subject="Wispr Flow to-dos",
+                                                 trigger="wispr-flow/todos", author="cicada")
+    except Exception as e:
+        logger.warning(f"Wispr Flow to-dos failed: {type(e).__name__}: {e}")
+
+
 async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> None:
     """G60 §2.3 on an IDLE cycle: keep open questions honest during quiet weeks.
 
@@ -749,7 +767,8 @@ async def _run_engine_independent_tail(
 
     G133: ``_resolve_papers_safely`` shares this branch — it writes paper pages
     (scoped commits), and the fetch half is gated by
-    ``CICADA_ALLOW_CONNECTOR_FETCH``.
+    ``CICADA_ALLOW_CONNECTOR_FETCH``. G134's ``_replay_wispr_todos_safely``
+    does too: it writes the owner's page.
 
     G53: ``_refresh_state_safely`` runs FIRST and unconditionally — it
     commits only ``_state.md`` via ``commit_paths``, so it is safe on a dirty
@@ -771,6 +790,7 @@ async def _run_engine_independent_tail(
         await _poll_feeds_and_calendars_safely(memory_path)
         await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
         await _resolve_papers_safely(memory_path)
+        await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(
             "connector, feed/calendar, link-backfill and paper details steps skipped: this cycle "

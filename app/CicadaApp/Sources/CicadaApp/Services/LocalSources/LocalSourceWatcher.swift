@@ -33,6 +33,11 @@ enum LocalSourceCopy {
     static let folderMissing = "This folder isn't on this Mac — it may live on another computer, or it moved."
     static let folderNotWatched =
         "Cicada couldn't start watching this folder. It will try again the next time it syncs."
+    static let folderNotSetUpHere =
+        "This folder isn't set up on this Mac yet — open Settings → Integrations to finish."
+    static let wisprTurnedOff = "Wispr Flow is turned off — turn it on in Settings → Integrations."
+    static let alreadySyncing = "Already syncing — anything new will follow right after."
+    static let synced = "Synced"
 }
 
 /// A folder's watch, made by the watcher — `FSEventsWatch` in the app, a stand-in
@@ -60,6 +65,10 @@ final class LocalSourceWatcher {
     private(set) var folderErrors: [String: String] = [:]
     private(set) var wisprSettings = WisprFlowSettings()
     private(set) var wisprError: BrowserFileError?
+    /// The last Wispr Flow pass's non-file failure (the backend refused the
+    /// post), in words — so a "Sync now" outside Integrations can say what
+    /// went wrong instead of "Synced" (L final review, finding 1).
+    private(set) var wisprFailure: String?
     private(set) var syncing: Set<String> = []
 
     private let lights: BrowserWatcher
@@ -342,6 +351,31 @@ final class LocalSourceWatcher {
         await syncFolder(folder, resolve: true)
     }
 
+    /// "Sync now" from a surface that only knows the channel id — the Sources
+    /// card, the source page, the Feed strip (L final review, finding 1). The
+    /// same `syncNow(_:)` the Integrations row runs, plus an honest one-line
+    /// result: the watcher records a failure rather than throwing it, so the
+    /// recorded error is what this reports.
+    func syncNow(folderId id: String) async throws -> String {
+        guard let folder = folders.first(where: { $0.id == id }) else {
+            throw BrowserImportActions.ImportActionError.failed(LocalSourceCopy.folderNotSetUpHere)
+        }
+        guard isOnThisMac(folder) else { throw FolderWatchError.missing }
+        if syncing.contains(folder.channelId) {
+            // `syncFolder` marks it dirty and re-runs once this pass ends.
+            await syncNow(folder)
+            return LocalSourceCopy.alreadySyncing
+        }
+        await syncNow(folder)
+        switch folderErrors[folder.id] {
+        case nil: return LocalSourceCopy.synced
+        // `settle` records a watch that would not start AFTER a good sync: the
+        // files went through, so this is a note, not a failure.
+        case LocalSourceCopy.folderNotWatched?: return "\(LocalSourceCopy.synced). \(LocalSourceCopy.folderNotWatched)"
+        case let error?: throw BrowserImportActions.ImportActionError.failed(error)
+        }
+    }
+
     /// Register a folder the person picked, and remember where it is on this Mac.
     func addFolder(url: URL, label: String, projectName: String, agentGlobs: [String]) async throws -> FolderRegistration {
         let rules = agentGlobs.map { FolderAuthorshipRule(glob: $0, authorship: "agent") }
@@ -438,6 +472,21 @@ final class LocalSourceWatcher {
         await syncWispr()
     }
 
+    /// `syncWisprNow()` for a surface outside Integrations, with the result in
+    /// words (L final review, finding 1). A source that is turned off says so
+    /// instead of reporting a sync that never ran.
+    func syncWisprNowReporting() async throws -> String {
+        guard wisprSettings.enabled else {
+            throw BrowserImportActions.ImportActionError.failed(LocalSourceCopy.wisprTurnedOff)
+        }
+        let wasSyncing = syncing.contains(Self.wisprChannel)
+        await syncWisprNow()
+        if wasSyncing { return LocalSourceCopy.alreadySyncing }
+        if let error = wisprError { throw error }
+        if let failure = wisprFailure { throw BrowserImportActions.ImportActionError.failed(failure) }
+        return LocalSourceCopy.synced
+    }
+
     func syncWispr() async {
         let channel = Self.wisprChannel
         guard wisprSettings.enabled else { return }
@@ -476,16 +525,20 @@ final class LocalSourceWatcher {
                 if !pass.hasMore { break }
             }
             wisprError = nil
+            wisprFailure = nil
             lights.publish(.watching, error: nil, for: channel)
             if posted { await store?.refresh([.channels, .sourcesOverview, .status]) }
         } catch let error as BrowserFileError {
             wisprError = error
+            wisprFailure = nil
             if case .notReadable = error {
                 lights.publish(.blocked, error: error, for: channel)
             } else {
                 lights.publish(.failed, error: error, for: channel)
             }
         } catch {
+            wisprError = nil
+            wisprFailure = AddSourceSheet.friendlyError(error)
             lights.publish(.failed, error: nil, for: channel)
         }
     }

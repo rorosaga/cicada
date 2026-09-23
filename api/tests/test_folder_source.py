@@ -132,6 +132,42 @@ def test_a_long_file_splits_on_h2_and_an_edit_touches_one_section(bank):
     assert (out["updated"], out["created"]) == (1, 0)
 
 
+def test_a_triple_dash_in_a_path_or_heading_keeps_the_episode_readable(bank):
+    """L final review (finding 2): the relpath, the title and a section heading
+    ride in the frontmatter, and `markdown_parser.parse` used to split on the
+    first two `---` anywhere — a YAML error, an episode `bank_index` skipped, and
+    a SECOND episode on the next edit because the stager never saw the first."""
+    folder = _folder(bank)
+    pad = "word " * (fs.SPLIT_CHARS // 10)
+    long_text = f"Intro.\n\n## Plan---draft\n{pad}\n\n## Notes\n{pad}\n"
+    fs.sync(bank, folder, [_file("archive/2026-09-01---sweep.md", "v1"),
+                           _file("plans/a---b.md", long_text)], [])
+    eps = _episodes(bank)
+    short = f"folder:{folder['id']}:archive/2026-09-01---sweep.md"
+    assert eps[short].frontmatter["relpath"] == "archive/2026-09-01---sweep.md"
+    assert eps[short].body == "v1"
+    assert f"folder:{folder['id']}:plans/a---b.md#plan-draft" in eps or any(
+        k.startswith(f"folder:{folder['id']}:plans/a---b.md#plan") for k in eps)
+    count = len(list((bank / "episodes").glob("ep_*.md")))
+
+    out = fs.sync(bank, folder, [_file("archive/2026-09-01---sweep.md", "v2", mtime=1_756_100_000.0),
+                                 _file("plans/a---b.md", long_text.replace("## Notes\n", "## Notes\nMore.\n"),
+                                       mtime=1_756_100_000.0)], [])
+    assert (out["updated"], out["created"]) == (2, 0)
+    assert len(list((bank / "episodes").glob("ep_*.md"))) == count
+    assert _episodes(bank)[short].body == "v2"
+
+
+def test_parse_splits_only_on_whole_line_fences(tmp_path):
+    p = tmp_path / "ep.md"
+    markdown_parser.write(p, {"title": "alpha --- beta", "relpath": "a---b.md"}, "body --- text\n---\nmore")
+    parsed = markdown_parser.parse(p)
+    assert parsed.frontmatter == {"title": "alpha --- beta", "relpath": "a---b.md"}
+    assert parsed.body == "body --- text\n---\nmore"
+    (tmp_path / "empty.md").write_text("---\n---\n\nbody\n", encoding="utf-8")
+    assert markdown_parser.parse(tmp_path / "empty.md").body == "body"
+
+
 def test_preview_counts_and_writes_nothing(bank):
     folder = _folder(bank)
     out = fs.sync(bank, folder, [_file("README.md", "x" * 30_000), _file("archive/s.md", "y")], [],
@@ -184,6 +220,28 @@ def test_the_channel_row_and_the_sources_card(bank):
     card = next(r for r in source_overview.build_overview(bank, channels=rows)
                 if r["id"] == f"folder:{folder['id']}")
     assert (card["label"], card["kind"], card["mark"], card["episodes"]) == ("alpha-project", "import", "folder", 1)
+
+
+# Every channel id the registry can emit with `sync` that the APP routes. The
+# Swift twin is `ChannelSyncRoutingTests.registrySyncIds` (a folder id stands
+# in for the `folder:` family): a new `sync` row must land in both lists and
+# get a handler in `ChannelActions.syncRoute`, or its "Sync now" throws
+# "Unknown channel <id>" at the person — the L final review's finding 1.
+APP_SYNC_ROUTED = {
+    "chrome-bookmarks", "safari-bookmarks", "safari-tabs", "notes",
+    "pinterest", "reddit", "x", "folder:*", "wispr-flow",
+}
+
+
+def test_every_sync_row_the_registry_can_emit_is_one_the_app_routes(bank):
+    from api.services import wispr_flow
+    _folder(bank)
+    wispr_flow.save_settings(bank, enabled=True, include_dictation=False, owner_speaker_names=[])
+    every_connector = {cid: True for cid in channel_registry.ADAPTERS}
+    rows = channel_registry.build_channels(bank, telegram_enabled=True, connectors_connected=every_connector)
+    emitted = {("folder:*" if r["id"].startswith("folder:") else r["id"])
+               for r in rows if "sync" in r["actions"]}
+    assert emitted == APP_SYNC_ROUTED
 
 
 def test_registering_moves_the_sources_component(bank):

@@ -282,6 +282,13 @@ async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMet
         if media_type == "instagram":
             # Login-walled — never attempt scraping; URL-only by design.
             return fallback
+        from api.services.papers import never_scraped  # lazy: papers imports this module
+
+        if never_scraped(url):
+            # An arXiv/DOI link or any arxiv.org page (G133 rail, L final review
+            # finding 4): the paper's details come from the arXiv and Crossref
+            # APIs only, never from a page or PDF fetch.
+            return fallback
         if media_type == "linkedin":
             # ToS-walled (G69: §8.2 bans fetching the post body) — never
             # attempt scraping; URL-only by design, same as Instagram above.

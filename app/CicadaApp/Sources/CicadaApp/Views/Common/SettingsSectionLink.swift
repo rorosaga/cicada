@@ -24,17 +24,37 @@ import SwiftUI
 ///    — the reader in `SettingsScene.swift` stays where it is; what must never
 ///    fork is the write, because a second copy-pasted writer with a typo'd key
 ///    fails silently by opening Settings on the wrong section.
-struct SettingsSectionLink: View {
+///
+/// The label is generic so a whole row can be the link (L final review,
+/// finding 1: a folder or Wispr Flow row on the Feed strip has its settings in
+/// Integrations, and a closure-driven row `Button` cannot get there). The seed
+/// still has exactly one writer — this body.
+struct SettingsSectionLink<Label: View>: View {
     let section: SettingsSection
-    let label: String
+    let accessibilityText: String
+    let label: Label
+
+    init(section: SettingsSection, accessibilityText: String, @ViewBuilder label: () -> Label) {
+        self.section = section
+        self.accessibilityText = accessibilityText
+        self.label = label()
+    }
 
     var body: some View {
-        SettingsLink { Text(label) }
+        SettingsLink { label }
             .buttonStyle(.cicadaPlain)
-            .foregroundStyle(CicadaTheme.accent)
             .simultaneousGesture(TapGesture().onEnded {
                 UserDefaults.standard.set(section.rawValue, forKey: "cicada.settingsSection")
             })
-            .accessibilityLabel("\(label), opens \(Copy.settings) — \(section.title)")
+            .accessibilityLabel("\(accessibilityText), opens \(Copy.settings) — \(section.title)")
+    }
+}
+
+extension SettingsSectionLink where Label == Text {
+    /// The plain accent-coloured text link every earlier call site uses.
+    init(section: SettingsSection, label: String) {
+        self.init(section: section, accessibilityText: label) {
+            Text(label).foregroundStyle(CicadaTheme.accent)
+        }
     }
 }

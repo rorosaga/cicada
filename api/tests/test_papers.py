@@ -240,3 +240,94 @@ def test_a_reconcile_with_nothing_touched_writes_nothing(bank):
     before = cites.stat().st_mtime_ns
     report = papers.reconcile(bank, fs.get_folder(bank, folder["id"]), touched={}, tombstoned={})
     assert report["paths"] == [] and cites.stat().st_mtime_ns == before
+
+
+def test_a_bookmark_saved_mid_reconcile_keeps_its_url_index_row(bank, monkeypatch):
+    """L final review, finding 3: `reconcile` held one loaded `url_index.json`
+    across its whole page loop and saved it at the end, dropping a row another
+    writer (a bookmark sync, Telegram, `cicada_save_url`) added meanwhile. Its
+    alias calls now replay onto a fresh load."""
+    folder = _folder(bank)
+    bank_index.invalidate()
+    staged = fs.sync(bank, folder, [_file("REFERENCES.md", REFERENCES)], [])["_staged"]
+    real = papers.ensure_page
+    landed = []
+
+    def ensure_page_then_a_bookmark_lands(*args, **kwargs):
+        out = real(*args, **kwargs)
+        if not landed:
+            idx = media_ingestor.load_url_index(bank)
+            idx["bookmark-row"] = {"media_entity_id": "media-bob-example", "url": "https://example.com/post"}
+            media_ingestor.save_url_index(bank, idx)
+            landed.append(True)
+        return out
+
+    monkeypatch.setattr(papers, "ensure_page", ensure_page_then_a_bookmark_lands)
+    report = papers.reconcile(bank, fs.get_folder(bank, folder["id"]), touched=staged.touched,
+                              tombstoned=staged.tombstoned_sources)
+    idx = media_ingestor.load_url_index(bank)
+    assert "bookmark-row" in idx, "the other writer's row survived"
+    assert any(e.get("media_entity_id") == "media-arxiv-2401-00001" for e in idx.values())
+    assert "sources/url_index.json" in report["paths"]
+    rows = [e for e in idx.values() if e.get("media_entity_id") == "media-arxiv-2401-00001"]
+    assert rows[0]["title"] == "Paper Alpha" and not rows[0].get("alias_of")
+
+
+def test_reconcile_and_the_deferred_reparse_hold_the_folder_lock(bank, monkeypatch):
+    """Two folders reconciling at once each saved their own stale
+    `folder_citations.json`; both paths now run under `folder_source._LOCK`."""
+    folder = _folder(bank)
+    _sync(bank, folder, [_file("REFERENCES.md", REFERENCES)])
+    fs.set_flags(bank, folder["id"], papers_pending=True)
+    held = []
+    real = papers.save_citations
+
+    def spy(*args, **kwargs):
+        held.append(fs._LOCK._is_owned())
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(papers, "save_citations", spy)
+    (bank / "sources" / papers.CITATIONS_FILENAME).unlink()
+    papers.reconcile_pending(bank)
+    assert held == [True]
+    (bank / "sources" / papers.CITATIONS_FILENAME).unlink()
+    bank_index.invalidate()
+    papers.reparse_folder(bank, fs.get_folder(bank, folder["id"]))
+    assert held == [True, True]
+
+
+# --- L final review, finding 4: arxiv.org is never scraped -------------------
+
+
+class _NoNetwork:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    async def get(self, url, **kwargs):
+        self.calls.append(url)
+        raise AssertionError(f"fetched {url}")
+
+
+@pytest.mark.parametrize("url", [
+    "https://arxiv.org/abs/2401.00001v2",
+    "https://arxiv.org/pdf/2401.00001",
+    "https://doi.org/10.1234/example.5678",
+    "https://arxiv.org/list/cs.LG/recent",
+])
+def test_a_paper_link_saved_as_a_bookmark_is_never_fetched(url):
+    import asyncio
+
+    from api.services import link_enrichment
+
+    client = _NoNetwork()
+    meta = asyncio.run(media_ingestor.enrich(url, client, from_bookmark_file=True))
+    assert client.calls == [] and meta.description == ""
+    # The in-cycle pass and the backfill share this one exclusion.
+    assert link_enrichment._excluded_media(url, "bookmark") is True
+
+
+def test_an_ordinary_link_is_still_a_candidate():
+    from api.services import link_enrichment
+
+    assert papers.never_scraped("https://example.com/post") is False
+    assert link_enrichment._excluded_media("https://example.com/post", "url") is False

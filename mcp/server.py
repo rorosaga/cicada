@@ -28,6 +28,8 @@ from api.services import agentic_write  # noqa: E402
 # Pure filesystem + datetime, no bank/config state — safe to hoist alongside.
 from api.services import episode_ids  # noqa: E402
 from api.services import episode_scrub  # noqa: E402
+# One fence rule for every frontmatter reader (L final review, finding 2).
+from api.services import markdown_parser  # noqa: E402
 # Track P R8/R9 — the legacy observer value is protocol and must stay in the
 # `cicada_write_claim` schema (CLAUDE.md R12: a description naming an argument
 # the schema would reject is a bug), but it is a person's name, the repo is
@@ -855,17 +857,17 @@ def handle_save_url(url: str, note: str | None) -> str:
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:
     """Parse YAML frontmatter without requiring pyyaml. Simple key: value parsing."""
-    if not content.startswith("---"):
-        return {}, content
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    # Line-anchored fences (L final review, finding 2): a `---` inside a title
+    # must not end the frontmatter.
+    split = markdown_parser.split_frontmatter(content)
+    if split is None:
         return {}, content
 
     fm = {}
     current_key = None
     current_list = None
 
-    for line in parts[1].strip().splitlines():
+    for line in split[0].strip().splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
@@ -895,7 +897,7 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
             else:
                 fm[key] = None
 
-    return fm, parts[2].strip()
+    return fm, split[1].strip()
 
 
 SHORT_TYPES = {"deadline", "skill"}
@@ -1060,13 +1062,11 @@ def _parse_hub_header(content: str) -> dict:
     written before ``members:``, so reading the header up to that line yields
     the correct hub identity without parsing nested YAML.
     """
-    if not content.startswith("---"):
-        return {}
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    split = markdown_parser.split_frontmatter(content)
+    if split is None:
         return {}
     fm: dict = {}
-    for line in parts[1].strip().splitlines():
+    for line in split[0].strip().splitlines():
         stripped = line.strip()
         if stripped == "members:" or stripped.startswith("members:"):
             break

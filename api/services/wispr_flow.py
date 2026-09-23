@@ -27,6 +27,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -88,10 +89,103 @@ def load_settings(memory_path: Path) -> dict:
 def save_settings(memory_path: Path, *, enabled: bool, include_dictation: bool, owner_speaker_names) -> dict:
     data = {"enabled": bool(enabled), "include_dictation": bool(include_dictation),
             "owner_speaker_names": _clean_names(owner_speaker_names)}
+    with _LOCK:
+        pending = load_todos_pending(memory_path)
+        _write(memory_path, {**data, TODOS_PENDING_KEY: pending} if pending else data)
+    return data
+
+
+def _write(memory_path: Path, data: dict) -> None:
     path = settings_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return data
+
+
+# --- To-dos a running Sleep deferred (L final review, finding 5) --------------
+#
+# A to-do claim lands on the OWNER's page — the page Stage 5 rewrites. The
+# folder route already defers every entity write while a cycle runs (R-LS17);
+# this path did not, and the app's watcher posts here on its own, so a sync
+# mid-cycle could lose its claims to Sleep's read-modify-write or ride Sleep's
+# `git add -A` under the model's name. Deferred meetings are listed here and
+# replayed from their STORED episodes on the next sync outside a cycle, or by
+# the Sleep tail — the `papers_pending` / `papers.reconcile_pending` shape.
+
+TODOS_PENDING_KEY = "todos_pending"
+_LOCK = threading.RLock()
+_TODOS_HEADING = "To-dos (from Wispr Flow)"
+
+
+def load_todos_pending(memory_path: Path) -> list[str]:
+    try:
+        data = json.loads(settings_path(memory_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    raw = data.get(TODOS_PENDING_KEY) if isinstance(data, dict) else None
+    return [str(s) for s in raw if str(s).startswith("wispr:meeting:")] if isinstance(raw, list) else []
+
+
+def _save_todos_pending(memory_path: Path, source_ids: list[str]) -> None:
+    """Rewrite only the pending list; the person's settings keep their values."""
+    try:
+        data = json.loads(settings_path(memory_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    data = data if isinstance(data, dict) else {}
+    if source_ids:
+        data[TODOS_PENDING_KEY] = sorted(set(source_ids))
+    else:
+        data.pop(TODOS_PENDING_KEY, None)
+    _write(memory_path, data)
+
+
+def todos_in_episode(body: str) -> list[str]:
+    """The open to-do titles a stored meeting episode lists — what
+    `meeting_draft` rendered as its `To-dos (from Wispr Flow)` turn."""
+    out: list[str] = []
+    lines = body.splitlines()
+    for i, line in enumerate(lines):
+        if line.rstrip().endswith(_TODOS_HEADING) and line.startswith("assistant:"):
+            for item in lines[i + 1:]:
+                if not item.startswith("- "):
+                    break
+                title = item[2:].strip()
+                if title and title not in out:
+                    out.append(title)
+            break
+    return out
+
+
+def replay_pending_todos(memory_path: Path, *, skip: set[str] = frozenset()) -> dict:
+    """Write the to-do claims a running cycle deferred, from each meeting's
+    stored episode, and clear the list. ``skip`` names meetings the caller just
+    wrote itself. A meeting deleted meanwhile has nothing left to claim."""
+    memory_path = Path(memory_path)
+    with _LOCK:
+        pending = load_todos_pending(memory_path)
+        if not pending:
+            return {"replayed": 0, "written": 0, "paths": []}
+        index, _ = episode_staging.scan(memory_path / "episodes")
+        touched: dict[str, str] = {}
+        meeting_todos: dict[str, list[str]] = {}
+        for sid in pending:
+            entry = index.get(sid)
+            if sid in skip or entry is None or entry.fm.get("source_deleted_at"):
+                continue
+            titles = todos_in_episode(markdown_parser.parse(entry.path).body)
+            if titles:
+                touched[sid], meeting_todos[sid] = entry.id, titles
+        claims = write_todo_claims(memory_path, _Touched(touched), meeting_todos)
+        _save_todos_pending(memory_path, [])
+        return {"replayed": len(touched), "written": claims["written"],
+                "paths": claims["paths"] + [f"sources/{SETTINGS_FILENAME}"]}
+
+
+class _Touched:
+    """`write_todo_claims` reads only `.touched` off a stage result."""
+
+    def __init__(self, touched: dict[str, str]):
+        self.touched = touched
 
 
 # --- Field helpers ----------------------------------------------------------
@@ -353,7 +447,9 @@ def write_todo_claims(memory_path: Path, staged, meeting_todos: dict[str, list[s
 # --- Ingest -----------------------------------------------------------------
 
 
-def ingest(memory_path: Path, payload: dict, settings: dict) -> dict:
+def ingest(memory_path: Path, payload: dict, settings: dict, *, defer_todos: bool = False) -> dict:
+    """Stage one posted batch. ``defer_todos`` (a Sleep cycle is running): the
+    episodes land now, the to-do claims wait in ``todos_pending`` (finding 5)."""
     memory_path = Path(memory_path)
     episodes_dir = memory_path / "episodes"
     owner_names = {n.casefold() for n in settings.get("owner_speaker_names") or []}
@@ -392,11 +488,28 @@ def ingest(memory_path: Path, payload: dict, settings: dict) -> dict:
     deleted = ([f"wispr:meeting:{i}" for i in payload.get("deleted_meeting_ids") or [] if str(i).strip()]
                + [f"wispr:note:{i}" for i in payload.get("deleted_note_ids") or [] if str(i).strip()])
     staged = episode_staging.stage(drafts, episodes_dir, deleted_source_ids=deleted, bank=memory_path.name)
-    claims = write_todo_claims(memory_path, staged, meeting_todos)
+    todo_sids = {sid for sid in staged.touched if sid in meeting_todos}
+    pending_paths: list[str] = []
+    if defer_todos:
+        claims = {"written": 0, "skipped_no_owner": 0, "paths": []}
+        with _LOCK:
+            before = load_todos_pending(memory_path)
+            if todo_sids - set(before):
+                _save_todos_pending(memory_path, before + sorted(todo_sids))
+                pending_paths.append(f"sources/{SETTINGS_FILENAME}")
+        todos_pending = len(set(before) | todo_sids)
+    else:
+        claims = write_todo_claims(memory_path, staged, meeting_todos)
+        # Anything an earlier batch deferred, now that no cycle runs. The
+        # meetings just written are skipped — their claims are already down.
+        replay = replay_pending_todos(memory_path, skip=todo_sids)
+        claims["written"] += replay["written"]
+        pending_paths = replay["paths"]
+        todos_pending = 0
     index, _ = episode_staging.scan(episodes_dir)
     live = sum(1 for sid, e in index.items()
                if sid.startswith(("wispr:meeting:", "wispr:note:")) and not e.fm.get("source_deleted_at"))
     return {**counts, "created": staged.created, "updated": staged.updated, "skipped": staged.skipped,
             "tombstoned": staged.tombstoned, "todo_claims": claims["written"],
-            "todos_skipped_no_owner": claims["skipped_no_owner"], "live": live,
-            "paths": staged.paths + claims["paths"]}
+            "todos_skipped_no_owner": claims["skipped_no_owner"], "todos_pending": todos_pending,
+            "live": live, "paths": staged.paths + claims["paths"] + pending_paths}

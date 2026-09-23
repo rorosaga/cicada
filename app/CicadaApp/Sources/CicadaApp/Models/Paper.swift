@@ -110,20 +110,25 @@ struct PaperDetail: Codable, Equatable {
     var context: String?
     var contextSource: String?
     var contextAsOf: String?
+    /// `not_found` / `unreadable` once the details lookup failed; nil otherwise
+    /// (L final review, finding 6 — the empty state must not promise a sync).
+    var metadataStatus: String?
 
     enum CodingKeys: String, CodingKey {
         case entityId, title, authors, venue, published, arxivId, doi, absUrl, doiUrl, sections, why
-        case agentOnly, context, contextSource, contextAsOf
+        case agentOnly, context, contextSource, contextAsOf, metadataStatus
     }
 
     init(entityId: String, title: String = "", authors: [String] = [], venue: String? = nil,
          published: String? = nil, arxivId: String? = nil, doi: String? = nil, absUrl: String? = nil,
          doiUrl: String? = nil, sections: [String] = [], why: [PaperWhyItem] = [], agentOnly: Bool = false,
-         context: String? = nil, contextSource: String? = nil, contextAsOf: String? = nil) {
+         context: String? = nil, contextSource: String? = nil, contextAsOf: String? = nil,
+         metadataStatus: String? = nil) {
         self.entityId = entityId; self.title = title; self.authors = authors; self.venue = venue
         self.published = published; self.arxivId = arxivId; self.doi = doi; self.absUrl = absUrl
         self.doiUrl = doiUrl; self.sections = sections; self.why = why; self.agentOnly = agentOnly
         self.context = context; self.contextSource = contextSource; self.contextAsOf = contextAsOf
+        self.metadataStatus = metadataStatus
     }
 
     init(from decoder: Decoder) throws {
@@ -143,5 +148,6 @@ struct PaperDetail: Codable, Equatable {
         context = try c.decodeIfPresent(String.self, forKey: .context)
         contextSource = try c.decodeIfPresent(String.self, forKey: .contextSource)
         contextAsOf = try c.decodeIfPresent(String.self, forKey: .contextAsOf)
+        metadataStatus = try c.decodeIfPresent(String.self, forKey: .metadataStatus)
     }
 }

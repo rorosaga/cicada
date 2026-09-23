@@ -63,6 +63,27 @@ final class PaperCardTests: XCTestCase {
         XCTAssertFalse(older.isPaper)
     }
 
+    /// L final review (finding 6): the empty context line said "Details from
+    /// arXiv … arrive with the next sync" for every paper — wrong for a DOI-only
+    /// paper (Crossref), a failed lookup (retried in 30 days) and a bank with
+    /// background lookups off. It names the right service and promises nothing.
+    func testTheEmptyContextLineIsTrueInEveryCase() throws {
+        XCTAssertEqual(PaperCardText.noContext(arxivId: "2401.00001", metadataStatus: nil),
+                       "Details from arXiv haven't been fetched yet.")
+        XCTAssertEqual(PaperCardText.noContext(arxivId: nil, metadataStatus: nil),
+                       "Details from Crossref haven't been fetched yet.")
+        XCTAssertEqual(PaperCardText.noContext(arxivId: "2401.00001", metadataStatus: "not_found"),
+                       "arXiv has no details for this paper.")
+        XCTAssertEqual(PaperCardText.noContext(arxivId: nil, metadataStatus: "not_found"),
+                       "Crossref has no details for this paper.")
+        XCTAssertTrue(PaperCardText.noContext(arxivId: nil, metadataStatus: "unreadable").hasPrefix("Crossref"))
+        for status in [nil, "not_found", "unreadable"] {
+            XCTAssertFalse(PaperCardText.noContext(arxivId: nil, metadataStatus: status).contains("next sync"))
+        }
+        let json = #"{"entityId": "media-doi-0123456789", "metadataStatus": "not_found"}"#
+        XCTAssertEqual(try JSONDecoder().decode(PaperDetail.self, from: Data(json.utf8)).metadataStatus, "not_found")
+    }
+
     /// Decode tolerance (Global Constraints): only `entityId` — and, per why
     /// item, `predicate` + `episode` — are required, so a partial span still
     /// renders as a plain quote instead of dropping the card.
