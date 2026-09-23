@@ -14,6 +14,7 @@ from api.models.schemas import (
     MediaSourceItem,
     NotesSyncRequest,
     NotesSyncResponse,
+    PaperSummary,
     SafariTabsDevice,
     SafariTabsPreview,
     SafariTabsSyncRequest,
@@ -31,6 +32,7 @@ from api.models.schemas import (
     SourceUploadResponse,
 )
 from api.services import (
+    agent_commits,
     bookmark_sync,
     calendar_registry,
     channel_registry,
@@ -109,8 +111,19 @@ async def save_source(
     media_ingestor.save_url_index(memory_path, idx)
 
     if result.status == "created":
+        # G135 R-R12: this call used to omit `paths` and raise a TypeError that
+        # the except below swallowed, so no single save was ever committed. An
+        # MCP save (it carries a session id) is the agent's, not the person's.
+        paths = ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
+                 f"episodes/{result.episode_id}.md"]
+        by_agent = bool((request.session_id or "").strip())
+        author = agent_commits.author_for(request.harness) if by_agent else "user"
         try:
-            await media_ingestor._commit_media(memory_path, 1)
+            await media_ingestor._commit_media(
+                memory_path, 1, paths, author=author,
+                sessions=[request.session_id] if by_agent else None,
+                trigger=f"mcp/{author}" if by_agent else "user/media_save",
+            )
         except Exception as e:
             logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
 
@@ -507,6 +520,10 @@ async def list_sources(
 
     items = []
     for entry in idx.values():
+        # R-LS14: a paper's second canonical URL is an alias of its first; one
+        # paper is one Feed row.
+        if isinstance(entry, dict) and entry.get("alias_of"):
+            continue
         entity_id = entry.get("media_entity_id", "")
         related_count = 0
         status = "active"
@@ -522,6 +539,8 @@ async def list_sources(
         folder: str | None = None
         provider: str | None = None
         duration_s: int | None = None
+        kind: str | None = None
+        paper: PaperSummary | None = None
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
@@ -575,6 +594,17 @@ async def list_sources(
                     provider = pv if isinstance(pv, str) and pv else None
                     d = media.get("duration_s")
                     duration_s = d if isinstance(d, int) and not isinstance(d, bool) and d > 0 else None
+                    # G133 — a paper page's byline, from its own `paper:`
+                    # block (never the index), so the Feed can show and
+                    # search authors, the arXiv id and the DOI.
+                    k = media.get("kind")
+                    kind = k if isinstance(k, str) and k else None
+                    pp = fm.get("paper")
+                    if kind == "paper" and isinstance(pp, dict):
+                        paper = PaperSummary(
+                            authors=[str(a) for a in (pp.get("authors") or [])][:8],
+                            arxiv_id=pp.get("arxiv_id"), doi=pp.get("doi"),
+                            published=pp.get("published"), venue=pp.get("venue") or pp.get("journal_ref"))
             except Exception:
                 pass
         if status in _HIDDEN_STATUSES or enrichment_status == "junk":
@@ -601,6 +631,8 @@ async def list_sources(
                 folder=folder,
                 provider=provider,
                 duration_s=duration_s,
+                kind=kind,
+                paper=paper,
             )
         )
 

@@ -97,6 +97,35 @@ func originVolumes(
     }
 }
 
+/// "The pile, 3 sources" — the container names SOURCES, not a book total: the
+/// sentence already says how many are waiting (R-Z7), and the old "N books on
+/// the pile" was a second count of the same thing in a different noun.
+func pileAccessibilityLabel(sourceCount: Int) -> String {
+    "The pile, \(sourceCount) \(sourceCount == 1 ? "source" : "sources")"
+}
+
+/// A spine speaks its row's sentence (design I5) — one function, so the pile
+/// and What's waiting can never describe one source two ways. The folded
+/// remainder has no single row, so it says where its books are.
+func spineAccessibilityLabel(spec: BookSpec, row: StudyRow?) -> String {
+    guard let row, !spec.isRemainder else { return "\(spec.count) more on the pile, in Details" }
+    return StudyListCard.rowAccessibilityLabel(row)
+}
+
+/// The spine's tooltip — its numbers with their nouns (I5). Also reachable by
+/// click (the popover) and VoiceOver, so it is never hover-only (§11).
+func spineHelp(spec: BookSpec, row: StudyRow?, locale: Locale = .autoupdatingCurrent) -> String {
+    guard let row, !spec.isRemainder else { return spineAccessibilityLabel(spec: spec, row: row) }
+    let state = queueRowState(row)
+    switch state {
+    case .waiting:
+        return ([row.label, queueRowWords(state, locale: locale)]
+                + (row.oldestAge.map { ["oldest \($0)"] } ?? [])).joined(separator: " · ")
+    default:
+        return "\(row.label) · \(queueRowWords(state, locale: locale))"
+    }
+}
+
 /// The pile itself: bottom-aligned spines, the fattest book at the BOTTOM
 /// like books actually stack — `bookPileLayout` hands the specs largest-first
 /// (its own tested contract, and what the study list reads), so the view
@@ -105,24 +134,43 @@ func originVolumes(
 /// spine on top, which read as a chart's bar order, not a pile). A spine
 /// whose `widthFraction` is 0 (everything from that source has been read
 /// this cycle) draws nothing rather than a zero-width sliver.
+///
+/// Track Z Z6 (§7.1): every spine is a control (`SpineButton`). The pile is a
+/// `.contain` container named by its source count, so VoiceOver reaches each
+/// spine inside it, largest first, whatever the bottom-up display order.
 struct BookPileView: View {
     let books: [BookSpec]
+    var rows: [StudyRow] = []
+    var episodes: [EpisodeQueueItem] = []
+    var room: RoomModel? = nil
+    var onOpenDetails: (DetailsSection) -> Void = { _ in }
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static let maxSpineWidth: CGFloat = 150
+    /// The gap above each spine — part of that spine's hit target (§6.2), so
+    /// an 8 pt spine is still comfortable to click (Z-P14). It replaced the
+    /// stack's own 2 pt spacing, which no spine owned.
+    static let spineGap: CGFloat = 2
+    static let maxSpineWidth: CGFloat = 150
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let byOrigin = Dictionary(rows.map { ($0.origin, $0) }, uniquingKeysWith: { first, _ in first })
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(Self.stacked(books)) { spec in
                 if spec.widthFraction > 0 {
-                    spine(spec)
+                    SpineButton(spec: spec, row: byOrigin[spec.origin], episodes: episodes, room: room,
+                                onOpenDetails: onOpenDetails)
+                        // Inside the pile's own container: largest first (§11),
+                        // whatever the bottom-up display order.
+                        .accessibilitySortPriority(-Double(books.firstIndex(of: spec) ?? 0))
                 }
             }
         }
         .frame(maxHeight: .infinity, alignment: .bottom)
         .animation(SleepMotion.pile(reduceMotion: reduceMotion), value: books)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(books.reduce(0) { $0 + $1.count }) books on the pile")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(pileAccessibilityLabel(sourceCount: rows.count))
+        .accessibilitySortPriority(RoomA11yOrder.spines)
     }
 
     /// Display order: `bookPileLayout`'s largest-first list, bottom-up — the
@@ -130,26 +178,73 @@ struct BookPileView: View {
     /// of the pile, under the real books, which is where a folded "+more"
     /// of small leftovers belongs. Pure and tested.
     static func stacked(_ books: [BookSpec]) -> [BookSpec] { Array(books.reversed()) }
+}
 
-    @ViewBuilder
-    private func spine(_ spec: BookSpec) -> some View {
-        let color = spec.isRemainder ? CicadaTheme.textTertiary.opacity(0.4)
-                                      : OriginIconography.color(for: spec.origin).opacity(0.85)
-        ZStack(alignment: .leading) {
+/// One spine as a control (Track Z §7.1): a click opens its source's queue —
+/// the folded remainder opens Details › What's waiting instead (Z-P20: it
+/// folds several sources, so it has no one queue to show). Hover lifts it
+/// 2 pt (a SwiftUI shape, not pixel art — R-Z4 is about the worm) and tints
+/// its Details row through `room.hoveredOrigin` (I5, I7). No spine starts,
+/// cancels or schedules a cycle (R-Z9).
+struct SpineButton: View {
+    let spec: BookSpec
+    let row: StudyRow?
+    let episodes: [EpisodeQueueItem]
+    let room: RoomModel?
+    let onOpenDetails: (DetailsSection) -> Void
+
+    @State private var hovering = false
+    @State private var showPopover = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let lifted = hovering || room?.hoveredOrigin == spec.origin
+        Button {
+            if spec.isRemainder || row == nil { onOpenDetails(.waiting) } else { showPopover = true }
+        } label: {
+            shape(lifted: lifted)
+                .padding(.top, BookPileView.spineGap)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover { inside in
+            hovering = inside
+            room?.hover(origin: spec.origin, inside: inside)
+        }
+        .roomLinkCursor()
+        .help(spineHelp(spec: spec, row: row))
+        .accessibilityLabel(spineAccessibilityLabel(spec: spec, row: row))
+        .popover(isPresented: $showPopover, arrowEdge: .trailing) {
+            if let row {
+                SpinePopover(row: row, episodes: episodes) {
+                    showPopover = false
+                    onOpenDetails(.waiting)
+                }
+            }
+        }
+    }
+
+    private func shape(lifted: Bool) -> some View {
+        let color = spec.isRemainder ? CicadaTheme.textTertiary.opacity(0.4) : OriginIconography.color(for: spec.origin)
+        return ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 3)
                 .fill(color)
-                .frame(width: Self.maxSpineWidth * spec.widthFraction, height: spec.height)
+                .frame(width: BookPileView.maxSpineWidth * spec.widthFraction, height: spec.height)
             if spec.height >= 14 {
                 HStack(spacing: CicadaTheme.spacingXS) {
-                    if !spec.isRemainder {
-                        OriginMark(origin: spec.origin, size: 12)
-                    }
+                    if !spec.isRemainder { OriginMark(origin: spec.origin, size: 12) }
                     Text("\(spec.count)")
                         .font(CicadaTheme.captionFont)
-                        .foregroundStyle(.white)
+                        // Z-P19 / design defect 7 — a theme token, not a literal.
+                        .foregroundStyle(CicadaTheme.onFill)
                 }
                 .padding(.horizontal, CicadaTheme.spacingXS)
             }
         }
+        // Resting at 0.85 is today's look (the colour used to carry the
+        // opacity); a lift is full strength, and 2 pt up unless Reduce Motion.
+        .opacity(spec.isRemainder || lifted ? 1 : 0.85)
+        .offset(y: lifted && !reduceMotion ? -2 : 0)
+        .animation(SleepMotion.hover(reduceMotion: reduceMotion), value: lifted)
     }
 }

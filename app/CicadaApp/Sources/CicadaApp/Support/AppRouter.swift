@@ -20,6 +20,10 @@ final class AppRouter {
     /// `showFirstRun` on `ContentView` itself), so it stages a flag here and
     /// `ContentView` is the one that actually presents the sheet.
     var pendingFirstRun = false
+    /// Track Z §7.1 — a Sleep spine's "Open in Sources ›". The source id rides
+    /// with the tab switch, like the Feed hand-off, and `SourcesPageView`
+    /// consumes it once it is on screen.
+    var pendingSourceDetail: String?
 
     /// Sets both fields together — a `pendingAddSource` with no matching
     /// tab-switch would stage a sheet nobody ever sees, since `FeedView`
@@ -27,6 +31,14 @@ final class AppRouter {
     func routeToFeedAddSource(_ tile: AddSourceTile) {
         pendingTab = .feed
         pendingAddSource = tile
+        activateMainWindow()
+    }
+
+    /// Sets both fields together, for the same reason `routeToFeedAddSource`
+    /// does: a staged source with no tab switch would never be consumed.
+    func routeToSourceDetail(_ sourceID: String) {
+        pendingTab = .sources
+        pendingSourceDetail = sourceID
         activateMainWindow()
     }
 
@@ -83,5 +95,13 @@ final class AppRouter {
     func consumeAddSource() -> AddSourceTile? {
         defer { pendingAddSource = nil }
         return pendingAddSource
+    }
+
+    /// Read-then-clear, for the same double-firing reason as `consumeAddSource`
+    /// (`SourcesPageView.onAppear` and its `onChange` can both see one hand-off).
+    @discardableResult
+    func consumeSourceDetail() -> String? {
+        defer { pendingSourceDetail = nil }
+        return pendingSourceDetail
     }
 }

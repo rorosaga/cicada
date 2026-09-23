@@ -25,11 +25,14 @@ from api.models.schemas import (
     SleepEnginePreviews,
     SleepEngineResponse,
 )
-from api.services import agent_engine, engine_select
+from api.services import agent_engine, codex_app_server, codex_engine, engine_select
 from api.services.connections import registry as registry_module
 
 PREF_KEY = engine_select.SLEEP_ENGINE_PREF_KEY
-VALID_MODES = ("auto", "agent", "byok", "local")
+# One list with the resolver (Track E Task 4): a mode the picker may write is
+# exactly a mode `engine_select._prefs_mode` will read back — two copies let
+# `codex` be writable here yet silently ignored there, or the reverse.
+VALID_MODES = engine_select._VALID_PREF_MODES
 
 # The agent rung's model picker offers these plus whatever `agent_model` is
 # already configured (so an existing non-default choice never disappears
@@ -67,6 +70,14 @@ def _resolved_model_pair(settings: Settings, reg, mode: str, source: str) -> tup
             settings, "disambiguation"
         )
         return model, disambiguation
+    if mode == "codex":
+        # R-E17: an empty `codex_model` means "the plan's current default" —
+        # reported as "" here (no model id lives in code); a real cycle's
+        # pre-flight resolves it from `model/list`.
+        model = overrides.get("codex_model") or codex_engine.model_for_stage(settings, None)
+        disambiguation = (overrides.get("codex_disambiguation_model")
+                          or codex_engine.model_for_stage(settings, "disambiguation") or model)
+        return model, disambiguation
     if mode == "local":
         # Ollama binds one model for every stage (providers.resolve_llm_fn
         # forces `ollama/<ollama_model>` regardless of the caller's
@@ -84,17 +95,31 @@ def _resolved_model_pair(settings: Settings, reg, mode: str, source: str) -> tup
 
 
 async def _candidates(settings: Settings, reg) -> list[SleepEngineCandidate]:
-    """The picker's five rows. Probes the whole registry once (``statuses``
-    is 30 s cached, so this is usually free) rather than one-off probing
-    each connection — the same shared-cache pattern every other read of the
-    registry already uses."""
+    """The picker's five cards (R-E4). Probes the whole registry once
+    (``statuses`` is 30 s cached, so this is usually free) rather than
+    one-off probing each connection — the same shared-cache pattern every
+    other read of the registry already uses. The ChatGPT roster comes from
+    the app-server snapshot (30 s cached, no quota, R-E18) and only once that
+    plan is signed in: a signed-out home has no roster worth offering."""
     statuses = {status.id: status for status in await reg.statuses(fresh=False)}
     claude = statuses.get(engine_select.CLAUDE_CONNECTION_ID)
+    chatgpt = statuses.get(engine_select.CODEX_CONNECTION_ID)
     ollama = statuses.get(engine_select.OLLAMA_CONNECTION_ID)
 
     agent_models = list(_AGENT_MODEL_CHOICES)
     if settings.agent_model and settings.agent_model not in agent_models:
         agent_models.append(settings.agent_model)
+
+    # R-E17: never a model id in code — the roster is whatever the plan's
+    # own `model/list` says today (default first), plus a configured choice
+    # so an existing pick never disappears from the list.
+    codex_models: list[str] = []
+    if chatgpt and chatgpt.connected:
+        snap = await codex_app_server.snapshot()
+        codex_models = list(snap.models) if snap else []
+    configured_codex = (settings.codex_model or "").strip()
+    if configured_codex and configured_codex not in codex_models:
+        codex_models.append(configured_codex)
 
     try:
         ollama_models = list(await registry_module._ollama_fetch_tags(settings.ollama_base_url))
@@ -104,30 +129,25 @@ async def _candidates(settings: Settings, reg) -> list[SleepEngineCandidate]:
     return [
         SleepEngineCandidate(
             id="auto", label="Auto", available=True,
-            detail="Claude plan if it's connected, else Ollama if it's running, else your API key.",
+            detail=("Your Claude plan if it's signed in, else your ChatGPT plan, else Ollama if "
+                    "it's running, else your API key."),
         ),
         SleepEngineCandidate(
-            id="agent", label="Claude Code (your plan)",
-            available=bool(claude and claude.available),
-            connected=bool(claude and claude.connected),
-            models=agent_models,
-            detail=claude.detail if claude else None,
+            id="agent", label="Claude plan",
+            available=bool(claude and claude.available), connected=bool(claude and claude.connected),
+            models=agent_models, detail=claude.detail if claude else None,
         ),
         SleepEngineCandidate(
-            id="codex", label="Codex", available=False,
-            # R5: codex is a permanently-disabled row today — G49 proposes a
-            # codex-cli Sleep rung, still open; `engine_select.py` has no
-            # `codex_cli` import at all yet. Shown, never selectable, so the
-            # picker can explain why rather than silently omit a row a user
-            # might expect from the Plans & keys page's ChatGPT plan card.
-            detail="Sleep can't run on Codex yet — no codex-cli engine exists (G49).",
+            id="codex", label="ChatGPT plan",
+            available=bool(chatgpt and chatgpt.available), connected=bool(chatgpt and chatgpt.connected),
+            models=codex_models,
+            detail=((chatgpt.plan_label or "Signed in to ChatGPT.") if chatgpt and chatgpt.connected
+                    else (chatgpt.detail if chatgpt else None)),
         ),
         SleepEngineCandidate(
-            id="local", label="Ollama (local)",
-            available=bool(ollama and ollama.available),
-            connected=bool(ollama and ollama.connected),
-            models=ollama_models,
-            detail=ollama.detail if ollama else None,
+            id="local", label="Ollama",
+            available=bool(ollama and ollama.available), connected=bool(ollama and ollama.connected),
+            models=ollama_models, detail=ollama.detail if ollama else None,
         ),
         SleepEngineCandidate(
             id="byok", label="API key", available=True, connected=True,
@@ -144,6 +164,10 @@ def _preview(resolved: Settings, why: str) -> SleepEnginePreview:
     engine = engine_select.engine_label(resolved)
     if engine == "claude-cli":
         model = agent_engine.model_for_stage(resolved, None)
+    elif engine == "codex-cli":
+        # R-E17: an unpicked model reads as the plan's own default, named in
+        # words — the id is only known once a cycle's pre-flight asks.
+        model = codex_engine.model_for_stage(resolved, None) or "default model"
     elif engine == "ollama":
         model = resolved.ollama_model
     else:
@@ -170,9 +194,13 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
         scheduled=_preview(scheduled_settings, scheduled_why),
     )
 
+    # R-E13: the stored opt-in, or an env-pinned CICADA_AGENT_ALLOW_OVERAGE —
+    # either one is what a cycle would honour, so the card shows it on.
+    allow_overage = (bool((reg.prefs().get(PREF_KEY) or {}).get("allow_overage"))
+                     or bool(settings.agent_allow_overage))
     return SleepEngineResponse(
         mode=mode, model=model, disambiguation_model=disambiguation_model,
-        source=source, candidates=candidates, preview=preview,
+        source=source, candidates=candidates, preview=preview, allow_overage=allow_overage,
     )
 
 
@@ -182,14 +210,17 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
     if body.mode not in VALID_MODES:
         raise HTTPException(status_code=422, detail=f"mode must be one of {VALID_MODES}")
 
-    if body.mode == "agent":
+    if body.mode in ("agent", "codex"):
+        # Both plan engines pass the id to a CLI as `--model`/`-m`: the same
+        # charset `build_argv` enforces before any spawn (a leading `-` must
+        # never become a flag) is checked here, before it is ever stored.
         if body.model is not None and not agent_engine.is_valid_model_id(body.model):
-            raise HTTPException(status_code=422, detail="invalid model id for the agent engine")
+            raise HTTPException(status_code=422, detail="invalid model id for this engine")
         if body.disambiguation_model is not None and not agent_engine.is_valid_model_id(
             body.disambiguation_model
         ):
             raise HTTPException(
-                status_code=422, detail="invalid disambiguation model id for the agent engine"
+                status_code=422, detail="invalid disambiguation model id for this engine"
             )
     elif body.mode == "local":
         if body.model is not None and not body.model.strip():
@@ -198,9 +229,10 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
             raise HTTPException(status_code=422, detail="disambiguation model must not be blank")
 
     # Cross-mode staleness guard: `model`/`disambiguation_model` share ONE
-    # untyped string slot per `sleep-engine` pref entry, with no mode tag of
-    # its own — `engine_select._model_overrides` reinterprets whatever sits
-    # there as belonging to whichever mode is CURRENTLY selected. Clear a
+    # untyped string slot per `sleep-engine` pref entry, tagged only by the
+    # entry's own `mode` — `engine_select._model_overrides` applies it only
+    # when the resolved mode equals that stored mode (Task 4 review round 1),
+    # so the slot must never outlive a mode switch either. Clear a
     # field on a mode switch unless this same PUT also supplies a fresh
     # value for it, so a Local-mode Ollama tag can never survive a switch to
     # Agent mode and get misread as a Claude alias (or vice versa).
@@ -219,3 +251,7 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
         reg.set_pref(PREF_KEY, "model", body.model)
     if "disambiguation_model" in body.model_fields_set:
         reg.set_pref(PREF_KEY, "disambiguation_model", body.disambiguation_model)
+    # R-E13: the opt-in is stored only while it is on; `None` removes the key
+    # so an opted-out bank's prefs file reads exactly as one that never chose.
+    if "allow_overage" in body.model_fields_set:
+        reg.set_pref(PREF_KEY, "allow_overage", True if body.allow_overage else None)

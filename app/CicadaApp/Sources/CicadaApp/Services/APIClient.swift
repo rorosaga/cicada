@@ -239,6 +239,10 @@ struct MediaFeedItem: Codable, Identifiable {
     /// duration pill reads it; absent means absent, never an estimate (R17).
     let provider: String?
     let durationS: Int?
+    /// G133 — `paper` for a paper page, with its byline; `nil` on every other
+    /// row and from an older backend.
+    let kind: String?
+    let paper: PaperSummary?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -285,6 +289,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case description, about
         case origin, folder
         case provider, durationS
+        case kind, paper
     }
 
     init(from decoder: Decoder) throws {
@@ -309,7 +314,11 @@ struct MediaFeedItem: Codable, Identifiable {
         folder = try c.decodeIfPresent(String.self, forKey: .folder)
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
         durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        paper = try c.decodeIfPresent(PaperSummary.self, forKey: .paper)
     }
+
+    var isPaper: Bool { kind == "paper" }
 }
 
 struct SourceListResponse: Codable {
@@ -1706,6 +1715,67 @@ actor APIClient {
         return try await post("/sources/sync-notes")
     }
 
+    // MARK: - Local sources (G133 / G134)
+
+    /// `GET /sources/folders` — the active memory's watched folders.
+    func fetchFolders() async throws -> [FolderRegistration] {
+        let response: FolderListResponse = try await get("/sources/folders")
+        return response.folders
+    }
+
+    /// `POST /sources/folders` — register (or re-pick) a folder; the backend
+    /// stamps the device and anchors the project by name (R-LS9, R-LS13).
+    func registerFolder(label: String, path: String, projectName: String,
+                        authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration {
+        try await post("/sources/folders", body: [
+            "label": label, "path": path, "projectName": projectName,
+            "authorship": authorship.map { ["glob": $0.glob, "authorship": $0.authorship] },
+        ])
+    }
+
+    func updateFolder(id: String, authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration {
+        try await put("/sources/folders/\(encodedID(id))", body: [
+            "authorship": authorship.map { ["glob": $0.glob, "authorship": $0.authorship] },
+        ])
+    }
+
+    func removeFolder(id: String) async throws {
+        _ = try await delete("/sources/folders/\(encodedID(id))")
+    }
+
+    /// `POST /sources/folders/{id}/sync` — file bytes as base64 (R-LS8).
+    func syncFolder(id: String, files: [FolderUpload], deleted: [String], preview: Bool,
+                    resolve: Bool) async throws -> FolderSyncResult {
+        let body: [String: Any] = [
+            "files": files.map { ["relpath": $0.relpath, "mtime": $0.mtime, "sha256": $0.sha256,
+                                  "contentB64": $0.data.base64EncodedString()] },
+            "deleted": deleted,
+        ]
+        return try await post("/sources/folders/\(encodedID(id))/sync?preview=\(preview)&resolve=\(resolve)", body: body)
+    }
+
+    func fetchWisprSettings() async throws -> WisprFlowSettings {
+        try await get("/capture/local-source/wispr-flow/settings")
+    }
+
+    func saveWisprSettings(_ settings: WisprFlowSettings) async throws -> WisprFlowSettings {
+        try await put("/capture/local-source/wispr-flow/settings", body: [
+            "enabled": settings.enabled, "includeDictation": settings.includeDictation,
+            "ownerSpeakerNames": settings.ownerSpeakerNames,
+        ])
+    }
+
+    /// `POST /capture/local-source/wispr-flow` — a projection already serialised
+    /// off the main actor by `WisprFlowReader`, so only `Data` crosses into the actor.
+    func postWisprFlow(_ json: Data) async throws -> WisprFlowSyncResult {
+        try await postData("/capture/local-source/wispr-flow", json: json)
+    }
+
+    /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
+    func fetchPaperDetail(id: String) async throws -> PaperDetail {
+        try await get("/entities/\(encodedID(id))/paper")
+    }
+
     // MARK: - RSS feed subscriptions (G9)
 
     /// `GET /sources/feeds` → every subscribed RSS/Atom feed, in subscription order.
@@ -1944,13 +2014,17 @@ actor APIClient {
     /// `SleepEngineChoice.model_fields_set` (`sleep_engine_prefs.
     /// validate_and_write`'s cross-mode staleness guard), so sending a
     /// `null` here would read as "clear this field" instead of "leave it
-    /// alone".
+    /// alone". `allowOverage` (R-E13) follows the same rule: the backend's
+    /// `SleepEngineChoice.allow_overage` is `None` when omitted, which leaves
+    /// the stored opt-in untouched.
     func updateSleepEngine(
-        mode: String, model: String? = nil, disambiguationModel: String? = nil
+        mode: String, model: String? = nil, disambiguationModel: String? = nil,
+        allowOverage: Bool? = nil
     ) async throws -> SleepEngineResponse {
         var body: [String: Any] = ["mode": mode]
         if let model { body["model"] = model }
         if let disambiguationModel { body["disambiguationModel"] = disambiguationModel }
+        if let allowOverage { body["allowOverage"] = allowOverage }
         return try await put("/sleep/engine", body: body)
     }
 
@@ -1992,6 +2066,43 @@ actor APIClient {
         if let handle { body["handle"] = handle }
         if let email { body["email"] = email }
         return try await put("/settings/owner", body: body)
+    }
+
+    // MARK: - Remote connector (G135)
+
+    /// `GET /remote/status`. `probe: true` also checks the public address
+    /// (3 s server-side), so it gets a longer client timeout than the default poll.
+    func fetchRemoteStatus(probe: Bool = false) async throws -> RemoteStatus {
+        try await get("/remote/status" + (probe ? "?probe=true" : ""), timeout: probe ? 15 : nil)
+    }
+
+    /// `PUT /remote/settings` — omitted fields are left alone (the backend reads
+    /// `model_fields_set`); an empty `publicBaseURL` clears it.
+    func updateRemoteSettings(enabled: Bool? = nil, publicBaseURL: String? = nil) async throws -> RemoteStatus {
+        var body: [String: Any] = [:]
+        if let enabled { body["enabled"] = enabled }
+        if let publicBaseURL { body["publicBaseUrl"] = publicBaseURL }
+        return try await put("/remote/settings", body: body)
+    }
+
+    func fetchRemoteConnectors() async throws -> [RemoteConnector] {
+        try await get("/remote/connectors")
+    }
+
+    /// `expiresInDays` is 7, 30 or 90 — every connector expires (R-R3); the
+    /// backend refuses anything else, `null` included.
+    func createRemoteConnector(app: String, label: String, scopes: [String], expiresInDays: Int) async throws -> RemoteConnectorCreated {
+        let body: [String: Any] = ["app": app, "label": label, "scopes": scopes, "expiresInDays": expiresInDays]
+        return try await post("/remote/connectors", body: body)
+    }
+
+    func rotateRemoteConnector(id: String) async throws -> RemoteConnectorCreated {
+        try await post("/remote/connectors/\(encodedID(id))/rotate")
+    }
+
+    func revokeRemoteConnector(id: String) async throws -> RemoteConnector {
+        let data = try await delete("/remote/connectors/\(encodedID(id))")
+        return try decoder.decode(RemoteConnector.self, from: data)
     }
 
     // MARK: - Upload
@@ -2058,6 +2169,21 @@ actor APIClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverUnreachable
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.httpError(http.statusCode, msg)
+        }
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func postData<T: Decodable>(_ path: String, json: Data) async throws -> T {
+        var request = makeRequest(path, method: "POST")
+        request.httpBody = json
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
@@ -2394,3 +2520,6 @@ extension APIClient: SyncAPI {
         return (SSELineSplitter.lines(from: bytes), http)
     }
 }
+
+/// G133 / G134 — `LocalSourceWatcher` talks to the backend through this seam.
+extension APIClient: LocalSourcesAPI {}

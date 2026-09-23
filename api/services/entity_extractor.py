@@ -322,6 +322,12 @@ async def extract(
         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
         leave=True,
     )
+    # R-E22: the per-episode reasons name the engine that actually ran.
+    from api.services import engine_select
+
+    _engine = engine_select.engine_label(settings)
+    plan_name = engine_select.PLAN_NAMES.get(_engine, "Claude plan")
+    tool_name = "Codex" if _engine == "codex-cli" else "Claude Code"
     entities_so_far = 0
 
     async def _do_process(i: int, episode: dict) -> None:
@@ -371,7 +377,7 @@ async def extract(
                     # chunk came from, preferring the chunk window (R11). The
                     # quote is consumed here — nothing downstream sees it.
                     for rel in chunk_rels:
-                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci])
+                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"))
                     all_relationships.extend(chunk_rels)
 
                 ep_origin = episode.get("origin", "unknown")
@@ -415,18 +421,18 @@ async def extract(
             # for a plan that has no credits to check.
             except engine_errors.EngineThrottled as e:
                 failed += 1
-                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude plan throttled: {e}")
+                logger.error(f"  [{i+1}/{total}] {ep_id} — {plan_name} throttled: {e}")
             except engine_errors.EngineExhausted as e:
                 failed += 1
-                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude plan budget exhausted: {e}")
+                logger.error(f"  [{i+1}/{total}] {ep_id} — {plan_name} budget exhausted: {e}")
             except engine_errors.EngineUnavailable as e:
                 failed += 1
-                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude Code is signed out or missing: {e}")
+                logger.error(f"  [{i+1}/{total}] {ep_id} — {tool_name} is signed out or missing: {e}")
             except engine_errors.EngineModelNotFound as e:
                 failed += 1
                 logger.error(
-                    f"  [{i+1}/{total}] {ep_id} — model not accepted by the Claude CLI "
-                    f"({settings.agent_model}): {e}"
+                    f"  [{i+1}/{total}] {ep_id} — model not accepted by the {tool_name} CLI "
+                    f"({engine_select.author_model(settings)}): {e}"
                 )
             except engine_errors.EngineError as e:
                 failed += 1

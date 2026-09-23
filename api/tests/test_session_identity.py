@@ -5,10 +5,11 @@ tmp_path, and the real ~/.claude is never touched.
 
 from __future__ import annotations
 
-import importlib
 import re
 
-server = importlib.import_module("mcp.server")
+from _stdio_server import stdio_server
+
+server = stdio_server()
 
 
 # --- resolve_session_identity (pure) ----------------------------------------

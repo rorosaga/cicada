@@ -152,7 +152,7 @@ enum SleepHistoryPresentation {
     /// icon.
     static func engineSymbol(_ engine: String?) -> String {
         switch engine {
-        case "claude-cli": "cpu"
+        case "claude-cli", "codex-cli": "cpu"
         case "ollama": "desktopcomputer"
         case "litellm": "key"
         default: "circle.dashed"
@@ -167,7 +167,8 @@ enum SleepHistoryPresentation {
     }
 }
 
-/// "RECENT CONSOLIDATIONS" (G125 R4/R12) — the Sleep page's history, newest
+/// "PAST NIGHTS" (G125 R4/R12; renamed from "Recent consolidations" when it
+/// moved into Details, Track Z §4.2) — the Sleep page's history, newest
 /// first. Each row is one commit; tapping it asks the caller (`onToggle`) to
 /// flip `expanded` and fetch `details[commit]` if it isn't cached yet — this
 /// view never fetches on its own, mirroring `StudyListCard`'s own "pure
@@ -181,7 +182,7 @@ struct ConsolidationHistoryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text("RECENT CONSOLIDATIONS")
+            Text("PAST NIGHTS")
                 .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .tracking(1.2)

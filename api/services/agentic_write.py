@@ -250,6 +250,8 @@ def write_claim(
     session_id: str | None = None,
     origin: str | None = None,
     evidence: list[dict] | None = None,
+    authored_by: str | None = None,
+    forbid_owner_observer: bool = False,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
@@ -280,7 +282,15 @@ def write_claim(
     claim is still written. Omitted, the claim carries a single ``reasoning``
     entry on ``source_episode`` (R6) — an agent's own inference, said so.
 
-    Returns ``{subject, entity_id, claim_id, action, observer, evidence}`` on success,
+    ``authored_by`` (G135 R-R11) is the ``Cicada-Author`` of this write, set on
+    the claim before reconcile so ``_stamp_new`` keeps it instead of the shim's
+    ``"mcp-agentic-write"``. ``forbid_owner_observer`` (R-R23) refuses an
+    observer that resolves to the owner, in any of its three spellings: a
+    remote app may never record the person's own words as theirs.
+
+    Returns ``{subject, entity_id, claim_id, action, observer, evidence, path,
+    page_created}`` on success (``path`` memory-relative, so the caller can
+    commit exactly the page it touched — G135 R-R11),
     or ``{subject, entity_id: None, claim_id: None, action: "error", observer,
     error}`` on any failure/bad input — the caller (MCP tool handler) can
     render either shape without a try/except of its own.
@@ -312,6 +322,20 @@ def write_claim(
     # keyword, only the real owner id.
     if observer in (owner_identity.DEFAULT_OBSERVER, owner_identity.LEGACY_OBSERVER):
         observer = resolved_owner
+    # G135 R-R23: outside the `if` above on purpose — a caller passing the
+    # already-resolved slug (the third spelling) never enters it.
+    if forbid_owner_observer and observer == resolved_owner:
+        return {
+            "subject": subject_raw,
+            "entity_id": None,
+            "claim_id": None,
+            "action": "error",
+            "observer": observer,
+            "error": (
+                "a remote app can't record a fact as the person's own words — use observer='agent' "
+                "(you inferred it) or 'external' (someone else said it); nothing was written"
+            ),
+        }
 
     if not subject_raw or not predicate_raw or not object_raw:
         return {
@@ -326,7 +350,10 @@ def write_claim(
     try:
         memory_path = Path(memory_path)
 
-        if not force_new_entity and resolve_entity_file(memory_path, subject_raw) is None:
+        # Resolved once: also tells the caller whether this write created the
+        # page (`page_created`, for the commit line's created/updated verb).
+        existing_page = resolve_entity_file(memory_path, subject_raw)
+        if not force_new_entity and existing_page is None:
             candidates = _find_subject_candidates(memory_path, subject_raw)
             if candidates:
                 names = ", ".join(c["entity_id"] for c in candidates)
@@ -392,6 +419,7 @@ def write_claim(
             origin=claim_origin,
             session_id=(session_id or "").strip() or None,
             evidence=spans,
+            authored_by=(authored_by or "").strip() or None,
         )
 
         parsed = markdown_parser.parse(page)
@@ -452,6 +480,10 @@ def write_claim(
             "action": action,
             "observer": observer,
             "evidence": [e.to_dict() for e in spans],
+            # `_ensure_subject_page` only ever resolves or creates
+            # `entities/<id>.md`, so the page is always under `entities/`.
+            "path": f"entities/{page.name}",
+            "page_created": existing_page is None,
         }
     except Exception as exc:  # never raise on a normal input
         logger.warning(

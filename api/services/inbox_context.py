@@ -322,6 +322,11 @@ def cause_line(cause: Cause | dict | None, today: str) -> str:
 
     Shared by the MCP renderer and the docs so the two surfaces never phrase
     provenance differently. Tier ``none`` is the literal ``[ no source recorded ]``.
+
+    An empty excerpt drops the quote and keeps ``from "Title" · harness · age``
+    (G135 final review): a remote connector without the ``sources`` scope is
+    handed a cause with its excerpt blanked (R-R22 — the person's words, word
+    for word, are opt-in), and ``“” — from …`` would read as a quote of nothing.
     """
     if cause is None:
         return NO_SOURCE
@@ -337,4 +342,4 @@ def cause_line(cause: Cause | dict | None, today: str) -> str:
     age = inbox_questions.humanize_age(c.get("timestamp"), today)
     if age != "unknown":
         where.append(age)
-    return f"“{excerpt}” — " + " · ".join(where)
+    return (f"“{excerpt}” — " if excerpt else "") + " · ".join(where)

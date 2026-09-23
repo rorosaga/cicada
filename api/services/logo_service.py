@@ -54,7 +54,7 @@ from urllib.parse import urljoin, urlparse
 
 from loguru import logger
 
-from api.services import entity_body, markdown_parser
+from api.services import entity_body, markdown_parser, net_guard
 from api.services.auth import cicada_home
 from api.services.claims import parse_claims
 
@@ -145,18 +145,9 @@ def _resolve_host(host: str) -> list[str]:
 
 
 def _is_public_ip(ip_str: str) -> bool:
-    try:
-        ip = ipaddress.ip_address(ip_str)
-    except ValueError:
-        return False
-    return not (
-        ip.is_loopback
-        or ip.is_private
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_unspecified
-        or ip.is_multicast
-    )
+    """One rule for the whole backend (G135 R-R10): `net_guard.is_public_ip`,
+    which also refuses the tailnet range this copy used to let through."""
+    return net_guard.is_public_ip(ip_str)
 
 
 def _is_safe_url(url: str, *, resolver: Resolver) -> bool:

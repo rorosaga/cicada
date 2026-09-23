@@ -101,10 +101,12 @@ class Settings(BaseSettings):
     # ``ollama_base_url``. ``"agent"`` runs every call through the user's own
     # ``claude`` CLI on their subscription (G74(a)); ``"auto"`` resolves to
     # the agent rung when the Claude plan probes connected, else the local
-    # rung when Ollama is running, else ``"byok"``. Resolution happens once
+    # rung when Ollama is running, else ``"byok"``. ``"codex"`` runs every
+    # call through Cicada's own ``codex exec`` sign-in on the person's ChatGPT
+    # plan (G49, Track E). Resolution happens once
     # per Sleep cycle in ``engine_select``; ``resolve_llm_fn`` treats an
     # unresolved ``"auto"`` as ``"byok"`` and never shells out synchronously.
-    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|auto|byok|local)
+    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|auto|byok|codex|local)
     # Model name passed to Ollama when llm_mode="local" (litellm bind:
     # "ollama/<ollama_model>"). Does NOT include the "ollama/" prefix itself.
     ollama_model: str = "llama3.1"             # CICADA_OLLAMA_MODEL
@@ -122,6 +124,35 @@ class Settings(BaseSettings):
     # (10) and each fan-out slot would otherwise be one more process; 3 keeps
     # the machine usable and the plan's own rate limit further away.
     agent_max_concurrency: int = 3                  # CICADA_AGENT_MAX_CONCURRENCY
+    # R-E1/R-E11–R-E14 (2026-09-23) — the claude-cli rung, hardened the
+    # Hermes way. `--effort` for a call whose caller asked for reasoning OFF
+    # (Stage 1 and Stage 2's judge pass extra_body.reasoning.enabled=False,
+    # which the CLI has no other form for). `claude --help` 2.1.280:
+    # low|medium|high|xhigh|max. "" = the CLI's own default.
+    agent_low_effort: str = "low"                   # CICADA_AGENT_LOW_EFFORT
+    # CLAUDE_CODE_MAX_RETRIES for Cicada's spawns. The CLI default (10) can
+    # retry a plan 429 until the 300 s wall clock turns it into a timeout
+    # (R1 gap B); 2 still rides out a transient 5xx.
+    agent_cli_max_retries: int = 2                  # CICADA_AGENT_CLI_MAX_RETRIES
+    # Stop a cycle once the CLI reports the 5-hour window at or past this
+    # fraction, leaving the person room to work (R-E12).
+    agent_stop_utilization: float = 0.9             # CICADA_AGENT_STOP_UTILIZATION
+    # Let Sleep keep going on Claude extra usage (Anthropic bills it
+    # separately). Off unless chosen (G117); Settings → Sleep's pref
+    # promotes it when CICADA_LLM_MODE is not pinned (R-E13).
+    agent_allow_overage: bool = False               # CICADA_AGENT_ALLOW_OVERAGE
+    # Stage 1 through `--json-schema`. OFF until the demo-bank comparison is
+    # recorded in G49 (R-E14, R1 §5.4).
+    agent_extraction_schema: bool = False           # CICADA_AGENT_EXTRACTION_SCHEMA
+
+    # R-E2/R-E17 — the codex rung (llm_mode="codex"): `codex exec` in
+    # Cicada's own Codex home. No model id is pinned in code: "" means the
+    # plan's current default (resolved from `model/list` at a cycle's
+    # pre-flight; no `-m` elsewhere). Every model on the live roster lists
+    # `low` effort (2026-09-23).
+    codex_model: str = ""                           # CICADA_CODEX_MODEL
+    codex_disambiguation_model: str = ""            # CICADA_CODEX_DISAMBIGUATION_MODEL
+    codex_reasoning_effort: str = "low"             # CICADA_CODEX_REASONING_EFFORT
 
     # Server
     host: str = "127.0.0.1"

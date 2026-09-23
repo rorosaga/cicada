@@ -6,6 +6,7 @@ plus ``enrich-links``, the on-demand twin of the Sleep-tail link backfill
 (G102).
 """
 import asyncio
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -89,7 +90,7 @@ async def run_enrich_links(
     Warm a bulk-imported bank with ``?limit=50`` a few times; each run
     reports ``remaining`` so the drain is visible.
     """
-    from api.services import engine_select, link_enrichment, sleep_cycle
+    from api.services import agent_engine, engine_select, link_enrichment, sleep_cycle
 
     if _enrich_lock.locked():
         raise HTTPException(409, "a link backfill is already running — retry when it finishes")
@@ -103,13 +104,18 @@ async def run_enrich_links(
     async with _enrich_lock:
         resolved, why = await engine_select.resolve_settings(settings, user_triggered=True)
         engine = engine_select.engine_label(resolved)
-        report = await link_enrichment.backfill(
-            resolved.memory_path,
-            resolved,
-            limit=limit if limit is not None else resolved.link_enrich_backfill_per_cycle,
-            recon_limit=recon_limit,
-            summarize_fn=link_enrichment._summarize_excerpt,
-            fetch_fn=link_enrichment.default_fetch,
-            engine=engine,
-        )
+        # Final review H1: its own self-purging breaker scope, never the
+        # shared ``_unscoped`` bucket that nothing resets — a throttle stops
+        # this run (backfill aborts on the first EngineError) and is forgotten
+        # when it ends, so the next click spawns again once the plan resets.
+        with agent_engine.use_scope(f"links:{uuid.uuid4().hex}"):
+            report = await link_enrichment.backfill(
+                resolved.memory_path,
+                resolved,
+                limit=limit if limit is not None else resolved.link_enrich_backfill_per_cycle,
+                recon_limit=recon_limit,
+                summarize_fn=link_enrichment._summarize_excerpt,
+                fetch_fn=link_enrichment.default_fetch,
+                engine=engine,
+            )
     return MaintenanceEnrichLinksResponse(**report.as_dict(), engine=engine, engine_detail=why)

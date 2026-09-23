@@ -41,7 +41,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import episode_ids, markdown_parser, owner_identity
+from api.services import episode_ids, episode_scrub, markdown_parser, owner_identity
 
 # Telegram doesn't ship its own "find URLs in free text" primitive, and
 # media_ingestor's URL handling assumes a URL is already the whole field
@@ -456,7 +456,14 @@ async def _default_save_url(
                 memory_path, result.media_entity_id, reason, result.episode_id
             )
         try:
-            await media_ingestor._commit_media(memory_path, 1)
+            # G135 R-R12: `paths` was missing, so this raised a TypeError the
+            # except below swallowed and no Telegram save was ever committed.
+            # Positional on purpose: the suite's `no_commit` fakes match it.
+            await media_ingestor._commit_media(
+                memory_path, 1,
+                ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
+                 f"episodes/{result.episode_id}.md"],
+            )
         except Exception as e:
             logger.warning(f"Telegram media commit failed: {type(e).__name__}: {e}")
     elif reason and result.media_entity_id:
@@ -502,6 +509,7 @@ def _default_save_episode(
     """
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
+    text = episode_scrub.scrub_body(text, writer="telegram", bank=memory_path.name)
 
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
     for filepath in episodes_dir.glob("*.md"):

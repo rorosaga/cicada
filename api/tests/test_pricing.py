@@ -83,3 +83,13 @@ def test_estimate_cost_legacy_fallback_does_not_double_price_cache_tokens():
         f"the fallback must price the gross input_tokens (1000), not "
         f"input_tokens + cache buckets (1500): got {calls}"
     )
+
+
+def test_prolite_reads_as_a_plan_name_and_is_never_priced():
+    assert pricing.plan_label("chatgpt-plan", "prolite", None) == "ChatGPT Pro Lite"
+    assert pricing.price_for("chatgpt-plan", "prolite") == (None, pricing.UNPRICED_NOTE)
+
+
+def test_an_unlisted_plan_enum_reads_as_words():
+    assert pricing.plan_label("chatgpt-plan", "self_serve_business_prolite", None) == \
+        "ChatGPT Self Serve Business Prolite"

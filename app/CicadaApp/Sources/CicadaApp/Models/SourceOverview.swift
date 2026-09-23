@@ -3,10 +3,11 @@ import Foundation
 /// The kinds `api/services/source_overview.KIND_ORDER` declares, plus a
 /// fallback so an unknown kind from a newer backend never drops the grid.
 enum SourceKind: String, Codable, CaseIterable {
-    case harness, browser, social, feed, messaging, `import`, unknown
+    case harness, browser, social, feed, messaging, voice, `import`, unknown
 
-    /// Grid order = the backend's `KIND_ORDER`; `unknown` sorts last.
-    static let order: [SourceKind] = [.harness, .browser, .social, .feed, .messaging, .import, .unknown]
+    /// Grid order = the backend's `KIND_ORDER`; `unknown` sorts last. `voice`
+    /// (G134) holds note-takers: meetings and dictation.
+    static let order: [SourceKind] = [.harness, .browser, .social, .feed, .messaging, .voice, .import, .unknown]
 }
 
 /// Mirror of `api/models/schemas.py::SourceOverview` (G124). Every field but
@@ -79,11 +80,26 @@ struct SourceOverview: Codable, Identifiable, Hashable {
     /// defaults to the literal `"unknown"` on an older backend, and an
     /// unknown queued episode is not evidence for any one source.
     func ownedQueue(from all: [EpisodeQueueItem]) -> [EpisodeQueueItem] {
+        all.filter { ownsQueuedOrigin($0.origin) }
+    }
+
+    /// Whether an episode stamped `origin` is in this row's queue — the ONE
+    /// rule `ownedQueue(from:)` and `owning(origin:in:)` share, so a Sleep
+    /// spine's "Open in Sources ›" (Track Z §7.1) and this source's queue strip
+    /// can never disagree about whose episode it is.
+    func ownsQueuedOrigin(_ origin: String) -> Bool {
         if let harness {
-            return all.filter { $0.origin == harness || (harness == "claude-code" && $0.origin == "mcp") }
+            return origin == harness || (harness == "claude-code" && origin == "mcp")
         }
-        let mine = Set(origins)
-        return all.filter { mine.contains($0.origin) }
+        return origins.contains(origin)
+    }
+
+    /// The inverse of `ownedQueue` — the row whose queue `origin` lands in, or
+    /// `nil` when none owns it, in which case the caller hides its link rather
+    /// than guessing (R-A14). First match in the order given; the catalog never
+    /// gives two rows one origin.
+    static func owning(origin: String, in rows: [SourceOverview]) -> SourceOverview? {
+        rows.first { $0.ownsQueuedOrigin(origin) }
     }
 
     /// Whether this row owns media pages that carry no `origin:` at all.
@@ -277,6 +293,7 @@ enum SourceSections {
         .social: "SOCIAL & SAVED",
         .feed: "FEEDS & CALENDARS",
         .messaging: "MESSAGING",
+        .voice: "VOICE & MEETINGS",
         .import: "FILES & IMPORTS",
         .unknown: "OTHER",
     ]

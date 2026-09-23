@@ -33,24 +33,41 @@ import contextvars
 import json
 import re
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import engine_errors
+from api.services import agent_stream, engine_errors, engine_schemas, plan_limits
 from api.services.auth import cicada_home
 from api.services.connections.base import CliResult
 
-#: ``runner(argv, *, stdin=None, timeout=None, cwd=None) -> CliResult``.
+#: ``runner(argv, *, stdin=None, timeout=None, cwd=None, env_overrides=None)
+#: -> CliResult``. ``env_overrides`` carries per-call variables
+#: (``CLAUDE_CODE_MAX_RETRIES``) on top of the scrubbed env (R-E5).
 Runner = Callable[..., CliResult]
 
 #: Every flag verified present and accepted together against `claude` 2.1.252
-#: (spec §3/§9 V1). ``--tools ""`` is a flag/value pair, hence the empty string.
+#: (spec §3/§9 V1); the two added 2026-09-23 against `claude --help` 2.1.280
+#: (R-E10): `--verbose` (print mode requires it with stream-json) and
+#: `--setting-sources ""` — no user/project/local settings, the third lock on
+#: the G105 Stop hook beside `--safe-mode` and CICADA_CAPTURE=off. `--tools ""`
+#: and `--setting-sources ""` are flag/value pairs, hence the empty strings.
 PINNED_FLAGS: tuple[str, ...] = (
-    "-p", "--output-format", "json", "--safe-mode",
-    "--strict-mcp-config", "--tools", "", "--no-session-persistence",
+    "-p", "--output-format", "stream-json", "--verbose", "--safe-mode",
+    "--strict-mcp-config", "--tools", "", "--setting-sources", "",
+    "--no-session-persistence",
 )
+
+DEFAULT_CLI_MAX_RETRIES = 2
+DEFAULT_STOP_UTILIZATION = 0.9
+#: An `--effort` value is one lowercase word (low|medium|high|xhigh|max on
+#: 2.1.280) — anything else, a leading `-` above all, never reaches argv.
+_EFFORT_RE = re.compile(r"^[a-z]+$")
+#: `system/api_retry.error` values that mean "the plan pushed back": a call
+#: that ran out its clock while retrying one was throttled, not slow (R-E9).
+_THROTTLE_RETRY_ERRORS = ("rate_limit", "overloaded")
 
 DEFAULT_AGENT_MODEL = "sonnet"
 #: Matches ``entity_extractor.EXTRACTION_TIMEOUT_S`` — the only wall-clock
@@ -79,6 +96,38 @@ SCHEMA_BY_STAGE: dict[str, dict] = {
         "required": ["decision"],
     },
 }
+
+
+@dataclass(frozen=True)
+class CallPolicy:
+    """Per-call knobs the seam derives from ``Settings`` (R-E11–R-E14) — a
+    frozen value, so ``complete`` stays a function of its arguments."""
+
+    effort: str | None = None
+    extraction_schema: bool = False
+    max_retries: int = DEFAULT_CLI_MAX_RETRIES
+    allow_overage: bool = False
+    stop_utilization: float = DEFAULT_STOP_UTILIZATION
+
+    @classmethod
+    def from_settings(cls, settings, *, reasoning_off: bool = False) -> "CallPolicy":
+        """R-E11: a caller's "reasoning off" becomes ``--effort <agent_low_effort>``;
+        an empty setting restores the CLI's own default without a code change."""
+        low = str(getattr(settings, "agent_low_effort", "low") or "").strip()
+        return cls(
+            effort=low if (reasoning_off and low) else None,
+            extraction_schema=bool(getattr(settings, "agent_extraction_schema", False)),
+            max_retries=int(getattr(settings, "agent_cli_max_retries", DEFAULT_CLI_MAX_RETRIES)),
+            allow_overage=bool(getattr(settings, "agent_allow_overage", False)),
+            stop_utilization=float(getattr(settings, "agent_stop_utilization", DEFAULT_STOP_UTILIZATION)),
+        )
+
+
+def schema_for_stage(stage: str | None, policy: CallPolicy) -> dict | None:
+    """R-E14: Stage 1's schema only behind its flag; disambiguation's V1b one always."""
+    if (stage or "") == "extraction" and policy.extraction_schema:
+        return engine_schemas.extraction_schema(strict=False)
+    return SCHEMA_BY_STAGE.get(stage or "")
 
 _RATE_LIMIT_MARKERS = ("rate limit", "rate_limit", "too many requests", "overloaded", "429")
 _LOGGED_OUT_MARKERS = (
@@ -208,9 +257,10 @@ def response_shim(envelope: dict, requested_model: str) -> _D:
     raw_input = int(usage.get("input_tokens") or 0)
     output = int(usage.get("output_tokens") or 0)
 
-    content = envelope.get("result")
-    if content is None and envelope.get("structured_output") is not None:
-        content = json.dumps(envelope["structured_output"], ensure_ascii=False)
+    # R-E14: the schema-validated copy wins when present — `result` can be
+    # prose around it on a --json-schema call.
+    structured = envelope.get("structured_output")
+    content = json.dumps(structured, ensure_ascii=False) if structured is not None else envelope.get("result")
 
     return _wrap({
         "choices": [{
@@ -255,6 +305,7 @@ def build_argv(
     system_prompt: str,
     json_schema: dict | None = None,
     binary: str = "claude",
+    effort: str | None = None,
 ) -> list[str]:
     """The pinned invocation. Never grows a ``--bare``, never a ``--mcp-config``.
 
@@ -280,17 +331,27 @@ def build_argv(
       content rejected (the system prompt is free-form template text, not a
       value from a small known set, so validate-and-reject would be the wrong
       tool here).
+
+    ``effort`` (R-E11) is validated the ``model`` way — one lowercase word —
+    and appended as ``--effort <level>`` only when set; ``None`` leaves the
+    CLI's own default.
     """
     if model and not _MODEL_ID_RE.match(model):
         raise engine_errors.EngineModelNotFound(
             f"invalid model id/alias: {model!r} — expected alphanumerics, "
             "'.', '-', '/', ':' only, and never a leading '-'"
         )
+    if effort is not None and not _EFFORT_RE.match(effort):
+        raise engine_errors.EngineModelNotFound(
+            f"invalid effort level: {effort!r} — expected a lowercase word such as 'low'"
+        )
     argv = [binary, *PINNED_FLAGS]
     if model:
         argv += ["--model", model]
     if system_prompt:
         argv += [f"--system-prompt={system_prompt}"]
+    if effort:
+        argv += ["--effort", effort]
     if json_schema is not None:
         argv += ["--json-schema", json.dumps(json_schema, separators=(",", ":"))]
     return argv
@@ -349,7 +410,9 @@ def model_for_stage(settings, stage: str | None) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _classify_error(envelope: dict, result: CliResult) -> engine_errors.EngineError:
+def _classify_error(
+    envelope: dict, result: CliResult, stream: agent_stream.StreamResult | None = None,
+) -> engine_errors.EngineError:
     reason = str(envelope.get("terminal_reason") or envelope.get("subtype") or "").strip().lower()
     detail = " ".join(
         str(envelope.get(key) or "") for key in ("result", "error", "message")
@@ -374,25 +437,44 @@ def _classify_error(envelope: dict, result: CliResult) -> engine_errors.EngineEr
         return engine_errors.EngineModelNotFound(
             f"the Claude CLI rejected the model id: {detail[:200]}"
         )
-    if status == 429 or any(marker in blob for marker in _RATE_LIMIT_MARKERS):
+    # R-E9: the CLI's own `system/api_retry` reasons outrank the prose
+    # markers — a billing retry means the plan is spent (not a transient),
+    # a rate-limit/overloaded retry means throttled whatever the prose says.
+    retried = {r.error for r in (stream.retries if stream is not None else [])}
+    if "billing_error" in retried:
+        return engine_errors.EngineExhausted(
+            "Claude plan usage is used up for now — Sleep stopped with the queue intact."
+        )
+    if retried & set(_THROTTLE_RETRY_ERRORS) or status == 429 or any(
+            marker in blob for marker in _RATE_LIMIT_MARKERS):
         return engine_errors.EngineThrottled(f"Claude plan throttled: {detail[:200]}")
     return engine_errors.EngineFailed(
         f"`claude -p` failed ({reason or 'unknown reason'}): {detail[:200]}"
     )
 
 
-def parse_envelope(result: CliResult) -> dict:
+def parse_envelope(result: CliResult, stream: agent_stream.StreamResult | None = None) -> dict:
     """``CliResult`` -> the parsed envelope, or the right ``EngineError``.
 
-    Detection order (spec §5): rc 127 -> binary missing; rc 124 -> timeout;
-    non-JSON stdout -> unavailable; ``is_error`` -> classify.
+    Detection order (spec §5, R-E9): rc 127 -> binary missing; rc 124 ->
+    throttled if the CLI was retrying a rate limit when the clock ran out,
+    else a timeout; no JSON at all -> unavailable; JSON but no result line ->
+    a truncated stream (protocol, one retry); ``is_error`` -> classify.
+    ``stream`` is the already-parsed stdout when the caller has one
+    (``complete``), so the NDJSON is read once.
     """
     if result.rc == 127:
         return _raise(engine_errors.EngineUnavailable(
             "Claude Code is not installed — install it (npm i -g @anthropic-ai/claude-code) "
             "and run `claude` once to sign in."
         ))
+    stream = stream if stream is not None else agent_stream.parse_stream(result.stdout)
     if result.rc == 124:
+        if any(r.error in _THROTTLE_RETRY_ERRORS for r in stream.retries):
+            return _raise(engine_errors.EngineThrottled(
+                "Claude plan throttled — the CLI was still retrying a rate limit when Sleep's "
+                "time limit for the call ran out."
+            ))
         return _raise(engine_errors.EngineTimeout(
             f"`claude -p` timed out: {(result.stderr or '').strip()[:200]}"
         ))
@@ -402,18 +484,17 @@ def parse_envelope(result: CliResult) -> dict:
             f"`claude -p` produced no output (rc {result.rc}): "
             f"{(result.stderr or '').strip()[:200] or 'no stderr'}"
         ))
-    try:
-        envelope = json.loads(text)
-    except ValueError:
+    if stream.json_lines == 0:
         return _raise(engine_errors.EngineUnavailable(
             f"`claude -p` did not return the JSON envelope (rc {result.rc}): {text[:200]}"
         ))
-    if not isinstance(envelope, dict):
+    envelope = stream.envelope
+    if envelope is None:
         return _raise(engine_errors.EngineProtocolError(
-            f"envelope is not a JSON object: {text[:200]}"
+            f"the stream ended without a result line (rc {result.rc})"
         ))
     if envelope.get("is_error"):
-        return _raise(_classify_error(envelope, result))
+        return _raise(_classify_error(envelope, result, stream))
     if envelope.get("result") is None and envelope.get("structured_output") is None:
         return _raise(engine_errors.EngineProtocolError(
             f"envelope carries neither result nor structured_output: {text[:300]}"
@@ -451,6 +532,8 @@ def _raise(exc: engine_errors.EngineError):
 #: (tests, and any future caller that wants real isolation from the shared
 #: default bucket) and fall back to the ambient scope otherwise.
 _DEFAULT_SCOPE = "_unscoped"
+#: Public alias: providers tells a workload scope from the shared one (R-E12).
+DEFAULT_SCOPE = _DEFAULT_SCOPE
 _CURRENT_SCOPE: contextvars.ContextVar[str] = contextvars.ContextVar(
     "cicada_agent_engine_scope", default=_DEFAULT_SCOPE
 )
@@ -539,6 +622,17 @@ def _default_runner() -> Runner:
     return base.run_cli_sync
 
 
+def _stop_error(stop: plan_limits.PlanStop) -> engine_errors.EngineError:
+    """R-E12: a stop seen on a FAILED call, as the error the layers above
+    already branch on — overage and a weekly rejection need a human (or the
+    reset), a 5-hour stop is a throttle the breaker handles."""
+    if stop.kind == "overage":
+        return engine_errors.EngineOverage(stop.sentence, resets_at=stop.resets_at)
+    if stop.kind == "rejected" and (stop.limit_type or "").startswith("seven_day"):
+        return engine_errors.EngineExhausted(stop.sentence, resets_at=stop.resets_at)
+    return engine_errors.EngineThrottled(stop.sentence, resets_at=stop.resets_at)
+
+
 def complete(
     *,
     messages: list[dict],
@@ -549,14 +643,23 @@ def complete(
     runner: Runner | None = None,
     binary: str = "claude",
     scope: str | None = None,
+    policy: CallPolicy | None = None,
+    on_signals: Callable[[agent_stream.StreamResult, plan_limits.PlanStop | None], None] | None = None,
 ) -> dict:
     """One `claude -p` call. Returns the parsed envelope; raises ``EngineError``.
 
     Synchronous by design — see the module docstring. ``scope``: the breaker
-    bucket this call checks/trips — defaults to :func:`current_scope`, so a
-    Sleep cycle's ``use_scope`` wrapper covers every call made underneath it
-    with no explicit threading required at this call site.
+    bucket this call checks — defaults to :func:`current_scope`, so a Sleep
+    cycle's ``use_scope`` wrapper covers every call made underneath it with
+    no explicit threading required at this call site. ``policy``
+    (R-E11–R-E14): effort, the Stage-1 schema flag, the retry cap and the
+    stop rules. ``on_signals(stream, stop)`` runs on every call that spawned,
+    before any raise — the seam turns a stop seen on a SUCCESSFUL call into a
+    breaker trip (the answer is kept; everything after it fails fast) and
+    reads its telemetry refs. A stop seen on a FAILED call is raised here as
+    its own error (R-E12).
     """
+    policy = policy or CallPolicy()
     scope = scope or current_scope()
     tripped = breaker_reason(scope=scope)
     if tripped:
@@ -571,14 +674,34 @@ def complete(
         raise exc
 
     system_prompt, body = marshal_prompt(messages)
-    schema = SCHEMA_BY_STAGE.get(stage or "") if want_json else None
+    schema = schema_for_stage(stage, policy) if want_json else None
     if want_json and schema is None:
         system_prompt = f"{system_prompt}\n\n{JSON_ONLY_SUFFIX}" if system_prompt else JSON_ONLY_SUFFIX
 
-    argv = build_argv(model=model, system_prompt=system_prompt, json_schema=schema, binary=binary)
+    argv = build_argv(model=model, system_prompt=system_prompt, json_schema=schema,
+                      binary=binary, effort=policy.effort)
     run = runner or _default_runner()
-    result = run(argv, stdin=body, timeout=timeout, cwd=str(scratch_dir()))
-    return parse_envelope(result)
+    # R1 gap B: the CLI's default of 10 retries can ride a plan 429 until the
+    # wall clock turns it into a retryable timeout that never trips the breaker.
+    result = run(argv, stdin=body, timeout=timeout, cwd=str(scratch_dir()),
+                 env_overrides={"CLAUDE_CODE_MAX_RETRIES": str(max(0, policy.max_retries))})
+    stream = agent_stream.parse_stream(result.stdout)
+    stop = plan_limits.claude_stop(stream.rate_limits, allow_overage=policy.allow_overage,
+                                   stop_utilization=policy.stop_utilization)
+    if on_signals is not None:
+        on_signals(stream, stop)
+    failed = result.rc != 0 or stream.envelope is None or bool(stream.envelope.get("is_error"))
+    # Final review H1: only a stop the plan actually ENFORCED (overage, a
+    # rejection) explains a failed call. A ``near_limit`` stop is Cicada's own
+    # 90%-of-window caution: raising it here turned every unrelated failure
+    # (a bad model id, a timeout) into EngineThrottled once the window passed
+    # 90%, tripping the breaker for a throttle that never happened. Such a
+    # failure keeps its real class; the near-limit stop still reaches the
+    # seam through ``on_signals``.
+    if (stop is not None and stop.kind in ("overage", "rejected")
+            and failed and result.rc != 127):
+        raise _stop_error(stop)
+    return parse_envelope(result, stream)
 
 
 def probe(*, runner: Runner | None = None, binary: str = "claude", timeout: float = 20.0) -> tuple[bool, str]:
@@ -617,4 +740,11 @@ def probe(*, runner: Runner | None = None, binary: str = "claude", timeout: floa
             "to switch it to your Claude subscription."
         )
     email = info.get("email")
-    return True, f"Claude Code signed in as {email}." if email else "Claude Code signed in on this Mac."
+    sentence = f"Claude Code signed in as {email}." if email else "Claude Code signed in on this Mac."
+    # R-E6: `auth status` cannot see an env override (it still says
+    # `claude.ai`), so the pre-flight names any that is set — and that Cicada
+    # strips it for its own calls.
+    from api.services.connections.base import override_note
+
+    override = override_note("claude")
+    return True, f"{sentence} {override}" if override else sentence

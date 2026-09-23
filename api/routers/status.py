@@ -102,9 +102,13 @@ async def get_status(settings: Settings = Depends(get_settings)):
 
     from api.services.connections.registry import get_registry
 
-    conn_statuses = get_registry(settings).cached_statuses()
+    reg = get_registry(settings)
+    conn_statuses = reg.cached_statuses()
     connected_ids = [c.id for c in conn_statuses if c.connected]
-    engine = next((c.engine_role for c in conn_statuses if c.connected), None)
+    # R-E24: the engine is what a Sleep you start would run on — the same
+    # answer the POWERS line shows — not the first connected card.
+    engine_id = reg.engine_connection_id(conn_statuses)
+    engine = next((c.engine_role for c in conn_statuses if c.id == engine_id), None)
 
     return StatusResponse(
         sleep=StatusSleep(

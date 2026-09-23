@@ -47,6 +47,24 @@ enum BookwormRenderer {
         "\(state.spriteKey)|\(frameIndex)|\(Int(pointSize))"
     }
 
+    /// Track Z §6.1 / Z-P10 — the key gains ONE `look` segment
+    /// (`spriteKey|<look>|frame|size`), omitted for `.idle`, so every pre-Z4
+    /// key is byte-identical and `BookwormRendererTests` passes unmodified.
+    static func cacheKey(state: BookwormState, look: BookwormLook, frameIndex: Int, pointSize: CGFloat) -> String {
+        guard let segment = look.keySegment else {
+            return cacheKey(state: state, frameIndex: frameIndex, pointSize: pointSize)
+        }
+        return "\(state.spriteKey)|\(segment)|\(frameIndex)|\(Int(pointSize))"
+    }
+
+    /// Z-P10 — a pose loop that repeats a frame keys the repeat by its first
+    /// occurrence, so `[a, a, a, blink]` costs two images, not four. Idle
+    /// never canonicalises: its keys are pinned byte-for-byte.
+    static func keyIndex(frames: [PixelGrid], look: BookwormLook, frameIndex: Int) -> Int {
+        guard look != .idle, frames.indices.contains(frameIndex) else { return frameIndex }
+        return frames.firstIndex(of: frames[frameIndex]) ?? frameIndex
+    }
+
     /// Lock-guarded rather than actor-isolated so BOTH consumers can call it
     /// from where they already are: `MenuBarManager` (main actor) and
     /// `BookwormView`'s `TimelineView` content closure, whose isolation the
@@ -54,19 +72,32 @@ enum BookwormRenderer {
     /// cost; `NSImage` is immutable once built.
     ///
     /// This stays the mascot's OWN cache and is deliberately not
-    /// `PixelRenderer.sceneCache` (P13): this one wipes wholesale past 512
-    /// entries, and a page rendering scene layers through a shared dictionary
+    /// `PixelRenderer.sceneCache` (P13): this one wipes wholesale past
+    /// `maxCacheEntries`, and a page rendering scene layers through a shared dictionary
     /// would make the always-animating worm collateral damage of every wipe.
     private static let lock = NSLock()
     nonisolated(unsafe) private static var cache: [String: NSImage] = [:]
 
+    /// Design §6.1 — the wholesale-wipe bound. The menu bar's `curious(1…99)`
+    /// keys alone reach 297 and the Sleep page adds ≤ 256 per size, so 512
+    /// would wipe the always-animating worm on a zoom step (P13's damage).
+    static let maxCacheEntries = 1024
+
     /// The rendered frame for `state`, drawn at most once per key. A timer
     /// tick is a dictionary hit, never a rasterization — that is what keeps
-    /// the always-moving menu bar at negligible CPU.
+    /// the always-moving menu bar at negligible CPU. The idle entry point;
+    /// forwards with `.idle`, whose key is today's.
     static func cachedImage(state: BookwormState, frameIndex: Int, pointSize: CGFloat) -> NSImage {
-        let (frames, _) = BookwormSprites.frames(for: state)
+        cachedImage(state: state, look: .idle, frameIndex: frameIndex, pointSize: pointSize)
+    }
+
+    /// The rendered frame for `state` in `look` (Track Z §6.1) — the one
+    /// mascot cache, so a pose never needs a second rasterizer.
+    static func cachedImage(state: BookwormState, look: BookwormLook, frameIndex: Int, pointSize: CGFloat) -> NSImage {
+        let (frames, _) = BookwormSprites.frames(for: state, look: look)
         let idx = frames.isEmpty ? 0 : ((frameIndex % frames.count) + frames.count) % frames.count
-        let key = cacheKey(state: state, frameIndex: idx, pointSize: pointSize)
+        let key = cacheKey(state: state, look: look,
+                           frameIndex: keyIndex(frames: frames, look: look, frameIndex: idx), pointSize: pointSize)
         lock.lock()
         let hit = cache[key]
         lock.unlock()
@@ -74,9 +105,10 @@ enum BookwormRenderer {
         let grid = frames.isEmpty ? BookwormSprites.awakeBase : frames[idx]
         let img = image(grid: grid, pointSize: pointSize)
         lock.lock()
-        // 7 states × ≤ 4 frames × ≤ 99 counts × a few sizes is still small,
-        // but bound it so a long-running app can never grow it unboundedly.
-        if cache.count > 512 { cache.removeAll() }
+        // The menu bar's `curious(1…99)` keys reach 297 per size and the Sleep
+        // page's looks add ≤ 256 per size (design §6.1) — bound it so a
+        // long-running app can never grow it unboundedly.
+        if cache.count > maxCacheEntries { cache.removeAll() }
         // A racing second render of the same key just wins by being last; both
         // images are pixel-identical, so nothing observable depends on which.
         cache[key] = img

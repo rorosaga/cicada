@@ -28,7 +28,7 @@ final class BookwormStateTests: XCTestCase {
     }
 
     func testRunningCycleOutranksError() {
-        let s = snapshot(status: "running", stage: 2, error: "stale error from the previous cycle")
+        let s = snapshot(status: "running", stage: 1, error: "stale error from the previous cycle")
         XCTAssertEqual(deriveBookwormState(s, justFinishedAt: nil, now: now), .sleeping(stage: 2))
     }
 

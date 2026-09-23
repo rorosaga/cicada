@@ -579,6 +579,8 @@ struct MediaBlock: Codable, Equatable {
     /// page's `media:` block) can see which provider answered. Never trusted
     /// over the url: `mediaType` taught that lesson (R-V1).
     var provider: String?
+    /// G133 — `paper` for a paper page (`papers.KIND`); nil for every other media page.
+    var kind: String?
     /// The clip's length in seconds, as the provider's oEmbed reported it.
     /// **The one thing a url cannot tell you**, which is why it is stored at
     /// all. Absent means absent — nothing renders, never an estimate (R17).
@@ -586,14 +588,14 @@ struct MediaBlock: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case url, mediaType, site, channel, thumbnail, savedAt, urlHash
-        case provider, durationS
+        case provider, durationS, kind
     }
 
     init(
         url: String, mediaType: String, site: String? = nil,
         channel: String? = nil, thumbnail: String? = nil,
         savedAt: String? = nil, urlHash: String? = nil,
-        provider: String? = nil, durationS: Int? = nil
+        provider: String? = nil, durationS: Int? = nil, kind: String? = nil
     ) {
         self.url = url
         self.mediaType = mediaType
@@ -604,6 +606,7 @@ struct MediaBlock: Codable, Equatable {
         self.urlHash = urlHash
         self.provider = provider
         self.durationS = durationS
+        self.kind = kind
     }
 
     init(from decoder: Decoder) throws {
@@ -621,7 +624,10 @@ struct MediaBlock: Codable, Equatable {
         // without either key.
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
         durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
     }
+
+    var isPaper: Bool { kind == "paper" }
 
     /// True when there's a real url to preview. A media entity whose frontmatter
     /// couldn't be parsed (empty url) shouldn't render a broken preview.
