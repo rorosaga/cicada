@@ -170,6 +170,7 @@ enum Copy {
     static func engineLabel(_ id: String) -> String {
         switch id {
         case "claude-cli": "Claude Code (your plan)"
+        case "codex-cli": "Codex (your ChatGPT plan)"
         case "ollama": "Ollama (on this Mac)"
         case "litellm": "API key"
         default: id
@@ -185,6 +186,35 @@ enum Copy {
         "Sleep runs through the `claude` CLI on your plan: it spends plan quota, not money. "
         + "Only when you start a cycle yourself — never on the nightly schedule — and if the "
         + "plan throttles it stops cleanly with the queue intact."
+
+    // MARK: Engines (Track E — R-E4, R-E13, R-E24, R-E28)
+
+    static let signInWithChatGPT = "Sign in with ChatGPT"
+    static let signOut = "Sign out"
+    static let tryAgain = "Try again"
+    static let copyCode = "Copy"
+    static let copied = "Copied"
+    static let openSignInPage = "Open the sign-in page"
+    static let deviceCodeStarting = "Getting a sign-in code from ChatGPT…"
+    static let deviceCodeInstructions = "Enter this code on the ChatGPT page that just opened:"
+    static let deviceCodeWaiting = "Waiting for you to finish signing in…"
+    static let deviceCodeDone = "Signed in."
+    static let deviceCodeFailed = "Sign-in didn't finish."
+    /// The one owner-side switch the device-code flow can need (R2 §3.1: it
+    /// must be enabled in the ChatGPT account's security settings).
+    static let deviceCodeFailedHint =
+        "If ChatGPT says code sign-in is turned off, turn on device code sign-in in your "
+        + "ChatGPT account's security settings, then try again."
+    static let chatgptSignOutTitle = "Sign out of ChatGPT in Cicada?"
+    static let chatgptSignOutExplainer =
+        "Cicada's ChatGPT sign-in is its own. Codex in your terminal stays signed in."
+    static let keepGoingOnExtraUsage = "Keep going on extra usage"
+    static let keepGoingOnExtraUsageExplainer =
+        "Off: when your Claude plan's included usage runs out, Sleep stops and waits. "
+        + "On: Sleep keeps going on extra usage, which Anthropic bills separately."
+    static let scheduledNeverSpendsPlans =
+        "Scheduled cycles never use your Claude or ChatGPT plan unless CICADA_LLM_MODE is set in api/.env."
+    static let yourMaxTier = "Your Max tier"
 
     // MARK: Sleep control (cancel + episode cap)
 
