@@ -21,7 +21,7 @@ from api.models.schemas import (
     FolderSyncResponse,
     FolderUpdateRequest,
 )
-from api.services import folder_source, local_refs, sync_state
+from api.services import folder_source, local_refs, papers, sync_state
 
 router = APIRouter()
 
@@ -97,19 +97,49 @@ async def sync_folder(
     files = [folder_source.IncomingFile(f.relpath, f.mtime, f.sha256, f.content_b64) for f in req.files]
     out = await run_in_threadpool(folder_source.sync, memory_path, folder, files, req.deleted, preview=preview)
     staged = out.pop("_staged")
-    out.pop("_texts")
-    if not preview:
-        attempted = len(files)
-        if attempted and len(out["errors"]) == attempted:
-            sync_state.record_error(memory_path, folder_source.channel_id(folder_id),
-                                    f"{attempted} file(s) could not be read")
+    texts = out.pop("_texts")
+    if preview:
+        # The sheet shows how many papers a folder holds before anything lands
+        # — counted from the posted bytes, nothing written (R-F3).
+        out["papers_found"] = await run_in_threadpool(papers.count_papers, list(texts.values()))
+        return FolderSyncResponse(**out)
+    attempted = len(files)
+    if attempted and len(out["errors"]) == attempted:
+        sync_state.record_error(memory_path, folder_source.channel_id(folder_id),
+                                f"{attempted} file(s) could not be read")
+    else:
+        sync_state.record_sync(memory_path, folder_source.channel_id(folder_id),
+                               count=folder_source.live_file_count(memory_path, folder_id))
+    paths = list(staged.paths)
+    registry_moved = bool(staged.paths)  # ``sync`` stamped ``last_sync``
+    paper_work = bool(staged.touched or staged.tombstoned_sources)
+    from api.services import sleep_cycle
+
+    if sleep_cycle.get_sleep_state().status == "running":
+        # R-LS17: Stage 5 may be rewriting the same pages; the episodes are
+        # staged, the paper step waits for the next sync or the Sleep tail.
+        if paper_work and not folder.get("papers_pending"):
+            folder_source.set_flags(memory_path, folder_id, papers_pending=True)
+            registry_moved = True
+        out["papers_pending"] = bool(paper_work or folder.get("papers_pending"))
+    elif folder.get("papers_pending") or paper_work:
+        if folder.get("papers_pending"):
+            report = await run_in_threadpool(
+                papers.reparse_folder, memory_path, folder, tombstoned=staged.tombstoned_sources)
+            folder_source.set_flags(memory_path, folder_id, papers_pending=False)
+            registry_moved = True
         else:
-            sync_state.record_sync(memory_path, folder_source.channel_id(folder_id),
-                                   count=folder_source.live_file_count(memory_path, folder_id))
-        # No episode moved → no commit: a no-change rescan must not churn git or
-        # the sources ETag (``sync`` stamps ``last_sync`` under the same rule).
-        if staged and staged.paths:
-            await folder_source.commit_paths_for(
-                memory_path, staged.paths + [f"sources/{folder_source.FOLDERS_FILENAME}"],
-                subject=f"Folder sync ({folder['label']})", trigger="folder/sync")
+            report = await run_in_threadpool(
+                papers.reconcile, memory_path, folder, touched=staged.touched,
+                tombstoned=staged.tombstoned_sources, renamed=staged.renamed_sources)
+        out.update(papers_found=report["papers_found"], papers_created=report["papers_created"],
+                   removals_proposed=report["removals_proposed"])
+        paths += report["paths"]
+    if registry_moved:
+        paths.append(f"sources/{folder_source.FOLDERS_FILENAME}")
+    # Nothing moved → no commit: a no-change rescan (the app's full pass on
+    # launch) must not churn git or the sources ETag (Task 2 review, R-LS30).
+    if paths:
+        await folder_source.commit_paths_for(
+            memory_path, paths, subject=f"Folder sync ({folder['label']})", trigger="folder/sync")
     return FolderSyncResponse(**out)
