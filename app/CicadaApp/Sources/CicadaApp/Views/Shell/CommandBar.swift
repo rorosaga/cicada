@@ -40,12 +40,21 @@ struct CommandBar: View {
             .help(Copy.findInMemoryHelp)
             .accessibilityLabel("\(Copy.searchYourMemory), ⌘K")
         }
+        // Hover through `.onContinuousHover`, never `.onHover`: on macOS 26 an `.onHover`
+        // anywhere above the search Button made AppKit drop the whole principal toolbar item,
+        // so the bar — and with it the app's ONLY memory-bank selector — never appeared (DS-1
+        // live check, 2026-09-24, bisected: root or inner stack, with or without
+        // `.animation(_:value:)`). `CommandBarHoverLintTests` keeps it out of this file.
+        .onContinuousHover { phase in
+            let inside: Bool
+            switch phase { case .active: inside = true; case .ended: inside = false }
+            guard inside != hovering else { return }
+            withAnimation(CicadaMotion.hover(reduceMotion: reduceMotion)) { hovering = inside }
+        }
         .padding(.leading, CicadaTheme.spacingXS)
         .padding(.trailing, CicadaTheme.scaled(6))
         .frame(width: CicadaTheme.scaled(ShellMetrics.commandBarWidth), height: CicadaTheme.scaled(ShellMetrics.commandBarHeight))
         .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.commandBarFill))
         .ringed(hovering ? .strong : .resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
-        .onHover { hovering = $0 }
-        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
     }
 }
