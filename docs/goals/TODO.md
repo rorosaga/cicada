@@ -126,6 +126,8 @@ Pro Display — semibold titles tracked 2 % tight behind the same `displayFont`,
 - Paper why-claims no longer carry in-document anchors (`[N50](#note-n50)`) or footnote markers;
   the episode keeps them, ids are unchanged, a sync repairs what it re-reads, and existing banks are
   repaired once as `cicada` (R-B12, R-B13).
+- The video and meeting skill bridges are active (`cicada_record_watch`; `cicada_save_episode` with
+  `speaker:<name>:` lines, never `user:`); documents stays off (R-B14).
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.

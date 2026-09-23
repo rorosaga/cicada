@@ -658,8 +658,9 @@ commit), after a consent sheet that shows the exact command, as an argv with
 `CICADA_CAPTURE=off`; hosted MCP servers are copy-only. The app writes files only for Cicada's
 own `cicada` and `cicada-librarian` (`SkillInstaller`, a `.cicada-managed.json` marker, never
 over a changed copy). The handshake gains a capability line only for an installed, active bridge
-whose tool exists; the video and meeting bridges stay inactive until they are wired to the watch
-record (`cicada_record_watch`) and speaker-aware evidence, both of which have landed (G140, G134).
+whose tool exists: papers (`cicada_save_url`), video (`cicada_record_watch`) and meetings
+(`cicada_save_episode`, one `speaker:<name>:` line per utterance, never `user:`) are active;
+documents stays off until something says who wrote a document (F2-back R-B14).
 
 **Sources page — v2 (G124).** One card system: fixed tile height, one column count derived from the
 container width in **scaled** units (`SourceGridColumns`, 2–4) and shared by every section, five
