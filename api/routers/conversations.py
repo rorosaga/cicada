@@ -94,6 +94,7 @@ async def recent_conversations(
     limit: int = Query(20, ge=1, le=200),
     harness: str | None = Query(None, max_length=64),
     origin: str | None = Query(None, max_length=64),
+    q: str | None = Query(None, max_length=200),
     settings: Settings = Depends(get_settings),
 ):
     """Conversations that wrote to memory, newest write first (G48).
@@ -114,11 +115,19 @@ async def recent_conversations(
     ``harness`` / ``origin`` (G124 R5) narrow the list to one source BEFORE the
     cap, so the Sources page's per-harness view is complete up to ``limit``.
     Both fold into the ETag: they change the body without moving any component.
+
+    ``q`` (G136) is a title filter, also applied BEFORE the cap and folded
+    into the ETag the same way; whitespace-only is no filter. The ``|q=``
+    part is appended only when a filter is present, so every existing
+    client's ETag stays byte-identical. The query is never logged — it is
+    the person's words (K9); ``api/main.py`` strips it from uvicorn's
+    access log (G136 R22).
     """
-    etag = sync_service.etag_for(
-        settings.memory_path, "episodes", "entities",
-        extra=f"limit={limit}|harness={harness or ''}|origin={origin or ''}",
-    )
+    q = (q or "").strip() or None
+    extra = f"limit={limit}|harness={harness or ''}|origin={origin or ''}"
+    if q:
+        extra += f"|q={q}"
+    etag = sync_service.etag_for(settings.memory_path, "episodes", "entities", extra=extra)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
 
@@ -129,6 +138,7 @@ async def recent_conversations(
         transcript_exists=transcript_exists,
         harness=harness,
         origin=origin,
+        q=q,
     )
     return [ConversationSummary(**row) for row in rows]
 

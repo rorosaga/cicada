@@ -37,7 +37,7 @@ from api.routers import (
     status,
     sync,
 )
-from api.services import bank_registry, sleep_scheduler
+from api.services import bank_registry, search_index, sleep_scheduler
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
 from api.services.bank_migrations import run_bank_migrations
@@ -58,6 +58,31 @@ logging.getLogger("LiteLLM Router").setLevel(logging.ERROR)
 logging.getLogger("litellm").setLevel(logging.ERROR)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
+
+
+# G136 / K9: the person's search words are never logged. uvicorn's access log
+# writes every request line WITH its query string (to `logs/backend.*.log`
+# under launchd, and both the plist and the app's spawn leave it on), and
+# `/search?q=` fires on every keystroke of the palette; `/conversations/recent`
+# carries a title filter the same way. Strip the query string of those paths
+# at the logger, so the rail holds whatever flags uvicorn was started with.
+# uvicorn configures its loggers before it imports this module, so the
+# filter attached here is never replaced.
+_QUERY_PATHS = frozenset({"/search", "/conversations/recent"})
+
+
+class _RedactQueryString(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        # uvicorn's access record: (client, method, path?query, http_version, status)
+        if isinstance(args, tuple) and len(args) == 5 and isinstance(args[2], str):
+            path, sep, _query = args[2].partition("?")
+            if sep and path in _QUERY_PATHS:
+                record.args = (args[0], args[1], f"{path}?…", args[3], args[4])
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_RedactQueryString())
 
 # Suppress litellm's print() calls by redirecting verbose mode
 import litellm
@@ -109,6 +134,12 @@ async def lifespan(app: FastAPI):
     # `POST /banks/{name}/activate`, so a bank switched to at runtime is
     # migrated too — see api/services/bank_migrations.py.
     run_bank_migrations(settings.memory_path)
+
+    # G136: build or catch up the derived search index in the background, so
+    # the first keystroke after launch finds it warm. Never blocks startup,
+    # never raises (a cold build takes a few seconds; until it lands, /search
+    # serves the frontmatter fallback and says `indexState: building`).
+    search_index.warm_in_background(settings.memory_path)
 
     entities_count = len(list((settings.memory_path / "entities").glob("*.md")))
     episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))

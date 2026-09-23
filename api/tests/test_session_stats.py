@@ -539,3 +539,67 @@ def test_recent_endpoint_harness_filter_applies_before_the_cap_and_varies_the_et
     assert [r["conversationId"] for r in unfiltered.json()] == [UUID_B]
     assert filtered.headers["ETag"] != unfiltered.headers["ETag"]
     assert client.get("/conversations/recent?origin=claude-export").json() == []
+
+
+# --- G136: ?q= title filter, applied before the cap ---------------------------
+
+
+def test_aggregate_conversations_q_filters_titles_before_the_cap(tmp_path):
+    """The newest conversation overall is NOT the newest match: a filter
+    applied after the cap would return nothing for ``limit=1``."""
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_2026-08-01_001", timestamp="2026-08-01T09:00:00Z",
+             session_id=UUID_A, title="Planning alpha-project")
+    _episode(memory, "ep_2026-08-02_001", timestamp="2026-08-02T09:00:00Z",
+             session_id=UUID_B, title="Shipping beta")
+    bank_index.invalidate()
+    rows = session_stats.aggregate_conversations(
+        memory, limit=1, transcript_exists=_never, q="alpha")
+    assert [r["conversation_id"] for r in rows] == [UUID_A]
+
+
+def test_aggregate_conversations_q_is_case_and_accent_blind_and_ands_words(tmp_path):
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_2026-08-01_001", timestamp="2026-08-01T09:00:00Z",
+             session_id=UUID_A, title="Zürich Planning notes")
+    bank_index.invalidate()
+    hit = session_stats.aggregate_conversations(memory, transcript_exists=_never, q="zurich PLAN")
+    miss = session_stats.aggregate_conversations(memory, transcript_exists=_never, q="zurich beta")
+    assert [r["conversation_id"] for r in hit] == [UUID_A]
+    assert miss == []
+
+
+def test_aggregate_conversations_q_skips_the_transcript_probe_for_filtered_rows(tmp_path):
+    memory = tmp_path / "memory"
+    _episode(memory, "ep_2026-08-01_001", timestamp="2026-08-01T09:00:00Z",
+             session_id=UUID_A, title="Planning alpha")
+    _episode(memory, "ep_2026-08-02_001", timestamp="2026-08-02T09:00:00Z",
+             session_id=UUID_B, title="Shipping beta")
+    bank_index.invalidate()
+    probed: list[str] = []
+
+    def spy(project_dir, session_id, *, root=None):
+        probed.append(session_id)
+        return False
+
+    session_stats.aggregate_conversations(memory, transcript_exists=spy, q="alpha")
+    assert probed == [UUID_A]
+
+
+def test_recent_endpoint_q_filter_applies_before_the_cap_and_varies_the_etag(tmp_path, monkeypatch):
+    client, memory = _client(tmp_path, monkeypatch)
+    _episode(memory, "ep_1", timestamp="2026-08-01T09:00:00Z", session_id=UUID_A,
+             title="Planning alpha")
+    _episode(memory, "ep_2", timestamp="2026-08-02T09:00:00Z", session_id=UUID_B,
+             title="Shipping beta")
+    bank_index.invalidate()
+
+    filtered = client.get("/conversations/recent", params={"limit": 1, "q": "alpha"})
+    assert [r["conversationId"] for r in filtered.json()] == [UUID_A]
+    unfiltered = client.get("/conversations/recent", params={"limit": 1})
+    assert [r["conversationId"] for r in unfiltered.json()] == [UUID_B]
+    assert filtered.headers["ETag"] != unfiltered.headers["ETag"]
+    # Whitespace is no filter, and adds nothing to the ETag recipe — an
+    # existing client's validator is byte-identical to before G136.
+    blank = client.get("/conversations/recent", params={"limit": 1, "q": "   "})
+    assert blank.headers["ETag"] == unfiltered.headers["ETag"]

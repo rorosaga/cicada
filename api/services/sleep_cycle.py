@@ -1288,6 +1288,21 @@ async def _run_stages(
             logger.warning(f"vector {warning}")
             index_warnings.append(warning)
 
+    # G136: the lexical index, rebuilt in full beside the vectors (round-3
+    # spec decision 7) — independent of the vector indexer, so a missing
+    # embedding model never leaves search's FTS half stale. Off the event
+    # loop: 3–6 s of CPU at 2,000 entities / 1,500 episodes, while /search
+    # keeps answering from the previous snapshot (WAL). Same contract as the
+    # vector rebuilds: a failure is a warning on a cycle that still commits.
+    try:
+        from api.services import search_index
+
+        await asyncio.to_thread(search_index.rebuild, memory_path)
+    except Exception as e:
+        warning = f"search index rebuild failed: {type(e).__name__}: {e}"
+        logger.warning(warning)
+        index_warnings.append(warning)
+
     if index_warnings:
         _state.index_warning = "; ".join(index_warnings)
 
