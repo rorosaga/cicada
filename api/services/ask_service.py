@@ -29,6 +29,7 @@ from typing import Callable
 
 from loguru import logger
 
+from api.config import Settings
 from api.services import json_parse, markdown_parser
 
 RetrieveFn = Callable[[str, int], list[dict]]
@@ -247,14 +248,19 @@ def _gap_response(query: str) -> dict:
     }
 
 
-def _default_llm_fn() -> LlmFn:
-    """Production LLM call: litellm JSON-mode per Settings, via the provider seam."""
+def _default_llm_fn(settings: Settings | None = None) -> LlmFn:
+    """Production LLM call: litellm JSON-mode per Settings, via the provider
+    seam. ``settings`` (R-E23): the router passes the copy
+    ``engine_select.resolve_settings`` returned, so Ask runs on the engine
+    chosen in Settings → Sleep; ``None`` keeps the env resolution MCP's
+    ``cicada_ask`` still uses this round (Track R adopts this seam when it
+    moves the tool bodies into ``mcp_tools``)."""
     import litellm
 
     from api.config import get_settings
     from api.services.providers import resolve_llm_fn
 
-    settings = get_settings()
+    settings = settings or get_settings()
     llm_fn = resolve_llm_fn(settings, model=settings.litellm_model, completion=litellm.completion, stage="ask")
 
     def _call(prompt: str) -> str:

@@ -1337,7 +1337,7 @@ class SleepEngineCandidate(CamelModel):
 
 class SleepEnginePreview(CamelModel):
     """What the NEXT cycle would actually run on, for one trigger source.
-    ``engine`` is an ``ENGINE_LABELS`` id (``claude-cli|ollama|litellm``, see
+    ``engine`` is an ``ENGINE_LABELS`` id (``claude-cli|codex-cli|ollama|litellm``, see
     ``engine_select.engine_label``), not the picker's ``mode`` — a resolved
     "auto" or a prefs "byok" both read as "litellm" here, matching what
     ``sleep_cycle`` itself would stamp as ``last_engine``."""
@@ -1368,6 +1368,7 @@ class SleepEngineResponse(CamelModel):
     source: str  # "env" | "prefs" | "default"
     candidates: list[SleepEngineCandidate]
     preview: SleepEnginePreviews
+    allow_overage: bool = False  # R-E13: Settings → Sleep "Keep going on extra usage"
 
 
 class SleepEngineChoice(CamelModel):
@@ -1378,6 +1379,8 @@ class SleepEngineChoice(CamelModel):
     mode: str
     model: Optional[str] = None
     disambiguation_model: Optional[str] = None
+    # R-E13: omitted leaves the stored opt-in alone; false clears it.
+    allow_overage: Optional[bool] = None
 
 
 class OwnerUpdateRequest(CamelModel):

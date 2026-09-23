@@ -970,6 +970,26 @@ async def _run_stages(
             _state.error = detail
             _state.progress = f"Failed: {detail}"
             return _StageOutcome()
+    elif _state.last_engine == "codex-cli":
+        # R-E18: one read-only `codex app-server` probe (≈0.5 s, no quota)
+        # answers signed-in, plan-vs-API-key and "limit already reached"
+        # BEFORE the first spawn, and names the plan's current default model
+        # when the person never picked one (R-E17) — every call this cycle
+        # then passes an explicit `-m`, and the Cicada-Author trailer is a
+        # real id that came from model/list, never from this file.
+        from api.services import codex_engine
+
+        ok, detail, default_model = await codex_engine.preflight()
+        _state.engine_detail = detail
+        if not ok:
+            logger.error(f"Sleep cycle {cycle_id} aborted before Stage 1 — {detail}")
+            _state.error = detail
+            _state.progress = f"Failed: {detail}"
+            return _StageOutcome()
+        if default_model and not (getattr(settings, "codex_model", "") or "").strip():
+            settings = settings.model_copy(update={"codex_model": default_model})
+            # The "started" line above logged before this was known.
+            logger.info(f"Sleep cycle {cycle_id} — ChatGPT plan default model: {default_model}")
 
     # Stage 1: Entity & Relationship Extraction
     _state.progress = f"Stage 1/5: Extracting entities from {len(episodes)} episodes..."
