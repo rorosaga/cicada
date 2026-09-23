@@ -186,6 +186,12 @@ struct EntityHistoryEntry: Identifiable, Codable {
     // M3 (backlog A2): the agent that authored this commit — a model id
     // (e.g. "gpt-5.4-mini"), "user", or "unknown" for legacy untrailered commits.
     let author: String
+    // G118 slice 2 (R-PB13): the author's bucket and provider from the
+    // server's one `author_identity` rule, so the History tab draws the same
+    // `ContributorAvatar` the contributors strip does. nil against an older
+    // backend — `ContributorIdentity.kind(author:)` covers that case.
+    let authorKind: String?
+    let authorProvider: String?
     // Commit hash, used to fetch the per-commit diff on demand.
     let commitHash: String
     // Inline diff, present only when history was fetched with includeDiff=true.
@@ -201,7 +207,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case date, changeType, description, author, commitHash, diff, sessions
+        case date, changeType, description, author, authorKind, authorProvider, commitHash, diff, sessions
     }
 
     init(from decoder: Decoder) throws {
@@ -210,6 +216,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         changeType = try c.decode(HistoryChangeType.self, forKey: .changeType)
         description = try c.decode(String.self, forKey: .description)
         author = try c.decodeIfPresent(String.self, forKey: .author) ?? "unknown"
+        authorKind = try c.decodeIfPresent(String.self, forKey: .authorKind)
+        authorProvider = try c.decodeIfPresent(String.self, forKey: .authorProvider)
         commitHash = try c.decodeIfPresent(String.self, forKey: .commitHash) ?? ""
         diff = try c.decodeIfPresent(EntityDiff.self, forKey: .diff)
         sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? []
@@ -220,6 +228,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         changeType: HistoryChangeType,
         description: String,
         author: String = "unknown",
+        authorKind: String? = nil,
+        authorProvider: String? = nil,
         commitHash: String = "",
         diff: EntityDiff? = nil,
         sessions: [String] = []
@@ -230,6 +240,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         self.changeType = changeType
         self.description = description
         self.author = author
+        self.authorKind = authorKind
+        self.authorProvider = authorProvider
         self.commitHash = commitHash
         self.diff = diff
         self.sessions = sessions
@@ -241,6 +253,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         try c.encode(changeType, forKey: .changeType)
         try c.encode(description, forKey: .description)
         try c.encode(author, forKey: .author)
+        try c.encodeIfPresent(authorKind, forKey: .authorKind)
+        try c.encodeIfPresent(authorProvider, forKey: .authorProvider)
         try c.encode(commitHash, forKey: .commitHash)
         try c.encodeIfPresent(diff, forKey: .diff)
         try c.encode(sessions, forKey: .sessions)

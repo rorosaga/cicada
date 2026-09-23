@@ -128,6 +128,14 @@ struct AskPanel: View {
                             citationChip(row.citation)
                         }
                     }
+
+                    // G118 slice 2 (§4.7, P5) — the words behind each source:
+                    // hover a chip for the sentence, click for the conversation
+                    // (the Reader opens beside the window; this sheet steps
+                    // aside, `ContentView`).
+                    ForEach(answer.citationRows.filter { !$0.citation.evidenceChips.isEmpty }, id: \.id) { row in
+                        AskEvidenceRow(citation: row.citation)
+                    }
                 }
             }
 
@@ -294,6 +302,25 @@ struct AskChipFlowLayout: Layout {
             subview.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
+/// One cited page's evidence under an answer: its name, then its chips.
+private struct AskEvidenceRow: View {
+    let citation: AskCitation
+    @State private var expanded = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+            Text(citation.entityName)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .lineLimit(1)
+                .frame(maxWidth: CicadaTheme.scaled(140), alignment: .leading)
+            AskChipFlowLayout(spacing: 6) {
+                EvidenceChipRun(chips: citation.evidenceChips, subjectId: citation.entityId, expanded: $expanded)
+            }
         }
     }
 }

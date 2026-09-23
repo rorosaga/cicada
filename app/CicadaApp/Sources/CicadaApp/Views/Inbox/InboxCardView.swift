@@ -29,6 +29,8 @@ struct InboxCardView: View {
     /// lines until this is flipped.
     @State private var showAllLines = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// G118 slice 2 (§4.7) — "Show in conversation" opens the Reader here.
+    @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
 
     private enum MergeSurvivor { case existing, mention }
 
@@ -79,10 +81,17 @@ struct InboxCardView: View {
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(isExpanded ? nil : 1)
 
-                Text(item.causeLine())
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .lineLimit(isExpanded ? nil : 1)
+                HStack(spacing: 4) {
+                    // G118 slice 2 (§4.7) — the harness's real mark beside
+                    // the cause, like every other place a conversation is named.
+                    if item.hasCause, let origin = item.cause?.harness ?? item.cause?.origin, !origin.isEmpty {
+                        OriginMark(origin: origin, size: CicadaTheme.scaled(12))
+                    }
+                    Text(item.causeLine())
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(isExpanded ? nil : 1)
+                }
             }
 
             Spacer()
@@ -173,13 +182,30 @@ struct InboxCardView: View {
     /// (±240 chars server-side), so this pane can never become the owner's
     /// "list of URLs that doesn't end".
     private func excerptPane(_ cause: InboxCause) -> some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            RoundedRectangle(cornerRadius: 1.5).fill(CicadaTheme.borderLight).frame(width: 3)
-            Text(ExcerptText.attributed(cause.excerpt, bold: cause.mentionOffsets))
-                .font(CicadaTheme.font(size: 12))
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
+                RoundedRectangle(cornerRadius: 1.5).fill(CicadaTheme.borderLight).frame(width: 3)
+                // G118 slice 2 (§4.7): a quoted sentence reads in the quote
+                // face (R-M3), the same as every other provenance quote.
+                Text(ExcerptText.attributed(cause.excerpt, bold: cause.mentionOffsets))
+                    .font(CicadaTheme.quoteFont(size: 12))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            if let provenance,
+               let target = cause.readerTarget(subjectId: item.entityId.isEmpty ? nil : item.entityId) {
+                Button {
+                    provenance.open(target)
+                } label: {
+                    Label(Copy.Provenance.showInConversation, systemImage: "text.book.closed")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.cicadaPlain)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.accent)
+                .padding(.leading, CicadaTheme.spacingMD + 3)
+            }
         }
     }
 

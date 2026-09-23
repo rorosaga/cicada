@@ -34,6 +34,11 @@ struct CicadaApp: App {
     /// as `sleepEngineVM` above: nothing but `FeedView`/`ContentView`
     /// (main window) and `IntegrationsView` (Settings) observes this.
     @State private var appRouter = AppRouter()
+    /// G118 slice 2 — the Reader's navigation and its in-memory payload
+    /// cache. Main window only: Settings never opens a Reader, and neither is
+    /// a Store domain (R-PB11), so neither needs the Store.
+    @State private var provenanceRouter = ProvenanceRouter()
+    @State private var provenanceCache = ProvenanceCache()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
@@ -103,6 +108,8 @@ struct CicadaApp: App {
                 .environment(sleepVM)
                 .environment(sleepEngineVM)
                 .environment(appRouter)
+                .environment(provenanceRouter)
+                .environment(provenanceCache)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)

@@ -642,6 +642,22 @@ Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — an
 derived from the URL at read time (`VideoRef.resolve`), never read out of the page, so a bank never
 needs rewriting to teach the app a new one.
 
+**Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
+label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
+for a legacy claim's name match found at read), hovering shows the words in the quote face — washed
+when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a trailing
+`.inspector` on the main window driven by `ProvenanceRouter` (a stack of `ReaderTarget`s), beside
+whatever is open so a belief and its sentence are on screen together. It reads `/episodes/{id}/text`
+and `/citations` through `ProvenanceCache` — in memory, ETag-revalidated, **never a Store domain**,
+so there is no `VersionVector` mapping — slices every offset as a Unicode scalar through one
+`ScalarText`, shows a time only when the episode stores one, and says stale / grown / derived /
+inferred / truncated in words — a span its rewritten document no longer reaches (the server's 422) is
+stale too, never "couldn't open". The entity card's "Where this came from" (bottom of Content) reads
+`/entities/{id}/provenance` once per card; G61's section is "Look it up at". Chips read the router
+and cache as optional environment values, so a chip outside the main window renders without a
+click-through rather than trapping; the Ask and Belief Timeline sheets step aside when the Reader
+opens, and a bank switch closes it and empties the cache (episode ids repeat across banks).
+
 ---
 
 ## API Design

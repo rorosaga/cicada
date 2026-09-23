@@ -78,13 +78,15 @@ enum SourceTrust: String, Codable {
         self = SourceTrust(rawValue: (try? d.singleValueContainer().decode(String.self)) ?? "") ?? .unknown
     }
 
+    /// G118 slice 2 (§4.6) — plain words for a non-technical reader. The axis
+    /// is unchanged and still orthogonal to confidence; only its name changed.
     var label: String {
         switch self {
-        case .userStated: return "user stated"
-        case .agentExtracted: return "agent extracted"
-        case .agentReflected: return "agent reflected"
-        case .external: return "external"
-        case .unknown: return "unknown"
+        case .userStated: return Copy.Provenance.youToldCicada
+        case .agentExtracted: return Copy.Provenance.cicadaNoticed
+        case .agentReflected: return Copy.Provenance.cicadaConcluded
+        case .external: return Copy.Provenance.fromASource
+        case .unknown: return Copy.Provenance.notRecorded
         }
     }
 }
@@ -114,6 +116,19 @@ struct Claim: Identifiable, Codable, Hashable {
     let sourceEpisodes: [String]
     let premises: [String]
     let authoredBy: String            // model id or "user" — same vocabulary as Contributor.author
+    // G118 slice 1 shipped `evidence` on the wire and this model dropped it
+    // (CodingKeys never named it). Slice 2 reads it back, with the four author
+    // and conversation fields R-PB13 added beside it. All optional-with-default:
+    // a legacy claim has no evidence and an older backend none of the rest.
+    let evidence: [Evidence]
+    let sessionIds: [String]
+    let origin: String?
+    let recordedAt: String?
+    /// `user` | `system` | `model` | `harness` | `unknown`, from the server's
+    /// one `git_service.author_identity` rule — nil against an older backend,
+    /// where `ContributorIdentity.kind(author:)` falls back to the author id.
+    let authorKind: String?
+    let authorProvider: String?
 
     var isValid: Bool { validTo == nil }
 
@@ -121,6 +136,7 @@ struct Claim: Identifiable, Codable, Hashable {
         case id, text, subject, predicate, object, objectKind, observer, context
         case epistemic, sourceTrust, confidence, validFrom, validTo
         case supersededBy, supersedes, sourceEpisodes, premises, authoredBy
+        case evidence, sessionIds, origin, recordedAt, authorKind, authorProvider
     }
 
     init(from c: Decoder) throws {
@@ -143,6 +159,15 @@ struct Claim: Identifiable, Codable, Hashable {
         sourceEpisodes = try k.decodeIfPresent([String].self, forKey: .sourceEpisodes) ?? []
         premises = try k.decodeIfPresent([String].self, forKey: .premises) ?? []
         authoredBy = try k.decodeIfPresent(String.self, forKey: .authoredBy) ?? "unknown"
+        evidence = try k.decodeIfPresent([Evidence].self, forKey: .evidence) ?? []
+        sessionIds = try k.decodeIfPresent([String].self, forKey: .sessionIds) ?? []
+        origin = try k.decodeIfPresent(String.self, forKey: .origin)
+        recordedAt = try k.decodeIfPresent(String.self, forKey: .recordedAt)
+        // The server defaults both to "unknown"/null; an older backend omits
+        // them. "unknown" from the wire is kept verbatim — it is the server's
+        // answer, not a gap.
+        authorKind = try k.decodeIfPresent(String.self, forKey: .authorKind)
+        authorProvider = try k.decodeIfPresent(String.self, forKey: .authorProvider)
     }
 }
 
