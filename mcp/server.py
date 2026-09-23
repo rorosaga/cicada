@@ -274,6 +274,10 @@ TOOLS = [
                     "type": "string",
                     "description": "Optional. Filter to one context facet (e.g. 'engineering', 'family', 'career').",
                 },
+                "history": {
+                    "type": "boolean",
+                    "description": "Optional. Also list the subject's earlier claims — replaced, withdrawn or ended — newest first, with when each stopped being current. Default false.",
+                },
             },
             "required": ["subject"],
         },
@@ -647,6 +651,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("subject", ""),
             arguments.get("observer"),
             arguments.get("context"),
+            bool(arguments.get("history", False)),
         )
     elif name == "cicada_save_url":
         return handle_save_url(arguments.get("url", ""), arguments.get("note"))
@@ -746,8 +751,8 @@ def handle_write_claim(subject, predicate, object_, observer, confidence, contex
                                  source_episode, force_new_entity, sources, evidence)
 
 
-def handle_get_perspective(subject, observer=None, context=None) -> str:
-    return mcp_tools.get_perspective(_ctx(), subject, observer, context)
+def handle_get_perspective(subject, observer=None, context=None, history=False) -> str:
+    return mcp_tools.get_perspective(_ctx(), subject, observer, context, history)
 
 
 def handle_check_nudges(topic, entity_ids=None) -> str:

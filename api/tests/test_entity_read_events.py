@@ -112,9 +112,9 @@ def test_mcp_recall_records_the_suggested_ids_with_the_recall_surface(home, tmp_
     monkeypatch.setattr(mcp.mcp_tools, "_match_hub", lambda memory_path, query: (None, []))
     monkeypatch.setattr(mcp.mcp_tools, "_leann_search_entities", lambda memory_path, query, top_k: [])
     monkeypatch.setattr(mcp.mcp_tools, "_leann_search_episodes", lambda memory_path, query, top_k: [])
-    # `_keyword_search_entities` (api/services/mcp_tools.py) is a whole-query
-    # substring match on the name/tags/body, so the query must be a phrase the
-    # page contains.
+    monkeypatch.setattr(mcp.mcp_tools, "_claim_subject_search", lambda memory_path, query, top_k: [])
+    # The keyword leg is search_service's lexical leg (G140 Q-R1), which reads the
+    # page's name word by word — with no FTS file yet, from bank_index's frontmatter fallback.
     mcp.handle_recall("alpha project")
     refs = [e["refs"] for e in _events(home)]
     assert refs and all(r["surface"] == "mcp-recall" for r in refs)

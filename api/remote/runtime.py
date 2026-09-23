@@ -172,7 +172,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_open_hub": lambda c, a: mcp_tools.open_hub(c, str(a.get("hub") or "")),
     "cicada_recall_detail": lambda c, a: mcp_tools.recall_detail(c, str(a.get("entity_id") or "")),
     "cicada_get_perspective": lambda c, a: mcp_tools.get_perspective(
-        c, str(a.get("subject") or ""), a.get("observer"), a.get("context")),
+        c, str(a.get("subject") or ""), a.get("observer"), a.get("context"), bool(a.get("history", False))),
     "cicada_check_nudges": lambda c, a: mcp_tools.check_nudges(c, a.get("topic"), a.get("entity_ids")),
     "cicada_sources": lambda c, a: mcp_tools.sources(c, str(a.get("entity_id") or "")),
     "cicada_save_episode": lambda c, a: mcp_tools.save_episode(c, str(a.get("content") or ""), a.get("title")),

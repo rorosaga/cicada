@@ -63,7 +63,8 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           "holds it and how sure Cicada is.",
           {"subject": {"type": "string", "description": "The subject's id or name."},
            "observer": {"type": "string", "description": "Optional: only this observer's view."},
-           "context": {"type": "string", "description": "Optional: only this context."}},
+           "context": {"type": "string", "description": "Optional: only this context."},
+           "history": {"type": "boolean", "description": "Optional: also list earlier facts — replaced, withdrawn or ended — newest first."}},
           ("subject",), read_only=True),
     _tool("cicada_check_nudges",
           "List the questions Cicada has for the person — something fading, two facts that disagree, a name "
