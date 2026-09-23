@@ -405,6 +405,37 @@ def _apply_filters(
     return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers)
 
 
+def _claim_edge_row(claim, page_stem: str) -> dict | None:
+    """One claim's row in ``graph_edges.yaml``, or ``None`` (M5e Stage 5.7's rule).
+
+    Shared by :func:`regenerate_edges_from_claims` and :func:`upsert_claim_edges`
+    so the full projection Sleep writes and the per-page one a folder sync writes
+    can never disagree about a row's shape (F1 R-FX7). Only an open, node-valued
+    claim is an edge; closed and superseded beliefs live on in the page and git."""
+    if claim.valid_to is not None or claim.superseded_by:
+        return None
+    if claim.object_kind not in ("", "node"):
+        return None
+    source = (claim.subject or page_stem).strip()
+    target = (claim.object or "").strip()
+    label = (claim.predicate or "relates-to").strip()
+    if not source or not target or source == target:
+        return None
+    return {
+        "source": source,
+        "target": target,
+        "label": label,
+        "observer": claim.observer or "agent",
+        "context": claim.context or "general",
+        "claim_id": claim.id,
+        "valid_from": claim.valid_from,
+    }
+
+
+def _row_key(row: dict) -> tuple:
+    return (row["source"], row["target"], row["label"], row["observer"], row["context"])
+
+
 def regenerate_edges_from_claims(memory_path: Path) -> int:
     """Refresh the claim-derived edges in ``graph_edges.yaml`` (M5e Stage 5.7).
 
@@ -442,28 +473,11 @@ def regenerate_edges_from_claims(memory_path: Path) -> int:
             continue
         for claim in parse_claims(parsed.body):
             any_claims = True
-            if claim.valid_to is not None or claim.superseded_by:
+            row = _claim_edge_row(claim, filepath.stem)
+            if row is None or _row_key(row) in seen:
                 continue
-            if claim.object_kind not in ("", "node"):
-                continue
-            source = (claim.subject or filepath.stem).strip()
-            target = (claim.object or "").strip()
-            label = (claim.predicate or "relates-to").strip()
-            if not source or not target or source == target:
-                continue
-            key = (source, target, label, claim.observer or "", claim.context or "")
-            if key in seen:
-                continue
-            seen.add(key)
-            claim_edges.append({
-                "source": source,
-                "target": target,
-                "label": label,
-                "observer": claim.observer or "agent",
-                "context": claim.context or "general",
-                "claim_id": claim.id,
-                "valid_from": claim.valid_from,
-            })
+            seen.add(_row_key(row))
+            claim_edges.append(row)
 
     # No claims anywhere => don't clobber a legacy/seeded edge graph.
     if not any_claims:
@@ -494,6 +508,74 @@ def regenerate_edges_from_claims(memory_path: Path) -> int:
         encoding="utf-8",
     )
     return len(claim_edges)
+
+
+def upsert_claim_edges(memory_path: Path, page_ids) -> bool:
+    """Re-project the claim-derived edges of just the pages ``page_ids`` names (F1 R-FX7).
+
+    A folder sync writes paper claims (``cited-in`` the folder's project,
+    ``about`` a concept) that only Sleep's Stage 5.7 used to turn into edges, so
+    the owner's papers floated unattached until a cycle ran. This is
+    :func:`regenerate_edges_from_claims`'s merge rule at page granularity: the
+    rows it owns are those whose ``claim_id`` is a claim on one of these pages
+    (open or closed — a closed claim's row must go), and they are replaced by
+    those pages' open node-valued claims through the same
+    :func:`_claim_edge_row`, so Stage 5.7 later writes the same rows. Every
+    other row is kept verbatim — including one whose ``source`` is a named page
+    but whose claim lives elsewhere. Writes nothing when the rows already match
+    (no git churn on a no-change sync) and never rewrites a file it could not
+    parse; a page whose claims block is corrupt owns nothing, so its rows stay.
+    A row whose claim was deleted from its page outright (a hand edit, never a
+    writer's path) waits for Stage 5.7. Returns True when ``graph_edges.yaml``
+    was written."""
+    memory_path = Path(memory_path)
+    ids = sorted({str(s) for s in (page_ids or ()) if s})
+    if not ids:
+        return False
+    owned: set[str] = set()
+    fresh: list[dict] = []
+    seen: set[tuple] = set()
+    for stem in ids:
+        page = memory_path / "entities" / f"{stem}.md"
+        if not page.exists():
+            continue
+        try:
+            body = parse(page).body
+        except Exception:
+            continue
+        for claim in parse_claims(body):
+            if claim.id:
+                owned.add(claim.id)
+            row = _claim_edge_row(claim, stem)
+            if row is None or _row_key(row) in seen:
+                continue
+            seen.add(_row_key(row))
+            fresh.append(row)
+    edges_file = memory_path / "graph_edges.yaml"
+    edges: list[dict] = []
+    if edges_file.exists():
+        try:
+            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+        except Exception:
+            return False
+        if not isinstance(data, dict):
+            return False
+        edges = [e for e in (data.get("edges") or []) if isinstance(e, dict)]
+
+    def mine(edge: dict) -> bool:
+        return bool(edge.get("claim_id")) and edge.get("claim_id") in owned
+
+    def canon(rows: list[dict]) -> list[str]:
+        return sorted(json.dumps(r, sort_keys=True, default=str) for r in rows)
+
+    if canon([e for e in edges if mine(e)]) == canon(fresh):
+        return False
+    merged = [e for e in edges if not mine(e)] + fresh
+    edges_file.write_text(
+        yaml.dump({"edges": merged}, default_flow_style=False, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return True
 
 
 def _load_edges(memory_path: Path) -> list[GraphLink]:

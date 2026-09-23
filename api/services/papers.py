@@ -42,11 +42,13 @@ from loguru import logger
 
 from api.services import (
     bank_index,
+    claim_contexts,
     decay_policy,
     episode_ids,
     episode_staging,
     evidence,
     folder_source,
+    graph_builder,
     markdown_parser,
     media_ingestor,
 )
@@ -57,6 +59,10 @@ KIND = "paper"
 ORIGIN = folder_source.ORIGIN
 CITATIONS_FILENAME = "folder_citations.json"
 WHY_PREDICATES = ("saved-because", "cited-in", "about")
+# F1 R-FX4 — the house word for "no particular context". A watched folder
+# declares no life-area, so any other value would be a guess; the section
+# already lives in `paper.sections`, the tags and the card's heading.
+PAPER_CONTEXT = claim_contexts.NO_CONTEXT
 _CONCEPT_TYPES = frozenset({"concept", "tool", "skill", "project"})
 _CONFIDENCE = {
     "user": {"saved-because": 0.9, "cited-in": 0.8, "about": 0.6},
@@ -351,34 +357,55 @@ def desired_claims(*, entity_id: str, citations: list[Citation], episode_id: str
     kind = "user" if who == "user" else "assistant"
     out: dict[str, Claim] = {}
 
-    def claim(predicate: str, obj: str, *, literal: bool, context: str, text_: str, quote: str,
+    def claim(predicate: str, obj: str, *, literal: bool, slot: str, text_: str, quote: str,
               window: tuple[int, int]) -> None:
-        cid = claim_id(entity_id, predicate, obj, observer, context)
+        # R-FX5: the id is derived from the SLOT this claim fills — for
+        # `saved-because` the folder and section it was annotated under, else
+        # `general` — which is exactly the string that used to be stored as its
+        # context. Every id minted before F1 is minted again unchanged.
+        cid = claim_id(entity_id, predicate, obj, observer, slot)
         if cid in out:
             return
-        out[cid] = Claim(
+        made = Claim(
             id=cid, text=text_, subject=entity_id, predicate=predicate, object=obj,
-            object_kind="literal" if literal else "node", observer=observer, context=context,
+            object_kind="literal" if literal else "node", observer=observer, context=PAPER_CONTEXT,
             epistemic="explicit", source_trust=trust, confidence=_CONFIDENCE[who][predicate],
             valid_from=valid_from, recorded_at=today, source_episodes=[episode_id],
             authored_by="user" if who == "user" else None, origin=ORIGIN,
             evidence=[evidence.verify(None, episode_id, quote, text=text, window=window, kind_override=kind)],
         )
+        # Read by `_same_slot`; `Claim.to_dict` is `asdict`, which never
+        # serialises a non-field attribute (agentic_write's `_status_note` precedent).
+        made._slot = slot
+        out[cid] = made
 
     for c in citations:
         if c.note:
             section = sanitize_id(c.section) if c.section else "top"
-            claim("saved-because", c.note, literal=True, context=f"folder:{folder_id}:{section}",
+            claim("saved-because", c.note, literal=True, slot=f"folder:{folder_id}:{section}",
                   text_=c.note, quote=c.note, window=(c.line_start, c.line_end))
         if project_id:
-            claim("cited-in", project_id, literal=False, context="general",
+            claim("cited-in", project_id, literal=False, slot=PAPER_CONTEXT,
                   text_=f"Cited in {project_name or project_id}.", quote=c.quote,
                   window=(c.line_start, c.line_end))
         concept = concept_for(c.section) if c.section else None
         if concept and c.heading_start is not None:
-            claim("about", concept, literal=False, context="general", text_=f"Filed under {c.section}.",
+            claim("about", concept, literal=False, slot=PAPER_CONTEXT, text_=f"Filed under {c.section}.",
                   quote=c.section, window=(c.heading_start, c.heading_end))
     return list(out.values())
+
+
+def _same_slot(old: Claim, new: Claim) -> bool:
+    """R-FX5 — did ``old`` fill the slot ``new`` fills?
+
+    Paper claim ids are ``claim_id(subject, predicate, object, observer, slot)``.
+    Recomputing the closed claim's id over the new claim's slot answers the
+    question exactly — the job "same predicate + same context" did while the
+    section lived in the context. Two sections' notes on one page share a
+    predicate and (since F1) a context, so without this an edited note could be
+    marked superseded by its sibling's."""
+    slot = getattr(new, "_slot", None) or new.context
+    return claim_id(old.subject, old.predicate, old.object, old.observer, slot) == old.id
 
 
 def apply_claims(page: Path, episode_id: str, desired: list[Claim], today: str) -> bool:
@@ -389,7 +416,8 @@ def apply_claims(page: Path, episode_id: str, desired: list[Claim], today: str) 
     reopened if it had been closed. A folder claim this episode supported and no
     longer does loses this episode's span; if that was its last span it is
     closed with ``valid_to`` (and ``superseded_by`` its successor in the same
-    predicate + context, e.g. an edited annotation). Nothing is deleted."""
+    predicate and slot (``_same_slot``, F1 R-FX5), e.g. an edited annotation).
+    Nothing is deleted."""
     if not page.exists():
         return False
     parsed = markdown_parser.parse(page)
@@ -412,6 +440,10 @@ def apply_claims(page: Path, episode_id: str, desired: list[Claim], today: str) 
         if old.valid_to:
             old.valid_to = None
             old.superseded_by = None
+        # R-FX6(b): the id names the slot and the context is only the writer's
+        # label, so the writer's current one wins — a sync repairs a pre-F1
+        # `folder:<id>:<section>` context on any claim it re-reads.
+        old.context = new.context
     for c in claims:
         if c.origin != ORIGIN or c.valid_to or c.id in wanted:
             continue
@@ -423,9 +455,13 @@ def apply_claims(page: Path, episode_id: str, desired: list[Claim], today: str) 
             continue
         c.valid_to = today
         c.superseded_by = next((d.id for d in desired
-                                if d.predicate == c.predicate and d.context == c.context), None)
+                                if d.predicate == c.predicate and _same_slot(c, d)), None)
     new_body = write_claims(parsed.body, claims)
-    if new_body == parsed.body:
+    # Compared as `parse` reads them back: replacing a block in place leaves a
+    # trailing newline `parse` strips, so a byte compare reported every re-read
+    # page as changed — a no-op re-parse counted claims it never moved and
+    # re-projected edges for nothing (F1 R-FX5's "nothing closes or reopens").
+    if new_body.strip() == parsed.body.strip():
         return False
     markdown_parser.write(page, parsed.frontmatter, new_body)
     return True
@@ -591,6 +627,7 @@ def _reconcile_locked(memory_path: Path, folder: dict, *, touched: dict[str, str
     # file is written only by `_replay_aliases`, from these recorded calls.
     alias_ops: list[tuple[PaperKey, str, str | None, str]] = []
     revisit: set[str] = set()
+    claim_pages: set[str] = set()
     for sid, ep_id in touched.items():
         doc = evidence.source_document(memory_path, ep_id)
         if doc is None:
@@ -621,6 +658,7 @@ def _reconcile_locked(memory_path: Path, folder: dict, *, touched: dict[str, str
             if apply_claims(page_path(memory_path, eid), ep_id, desired, today):
                 report["claims_changed"] += 1
                 paths.add(f"entities/{eid}.md")
+                claim_pages.add(eid)
         cites[sid] = sorted(by_page)
         revisit |= previous - set(by_page)
         report["papers_found"] += len(by_page)
@@ -630,6 +668,7 @@ def _reconcile_locked(memory_path: Path, folder: dict, *, touched: dict[str, str
             if apply_claims(page_path(memory_path, eid), ep_id, [], today):
                 report["claims_changed"] += 1
                 paths.add(f"entities/{eid}.md")
+                claim_pages.add(eid)
         revisit |= previous
     cited_now = {eid for ids in cites.values() for eid in ids}
     written = propose_removals(memory_path, sorted(revisit - cited_now), folder)
@@ -642,6 +681,11 @@ def _reconcile_locked(memory_path: Path, folder: dict, *, touched: dict[str, str
     if cites != cites_before:
         save_citations(memory_path, cites)
         paths.add(f"sources/{CITATIONS_FILENAME}")
+    # R-FX7: the claims this run changed are the edges the graph should show
+    # now — a paper sits by the project that cites it without waiting for
+    # Stage 5.7, which later rewrites the same rows (`_claim_edge_row`).
+    if claim_pages and graph_builder.upsert_claim_edges(memory_path, claim_pages):
+        paths.add("graph_edges.yaml")
     report["paths"] = sorted(paths)
     return report
 
