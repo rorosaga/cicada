@@ -2518,7 +2518,7 @@ exercising a demo bank and gets the 409 by design. Stop and report it; do not we
     ruled G141 DECIDEs (`:663-670`);
   - `docs/goals/memory-evolution.md`: the G141 row (`:705`) and the G117 row's status cell (`:681`).
 
-Privacy: no names from any bank, no conversation text, no episode titles. The PR number is written `PR #TBD`,
+Privacy: no names from any bank, no conversation text, no episode titles. The PR number is written `PR #88`,
 and the orchestrator fills it in at merge.
 
 The `TODO.md` phrases below wrap across lines in the file:
@@ -2546,7 +2546,7 @@ Match the words, not the line breaks, and keep the file's ~110-column wrap in wh
   this paragraph:
 
 ```
-**PJ-0 and PJ-4 shipped (PR #TBD, `feat/g141-capture-side`)**, with a fix found the same day: capture can no
+**PJ-0 and PJ-4 shipped (PR #88, `feat/g141-capture-side`)**, with a fix found the same day: capture can no
 longer write into a demo bank (`api/services/demo_guard.py` — the Stop hook saves into the real bank left most
 recently, every other writer refuses; CLAUDE.md's seventh Awake rail). Next on the backend: **PJ-0b** (hold a
 page-less subject's claims with its pending entity, ruled 2026-09-23; the seam is
@@ -2555,20 +2555,20 @@ page-less subject's claims with its pending entity, ruled 2026-09-23; the seam i
 
 In 13b, replace "**PJ-0** page-less claim fix · **PJ-1** read model + `GET /projects[/{id}/timeline]` ·
 **PJ-4** Stop-hook turn stamps — all three backend, $0, **start now**;" with "**PJ-0** page-less claim fix ✅ ·
-**PJ-4** Stop-hook turn stamps ✅ (both PR #TBD) · **PJ-0b** hold page-less claims with the pending entity (ruled
+**PJ-4** Stop-hook turn stamps ✅ (both PR #88) · **PJ-0b** hold page-less claims with the pending entity (ruled
 2026-09-23) · **PJ-1** read model + `GET /projects[/{id}/timeline]` — backend, $0, **start now**;". In the same
 item, replace "Open DECIDEs (rail cell, band colour, pending-store hold) are under Research / decisions below"
 with "The three DECIDEs (rail cell, band colour, pending-store hold) were ruled 2026-09-23 — see Research /
 decisions below".
 
 In the ruled G141 DECIDEs, change "a new slice **PJ-0b** after PJ-0." to "a new slice **PJ-0b** after PJ-0 — its
-seam, `claim_pipeline.hold_page_less`, shipped with PJ-0 (PR #TBD) and holds nothing until PJ-0b." Leave the
+seam, `claim_pipeline.hold_page_less`, shipped with PJ-0 (PR #88) and holds nothing until PJ-0b." Leave the
 rest of the paragraph, the owner's quote included, as it is.
 
 - [ ] **Step 2: The G141 row.** Directly before "**Carry-forward:**", insert
 
 ```
-**Shipped 2026-09-23 (PR #TBD, `feat/g141-capture-side`).** PJ-0: Stage 2 returns its `name_to_id` and Stage 5.56 keys every claim endpoint through it (`entity_resolver.endpoint_id`, the edge rule as one function), maps the closed owner surfaces ("the user", "me", …) onto the `owner: true` page, and counts the claims whose subject still has no page (`claims_page_less`: counts in the log, the claim ids at DEBUG, never a subject; carried into the `sleep_run` row as M3's measure); the false "re-emitted next cycle" comment is gone, and the R-PJ17 hold is `claim_pipeline.hold_page_less`, a seam that holds nothing until PJ-0b (the hold was ruled yes on 2026-09-23). Claims now follow Stage 2's matches, its fuzzy merges included (disclosed; G98's). PJ-4: the Stop hook writes `turns: [{offset, ts, speaker}]` through `episode_staging.stamps_for` (the hook's `role: text` body is the stager's line shape byte for byte, so the spec's "cannot reuse" did not hold), outside the hash, the last key, head-stable at 500; the episode `timestamp` stays the session's start, a pre-PJ-4 episode keeps its count until its session's next rewrite, and a lint keeps the `turns` key to its three modules.
+**Shipped 2026-09-23 (PR #88, `feat/g141-capture-side`).** PJ-0: Stage 2 returns its `name_to_id` and Stage 5.56 keys every claim endpoint through it (`entity_resolver.endpoint_id`, the edge rule as one function), maps the closed owner surfaces ("the user", "me", …) onto the `owner: true` page, and counts the claims whose subject still has no page (`claims_page_less`: counts in the log, the claim ids at DEBUG, never a subject; carried into the `sleep_run` row as M3's measure); the false "re-emitted next cycle" comment is gone, and the R-PJ17 hold is `claim_pipeline.hold_page_less`, a seam that holds nothing until PJ-0b (the hold was ruled yes on 2026-09-23). Claims now follow Stage 2's matches, its fuzzy merges included (disclosed; G98's). PJ-4: the Stop hook writes `turns: [{offset, ts, speaker}]` through `episode_staging.stamps_for` (the hook's `role: text` body is the stager's line shape byte for byte, so the spec's "cannot reuse" did not hold), outside the hash, the last key, head-stable at 500; the episode `timestamp` stays the session's start, a pre-PJ-4 episode keeps its count until its session's next rewrite, and a lint keeps the `turns` key to its three modules.
 ```
 
 Then replace ONLY the carry-forward's first sentence, "**Carry-forward:** the on-disk `memory/banks/demo` holds
@@ -2583,7 +2583,7 @@ two sentences below. Keep the "**Ruled 2026-09-23 (owner: …)**" sentence that 
   reminder."), just before the closing ` |`, append
 
 ```
- **Capture guard (2026-09-23, G141 capture-side track, PR #TBD):** while the demo bank was open for screenshots, a real Claude Code session's Stop hook wrote into it (quarantined by hand). A demo bank is now marked in the bank (`_bank.yaml`, `kind: demo`; an older one by the generator's git identity), every capture writer refuses it in plain words, the Stop hook saves the session into the real bank left most recently (or answers 409 when it cannot tell which), and a demo bank's Sleep tail skips its outside-world steps.
+ **Capture guard (2026-09-23, G141 capture-side track, PR #88):** while the demo bank was open for screenshots, a real Claude Code session's Stop hook wrote into it (quarantined by hand). A demo bank is now marked in the bank (`_bank.yaml`, `kind: demo`; an older one by the generator's git identity), every capture writer refuses it in plain words, the Stop hook saves the session into the real bank left most recently (or answers 409 when it cannot tell which), and a demo bank's Sleep tail skips its outside-world steps.
 ```
 
 - [ ] **Step 4: A privacy read.** Run
