@@ -233,8 +233,20 @@ final class BrowserWatcher {
 
     // MARK: State
 
-    func state(for channel: String) -> BrowserWatchState? { states[channel] }
-    func error(for channel: String) -> BrowserFileError? { errors[channel] }
+    func state(for channel: String) -> BrowserWatchState? { states[channel] ?? externalStates[channel] }
+    func error(for channel: String) -> BrowserFileError? { errors[channel] ?? externalErrors[channel] }
+
+    /// R-LS26 — a local source the app reads (a watched folder, Wispr Flow;
+    /// `LocalSourceWatcher`) lights the same four views through the same two
+    /// lookups above, instead of every view learning a second watcher. `nil`
+    /// clears the light (a folder that is not on this Mac shows none).
+    private(set) var externalStates: [String: BrowserWatchState] = [:]
+    private var externalErrors: [String: BrowserFileError] = [:]
+
+    func publish(_ state: BrowserWatchState?, error: BrowserFileError?, for channel: String) {
+        externalStates[channel] = state
+        externalErrors[channel] = error
+    }
 
     /// Whether this channel is one the app can watch at all — a row for a
     /// channel that is not watched (iCloud tabs, Notes) must not claim a light.

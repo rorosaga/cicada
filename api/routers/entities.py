@@ -25,6 +25,7 @@ from api.models.schemas import (
     EntitySourceList,
     LocationEntry,
     LocationListing,
+    PaperDetailResponse,
     RepoContext,
     RepoContextList,
     RepoInput,
@@ -201,6 +202,9 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
             media.get("duration_s") if isinstance(media.get("duration_s"), int)
             and not isinstance(media.get("duration_s"), bool) else None
         ),
+        # G133 — `paper` on a paper page (R-LS14); absent on every other. Type-checked like
+        # `duration_s`: a hand-edited `kind: [paper]` must not 500 the whole page (T4 review r1).
+        kind=media.get("kind") if isinstance(media.get("kind"), str) and media.get("kind") else None,
     )
 
 
@@ -511,6 +515,19 @@ async def get_entity_sources(
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
     return _sources_payload(settings.memory_path, entity_id)
+
+
+@router.get("/entities/{entity_id}/paper", response_model=PaperDetailResponse)
+async def get_entity_paper(entity_id: str, settings: Settings = Depends(get_settings)):
+    """G133 / G121 — a paper page's two tiers, resolved at read (engine-free):
+    "why it's in your memory" as spans into the person's own files, then the
+    dated world-tier context. 404 for anything that is not a paper page."""
+    from api.services import papers
+
+    detail = await asyncio.to_thread(papers.detail, settings.memory_path, entity_id)
+    if detail is None:
+        raise HTTPException(404, f"{entity_id!r} is not a paper")
+    return PaperDetailResponse(**detail)
 
 
 @router.post("/entities/{entity_id}/sources", response_model=EntitySourceList)

@@ -34,7 +34,7 @@ from typing import Any
 
 from loguru import logger
 
-from api.services import episode_ids, markdown_parser
+from api.services import episode_ids, episode_scrub, markdown_parser
 
 NOTES_INDEX_FILENAME = "notes_index.json"
 
@@ -230,7 +230,7 @@ def _write_note_episode(episodes_dir: Path, note: NoteRecord) -> str:
     # LOCAL time and labelled it UTC, off by the machine's offset.
     timestamp = episode_ids.utc_now_iso()
 
-    body = _episode_body(note)
+    body = episode_scrub.scrub_body(_episode_body(note), writer="apple-notes", bank=episodes_dir.parent.name)
     content_hash = hashlib.sha256(f"{_note_key(note)}|{note.modified}".encode()).hexdigest()[:12]
 
     frontmatter = {

@@ -521,7 +521,10 @@ def _episode_hit(ctx: _Ctx, ep: _Episode, score: float, chunk: str = "") -> Sear
             start, end = span
         src = text[start:end] if span is not None else text[: SNIPPET_CHARS * 2]
     if start is not None:
-        kind = evidence.speaker_kind(text, start)
+        # R-LS7: a folder file's declared authorship wins over markers, as in
+        # `evidence.kind_for` (every row here is an episode, whatever its stem).
+        override = meta.get("evidence_kind")
+        kind = override if override in evidence.OVERRIDE_KINDS else evidence.speaker_kind(text, start)
     snippet, offsets = snippet_window(src, ctx.tokens)
     return SearchHit(
         id=ep.doc.ref,

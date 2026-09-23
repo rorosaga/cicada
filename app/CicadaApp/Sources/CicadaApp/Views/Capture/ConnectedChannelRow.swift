@@ -99,46 +99,61 @@ struct ConnectedChannelRow: View {
         }
     }
 
+    private var rowLabel: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            rowIcon
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Text(channel.label)
+                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                    // G129: a watched browser wears its light here
+                    // too, so "is this live" is answerable from the
+                    // Feed without opening the source page. Compact —
+                    // the dot only; the sentence lives on that page.
+                    if let watchState = watcher.state(for: channel.id) {
+                        BrowserStatusLight(state: watchState,
+                                           error: watcher.error(for: channel.id),
+                                           compact: true, channelId: channel.id)
+                    }
+                }
+                .lineLimit(1)
+                // R-S5 — `detail` no longer carries the count; the
+                // composer adds it back in the reader's locale.
+                if let detail = ChannelDetailLine.text(channel) {
+                    Text(detail)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// The row itself opens "Manage…". A folder or Wispr Flow keeps its
+    /// settings in Settings → Integrations and has no `AddSourceTile`, so its
+    /// row is a `SettingsSectionLink` there instead of a closure that would
+    /// open the generic add-source sheet (L final review, finding 1).
+    @ViewBuilder
+    private var rowLink: some View {
+        let spoken = ChannelDetailLine.text(channel).map { "\(channel.label). \($0)" } ?? channel.label
+        if ChannelActions.managesInIntegrations(channel.id) {
+            SettingsSectionLink(section: .integrations, accessibilityText: spoken) { rowLabel }
+        } else {
+            Button { onAction("manage") } label: { rowLabel }
+                .buttonStyle(.cicadaPlain)
+                // The same composed line VoiceOver would otherwise miss: the
+                // count lives outside `detail` since R-S5.
+                .accessibilityLabel(spoken)
+        }
+    }
+
     private var rowContent: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            Button { onAction("manage") } label: {
-                HStack(spacing: CicadaTheme.spacingMD) {
-                    rowIcon
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: CicadaTheme.spacingXS) {
-                            Text(channel.label)
-                                .font(CicadaTheme.font(size: 13, weight: .medium))
-                                .foregroundStyle(CicadaTheme.textPrimary)
-                            // G129: a watched browser wears its light here
-                            // too, so "is this live" is answerable from the
-                            // Feed without opening the source page. Compact —
-                            // the dot only; the sentence lives on that page.
-                            if let watchState = watcher.state(for: channel.id) {
-                                BrowserStatusLight(state: watchState,
-                                                   error: watcher.error(for: channel.id),
-                                                   compact: true)
-                            }
-                        }
-                            .lineLimit(1)
-                        // R-S5 — `detail` no longer carries the count; the
-                        // composer adds it back in the reader's locale.
-                        if let detail = ChannelDetailLine.text(channel) {
-                            Text(detail)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textSecondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.cicadaPlain)
-            // The same composed line VoiceOver would otherwise miss: the
-            // count lives outside `detail` since R-S5.
-            .accessibilityLabel(ChannelDetailLine.text(channel)
-                .map { "\(channel.label). \($0)" } ?? channel.label)
+            rowLink
 
             Image(systemName: "chevron.right")
                 .font(CicadaTheme.font(size: 10, weight: .semibold))
@@ -177,8 +192,14 @@ struct ConnectedChannelRow: View {
     /// it and nothing on screen advertised that. "remove" is dropped: nothing
     /// implements it — it was routed to the same manage sheet as everything
     /// else, so the item lied about what it did.
+    ///
+    /// A folder or Wispr Flow row gets no menu "Manage…": its settings are in
+    /// Settings → Integrations, which only a `SettingsLink` view can open
+    /// (`SettingsSectionLink`'s P5 ruling), not a menu item's closure. The row
+    /// itself is that link (L final review, finding 1).
     static func menuActions(for channel: SourceChannel) -> [String] {
-        channel.actions.filter { $0 != "manage" && $0 != "remove" } + ["manage"]
+        let actions = channel.actions.filter { $0 != "manage" && $0 != "remove" }
+        return ChannelActions.managesInIntegrations(channel.id) ? actions : actions + ["manage"]
     }
 
     static func actionTitle(_ action: String, channel: SourceChannel) -> String {
@@ -201,7 +222,8 @@ struct ConnectedChannelRow: View {
     /// routing them through the origin map would silently change `files` from
     /// `link` to `bookmark.fill` for no gain.
     static func icon(for id: String) -> String {
-        switch id {
+        if id.hasPrefix("folder:") { return "folder" }
+        return switch id {
         case "rss": "dot.radiowaves.up.forward"
         case "calendar": "calendar"
         case "chrome-bookmarks": "globe"
@@ -213,6 +235,7 @@ struct ConnectedChannelRow: View {
         case "pinterest": "pin.fill"
         case "reddit": "bubble.left.and.text.bubble.right.fill"
         case "x": "x.circle"
+        case "wispr-flow": "waveform"
         default: "tray"
         }
     }
@@ -246,7 +269,9 @@ struct ConnectedChannelRow: View {
     /// `ChannelMarkTests.testNoChannelFallsThroughToTheGenericTray` is what
     /// makes the missing row loud instead of silent.
     static func origin(forChannel id: String) -> String {
-        switch id {
+        // G133: every `folder:<id>` row's episodes carry the one `folder` origin.
+        if id.hasPrefix("folder:") { return "folder" }
+        return switch id {
         case "chat-export:claude": "claude-export"
         case "chat-export:chatgpt": "chatgpt-export"
         case "chrome-bookmarks": "chrome-bookmark"

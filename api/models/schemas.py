@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
@@ -430,6 +430,9 @@ class EntityMedia(CamelModel):
     # (R17).
     provider: Optional[str] = None
     duration_s: Optional[int] = None
+    # G133 — `paper` for a paper page (`papers.KIND`); absent for every other
+    # media page.
+    kind: Optional[str] = None
 
 
 class EntityResponse(CamelModel):
@@ -460,6 +463,56 @@ class EntityResponse(CamelModel):
     # G117 — mirrors GraphNode.is_owner (same `owner:` frontmatter key), so
     # the detail card can render "Name (you)" without a second lookup.
     is_owner: bool = False
+
+
+class PaperSummary(CamelModel):
+    """G133 — what a Feed row needs to show a paper's byline and to search by
+    author, arXiv id or DOI (R7 §5.2). Read from the page's `paper:` block."""
+
+    authors: list[str] = []
+    arxiv_id: Optional[str] = None
+    doi: Optional[str] = None
+    published: Optional[str] = None
+    venue: Optional[str] = None
+
+
+class PaperWhyItem(CamelModel):
+    """One personal-tier reason, as a span into the person's own file (G118/G121)."""
+
+    predicate: str
+    text: Optional[str] = None
+    target: Optional[str] = None
+    snippet: str
+    highlight_start: int
+    highlight_end: int
+    file: Optional[str] = None
+    heading: Optional[str] = None
+    edited: Optional[str] = None
+    kind: str
+    episode: str
+    start: int
+    end: int
+    stale: bool = False
+
+
+class PaperDetailResponse(CamelModel):
+    entity_id: str
+    title: str
+    authors: list[str] = []
+    venue: Optional[str] = None
+    published: Optional[str] = None
+    arxiv_id: Optional[str] = None
+    doi: Optional[str] = None
+    abs_url: Optional[str] = None
+    doi_url: Optional[str] = None
+    sections: list[str] = []
+    why: list[PaperWhyItem] = []
+    agent_only: bool = False
+    context: Optional[str] = None
+    context_source: Optional[str] = None
+    context_as_of: Optional[str] = None
+    #: ``not_found`` / ``unreadable`` once a details lookup failed, else None.
+    metadata_status: Optional[str] = None
 
 
 class EntityDecayUpdate(CamelModel):
@@ -723,14 +776,22 @@ class EpisodeSpan(CamelModel):
     stale: bool = False
     grown: bool = False
     kind: str = "user"
+    # R-LS2 — which turn the span starts in (`evidence.turn_at`), with its time
+    # from the episode's `turns: [{offset, ts, speaker}]` sidecar (R-PB4); all
+    # four absent for an episode that stores no sidecar.
+    turn_number: Optional[int] = None
+    turn_count: Optional[int] = None
+    turn_ts: Optional[str] = None
+    turn_speaker: Optional[str] = None
 
 
 class EpisodeTurn(CamelModel):
     """One turn of a document (G118 slice 2, design §4.8.1) — offsets into the
     evidence text, never a copy of it. See ``evidence.TurnSpan``: ``role`` is
-    ``user`` | ``assistant`` | ``page``; ``marker`` is the word as written
-    (``None`` for a marker-less block); ``ts``/``speaker`` exist only where the
-    episode stores a ``turns`` sidecar entry for this turn."""
+    ``user`` | ``assistant`` | ``speaker`` (a note-taker's ``speaker:<label>:``
+    line, R-LS7) | ``page``; ``marker`` is the word as written (``None`` for a
+    marker-less block); ``ts``/``speaker`` exist only where the episode stores
+    a ``turns`` sidecar entry for this turn."""
 
     index: int
     start: int
@@ -1859,6 +1920,10 @@ class MediaSourceItem(CamelModel):
     # nothing to ship. Wire names: `provider`, `durationS`.
     provider: Optional[str] = None
     duration_s: Optional[int] = None
+    # G133 — `paper` for a paper page (R-LS14), with the byline the Feed row
+    # shows and searches; both absent for every other media row.
+    kind: Optional[str] = None
+    paper: Optional[PaperSummary] = None
 
 
 class SourceListResponse(CamelModel):
@@ -2077,6 +2142,133 @@ class SourceChannel(CamelModel):
 
 class SourceChannelsResponse(CamelModel):
     channels: list[SourceChannel] = []
+
+
+class FolderAuthorshipRule(CamelModel):
+    """G133 / R-F2 — whose words the files under ``glob`` are: ``user`` or ``agent``."""
+
+    glob: str
+    authorship: str
+
+
+class FolderRecord(CamelModel):
+    """One watched folder (``<bank>/sources/folders.json``). ``path`` is display
+    and relink only — the backend never opens it (R-F1)."""
+
+    id: str
+    label: str
+    path: str
+    device: str
+    include: list[str] = []
+    exclude: list[str] = []
+    authorship: list[FolderAuthorshipRule] = []
+    project_id: Optional[str] = None
+    created_at: Optional[str] = None
+    last_sync: Optional[str] = None
+    papers_pending: bool = False
+    channel_id: str = ""
+
+
+class FolderListResponse(CamelModel):
+    folders: list[FolderRecord] = []
+
+
+class FolderRegisterRequest(CamelModel):
+    label: str
+    path: str
+    include: Optional[list[str]] = None
+    exclude: Optional[list[str]] = None
+    authorship: Optional[list[FolderAuthorshipRule]] = None
+    # R-LS13 — the app pre-fills the folder's name; "" means "no project".
+    project_name: Optional[str] = None
+
+
+class FolderUpdateRequest(CamelModel):
+    label: Optional[str] = None
+    authorship: Optional[list[FolderAuthorshipRule]] = None
+
+
+class FolderFileIn(CamelModel):
+    """R-LS8 — one file the app read: bytes as base64, re-hashed server-side."""
+
+    relpath: str
+    mtime: float
+    sha256: str
+    content_b64: str
+
+
+class FolderSyncRequest(CamelModel):
+    files: list[FolderFileIn] = []
+    deleted: list[str] = []
+
+
+class FolderSyncError(CamelModel):
+    relpath: str
+    reason: str
+
+
+class FolderSyncResponse(CamelModel):
+    preview: bool = False
+    files_new: int = 0
+    files_changed: int = 0
+    files_unchanged: int = 0
+    files_deleted: int = 0
+    agent_files: int = 0
+    stage1_passes: int = 0
+    papers_found: int = 0
+    created: int = 0
+    updated: int = 0
+    renamed: int = 0
+    tombstoned: int = 0
+    papers_created: int = 0
+    removals_proposed: int = 0
+    papers_pending: bool = False
+    errors: list[FolderSyncError] = []
+
+
+class FolderRemoveResponse(CamelModel):
+    removed: bool
+
+
+class WisprFlowSettings(CamelModel):
+    """G134 — per bank. Dictation is opt-in (R-LS23); `owner_speaker_names` is the
+    only way a meeting speaker is ever the owner (R-LS22)."""
+
+    enabled: bool = False
+    include_dictation: bool = False
+    owner_speaker_names: list[str] = []
+
+
+class WisprMeetingIn(CamelModel):
+    row: dict[str, Any] = {}
+    utterances: list[dict[str, Any]] = []
+
+
+class WisprFlowPayload(CamelModel):
+    """The app's whitelisted projection (R-LS21). The backend re-reads only the
+    whitelisted keys from each dict, whatever else arrives."""
+
+    meetings: list[WisprMeetingIn] = []
+    notes: list[dict[str, Any]] = []
+    todos: list[dict[str, Any]] = []
+    history: Optional[list[dict[str, Any]]] = None
+    deleted_meeting_ids: list[str] = []
+    deleted_note_ids: list[str] = []
+
+
+class WisprFlowCaptureResponse(CamelModel):
+    meetings_seen: int = 0
+    notes_seen: int = 0
+    dictation_days: int = 0
+    dictation_refused: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    tombstoned: int = 0
+    todo_claims: int = 0
+    todos_skipped_no_owner: int = 0
+    # Meetings whose to-do claims wait for a running Sleep cycle to end (L final review, finding 5).
+    todos_pending: int = 0
 
 
 # --- Saved-content connectors (G71 §2) ---
