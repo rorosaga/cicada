@@ -122,7 +122,7 @@ portability.
   `displayFont(size:italic:)`. `EmptyStateViewTests.swift:37` pins the text `displayFont(size: 26)`.
 - **Sibling branches already spell display titles** (checked with `git diff dev...<branch>`):
   `feat/mascot-page-b` moves `PageHeader`'s title into a `PageTitle` view in the same file (and
-  `PageTitleTests` pins exactly one `displayFont(` there), and `feat/settings-v3` adds six roman
+  `PageTitleTests` pins exactly one `displayFont(` there), and `feat/settings-v3` adds three roman
   `displayFont(size: 24)` titles. See **Merge notes** before touching `PageHeader`.
 - Tests: `CicadaFontsTests.swift` (registration, both bundle layouts, `.custom` equality) and
   `FontLiteralLintTests.swift:44-76` (no `.custom(` outside the theme; no display call under 22 pt).
@@ -170,12 +170,11 @@ notes**.
   path stays engine-free.
 - **ETag ship-together:** `/graph`'s recipe (`routers/graph.py:32-35`: `entities`, `edges`, `hubs`,
   `inbox`, `logos`) already covers every file this track writes (`graph_edges.yaml` is the `edges`
-  component, `sync_service.py:151`, mapped by `VersionVector.swift:14`). **No component is added
-  and no `extra` changes.** Say so in the PR body. *Disclosed, not fixed:* Task 1 and Task 3's
-  `summarize` are read-side only, so on a bank neither migration touches (no paper, no placeholder
-  page) the ETag does not move at upgrade and the app keeps its cached graph until the next entity
-  or edge write. The owner's bank is not that bank (both migrations rewrite files there), and the
-  house has no version salt in `extra` to reuse.
+  component, `sync_service.py:151`, mapped by `VersionVector.swift:14`). **No component is added.**
+  Task 1 and Task 3's `summarize` are read-side only, so the body changes for the same files: after
+  the merge of `dev`, **`NODE_SHAPE` is bumped (`aliases+f1-facets`) so cached clients refetch**,
+  and each entity node's hash folds its `contexts` and `summary` so `GraphDiff` re-pushes those
+  parents once (final review, findings 1–2). Say so in the PR body.
 - **App copy** is plain and friendly, with no jargon and no prices or token counts. Fonts go through
   `CicadaTheme.font` or `displayFont`; durations go through `CicadaMotion`; no hex outside the theme.
   The lints enforce all three.
@@ -2505,7 +2504,8 @@ the rulings mean.
   `displayFont(size: Self.leadSize)` and pins that text in a test: keep its spelling and pair
   `.tracking(CicadaTheme.displayTracking(size: Self.leadSize))`; the italic tail stays
   `displayFont(size: 22, italic: true)` either way.
-- **`feat/settings-v3`** adds six roman `displayFont(size: 24)` titles. Whichever branch merges
+- **`feat/settings-v3`** adds three roman `displayFont(size: 24)` titles (`SettingsDetailHeader`
+  ×2, `SettingsResultsView` ×1; the final review corrected an earlier count of six). Whichever branch merges
   second, `testEveryRomanDisplayTitleCarriesItsTracking` fails until each gets
   `.tracking(CicadaTheme.displayTracking(size: 24))`. That is the lint doing its job, not a
   regression. It also adds `ThemeStore.shared.observeSystemAppearance()` directly under the two
@@ -2543,8 +2543,9 @@ the rulings mean.
      at 1.4×); the empty-state title and the Reader title are SF.
    - The Sleep sentence is SF with an SF italic tail.
 7. **PR body must state:**
-   - The `/graph` ETag recipe is unchanged (`graph_edges.yaml` is its existing `edges` component).
-     No sync component is added and no `extra` changed.
+   - `graph_edges.yaml` is the `/graph` ETag's existing `edges` component; no sync component is
+     added. `NODE_SHAPE` bumped so cached clients refetch, and the node hash folds `contexts` and
+     `summary` so the app re-pushes the changed parents.
    - No LLM runs in any migration or read path.
    - The display face amends spec Decision 6 / R-M3 / Decision 16 by the owner's instruction.
    - The paper repair touches only the claims fence, which is not evidence text (G118). The

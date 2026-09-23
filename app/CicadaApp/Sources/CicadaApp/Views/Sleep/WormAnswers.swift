@@ -68,7 +68,7 @@ private func whenRung(_ ctx: RoomContext) -> SentenceLine? {
     }
     guard let when = ctx.nextRunWhen else { return nil }
     // A date takes the numeral's rounded digits; "after the next import
-    // settles" is words and stays in the serif.
+    // settles" is words and stays in the display face.
     return SentenceLine(lead: "Next: \(when).", numeral: when.contains(where: \.isNumber) ? when : nil,
                         tail: ctx.scheduledEngine.map { "\(Copy.scheduledRunsOn(engine: $0))." },
                         mark: ctx.scheduledEngine.map { SentenceMark.engine($0) })

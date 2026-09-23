@@ -295,6 +295,11 @@ def _build_full(memory_path: Path) -> GraphResponse:
     # identical — and the companion app's `GraphDiff` would never report the
     # node as updated (the pending-clarification pulse never appeared live).
     # The file hash stays the base; the extras are folded in deterministically.
+    # F1 final review: `contexts` and `summary` are derived from the file by
+    # code (the valid-context filter, R-FX1; the fence strip, R-FX8), so a
+    # change in THAT code left the hash still — an app that took the new body
+    # kept the old satellites and YAML previews because `GraphDiff` saw no
+    # change. Folding them in moves every such node exactly once.
     # Runs after hub injection (so `hub_id` is known) and before facet nodes are
     # built (they fold the parent's hash in, so they follow their subject).
     for node in nodes:
@@ -302,6 +307,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
             node.content_hash = synthetic_hash(
                 node.content_hash, node.degree, node.has_pending, node.hub_id,
                 node.has_logo, node.decay_class.value,
+                "\x1e".join(node.contexts), node.summary,
             )
 
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).

@@ -680,8 +680,8 @@ nowhere else. While a file hovers, the worm is expectant toward it and eager ove
 dashed chrome outline, and the window's veil steps aside (`nearerDrop`); it gulps when the router
 takes the drop and shakes when it does not, and the sentence tells the router's own phase in words
 with no number — the panel has the counts. A sleeping worm takes the drop and stays asleep; a stale
-page sends nothing. **Meadow (Z10).** The sentence is Instrument Serif 30 over a New York italic
-tail, Consolidate is the page's one `PrimaryActionButton`, `SleepMotion` forwards its shared names
+page sends nothing. **Meadow (Z10).** The sentence is the display face (SF Pro Display semibold 30,
+`displayTracking`) over an SF italic tail (F1 R-FX13), Consolidate is the page's one `PrimaryActionButton`, `SleepMotion` forwards its shared names
 to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO ruling 10). The
 pile is compressed to its column at every zoom and queue size — at most eight spines, the order and
 every count kept, never cut (`fitPile`) — and the title is `PageTitle`, the view `PageHeader` draws.
@@ -800,7 +800,9 @@ connectors registry rather than hardcoding a literal per adapter.
 live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET /inbox` ETags over
 `inbox`+`entities`+`episodes`, and `VersionVector.swift` maps `entities` and `episodes` onto
 `.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
-(`graph.NODE_SHAPE`), bumped when a node gains a field a client must see.
+(`graph.NODE_SHAPE`), bumped when a node gains a field a client must see or the body changes for
+the same files (F1's context filter and fence strip); an entity node's hash also folds its derived
+`contexts` and `summary`, so `GraphDiff` re-pushes a node whose derivation changed.
 
 **Endpoint traps worth knowing before you touch them:**
 
