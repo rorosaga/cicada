@@ -46,11 +46,14 @@ rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conver
 Backend **2287 passed** on the branch. The palette (design §6 S3–S6) starts after the Meadow foundation
 (M1) merges; MCP recall adopted the G136 helpers with G140 Q-R1 (Track Q).
 
-**Round 3, Track Q — memory quality from the Instinct comparison (2026-09-23, `feat/memory-quality`, G140).**
-Shipped so far: recall reads aliases, words and claims (the G136 hand-off) and shows bounded dated history;
-`cicada_get_perspective(history=true)`; `cicada_timeline(since)` and `cicada_retract_claim` are new; the dead
-`include_superseded` on the vector claims index is gone. Planned on the row, not shipped: the Standing/Current
-primer, stated-end expiry and the video watch record. P9 (the rubric eval) is open in G140.
+**Round 3, Track Q — memory quality from the Instinct comparison + the video watch record (2026-09-23,
+`feat/memory-quality`, G140).** Recall reads aliases, words and claims (the G136 hand-off) and shows bounded
+dated history; `cicada_timeline`, `cicada_retract_claim` and `cicada_record_watch` are new; stated ends
+(`expected_end`, `due`) close on Sleep's tail in a `cicada` `Expiry` commit; the primer is Standing/Current
+with the person, their timezone and How to work with me (contract v3); the video chain's four defects are
+fixed and `media` is the fifth evidence kind. Backend **2869 passed** on the branch (2714 on its base). P9
+(the rubric eval) is open in G140. Hand-offs: Track P renders `media` spans and `t`; Track O's skills
+manifest names `cicada_record_watch`; the Local-sources scrub wraps the two new episode writers.
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.

@@ -186,7 +186,8 @@ answer.
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
-refresh, the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
+refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit), the
+connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
 enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s own commit so the poll's
 `git add -A` sweeps only its own files.
 
@@ -275,11 +276,22 @@ A predicate the vocabulary marks multi-valued (`predicates.cardinality`) never o
 document's *evidence text* (the body as `markdown_parser.parse` returns it, with the ```claims fence
 stripped for an entity page, so writing a claim never stales its own span); `hash` is
 `sha256[:12]` of that text, and a mismatch reads as `stale` rather than mis-highlighting. `kind` is
-`user` | `assistant` | `page` | `reasoning` (the contributor's own inference: `start == end == -1`,
-never a faked span). One module, `api/services/evidence.py`, does the work for every writer: locate
+`user` | `assistant` | `page` | `reasoning` | `media` (the contributor's own inference:
+`start == end == -1`, never a faked span). `media` is what a video said — a watch record's
+`video [m:ss]:` line (G140); its position is derived at read, never stored. One module,
+`api/services/evidence.py`, does the work for every writer: locate
 is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an unlocatable quote
 becomes `reasoning` and **the claim is still written — provenance never blocks memory**. Legacy
 claims carry no `evidence` and `to_dict` omits the empty key; there is no backfill.
+
+**Stated ends (G140).** A claim may carry `expected_end` — the date the fact itself says it stops
+being true — and a G17 `due` claim's ISO-date object is its own. Never a future `valid_to`, which
+every reader takes to mean *closed*. Sleep's engine-free tail closes such a claim the day after its
+end (`claim_expiry`), in its own `Expiry <date>` commit (`Cicada-Author: cicada`, trigger
+`sleep/expiry`); a failed commit restores the pages rather than leaving them for the next
+`git add -A` writer. An agent withdraws a claim IT wrote with `cicada_retract_claim`: the claim
+closes and a born-closed `retracts` record keeps the reason and any cited words; a human or Sleep
+claim is never an agent's to withdraw.
 
 **Reading provenance back (G118 slice 2, server half).** Three engine-free, bank-only reads, all
 built in `api/services/provenance.py` and fetched on demand — none is a Store domain, so each ETag
@@ -333,7 +345,12 @@ every day and made every idle night commit.
 
 **The handshake** (`api/services/handshake.py`) turns `_state.md` + a fixed contract into ≤ 1,800
 tokens of primer: what Cicada is, a per-harness prelude (the contract never varies), the contract
-itself, the now-view, and capability notes. Delivered three ways — the MCP `initialize` result's
+itself, the now-view, and capability notes. The now-view is **Standing** — the person's page and
+one-liner (through G117's resolver), their timezone (per request, never in `_state.md`, part of the
+cache key), *How to work with me* (standing `skill` pages by confidence alone), long-standing
+durable/evergreen pages — then **Current** — projects, pages in focus in the last 14 days, people,
+recent conversations (G140, schema v2). A test holds R12 for every argument either primer names, for
+every remote scope set. Delivered three ways — the MCP `initialize` result's
 `instructions`, the `cicada_handshake` tool, and `GET /handshake`. **R12: a primer naming an
 argument the schema rejects is a bug** — every argument it names must exist in the tool schema.
 `SKILL.md` points at the generated text rather than restating the contract — one prose source.
@@ -399,7 +416,8 @@ Cicada-Session: <id>
 ```
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
-`sleep/state`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`,
+`sleep/state`, `sleep/expiry`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
+`user/companion_app`,
 `mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135).
 
 **Three trailer families, all inert to entity-line parsing — extend them, don't break them:**
@@ -409,7 +427,7 @@ Cicada-Session: <id>
   arrived through MCP, where the model is not disclosed (G135; G49 keeps the model reserved), the
   literal **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits,
   and **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
-  migrations, the split-out decay commit, the `State snapshot` commit). Built by
+  migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` commit). Built by
   `git_service.build_commit_message(...)`, parsed by `_parse_authors`. Powers `GET /contributors`.
 - **`Cicada-Engine:`** — exactly one per main commit (`claude-cli|ollama|litellm`), **omitted
   entirely rather than guessed** when no LLM ran. Read back via git's own
@@ -442,6 +460,16 @@ The interface between any LLM and the memory system. On `initialize` the server 
 handshake as `instructions`. On query: check `memory/inbox/` for relevant pending items → search the
 vector index → search the markdown graph → follow wikilinks for relational depth → progressive
 disclosure (cluster pages → entity pages → episodic sources).
+
+**Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
+FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
+subject — so an alias or a relationship label reaches its page. The top three pages carry a bounded
+"Changed recently" block (claims closed in the last 30 days, ≤ 5 lines);
+`cicada_get_perspective(history=true)` lists every earlier claim. **`cicada_timeline(since)`**
+answers "what changed" from the commit manifests on demand — ids and counts only, nothing stored,
+`read` scope remotely. **`cicada_record_watch`** records what an agent's own tools saw in a saved
+video — a summary and ≤ 12 timestamped quotes as `media` spans; Cicada never downloads or watches a
+video, and never keeps a transcript.
 
 **Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
 clarification naturally in the flow when the conversation touches its entity, and offer related
