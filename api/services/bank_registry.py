@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from loguru import logger
 
 from api.services import predicates
 from api.services.id_utils import sanitize_id
@@ -68,7 +69,14 @@ DERIVED_ARTIFACTS = (
     "vector_index.db",
     "vector_index.db-wal",
     "vector_index.db-shm",
+    # G136: the FTS5 lexical index (`search_index.py`) — same rule, same
+    # directory, same reason.
+    "search_index.db",
+    "search_index.db-wal",
+    "search_index.db-shm",
 )
+
+_EXCLUDE_HEADER = "# Cicada: derived, rebuildable artifacts - never versioned (G99, G136)"
 
 _BANK_GITIGNORE = "\n".join(
     (
@@ -77,6 +85,69 @@ _BANK_GITIGNORE = "\n".join(
         "",
     )
 )
+
+
+def _git_dir(path: Path) -> Path | None:
+    """The directory git reads this bank's ``info/exclude`` from, or None.
+
+    Usually ``<bank>/.git``. A bank checked out as a git worktree or a
+    submodule has a ``.git`` FILE (``gitdir: <path>``) instead, and a
+    worktree shares ``info/exclude`` through its common dir
+    (``<gitdir>/commondir``). Missing that would leave the index unprotected
+    in exactly the layouts nobody tests (G136 R2; portability).
+    """
+    dot = Path(path) / ".git"
+    if dot.is_dir():
+        return dot
+    try:
+        head = dot.read_text(encoding="utf-8").strip() if dot.is_file() else ""
+        if not head.startswith("gitdir:"):
+            return None
+        git_dir = (dot.parent / head[len("gitdir:"):].strip()).resolve()
+        common = git_dir / "commondir"
+        if common.is_file():
+            git_dir = (git_dir / common.read_text(encoding="utf-8").strip()).resolve()
+    except OSError:
+        return None
+    return git_dir if git_dir.is_dir() else None
+
+
+def ensure_derived_excluded(path: Path) -> bool:
+    """Make git ignore every derived artifact in this bank, via
+    ``.git/info/exclude``. Returns True when it had to add a line.
+
+    Why the exclude file and not ``.gitignore`` (G136 R2): the append
+    branch in :func:`scaffold_bank` only fires when ``vector_index.db`` is
+    missing from ``.gitignore``, so an existing bank would never learn a NEW
+    derived name — and teaching it through ``.gitignore`` means dirtying a
+    tracked file that the next ``git add -A`` writer sweeps into its own
+    commit under the wrong author (the G85-class smear), or that trips the
+    Sleep tail's clean-tree guard. ``.git/info/exclude`` is never tracked,
+    never dirties the tree, and ``git add -A`` / ``git status`` honour it.
+    New banks still get every name in ``.gitignore`` (``_BANK_GITIGNORE``) so
+    the rule travels with a copied bank; this covers the ones that exist.
+
+    Idempotent, cheap (one small read), never raises; a bank with no git
+    directory has nothing to protect.
+    """
+    git_dir = _git_dir(path)
+    if git_dir is None:
+        return False
+    exclude = git_dir / "info" / "exclude"
+    try:
+        text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+        have = {line.strip() for line in text.splitlines()}
+        missing = [name for name in DERIVED_ARTIFACTS if name not in have]
+        if not missing:
+            return False
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        lead = "" if not text or text.endswith("\n") else "\n"
+        with exclude.open("a", encoding="utf-8") as fh:
+            fh.write(lead + "\n".join([_EXCLUDE_HEADER, *missing]) + "\n")
+        return True
+    except OSError as exc:
+        logger.warning(f"bank_registry: could not update .git/info/exclude ({exc})")
+        return False
 
 
 # --- Resolution (the load-bearing path) ------------------------------------
@@ -245,6 +316,10 @@ def scaffold_bank(path: Path, *, git_init: bool = True) -> None:
             # git absent / failing must not block bank creation; provenance
             # features simply degrade.
             pass
+
+    # G136: every derived name is excluded even in a bank whose .gitignore
+    # predates it (see ensure_derived_excluded for why not .gitignore).
+    ensure_derived_excluded(path)
 
 
 # --- Counts ----------------------------------------------------------------
