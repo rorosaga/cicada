@@ -1,4 +1,3 @@
-import hashlib
 import json
 import re
 from datetime import datetime
@@ -10,7 +9,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import ConversationSummary, ConversationUploadResponse, ResumeDescriptor
-from api.services import episode_ids, markdown_parser, session_stats, sync_service
+from api.services import episode_ids, episode_staging, session_stats, sync_service
 
 router = APIRouter()
 
@@ -750,263 +749,34 @@ def _extract_date(timestamp: str | None) -> str | None:
     return timestamp[:10]
 
 
-# --- Staging ---
-
-
-# G118 slice 2 / R-PB4 — per-message times, kept BESIDE the body.
-# The parsers have always read each message's own time (`created_at`,
-# `create_time`) and staging threw it away, so a span could say WHERE in a
-# thread a belief came from but never WHEN. The body cannot carry it:
-# `content_hash` is computed over the exact `role: text` lines, and a new body
-# shape would "update" every already-imported thread on the next re-import and
-# re-queue the whole corpus for Sleep (paid). So the times ride in frontmatter
-# as `turns: [{offset, ts, speaker}]` — the key and shape the Local-sources
-# track writes too — outside the hash by construction.
+# --- Staging (G20) — the service owns it now (R-F1 seam) ---------------------
 #
-# Capped, head-stable, because frontmatter is parsed on every cold
-# `bank_index` scan: measured 2026-09-23 (CPython 3.12, PyYAML's pure-Python
-# SafeLoader) a sidecar costs ~2.9 ms at 50 entries, ~11.5 ms at 200 and
-# ~28 ms at 500 per parse, against ~0.14 ms for the same frontmatter without
-# it. Turns past the cap carry no time; the Reader shows a time only when one
-# is stored and never infers one.
-MAX_TURN_STAMPS = 500
+# These four names stay because `api/routers/banks.py:28,232` and
+# `api/tests/test_conversations.py` call them; each is a thin wrapper over
+# `api.services.episode_staging`, so the chat importers stage exactly as before
+# (and now scrub). Each message's own time rides beside the body as the G118
+# slice-2 `turns: [{offset, ts, speaker}]` sidecar (R-PB4) — written by the
+# stager now, outside `content_hash`; `episode_staging.MAX_TURN_STAMPS` is the
+# cap that used to live here.
 
 
-def _message_line(msg: dict) -> str:
-    """One body line — the ONLY place the importer spells its `role: text`
-    shape, so the hashed body and `_turn_stamps`' offsets cannot disagree."""
-    return f"{msg['role']}: {msg['text']}"
-
-
-def _turn_stamps(messages: list[dict], body: str) -> list[dict]:
-    """``[{offset, ts, speaker}]`` for ``body``, or ``[]`` (R-PB4).
-
-    ``offset`` is the message's ``role:`` line start in the evidence text —
-    ``markdown_parser.parse`` strips the body, and one built from stripped
-    message texts has nothing to strip — so it is a turn start
-    ``evidence.turns`` finds. ``speaker`` is the role that line is marked
-    with; ``ts`` the message's own time in the one aware-UTC shape. A message
-    without a time gets no entry (it would only repeat the marker). Returns
-    ``[]`` when ``body`` is not exactly these messages' own rendering: the
-    offsets would vouch for text they do not index.
-    """
-    lines = [_message_line(msg) for msg in messages]
-    if "\n".join(lines) != body:
-        return []
-    out: list[dict] = []
-    offset = 0
-    for msg, line in zip(messages, lines):
-        ts = _normalise_import_timestamp(msg.get("timestamp"))
-        if ts and len(out) < MAX_TURN_STAMPS:
-            out.append({"offset": offset, "ts": ts, "speaker": str(msg["role"])})
-        offset += len(line) + 1
-    return out
-
-
-def _stage_episodes(
-    episodes: list[dict], episodes_dir: Path
-) -> tuple[int, int, int]:
-    """Stage episode files, delta-aware by stable source identity (G20).
-
-    Returns ``(created, updated, skipped)``:
-    - ``created``  — new episode files written (unseen source_id, or a no-id
-      format whose content hash wasn't already on disk).
-    - ``updated``  — existing episodes rewritten IN PLACE because the same
-      ``source_id`` was re-exported with changed content (a grown/edited
-      thread). Same episode id + filename; body, ``content_hash``,
-      ``source_updated_at`` refreshed and ``processed`` flipped back to
-      ``False`` so the next Sleep cycle re-consolidates only it.
-    - ``skipped``  — unchanged (same source_id + same content, or a no-id
-      episode whose content hash already exists).
-
-    Episodes WITHOUT a ``source_id`` keep the pre-G20 content-hash behaviour
-    exactly (create or skip, never update).
-    """
-    episodes_dir.mkdir(parents=True, exist_ok=True)
-
-    # Single pre-scan of the episodes dir:
-    #  - source_index: source_id -> {path, content_hash, source_updated_at}
-    #  - existing_hashes: all known content hashes (no-id fallback dedup)
-    #  - date_counts: per-date HIGHEST existing suffix, so each write is an O(1)
-    #    dict bump instead of a per-file re-glob. Seeded from the max (G114 R1),
-    #    never from a file count: a count collides — and `markdown_parser.write`
-    #    silently overwrites — the moment a same-day episode was deleted or the
-    #    sequence has a gap (a lone `_003` on disk made the old count mint
-    #    `_002`, then `_003` on the very next write, clobbering the original).
-    source_index: dict[str, dict] = {}
-    existing_hashes: set[str] = set()
-    date_counts: dict[str, int] = episode_ids.max_suffix_by_date(episodes_dir)
-    for filepath in episodes_dir.glob("*.md"):
-        parsed = markdown_parser.parse(filepath)
-        fm = parsed.frontmatter
-        h = fm.get("content_hash")
-        if h:
-            existing_hashes.add(h)
-        sid = fm.get("source_id")
-        if sid:
-            source_index[sid] = {
-                "path": filepath,
-                "content_hash": h,
-                "source_updated_at": fm.get("source_updated_at"),
-            }
-
-    created = 0
-    updated = 0
-    skipped = 0
-
-    for episode in episodes:
-        # Build content string for hashing
-        content_str = "\n".join(_message_line(msg) for msg in episode.get("messages", []))
-        content_hash = hashlib.sha256(content_str.encode()).hexdigest()[:12]
-
-        source_id = episode.get("source_id")
-
-        # Truthy check (not ``is not None``) mirrors the pre-scan's ``if sid:``
-        # so an empty-string id falls through to content-hash dedup instead of
-        # forking a fresh file on every re-import.
-        if source_id:
-            existing = source_index.get(source_id)
-            if existing is None:
-                # Brand-new thread -> CREATE.
-                path = _write_new_episode(
-                    episode, episodes_dir, content_str, content_hash, date_counts
-                )
-                existing_hashes.add(content_hash)
-                # Track so a same-id repeat later in this batch updates in place
-                # rather than forking a second file.
-                source_index[source_id] = {
-                    "path": path,
-                    "content_hash": content_hash,
-                    "source_updated_at": episode.get("source_updated_at"),
-                }
-                created += 1
-                continue
-
-            if existing.get("content_hash") == content_hash:
-                # Same thread, unchanged content -> SKIP.
-                skipped += 1
-                continue
-
-            # Same thread, changed content -> UPDATE IN PLACE.
-            _update_episode_in_place(
-                existing["path"], episode, content_str, content_hash
-            )
-            existing_hashes.add(content_hash)
-            existing["content_hash"] = content_hash
-            existing["source_updated_at"] = episode.get("source_updated_at")
-            updated += 1
-            continue
-
-        # No stable source id -> pre-G20 content-hash dedup (create or skip).
-        if content_hash in existing_hashes:
-            skipped += 1
-            continue
-        _write_new_episode(
-            episode, episodes_dir, content_str, content_hash, date_counts
-        )
-        existing_hashes.add(content_hash)
-        created += 1
-
-    return created, updated, skipped
+def _stage_episodes(episodes: list[dict], episodes_dir: Path) -> tuple[int, int, int]:
+    drafts = [episode_staging.draft_from_export(e) for e in episodes]
+    return episode_staging.stage(drafts, episodes_dir, bank=episodes_dir.parent.name).as_tuple()
 
 
 def _normalise_import_timestamp(ts) -> str | None:
-    """``None`` stays ``None``; an aware ISO string becomes the R2 ``+00:00``
-    shape; anything else (naive, unparseable) is returned as ``str(ts)``."""
-    if ts is None:
-        return None
-    text = str(ts)
-    try:
-        dt = datetime.fromisoformat(text)
-    except ValueError:
-        return text
-    if dt.tzinfo is None:
-        return text
-    return episode_ids.to_utc_iso(dt)
+    return episode_staging.normalise_timestamp(ts)
 
 
-def _write_new_episode(
-    episode: dict,
-    episodes_dir: Path,
-    content_str: str,
-    content_hash: str,
-    date_counts: dict[str, int],
-) -> Path:
-    """Write a fresh episode file with a chronological id. Returns its path.
-
-    ``date_counts`` holds the highest suffix already minted per date (seeded by
-    ``_stage_episodes`` from ``episode_ids.max_suffix_by_date``); bumping it is
-    the same max+1 rule as ``episode_ids.next_episode_id`` (G114 R1), kept as a
-    dict so a thousand-episode export doesn't re-glob the directory per write.
-    """
-    # Use the episode's original date for the ID, preserving chronological order
-    ep_date = episode.get("original_date") or datetime.now().strftime("%Y-%m-%d")
-    date_counts[ep_date] = date_counts.get(ep_date, 0) + 1
-    next_num = date_counts[ep_date]
-    episode_id = f"ep_{ep_date}_{next_num:03d}"
-
-    # Use the precise timestamp from the conversation, rendered in the one
-    # R2 shape (aware UTC, `+00:00`) when it carries a zone — a Claude export's
-    # own `...Z` stamp is the same instant, and a bank should not grow a third
-    # spelling of it. A naive string (no zone) is kept verbatim rather than
-    # guessed at; nothing known at all -> now, never `None`.
-    ts = _normalise_import_timestamp(episode.get("timestamp"))
-    if ts is None:
-        ts = episode_ids.utc_now_iso()
-
-    frontmatter = {
-        "id": episode_id,
-        "timestamp": ts,
-        "source": episode.get("source", "unknown"),
-        "title": episode.get("title", "Untitled"),
-        "processed": False,
-        "content_hash": content_hash,
-    }
-    # Carry the import provenance tag (e.g. claude-export / gemini-export /
-    # chatgpt-export) when the parser stamped one. Absent for live capture
-    # and the legacy upload path, so frontmatter stays unchanged there.
-    if episode.get("origin"):
-        frontmatter["origin"] = episode["origin"]
-    # G20: stable per-thread identity, written ONLY when the format provides it
-    # so existing-format frontmatter is unchanged. Inert to all other parsing.
-    if episode.get("source_id") is not None:
-        frontmatter["source_id"] = episode["source_id"]
-        frontmatter["source_updated_at"] = episode.get("source_updated_at")
-
-    # G118 slice 2 (R-PB4): each message's time beside the body — outside
-    # `content_hash`, and the LAST key so the thread's identity reads first.
-    turns = _turn_stamps(episode.get("messages", []), content_str)
-    if turns:
-        frontmatter["turns"] = turns
-
-    path = episodes_dir / f"{episode_id}.md"
-    markdown_parser.write(path, frontmatter, content_str)
-    return path
+def _write_new_episode(episode: dict, episodes_dir: Path, content_str: str, content_hash: str,
+                       date_counts: dict[str, int]) -> Path:
+    draft = episode_staging.draft_from_export(episode)
+    return episode_staging.write_new(draft, episodes_dir, content_str, content_hash,
+                                     episode_staging.stamps_for(draft, content_str), date_counts)
 
 
-def _update_episode_in_place(
-    path: Path, episode: dict, content_str: str, content_hash: str
-) -> None:
-    """Rewrite an existing episode for a grown/edited thread (G20).
-
-    Keeps the SAME episode id + filename. Preserves the original
-    id/timestamp/source/origin frontmatter, refreshes the title, overwrites the
-    body, updates content_hash + source_updated_at, and flips ``processed`` back
-    to ``False`` so the next Sleep cycle re-consolidates only this episode.
-    """
-    fm = dict(markdown_parser.parse(path).frontmatter)
-    # Preserve id + original timestamp + source; refresh the rest.
-    fm["title"] = episode.get("title", fm.get("title", "Untitled"))
-    fm["content_hash"] = content_hash
-    fm["source_updated_at"] = episode.get("source_updated_at")
-    fm["source_id"] = episode.get("source_id")
-    fm["processed"] = False
-    if episode.get("origin"):
-        fm["origin"] = episode["origin"]
-    # G118 slice 2 (R-PB4): the grown thread's times replace the old ones; a
-    # re-export that lost them drops the key rather than keeping stale offsets.
-    turns = _turn_stamps(episode.get("messages", []), content_str)
-    fm.pop("turns", None)
-    if turns:
-        fm["turns"] = turns
-    markdown_parser.write(path, fm, content_str)
+def _update_episode_in_place(path: Path, episode: dict, content_str: str, content_hash: str) -> None:
+    draft = episode_staging.draft_from_export(episode)
+    episode_staging.update_in_place(path, draft, content_str, content_hash,
+                                    episode_staging.stamps_for(draft, content_str))

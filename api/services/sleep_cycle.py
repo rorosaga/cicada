@@ -475,6 +475,59 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
         logger.warning(f"Link backfill failed: {type(e).__name__}: {e}")
 
 
+async def _resolve_papers_safely(memory_path: Path) -> None:
+    """G133: finish the paper parses a running cycle deferred (R-LS17), then fetch
+    paper details from the arXiv and Crossref APIs (R-LS18).
+
+    Same contract as its neighbours: bounded (``TAIL_ARXIV_IDS`` /
+    ``TAIL_CROSSREF_DOIS`` per cycle), never fatal, and in the clean-tree-guarded
+    branch — both halves write entity pages, and on a half-written cycle those
+    would ride the next ``git add -A``. The deterministic half runs regardless of
+    the network gate; the fetch is the "unattended background call"
+    ``CICADA_ALLOW_CONNECTOR_FETCH`` exists to gate, and a gated skip is recorded
+    (``record_skip``) so it never reads as "nothing to fetch". No LLM, so no
+    engine is resolved (TODO.md ruling 4 is untouched)."""
+    try:
+        from api.services import folder_source, paper_metadata, papers, sync_state
+        from api.services.connectors.base import network_allowed
+
+        deferred = await asyncio.to_thread(papers.reconcile_pending, memory_path)
+        if deferred["folders"]:
+            await folder_source.commit_paths_for(memory_path, deferred["paths"], subject="Folder papers",
+                                                 trigger="folder/papers", author="cicada")
+        if not await asyncio.to_thread(paper_metadata.has_pending, memory_path):
+            return
+        if not network_allowed():
+            sync_state.record_skip(memory_path, "papers", "network fetch disabled")
+            logger.info("Paper details skipped: CICADA_ALLOW_CONNECTOR_FETCH is off")
+            return
+        report = await paper_metadata.run_locked(
+            memory_path, max_arxiv=paper_metadata.TAIL_ARXIV_IDS, max_crossref=paper_metadata.TAIL_CROSSREF_DOIS)
+        if report:
+            logger.info(f"Paper details: {report['resolved']} resolved, {report['failed']} not found, "
+                        f"{report['remaining']} remaining")
+    except Exception as e:
+        logger.warning(f"Paper details failed: {type(e).__name__}: {e}")
+
+
+async def _replay_wispr_todos_safely(memory_path: Path) -> None:
+    """G134: write the Wispr Flow to-do claims a sync deferred because this cycle
+    was running (L final review, finding 5 — the owner's page is Stage 5's to
+    rewrite). Deterministic, no LLM; its commit is scoped to what it wrote, in
+    the clean-tree-guarded branch for the same reason as the paper step. The
+    claims are Wispr Flow's, not the cycle model's, so the author is
+    ``cicada``. Never fatal."""
+    try:
+        from api.services import folder_source, wispr_flow
+
+        report = await asyncio.to_thread(wispr_flow.replay_pending_todos, memory_path)
+        if report["paths"]:
+            await folder_source.commit_paths_for(memory_path, report["paths"], subject="Wispr Flow to-dos",
+                                                 trigger="wispr-flow/todos", author="cicada")
+    except Exception as e:
+        logger.warning(f"Wispr Flow to-dos failed: {type(e).__name__}: {e}")
+
+
 async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> None:
     """G60 §2.3 on an IDLE cycle: keep open questions honest during quiet weeks.
 
@@ -733,6 +786,11 @@ async def _run_engine_independent_tail(
     backfill's lazy engine resolution (R10): a scheduled cycle must resolve
     byok without ever probing the plan — TODO.md ruling 4.
 
+    G133: ``_resolve_papers_safely`` shares this branch — it writes paper pages
+    (scoped commits), and the fetch half is gated by
+    ``CICADA_ALLOW_CONNECTOR_FETCH``. G134's ``_replay_wispr_todos_safely``
+    does too: it writes the owner's page.
+
     G53: ``_refresh_state_safely`` runs FIRST and unconditionally — it
     commits only ``_state.md`` via ``commit_paths``, so it is safe on a dirty
     tree, and running it before the polls means their ``git add -A`` can
@@ -752,9 +810,11 @@ async def _run_engine_independent_tail(
         await _poll_connectors_safely(memory_path)
         await _poll_feeds_and_calendars_safely(memory_path)
         await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
+        await _resolve_papers_safely(memory_path)
+        await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(
-            "connector, feed/calendar and link-backfill steps skipped: this cycle "
+            "connector, feed/calendar, link-backfill and paper details steps skipped: this cycle "
             "wrote entity/inbox changes but never committed them, and the polls' "
             "own `git add -A` would absorb those uncommitted writes into a "
             "media/feed/calendar commit"
@@ -1413,6 +1473,8 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
             # `Cicada-Session:` trailers.
             "session_id": str(fm.get("session_id") or "") or None,
             "source_id": str(fm.get("source_id") or "") or None,
+            # R-F2 / R-LS7: whose words a folder file holds, for Stage-1 evidence.
+            "evidence_kind": str(fm.get("evidence_kind") or "") or None,
         })
     # Order by INSTANT, not by string (G114 R2): a bank holds legacy
     # naive-local stamps beside `Z` and `+00:00` UTC ones, and a lexical sort

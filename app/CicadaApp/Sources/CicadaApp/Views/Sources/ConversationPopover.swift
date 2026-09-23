@@ -12,6 +12,14 @@ import SwiftUI
 /// refinement, not a missing capability.
 struct ConversationPopover: View {
     let sessionIds: [String]
+    /// G118 slice 2 (A10) — conversation id → an episode the Reader can open.
+    /// Only a caller that holds the entity's `/provenance` can fill it (the
+    /// conversation payload carries no episode id, plan R-PU5); an id missing
+    /// here simply has no "Open conversation", as before.
+    var openEpisode: [String: String] = [:]
+
+    @Environment(ProvenanceRouter.self) private var router: ProvenanceRouter?
+    @Environment(\.dismiss) private var dismiss
 
     @State private var viewModel = ConversationsViewModel()
     @State private var loadedOnce = false
@@ -44,6 +52,19 @@ struct ConversationPopover: View {
                         onResume: { Task { await act(await viewModel.resume(conversation.id)) } },
                         onCopy: { Task { await act(await viewModel.copyCommand(for: conversation.id)) } }
                     )
+                    if let episode = openEpisode[conversation.id], let router {
+                        Button {
+                            dismiss()
+                            router.open(ReaderTarget(episode: episode, knownTitle: conversation.title,
+                                                     knownHarness: conversation.harness))
+                        } label: {
+                            Label(Copy.Provenance.openConversation, systemImage: "text.book.closed")
+                                .labelStyle(.titleAndIcon)
+                        }
+                        .buttonStyle(.cicadaPlain)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.accent)
+                    }
                 }
             }
         }
@@ -79,6 +100,7 @@ struct ConversationPopover: View {
 /// the commit, so every pre-G48 row looks exactly as it did.
 struct FromConversationButton: View {
     let sessionIds: [String]
+    var openEpisode: [String: String] = [:]
 
     @State private var isPresented = false
 
@@ -99,7 +121,7 @@ struct FromConversationButton: View {
             .help("Show the conversation that wrote this, and reopen it")
             .accessibilityLabel("Show the conversation that wrote this")
             .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-                ConversationPopover(sessionIds: sessionIds)
+                ConversationPopover(sessionIds: sessionIds, openEpisode: openEpisode)
             }
         }
     }

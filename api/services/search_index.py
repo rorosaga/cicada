@@ -421,6 +421,9 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
         ),
         "timestamp": str(fm.get("timestamp") or ""),
         "hash": evidence.body_hash(body),
+        # R-LS7: a folder file's declared authorship, so a hit's kind is the
+        # same `evidence.kind_for` answer a stored span carries.
+        "evidence_kind": str(fm.get("evidence_kind") or "").strip(),
     }
     doc_id = _insert_doc(conn, doc_key, "episode", ref, f, meta)
     conn.execute(

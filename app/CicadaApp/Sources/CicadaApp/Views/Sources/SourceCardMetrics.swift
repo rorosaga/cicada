@@ -18,8 +18,9 @@ enum SourceCardMetrics {
     static var markSize: CGFloat { CicadaTheme.scaled(28) }
     /// The sparkline's window, in days, and the dot row's, in weeks. Handed to
     /// Track A's `sparklinePoints(activity:days:today:)` and
-    /// `weekDots(activity:weeks:today:)` unchanged (R-S8 — one implementation
-    /// of the activity window, no alias and no second name).
+    /// `weekDots(activity:weeks:today:)` (`ActivitySeries.swift`) unchanged
+    /// (R-S8 — one implementation of the activity window, no alias and no
+    /// second name).
     static let sparkDays = 14
     static let weeks = 4
     /// The detail page's window (R-S7). Thirty days because that is exactly what

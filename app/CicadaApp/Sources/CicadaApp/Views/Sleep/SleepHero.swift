@@ -192,14 +192,16 @@ struct HeroTile: Equatable, Identifiable {
 /// Present tense or measured, never a forecast (R-A6, and G107's estimate
 /// deferral is binding): what is in memory right now, how many sources feed
 /// it right now, and how long the last cycle actually took according to the
-/// `sleep_run` telemetry join — `—` when no row joined.
+/// `sleep_run` telemetry join — `—` when no row joined. "The last cycle" is
+/// the newest `kind == "sleep"` commit (Z-P3, `lastCycleEntry`): neither the
+/// G85 `(decay)` commit nor an inbox-resolution commit is a cycle.
 ///
 /// P6 — every input is a domain the `Store` already holds: the active bank's
 /// `entityCount` from `GET /banks`, the `sourcesOverview` rows with captures,
-/// and `sleepVM.history`. No new fetch, no new endpoint, and specifically not
-/// `/healthz` (auth-free, un-ETagged, not a Store domain — reading it would
-/// add a second freshness model to a page built entirely from last-known-good
-/// projections). The readout is identical; only its source moves.
+/// and `sleepVM.history` (through `SleepPageModel`). No new fetch, no new
+/// endpoint, and specifically not `/healthz` (auth-free, un-ETagged, not a
+/// Store domain — reading it would add a second freshness model to a page
+/// built entirely from last-known-good projections). The readout is identical; only its source moves.
 func heroTiles(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?) -> [HeroTile] {
     [
         HeroTile(
@@ -223,20 +225,25 @@ func heroTiles(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?) -> [H
     ]
 }
 
-// MARK: - The hero view
+// MARK: - The readout (Details › Readout)
 
-/// The readout that sits under the study room: the promoted count with its
-/// qualifier chip, the 24-block meter that always names its noun, the three
-/// measured tiles, and **the one** Consolidate/Cancel control the Sleep page
-/// keeps (R-A7, upgrading G125 R10 — the study list's footer lost its
-/// button, and `FixWaveTests` now walks all of `Views/Sleep/` to keep it
-/// that way).
+/// Details › Readout (Track Z §4.2): the meter that never renders without its
+/// noun (R-A5), the three measured tiles (R-A6), the no-baseline line, and the
+/// engine the last cycle ran on. It stays in THIS file so "Rested" is still
+/// spelled by exactly one file (`SleepNumbersLintTests`).
+///
+/// It was the hero that sat under the study room. Track Z Z2 took its other
+/// halves away: the promoted count and its qualifier chip became the room's
+/// sentence lead (`roomSentence`, which asks `heroCount`/`heroQualifier`
+/// rather than re-deriving them — parity by construction), and the one
+/// Consolidate/Cancel control became `SleepControlRow` below. Z3 moved what was
+/// left into Details, and took the no-baseline line and the engine line with
+/// it, so every number the default view no longer shows lives in one card.
 ///
 /// Every input is resolved by the caller, once per body evaluation (H1), so
-/// the hero can never disagree with the book pile or the queue card about
+/// the readout can never disagree with the book pile or the queue about
 /// which cycle's counts it is showing.
-struct SleepHeroView: View {
-    @Environment(SleepViewModel.self) private var sleepVM
+struct SleepReadoutView: View {
     @Environment(Store.self) private var store
     /// R-A13: the meter's blocks ease between two readings, and Reduce Motion
     /// has to reach that easing. It did not before Task 8 — the modifier took
@@ -249,52 +256,93 @@ struct SleepHeroView: View {
     /// The sums of `resolveOriginCounts` — the running meter's two numbers.
     let read: Int
     let total: Int
-    /// `sleepVM.queuedEpisodes.count`, passed in rather than re-derived: it
-    /// is what the Consolidate button enables on, and the page already has it.
-    let queuedCount: Int
+    /// The newest `kind == "sleep"` commit's measured duration
+    /// (`SleepPageModel.lastCycle`, Z-P3). It used to be read here as
+    /// `history.first { $0.kind != "decay" }`, which also matched an inbox
+    /// resolution commit — the person's own answer timed as "the last cycle".
+    let lastDurationMs: Int?
+    let lastEngine: String?
+    let engineDetail: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            countRow
+            Text("READOUT")
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.2)
             if let meter = heroMeter(mood: mood, debt: debt, read: read, total: total) {
                 meterView(meter)
+            } else {
+                noBaselineLine
             }
             tilesRow
-            controlRow
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: The count + its qualifier chip
-
-    private var countRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
-            if let count = heroCount(mood, debt: debt), count > 0 {
-                Text("\(count)")
-                    .font(CicadaTheme.font(size: 44, weight: .semibold, design: .rounded))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text(Copy.episodesWaiting(count))
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
+            if let engine = lastEngine {
+                engineLine(engine, detail: engineDetail)
             }
-            qualifierChip
-            Spacer(minLength: 0)
         }
-        // The bracket line survives here as the group's VoiceOver label — the
-        // numeral and the chip are two halves of one sentence, and reading
-        // them as separate elements would say "205" then "behind" (P8).
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(sleepDebtBracketText(mood, debt: debt))
+        .padding(CicadaTheme.spacingLG)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 
-    private var qualifierChip: some View {
-        Text(heroQualifier(mood, debt: debt))
-            .font(CicadaTheme.font(size: 11, weight: .semibold))
-            .foregroundStyle(sleepDebtBracketColor(mood))
-            .padding(.horizontal, CicadaTheme.spacingSM)
-            .padding(.vertical, 3)
-            .background(sleepDebtBracketColor(mood).opacity(0.12))
-            .clipShape(Capsule())
+    // MARK: No baseline
+
+    /// The one thing the meter CANNOT say: that there is no baseline at all.
+    /// Moved from `SleepView.moodDetailLine` (Track Z Z3).
+    ///
+    /// G125 v3 Task 5 (R-A8) deleted this line's running branch — the
+    /// `Text("Stage \(stage) of 5")` and the bare `ProgressView` the stage
+    /// strip replaced. The round-2 live check deleted its idle branch for the
+    /// same reason one step further on: it drew `Rested n% — volume v%, age
+    /// a%` directly under a meter already labelled `Rested n%`, so **the same
+    /// number was on screen twice** (R-A5 — one number, one place). The
+    /// volume/age split is the meter label's hover text now (`heroMeterHelp`).
+    ///
+    /// What is left is the branch the meter has no way to draw. `heroMeter`
+    /// returns `nil` when `restedPct` is nil, so without this line a bank
+    /// where Sleep has never run would show nothing at all where the meter
+    /// sits — and silence reads as "fine", which is the opposite of the truth.
+    ///
+    /// The `.sleeping` guard survives as an explicit empty branch: a baseline
+    /// is what the queue looks like BETWEEN cycles, so mid-cycle it would sit
+    /// stale next to a live readout.
+    @ViewBuilder
+    private var noBaselineLine: some View {
+        if case .sleeping = mood {
+            EmptyView()
+        } else if let debt, debt.restedPct == nil {
+            // No baseline: the queue is empty and Sleep has never run in
+            // this bank — an honest state, not a fabricated 100%.
+            Text("No baseline yet — Sleep hasn't run in this bank.")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        }
+    }
+
+    // MARK: Engine line
+
+    /// Which engine the last cycle ran on. Named, not implied — a Sleep page
+    /// that says "check API credits" while running on a subscription is the
+    /// exact confusion this replaces. Moved from `SleepView.engineLine`
+    /// (Track Z Z3); the engine now wears its real mark (Z-P26).
+    private func engineLine(_ engine: String, detail: String?) -> some View {
+        HStack(spacing: CicadaTheme.spacingXS) {
+            Text("ENGINE")
+                .font(CicadaTheme.font(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.1)
+            EngineMark(engine: engine, size: 12)
+            Text(Copy.engineLabel(engine))
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+            if let detail, !detail.isEmpty {
+                Text("· \(detail)")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(2)
+            }
+            Spacer()
+        }
     }
 
     // MARK: The meter
@@ -340,7 +388,7 @@ struct SleepHeroView: View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
             ForEach(heroTiles(entityCount: activeBankEntityCount,
                               sourceCount: feedingSourceCount,
-                              lastDurationMs: lastMeasuredCycleMs)) { tile in
+                              lastDurationMs: lastDurationMs)) { tile in
                 VStack(alignment: .leading, spacing: 1) {
                     Text(tile.value)
                         .font(CicadaTheme.font(size: 15, weight: .semibold, design: .rounded))
@@ -365,45 +413,53 @@ struct SleepHeroView: View {
         store.banks.value?.banks.first { $0.active }?.entityCount
     }
 
-    /// The same rows the Memory sources panel projects, counted once: a
-    /// source that has captured nothing is not feeding anything.
+    /// The same `sourcesOverview` rows the Sources grid draws, counted once:
+    /// a source that has captured nothing is not feeding anything.
     private var feedingSourceCount: Int? {
         store.sourcesOverview.value.map { rows in rows.filter { $0.episodes > 0 }.count }
     }
+}
 
-    /// The most recent cycle that actually consolidated something — a
-    /// `decay` commit is pure arithmetic over unmentioned entities (the G85
-    /// split) and its wall-clock says nothing about how long a cycle takes.
-    private var lastMeasuredCycleMs: Int? {
-        sleepVM.history.first { $0.kind != "decay" }?.durationMs
-    }
+// MARK: - The one control (R-A7, Track Z §4.2)
 
-    // MARK: The one Consolidate/Cancel control (R-A7)
+/// What the caption under the one control says: the engine THIS click would
+/// run on (ruling 4, at the moment of choice), or what Cancel does while a
+/// cycle runs; `nil` until the preview loads — a guessed engine is worse than
+/// silence.
+func controlCaption(isRunning: Bool, manualEngine: String?) -> String? {
+    if isRunning { return Copy.cancelCaption }
+    return manualEngine.map { Copy.runsOn(engine: $0) }
+}
 
-    private var controlRow: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                consolidateButton
-                if sleepVM.isRunning {
-                    cancelButton
+/// The page's ONE Consolidate/Cancel control (R-A7, G125 R10). While a cycle
+/// runs the one control IS Cancel — the disabled "Consolidating…" twin pill is
+/// gone (design §4.2). `FixWaveTests` pins `sleepVM.triggerManually()` to this
+/// file.
+///
+/// `consolidateEnabled` and `queuedCount` come from `SleepPageModel`, the one
+/// reading the sentence above it also drew from, so the button can never be
+/// live while the sentence says there is nothing to read.
+struct SleepControlRow: View {
+    @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(Store.self) private var store
+
+    let consolidateEnabled: Bool
+    let queuedCount: Int
+    let manualEngine: String?
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            if sleepVM.isRunning { cancelButton } else { consolidateButton }
+            if let caption = controlCaption(isRunning: sleepVM.isRunning, manualEngine: manualEngine) {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    if !sleepVM.isRunning, let engine = manualEngine { EngineMark(engine: engine) }
+                    Text(caption)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
                 }
-                Spacer(minLength: 0)
-            }
-            // The standing quota ruling, shown at the moment of choice rather
-            // than hidden: what THIS button would spend. Absent when the
-            // preview hasn't loaded — a guess would be worse than silence.
-            if let manual = sleepVM.enginePreview?.manual {
-                Text(Copy.runsOn(engine: manual.engine))
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-            if sleepVM.isRunning {
-                Text(Copy.cancelSleepExplainer)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var consolidateButton: some View {
@@ -422,25 +478,23 @@ struct SleepHeroView: View {
                 Text(sleepVM.isRunning ? Copy.consolidating : Copy.consolidateNow)
                     .font(CicadaTheme.font(size: 12, weight: .semibold))
             }
-            .foregroundStyle(isIdleAndEmpty ? CicadaTheme.textTertiary : .white)
+            .foregroundStyle(consolidateEnabled ? .white : CicadaTheme.textTertiary)
             .padding(.horizontal, CicadaTheme.spacingLG)
             .padding(.vertical, CicadaTheme.spacingSM)
-            .background(isIdleAndEmpty ? CicadaTheme.surfaceElevated : CicadaTheme.accent.opacity(0.9))
+            .background(consolidateEnabled ? CicadaTheme.accent.opacity(0.9) : CicadaTheme.surfaceElevated)
             .clipShape(Capsule())
         }
         .buttonStyle(.cicadaPlain)
-        .disabled(sleepVM.isRunning || queuedCount == 0)
+        .disabled(!consolidateEnabled)
         .help(queuedCount == 0 ? "Nothing queued right now" : "Run the Sleep cycle now")
         .accessibilityLabel(Copy.consolidateNow)
     }
 
-    private var isIdleAndEmpty: Bool { queuedCount == 0 && !sleepVM.isRunning }
-
-    /// Only shown while a cycle is running — it is the one live control the
-    /// running state offers (the trigger itself is disabled and read-only for
-    /// "Consolidating…"), which is why it moved here with the button rather
-    /// than staying in the queue card's footer. Cooperative, not instant;
-    /// `Copy.cancelSleepExplainer` says so both here and in the caption.
+    /// Only shown while a cycle is running, and then INSTEAD of Consolidate
+    /// (design §4.2): the one control is Cancel for as long as there is a
+    /// cycle to stop. Cooperative, not instant — the long
+    /// `Copy.cancelSleepExplainer` is its tooltip, and the one-line
+    /// `Copy.cancelCaption` beside it says the short form.
     private var cancelButton: some View {
         Button {
             Task { await sleepVM.cancel() }
@@ -464,5 +518,27 @@ struct SleepHeroView: View {
         .disabled(sleepVM.isCancelling)
         .help(Copy.cancelSleepExplainer)
         .accessibilityLabel(Copy.cancelSleep)
+    }
+}
+
+/// The engine a caption names, with its real mark (round-3 brief: "use logos
+/// whenever possible"; Z-P26). `claude-cli` IS Claude Code, so it borrows that
+/// origin's mark; an API key has no vendor to show.
+struct EngineMark: View {
+    let engine: String
+    var size: CGFloat = 14
+
+    var body: some View {
+        switch engine {
+        case "claude-cli":
+            OriginMark(origin: "claude-code", size: size)
+        case "ollama":
+            LogoImage(name: "ollama", size: size)
+        default:
+            Image(systemName: "key")
+                .font(CicadaTheme.font(size: size * 0.8, weight: .medium))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .frame(width: size, height: size)
+        }
     }
 }

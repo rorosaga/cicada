@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+  <link href="http://arxiv.org/api/query?id_list=2401.00001,2401.00009" rel="self" type="application/atom+xml"/>
+  <title type="html">ArXiv Query: id_list=2401.00001,2401.00009</title>
+  <id>http://arxiv.org/api/synthetic-fixture</id>
+  <updated>2026-09-23T00:00:00-04:00</updated>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <opensearch:itemsPerPage>2</opensearch:itemsPerPage>
+  <entry>
+    <id>http://arxiv.org/abs/2401.00001v2</id>
+    <updated>2024-02-01T10:00:00Z</updated>
+    <published>2024-01-02T10:00:00Z</published>
+    <title>Paper Alpha: A Synthetic
+  Study</title>
+    <summary>  We study a synthetic problem for alpha-project. The method works well.
+    </summary>
+    <author><name>Ada Example</name></author>
+    <author><name>Bob Example</name></author>
+    <arxiv:doi>10.9999/alpha.2024</arxiv:doi>
+    <arxiv:journal_ref>Journal of Examples 1 (2024)</arxiv:journal_ref>
+    <link href="http://arxiv.org/abs/2401.00001v2" rel="alternate" type="text/html"/>
+    <arxiv:primary_category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+</feed>

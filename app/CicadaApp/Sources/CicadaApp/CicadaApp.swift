@@ -34,6 +34,11 @@ struct CicadaApp: App {
     /// as `sleepEngineVM` above: nothing but `FeedView`/`ContentView`
     /// (main window) and `IntegrationsView` (Settings) observes this.
     @State private var appRouter = AppRouter()
+    /// G118 slice 2 — the Reader's navigation and its in-memory payload
+    /// cache. Main window only: Settings never opens a Reader, and neither is
+    /// a Store domain (R-PB11), so neither needs the Store.
+    @State private var provenanceRouter = ProvenanceRouter()
+    @State private var provenanceCache = ProvenanceCache()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
@@ -44,7 +49,10 @@ struct CicadaApp: App {
     /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
     /// without a button. App-side because the launchd backend has no Full Disk
     /// Access — see `BrowserWatch.swift`.
-    @State private var browserWatcher = BrowserWatcher()
+    @State private var browserWatcher: BrowserWatcher
+    /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
+    /// never opens them). Lights ride `browserWatcher` (R-LS26).
+    @State private var localSources: LocalSourceWatcher
     /// G130: the local key monitor that routes ⌘⇧= to `CicadaTheme.zoomIn()`
     /// (see `ZoomKeyRouter`). Held so `.onAppear` (which can fire again —
     /// see `enableFirstMouseAcceptance`'s own idempotence note below) never
@@ -79,6 +87,9 @@ struct CicadaApp: App {
         // independently.
         let store = Store()
         _store = State(initialValue: store)
+        let lights = BrowserWatcher()
+        _browserWatcher = State(initialValue: lights)
+        _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
         _graphVM = State(initialValue: GraphViewModel(store: store))
         _inboxVM = State(initialValue: InboxViewModel(store: store))
         _sleepVM = State(initialValue: SleepViewModel(store: store))
@@ -97,6 +108,8 @@ struct CicadaApp: App {
                 .environment(sleepVM)
                 .environment(sleepEngineVM)
                 .environment(appRouter)
+                .environment(provenanceRouter)
+                .environment(provenanceCache)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)
@@ -104,6 +117,7 @@ struct CicadaApp: App {
                 .environment(usageVM)
                 .environment(store)
                 .environment(browserWatcher)
+                .environment(localSources)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, newValue in
                     let mode = AppColorScheme(rawValue: newValue) ?? .dark
@@ -111,6 +125,11 @@ struct CicadaApp: App {
                     if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
                         syncWindowChrome(window, mode: mode)
                     }
+                }
+                // G133 / G134: folders and Wispr Flow settings are per memory, so a
+                // bank switch re-reads them and re-arms the watches.
+                .onChange(of: store.bank) { _, _ in
+                    Task { await localSources.reload() }
                 }
                 .onAppear {
                     // G130 R5: the View menu's CommandGroup below already
@@ -139,6 +158,7 @@ struct CicadaApp: App {
                     // Arms the per-browser watches and catches up on anything
                     // saved while the app was closed.
                     browserWatcher.start(store: store)
+                    localSources.start(store: store)
                     // When SleepViewModel observes a cycle finish (running ->
                     // idle, no error), refresh the graph/topics layer in
                     // place. Without this, Sleep finishes successfully but
@@ -228,6 +248,7 @@ struct CicadaApp: App {
         // without a refetch.
         Settings {
             SettingsScene()
+                .environment(localSources)
                 .environment(connectionsVM)
                 .environment(sleepVM)
                 .environment(sleepEngineVM)

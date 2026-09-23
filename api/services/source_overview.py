@@ -24,9 +24,10 @@ from dataclasses import dataclass
 from datetime import date as _date, datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import bank_index
+from api.services import bank_index, folder_source
 
-KIND_ORDER = ("harness", "browser", "social", "feed", "messaging", "import")
+# G134: meetings and dictation are their own section, VOICE & MEETINGS (R-LS25).
+KIND_ORDER = ("harness", "browser", "social", "feed", "messaging", "voice", "import")
 
 # R-A16: the Memory-sources sparkline's window. Bounded so the payload cannot
 # grow with the age of the bank, and keyed by ABSOLUTE dates so a 304'd
@@ -97,6 +98,7 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("rss", "RSS feeds", "feed", "rss", ("rss",), "rss"),
     SourceSpec("calendar", "Calendars", "feed", "calendar", ("calendar",), "calendar"),
     SourceSpec("telegram", "Telegram", "messaging", "telegram", ("telegram",), "telegram"),
+    SourceSpec("wispr-flow", "Wispr Flow", "voice", "wispr-flow", ("wispr-flow",), "wispr-flow"),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),
     SourceSpec("files", "Files & links", "import", "bookmark", ("saved-link",), "files"),
 )
@@ -158,12 +160,15 @@ def source_key(fm: dict) -> str:
     origin = str(fm.get("origin") or "").strip()
     if fm.get("session_id") or origin == "mcp":
         return "harness:" + (str(fm.get("harness") or "").strip() or UNKNOWN)
+    # G133: one card per watched folder, not one "folder" card for all of them.
+    if origin == folder_source.ORIGIN and fm.get("folder_id"):
+        return folder_source.channel_id(str(fm["folder_id"]))
     if not origin:
         return f"origin:{UNKNOWN}"
     return _ORIGIN_TO_ID.get(origin, f"origin:{origin}")
 
 
-def _new_state(key: str) -> dict:
+def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
     if key.startswith("harness:"):
         harness = key.split(":", 1)[1]
         label, kind, mark, origins, channel = (
@@ -171,6 +176,12 @@ def _new_state(key: str) -> dict:
     elif key in _BY_ID:
         spec = _BY_ID[key]
         label, kind, mark, origins, channel = spec.label, spec.kind, spec.mark, list(spec.origins), spec.channel
+        harness = None
+    elif key.startswith(folder_source.CHANNEL_PREFIX):
+        known = (labels or {})
+        label, kind, mark, origins, channel = (
+            known.get(key, "Folder (removed)"), "import", "folder", [folder_source.ORIGIN],
+            key if key in known else None)
         harness = None
     else:
         origin = key.split(":", 1)[1]
@@ -204,6 +215,8 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
     memory_path = Path(memory_path)
     states: dict[str, dict] = {}
     episode_key: dict[str, str] = {}
+    labels = {folder_source.channel_id(f["id"]): str(f.get("label") or "Folder")
+              for f in folder_source.list_folders(memory_path)}
     today = today or datetime.now(timezone.utc).date()
     window_start = (today - timedelta(days=ACTIVITY_DAYS - 1)).isoformat()
     window_end = today.isoformat()
@@ -212,7 +225,7 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         fm = f.frontmatter
         key = source_key(fm)
         episode_key[str(fm.get("id") or f.stem)] = key
-        state = states.setdefault(key, _new_state(key))
+        state = states.setdefault(key, _new_state(key, labels))
         state["episodes"] += 1
         conversation = str(fm.get("session_id") or fm.get("source_id") or "").strip()
         if conversation:
@@ -250,11 +263,12 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
                 states[key]["entities"].add(entity_id)
 
     for channel in channels:
-        spec = _BY_ID.get(channel["id"])
-        if spec is None:
+        cid = channel["id"]
+        spec = _BY_ID.get(cid)
+        if spec is None and cid not in labels:
             continue
-        state = states.setdefault(spec.id, _new_state(spec.id))
-        if spec.id == "files":
+        state = states.setdefault(cid, _new_state(cid, labels))
+        if spec is not None and spec.id == "files":
             # Items AND connected follow the set the page renders: a bank
             # holding only imported bookmarks has no Files & links evidence
             # (R2), so it gets no card rather than a connected one reading

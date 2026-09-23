@@ -15,11 +15,16 @@ struct AskCitation: Codable, Identifiable, Equatable {
     let filePath: String
     let snippet: String
     let sourceEpisodes: [String]
+    // G118 slice 2 (R-PB12): set when the retrieval hit was a claim — the
+    // claim and the spans behind it, raw as stored (freshness is `/span`'s
+    // job). Absent for an entity-only hit and against an older backend.
+    let claimId: String?
+    let evidence: [Evidence]
 
     var id: String { entityId }
 
     enum CodingKeys: String, CodingKey {
-        case entityId, entityName, filePath, snippet, sourceEpisodes
+        case entityId, entityName, filePath, snippet, sourceEpisodes, claimId, evidence
     }
 
     init(from decoder: Decoder) throws {
@@ -29,14 +34,19 @@ struct AskCitation: Codable, Identifiable, Equatable {
         filePath = try c.decodeIfPresent(String.self, forKey: .filePath) ?? ""
         snippet = try c.decodeIfPresent(String.self, forKey: .snippet) ?? ""
         sourceEpisodes = try c.decodeIfPresent([String].self, forKey: .sourceEpisodes) ?? []
+        claimId = try c.decodeIfPresent(String.self, forKey: .claimId)
+        evidence = try c.decodeIfPresent([Evidence].self, forKey: .evidence) ?? []
     }
 
-    init(entityId: String, entityName: String, filePath: String, snippet: String, sourceEpisodes: [String] = []) {
+    init(entityId: String, entityName: String, filePath: String, snippet: String, sourceEpisodes: [String] = [],
+         claimId: String? = nil, evidence: [Evidence] = []) {
         self.entityId = entityId
         self.entityName = entityName
         self.filePath = filePath
         self.snippet = snippet
         self.sourceEpisodes = sourceEpisodes
+        self.claimId = claimId
+        self.evidence = evidence
     }
 }
 

@@ -11,11 +11,16 @@ import SwiftUI
 struct SleepStage: Identifiable, Equatable {
     let id: String
     /// 1…5, in pipeline order. `SleepStatusResponse.stage` counts COMPLETED
-    /// stages, so a running cycle's active stage is `stage + 1` — see
-    /// `stageStripState`, which is the one place that translation happens.
+    /// stages, so a running cycle's active stage is `activeStage(completed:)`
+    /// — the one translation (R-Z14), read by the strip, the page mood, the
+    /// menu bar and onboarding alike.
     let number: Int
     /// The strip's word: one syllable of the pipeline, no numeral.
     let shortLabel: String
+    /// The sentence's word for this stage while it runs ("Sorting…", Track Z
+    /// L5) — stored beside `shortLabel` so the strip and the sentence read one
+    /// array (P16) instead of a second map that could drift.
+    let progressive: String
     /// The popover's sentence.
     let detail: String
     /// SF Symbol for the popover row (the strip draws a pixel icon instead —
@@ -36,19 +41,19 @@ struct SleepStage: Identifiable, Equatable {
 /// five stages `CLAUDE.md`, `sleep_cycle.py` and this popover already agree on.
 enum SleepStages {
     static let all: [SleepStage] = [
-        SleepStage(id: "stage1", number: 1, shortLabel: "Read",
+        SleepStage(id: "stage1", number: 1, shortLabel: "Read", progressive: "Reading",
                    detail: "Each episode is read once for people, projects, tools and ideas.",
                    symbol: "book"),
-        SleepStage(id: "stage2", number: 2, shortLabel: "Sort",
+        SleepStage(id: "stage2", number: 2, shortLabel: "Sort", progressive: "Sorting",
                    detail: "New mentions are matched against what you already have.",
                    symbol: "arrow.triangle.merge"),
-        SleepStage(id: "stage3", number: 3, shortLabel: "Decide",
+        SleepStage(id: "stage3", number: 3, shortLabel: "Decide", progressive: "Deciding",
                    detail: "Contradictions become questions in your Inbox; old beliefs fade.",
                    symbol: "questionmark.circle"),
-        SleepStage(id: "stage4", number: 4, shortLabel: "Notice",
+        SleepStage(id: "stage4", number: 4, shortLabel: "Notice", progressive: "Noticing",
                    detail: "Habits that recur become skills.",
                    symbol: "sparkles"),
-        SleepStage(id: "stage5", number: 5, shortLabel: "File",
+        SleepStage(id: "stage5", number: 5, shortLabel: "File", progressive: "Filing",
                    detail: "Everything is written to the graph and committed with its provenance.",
                    symbol: "checkmark.seal"),
     ]
@@ -136,7 +141,7 @@ func stageStripState(stage: Int, isRunning: Bool, cancelled: Bool, error: Bool,
         }
         if cancelled { return .skipped }
         guard isRunning else { return .pending }
-        guard index == done else { return .pending }
+        guard index == activeStage(completed: stage) - 1 else { return .pending }
         // Only Read carries a fill, and only once the cycle knows its totals.
         let isRead = index == 0
         guard isRead, total > 0 else { return .active(fill: nil) }
@@ -144,14 +149,12 @@ func stageStripState(stage: Int, isRunning: Bool, cancelled: Bool, error: Bool,
     }
 }
 
-/// Whether the strip ends with the `.happy` worm — the mark that says "and
-/// there is nothing waiting" (R-A8). It shows only when the hero has **no
-/// numeral to promote**, so the page never draws a count and a "caught up"
-/// worm at the same time; `heroCount` is the same function the hero itself
-/// asks, so the two can only agree.
-func stageStripShowsCaughtUpWorm(mood: BookwormState, debt: SleepDebtView?) -> Bool {
-    guard case .happy = mood else { return false }
-    return heroCount(mood, debt: debt) == nil
+/// R-Z6 — whether the strip is on the page at all. It is the live instrument
+/// while a cycle runs and the frozen record after a cancel or failure (P15);
+/// an idle page after a clean cycle has no news for it, and the design's
+/// default view is the room, one sentence, one button and one whisper line.
+func stageStripIsVisible(isRunning: Bool, cancelled: Bool, failed: Bool) -> Bool {
+    isRunning || cancelled || failed
 }
 
 // MARK: - The motion budget (R-A13)

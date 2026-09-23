@@ -34,7 +34,9 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from api.services import agent_commits, agentic_write, episode_ids
+from api.services import agent_commits, agentic_write, episode_ids, episode_scrub
+# One fence rule for every frontmatter reader (L final review, finding 2).
+from api.services import markdown_parser
 
 
 def _loopback_post(url: str, payload: dict, headers: dict[str, str], timeout: float = 8) -> dict:
@@ -345,17 +347,17 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:
     """Parse YAML frontmatter without requiring pyyaml. Simple key: value parsing."""
-    if not content.startswith("---"):
-        return {}, content
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    # Line-anchored fences (L final review, finding 2): a `---` inside a title
+    # must not end the frontmatter.
+    split = markdown_parser.split_frontmatter(content)
+    if split is None:
         return {}, content
 
     fm = {}
     current_key = None
     current_list = None
 
-    for line in parts[1].strip().splitlines():
+    for line in split[0].strip().splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
@@ -385,7 +387,7 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
             else:
                 fm[key] = None
 
-    return fm, parts[2].strip()
+    return fm, split[1].strip()
 
 
 SHORT_TYPES = {"deadline", "skill"}
@@ -552,13 +554,11 @@ def _parse_hub_header(content: str) -> dict:
     written before ``members:``, so reading the header up to that line yields
     the correct hub identity without parsing nested YAML.
     """
-    if not content.startswith("---"):
-        return {}
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    split = markdown_parser.split_frontmatter(content)
+    if split is None:
         return {}
     fm: dict = {}
-    for line in parts[1].strip().splitlines():
+    for line in split[0].strip().splitlines():
         stripped = line.strip()
         if stripped == "members:" or stripped.startswith("members:"):
             break
@@ -1486,6 +1486,9 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     # One rule for every writer lives in episode_ids (G114 R1).
     episode_id = episode_ids.next_episode_id(episodes_dir, today)
 
+    # R-N3 / R-LS6: an agent-saved note is scrubbed like every other writer,
+    # before the hash so the dedup key describes the stored text.
+    content = episode_scrub.scrub_body(content, writer="mcp", bank=memory_path.name)
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
 
     # Check for duplicates

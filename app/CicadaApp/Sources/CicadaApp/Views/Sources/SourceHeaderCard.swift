@@ -78,7 +78,7 @@ struct SourceHeaderCard: View {
                 // identical fix panels one screen apart is the second encoding
                 // R-S12 rules out.
                 if let watchState {
-                    BrowserStatusLight(state: watchState, error: nil, compact: true)
+                    BrowserStatusLight(state: watchState, error: nil, compact: true, channelId: source.channelId)
                 } else {
                     Circle().fill(liveness.tone.color).frame(width: 7, height: 7)
                 }

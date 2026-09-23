@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 
 from api.routers import conversations as conv
-from api.services import bank_index, evidence, markdown_parser
+from api.services import bank_index, episode_staging, evidence, markdown_parser
 
 
 def _claude(uuid: str, messages: list[tuple[str, str]], *, updated: str = "2026-02-24T13:00:00.000000Z",
@@ -129,7 +129,9 @@ def test_messages_without_times_write_no_turns_key(tmp_path):
 
 
 def test_the_sidecar_is_capped_head_stable(tmp_path, monkeypatch):
-    monkeypatch.setattr(conv, "MAX_TURN_STAMPS", 2)
+    # The cap moved with the stager (R-PB4's own hand-off: "if that track moves
+    # `_stage_episodes`, `MAX_TURN_STAMPS` moves with it").
+    monkeypatch.setattr(episode_staging, "MAX_TURN_STAMPS", 2)
     ep_dir = tmp_path / "episodes"
     conv._stage_episodes(conv.parse_anthropic_conversations(
         _claude("u1", [("human", "Q1"), ("assistant", "A1"), ("human", "Q2")])), ep_dir)

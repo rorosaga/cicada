@@ -377,7 +377,7 @@ async def extract(
                     # chunk came from, preferring the chunk window (R11). The
                     # quote is consumed here — nothing downstream sees it.
                     for rel in chunk_rels:
-                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci])
+                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"))
                     all_relationships.extend(chunk_rels)
 
                 ep_origin = episode.get("origin", "unknown")

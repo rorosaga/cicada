@@ -9,8 +9,9 @@ from __future__ import annotations
 from api.services.claims import EVIDENCE_KINDS, Claim, Evidence, parse_claims, write_claims
 
 
-def test_evidence_kinds_are_the_four_the_g118_row_names():
-    assert EVIDENCE_KINDS == ("user", "assistant", "page", "reasoning")
+def test_evidence_kinds_are_the_g118_four_plus_speaker():
+    # R-N2 / R-LS7: a meeting utterance by someone else is its own kind.
+    assert EVIDENCE_KINDS == ("user", "assistant", "page", "reasoning", "speaker")
 
 
 def test_claim_defaults_to_no_evidence_and_to_dict_omits_the_key():

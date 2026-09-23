@@ -13,6 +13,7 @@ struct ChannelSourceView: View {
 
     @Environment(Store.self) private var store
     @Environment(BrowserWatcher.self) private var watcher
+    @Environment(LocalSourceWatcher.self) private var localSources
     @Environment(InboxViewModel.self) private var inboxVM
     @State private var busy = false
     @State private var feedback: ChannelFeedback?
@@ -67,14 +68,14 @@ struct ChannelSourceView: View {
                 // channel with no watch keeps the plain connected/not line,
                 // because a light nobody updates is worse than no light.
                 if let watchState = watcher.state(for: channel.id) {
-                    BrowserStatusLight(state: watchState, error: watcher.error(for: channel.id))
+                    BrowserStatusLight(state: watchState, error: watcher.error(for: channel.id), channelId: channel.id)
                 } else {
                     Text(channel.connected ? "Connected" : "Not connected")
                         .font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
                 }
                 Spacer()
                 if channel.actions.contains("sync") {
-                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store) }
+                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, local: localSources) }
                 }
                 if channel.actions.contains("poll") {
                     actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
