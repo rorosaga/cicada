@@ -3,10 +3,11 @@ import Foundation
 /// The kinds `api/services/source_overview.KIND_ORDER` declares, plus a
 /// fallback so an unknown kind from a newer backend never drops the grid.
 enum SourceKind: String, Codable, CaseIterable {
-    case harness, browser, social, feed, messaging, `import`, unknown
+    case harness, browser, social, feed, messaging, voice, `import`, unknown
 
-    /// Grid order = the backend's `KIND_ORDER`; `unknown` sorts last.
-    static let order: [SourceKind] = [.harness, .browser, .social, .feed, .messaging, .import, .unknown]
+    /// Grid order = the backend's `KIND_ORDER`; `unknown` sorts last. `voice`
+    /// (G134) holds note-takers: meetings and dictation.
+    static let order: [SourceKind] = [.harness, .browser, .social, .feed, .messaging, .voice, .import, .unknown]
 }
 
 /// Mirror of `api/models/schemas.py::SourceOverview` (G124). Every field but
@@ -277,6 +278,7 @@ enum SourceSections {
         .social: "SOCIAL & SAVED",
         .feed: "FEEDS & CALENDARS",
         .messaging: "MESSAGING",
+        .voice: "VOICE & MEETINGS",
         .import: "FILES & IMPORTS",
         .unknown: "OTHER",
     ]

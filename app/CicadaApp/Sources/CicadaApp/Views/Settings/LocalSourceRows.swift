@@ -1,0 +1,443 @@
+import AppKit
+import SwiftUI
+
+/// Every sentence the local-source rows say, as pure functions (`LocalSourcesSurfaceTests`).
+/// Plain and friendly (the owner's rule for app copy): no jargon, no prices,
+/// every number through `UsageFormat.count`.
+enum LocalSourceRowText {
+    static func folderLine(_ channel: SourceChannel, onThisMac: Bool) -> String {
+        onThisMac ? IntegrationRowState.line(channel) : LocalSourceCopy.folderMissing
+    }
+
+    static func wisprLine(_ channel: SourceChannel?, settings: WisprFlowSettings) -> String {
+        guard settings.enabled else { return "Your meetings and notes from Wispr Flow on this Mac." }
+        guard let channel else { return "On — the first sync is on its way" }
+        return IntegrationRowState.line(channel)
+    }
+
+    /// "Found 12 notes · 3 written by an agent · 1,200 papers".
+    static func previewSummary(_ r: FolderSyncResult, locale: Locale = .autoupdatingCurrent) -> String {
+        let files = r.filesNew + r.filesChanged + r.filesUnchanged
+        var parts = ["\(UsageFormat.count(files, locale: locale)) \(files == 1 ? "note" : "notes")"]
+        if r.agentFiles > 0 { parts.append("\(UsageFormat.count(r.agentFiles, locale: locale)) written by an agent") }
+        if r.papersFound > 0 {
+            parts.append("\(UsageFormat.count(r.papersFound, locale: locale)) \(r.papersFound == 1 ? "paper" : "papers")")
+        }
+        return "Found " + parts.joined(separator: " · ")
+    }
+
+    /// How much of it Sleep will read — a count, never a price (the 2026-09-03 ruling).
+    static func sleepLine(_ r: FolderSyncResult, locale: Locale = .autoupdatingCurrent) -> String {
+        guard r.stage1Passes > 0 else { return "Nothing here for Sleep to read yet — an agent's notes are kept, not read." }
+        let n = UsageFormat.count(r.stage1Passes, locale: locale)
+        return "Sleep will read your own notes in about \(n) \(r.stage1Passes == 1 ? "step" : "steps")."
+    }
+
+    /// "archive/**, drafts/**" or one per line → a clean list.
+    static func list(_ text: String) -> [String] {
+        text.split(whereSeparator: { $0 == "," || $0 == "\n" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+}
+
+/// A folder the person picked, waiting for the add sheet.
+struct PickedFolder: Identifiable {
+    let url: URL
+    var id: String { url.path }
+}
+
+/// G133 — one watched folder in Settings → Integrations → Notes & files.
+struct FolderChannelRow: View {
+    let channel: SourceChannel
+    @Environment(LocalSourceWatcher.self) private var localSources
+    @State private var showManage = false
+
+    private var folder: FolderRegistration? { localSources.folders.first { $0.channelId == channel.id } }
+
+    var body: some View {
+        let onThisMac = folder.map { localSources.isOnThisMac($0) } ?? false
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: CicadaTheme.spacingMD) {
+                LogoImage.platformTile(name: "", size: 28, systemFallback: OriginIconography.symbol(for: "folder"))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(channel.label)
+                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                    Text(LocalSourceRowText.folderLine(channel, onThisMac: onThisMac))
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(channel.lastError != nil ? CicadaTheme.danger : CicadaTheme.textSecondary)
+                }
+                Spacer()
+                if let folder {
+                    Button("Sync now") { Task { await localSources.syncNow(folder) } }
+                        .buttonStyle(.bordered)
+                        .disabled(!onThisMac || localSources.syncing.contains(channel.id))
+                    Button("Manage") { showManage = true }
+                        .buttonStyle(.bordered)
+                }
+            }
+            .popover(isPresented: $showManage, arrowEdge: .trailing) {
+                if let folder {
+                    FolderManagePanel(folder: folder)
+                        .padding(CicadaTheme.spacingLG)
+                        .frame(width: 340)
+                }
+            }
+            if let folder, let error = localSources.folderErrors[folder.id] {
+                Text(error)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+    }
+}
+
+/// "Add a folder" and "Obsidian vault" — the same flow: pick, name, look inside, watch.
+struct AddFolderRow: View {
+    let title: String
+    let blurb: String
+    let bundleId: String?
+    let symbol: String
+    let panelMessage: String
+    @State private var picked: PickedFolder?
+
+    static let obsidianBundleId = "md.obsidian"
+    static var obsidianInstalled: Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: obsidianBundleId) != nil
+    }
+
+    static var folder: AddFolderRow {
+        AddFolderRow(title: "Add a folder of notes",
+                     blurb: "Markdown notes, plans, reading lists — edits reach your memory on their own.",
+                     bundleId: nil, symbol: "folder.badge.plus", panelMessage: "Choose a folder of notes to keep in memory")
+    }
+
+    static var obsidian: AddFolderRow {
+        AddFolderRow(title: "Obsidian vault",
+                     blurb: "A vault is a folder of notes — pick it and Cicada keeps up with your edits.",
+                     bundleId: obsidianBundleId, symbol: OriginIconography.symbol(for: "obsidian"),
+                     panelMessage: "Choose your Obsidian vault")
+    }
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            LogoImage.platformTile(name: "", bundleId: bundleId, size: 28, systemFallback: symbol)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text(blurb)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+            Spacer()
+            Button("Choose…") { pick() }
+                .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+        .sheet(item: $picked) { picked in
+            AddFolderSheet(url: picked.url) { self.picked = nil }
+        }
+    }
+
+    private func pick() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = panelMessage
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        picked = PickedFolder(url: url)
+    }
+}
+
+/// Name it, say which project it is, say which parts an agent wrote, look
+/// inside (counts only), then start watching.
+struct AddFolderSheet: View {
+    let url: URL
+    let onDone: () -> Void
+    @Environment(LocalSourceWatcher.self) private var localSources
+    @State private var label: String
+    @State private var projectName: String
+    @State private var agentGlobs = "archive/**"
+    @State private var folder: FolderRegistration?
+    @State private var preview: FolderSyncResult?
+    @State private var busy = false
+    @State private var message: String?
+
+    init(url: URL, onDone: @escaping () -> Void) {
+        self.url = url
+        self.onDone = onDone
+        _label = State(initialValue: url.lastPathComponent)
+        _projectName = State(initialValue: url.lastPathComponent)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            Text("Add a folder")
+                .font(CicadaTheme.font(size: 17, weight: .semibold))
+                .foregroundStyle(CicadaTheme.textPrimary)
+            Text(url.path)
+                .font(CicadaTheme.font(size: 11, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            TextField("Name", text: $label)
+            TextField("Which project is this?", text: $projectName)
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                TextField("Parts written by an agent", text: $agentGlobs)
+                Text("Research an agent wrote for you is kept and searchable, but never counted as your own words.")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .disabled(folder != nil)
+            if let preview {
+                Text(LocalSourceRowText.previewSummary(preview))
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text(LocalSourceRowText.sleepLine(preview))
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+            if let message {
+                Text(message)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Button("Cancel") { Task { await cancel() } }
+                Spacer()
+                if preview == nil {
+                    Button("Look inside") { Task { await look() } }
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Start watching") { Task { await start() } }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .textFieldStyle(.roundedBorder)
+        .padding(CicadaTheme.spacingXL)
+        .frame(width: 440)
+        .disabled(busy)
+    }
+
+    /// Registers WITHOUT a project name (`projectName: ""`): the preview needs a
+    /// folder id, but a person who looks inside and then cancels must not leave
+    /// a new `project` page behind (R-LS13 creates one only on their say-so).
+    private func look() async {
+        busy = true
+        defer { busy = false }
+        do {
+            let registered = try await localSources.addFolder(
+                url: url, label: label, projectName: "", agentGlobs: LocalSourceRowText.list(agentGlobs))
+            folder = registered
+            preview = try await localSources.preview(registered, root: url)
+            message = nil
+        } catch {
+            message = AddSourceSheet.friendlyError(error)
+        }
+    }
+
+    /// "Start watching" is the say-so: the same `POST /sources/folders` again is
+    /// an upsert on (device, path) (R-LS9) — same id — that now anchors the
+    /// project by name (R-LS13) and takes any edit to the name fields.
+    private func start() async {
+        guard folder != nil else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            let anchored = try await localSources.addFolder(
+                url: url, label: label, projectName: projectName, agentGlobs: LocalSourceRowText.list(agentGlobs))
+            await localSources.startWatching(anchored)
+            onDone()
+        } catch {
+            message = AddSourceSheet.friendlyError(error)
+        }
+    }
+
+    private func cancel() async {
+        if let folder { try? await localSources.removeFolder(folder) }
+        onDone()
+    }
+}
+
+/// Which parts an agent wrote, and "Stop watching" (which keeps what was learned).
+struct FolderManagePanel: View {
+    let folder: FolderRegistration
+    @Environment(LocalSourceWatcher.self) private var localSources
+    @State private var globs: String
+    @State private var confirmStop = false
+    @State private var busy = false
+    @State private var message: String?
+
+    init(folder: FolderRegistration) {
+        self.folder = folder
+        _globs = State(initialValue: folder.agentGlobs.joined(separator: ", "))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            Text(folder.label)
+                .font(CicadaTheme.font(size: 15, weight: .semibold))
+                .foregroundStyle(CicadaTheme.textPrimary)
+            Text(folder.path)
+                .font(CicadaTheme.font(size: 11, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            TextField("Parts written by an agent", text: $globs)
+                .textFieldStyle(.roundedBorder)
+            Text("Changing this re-reads the folder so every file is credited to the right author.")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let message {
+                Text(message).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
+            }
+            HStack {
+                Button("Stop watching", role: .destructive) { confirmStop = true }
+                Spacer()
+                Button("Save") {
+                    Task {
+                        busy = true
+                        defer { busy = false }
+                        do {
+                            try await localSources.updateAgentGlobs(folder, globs: LocalSourceRowText.list(globs))
+                            message = nil
+                        } catch {
+                            message = AddSourceSheet.friendlyError(error)
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .disabled(busy)
+        .confirmationDialog("Stop watching \(folder.label)?", isPresented: $confirmStop) {
+            Button("Stop watching", role: .destructive) {
+                Task { try? await localSources.removeFolder(folder) }
+            }
+        } message: {
+            Text("Everything Cicada already learned from this folder stays in your memory.")
+        }
+    }
+}
+
+/// G134 — Wispr Flow in Settings → Integrations → Voice & meetings.
+struct WisprFlowRow: View {
+    let channel: SourceChannel?
+    @Environment(LocalSourceWatcher.self) private var localSources
+    @State private var showPanel = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: CicadaTheme.spacingMD) {
+                LogoImage.platformTile(name: OriginIconography.logoName(for: "wispr-flow") ?? "",
+                                       bundleId: OriginIconography.appBundleId(for: "wispr-flow"),
+                                       size: 28, systemFallback: OriginIconography.symbol(for: "wispr-flow"))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Wispr Flow")
+                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                    Text(LocalSourceRowText.wisprLine(channel, settings: localSources.wisprSettings))
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(channel?.lastError != nil ? CicadaTheme.danger : CicadaTheme.textSecondary)
+                }
+                Spacer()
+                if localSources.wisprSettings.enabled {
+                    Button("Sync now") { Task { await localSources.syncWisprNow() } }
+                        .buttonStyle(.bordered)
+                        .disabled(localSources.syncing.contains(LocalSourceWatcher.wisprChannel))
+                    Button("Manage") { showPanel = true }
+                        .buttonStyle(.bordered)
+                } else {
+                    Button("Connect") { showPanel = true }
+                        .buttonStyle(.bordered)
+                }
+            }
+            .popover(isPresented: $showPanel, arrowEdge: .trailing) {
+                WisprFlowPanel()
+                    .padding(CicadaTheme.spacingLG)
+                    .frame(width: 340)
+            }
+            if let error = localSources.wisprError, case .notReadable = error {
+                FullDiskAccessHint(error: error)
+            }
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+    }
+}
+
+/// Turn Wispr Flow on or off; dictation is opt-in; "your name in meetings" is
+/// the only way a speaker is ever counted as the person (R-LS22, R-LS23).
+struct WisprFlowPanel: View {
+    @Environment(LocalSourceWatcher.self) private var localSources
+    @State private var includeDictation = false
+    @State private var names = ""
+    @State private var busy = false
+    @State private var message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            Text("Wispr Flow")
+                .font(CicadaTheme.font(size: 15, weight: .semibold))
+                .foregroundStyle(CicadaTheme.textPrimary)
+            Text("Your meetings — with who said what — and your Scratchpad notes come in on their own.")
+                .font(CicadaTheme.bodyFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Toggle("Also include my dictation history", isOn: $includeDictation)
+            Text("Everything you've dictated into other apps, one entry per day. Password managers are always left out.")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            TextField("Your name in meetings", text: $names)
+                .textFieldStyle(.roundedBorder)
+            Text("So your own words are credited to you — everyone else's stay theirs.")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let message {
+                Text(message).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
+            }
+            HStack {
+                if localSources.wisprSettings.enabled {
+                    Button("Turn off", role: .destructive) { save(enabled: false) }
+                }
+                Spacer()
+                Button(localSources.wisprSettings.enabled ? "Save" : "Turn on") { save(enabled: true) }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .disabled(busy)
+        .onAppear {
+            includeDictation = localSources.wisprSettings.includeDictation
+            names = localSources.wisprSettings.ownerSpeakerNames.joined(separator: ", ")
+        }
+    }
+
+    private func save(enabled: Bool) {
+        Task {
+            busy = true
+            defer { busy = false }
+            do {
+                try await localSources.setWispr(WisprFlowSettings(
+                    enabled: enabled, includeDictation: includeDictation,
+                    ownerSpeakerNames: LocalSourceRowText.list(names)))
+                message = nil
+            } catch {
+                message = AddSourceSheet.friendlyError(error)
+            }
+        }
+    }
+}

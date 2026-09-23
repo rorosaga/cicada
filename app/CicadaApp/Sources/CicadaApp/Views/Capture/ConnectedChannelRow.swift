@@ -116,7 +116,7 @@ struct ConnectedChannelRow: View {
                             if let watchState = watcher.state(for: channel.id) {
                                 BrowserStatusLight(state: watchState,
                                                    error: watcher.error(for: channel.id),
-                                                   compact: true)
+                                                   compact: true, channelId: channel.id)
                             }
                         }
                             .lineLimit(1)
@@ -200,7 +200,8 @@ struct ConnectedChannelRow: View {
     /// routing them through the origin map would silently change `files` from
     /// `link` to `bookmark.fill` for no gain.
     static func icon(for id: String) -> String {
-        switch id {
+        if id.hasPrefix("folder:") { return "folder" }
+        return switch id {
         case "rss": "dot.radiowaves.up.forward"
         case "calendar": "calendar"
         case "chrome-bookmarks": "globe"
@@ -212,6 +213,7 @@ struct ConnectedChannelRow: View {
         case "pinterest": "pin.fill"
         case "reddit": "bubble.left.and.text.bubble.right.fill"
         case "x": "x.circle"
+        case "wispr-flow": "waveform"
         default: "tray"
         }
     }
@@ -245,7 +247,9 @@ struct ConnectedChannelRow: View {
     /// `ChannelMarkTests.testNoChannelFallsThroughToTheGenericTray` is what
     /// makes the missing row loud instead of silent.
     static func origin(forChannel id: String) -> String {
-        switch id {
+        // G133: every `folder:<id>` row's episodes carry the one `folder` origin.
+        if id.hasPrefix("folder:") { return "folder" }
+        return switch id {
         case "chat-export:claude": "claude-export"
         case "chat-export:chatgpt": "chatgpt-export"
         case "chrome-bookmarks": "chrome-bookmark"

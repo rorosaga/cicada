@@ -48,6 +48,8 @@ struct EntityDetailCard: View {
     // Fact sources (G61) — "where to look this fact up" refresh references.
     // Loaded on every entity (unlike repos/location, not gated by entity type).
     @State private var sources: [EntitySource] = []
+    /// G133 — a paper page's two tiers, fetched once per open.
+    @State private var paperDetail: PaperDetail?
     @State private var newSourceRef = ""
 
     // History tab (G68 §2.10). `entity.history` is empty BOTH before the full
@@ -329,8 +331,13 @@ struct EntityDetailCard: View {
                 .help("Copy markdown")
             }
 
-            // G11: rich media preview above the body for `media`-type entities.
-            if entity.type == .media, let media = entity.media, media.hasURL {
+            // G133: a paper leads with why it is in memory, then the dated
+            // abstract — and never loads arxiv.org in a preview (R-LS19).
+            if let paperDetail {
+                PaperCard(detail: paperDetail)
+                Divider().background(CicadaTheme.border)
+            } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
+                // G11: rich media preview above the body for `media`-type entities.
                 MediaPreview(model: MediaPreviewModel(
                     block: media,
                     title: entity.name,
@@ -373,6 +380,7 @@ struct EntityDetailCard: View {
             locationListing = nil
             repoContexts = []
             sources = []
+            paperDetail = nil
             newSourceRef = ""
             pendingDecayClass = nil
             activeEntityId = entity.id
@@ -381,6 +389,9 @@ struct EntityDetailCard: View {
             loadingCommits = []
             diffErrors = []
             sources = (try? await APIClient.shared.fetchEntitySources(entityId: entity.id)) ?? []
+            if entity.media?.isPaper == true {
+                paperDetail = try? await APIClient.shared.fetchPaperDetail(id: entity.id)
+            }
             // §5.7 — the card opened on the graph-node stub, whose
             // `markdownContent` is the server's short `summary` (already
             // rendered above, so there is never an empty card). Upgrade it to

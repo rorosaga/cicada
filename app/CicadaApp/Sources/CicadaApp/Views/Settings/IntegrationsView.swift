@@ -19,6 +19,7 @@ struct IntegrationsView: View {
 
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
+    @Environment(LocalSourceWatcher.self) private var localSources
 
     /// One row per export-only social platform: no persisted backend
     /// channel exists for these (`AddSourceTile.channelIds` is `[]` for all
@@ -97,8 +98,7 @@ struct IntegrationsView: View {
                 case .loaded:
                     ForEach(IntegrationCategory.allCases) { category in
                         let rows = channels.filter { IntegrationCategory.of(channelId: $0.id) == category }
-                        let extraRows = category == .chatAndAgents ? harnessRows.count
-                            : category == .socialAndSaved ? Self.exportOnlyTiles.count : 0
+                        let extraRows = extraRowCount(category, rows: rows)
                         // A section renders only when it has evidence (mirrors
                         // `SourceSections.group`'s own rule) — an empty category
                         // reads as a broken page, not a completeness signal.
@@ -111,6 +111,23 @@ struct IntegrationsView: View {
             .padding(CicadaTheme.spacingXL)
         }
         .background(CicadaTheme.background)
+    }
+
+    /// Rows a category renders beyond its channels — the informational harness
+    /// rows, the export-only platforms, the "Add a folder" rows (G133) and the
+    /// Wispr Flow row once Wispr Flow is on this Mac (G134).
+    private func extraRowCount(_ category: IntegrationCategory, rows: [SourceChannel]) -> Int {
+        switch category {
+        case .chatAndAgents: harnessRows.count
+        case .socialAndSaved: Self.exportOnlyTiles.count
+        case .notesAndFiles: 1
+        case .voiceAndMeetings: showsWispr(rows) ? 1 : 0
+        default: 0
+        }
+    }
+
+    private func showsWispr(_ rows: [SourceChannel]) -> Bool {
+        localSources.wisprInstalled || rows.contains { $0.id == LocalSourceWatcher.wisprChannel }
     }
 
     /// Three grey rows under a spinner rather than a bare spinner: the page's
@@ -155,7 +172,18 @@ struct IntegrationsView: View {
                     }
                 }
                 ForEach(rows) { channel in
-                    IntegrationChannelRow(channel: channel)
+                    if channel.id.hasPrefix("folder:") {
+                        FolderChannelRow(channel: channel)
+                    } else if channel.id != LocalSourceWatcher.wisprChannel {
+                        IntegrationChannelRow(channel: channel)
+                    }
+                }
+                if category == .notesAndFiles {
+                    AddFolderRow.folder
+                    if AddFolderRow.obsidianInstalled { AddFolderRow.obsidian }
+                }
+                if category == .voiceAndMeetings, showsWispr(rows) {
+                    WisprFlowRow(channel: rows.first { $0.id == LocalSourceWatcher.wisprChannel })
                 }
                 if category == .socialAndSaved {
                     ForEach(Self.exportOnlyTiles) { tile in

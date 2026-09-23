@@ -239,6 +239,10 @@ struct MediaFeedItem: Codable, Identifiable {
     /// duration pill reads it; absent means absent, never an estimate (R17).
     let provider: String?
     let durationS: Int?
+    /// G133 — `paper` for a paper page, with its byline; `nil` on every other
+    /// row and from an older backend.
+    let kind: String?
+    let paper: PaperSummary?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -285,6 +289,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case description, about
         case origin, folder
         case provider, durationS
+        case kind, paper
     }
 
     init(from decoder: Decoder) throws {
@@ -309,7 +314,11 @@ struct MediaFeedItem: Codable, Identifiable {
         folder = try c.decodeIfPresent(String.self, forKey: .folder)
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
         durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        paper = try c.decodeIfPresent(PaperSummary.self, forKey: .paper)
     }
+
+    var isPaper: Bool { kind == "paper" }
 }
 
 struct SourceListResponse: Codable {
@@ -1760,6 +1769,11 @@ actor APIClient {
     /// off the main actor by `WisprFlowReader`, so only `Data` crosses into the actor.
     func postWisprFlow(_ json: Data) async throws -> WisprFlowSyncResult {
         try await postData("/capture/local-source/wispr-flow", json: json)
+    }
+
+    /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
+    func fetchPaperDetail(id: String) async throws -> PaperDetail {
+        try await get("/entities/\(encodedID(id))/paper")
     }
 
     // MARK: - RSS feed subscriptions (G9)

@@ -67,7 +67,7 @@ struct ChannelSourceView: View {
                 // channel with no watch keeps the plain connected/not line,
                 // because a light nobody updates is worse than no light.
                 if let watchState = watcher.state(for: channel.id) {
-                    BrowserStatusLight(state: watchState, error: watcher.error(for: channel.id))
+                    BrowserStatusLight(state: watchState, error: watcher.error(for: channel.id), channelId: channel.id)
                 } else {
                     Text(channel.connected ? "Connected" : "Not connected")
                         .font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)

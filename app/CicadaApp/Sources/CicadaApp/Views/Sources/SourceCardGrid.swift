@@ -306,7 +306,7 @@ struct SourceCard: View {
             // the liveness tone, never by `connected` — "has ever fed memory"
             // is why the row exists (G124 R2), not what it is doing.
             if let watchState {
-                BrowserStatusLight(state: watchState, error: watchError, compact: true)
+                BrowserStatusLight(state: watchState, error: watchError, compact: true, channelId: source.channelId)
             } else {
                 Circle().fill(liveness.tone.color).frame(width: 7, height: 7)
             }
