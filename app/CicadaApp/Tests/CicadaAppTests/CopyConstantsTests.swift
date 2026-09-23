@@ -106,4 +106,17 @@ final class CopyConstantsTests: XCTestCase {
             }
         }
     }
+
+    /// Track I T4 — the intake and found-row labels are short, and "claim" never
+    /// reaches onboarding copy (design §7: the word means nothing to a new person).
+    func testIntakeLabelsAreShortAndNeverSayClaim() {
+        XCTAssertGreaterThan(Copy.intakeLabels.count, 20, "a lint over nothing passes vacuously")
+        for label in Copy.intakeLabels {
+            XCTAssertLessThanOrEqual(label.count, 60, label)
+            XCTAssertFalse(label.lowercased().contains("claim"), label)
+        }
+        for sentence in Copy.intakeSentences {
+            XCTAssertFalse(sentence.lowercased().contains("claim"), sentence)
+        }
+    }
 }

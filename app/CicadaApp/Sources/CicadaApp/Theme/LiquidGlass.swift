@@ -52,6 +52,24 @@ enum LiquidGlass {
     /// `onAccent` only while the accent plate is drawn — a key window. See
     /// `PrimaryActionInk`.
     static func primaryInkIsOnAccent(_ state: ControlActiveState) -> Bool { state == .key }
+
+    /// Track I T4 (R-IA16): whether the meadow pill draws system glass (macOS 26,
+    /// transparency allowed) or our opaque capsule.
+    static func meadowPillUsesGlass(reduceTransparency: Bool) -> Bool {
+        #if canImport(SwiftUI, _version: 7.0)
+        if #available(macOS 26, *) { return !reduceTransparency }
+        return false
+        #else
+        return false
+        #endif
+    }
+
+    /// On our capsule we draw the meadow plate, so `onMeadow` always reads; on
+    /// glass the plate goes when the window is not key — the rule
+    /// `PrimaryActionInk` measured for the accent plate (1.4:1 otherwise).
+    static func meadowInkIsOnMeadow(_ state: ControlActiveState, usesGlass: Bool) -> Bool {
+        !usesGlass || state == .key
+    }
 }
 
 private struct LiquidGlassModifier<S: Shape>: ViewModifier {
@@ -136,6 +154,42 @@ struct PrimaryActionButton: View {
     }
 }
 
+/// The owner's "muted green pill" (design §7, D-4): `.glassProminent` tinted
+/// `meadow` on macOS 26, an opaque meadow capsule before — and on 26 under Reduce
+/// Transparency. Here, not in `MeadowPill.swift`, because `.glassProminent` lives
+/// in this file only (`LiquidGlassLintTests`).
+private struct MeadowPillStyleModifier: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if canImport(SwiftUI, _version: 7.0)
+        if #available(macOS 26, *), LiquidGlass.meadowPillUsesGlass(reduceTransparency: reduceTransparency) {
+            content.buttonStyle(.glassProminent).tint(CicadaTheme.meadow)
+        } else {
+            content.buttonStyle(MeadowCapsuleButtonStyle())
+        }
+        #else
+        content.buttonStyle(MeadowCapsuleButtonStyle())
+        #endif
+    }
+}
+
+/// The opaque capsule: meadow fill, a 0.97 press (`CicadaPlainButtonStyle`'s dip).
+struct MeadowCapsuleButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, CicadaTheme.spacingLG)
+            .padding(.vertical, CicadaTheme.spacingSM)
+            .background(Capsule().fill(CicadaTheme.meadow.opacity(isEnabled ? 1 : 0.45)))
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(CicadaMotion.press(reduceMotion: reduceMotion), value: configuration.isPressed)
+    }
+}
+
 /// Paints nothing on macOS 26, so the system's floating glass sidebar shows
 /// (WWDC25-323: extra backgrounds interfere with it); the opaque theme
 /// background before, exactly as the sidebar always looked there.
@@ -205,6 +259,9 @@ extension View {
 
     /// The prominent action's label ink — see `PrimaryActionInk`.
     func primaryActionInk() -> some View { modifier(PrimaryActionInk()) }
+
+    /// See `MeadowPillStyleModifier` — the intake's Import / Read now only (R-IA16).
+    func meadowPillStyle() -> some View { modifier(MeadowPillStyleModifier()) }
 
     /// The sidebar column's background — see `SidebarChromeBackground`.
     func sidebarChromeBackground() -> some View { modifier(SidebarChromeBackground()) }

@@ -137,6 +137,14 @@ enum CicadaTheme {
     /// ink is 7.46:1 there, and white is 5.59:1 on the light accent
     /// (ThemeTokenTests pins both).
     static var onAccent: Color { mode == .dark ? Dark.onAccent : Light.onAccent }
+    /// Track I T4 (design §7, D-4) — the ink on the one meadow pill: white on the
+    /// day meadow (#37753D, 5.56:1), night-meadow ink on the night meadow
+    /// (#7FC98A, ≈ 9.5:1). ThemeTokenTests holds both.
+    static var onMeadow: Color { mode == .dark ? Dark.onMeadow : Light.onMeadow }
+    /// The dim behind a modal overlay (the intake overlay, the drop veil). Was a
+    /// literal `Color.black.opacity(0.4)` in `UploadOverlay`; a token, so dark mode
+    /// can dim harder where 0.4 over a near-black window reads as nothing.
+    static var scrim: Color { mode == .dark ? Dark.scrim : Light.scrim }
 
     // MARK: - Meadow nature tokens (G137, spec R-M2)
     // Ambient ONLY: washes, art, onboarding / empty-state / header bands.
@@ -392,6 +400,8 @@ private extension CicadaTheme {
         // hue, graph.js's agent badge, the mascot's zZ) — never re-point them.
         static let accent = Color(hex: 0x8C9CFF)
         static let onAccent = background
+        static let onMeadow = background
+        static let scrim = Color.black.opacity(0.55)
 
         // State hues, Tailwind ~500 band — same brightness register as the
         // entity hues above so they read as one system on the near-black base.
@@ -534,6 +544,8 @@ private extension CicadaTheme {
         // 4.53:1 there, one rounding step from failing AA (plan R-M8).
         static let accent = Color(hex: 0x4A5BD6)
         static let onAccent = Color(hex: 0xFFFFFF)
+        static let onMeadow = Color(hex: 0xFFFFFF)
+        static let scrim = Color.black.opacity(0.35)
 
         // Same families, deepened into the Tailwind ~700 band so each clears
         // ~4.5:1 on the near-white surface instead of the ~1.8:1 the dark
