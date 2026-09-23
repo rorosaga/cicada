@@ -1814,6 +1814,92 @@ class SourceChannelsResponse(CamelModel):
     channels: list[SourceChannel] = []
 
 
+class FolderAuthorshipRule(CamelModel):
+    """G133 / R-F2 — whose words the files under ``glob`` are: ``user`` or ``agent``."""
+
+    glob: str
+    authorship: str
+
+
+class FolderRecord(CamelModel):
+    """One watched folder (``<bank>/sources/folders.json``). ``path`` is display
+    and relink only — the backend never opens it (R-F1)."""
+
+    id: str
+    label: str
+    path: str
+    device: str
+    include: list[str] = []
+    exclude: list[str] = []
+    authorship: list[FolderAuthorshipRule] = []
+    project_id: Optional[str] = None
+    created_at: Optional[str] = None
+    last_sync: Optional[str] = None
+    papers_pending: bool = False
+    channel_id: str = ""
+
+
+class FolderListResponse(CamelModel):
+    folders: list[FolderRecord] = []
+
+
+class FolderRegisterRequest(CamelModel):
+    label: str
+    path: str
+    include: Optional[list[str]] = None
+    exclude: Optional[list[str]] = None
+    authorship: Optional[list[FolderAuthorshipRule]] = None
+    # R-LS13 — the app pre-fills the folder's name; "" means "no project".
+    project_name: Optional[str] = None
+
+
+class FolderUpdateRequest(CamelModel):
+    label: Optional[str] = None
+    authorship: Optional[list[FolderAuthorshipRule]] = None
+
+
+class FolderFileIn(CamelModel):
+    """R-LS8 — one file the app read: bytes as base64, re-hashed server-side."""
+
+    relpath: str
+    mtime: float
+    sha256: str
+    content_b64: str
+
+
+class FolderSyncRequest(CamelModel):
+    files: list[FolderFileIn] = []
+    deleted: list[str] = []
+
+
+class FolderSyncError(CamelModel):
+    relpath: str
+    reason: str
+
+
+class FolderSyncResponse(CamelModel):
+    preview: bool = False
+    files_new: int = 0
+    files_changed: int = 0
+    files_unchanged: int = 0
+    files_deleted: int = 0
+    agent_files: int = 0
+    stage1_passes: int = 0
+    papers_found: int = 0
+    created: int = 0
+    updated: int = 0
+    renamed: int = 0
+    tombstoned: int = 0
+    papers_created: int = 0
+    removals_proposed: int = 0
+    papers_pending: bool = False
+    errors: list[FolderSyncError] = []
+
+
+class FolderRemoveResponse(CamelModel):
+    removed: bool
+
+
 # --- Saved-content connectors (G71 §2) ---
 
 
