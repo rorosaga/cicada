@@ -303,7 +303,9 @@ The rules below are one line each; the reasoning is in
 
 Built by `docs/superpowers/plans/2026-09-23-mascot-page.md`, part a: Z0–Z8 plus this docs slice
 of Z12. Z9 (feeding) follows Track I, Z10 (the Meadow pass and optional sky band) follows M1, and
-Z11 (live verification and screenshots) is the orchestrator's.
+Z11 (live verification and screenshots) is the orchestrator's. Part b — Z9 feeding, the Z10 Meadow
+pass and two live-check fixes (the pile's fit, the page title) — is
+`docs/superpowers/plans/2026-09-23-mascot-page-b.md`.
 
 ## Not in scope this round
 
