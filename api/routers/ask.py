@@ -7,7 +7,7 @@ traversal (the graph/search endpoints) stays available alongside this.
 Thin wrapper over :func:`api.services.ask_service.answer_query` — the service
 holds the retrieval + grounded-synthesis + gap-analysis logic and is unit-tested
 with injected retrieval/LLM. This router resolves the live defaults (sqlite-vec
-+ the engine chosen in Settings → Sleep, R-E23) and adapts the service dict
++ the engine chosen in Settings → Engines, R-E23) and adapts the service dict
 onto the wire schema.
 """
 
@@ -30,7 +30,7 @@ async def ask(
     request: AskRequest,
     settings: Settings = Depends(get_settings),
 ) -> AskResponse:
-    # R-E23: Ask follows the engine chosen in Settings → Sleep (or an explicit
+    # R-E23: Ask follows the engine chosen in Settings → Engines (or an explicit
     # CICADA_LLM_MODE), resolved like a Sleep you start yourself — a person
     # asking is a person present. The engine is built lazily, on the first
     # prompt: the honest-gap fast path must still spend nothing.

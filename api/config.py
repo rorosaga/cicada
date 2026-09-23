@@ -138,7 +138,7 @@ class Settings(BaseSettings):
     # fraction, leaving the person room to work (R-E12).
     agent_stop_utilization: float = 0.9             # CICADA_AGENT_STOP_UTILIZATION
     # Let Sleep keep going on Claude extra usage (Anthropic bills it
-    # separately). Off unless chosen (G117); Settings → Sleep's pref
+    # separately). Off unless chosen (G117); Settings → Engines's pref
     # promotes it when CICADA_LLM_MODE is not pinned (R-E13).
     agent_allow_overage: bool = False               # CICADA_AGENT_ALLOW_OVERAGE
     # Stage 1 through `--json-schema`. OFF until the demo-bank comparison is

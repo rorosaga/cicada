@@ -33,6 +33,28 @@ final class AppearancePreferenceTests: XCTestCase {
         XCTAssertEqual(ThemeStore(defaults: defaults, systemIsDark: true).mode, .light)
     }
 
+    /// G139 final review — a flip re-resolves `mode` from the stored
+    /// preference wherever it is heard (the app-scope observer, or a window's
+    /// `onAppear` after being closed through one), and never touches an
+    /// explicit Light/Dark choice. "Light" is written explicitly because a
+    /// suite also reads the real global domain.
+    func testRefreshFollowsTheSystemOnlyForASystemPreference() {
+        let suite = "appearance-refresh-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("system", forKey: ThemeStore.defaultsKey)
+        defaults.set("Light", forKey: "AppleInterfaceStyle")
+        let store = ThemeStore(defaults: defaults)
+        XCTAssertEqual(store.mode, .light)
+        defaults.set("Dark", forKey: "AppleInterfaceStyle")
+        store.refreshSystemAppearance()
+        XCTAssertTrue(store.systemIsDark)
+        XCTAssertEqual(store.mode, .dark)
+        defaults.set("light", forKey: ThemeStore.defaultsKey)
+        store.refreshSystemAppearance()
+        XCTAssertEqual(store.mode, .light, "an explicit choice outranks the system")
+    }
+
     func testTheSystemReadIsTheGlobalInterfaceStyle() {
         let suite = "appearance-style-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

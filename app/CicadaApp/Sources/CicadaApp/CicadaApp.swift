@@ -75,6 +75,9 @@ struct CicadaApp: App {
 
         // G137 R-M3: before any view asks for `CicadaTheme.displayFont`.
         CicadaFonts.registerBundled()
+        // G139 final review: the System-appearance observer lives at app
+        // scope, not on one window — see `ThemeStore.observeSystemAppearance`.
+        ThemeStore.shared.observeSystemAppearance()
 
         // Build the Store as a plain local value first — referencing `self`
         // (which `store` would, via the property wrapper) isn't allowed yet
@@ -114,7 +117,10 @@ struct CicadaApp: App {
                 .onReceive(DistributedNotificationCenter.default()
                     .publisher(for: AppearancePreference.systemChangedNotification)
                     .receive(on: RunLoop.main)) { _ in
-                    ThemeStore.shared.systemIsDark = AppearancePreference.systemIsDark()
+                    // The app-scope observer re-resolves the tokens; this one
+                    // exists for the AppKit chrome only. Refreshing here too
+                    // makes the two orderless (both writes are guarded).
+                    ThemeStore.shared.refreshSystemAppearance()
                     applyAppearance()
                 }
                 .onAppear {
@@ -158,6 +164,9 @@ struct CicadaApp: App {
                     inboxVM.onResolved = { [menuBarManager] in
                         await menuBarManager.refreshAfterAction()
                     }
+                    // G139 final review: a reopened window re-reads the system
+                    // appearance rather than trusting the last one this scene saw.
+                    ThemeStore.shared.refreshSystemAppearance()
                     // Ensure the main window is key so TextFields can accept input.
                     if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
                         syncWindowChrome(window, mode: appColorScheme)
@@ -247,16 +256,6 @@ struct CicadaApp: App {
         }
     }
 
-    /// Keeps the native AppKit window chrome (titlebar material + background)
-    /// in lockstep with the SwiftUI theme. NSWindow isn't SwiftUI-observed,
-    /// so this must be called explicitly on launch and again on every toggle
-    /// (see the `.onChange(of: colorSchemeRaw)` above).
-    ///
-    /// A transparent titlebar + a matching window background makes the bar
-    /// read as a continuation of the app's content on every page instead of
-    /// the default gray macOS titlebar material. (A per-page content
-    /// background can't recolor window chrome — that was the failed earlier
-    /// attempt that also stretched the Inbox window.)
     /// One place the resolved mode reaches the tokens and the AppKit chrome —
     /// a preference change and a system flip both land here.
     private func applyAppearance() {
@@ -267,6 +266,16 @@ struct CicadaApp: App {
         }
     }
 
+    /// Keeps the native AppKit window chrome (titlebar material + background)
+    /// in lockstep with the SwiftUI theme. NSWindow isn't SwiftUI-observed,
+    /// so this must be called explicitly on launch and again on every toggle
+    /// (see the `.onChange(of: colorSchemeRaw)` above).
+    ///
+    /// A transparent titlebar + a matching window background makes the bar
+    /// read as a continuation of the app's content on every page instead of
+    /// the default gray macOS titlebar material. (A per-page content
+    /// background can't recolor window chrome — that was the failed earlier
+    /// attempt that also stretched the Inbox window.)
     private func syncWindowChrome(_ window: NSWindow, mode: AppColorScheme) {
         window.titlebarAppearsTransparent = true
         switch mode {

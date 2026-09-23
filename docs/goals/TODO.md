@@ -46,6 +46,14 @@ rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conver
 Backend **2287 passed** on the branch. The palette (design §6 S3–S6) starts after the Meadow foundation
 (M1) merges; MCP recall adoption is Track R's — see the plan's hand-off.
 
+**Round 3, Track O — G139 Settings v3, Tasks 1–2 (2026-09-23, `feat/settings-v3`, not yet a PR).** The
+settings kit, a sidebar grouped Cicada · Customize · Engines & keys, General with a System appearance
+(one app-scope observer), and a new Engines page that owns engine choice; Plans & keys is credentials
+only. Final-review ruling on the design doc's A3: the moved `use_for_sleep` switch shows only under the
+API key card as "Use my Claude plan when I start a cycle", because `engine_select` never reads it under
+Auto. Tasks 3–8 of `docs/superpowers/plans/2026-09-23-settings-v3.md` (From anywhere's own row, search,
+the Cicada-group pages, G138 recommended skills) are open.
+
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
 Do not re-derive the queue from this file.

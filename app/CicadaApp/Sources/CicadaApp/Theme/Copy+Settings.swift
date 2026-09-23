@@ -27,9 +27,13 @@ extension Copy {
     static let enginesSubtitle = "Which model does Cicada's thinking."
     static let settingsEngines = "\(settings) → \(engines)"
     static let enginesChooseGroup = "Engine"
-    static let autoGroup = "Auto"
+    /// The heading over the one switch that only matters on the API key card.
+    static let apiKeyGroup = "API key"
     /// Was "Use for Sleep" on the Claude plan card — same pref, same endpoint.
-    static let autoMayUseClaudePlan = "Auto may use my Claude plan"
+    /// Not "Auto may use my Claude plan" (A3's first wording): Auto always
+    /// tries the plan first, so the switch only ever changes the API key card
+    /// (`engine_select.resolve_llm_mode`; G139 final review).
+    static let useClaudePlanWhenIStart = "Use my Claude plan when I start a cycle"
     static let askGroup = "Ask"
     static let askTitle = "Ask"
     static let askFollowsEngine = "Answers your questions with the same engine as a cycle you start."

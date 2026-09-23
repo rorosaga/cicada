@@ -399,8 +399,8 @@ WHAT RUNS
  On the schedule                         [key] API key · <model>
    Scheduled cycles never spend plan quota.
  Ask                                     Same engine as a cycle you start
-AUTO
- Auto may use my Claude plan             [ on ]
+API KEY (shown only while API key is chosen; A3)
+ Use my Claude plan when I start a cycle  [ on ]
    Only for cycles you start.
 ```
 
@@ -410,7 +410,7 @@ AUTO
 | `engineModel` "Model" | a picker over `candidate.models` plus a free-text field for `agent` and `codex`, and a picker plus `CommandBox` for `local` | `EngineCard.swift:116-155`. A `codex` case is added per R2 §4.5. |
 | `enginePreview` "What runs" | two read-only lines with marks. The ruling-4 caption shows whenever the two lines differ, and it is never hidden. | `preview.manual`, `preview.scheduled` (`EngineCard.swift:172-191`) |
 | `engineAsk` "Ask" | a read-only line | Needs R-E4: Ask follows the Settings engine. Until then the line reads "Set in api/.env" (R2 §1.4.4, honest). |
-| `engineAutoClaude` "Auto may use my Claude plan" | a toggle. **Moved** from the Claude plan card on Plans & keys (`ConnectionsView.swift:175-186`). | the same `PUT /connections/claude-plan/prefs` `use_for_sleep` (`api/routers/connections.py:101`) |
+| `engineAutoClaude` "Use my Claude plan when I start a cycle" (was "Auto may use my Claude plan"; see A3) | a toggle, shown only while the API key card is chosen. **Moved** from the Claude plan card on Plans & keys (`ConnectionsView.swift:175-186`). | the same `PUT /connections/claude-plan/prefs` `use_for_sleep` (`api/routers/connections.py:101`) |
 
 - **Marks:** Auto uses a symbol. The plan cards use `claude-code` and `codex` (the
   `ConnectionsView.swift:105-111` map). Ollama uses `ollama.png`, which is bundled but not shown
@@ -529,7 +529,7 @@ SLEEP
   (moon) Runs              Sleep > Runs            Daily at 3:00          >
   (moon) Engine            Sleep > Engine          Claude plan / API key  >
 ENGINES & KEYS
-  (cpu)  Auto may use my Claude plan   Engines > Auto          On         >
+  (cpu)  Use my Claude plan when I start a cycle   Engines > API key   On   >
 PRIVACY & DATA
   ...
 ```
@@ -1314,7 +1314,7 @@ appears, cache it per entity in the card's `@State`, and revalidate with the ETa
 | K14 | Copy rules: pointers exact, subtitles <= 60 characters (`Copy.swift:6-11`) | **kept** | New pointers are built from their parts. |
 | A1 | R-R7: "Settings > Agents gains From anywhere" | **amended: own sidebar row** | A `SettingsSection` can be deep-linked and indexed for search, and the page has five blocks. A segment inside Agents could do neither. |
 | A2 | R5 §5.1: recommended skills live first as a section on Settings > Agents | **amended: own "Skills" row** | The owner's reference IA puts Skills in its own group. G72 and G112 later add tabs to the same page, so the placement does not move twice. |
-| A3 | G122: the Engine picker and the Claude card's "Use for Sleep" toggle coexist on two pages (`SettingsSleepView.swift:19-24`) | **amended: Engines owns engine choice** | One page answers "who thinks for Cicada". The toggle moves unchanged (same pref, same endpoint) to Engines > Auto. Plans & keys becomes credentials only. |
+| A3 | G122: the Engine picker and the Claude card's "Use for Sleep" toggle coexist on two pages (`SettingsSleepView.swift:19-24`) | **amended: Engines owns engine choice** | One page answers "who thinks for Cicada". The toggle moves unchanged (same pref, same endpoint) to Engines > Auto. Plans & keys becomes credentials only. **2026-09-23 (Track O final review) — label and placement amended:** `engine_select.resolve_llm_mode` reads `use_for_sleep` only when the configured mode is `byok`; under `auto` the Claude plan is the first rung whether the pref is on or off. "Auto may use my Claude plan" was therefore a switch that did nothing under Auto and, with API key chosen, quietly moved cycles you start onto the plan. The switch keeps its pref and endpoint and stays on Engines, but shows only while the API key card is chosen (`mode == "byok"`, which is also the no-choice default), under an "API key" heading, labelled "Use my Claude plan when I start a cycle"; flipping it reloads the chooser so "What runs" never names the old engine. `engine_select` is unchanged. |
 | A4 | Spec decision 7: Cmd K becomes Find with Ask as a mode | **applied** | The shipped Cmd-K Ask (G52) survives as a mode reached with one keystroke (Cmd Return), and its history is kept. |
 | A5 | `EmptyStateView.swift:8-14`: never an `openSettings()` closure | **conditional amendment (spike S0)** | The measured failure was the private selector. `OpenSettingsAction` is public macOS 14 API. If S0 verifies it on 14, 15 and 26, allow it **only** inside `SettingsSectionLink.swift`. Otherwise keep the rule, and Settings results in the palette open on click only. **2026-09-23 (Track O, static half):** the 26.1 SDK declares `OpenSettingsAction` and `EnvironmentValues.openSettings` `@available(macOS 14.0, *)`; `OpenSettingsInterfaceTests` compiles a probe at the macOS 14 target. Runtime half: pending the orchestrator's scratch-app spike (this Mac runs macOS 26 only; 14 and 15 not verified). No source calls it yet. |
 | A6 | Cmd K and Cmd F as hidden zero-size buttons (`ContentView.swift:98-104`, `:594-599`) | **replaced by menu commands** | Fixes Cmd F firing on the invisible graph field (R6 §4.1), and makes both shortcuts discoverable and reachable through AX. |

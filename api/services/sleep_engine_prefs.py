@@ -1,6 +1,6 @@
 """G122 — the business logic behind ``GET/PUT /sleep/engine``.
 
-This is the Settings → Sleep page's engine-and-model picker: a read/write
+This is the Settings → Engines page's engine-and-model picker: a read/write
 surface over the ``sleep-engine`` pref ``engine_select.py`` already knows how
 to resolve (see that module's rung 2). Kept as its own service, not folded
 into ``engine_select.py`` itself, because that module is a hot, synchronous-

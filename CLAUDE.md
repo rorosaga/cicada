@@ -485,8 +485,11 @@ no `$`/token columns, no cost-per-day chart. The `/consumption/*` endpoints and 
 unchanged for future use.
 
 **Navigation.** Six sidebar rows (⌘1–6): Graph, Clusters, Feed, Sleep, Inbox, Sources. Setup lives
-in a native `Settings{}` scene (⌘,), a `NavigationSplitView` over five sections — General · Sleep ·
-Integrations · Agents · Plans & keys (`SettingsSection`, replacing the earlier four-tab `TabView`).
+in a native `Settings{}` scene (⌘,), a `NavigationSplitView` over six sections in three groups
+(`SettingsGroup`, G139) — Cicada: General · Sleep; Customize: Integrations · Agents; Engines & keys:
+Engines · Plans & keys. `SettingsSection` raw values are the persisted selection and did not move
+when the groups arrived. General's appearance offers System, which follows the Mac's own light/dark
+through one app-scope observer (`ThemeStore.observeSystemAppearance`), not a per-window one.
 ⌘K opens the Ask panel. `AppTab` raw values are the persisted identity of a tab, and
 `AppTab.restored(from:)` maps retired ones onto the pages that inherited them, so an older selection
 never traps. A page's top-right control is the `?` alone — Track P's audit removed the global Sleep
@@ -496,7 +499,7 @@ import lives behind the `+`" (the G126 rule above) covers a chat export, but imp
 *into a chosen or newly created memory bank* has no tile, and the upload overlay is also the only
 writer of `Store.intakeInFlight` — the flag that makes the bookworm read while an import lands.
 
-**Settings → Sleep: the engine picker (G122, Track E).** A row of cards with real marks — Auto,
+**Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
 `PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
 `use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
@@ -507,6 +510,12 @@ way a Claude cycle continues past the plan's included usage; otherwise it stops 
 sentence and the reset time. Ask follows the same choice. The ChatGPT plan runs as `codex exec` in
 Cicada's own Codex home (`~/.cicada/codex`), signed into in-app with a device code; Cicada never
 opens that home's files — `codex app-server` answers plan, limit and models.
+`EngineChooser` is the component (`EngineCard` wraps it for onboarding); the Sleep page shows the two
+previews read-only with a link here. The Claude plan's old *Use for Sleep* switch moved here too —
+same `use_for_sleep` pref, same endpoint — but `engine_select.resolve_llm_mode` reads that pref only
+when the chosen mode is `byok`, so it shows only while the API key card is chosen, as *Use my Claude
+plan when I start a cycle*, and a flip reloads the chooser's preview. Plans & keys is credentials
+only: the Max-tier cost-estimate picker is gone (the no-price ruling).
 
 **Settings → Integrations (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a

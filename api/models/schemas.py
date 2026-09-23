@@ -1585,7 +1585,7 @@ class ScheduleConfig(CamelModel):
 
 
 # --------------------------------------------------------------------------- #
-# G122 — GET/PUT /sleep/engine: the Settings → Sleep engine & model picker.
+# G122 — GET/PUT /sleep/engine: the Settings → Engines engine & model picker.
 # --------------------------------------------------------------------------- #
 
 
@@ -1636,7 +1636,7 @@ class SleepEngineResponse(CamelModel):
     source: str  # "env" | "prefs" | "default"
     candidates: list[SleepEngineCandidate]
     preview: SleepEnginePreviews
-    allow_overage: bool = False  # R-E13: Settings → Sleep "Keep going on extra usage"
+    allow_overage: bool = False  # R-E13: Settings → Engines "Keep going on extra usage"
 
 
 class SleepEngineChoice(CamelModel):

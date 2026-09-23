@@ -53,7 +53,14 @@ final class ThemeStore {
 
     var uiScale: Double
 
+    /// Where the preference and `AppleInterfaceStyle` are re-read on a flip —
+    /// a test hands in a suite, the app the standard domain.
+    @ObservationIgnored private let defaults: UserDefaults
+    /// The one distributed-notification observer (see `observeSystemAppearance`).
+    @ObservationIgnored private var systemObserver: NSObjectProtocol?
+
     init(defaults: UserDefaults = .standard, systemIsDark: Bool? = nil) {
+        self.defaults = defaults
         let dark = systemIsDark ?? AppearancePreference.systemIsDark(defaults)
         self.systemIsDark = dark
         mode = AppearancePreference.stored(defaults.string(forKey: Self.defaultsKey)).resolved(systemIsDark: dark)
@@ -78,6 +85,32 @@ final class ThemeStore {
     static func clampScale(_ value: Double) -> Double {
         let stepped = (value * 10).rounded() / 10
         return min(max(stepped, scaleRange.lowerBound), scaleRange.upperBound)
+    }
+
+    /// Re-reads the system appearance and re-resolves `mode` from the stored
+    /// preference. Writes only on a real change — `@Observable` notifies on
+    /// every write, and `CicadaTheme.mode`'s setter documents why a redundant
+    /// notification is how an invalidation loop starts.
+    func refreshSystemAppearance() {
+        let dark = AppearancePreference.systemIsDark(defaults)
+        if systemIsDark != dark { systemIsDark = dark }
+        let resolved = AppearancePreference.stored(defaults.string(forKey: Self.defaultsKey))
+            .resolved(systemIsDark: dark)
+        if mode != resolved { mode = resolved }
+    }
+
+    /// G139 final review (R-O4): the macOS appearance observer used to hang off
+    /// the main window's `ContentView` alone, so a flip while that window was
+    /// closed — menu-bar only, or only Settings open — was missed, and the
+    /// window reopened in the old mode until the next flip. Registered once at
+    /// app scope (`CicadaApp.init`) instead, so every scene follows whichever
+    /// windows are open. Idempotent; never called from `init` so a headless
+    /// test's `ThemeStore` never listens to the real system.
+    func observeSystemAppearance() {
+        guard systemObserver == nil else { return }
+        systemObserver = DistributedNotificationCenter.default().addObserver(
+            forName: AppearancePreference.systemChangedNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.refreshSystemAppearance() }
     }
 }
 
