@@ -6,9 +6,9 @@ Hermetic: every retrieval source handle_recall touches is monkeypatched, so
 this never hits LEANN, an LLM, or the live ~/cicada/memory bank.
 """
 
-import importlib
+from _stdio_server import stdio_server
 
-mcp = importlib.import_module("mcp.server")
+mcp = stdio_server()
 
 
 def test_total_miss_falls_through_to_episode_excerpts(monkeypatch, tmp_path):

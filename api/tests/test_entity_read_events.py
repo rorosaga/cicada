@@ -3,7 +3,6 @@ recall_detail, MCP recall suggestions. Nothing but an entity id and a surface
 enum ever reaches the ledger."""
 from __future__ import annotations
 
-import importlib
 import json
 
 import pytest
@@ -11,8 +10,9 @@ from fastapi.testclient import TestClient
 
 from api import config, main
 from api.services import consumption_stats, sync_service, telemetry as tm
+from _stdio_server import stdio_server
 
-mcp = importlib.import_module("mcp.server")
+mcp = stdio_server()
 
 
 @pytest.fixture

@@ -1,5 +1,5 @@
-import importlib
-mcp = importlib.import_module("mcp.server")
+from _stdio_server import stdio_server
+mcp = stdio_server()
 
 
 def test_rrf_fuse_rewards_agreement():

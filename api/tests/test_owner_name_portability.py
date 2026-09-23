@@ -88,7 +88,8 @@ def test_no_capitalised_owner_name_survives_in_shipped_code():
 
 
 def test_no_mcp_tool_description_names_a_person():
-    import mcp.server as server
+    from _stdio_server import stdio_server
+    server = stdio_server()
 
     def _descriptions(node):
         if isinstance(node, dict):
