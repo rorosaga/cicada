@@ -189,3 +189,92 @@ def test_clear_error_drops_only_the_error_it_names(tmp_path):
     sync_state.record_error(tmp_path, "papers", fs.COMMIT_FAILED_MESSAGE)
     sync_state.clear_error(tmp_path, "papers", fs.COMMIT_FAILED_MESSAGE)
     assert "last_error" not in sync_state.read_sync_state(tmp_path)["papers"]
+
+
+# --- final review F2: a lasting refusal never blocks the writer for good ------
+
+
+def test_a_kept_path_git_ignores_is_let_go_and_fresh_work_still_lands(bank):
+    (bank / ".gitignore").write_text("private/\n", encoding="utf-8")
+    _git(bank, "add", ".gitignore")
+    _git(bank, "commit", "-q", "-m", "ignore")
+    (bank / "private").mkdir()
+    (bank / "private" / "note.md").write_text("x\n", encoding="utf-8")
+    key = "papers/metadata|cicada|papers"
+    fs._update_pending(bank, key, add=["private/note.md"],
+                       meta={"subject": "Paper details", "trigger": "papers/metadata",
+                             "author": "cicada", "channel": "papers"})
+    fresh = _page(bank, "media-arxiv-2401-00003")
+    assert _papers_commit(bank, [fresh]) is True
+    assert fs.pending_commits(bank) == {}
+    assert fresh in _git(bank, "log", "-1", "--name-only", "--format=")
+    assert _git(bank, "status", "--porcelain", "--", "entities") == ""
+    assert "last_error" not in sync_state.read_sync_state(bank).get("papers", {})
+
+
+def test_a_kept_path_refused_for_an_unnamed_reason_is_let_go_after_its_attempts(bank, monkeypatch):
+    bad = _page(bank, "media-arxiv-2401-00004")
+    key = "papers/metadata|cicada|papers"
+    fs._update_pending(bank, key, add=[bad],
+                       meta={"subject": "Paper details", "trigger": "papers/metadata",
+                             "author": "cicada", "channel": "papers"})
+    real = git_service.commit_paths
+
+    async def picky(memory_path, message, paths):
+        if bad in paths:
+            raise git_service.GitError("git add failed: error: something lasting")
+        await real(memory_path, message, paths)
+
+    monkeypatch.setattr(git_service, "commit_paths", picky)
+    for n in range(1, fs.MAX_PATH_ATTEMPTS):
+        fresh = _page(bank, f"media-arxiv-2401-0010{n}")
+        assert _papers_commit(bank, [fresh]) is False, "the bad path is still kept"
+        assert fresh in _git(bank, "log", "-1", "--name-only", "--format="), "this run's work landed"
+        assert fs.pending_commits(bank)[key]["paths"] == [bad]
+        assert fs.pending_commits(bank)[key]["attempts"] == {bad: n}
+    assert _papers_commit(bank, [_page(bank, "media-arxiv-2401-00199")]) is True
+    assert fs.pending_commits(bank) == {}
+    assert "last_error" not in sync_state.read_sync_state(bank)["papers"]
+
+
+# --- final review F3: one failure line per channel, cleared only when all land --
+
+
+def test_a_success_on_a_channel_lands_its_sibling_writers_under_their_own_trigger(bank):
+    channel = "folder:alpha-project-abc123"
+    kept = _page(bank, "alpha-project-note")
+    lock = bank / ".git" / "index.lock"
+    lock.write_text("", encoding="utf-8")
+    assert asyncio.run(fs.commit_paths_for(bank, [kept], subject="Folder authorship (alpha-project)",
+                                           trigger="folder/authorship", author="user",
+                                           channel=channel)) is False
+    lock.unlink()
+    mine = _page(bank, "alpha-project")
+    assert asyncio.run(fs.commit_paths_for(bank, [mine], subject="Folder sync (alpha-project)",
+                                           trigger="folder/sync", author="user", channel=channel)) is True
+    assert fs.pending_commits(bank) == {}
+    assert _git(bank, "status", "--porcelain", "--", "entities") == ""
+    subjects = _git(bank, "log", "-2", "--format=%s").splitlines()
+    assert subjects == ["Folder authorship (alpha-project)", "Folder sync (alpha-project)"]
+    assert "last_error" not in sync_state.read_sync_state(bank)[channel]
+
+
+def test_the_failure_line_stays_while_a_sibling_writer_still_waits(bank, monkeypatch):
+    channel = "folder:alpha-project-abc123"
+    stuck = _page(bank, "alpha-project-note")
+    fs._update_pending(bank, f"folder/authorship|user|{channel}", add=[stuck],
+                       meta={"subject": "Folder authorship", "trigger": "folder/authorship",
+                             "author": "user", "channel": channel})
+    sync_state.record_error(bank, channel, fs.COMMIT_FAILED_MESSAGE)
+    real = git_service.commit_paths
+
+    async def picky(memory_path, message, paths):
+        if stuck in paths:
+            raise git_service.GitError("git add failed: Unable to create 'index.lock': File exists")
+        await real(memory_path, message, paths)
+
+    monkeypatch.setattr(git_service, "commit_paths", picky)
+    assert asyncio.run(fs.commit_paths_for(bank, [_page(bank, "alpha-project")], subject="Folder sync",
+                                           trigger="folder/sync", author="user", channel=channel)) is True
+    assert list(fs.pending_commits(bank)) == [f"folder/authorship|user|{channel}"]
+    assert sync_state.read_sync_state(bank)[channel]["last_error"] == fs.COMMIT_FAILED_MESSAGE

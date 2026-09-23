@@ -106,6 +106,9 @@ def test_the_agent_bucket_owns_only_what_an_unidentified_mcp_agent_wrote():
     note_taker = _claim(id="clm_b", authored_by="agent", origin="wispr-flow")
     folder = _claim(id="clm_c", authored_by="agent", origin="folder")
     assert agentic_write.owns(mcp, author="agent", origin=None)
+    watch = _claim(id="clm_w", authored_by="agent", origin="agent/watch")
+    assert agentic_write.owns(watch, author="agent", origin=None), "its own watch record (final review F1)"
+    assert not agentic_write.owns(watch, author="claude-code", origin=None)
     assert not agentic_write.owns(note_taker, author="agent", origin=None)
     assert not agentic_write.owns(folder, author="agent", origin=None)
     assert not agentic_write.owns(mcp, author="claude-code", origin=None)

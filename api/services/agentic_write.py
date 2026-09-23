@@ -581,8 +581,13 @@ def owns(claim: Claim, *, author: str, origin: str | None) -> bool:
     if authored_by == git_service.AGENT_AUTHOR:
         # F2-back R-B10: `agent` is also the author of a deterministic writer's
         # assistant words (a folder's agent glob, a note-taker's to-dos), so the
-        # unidentified-agent bucket owns only what an unidentified MCP agent wrote.
-        return author == git_service.AGENT_AUTHOR and claim_origin == _LEGACY_MCP_ORIGIN
+        # unidentified-agent bucket owns only what an unidentified MCP agent wrote:
+        # a claim (`mcp`) or a watch record (`agent/watch`) — final review F1, a
+        # harness-less stdio client must still withdraw its own watch record.
+        # Imported here because watch_record imports this module.
+        from api.services.watch_record import ORIGIN as WATCH_ORIGIN
+
+        return author == git_service.AGENT_AUTHOR and claim_origin in {_LEGACY_MCP_ORIGIN, WATCH_ORIGIN}
     return authored_by == author
 
 
