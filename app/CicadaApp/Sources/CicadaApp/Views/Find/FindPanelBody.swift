@@ -109,7 +109,11 @@ struct FindPanelBody: View {
     private var emptyMessage: some View {
         let trimmed = model.query.trimmingCharacters(in: .whitespacesAndNewlines)
         return Text(trimmed.isEmpty
-                    ? "Type to find anything Cicada remembers — people, projects, conversations, saved links."
+                    // Only what the local tier searches today: conversations
+                    // come back with the server tier's group (Task 4), so
+                    // naming them here promised a search that never ran
+                    // (final review, finding 4).
+                    ? "Type to find anything Cicada remembers — people, projects, saved links, questions and settings."
                     : "Nothing matches “\(trimmed)”.")
             .font(CicadaTheme.bodyFont)
             .foregroundStyle(CicadaTheme.textSecondary)
@@ -149,8 +153,15 @@ struct FindPanelBody: View {
 
     @ViewBuilder
     private func menu(for row: FindRow) -> some View {
-        Button(FindRowText.primaryVerb(row.destination)) {
-            if let destination = model.activate(row.key) { run(destination) }
+        if case .settings(let section) = row.destination {
+            // A menu item that promised Settings and only set the hint was a
+            // lie (final review, finding 2): the one view that opens the
+            // scene is the item here.
+            SettingsSectionLink(section: section, label: "Open in Settings")
+        } else {
+            Button(FindRowText.primaryVerb(row.destination)) {
+                if let destination = model.activate(row.key) { run(destination) }
+            }
         }
         if let verb = FindRowText.secondaryVerb(row.secondary) {
             Button(verb) { if let destination = model.activate(row.key, secondary: true) { run(destination) } }

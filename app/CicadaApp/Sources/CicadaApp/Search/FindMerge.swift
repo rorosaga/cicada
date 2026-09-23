@@ -118,6 +118,19 @@ enum FindRowText {
         "\(kindLabel(row)), \(row.title), \(position) of \(total)"
     }
 
+    /// The footer line, announced to VoiceOver as it updates. The number is
+    /// `FindResults.exactMatchTotal` — what matched, never the rows built —
+    /// and when that is unknown the line names only the groups (R-SU15;
+    /// final review, finding 3).
+    static func footer(query trimmed: String, results: FindResults) -> String {
+        guard !trimmed.isEmpty else { return "" }
+        guard results.rowCount > 0 else { return "Nothing matches “\(trimmed)”." }
+        let g = results.groupCount
+        let groups = "\(g) \(g == 1 ? "group" : "groups")"
+        guard let n = results.exactMatchTotal else { return "Results in \(groups)" }
+        return "\(UsageFormat.count(n)) \(n == 1 ? "result" : "results") in \(groups)"
+    }
+
     static func moreLabel(_ count: FindCount) -> String {
         switch count {
         case .exact(let n): "Show all \(UsageFormat.count(n))"
@@ -134,7 +147,11 @@ enum FindRowText {
         case .source, .conversations: "Open in Sources"
         case .conversation, .evidence: FindReaderSeam.isAvailable ? "Open conversation" : "Open in Sources"
         case .inbox: "Answer"
-        case .settings: "Open in Settings"
+        // R-SU12: ⏎ on a Settings row only explains (no closure can open the
+        // Settings scene — `SettingsSectionLink`), so its verb says that; the
+        // row's own Open link and its context-menu item are what open it
+        // (final review, finding 2).
+        case .settings: "Show how to open"
         case .tab: "Go"
         case .action: "Run"
         case .bank: "Switch"

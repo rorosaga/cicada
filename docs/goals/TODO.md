@@ -208,8 +208,11 @@ any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 fr
 (Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
 demo bank, never the live one, after the next visual change.
 
-**Search (G136):** the server half has shipped. Next is the ⌘K find palette (design §6 S3–S6), after
-M1; it builds against "The wire" in `docs/superpowers/plans/2026-09-23-search-backend.md`.
+**Search (G136):** the server half has shipped, and so has the palette's S3 (`feat/find-palette`): ⌘K
+(Find in Memory…) opens a find palette over the local tier with Ask as a mode on ⌘⏎; ⌘K/⌘F are menu
+commands in `Support/FindCommands.swift`, guarded by `HiddenShortcutLintTests`. Next is S4 (the server
+tier — conversations and beliefs), then S5 (in-page search fields) and S6 (`GraphNode.aliases`), per
+`docs/superpowers/plans/2026-09-23-find-palette.md`.
 
 **Small polish left behind, none blocking:** the Settings sidebar cannot be driven by a synthetic
 `click at` (select its rows through the accessibility API); a Sources card whose `count` comes from
@@ -259,7 +262,7 @@ G66 decay classes · A5 gap analysis · **G115 Phase 1 / G97 (2026-09-03)** — 
 Recommended, decay through the question component, the G98 informational rule
 
 **Search** — **G136 server half (2026-09-23)** — the derived FTS5 index beside the vector index, `/search`
-with kinds / lexical totals / spans / prefix and hybrid, `/conversations/recent?q=`; the palette is open
+with kinds / lexical totals / spans / prefix and hybrid, `/conversations/recent?q=`; the ⌘K find palette's S3 (local tier, Ask as a mode); S4–S6 open
 
 **App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·

@@ -520,7 +520,9 @@ unchanged for future use.
 **Navigation.** Six sidebar rows (⌘1–6): Graph, Clusters, Feed, Sleep, Inbox, Sources. Setup lives
 in a native `Settings{}` scene (⌘,), a `NavigationSplitView` over five sections — General · Sleep ·
 Integrations · Agents · Plans & keys (`SettingsSection`, replacing the earlier four-tab `TabView`).
-⌘K opens the Ask panel. `AppTab` raw values are the persisted identity of a tab, and
+⌘K (Find in Memory…) opens the find palette — Find, with Ask as a mode on ⌘⏎. ⌘K and ⌘F are menu
+commands in `Support/FindCommands.swift`; `HiddenShortcutLintTests` fails the build on either
+shortcut anywhere else (G136). `AppTab` raw values are the persisted identity of a tab, and
 `AppTab.restored(from:)` maps retired ones onto the pages that inherited them, so an older selection
 never traps. A page's top-right control is the `?` alone — Track P's audit removed the global Sleep
 button, because a cycle starts from the Sleep page's one Consolidate control (G125 R10) or the

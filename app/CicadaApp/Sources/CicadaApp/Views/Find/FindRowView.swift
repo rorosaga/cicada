@@ -34,10 +34,18 @@ struct FindRowView: View {
             .fill(selected || hovered ? CicadaTheme.surfaceHover : Color.clear))
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
-        .accessibilityElement(children: .ignore)
+        // A Settings row keeps its children: its Open link is the only thing
+        // that opens the scene, and `.ignore` hid it from VoiceOver while the
+        // hint promised Settings (final review, finding 2).
+        .accessibilityElement(children: opensSettings ? .contain : .ignore)
         .accessibilityLabel(FindRowText.accessibilityLabel(row))
         .accessibilityHint(FindRowText.primaryVerb(row.destination))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var opensSettings: Bool {
+        if case .settings = row.destination { return true }
+        return false
     }
 
     private var titleLine: some View {

@@ -191,6 +191,25 @@ struct FindResults: Equatable, Sendable {
     var rowCount: Int { groups.values.reduce(0) { $0 + $1.count } + (topHit == nil ? 0 : 1) }
     var groupCount: Int { groups.values.filter { !$0.isEmpty }.count + (topHit == nil ? 0 : 1) }
 
+    /// How many things matched — the footer's number — or nil when it is not
+    /// known exactly. `rowCount` counts the rows this palette *built*, and
+    /// `QuickIndex.rowCap` stops building at 50 a group, so 300 matching
+    /// entities read "52 results" beside an Entities header saying "5 of 299"
+    /// (final review, finding 3). This sums each group's own `count(for:)`
+    /// plus the lifted top hit instead, and gives up — nil, so the footer
+    /// drops the number — the moment any group is `.atLeast` or was cut by the
+    /// row cap, the same groups whose button already reads "More…" (R-SU15:
+    /// a count is honest or absent).
+    var exactMatchTotal: Int? {
+        var total = topHit == nil ? 0 : 1
+        for (group, rows) in groups where !rows.isEmpty {
+            guard case .exact(let n) = count(for: group),
+                  !(serverCounts[group] == nil && rows.count < n) else { return nil }
+            total += max(n, rows.count)
+        }
+        return total
+    }
+
     func row(for key: FindRowKey) -> FindRow? {
         if ask?.key == key { return ask }
         if topHit?.key == key { return topHit }

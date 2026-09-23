@@ -144,4 +144,37 @@ final class PaletteMergeTests: XCTestCase {
         XCTAssertEqual(FindRowText.moreLabel(.exact(12)), "Show all 12")
         XCTAssertEqual(FindRowText.moreLabel(.atLeast), "More…")
     }
+
+    /// Final review, finding 3 — the footer counts matches, not built rows.
+    /// 300 entities match "alpha"; `QuickIndex.rowCap` builds 50 of them, so
+    /// the old `rowCount` footer said "52 results" beside "5 of 299".
+    func testTheFooterNeverCountsTheRowsItBuiltAsMatches() {
+        var inputs = QuickIndexInputs()
+        inputs.nodes = (0..<300).map { FindFixtures.node("alpha-\($0)", "alpha-\($0)") }
+        let index = QuickIndex.build(inputs)
+        let results = FindMerge.fresh(query: "alpha", local: index.query("alpha"))
+        XCTAssertEqual(results.rowCount, QuickIndex.rowCap, "the cap built fewer rows than matched")
+        XCTAssertNil(results.exactMatchTotal, "a capped group makes the total unknown")
+        XCTAssertEqual(results.sections(expanded: []).first { $0.group == .entities }?.more, .atLeast)
+        XCTAssertEqual(FindRowText.footer(query: "alpha", results: results), "Results in 2 groups")
+
+        // Under the cap every count is exact: the top hit plus its group's rest.
+        let few = FindMerge.fresh(query: "alpha", local: QuickIndex.build(
+            QuickIndexInputs(nodes: Array(inputs.nodes.prefix(7)))).query("alpha"))
+        XCTAssertEqual(few.exactMatchTotal, 7)
+        XCTAssertEqual(FindRowText.footer(query: "alpha", results: few), "7 results in 2 groups")
+
+        // A server total the local tier cannot union with is unknown too.
+        let withConversation = FindMerge.append([row(.conversation, "s1", .conversations)],
+                                                totals: [.conversations: .atLeast], to: few)
+        XCTAssertNil(withConversation.exactMatchTotal)
+        XCTAssertEqual(FindRowText.footer(query: "alpha", results: withConversation), "Results in 3 groups")
+        XCTAssertEqual(FindRowText.footer(query: "zzz", results: FindMerge.fresh(query: "zzz", local: index.query("zzz"))),
+                       "Nothing matches “zzz”.")
+    }
+
+    func testASettingsRowNeverPromisesToOpenSettingsOnReturn() {
+        XCTAssertEqual(FindRowText.primaryVerb(.settings(.integrations)), "Show how to open",
+                       "⏎ only shows the hint (R-SU12); the Open link is what opens it")
+    }
 }

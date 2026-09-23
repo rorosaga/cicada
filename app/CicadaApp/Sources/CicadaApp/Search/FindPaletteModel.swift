@@ -181,10 +181,8 @@ final class FindPaletteModel {
 
     var footerText: String {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard mode == .find, !trimmed.isEmpty else { return "" }
-        let n = results.rowCount, g = results.groupCount
-        guard n > 0 else { return "Nothing matches “\(trimmed)”." }
-        return "\(UsageFormat.count(n)) \(n == 1 ? "result" : "results") in \(g) \(g == 1 ? "group" : "groups")"
+        guard mode == .find else { return "" }
+        return FindRowText.footer(query: trimmed, results: results)
     }
 
     var selectionAnnouncement: String? {
