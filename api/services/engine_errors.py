@@ -7,7 +7,7 @@ contract every layer above branches on: the extractor's retry tuple, its
 per-episode classifier, the resolver's failure-vs-uncertainty split, and the
 Sleep page's honest engine copy.
 
-No logic and no imports beyond stdlib on purpose — this module is safe to
+No logic beyond carrying a reset time, and no imports beyond stdlib on purpose — this module is safe to
 import from anywhere, including ``providers`` at seam-resolution time.
 """
 from __future__ import annotations
@@ -30,11 +30,31 @@ class EngineTimeout(EngineError):
 class EngineThrottled(EngineError):
     """The plan is rate-limited right now. Trips the circuit breaker: after
     the first one the cycle stops cleanly rather than re-hitting it once per
-    remaining episode."""
+    remaining episode.
+
+    ``resets_at`` (R-E12): the vendor's own unix reset time when a rate-limit
+    signal carried one — measured, never estimated."""
+
+    def __init__(self, *args, resets_at: int | None = None):
+        super().__init__(*args)
+        self.resets_at = resets_at
 
 
 class EngineExhausted(EngineError):
-    """``terminal_reason: budget_exhausted`` — the plan window is spent."""
+    """``terminal_reason: budget_exhausted`` — the plan window is spent.
+
+    ``resets_at`` (R-E12): the vendor's own unix reset time when a rate-limit
+    signal carried one — measured, never estimated."""
+
+    def __init__(self, *args, resets_at: int | None = None):
+        super().__init__(*args)
+        self.resets_at = resets_at
+
+
+class EngineOverage(EngineExhausted):
+    """The plan's included usage is spent and the CLI is billing (or would
+    bill) extra usage the person has not opted into — G117's explicit choice,
+    R-E12/R-E13. Never retried; stops the cycle like an exhaustion."""
 
 
 class EngineModelNotFound(EngineError):

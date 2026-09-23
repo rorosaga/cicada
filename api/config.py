@@ -122,6 +122,26 @@ class Settings(BaseSettings):
     # (10) and each fan-out slot would otherwise be one more process; 3 keeps
     # the machine usable and the plan's own rate limit further away.
     agent_max_concurrency: int = 3                  # CICADA_AGENT_MAX_CONCURRENCY
+    # R-E1/R-E11–R-E14 (2026-09-23) — the claude-cli rung, hardened the
+    # Hermes way. `--effort` for a call whose caller asked for reasoning OFF
+    # (Stage 1 and Stage 2's judge pass extra_body.reasoning.enabled=False,
+    # which the CLI has no other form for). `claude --help` 2.1.280:
+    # low|medium|high|xhigh|max. "" = the CLI's own default.
+    agent_low_effort: str = "low"                   # CICADA_AGENT_LOW_EFFORT
+    # CLAUDE_CODE_MAX_RETRIES for Cicada's spawns. The CLI default (10) can
+    # retry a plan 429 until the 300 s wall clock turns it into a timeout
+    # (R1 gap B); 2 still rides out a transient 5xx.
+    agent_cli_max_retries: int = 2                  # CICADA_AGENT_CLI_MAX_RETRIES
+    # Stop a cycle once the CLI reports the 5-hour window at or past this
+    # fraction, leaving the person room to work (R-E12).
+    agent_stop_utilization: float = 0.9             # CICADA_AGENT_STOP_UTILIZATION
+    # Let Sleep keep going on Claude extra usage (Anthropic bills it
+    # separately). Off unless chosen (G117); Settings → Sleep's pref
+    # promotes it when CICADA_LLM_MODE is not pinned (R-E13).
+    agent_allow_overage: bool = False               # CICADA_AGENT_ALLOW_OVERAGE
+    # Stage 1 through `--json-schema`. OFF until the demo-bank comparison is
+    # recorded in G49 (R-E14, R1 §5.4).
+    agent_extraction_schema: bool = False           # CICADA_AGENT_EXTRACTION_SCHEMA
 
     # Server
     host: str = "127.0.0.1"

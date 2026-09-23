@@ -300,6 +300,31 @@ def agent_envelopes():
 
 
 @pytest.fixture
+def claude_stream(agent_envelopes):
+    """`claude -p --output-format stream-json --verbose` stdout (R-E1).
+    `system/init` and `rate_limit_event` are shaped from claude-agent-sdk
+    0.2.157's own parser tests (R1 §2.7), `system/api_retry` from
+    code.claude.com/docs/en/headless; the `result` line is an
+    `agent_envelopes` entry verbatim. `result=None` omits it (a truncated
+    stream). The live-recorded twin is fixtures/claude_stream_live.jsonl."""
+    def make(result="success", *, rate_limits=(), retries=(), api_key_source="none"):
+        lines = [{"type": "system", "subtype": "init", "session_id": "ses-fixture",
+                  "model": "claude-sonnet-5", "tools": [], "mcp_servers": [],
+                  "permissionMode": "default", "apiKeySource": api_key_source}]
+        for retry in retries:
+            lines.append({"type": "system", "subtype": "api_retry", "attempt": 1,
+                          "max_retries": 2, "retry_delay_ms": 500, **retry})
+        for info in rate_limits:
+            lines.append({"type": "rate_limit_event", "rate_limit_info": info,
+                          "uuid": "u-fixture", "session_id": "ses-fixture"})
+        if result is not None:
+            lines.append(agent_envelopes[result])
+        return "\n".join(json.dumps(line) for line in lines) + "\n"
+
+    return make
+
+
+@pytest.fixture
 def agent_runner():
     """Factory: `agent_runner(envelope_or_result, ...)` -> a recording runner.
 
@@ -318,9 +343,10 @@ def agent_runner():
             def __init__(self):
                 self.calls: list[dict] = []
 
-            def __call__(self, argv, *, stdin=None, timeout=None, cwd=None):
+            def __call__(self, argv, *, stdin=None, timeout=None, cwd=None, env_overrides=None):
                 self.calls.append({"argv": list(argv), "stdin": stdin,
-                                   "timeout": timeout, "cwd": cwd})
+                                   "timeout": timeout, "cwd": cwd,
+                                   "env_overrides": env_overrides})
                 item = queue[min(len(self.calls) - 1, len(queue) - 1)]
                 if isinstance(item, CliResult):
                     return item

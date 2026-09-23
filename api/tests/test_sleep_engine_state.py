@@ -383,3 +383,12 @@ def test_sleep_status_exposes_the_engine():
     body = TestClient(main.app).get("/sleep/status").json()
     assert body["lastEngine"] == "claude-cli"
     assert body["engineDetail"] == "Claude Code signed in on this Mac."
+
+
+def test_the_requeue_note_names_the_plan_stop_when_there_is_one():
+    assert sleep_cycle._requeue_note(0, "anything") == ""
+    assert sleep_cycle._requeue_note(3, None) == " — 3 episode(s) requeued (re-run to continue)"
+    assert sleep_cycle._requeue_note(3, "Your Claude plan is 92% used for this 5-hour window — "
+                                        "Sleep paused to leave you room.") == (
+        " — 3 episode(s) requeued (Your Claude plan is 92% used for this 5-hour window — "
+        "Sleep paused to leave you room.)")

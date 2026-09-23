@@ -557,6 +557,15 @@ def _engine_label(settings: Settings) -> str:
     return engine_select.engine_label(settings)
 
 
+def _requeue_note(requeued: int, breaker: str | None) -> str:
+    """R-E12: when a plan stop is why episodes stayed queued, the completion
+    sentence says so in the plan's own words — "re-run to continue" was true
+    but hid the one fact that mattered (wait for the reset)."""
+    if not requeued:
+        return ""
+    return f" — {requeued} episode(s) requeued ({breaker or 're-run to continue'})"
+
+
 def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> str:
     """The user-visible reason Stage 1 produced nothing — per engine.
 
@@ -1282,10 +1291,12 @@ async def _run_stages(
     # tail (`_run_engine_independent_tail`), which `run` executes in its
     # `finally` block on every exit path — not just this happy one.
 
-    requeue_note = (
-        f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
-        if _state.episodes_requeued else ""
-    )
+    # R-E12: a plan stop tripped mid-cycle is the cycle's engine detail and
+    # the reason in its requeue note — the plan's own sentence and reset time.
+    breaker = agent_engine.breaker_reason()
+    if breaker:
+        _state.engine_detail = breaker
+    requeue_note = _requeue_note(_state.episodes_requeued, breaker)
     # Episode cap: `episodes_queued` (the FULL unprocessed count found before
     # capping) > `episodes_total` (what this cycle actually attempted) means
     # the cap truncated this cycle. Surfaced in the progress sentence — same

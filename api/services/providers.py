@@ -175,6 +175,42 @@ def _agent_semaphore(limit: int) -> threading.BoundedSemaphore:
         return sem
 
 
+def _reasoning_off(extra_body) -> bool:
+    """The caller's "no reasoning" intent (Stage 1, Stage 2's judge). The
+    Claude CLI expresses it as `--effort` (R-E11); it used to be dropped."""
+    reasoning = extra_body.get("reasoning") if isinstance(extra_body, dict) else None
+    return isinstance(reasoning, dict) and reasoning.get("enabled") is False
+
+
+def _claude_refs(envelope: dict, stream) -> dict:
+    """R1 gap G: one spawn can be several upstream requests (Hermes' finding),
+    so `num_turns` makes that visible; `api_key_source` is the CLI's own enum
+    for which credential answered. Enums and counts only (telemetry rail)."""
+    refs: dict = {}
+    turns = envelope.get("num_turns")
+    if isinstance(turns, int) and not isinstance(turns, bool):
+        refs["num_turns"] = turns
+    source = getattr(stream, "api_key_source", None)
+    if source:
+        refs["api_key_source"] = source
+    return refs
+
+
+def _throttle_refs(stream) -> dict:
+    """The last rate-limit signal as enums: window, state, a coarse bucket,
+    overage. Never a number finer than the bucket, never text."""
+    signals = list(getattr(stream, "rate_limits", None) or [])
+    if not signals:
+        return {}
+    last = signals[-1]
+    refs = {"rate_limit_type": last.limit_type or "unknown", "status": last.status,
+            "overage": bool(last.using_overage)}
+    if last.utilization is not None:
+        u = last.utilization
+        refs["utilization_bucket"] = "<50" if u < 0.5 else "50-80" if u < 0.8 else "80-95" if u < 0.95 else ">95"
+    return refs
+
+
 def resolve_llm_fn(
     settings: Settings,
     *,
@@ -291,7 +327,7 @@ def resolve_llm_fn(
         argv_model = resolved_model
 
     def _emit(resp, started: float, ok: bool, *, model_used: str | None = None,
-              equiv_override: float | None = None) -> None:
+              equiv_override: float | None = None, refs: dict | None = None) -> None:
         try:
             usage = telemetry.usage_from_response(resp) if ok else telemetry.usage_from_response(None)
             event_model = model_used or (argv_model if is_agent else resolved_model)
@@ -319,26 +355,29 @@ def resolve_llm_fn(
                 cache_write_tokens=usage["cache_write_tokens"],
                 cost_usd=cost, equiv_cost_usd=equiv,
                 duration_ms=int((time.perf_counter() - started) * 1000), ok=ok,
+                refs=refs or {},
             ))
         except Exception as exc:  # a sink must never break an LLM call
             logger.warning(f"telemetry sink failed: {exc}")
 
-    def _emit_throttle(exc: Exception) -> None:
+    def _emit_throttle(reason, stream=None) -> None:
         """The first ``kind="throttle"`` event this codebase has ever written.
 
         ``telemetry.KINDS`` has listed it and ``consumption_stats:249`` has
-        counted ``throttle_events`` since G51; nothing produced one.
+        counted ``throttle_events`` since G51; nothing produced one. R-E12:
+        the last rate-limit signal rides along as enums (``_throttle_refs``).
         """
         try:
             sink(telemetry.UsageEvent(
                 kind="throttle", stage=stage or "unknown", connection=connection,
                 engine=engine_label, model=argv_model, bank=bank_label, billing=billing,
-                invocations=0, throttled=True, ok=False, refs={"detail": str(exc)[:300]},
+                invocations=0, throttled=True, ok=False,
+                refs={"detail": str(reason)[:300], **_throttle_refs(stream)},
             ))
         except Exception as sink_exc:
             logger.warning(f"telemetry sink failed: {sink_exc}")
 
-    def _agent_invoke(messages, response_format, timeout: float):
+    def _agent_invoke(messages, response_format, timeout: float, reasoning_off: bool = False):
         """One `claude -p` call, the response shim, and telemetry.
 
         Fix round 1, M1: the shim and cost extraction now sit INSIDE the
@@ -354,22 +393,38 @@ def resolve_llm_fn(
         finding 1): ``resolved_scope`` is captured ONCE so the check inside
         ``agent_engine.complete`` and the trip below always agree, even
         though ``agent_engine.current_scope()`` is re-readable at any point.
+
+        R-E12 — ``EngineExhausted`` trips the breaker like a throttle (every
+        remaining episode would otherwise spawn once and fail), and a stop
+        the engine saw on a SUCCESSFUL call (``on_signals``) trips it after
+        the answer is recorded. Both new trips apply only inside a workload
+        scope: the unscoped bucket Ask, MCP and the tail share is never
+        reset (``use_scope`` purges only its own), so a trip there would keep
+        Ask blocked after the window resets, until the backend restarts.
         """
         resolved_scope = scope or agent_engine.current_scope()
+        in_workload = resolved_scope != agent_engine.DEFAULT_SCOPE
         started = time.perf_counter()
+        seen: dict = {}
         try:
             envelope = agent_engine.complete(
                 messages=messages, model=argv_model, stage=stage,
                 want_json=response_format is not None, timeout=timeout, runner=runner,
                 scope=resolved_scope,
+                policy=agent_engine.CallPolicy.from_settings(settings, reasoning_off=reasoning_off),
+                on_signals=lambda stream, stop: seen.update(stream=stream, stop=stop),
             )
             resp = agent_engine.response_shim(envelope, argv_model)
             used = resp["model"]
             agent_engine.record_model_used(used)
             equiv = agent_engine.equiv_cost_from_envelope(envelope)
-        except engine_errors.EngineThrottled as exc:
-            # Trip BEFORE emitting so a concurrent caller cannot also trip.
-            newly_tripped = agent_engine.trip_breaker(str(exc), scope=resolved_scope)
+            refs = _claude_refs(envelope, seen.get("stream"))
+        except (engine_errors.EngineThrottled, engine_errors.EngineExhausted) as exc:
+            # R-E12: a throttle trips in any scope (unchanged). An exhaustion
+            # trips only inside a workload scope. Trip BEFORE emitting so a
+            # concurrent caller cannot also trip.
+            trips = isinstance(exc, engine_errors.EngineThrottled) or in_workload
+            newly_tripped = agent_engine.trip_breaker(str(exc), scope=resolved_scope) if trips else False
             # Fix round 1, L1: a fail-fast call (the breaker was ALREADY
             # tripped before this call — `agent_engine.complete` tags it
             # `.spawned = False`) never touched the runner, so it is not a
@@ -382,19 +437,23 @@ def resolve_llm_fn(
             if getattr(exc, "spawned", True):
                 _emit(None, started, ok=False)
             if newly_tripped:
-                _emit_throttle(exc)
+                _emit_throttle(str(exc), seen.get("stream"))
             raise
         except Exception:
             _emit(None, started, ok=False)
             raise
-        _emit(resp, started, ok=True, model_used=used, equiv_override=equiv)
+        _emit(resp, started, ok=True, model_used=used, equiv_override=equiv, refs=refs)
+        stop = seen.get("stop")
+        if (stop is not None and in_workload
+                and agent_engine.trip_breaker(stop.sentence, scope=resolved_scope)):
+            _emit_throttle(stop.sentence, seen.get("stream"))
         return resp
 
-    def _agent_invoke_sync(messages, response_format, timeout: float):
+    def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False):
         with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-            return _agent_invoke(messages, response_format, timeout)
+            return _agent_invoke(messages, response_format, timeout, reasoning_off)
 
-    async def _agent_invoke_async(messages, response_format, timeout: float):
+    async def _agent_invoke_async(messages, response_format, timeout: float, reasoning_off: bool = False):
         # Round 2 finding 2: the acquire, the call, and the release all
         # happen INSIDE this one `asyncio.to_thread` dispatch, sharing the
         # exact same `threading.BoundedSemaphore` a sync caller blocks on —
@@ -402,18 +461,19 @@ def resolve_llm_fn(
         # loop, while still drawing from the ONE process-wide capacity pool.
         def _run_with_permit():
             with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-                return _agent_invoke(messages, response_format, timeout)
+                return _agent_invoke(messages, response_format, timeout, reasoning_off)
 
         return await asyncio.to_thread(_run_with_permit)
 
     def _agent_call(*, messages, response_format=None, **kw):
-        # Accept-and-drop every unknown kwarg (`extra_body`, `temperature`,
-        # `max_tokens`, `api_base`, ...) — none of them have an argv form.
-        # `timeout` is the exception: it is the only wall-clock guard Stage 1
-        # has (entity_extractor.py:138). Coerced defensively (fix round 1,
-        # L3): a non-numeric or non-positive value falls back to the default
-        # rather than raising out of the seam before any telemetry is
-        # emitted for the call.
+        # Accept-and-drop every unknown kwarg (`temperature`, `max_tokens`,
+        # `api_base`, ...) — none of them have an argv form. Two are read:
+        # `timeout`, the only wall-clock guard Stage 1 has
+        # (entity_extractor.py:138), and `extra_body.reasoning` — "enabled:
+        # False" becomes `--effort low` (R-E11), where it used to be dropped.
+        # `timeout` is coerced defensively (fix round 1, L3): a non-numeric
+        # or non-positive value falls back to the default rather than raising
+        # out of the seam before any telemetry is emitted for the call.
         timeout = AGENT_DEFAULT_TIMEOUT_S
         raw_timeout = kw.get("timeout")
         if raw_timeout is not None:
@@ -423,9 +483,10 @@ def resolve_llm_fn(
                 parsed = None
             if parsed is not None and parsed > 0:
                 timeout = parsed
+        reasoning_off = _reasoning_off(kw.get("extra_body"))
         if is_async:
-            return _agent_invoke_async(messages, response_format, timeout)
-        return _agent_invoke_sync(messages, response_format, timeout)
+            return _agent_invoke_async(messages, response_format, timeout, reasoning_off)
+        return _agent_invoke_sync(messages, response_format, timeout, reasoning_off)
 
     if is_agent:
         return _agent_call
