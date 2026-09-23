@@ -119,6 +119,23 @@ final class SleepNumbersLintTests: XCTestCase {
         XCTAssertEqual(readers, ["StudyRoom.swift"])
     }
 
+    /// Task 6 review r1 — the room's pointer reader must hit-test over the
+    /// WHOLE room. The art and the worm are `.allowsHitTesting(false)`, so
+    /// without a content shape the hover fired only over the hotspot and the
+    /// pile, and the gaze never turned toward the lamp or the window.
+    /// `RoomModelTests` drives `pointer(at:)` directly and cannot see this, so
+    /// the modifier order is pinned here: the last code line before
+    /// `.onContinuousHover` is `.contentShape(Rectangle())`.
+    func testTheWholeRoomIsTheHoverSurface() throws {
+        let file = try Self.sleepSources().first { $0.lastPathComponent == "StudyRoom.swift" }!
+        let code = try String(contentsOf: file, encoding: .utf8).components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("//") }
+        let hover = try XCTUnwrap(code.firstIndex { $0.hasPrefix(".onContinuousHover") })
+        XCTAssertGreaterThan(hover, 0)
+        XCTAssertEqual(code[hover - 1], ".contentShape(Rectangle())")
+    }
+
     /// R-Z4 — all worm motion is sprite frames on the one lattice: no
     /// `.offset`, `.scaleEffect`, `.rotationEffect` or `.spring(` hangs off a
     /// `BookwormView(` or `WormStage(` under `Views/Sleep/`. The one allowed

@@ -80,10 +80,13 @@ final class RoomModel {
     }
 
     /// One click past the last rung returns to the status sentence (§6.3):
-    /// the ladder is a loop through the status, never a dead end.
+    /// the ladder is a loop through the status, never a dead end. An index
+    /// the ladder has shrunk under (the inbox rung went away while an answer
+    /// was up) restarts at the first rung (Task 6 review r1) — mapping it to
+    /// `nil` made that click show nothing and play no beat.
     static func nextAnswerIndex(after current: Int?, count: Int) -> Int? {
         guard count > 0 else { return nil }
-        guard let current else { return 0 }
+        guard let current, current < count else { return 0 }
         return current + 1 < count ? current + 1 : nil
     }
 

@@ -298,7 +298,16 @@ struct RoomSentenceView: View {
     /// index that outlived its ladder (the facts changed under it) falls back
     /// to the status rather than trapping.
     private var shown: SentenceLine {
-        room?.answerIndex.flatMap { answers.indices.contains($0) ? answers[$0] : nil } ?? line
+        shownRung.map { answers[$0] } ?? line
+    }
+
+    /// Which rung is on show — `nil` for the status. The cross-fade keys on
+    /// THIS, not on the line (Task 6 review r1): keyed on the whole line,
+    /// every status tick ("Read a of b" during a cycle) rebuilt the slot and
+    /// its tail Button, dropping keyboard focus off the link. A status change
+    /// now updates in place; only status ⇄ answer and rung → rung fade.
+    private var shownRung: Int? {
+        room?.answerIndex.flatMap { answers.indices.contains($0) ? $0 : nil }
     }
 
     var body: some View {
@@ -311,12 +320,13 @@ struct RoomSentenceView: View {
                     .minimumScaleFactor(0.7)
                 tailView(shown)
             }
-            // Keyed on the line so a change cross-fades (opacity only — the
-            // slot's height is reserved, so nothing slides).
-            .id(shown)
+            // Keyed on the rung so a status ⇄ answer change cross-fades
+            // (opacity only — the slot's height is reserved, so nothing
+            // slides).
+            .id(shownRung)
             .transition(.opacity)
         }
-        .animation(SleepMotion.sentence(reduceMotion: reduceMotion), value: shown)
+        .animation(SleepMotion.sentence(reduceMotion: reduceMotion), value: shownRung)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .onHover { room?.pointerInSentence = $0 }

@@ -100,7 +100,10 @@ private func inboxRung(_ ctx: RoomContext) -> SentenceLine? {
 /// backend's `engineDetail` is shown sentence-cased, never reworded.
 private func engineRung(_ ctx: RoomContext, verb: String) -> SentenceLine? {
     guard let engine = ctx.lastEngine else { return nil }
+    // One under the budget: `sentenceCase` may append a stop, and an
+    // 80-character clause plus "." failed the ladder's fit filter, which
+    // dropped the whole engine rung (Task 6 review r1).
     return SentenceLine(lead: "\(verb) \(Copy.engineLabel(engine)).",
-                        tail: sentenceCase(sentenceClause(ctx.engineDetail)),
+                        tail: sentenceCase(sentenceClause(ctx.engineDetail, limit: SentenceLine.maxTail - 1)),
                         mark: .engine(engine))
 }

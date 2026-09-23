@@ -40,10 +40,37 @@ extension View {
         if #available(macOS 15, *) {
             self.pointerStyle(.link)
         } else {
-            self.onHover { inside in
-                if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            self.modifier(PushedLinkCursor())
         }
+    }
+}
+
+/// The macOS 14 fallback for `roomLinkCursor`. NSCursor's stack is global, so
+/// a push and a pop must pair exactly (Task 6 review r1): the plan's bare
+/// `onHover` push/pop popped a cursor it never pushed on an unmatched
+/// hover-out, and never popped at all when the view was torn down while
+/// hovered (a mood change swapping the hotspot out under the pointer), which
+/// left the whole app on a pointing hand. `pushed` makes each side idempotent,
+/// and `onDisappear` closes the pair a teardown would have left open.
+private struct PushedLinkCursor: ViewModifier {
+    @State private var pushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in inside ? push() : pop() }
+            .onDisappear { pop() }
+    }
+
+    private func push() {
+        guard !pushed else { return }
+        NSCursor.pointingHand.push()
+        pushed = true
+    }
+
+    private func pop() {
+        guard pushed else { return }
+        NSCursor.pop()
+        pushed = false
     }
 }
 
@@ -84,6 +111,15 @@ struct StudyRoom: View {
             }
         }
         .frame(width: scene.size.width, height: scene.size.height, alignment: .bottomLeading)
+        // The whole room is the hover surface (Task 6 review r1). Hover only
+        // reaches the parts of a view that hit-test, and the art and the worm
+        // are `.allowsHitTesting(false)` (and a `.frame` adds no hit area), so
+        // without this the pointer registered only over the hotspot and the
+        // pile: the gaze never turned left over the lamp or the window (I1),
+        // and the dwell counted a pointer resting there as gone. Children with
+        // their own gestures sit above this shape and keep their clicks — the
+        // same pattern as the sidebar rows.
+        .contentShape(Rectangle())
         .onContinuousHover(coordinateSpace: .local) { phase in
             switch phase {
             case .active(let location):

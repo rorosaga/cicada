@@ -19,6 +19,10 @@ final class RoomModelTests: XCTestCase {
         XCTAssertEqual(RoomModel.nextAnswerIndex(after: 1, count: 3), 2)
         XCTAssertNil(RoomModel.nextAnswerIndex(after: 2, count: 3), "one click past the last rung")
         XCTAssertNil(RoomModel.nextAnswerIndex(after: nil, count: 0))
+        // Review r1: the ladder shrank under an open answer — restart, never a
+        // silent click.
+        XCTAssertEqual(RoomModel.nextAnswerIndex(after: 3, count: 3), 0)
+        XCTAssertEqual(RoomModel.nextAnswerIndex(after: 7, count: 2), 0)
     }
 
     func test_aPokeTalks_exceptInWordsOnlyStates() {

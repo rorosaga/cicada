@@ -87,9 +87,22 @@ final class WormAnswersTests: XCTestCase {
         for rung in wormAnswers(c) { XCTAssertFalse(rung.spoken.contains(numeral), rung.spoken) }
     }
 
+    /// The ladder's own fit filter drops an over-budget rung silently, so a
+    /// per-rung length check alone could never fail (review r1): the count
+    /// per mood is pinned too, so a rung that vanishes fails here. The engine
+    /// detail is 80 characters with no stop — the edge where a clause plus
+    /// `sentenceCase`'s "." used to lose the whole engine rung.
     func test_everyRungFitsAndSaysNothingItMayNot() {
-        for mood in [BookwormState.awake, .happy, .reading, .hungry, .digesting, .error, .sleeping(stage: 4)] {
-            for rung in wormAnswers(ctx(mood) { $0.activeStage = 4; $0.lastEngine = "litellm"; $0.cycleError = "boom" }) {
+        let detail = String(repeating: "abcd ", count: 15) + "abcde"
+        XCTAssertEqual(detail.count, SentenceLine.maxTail)
+        let expected: [(BookwormState, Int)] = [(.awake, 1), (.happy, 4), (.reading, 4), (.hungry, 4),
+                                                (.digesting, 2), (.error, 3), (.sleeping(stage: 4), 2)]
+        for (mood, count) in expected {
+            let rungs = wormAnswers(ctx(mood) {
+                $0.activeStage = 4; $0.lastEngine = "litellm"; $0.cycleError = "boom"; $0.engineDetail = detail
+            })
+            XCTAssertEqual(rungs.count, count, "\(mood): \(rungs.map(\.lead))")
+            for rung in rungs {
                 XCTAssertLessThanOrEqual(rung.lead.count, SentenceLine.maxLead, rung.lead)
                 XCTAssertLessThanOrEqual(rung.tail?.count ?? 0, SentenceLine.maxTail)
                 XCTAssertFalse(rung.spoken.contains("!") || rung.spoken.contains("%") || rung.spoken.contains("~"))
