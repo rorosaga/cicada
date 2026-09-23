@@ -178,7 +178,7 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
 - **G61 phase 2 (S0–S2), disclosed not fixed:** save-time `media_ingestor.enrich` (the person's own
   save or paste) still reads a page on `_TIMEOUT` (5 s) with `resp.text[:_MAX_READ]` (the whole body
   downloaded, then cut to 1.5 MB); S0 moved only Sleep's own read onto `default_fetch`, and the same
-  one-function change applies there. Two sources with one ref and two predicates share the app's `EntitySource.id` (`kind|ref`), so the entity card's Sources `ForEach` sees a duplicate id until S5 rebuilds that section; deleting still addresses by index, so the right entry goes (plan R-AC43).
+  one-function change applies there. Two sources with one ref and two predicates share the app's `EntitySource.id` (`kind|ref`), so the entity card's Sources `ForEach` sees a duplicate id until S5 rebuilds that section; deleting still addresses by index, so the right entry goes (plan R-AC43). `InboxItem.check` reads two inputs no `/inbox` ETag component covers — a bank's `_predicates.yaml` (as `informational` already does) and today's date (clamp 4, as `age_days` already does); no screen reads `check` yet, and S6, its first reader, closes both (plan R-AC40).
 
 
 ## Rulings that cost real work to derive — do not re-litigate without reading them
@@ -280,10 +280,10 @@ subjects keyed by Stage-2 ids), **PJ-1** (the $0 read model and its two GETs, wi
 generated demo bank only.
 
 **Filed 2026-09-23 — G61 phase 2, check the source before asking the person.** The spec is committed
-(`docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`). Three backend-only slices can
-start now, in parallel with anything app-side: **S0** (Stage 5.57's ungated `default_summarize`, the
+(`docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`). Its three backend-only slices are built on
+`feat/g61-sources-checkable` (plan `docs/superpowers/plans/2026-09-23-g61-s0-s2.md`): **S0** (Stage 5.57's ungated `default_summarize`, the
 duplicate `source_episode` key, the hint's voice), **S1** (checkable sources, `cicada_add_source`) and
-**S2** (a read-only checkability census that decides whether S3–S8 are built). Its five owner decisions
+**S2** (a read-only checkability census, `scripts/check-census.sh <bank>`, whose live-bank counts go on the G61 row before S3). Its five owner decisions
 are listed under Research / decisions.
 
 **Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
@@ -515,7 +515,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     Two-witness settle (a local agent's reading + Cicada's own re-read of the same site); never a human
     claim, never the owner's page, never a remote report; `cicada`-authored, reviewable in `inbox/settled/`,
     one-tap "Ask me instead". Ships in **shadow** first — the owner flips auto with the numbers in view.
-    **S0–S1 ✅ 2026-09-23 · S2 next:** S0 truth + fetch hygiene (Stage 5.57's ungated
+    **S0–S2 ✅ 2026-09-23 — run `scripts/check-census.sh` on the live bank and record the counts (only) on the G61 row before S3:** S0 truth + fetch hygiene (Stage 5.57's ungated
     `default_summarize`, `add_source` on `(ref, predicate)`, the hint voiced by `added_by` and derived at
     read, the duplicate `source_episode` key, organic resolution on `is_human`), S1 checkable sources
     (`access`, `kind: app|repo`, predicate `locus`, `cicada_add_source`), S2 a read-only checkability

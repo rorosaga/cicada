@@ -14,7 +14,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from api.config import Settings
-from api.models.schemas import InboxCause, InboxItem, InboxOption, InboxResolveRequest
+from api.models.schemas import InboxCause, InboxCheck, InboxItem, InboxOption, InboxResolveRequest
 from api.services import (
     decay_policy,
     fact_sources,
@@ -22,6 +22,7 @@ from api.services import (
     inbox_questions,
     markdown_parser,
     predicates,
+    source_check,
     telemetry,
 )
 from api.services.id_utils import resolve_entity_file, sanitize_id
@@ -115,6 +116,15 @@ def _item_from_file(
             and predicates.cardinality(context.memory_path, str(fm.get("predicate", "") or "")) == "multi"
         )
         extra.update(_extractor_refs(fm, kind, context))
+        # G61 phase 2 S2: which rung could answer this, derived at read and
+        # never stored (source_check). Read-only — nothing acts on it yet. A
+        # failure degrades to no `check`, never to a hidden card: load_inbox
+        # skips any item whose read raises (plan R-AC40; G115 — a card is
+        # never hidden for a derived field). Type only: a message could carry a ref.
+        try:
+            extra["check"] = InboxCheck(**source_check.for_item(fm, raw_options, context).to_wire())
+        except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
+            logger.warning(f"checkability skipped for {filepath.name}: {type(exc).__name__}")
 
     options: list[InboxOption] = []
     for raw in raw_options:

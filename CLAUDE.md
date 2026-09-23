@@ -936,6 +936,14 @@ three tiers (item → claim → entity), engine-free. The excerpt is ±240 chars
 on word boundaries, **offsets recomputed on every read and never stored**. Nothing resolves →
 `tier: none` and a literal `[ no source recorded ]`, served — never a hidden card.
 
+**Checkability (G61 phase 2 S2).** Every item also carries `check` — `{state:
+checkable|needs_source|inform_only|never, reason, locus, targets[], rungs[], settle_eligible}` —
+derived at read by `source_check.for_item` from the item, the subject page's `sources:`, `owner:`
+flag and claims, and the predicate `locus`: pure, engine-free, zero-network, never stored. Nothing
+acts on it yet (no check, hold or settle — S3+), and the app does not read it. `GET
+/inbox/check-census` and `scripts/check-census.sh <bank>` report it as ids-free counts — the coverage
+gate for S3–S8.
+
 **Decay is no longer the special case.** Served as `Still tracking {name}?` with `archive` / `keep`,
 synthesised at read from the page's `last_referenced`, never written. Its question sets
 `allow_other: false` and **the whole stack now means it**: free text on resolve is a `400`.

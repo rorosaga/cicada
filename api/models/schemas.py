@@ -1353,6 +1353,34 @@ class InboxCause(CamelModel):
     span_kind: str = "derived"
 
 
+class InboxCheckTarget(CamelModel):
+    """One place an inbox item's fact could be checked (G61 phase 2 S2). ``access``
+    is the EFFECTIVE value (stated, else inferred — ``fact_sources.effective_access``);
+    ``own_session_only`` marks a host Cicada never reads itself, which an agent may
+    only open in the person's already-open session (D-AC2)."""
+
+    ref: str
+    kind: str
+    access: str
+    added_by: str
+    predicate_matched: bool = False
+    accepted: bool = False
+    rungs: list[str] = []
+    own_session_only: bool = False
+
+
+class InboxCheck(CamelModel):
+    """Which rung could answer an item — derived at read by ``source_check``,
+    never stored (G61 phase 2 S2, plan R-AC34/R-AC40). Nothing acts on it yet."""
+
+    state: str                  # checkable | needs_source | inform_only | never
+    reason: str
+    locus: str = "unknown"      # world | artifact | person | unknown
+    targets: list[InboxCheckTarget] = []
+    rungs: list[str] = []       # fetch | agent | agent_local
+    settle_eligible: bool = False
+
+
 class InboxItem(CamelModel):
     id: str
     kind: InboxKind
@@ -1394,6 +1422,10 @@ class InboxItem(CamelModel):
     recommended_key: Optional[str] = None
     # G98: a conflict on a multi-valued predicate is shown, never asked.
     informational: bool = False
+    # G61 phase 2 S2 (plan R-AC40): derived at read, never stored; additive —
+    # the app's InboxItem decodes through explicit CodingKeys that do not list
+    # it, so no VersionVector or decoder change is needed until a screen reads it.
+    check: Optional[InboxCheck] = None
 
 
 class InboxResolveRequest(CamelModel):
@@ -1412,6 +1444,23 @@ class InboxResolveRequest(CamelModel):
     # When it names the cleaner mention instead, the surviving file is renamed to
     # the survivor's slug so a merge can go either direction.
     merge_survivor: Optional[str] = None
+
+
+class CheckCensus(CamelModel):
+    """``GET /inbox/check-census`` — counts only (G61 phase 2 S2, plan R-AC41).
+    Dict keys are enum values (``checkable``, ``checkable/settle_eligible``), not
+    aliased."""
+
+    total: int = 0
+    deferred: int = 0
+    by_state: dict[str, int] = {}
+    by_reason: dict[str, int] = {}
+    by_kind: dict[str, dict[str, int]] = {}
+    by_locus: dict[str, int] = {}
+    by_rung: dict[str, int] = {}
+    targets_by_access: dict[str, int] = {}
+    settle_eligible: int = 0
+    checkable_share: float = 0.0
 
 
 # --- Status aggregate (menu-bar / tamagotchi) ---
