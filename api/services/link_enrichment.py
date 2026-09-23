@@ -214,6 +214,12 @@ def _candidates(memory_path: Path, max_per_cycle: int) -> list[Path]:
         fm = parsed.frontmatter or {}
         if fm.get("type") != "media" or fm.get("enrichment_attempted"):
             continue
+        # R-LS19: a paper page is described by the arXiv/Crossref APIs
+        # (`paper_metadata`), never by a page fetch of arxiv.org.
+        from api.services.papers import is_paper
+
+        if is_paper(fm):
+            continue
         media = fm.get("media") or {}
         mtype = str(media.get("media_type", ""))
         url = str(media.get("url", ""))
@@ -668,6 +674,12 @@ def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> 
             continue
         fm = parsed.frontmatter or {}
         if fm.get("type") != "media" or fm.get("enrichment_status") == "junk":
+            continue
+        # R-LS19: a paper page is described by the arXiv/Crossref APIs
+        # (`paper_metadata`), never by a page fetch of arxiv.org.
+        from api.services.papers import is_paper
+
+        if is_paper(fm):
             continue
         media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
         url = str(media.get("url") or "")

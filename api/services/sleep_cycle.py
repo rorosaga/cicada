@@ -469,6 +469,41 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
         logger.warning(f"Link backfill failed: {type(e).__name__}: {e}")
 
 
+async def _resolve_papers_safely(memory_path: Path) -> None:
+    """G133: finish the paper parses a running cycle deferred (R-LS17), then fetch
+    paper details from the arXiv and Crossref APIs (R-LS18).
+
+    Same contract as its neighbours: bounded (``TAIL_ARXIV_IDS`` /
+    ``TAIL_CROSSREF_DOIS`` per cycle), never fatal, and in the clean-tree-guarded
+    branch — both halves write entity pages, and on a half-written cycle those
+    would ride the next ``git add -A``. The deterministic half runs regardless of
+    the network gate; the fetch is the "unattended background call"
+    ``CICADA_ALLOW_CONNECTOR_FETCH`` exists to gate, and a gated skip is recorded
+    (``record_skip``) so it never reads as "nothing to fetch". No LLM, so no
+    engine is resolved (TODO.md ruling 4 is untouched)."""
+    try:
+        from api.services import folder_source, paper_metadata, papers, sync_state
+        from api.services.connectors.base import network_allowed
+
+        deferred = await asyncio.to_thread(papers.reconcile_pending, memory_path)
+        if deferred["folders"]:
+            await folder_source.commit_paths_for(memory_path, deferred["paths"], subject="Folder papers",
+                                                 trigger="folder/papers", author="cicada")
+        if not paper_metadata.has_pending(memory_path):
+            return
+        if not network_allowed():
+            sync_state.record_skip(memory_path, "papers", "network fetch disabled")
+            logger.info("Paper details skipped: CICADA_ALLOW_CONNECTOR_FETCH is off")
+            return
+        report = await paper_metadata.run_locked(
+            memory_path, max_arxiv=paper_metadata.TAIL_ARXIV_IDS, max_crossref=paper_metadata.TAIL_CROSSREF_DOIS)
+        if report:
+            logger.info(f"Paper details: {report['resolved']} resolved, {report['failed']} not found, "
+                        f"{report['remaining']} remaining")
+    except Exception as e:
+        logger.warning(f"Paper details failed: {type(e).__name__}: {e}")
+
+
 async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> None:
     """G60 §2.3 on an IDLE cycle: keep open questions honest during quiet weeks.
 
@@ -712,6 +747,10 @@ async def _run_engine_independent_tail(
     backfill's lazy engine resolution (R10): a scheduled cycle must resolve
     byok without ever probing the plan — TODO.md ruling 4.
 
+    G133: ``_resolve_papers_safely`` shares this branch — it writes paper pages
+    (scoped commits), and the fetch half is gated by
+    ``CICADA_ALLOW_CONNECTOR_FETCH``.
+
     G53: ``_refresh_state_safely`` runs FIRST and unconditionally — it
     commits only ``_state.md`` via ``commit_paths``, so it is safe on a dirty
     tree, and running it before the polls means their ``git add -A`` can
@@ -731,9 +770,10 @@ async def _run_engine_independent_tail(
         await _poll_connectors_safely(memory_path)
         await _poll_feeds_and_calendars_safely(memory_path)
         await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
+        await _resolve_papers_safely(memory_path)
     else:
         logger.warning(
-            "connector, feed/calendar and link-backfill steps skipped: this cycle "
+            "connector, feed/calendar, link-backfill and paper details steps skipped: this cycle "
             "wrote entity/inbox changes but never committed them, and the polls' "
             "own `git add -A` would absorb those uncommitted writes into a "
             "media/feed/calendar commit"

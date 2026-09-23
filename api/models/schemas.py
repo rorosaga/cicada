@@ -425,6 +425,9 @@ class EntityMedia(CamelModel):
     # (R17).
     provider: Optional[str] = None
     duration_s: Optional[int] = None
+    # G133 — `paper` for a paper page (`papers.KIND`); absent for every other
+    # media page.
+    kind: Optional[str] = None
 
 
 class EntityResponse(CamelModel):
@@ -455,6 +458,54 @@ class EntityResponse(CamelModel):
     # G117 — mirrors GraphNode.is_owner (same `owner:` frontmatter key), so
     # the detail card can render "Name (you)" without a second lookup.
     is_owner: bool = False
+
+
+class PaperSummary(CamelModel):
+    """G133 — what a Feed row needs to show a paper's byline and to search by
+    author, arXiv id or DOI (R7 §5.2). Read from the page's `paper:` block."""
+
+    authors: list[str] = []
+    arxiv_id: Optional[str] = None
+    doi: Optional[str] = None
+    published: Optional[str] = None
+    venue: Optional[str] = None
+
+
+class PaperWhyItem(CamelModel):
+    """One personal-tier reason, as a span into the person's own file (G118/G121)."""
+
+    predicate: str
+    text: Optional[str] = None
+    target: Optional[str] = None
+    snippet: str
+    highlight_start: int
+    highlight_end: int
+    file: Optional[str] = None
+    heading: Optional[str] = None
+    edited: Optional[str] = None
+    kind: str
+    episode: str
+    start: int
+    end: int
+    stale: bool = False
+
+
+class PaperDetailResponse(CamelModel):
+    entity_id: str
+    title: str
+    authors: list[str] = []
+    venue: Optional[str] = None
+    published: Optional[str] = None
+    arxiv_id: Optional[str] = None
+    doi: Optional[str] = None
+    abs_url: Optional[str] = None
+    doi_url: Optional[str] = None
+    sections: list[str] = []
+    why: list[PaperWhyItem] = []
+    agent_only: bool = False
+    context: Optional[str] = None
+    context_source: Optional[str] = None
+    context_as_of: Optional[str] = None
 
 
 class EntityDecayUpdate(CamelModel):
@@ -1594,6 +1645,10 @@ class MediaSourceItem(CamelModel):
     # nothing to ship. Wire names: `provider`, `durationS`.
     provider: Optional[str] = None
     duration_s: Optional[int] = None
+    # G133 — `paper` for a paper page (R-LS14), with the byline the Feed row
+    # shows and searches; both absent for every other media row.
+    kind: Optional[str] = None
+    paper: Optional[PaperSummary] = None
 
 
 class SourceListResponse(CamelModel):

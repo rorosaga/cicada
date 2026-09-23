@@ -265,7 +265,8 @@ def build_channels(
         url_index = media_ingestor.load_url_index(memory_path)
     except Exception:
         url_index = {}
-    saved_count = len(url_index)
+    # R-LS14: an alias entry is the same paper under its other URL.
+    saved_count = sum(1 for e in url_index.values() if not (isinstance(e, dict) and e.get("alias_of")))
 
     telegram_count = int((by_origin.get("telegram") or {}).get("episodeCount") or 0)
 

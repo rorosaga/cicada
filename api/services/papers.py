@@ -635,3 +635,98 @@ def reconcile_pending(memory_path: Path) -> dict:
     if done:
         paths.add(f"sources/{folder_source.FOLDERS_FILENAME}")
     return {"folders": done, "paths": sorted(paths)}
+
+
+# --- The card (read path, engine-free) --------------------------------------
+
+_DOC_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
+_HEADING_RE = re.compile(r"^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$", re.MULTILINE)
+_WHY_ORDER = {p: i for i, p in enumerate(WHY_PREDICATES)}
+
+
+def _heading_above(text: str, start: int) -> str | None:
+    heading = None
+    for m in _HEADING_RE.finditer(text):
+        if m.start() > start:
+            break
+        heading = m.group(1).strip()
+    return heading
+
+
+def _snippet(text: str, start: int, end: int, pad: int = 120) -> tuple[str, int, int]:
+    """±``pad`` characters around a span, cut on word boundaries, newlines shown
+    as spaces (same length, so the highlight offsets stay exact)."""
+    lo, hi = max(0, start - pad), min(len(text), end + pad)
+    if lo > 0:
+        space = text.find(" ", lo, start)
+        lo = space + 1 if space != -1 else lo
+    if hi < len(text):
+        space = text.rfind(" ", end, hi)
+        hi = space if space != -1 else hi
+    prefix, suffix = ("…" if lo > 0 else ""), ("…" if hi < len(text) else "")
+    first = len(prefix) + (start - lo)
+    return prefix + text[lo:hi].replace("\n", " ") + suffix, first, first + (end - start)
+
+
+def detail(memory_path: Path, entity_id: str) -> dict | None:
+    """The paper card's two tiers (G121), resolved at read: every open personal
+    claim's span as a snippet with the file, the heading above it and the
+    file's date — then the world-tier ``describes`` context. ``None`` for an
+    id that is not a paper page (or not a bare id at all)."""
+    if not _DOC_ID_RE.match(entity_id or ""):
+        return None
+    path = page_path(memory_path, entity_id)
+    if not path.exists():
+        return None
+    parsed = markdown_parser.parse(path)
+    fm = parsed.frontmatter or {}
+    if not is_paper(fm):
+        return None
+    paper = fm.get("paper") or {}
+    claims = parse_claims(parsed.body)
+    docs: dict[str, tuple[str | None, dict]] = {}
+    names: dict[str, str] = {}
+    why: list[dict] = []
+    open_why = sorted((c for c in claims if c.predicate in WHY_PREDICATES and not c.valid_to),
+                      key=lambda c: (_WHY_ORDER[c.predicate], c.id))
+    for c in open_why:
+        for ev in c.evidence:
+            if ev.kind == "reasoning" or ev.start < 0:
+                continue
+            if ev.episode not in docs:
+                docs[ev.episode] = evidence.source_document(memory_path, ev.episode)
+            text, efm = docs[ev.episode]
+            if text is None or ev.end > len(text):
+                continue
+            snippet, first, last = _snippet(text, ev.start, ev.end)
+            target = None
+            if c.object_kind == "node":
+                names.setdefault(c.object, _name_of(memory_path, c.object) or c.object)
+                target = names[c.object]
+            why.append({
+                "predicate": c.predicate, "text": c.object if c.object_kind == "literal" else None,
+                "target": target, "snippet": snippet, "highlight_start": first, "highlight_end": last,
+                "file": efm.get("relpath"), "heading": _heading_above(text, ev.start),
+                "edited": str(efm.get("source_updated_at") or efm.get("timestamp") or "")[:10] or None,
+                "kind": ev.kind, "episode": ev.episode, "start": ev.start, "end": ev.end,
+                "stale": bool(ev.hash) and ev.hash != evidence.body_hash(text),
+            })
+    describes = next((c for c in claims if c.predicate == "describes" and c.source_trust == "external"
+                      and not c.valid_to), None)
+    return {
+        "entity_id": entity_id,
+        "title": str(paper.get("title") or fm.get("name") or entity_id),
+        "authors": [str(a) for a in paper.get("authors") or []],
+        "venue": paper.get("venue") or paper.get("journal_ref"),
+        "published": paper.get("published"),
+        "arxiv_id": paper.get("arxiv_id"),
+        "doi": paper.get("doi"),
+        "abs_url": f"https://arxiv.org/abs/{paper['arxiv_id']}" if paper.get("arxiv_id") else None,
+        "doi_url": f"https://doi.org/{paper['doi']}" if paper.get("doi") else None,
+        "sections": [str(s) for s in paper.get("sections") or []],
+        "why": why,
+        "agent_only": bool(why) and not any(w["kind"] == "user" for w in why),
+        "context": describes.object if describes else None,
+        "context_source": paper.get("metadata_source") if describes else None,
+        "context_as_of": describes.recorded_at if describes else None,
+    }

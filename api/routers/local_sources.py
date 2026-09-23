@@ -8,7 +8,7 @@ the API; none is on the Telegram / OAuth-callback exemption list.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
@@ -21,7 +21,7 @@ from api.models.schemas import (
     FolderSyncResponse,
     FolderUpdateRequest,
 )
-from api.services import folder_source, local_refs, papers, sync_state
+from api.services import folder_source, local_refs, paper_metadata, papers, sync_state
 
 router = APIRouter()
 
@@ -81,11 +81,15 @@ async def remove_folder(folder_id: str, settings: Settings = Depends(get_setting
 async def sync_folder(
     folder_id: str,
     req: FolderSyncRequest,
+    background: BackgroundTasks,
     preview: bool = Query(False),
+    resolve: bool = Query(False),
     settings: Settings = Depends(get_settings),
 ):
     """Stage one batch of files the app read (R-F1). ``?preview=true`` counts
-    and writes nothing — the add-folder sheet shows it before anything lands."""
+    and writes nothing — the add-folder sheet shows it before anything lands.
+    ``?resolve=true`` (the first add, or "Sync now") also fetches paper
+    details from the arXiv and Crossref APIs after the response (R-LS18)."""
     memory_path = settings.memory_path
     folder = folder_source.get_folder(memory_path, folder_id)
     if folder is None:
@@ -142,4 +146,8 @@ async def sync_folder(
     if paths:
         await folder_source.commit_paths_for(
             memory_path, paths, subject=f"Folder sync ({folder['label']})", trigger="folder/sync")
+    if resolve:
+        # R-LS18: the person asked (first add, or "Sync now") — fetch details
+        # after the response, one run per process, skipped while Sleep runs.
+        background.add_task(paper_metadata.resolve_in_background, memory_path)
     return FolderSyncResponse(**out)
