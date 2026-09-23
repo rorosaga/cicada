@@ -584,7 +584,8 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
   i.e. G112). Measure the SessionStart-hook path and the token budget before writing code — M
 - **G127** mascot identity — bookworm vs a friendly WALL·E-*inspired* librarian robot (never a copy of the
   character); prototype = three states behind a `mascot` setting, live with it a week, then rule — owner
-  said document only for now (2026-09-03)
+  said document only for now (2026-09-03). **2026-09-23: build it as a character/mascot selector** — every
+  character a skin over the same nine states; Strawberry browser's named companions as the reference (see the row)
 - **G99** relational tier — **DECLINED**; revisit only on a named trigger (warm p50 > 250 ms,
   claims > 25k, or a merged G94 adapter retaining raw samples). G99a (bank `.gitignore` for the
   vector index) has shipped; absorbs G96 (vector-as-entryway — validated, its storage question
