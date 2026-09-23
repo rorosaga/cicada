@@ -27,6 +27,7 @@ from api.services.decay_watermark_migration import backfill_decay_watermarks
 from api.services.export_origin_migration import backfill_export_origins
 from api.services.inbox_migration import dedup_open_items, migrate_to_inbox
 from api.services.paper_context_migration import repair_paper_contexts
+from api.services.placeholder_summary_migration import rewrite_placeholder_summaries
 
 
 def run_bank_migrations(memory_path) -> dict:
@@ -35,7 +36,7 @@ def run_bank_migrations(memory_path) -> dict:
     ``{"moved": int, "deduped": int, "classed": {"media": int, "skills": int,
     "restored": int}, "watermarked": {"entities": int, "claims": int},
     "originated": int, "paper_contexts": {"pages": int, "claims": int,
-    "edges": bool}}``.
+    "edges": bool}, "placeholders": int}``.
     Logs only when something actually changed, so a no-op re-run on every
     bank switch is silent.
     """
@@ -89,6 +90,13 @@ def run_bank_migrations(memory_path) -> dict:
             f"{paper_contexts['pages']} page(s); edges projected: {paper_contexts['edges']}"
         )
 
+    # F1 (R-FX10): one-time real first line for the pages `agentic_write` once
+    # opened with `<name> — created via agentic write.`, from their own open
+    # claims — no LLM.
+    placeholders = rewrite_placeholder_summaries(memory_path)
+    if placeholders:
+        logger.info(f"Wrote a first Summary for {placeholders} placeholder page(s)")
+
     return {
         "moved": moved,
         "deduped": deduped,
@@ -96,4 +104,5 @@ def run_bank_migrations(memory_path) -> dict:
         "watermarked": watermarked,
         "originated": originated,
         "paper_contexts": paper_contexts,
+        "placeholders": placeholders,
     }

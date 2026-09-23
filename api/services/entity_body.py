@@ -483,6 +483,60 @@ def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
     return "\n\n".join(chosen)
 
 
+_TERMINAL = (".", "!", "?", "…")
+
+
+def summary_line(text: str, *, predicate: str = "") -> str:
+    """One claim's text as a Summary sentence — deterministic, no LLM (F1 R-FX9).
+
+    ``agentic_write`` used to open every page it created with ``<name> —
+    created via agentic write.``; the owner's pages then showed nothing but that
+    line and, under it, the claims fence as raw YAML. The claim being written is
+    the only thing Cicada knows about a new page, so it becomes the first line:
+    whitespace collapsed, a hyphenated predicate slug read as words when it
+    appears as a whole token (``depends-on`` → ``depends on``; the mechanical
+    fallback text is ``<subject> <predicate> <object>``), the first letter
+    capitalised only when the first word is all lowercase (``iOS`` stays), and a
+    period added when the text has no terminal punctuation."""
+    line = " ".join((text or "").split())
+    if not line:
+        return ""
+    if predicate and "-" in predicate:
+        line = re.sub(rf"(?<![\w-]){re.escape(predicate)}(?![\w-])",
+                      predicate.replace("-", " "), line, count=1)
+    first = line.split(" ", 1)[0]
+    if first[:1].islower() and first == first.lower():
+        line = line[:1].upper() + line[1:]
+    if not line.endswith(_TERMINAL):
+        line += "."
+    return line
+
+
+def summary_from_claims(claims, *, limit: int = 3, max_chars: int = 240) -> str:
+    """The first ``limit`` open claims as sentences, in page order, deduplicated,
+    capped at ``max_chars`` on a word boundary (F1 R-FX10). Closed and superseded
+    claims are not current beliefs, so they never write the Summary. Empty when
+    nothing is open. Duck-typed on ``text`` / ``predicate`` / ``valid_to`` /
+    ``superseded_by`` so this module keeps importing nothing from ``claims`` at
+    module level."""
+    sentences: list[str] = []
+    seen: set[str] = set()
+    for claim in claims or []:
+        if getattr(claim, "valid_to", None) or getattr(claim, "superseded_by", None):
+            continue
+        line = summary_line(getattr(claim, "text", ""), predicate=getattr(claim, "predicate", ""))
+        if not line or line.lower() in seen:
+            continue
+        seen.add(line.lower())
+        sentences.append(line)
+        if len(sentences) == limit:
+            break
+    out = " ".join(sentences)
+    if len(out) <= max_chars:
+        return out
+    return out[: max_chars - 1].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+
+
 def sections_to_fields(sections: dict) -> dict:
     """Convert a ``{title: markdown}`` sections dict into the STRUCTURED
     ``new_fields`` shape that :func:`merge_sections_fallback` /
