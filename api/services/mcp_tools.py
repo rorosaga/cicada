@@ -910,6 +910,52 @@ def write_claim(
     )
 
 
+def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, evidence: list | None = None) -> str:
+    """``cicada_retract_claim`` (G140 Q-R5, R3 P7): withdraw a claim THIS caller
+    wrote. The claim stays in its page's history, a record keeps the reason,
+    and the page commits alone under the caller — like ``write_claim``."""
+    memory_path = ctx.memory_path()
+    result = agentic_write.retract_claim(
+        memory_path, subject, (claim_id or "").strip(), reason=reason, author=ctx.author,
+        origin=ctx.claim_origin, session_id=ctx.session_id, evidence=evidence,
+    )
+    action = result.get("action")
+    if action == "already_closed":
+        return (f"Claim `{claim_id}` on `{result['entity_id']}` already stopped being current on "
+                f"{result['valid_to']}; nothing changed.")
+    if action == "not_found":
+        return f"No claim `{claim_id}` on '{subject}' — use the claim id cicada_write_claim returned."
+    if action == "not_yours":
+        return (f"Claim `{claim_id}` was not written by this agent, so it can't be withdrawn here. Record the "
+                "correction as a new claim with cicada_write_claim, or let the person answer it in the Cicada app.")
+    if action != "retracted":
+        return f"Could not withdraw the claim: {result.get('error', 'unknown error')}"
+
+    from api.services import telemetry
+
+    refs = {"entity_id": result["entity_id"], "claim_id": claim_id, "episode_id": None, "action": "retracted",
+            "session_id": ctx.session_id, "harness": ctx.harness, "client_name": ctx.client_name,
+            "client_version": ctx.client_version}
+    if ctx.is_remote:
+        refs["connector_id"] = ctx.connector_id
+    telemetry.record(telemetry.UsageEvent(
+        kind="agentic_write", stage="driver", connection="session",
+        engine="mcp-remote" if ctx.is_remote else "mcp-client",
+        model=None, bank=memory_path.name, billing="subscription", invocations=1, refs=refs,
+    ))
+    if not ctx.sleep_running():
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"{result['path']}: retracted (source: n/a, trigger: {ctx.trigger})"],
+            paths=[result["path"]], author=ctx.author, session=ctx.session_id,
+        )
+    cited = sum(1 for e in result.get("evidence") or [] if e.get("kind") != "reasoning")
+    ev = f"{cited} quote verified" if cited else "reasoning"
+    return (f"Withdrew claim `{claim_id}` on `{result['entity_id']}`. It stays in history with your reason "
+            f"(record `{result['record_id']}`, evidence: {ev}); nothing was deleted.")
+
+
+
 def get_perspective(
     ctx: ToolContext,
     subject: str, observer: str | None = None, context: str | None = None, history: bool = False,
@@ -952,7 +998,7 @@ def get_perspective(
         claims = [c for c in claims if c.context == context]
     earlier: list = []
     if history:
-        earlier = [c for c in page_claims if c.valid_to is not None or c.superseded_by]
+        earlier = [c for c in page_claims if (c.valid_to is not None or c.superseded_by) and not _is_record(c)]
         if observer:
             earlier = [c for c in earlier if c.observer == observer]
         if context:
@@ -1153,9 +1199,17 @@ def _page_claims(path: Path) -> list:
         return []
 
 
+def _is_record(claim) -> bool:
+    """A withdrawal record (``cicada_retract_claim``) is bookkeeping about a
+    claim, never a belief of its own, so no history list shows it."""
+    return claim.predicate == agentic_write.RETRACT_PREDICATE
+
+
 def _how_closed(old, page: list) -> str:
     """How a closed claim stopped being current, read off the page alone."""
     new = {c.id: c for c in page}.get(old.superseded_by or "")
+    if new is not None and _is_record(new):
+        return f"withdrawn by {new.authored_by or 'an agent'}: {_clip(new.text, 160)}"
     if new is not None and new.valid_to is None:
         return f'replaced by "{_clip(new.object or new.text)}"'
     if old.superseded_by:
@@ -1169,6 +1223,8 @@ def _history_line(eid: str, old, page: list) -> str:
     head = f"- `{eid}` {old.predicate or 'claim'}:"
     was = f'"{_clip(old.object or old.text)}"'
     new = {c.id: c for c in page}.get(old.superseded_by or "")
+    if new is not None and _is_record(new):
+        return f"{head} {was} withdrawn {old.valid_to} by {new.authored_by or 'an agent'} — {_clip(new.text, 160)}"
     if new is not None and new.valid_to is None and new.predicate == old.predicate:
         return f'{head} was {was} until {old.valid_to} → now "{_clip(new.object or new.text)}"'
     return f"{head} was {was} until {old.valid_to}"
@@ -1189,7 +1245,7 @@ def _recent_changes(entities_dir: Path, hits: list[dict], today: date) -> list[s
         closed = []
         for c in page:
             age = _age_days(c.valid_to, today) if c.valid_to else None
-            if age is not None and 0 <= age <= RECENT_CHANGE_DAYS:
+            if age is not None and 0 <= age <= RECENT_CHANGE_DAYS and not _is_record(c):
                 closed.append(c)
         closed.sort(key=lambda c: (str(c.valid_to), c.id), reverse=True)
         for c in closed[:RECENT_CHANGES_PER_PAGE]:

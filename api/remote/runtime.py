@@ -181,6 +181,9 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         c, str(a.get("subject") or ""), str(a.get("predicate") or ""), str(a.get("object") or ""),
         a.get("observer") or "agent", a.get("confidence"), a.get("context"), a.get("source_episode"),
         bool(a.get("force_new_entity", False)), a.get("sources"), a.get("evidence")),
+    "cicada_retract_claim": lambda c, a: mcp_tools.retract_claim(
+        c, str(a.get("subject") or ""), str(a.get("claim_id") or ""), str(a.get("reason") or ""),
+        a.get("evidence")),
     "cicada_save_url": lambda c, a: mcp_tools.save_url(c, str(a.get("url") or ""), a.get("note")),
     "cicada_resolve_inbox": lambda c, a: mcp_tools.resolve_inbox(
         c, str(a.get("id") or ""), a.get("option_key"), None, bool(a.get("defer", False)), a.get("remind_days"),

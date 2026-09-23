@@ -11,8 +11,10 @@ description names another tool only when both share a scope, or when it is
 `cicada_write_claim`'s observer is `agent | external` (R-R22, R-R23).
 
 The annotations are what ChatGPT's confirmation UX reads. Reads are read-only.
-No tool is destructive: nothing deletes or edits in place. `cicada_save_url`
-is open-world, because it may fetch the page's title.
+No tool is destructive: nothing deletes or edits in place.
+`cicada_retract_claim` closes a claim this connection wrote and keeps it, with
+the reason, as history (G140 Q-R5): its validity changes, its words never do.
+`cicada_save_url` is open-world, because it may fetch the page's title.
 """
 from __future__ import annotations
 
@@ -107,6 +109,21 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                                       "description": "The exact words, copied verbatim (at most 240 characters)."},
                         }}}},
           ("subject", "predicate", "object"), read_only=False, idempotent=True),
+    _tool("cicada_retract_claim",
+          "Withdraw a fact this connection recorded earlier with cicada_write_claim and now knows is wrong. "
+          "The fact stays in history with your reason; nothing is deleted. Only facts this connection wrote "
+          "can be withdrawn.",
+          {"subject": {"type": "string", "description": "The page the fact is on."},
+           "claim_id": {"type": "string", "description": "The claim id cicada_write_claim returned."},
+           "reason": {"type": "string", "description": "Why it is wrong, in one sentence."},
+           "evidence": {"type": "array", "description": "Optional: the person's exact words showing it is wrong.",
+                        "items": {"type": "object", "required": ["episode", "quote"], "properties": {
+                            "episode": {"type": "string",
+                                        "description": "The episode id cicada_save_episode returned."},
+                            "quote": {"type": "string",
+                                      "description": "The exact words, copied verbatim (at most 240 characters)."},
+                        }}}},
+          ("subject", "claim_id", "reason"), read_only=False, idempotent=True),
     _tool("cicada_save_url",
           "Save a link — an article, a video, a paper — to the person's memory, with an optional note on why. "
           "Cicada reads the page's title only when the page is on the public internet.",

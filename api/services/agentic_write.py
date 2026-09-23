@@ -40,7 +40,7 @@ from api.services import decay_policy, entity_body, markdown_parser, telemetry
 # (the MCP schema, the tests and the docs all use that name), and a bare
 # `from api.services import evidence` would be shadowed inside the function.
 from api.services import evidence as evidence_mod
-from api.services.claim_reconciler import reconcile_stage3
+from api.services.claim_reconciler import is_human, reconcile_stage3
 from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
@@ -498,6 +498,112 @@ def write_claim(
             "observer": observer,
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+
+RETRACT_PREDICATE = "retracts"
+MAX_REASON_CHARS = 240
+# Every stdio MCP claim written before G135 R-R11 carried this author: the
+# reconcile shim's model name, stamped by `_stamp_new`. Any local agent could
+# have written it, so any local agent may withdraw it (Q-R5).
+_LEGACY_MCP_AUTHOR = _ReconcileSettings.litellm_model
+
+
+def owns(claim: Claim, *, author: str, origin: str | None) -> bool:
+    """May this caller withdraw ``claim``? Only its own (G140 Q-R5).
+
+    A remote connection owns exactly the claims stamped ``remote:<its id>``
+    (R-R23); a local agent owns what its harness label authored, or the
+    pre-G135 placeholder, and never a remote app's. Nobody but the person
+    withdraws a human claim — ``is_human`` is the same protection Stage 3
+    gives it — and a Sleep claim's author is a model id, so it never matches.
+    """
+    if is_human(claim):
+        return False
+    claim_origin = claim.origin or ""
+    if origin and origin.startswith("remote:"):
+        return claim_origin == origin
+    if claim_origin.startswith("remote:"):
+        return False
+    return (claim.authored_by or "") in {author, _LEGACY_MCP_AUTHOR}
+
+
+def retract_claim(
+    memory_path: Path,
+    subject: str,
+    claim_id: str,
+    *,
+    reason: str,
+    author: str,
+    origin: str | None = None,
+    session_id: str | None = None,
+    evidence: list[dict] | None = None,
+    today: date | None = None,
+) -> dict:
+    """Withdraw one claim this caller wrote, keeping it as history (G140 Q-R5, R3 P7).
+
+    Instinct forgets an explicit negation; Cicada only ever closed a claim
+    when Sleep later extracted the correction, so an agent that recorded
+    something wrong could not say so. This closes the TARGET the way Stage 3
+    does (``valid_to`` = today, ``superseded_by`` = the record) and appends a
+    RECORD claim that holds the why: ``predicate: retracts``, ``object`` = the
+    target id, ``text`` = the reason, ``evidence`` = the caller's verified
+    quotes (the person's "that's wrong") or ``reasoning``. The record is born
+    closed (``valid_from == valid_to``) — history, never a current belief —
+    and nothing is deleted. Never raises.
+    """
+    reason = " ".join(str(reason or "").split())[:MAX_REASON_CHARS]
+    if not reason:
+        return {"action": "error", "error": "a reason is required — say why the claim is wrong; nothing was changed"}
+    memory_path = Path(memory_path)
+    page = resolve_entity_file(memory_path, (subject or "").strip())
+    if page is None or not page.exists():
+        return {"action": "not_found", "error": f"no page for subject {subject!r}"}
+    try:
+        parsed = markdown_parser.parse(page)
+        claims = parse_claims(parsed.body, strict=True)
+    except MalformedClaimsBlockError as exc:
+        return {"action": "error", "error": f"the page's claims block is unreadable ({exc}); nothing was changed"}
+    except Exception as exc:  # noqa: BLE001 — a bad page is an error reply, never a crashed tool
+        return {"action": "error", "error": f"the page could not be read ({type(exc).__name__}); nothing was changed"}
+    target = next((c for c in claims if c.id == claim_id), None)
+    if target is None:
+        return {"action": "not_found", "entity_id": page.stem, "error": f"no claim {claim_id!r} on {page.stem}"}
+    if target.valid_to is not None:
+        return {"action": "already_closed", "entity_id": page.stem, "claim_id": claim_id,
+                "valid_to": target.valid_to}
+    if not owns(target, author=author, origin=origin):
+        return {"action": "not_yours", "entity_id": page.stem, "claim_id": claim_id}
+    day = (today or date.today()).isoformat()
+    spans = evidence_mod.verify_many(memory_path, evidence) or [evidence_mod.reasoning("")]
+    record = Claim(
+        id=f"clm_retract_{hashlib.sha1(claim_id.encode('utf-8')).hexdigest()[:8]}",
+        text=reason,
+        subject=target.subject or page.stem,
+        predicate=RETRACT_PREDICATE,
+        object=target.id,
+        object_kind="literal",
+        observer=target.observer,
+        context=target.context,
+        epistemic="explicit",
+        source_trust=target.source_trust,
+        confidence=1.0,
+        valid_from=day,
+        valid_to=day,
+        supersedes=target.id,
+        recorded_at=day,
+        authored_by=author,
+        origin=origin or target.origin,
+        session_id=(session_id or "").strip() or None,
+        evidence=spans,
+    )
+    target.valid_to = day
+    target.superseded_by = record.id
+    try:
+        markdown_parser.write(page, parsed.frontmatter, write_claims(parsed.body, [*claims, record]))
+    except OSError as exc:
+        return {"action": "error", "error": f"the page could not be written ({type(exc).__name__}); nothing was changed"}
+    return {"action": "retracted", "entity_id": page.stem, "claim_id": claim_id, "record_id": record.id,
+            "path": f"entities/{page.name}", "evidence": [e.to_dict() for e in spans]}
 
 
 def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:

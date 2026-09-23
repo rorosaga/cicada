@@ -394,6 +394,31 @@ TOOLS = [
         },
     },
     {
+        "name": "cicada_retract_claim",
+        "description": "Withdraw ONE claim you wrote earlier with cicada_write_claim that turned out to be wrong — for example the person says 'that's not right' about something you recorded. Nothing is deleted: the claim stops being current, stays in its page's history, and a record keeps your reason (and, when you cite them, the person's exact words). You can only withdraw a claim this agent wrote — never one the person stated, one Sleep extracted, or another agent's; for those, record the correction as a new claim with cicada_write_claim.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "The entity the claim is on (the `entity` cicada_write_claim returned)."},
+                "claim_id": {"type": "string", "description": "The claim id cicada_write_claim returned (e.g. 'clm_alpha-project_uses_38309bd1')."},
+                "reason": {"type": "string", "description": "Why it is wrong, in one sentence (at most 240 characters)."},
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "episode": {"type": "string", "description": "The episode the words are in."},
+                            "quote": {"type": "string", "description": "The exact words, copied verbatim (at most 240 characters)."},
+                        },
+                        "required": ["episode", "quote"],
+                    },
+                    "description": "Optional. The person's exact words showing it is wrong, from a saved episode — verified and stored as offsets, never copied.",
+                },
+            },
+            "required": ["subject", "claim_id", "reason"],
+        },
+    },
+    {
         "name": "cicada_pending",
         "description": "List Cicada episodes not yet consolidated into the knowledge graph (processed: false). Use this to see what raw conversation material is waiting, then use cicada_write_claim to consolidate atomic facts out of it yourself, and cicada_mark_processed once you're done with an episode — this lets an agent do its own lightweight consolidation between Sleep cycles.",
         "inputSchema": {
@@ -685,6 +710,13 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("sources"),
             arguments.get("evidence"),
         )
+    elif name == "cicada_retract_claim":
+        return handle_retract_claim(
+            arguments.get("subject", ""),
+            arguments.get("claim_id", ""),
+            arguments.get("reason", ""),
+            arguments.get("evidence"),
+        )
     elif name == "cicada_pending":
         return handle_pending(arguments.get("limit"))
     elif name == "cicada_mark_processed":
@@ -768,6 +800,10 @@ def handle_write_claim(subject, predicate, object_, observer, confidence, contex
                        force_new_entity=False, sources=None, evidence=None) -> str:
     return mcp_tools.write_claim(_ctx(), subject, predicate, object_, observer, confidence, context,
                                  source_episode, force_new_entity, sources, evidence)
+
+
+def handle_retract_claim(subject, claim_id, reason, evidence=None) -> str:
+    return mcp_tools.retract_claim(_ctx(), subject, claim_id, reason, evidence)
 
 
 def handle_get_perspective(subject, observer=None, context=None, history=False) -> str:
