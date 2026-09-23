@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import bank_index, decay_policy, logo_service, predicates
+from api.services import bank_index, claim_contexts, decay_policy, logo_service, predicates
 from api.services.claims import parse_claims
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import parse
@@ -118,7 +118,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
     # so a claimless graph behaves exactly as before.
     subject_observers: dict[str, set[str]] = {}
     subject_contexts: dict[str, set[str]] = {}
-    edge_claim_index: dict[tuple[str, str, str], tuple[str, str]] = {}
+    edge_claim_index: dict[tuple[str, str, str], tuple[str, str | None]] = {}
     all_observers: set[str] = set()
     # G-repo: read-time repo:<slug> synthetic nodes + "has repo" edges, derived
     # from each entity's declared `repos:` frontmatter — nothing persisted to
@@ -149,11 +149,14 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 if claim.observer:
                     subject_observers.setdefault(eid, set()).add(claim.observer)
                     all_observers.add(claim.observer)
-                if claim.context:
+                if claim_contexts.is_valid(claim.context):
                     subject_contexts.setdefault(eid, set()).add(claim.context)
                 if claim.predicate and claim.object:
+                    # F1 R-FX1: a value that is not a context (a `folder:` id,
+                    # G60's `as of <date>`) never colours an edge.
                     edge_claim_index.setdefault(
-                        (eid, claim.predicate, claim.object), (claim.id, claim.context)
+                        (eid, claim.predicate, claim.object),
+                        (claim.id, claim.context if claim_contexts.is_valid(claim.context) else None),
                     )
         except Exception:
             pass
@@ -297,22 +300,27 @@ def _build_full(memory_path: Path) -> GraphResponse:
 
     links.extend(hub_links)
 
-    # M5b: facet sub-nodes for subjects with claims in >=2 contexts (d2 §2c).
-    # Each satellite is `id: "<subject>#<context>"`, parentId=<subject>, joined
-    # to the parent by a short `facetOf` edge routed through the existing
-    # node-click channel.
+    # M5b: facet sub-nodes for a subject whose claims sit in >= 2 REAL contexts
+    # (d2 §2c). F1 R-FX2: `general` is "no particular context" and a non-slug
+    # value is not a context at all (claim_contexts), so neither is ever a
+    # satellite — the owner's graph had two per annotated paper, one named after
+    # a raw folder id. Each satellite is `id: "<subject>#<context>"`,
+    # parentId=<subject>, joined to the parent by a short `facetOf` edge routed
+    # through the existing node-click channel (the app opens the parent, R-FX3).
     facet_nodes: list[GraphNode] = []
     facet_links: list[GraphLink] = []
     node_by_id = {n.id: n for n in nodes}
     for subject, contexts in subject_contexts.items():
-        if len(contexts) < 2 or subject not in node_by_id:
+        facets = sorted(c for c in contexts if claim_contexts.is_facet(c))
+        if len(facets) < 2 or subject not in node_by_id:
             continue
         parent = node_by_id[subject]
-        for ctx in sorted(contexts):
+        for ctx in facets:
+            name = claim_contexts.display_name(ctx)
             facet_nodes.append(
                 GraphNode(
                     id=f"{subject}#{ctx}",
-                    name=ctx,
+                    name=name,
                     type=parent.type,
                     status=parent.status,
                     confidence=parent.confidence,
@@ -323,8 +331,11 @@ def _build_full(memory_path: Path) -> GraphResponse:
                     # claim contexts, with no file of their own. Fold the
                     # parent's own hash in so a facet moves when its subject
                     # does. (Same empty-hash re-push problem as hub:/repo:.)
+                    # F1 R-FX3: the display name is folded in as well —
+                    # `GraphDiff` re-pushes a node only when its hash moves, so
+                    # the relabel ("engineering" → "Engineering") must move it.
                     content_hash=synthetic_hash(
-                        "facet", subject, ctx, parent.type, parent.status,
+                        "facet", subject, ctx, name, parent.type, parent.status,
                         parent.confidence, parent.content_hash,
                     ),
                 )

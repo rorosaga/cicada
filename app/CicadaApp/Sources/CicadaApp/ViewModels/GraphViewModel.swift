@@ -197,10 +197,8 @@ final class GraphViewModel {
         } else {
             observerRoster = Array(Set(response.nodes.flatMap { $0.observers })).sorted()
         }
-        var ctxs = Set(response.nodes.flatMap { $0.contexts })
-        for n in response.nodes { if let c = n.context { ctxs.insert(c) } }
-        for e in response.links { if let c = e.context { ctxs.insert(c) } }
-        contextRoster = ctxs.sorted()
+        // F1 R-FX3 — real contexts only; see `ClaimContext`.
+        contextRoster = ClaimContext.roster(nodes: response.nodes, links: response.links)
         entities = response.nodes.map { node in
             // Stub entity: the full markdown body is loaded lazily via
             // `selectEntity`/`store.entity(_:)`. §5.7 — seed `markdownContent`
@@ -504,6 +502,7 @@ final class GraphViewModel {
     /// entity data from the Store's memoised entity cache. No manual
     /// main-actor hop needed — the whole VM is already @MainActor.
     private func applySelection(id: String) {
+        let id = ClaimContext.cardTarget(for: id, in: nodes)
         if let existing = entities.first(where: { $0.id == id }) {
             selectedEntity = existing
         }
