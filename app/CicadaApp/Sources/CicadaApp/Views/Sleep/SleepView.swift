@@ -237,8 +237,9 @@ struct SleepView: View {
                     .frame(maxWidth: SleepLayout.contentWidth)
                     .frame(maxWidth: .infinity, alignment: .top)
                     // I4 — a mood change resets the ladder: an answer about
-                    // the state that just ended is no longer true.
-                    .onChange(of: page.mood.caseName) { _, _ in room.dismissAnswers() }
+                    // the state that just ended is no longer true, and any
+                    // feed line about a moment that has passed (Z-B11).
+                    .onChange(of: page.mood.caseName) { _, _ in room.dismissSlot() }
                 }
                 // Details is built only while open, so an anchor inside it
                 // exists one update after `detailsOpen` flips: scroll then.
@@ -622,7 +623,8 @@ struct SleepView: View {
             // from this group's label onto the worm's own element as its value.
             StudyRoom(page: page, statusLine: status, answers: answers, room: room,
                       episodes: sleepVM.queuedEpisodes, onOpenDetails: openDetails,
-                      onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() })
+                      onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() },
+                      reachable: liveness == .live)
                 .accessibilitySortPriority(RoomA11yOrder.room)
 
             // R-Z5 — the one slot the worm speaks in; an answer replaces the
@@ -630,6 +632,7 @@ struct SleepView: View {
             // Task 8 (Z-P5's seam is gone), so the switch is exhaustive: a
             // new action cannot ship without somewhere to go.
             RoomSentenceView(line: status, answers: answers, room: room,
+                             feedAsleep: feedIsAsleep(page.mood),
                              perform: { action in
                                  switch action {
                                  case .retry: Task { await store.refresh([.status]) }

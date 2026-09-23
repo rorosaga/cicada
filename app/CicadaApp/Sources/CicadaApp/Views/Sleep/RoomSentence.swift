@@ -267,6 +267,11 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
             return SentenceTail(text: text, mark: ctx.topOrigin.map { SentenceMark.origin($0) })
         }
     }
+    // T13 (Z9, Z-B19) — only once the queue has loaded: "Checking what's
+    // waiting…" never carries an invitation.
+    if case .happy = ctx.mood, case .loaded = ctx.queueLoad {                                    // T13
+        return SentenceTail(text: "Drop a file on me to add it to the pile.")
+    }
     return nil                                                                                   // T14
 }
 
@@ -294,18 +299,37 @@ struct RoomSentenceView: View {
     var answers: [SentenceLine] = []
     /// The room's interaction state; `nil` shows the status only.
     var room: RoomModel? = nil
+    /// Track Z Z9 — whether the worm is asleep: all a feed line needs besides
+    /// the router's phase (a sleeping worm reads it "after this nap").
+    var feedAsleep = false
     /// Every `SentenceAction` has a destination since Task 8 built the last
     /// one (`.whatChanged`), so a tail with an action always renders as a
     /// link — Z-P5's `canPerform` seam existed only while some did not.
     var perform: (SentenceAction) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(IntakeRouter.self) private var intake
 
-    /// The line on show: the answer rung the worm is on, else the status. An
-    /// index that outlived its ladder (the facts changed under it) falls back
-    /// to the status rather than trapping.
+    /// Z9 — a feed line outranks an answer and the status (§7.4): during a
+    /// drag the slot asks "Is that for me?", after a drop it tells what
+    /// happened, driven by the router's own phase (Z-B9).
+    private var feedShown: FeedPhase? {
+        room.flatMap { RoomModel.feedPhase(drag: $0.drag, result: $0.feedResult, intakePhase: intake.phase) }
+    }
+
+    /// The line on show: a feed line, else the answer rung the worm is on,
+    /// else the status. An index that outlived its ladder (the facts changed
+    /// under it) falls back to the status rather than trapping.
     private var shown: SentenceLine {
-        shownRung.map { answers[$0] } ?? line
+        if let feed = feedShown { return feedLine(feed, asleep: feedAsleep) }
+        return shownRung.map { answers[$0] } ?? line
+    }
+
+    /// What the cross-fade keys on: the kind of line, never its words, so a
+    /// status tick ("Read a of b") updates in place (Task 6 review r1).
+    private var slot: SlotKey {
+        if let feed = feedShown { return .feed(feed) }
+        return shownRung.map { .rung($0) } ?? .status
     }
 
     /// Which rung is on show — `nil` for the status. The cross-fade keys on
@@ -319,6 +343,7 @@ struct RoomSentenceView: View {
 
     var body: some View {
         let shown = shown
+        let slot = slot
         ZStack {
             VStack(spacing: CicadaTheme.spacingXS) {
                 leadText(shown)
@@ -327,13 +352,13 @@ struct RoomSentenceView: View {
                     .minimumScaleFactor(0.7)
                 tailView(shown)
             }
-            // Keyed on the rung so a status ⇄ answer change cross-fades
-            // (opacity only — the slot's height is reserved, so nothing
-            // slides).
-            .id(shownRung)
+            // Keyed on the kind of line so a status ⇄ answer ⇄ feed change
+            // cross-fades (opacity only — the slot's height is reserved, so
+            // nothing slides).
+            .id(slot)
             .transition(.opacity)
         }
-        .animation(SleepMotion.sentence(reduceMotion: reduceMotion), value: shownRung)
+        .animation(SleepMotion.sentence(reduceMotion: reduceMotion), value: slot)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .onHover { room?.pointerInSentence = $0 }
@@ -347,16 +372,22 @@ struct RoomSentenceView: View {
             }
         }
         .accessibilitySortPriority(RoomA11yOrder.sentence)
-        .task(id: DwellKey(index: room?.answerIndex,
+        .task(id: DwellKey(slot: slot,
                            inside: (room?.pointerInRoom ?? false) || (room?.pointerInSentence ?? false))) {
-            // I4 — an answer returns to the status after `answerDwell` with
-            // the pointer outside the room and the sentence; any re-entry
-            // restarts this task, which is what "paused while hovered" means.
-            guard let room, room.answerIndex != nil,
+            // I4 / Z-B11 — an answer or a finished feed line returns to the
+            // status after `answerDwell` with the pointer outside the room and
+            // the sentence; any re-entry restarts this task.
+            guard let room, room.answerIndex != nil || room.feedResult?.isTerminal == true,
                   !room.pointerInRoom, !room.pointerInSentence else { return }
             try? await Task.sleep(for: SleepMotion.answerDwell)
             guard !Task.isCancelled else { return }
-            room.dismissAnswers()
+            room.dismissSlot()
+        }
+        // Z-B9 — the room's drop follows the router's phase; a landing is
+        // announced because the person pressed Done (§11).
+        .onChange(of: intake.phase) { old, new in
+            guard let landing = room?.intakeChanged(from: old, to: new) else { return }
+            AccessibilityNotification.Announcement(feedLine(.landed(landing), asleep: feedAsleep).spoken).post()
         }
     }
 
@@ -422,11 +453,17 @@ struct RoomSentenceView: View {
     }
 }
 
-/// What the dwell task restarts on: the rung on show, and whether the
-/// pointer is inside the room or the sentence. A change to either cancels the
-/// pending dismissal and starts a fresh one.
+/// What the slot shows: the status, an answer rung, or a feed line (Z9).
+private enum SlotKey: Hashable {
+    case status
+    case rung(Int)
+    case feed(FeedPhase)
+}
+
+/// What the dwell task restarts on: the line on show, and whether the pointer
+/// is inside the room or the sentence.
 private struct DwellKey: Equatable {
-    let index: Int?
+    let slot: SlotKey
     let inside: Bool
 }
 

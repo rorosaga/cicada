@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// VoiceOver's order through the default view (Track Z §11): the sentence,
 /// the worm, the window, the lamp, the spines (largest first), the control,
@@ -92,7 +93,11 @@ struct StudyRoom: View {
     /// Task 8 — follows T7's link; `nil` while no completion link lives, so
     /// the worm offers the named action only when it has somewhere to go.
     var onWhatChanged: (() -> Void)? = nil
+    /// Track Z Z9 (I15) — false while the page is stale (R-A12): a drop is
+    /// declined in the worm's words and nothing is sent (Z-B9).
+    var reachable: Bool = true
 
+    @Environment(IntakeRouter.self) private var intake
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -148,12 +153,14 @@ struct StudyRoom: View {
             if let worm = spots[.worm] {
                 WormHotspot(mood: page.mood, bracket: sleepDebtBracketText(page.mood, debt: page.debt),
                             help: statusLine.spoken, answers: answers, room: room,
-                            whatChanged: onWhatChanged)
+                            whatChanged: onWhatChanged, onFeed: { feed(IntakePicker.choose()) })
                     .frame(width: worm.width, height: worm.height)
                     .offset(x: worm.minX, y: -worm.minY)
             }
         }
         .frame(width: scene.size.width, height: scene.size.height, alignment: .bottomLeading)
+        // I12 — the drop cue is chrome (a stroke), and a leaf: a drag redraws it alone.
+        .overlay { DropOutline(room: room) }
         // The whole room is the hover surface (Task 6 review r1). Hover only
         // reaches the parts of a view that hit-test, and the art and the worm
         // are `.allowsHitTesting(false)` (and a `.frame` adds no hit area), so
@@ -171,7 +178,47 @@ struct StudyRoom: View {
                 room.pointer(at: nil, scene: scene, spots: spots, state: page.mood, reduceMotion: reduceMotion)
             }
         }
+        // Track Z Z9 (§7.4) — the whole room is the drop target; the one intake decides.
+        .onDrop(of: [.fileURL], delegate: RoomDropDelegate(room: room, intake: intake, scene: scene, spots: spots,
+                                                           mood: page.mood, onDrop: { feed($0) }))
+        // Z-B8 — a claim never outlives the room: a page torn down mid-drag
+        // (a tab switch) would otherwise keep the window's veil hidden.
+        .onDisappear { intake.releaseDrop(.sleepRoom) }
         .accessibilityElement(children: .contain)
+    }
+
+    /// I15 / I16 — one path for a drop and for the picker (Z-B17): the router
+    /// decides (its guard is every door's, Z-B5), and the room tells what it
+    /// decided — a beat the matrix allows, a line, an announcement (§11: the
+    /// person caused it).
+    private func feed(_ urls: [URL]) {
+        // A drop whose providers held no file URL (or a cancelled picker)
+        // still ends the drag, so the worm never stays armed.
+        guard !urls.isEmpty else { return room.dragEnded() }
+        let result = roomFeedResult(reachable: reachable) { intake.accept(urls: urls, from: .sleepRoom) }
+        room.fed(result, state: page.mood, reduceMotion: reduceMotion)
+        if let phase = RoomModel.feedPhase(drag: nil, result: result, intakePhase: intake.phase) {
+            AccessibilityNotification.Announcement(feedLine(phase, asleep: feedIsAsleep(page.mood)).spoken).post()
+        }
+    }
+}
+
+/// I12 — the dashed inset outline while a file is over the room: chrome, not
+/// art (a SwiftUI stroke, never pixels in the room), `textPrimary` under
+/// Increase Contrast (§11), instant under Reduce Motion.
+private struct DropOutline: View {
+    let room: RoomModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall, style: .continuous)
+            .strokeBorder(contrast == .increased ? CicadaTheme.textPrimary : CicadaTheme.accent,
+                          style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            .opacity(room.drag == nil ? 0 : 1)
+            .animation(SleepMotion.hover(reduceMotion: reduceMotion), value: room.drag == nil)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -185,11 +232,17 @@ struct WormStage: View {
 
     var body: some View {
         BookwormView(state: mood, pointSize: pointSize, caption: nil,
-                     pose: room.pointerInRoom ? .attentive(room.gaze) : .idle,
+                     pose: Self.pose(drag: room.drag, pointerInRoom: room.pointerInRoom, gaze: room.gaze),
                      reaction: room.reaction)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .task(id: room.reaction?.id) { await room.settleReaction() }
+    }
+
+    /// A drag outranks the pointer (§6.1): the armed pose is the drop cue.
+    /// Pure; tested.
+    static func pose(drag: RoomDrag?, pointerInRoom: Bool, gaze: Gaze) -> BookwormPose {
+        drag?.pose ?? (pointerInRoom ? .attentive(gaze) : .idle)
     }
 }
 
@@ -206,6 +259,9 @@ struct WormHotspot: View {
     let room: RoomModel
     /// §11 — while T7's link lives, VoiceOver reaches it from the worm too.
     var whatChanged: (() -> Void)? = nil
+    /// Track Z Z9 (I16) — *Feed a file…*: the intake's own picker, for anyone
+    /// without a file to drag (the keyboard, VoiceOver, a trackpad).
+    var onFeed: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -217,8 +273,8 @@ struct WormHotspot: View {
             .onKeyPress(.space) { poke(); return .handled }
             .onKeyPress(.return) { poke(); return .handled }
             .onKeyPress(.escape) {
-                guard room.answerIndex != nil else { return .ignored }
-                room.dismissAnswers()
+                guard room.answerIndex != nil || room.feedResult?.isTerminal == true else { return .ignored }
+                room.dismissSlot()
                 // I4 — Esc is the one dismissal the person caused, so it is
                 // the one that announces: the status sentence is back.
                 AccessibilityNotification.Announcement(help).post()
@@ -226,7 +282,11 @@ struct WormHotspot: View {
             }
             .roomLinkCursor()
             .help(help)
-            .contextMenu { Button(Copy.wormWhatAreYouDoing) { announceAll() } }
+            .contextMenu {
+                Button(Copy.wormWhatAreYouDoing) { announceAll() }
+                // I16 — the keyboard's and the trackpad's way to feed: the intake's own picker.
+                if let onFeed { Button(Copy.feedAFile, action: onFeed) }
+            }
             .accessibilityElement()
             .accessibilityLabel("Bookworm, \(mood.title)")
             .accessibilityValue(bracket)
@@ -235,6 +295,7 @@ struct WormHotspot: View {
             .accessibilityAction { poke() }
             .accessibilityAction(named: Copy.wormWhatAreYouDoing) { announceAll() }
             .accessibilityActions {
+                if let onFeed { Button(Copy.feedAFile, action: onFeed) }   // I16, §11
                 if let whatChanged {
                     Button(Copy.whatChanged, action: whatChanged)   // §11 — while T7's link lives
                 }
