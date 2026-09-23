@@ -1,8 +1,10 @@
 """How AI apps reach this Mac (G135 R-R32) — detection only; Cicada never starts,
 stops or reconfigures a tunnel (G132 (c): the overlay is the person's).
 
-Tailscale: `shutil.which` (the launchd plist's PATH has /opt/homebrew/bin and
-/usr/local/bin) or the app bundle's own CLI. `tailscale funnel status --json`
+Tailscale: on PATH, in a standard install folder (`TUNNEL_BIN_DIRS`), or the app
+bundle's own CLI — an older LaunchAgent's PATH is launchd's bare one, and
+`install.sh` never rewrites a plist behind a running backend (F2-back R-B15).
+`tailscale funnel status --json`
 is read-only; its ServeConfig is searched for an `AllowFunnel` host whose `/`
 handler proxies to our port on loopback — anything else (another port, a
 sub-path, a serve-only host) is not a door to Cicada. ngrok: presence only. Its
@@ -61,9 +63,34 @@ def funnel_url_for_port(status: dict, port: int) -> str | None:
     return None
 
 
-def detect(port: int, *, which=shutil.which, run=subprocess.run, exists=os.path.exists) -> Reach:
-    ngrok = bool(which("ngrok"))
-    tailscale = which("tailscale") or (TAILSCALE_APP_CLI if exists(TAILSCALE_APP_CLI) else None)
+#: Where Homebrew (Apple silicon, then Intel) and a hand-installed binary put
+#: `ngrok` and `tailscale` (F2-back R-B15). Under an older LaunchAgent's bare
+#: PATH, `shutil.which` alone reported ngrok missing on a Mac where it was
+#: installed — the same trap `connections.base._CLI_FALLBACK_DIRS` closed for
+#: the engine CLIs. Reach keeps its own list so detection stays injectable.
+TUNNEL_BIN_DIRS: tuple[str, ...] = ("/opt/homebrew/bin", "/usr/local/bin", "~/bin", "~/.local/bin")
+
+
+def _is_executable(path: str) -> bool:
+    return os.path.isfile(path) and os.access(path, os.X_OK)
+
+
+def find_tool(name: str, *, which=shutil.which, exists=_is_executable) -> str | None:
+    """``name`` on PATH, else in :data:`TUNNEL_BIN_DIRS`. Looks; never runs it."""
+    found = which(name)
+    if found:
+        return found
+    for folder in TUNNEL_BIN_DIRS:
+        candidate = os.path.join(os.path.expanduser(folder), name)
+        if exists(candidate):
+            return candidate
+    return None
+
+
+def detect(port: int, *, which=shutil.which, run=subprocess.run, exists=_is_executable) -> Reach:
+    ngrok = bool(find_tool("ngrok", which=which, exists=exists))
+    tailscale = find_tool("tailscale", which=which, exists=exists) or (
+        TAILSCALE_APP_CLI if exists(TAILSCALE_APP_CLI) else None)
     if not tailscale:
         return Reach("missing", None, ngrok)
     try:

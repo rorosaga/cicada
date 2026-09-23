@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from _synthetic_bank import _bank
+from _synthetic_bank import _bank, _ok_repo, _settings
 
-from api.services import handshake, skill_catalog
+from api.services import handshake, skill_catalog, state_dictionary
 
 
 def _install(home: Path, name: str):
@@ -39,3 +39,15 @@ def test_remote_never_carries_a_bridge(tmp_path):
     text, _ = handshake.load_or_build(memory, variant="remote",
                                       tools=frozenset({"cicada_recall", "cicada_save_url"}), cache_dir=tmp_path / "c")
     assert "paper-lookup" not in text
+
+
+def test_all_three_real_bridge_lines_fit_the_budget(tmp_path, monkeypatch):
+    """R-B14 makes three keys live; the primer must still carry all three."""
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    memory = _bank(tmp_path)
+    state_dictionary.refresh(memory, _settings(memory), force=True, repo_resolver=_ok_repo)
+    lines = tuple(text.format(names="`example-skill` is") for text in skill_catalog.BRIDGE_TEXT.values())
+    text = handshake.build(state_dictionary.read_state(memory), variant="claude-code", bank="memory",
+                           tz="Europe/Madrid", bridges=lines)
+    assert len(lines) == 3 and all(line in text for line in lines)
+    assert len(text) // 4 <= handshake.MAX_TOKENS

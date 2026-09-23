@@ -14,13 +14,15 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from api.config import Settings
-from api.models.schemas import InboxCause, InboxItem, InboxOption, InboxResolveRequest
+from api.models.schemas import InboxCause, InboxCheck, InboxItem, InboxOption, InboxResolveRequest
 from api.services import (
     decay_policy,
+    fact_sources,
     inbox_context,
     inbox_questions,
     markdown_parser,
     predicates,
+    source_check,
     telemetry,
 )
 from api.services.id_utils import resolve_entity_file, sanitize_id
@@ -80,8 +82,13 @@ def _item_from_file(
     allow_other = bool(fm.get("allow_other", kind in ("conflict", "clarification")))
     allow_defer = bool(fm.get("allow_defer", kind in ("conflict", "clarification", "divergence")))
 
+    hint = _opt_str(fm.get("hint"))
     extra: dict = {}
     if context is not None:
+        # G61 phase 2 S0: a conflict's hint is derived from the subject's
+        # CURRENT sources, voiced by whoever added them (fact_sources.served_hint).
+        page = context.entity(entity_id)
+        hint = fact_sources.served_hint(fm, page.frontmatter.get("sources") if page is not None else None)
         if kind == "decay" and not raw_options:
             # G115 R5: decay is SERVED as a question object and never written as
             # one — the age phrase is computed from the subject page's live
@@ -109,6 +116,15 @@ def _item_from_file(
             and predicates.cardinality(context.memory_path, str(fm.get("predicate", "") or "")) == "multi"
         )
         extra.update(_extractor_refs(fm, kind, context))
+        # G61 phase 2 S2: which rung could answer this, derived at read and
+        # never stored (source_check). Read-only — nothing acts on it yet. A
+        # failure degrades to no `check`, never to a hidden card: load_inbox
+        # skips any item whose read raises (plan R-AC40; G115 — a card is
+        # never hidden for a derived field). Type only: a message could carry a ref.
+        try:
+            extra["check"] = InboxCheck(**source_check.for_item(fm, raw_options, context).to_wire())
+        except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
+            logger.warning(f"checkability skipped for {filepath.name}: {type(exc).__name__}")
 
     options: list[InboxOption] = []
     for raw in raw_options:
@@ -150,7 +166,7 @@ def _item_from_file(
         allow_other=allow_other,
         allow_defer=allow_defer,
         predicate=_opt_str(fm.get("predicate")),
-        hint=_opt_str(fm.get("hint")),
+        hint=hint,
         channel=_opt_str(fm.get("channel")),
         remind_after=_opt_str(fm.get("remind_after")),
         updated_date=_opt_str(fm.get("updated_date")),
@@ -174,6 +190,8 @@ def _extractor_refs(fm: dict, kind: str, context: "inbox_context.InboxContext") 
     extractor's ``suggested_confidence``, conflict → the proposed claim's
     ``confidence`` and ``authored_by``. Read-only; ids and numbers only.
     """
+    from api.services import git_service
+
     out: dict = {"extractor_confidence": None, "extractor_model": None}
     if kind == "decay":
         out["extractor_confidence"] = _as_float(fm.get("priority"))
@@ -185,7 +203,8 @@ def _extractor_refs(fm: dict, kind: str, context: "inbox_context.InboxContext") 
             claim = next((c for c in context.claims(str(fm.get("entity_id", "") or "")) if c.id == claim_id), None)
             if claim is not None:
                 out["extractor_confidence"] = _as_float(claim.confidence)
-                out["extractor_model"] = _opt_str(claim.authored_by)
+                out["extractor_model"] = _opt_str(
+                    git_service.canonical_author(claim.authored_by) if claim.authored_by else None)
     return out
 
 
@@ -609,6 +628,8 @@ def _feedback_refs(fm: dict, kind: str, label: str, request: InboxResolveRequest
     yields no claim info — this is bookkeeping, never a reason to block a
     resolve. Only ids and numbers leave this function.
     """
+    from api.services import git_service
+
     out: dict = {"winner": None, "losers": [], "extractor_confidence": None, "extractor_model": None}
     item_claim = _opt_str(fm.get("claim_id"))
     existing_claim = _opt_str(fm.get("existing_claim_id"))
@@ -651,7 +672,8 @@ def _feedback_refs(fm: dict, kind: str, label: str, request: InboxResolveRequest
                 claim = next((c for c in parse_claims(parsed.body) if c.id == lookup_id), None)
                 if claim is not None:
                     out["extractor_confidence"] = _as_float(claim.confidence)
-                    out["extractor_model"] = _opt_str(claim.authored_by)
+                    out["extractor_model"] = _opt_str(
+                        git_service.canonical_author(claim.authored_by) if claim.authored_by else None)
         except Exception:  # noqa: BLE001 — no claim info is an acceptable answer
             logger.debug("feedback refs: claim lookup failed", exc_info=True)
     return out

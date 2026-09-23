@@ -21,7 +21,6 @@ never ``Sleep cycle …``: the Sleep page's history rows are consolidations.
 """
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -146,11 +145,11 @@ def commit_message(report: Report, today: date) -> str:
 def restore(memory_path: Path, paths: list[str]) -> None:
     """Put pages back as HEAD has them after a failed expiry commit (Q-R7).
     The expiry is re-derived tomorrow; a page left dirty would be stamped by
-    the next ``git add -A`` writer under the wrong author — the G85 smear."""
+    the next ``git add -A`` writer under the wrong author — the G85 smear.
+    Through the bank's one write lock, like every git write (F2-back R-B1)."""
     if not paths or not (Path(memory_path) / ".git").exists():
         return
     try:
-        subprocess.run(["git", "checkout", "--", *paths], cwd=str(memory_path),
-                       capture_output=True, timeout=10, check=False)
-    except (subprocess.TimeoutExpired, OSError) as exc:
+        git_service.run_git_write_sync(memory_path, "checkout", "--", *paths)
+    except git_service.GitError as exc:
         logger.warning(f"expiry restore failed: {type(exc).__name__}")

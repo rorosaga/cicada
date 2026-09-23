@@ -21,9 +21,10 @@ What the move adds — each additive, each inert to an episode that does not use
   that has a time, always the LAST frontmatter key, capped head-stable at
   ``MAX_TURN_STAMPS``, omitted when no turn has a time. (This track first wrote
   a ``turn_index`` of ``[offset, ts, speaker]`` rows, R-LS1/R-LS2, because the
-  Stop hook's ``turns:`` is an integer count; the merge with G118 slice 2 kept
-  ONE key — the hook's int reads as "no stamps" in ``turn_stamps`` — and turn
-  numbering now comes from the body's marker lines, ``evidence.turn_at``.)
+  Stop hook's ``turns:`` was an integer count (until G141 PJ-4); the merge with
+  G118 slice 2 kept ONE key — a pre-PJ-4 hook episode's int reads as "no
+  stamps" in ``turn_stamps`` — and turn numbering now comes from the body's
+  marker lines, ``evidence.turn_at``.)
 * Rename by content — a tombstoned ``source_id`` and a brand-new one in the same
   batch with the same ``content_sha`` and ``#fragment`` repoint the existing
   episode instead of forking a copy (R-F1, R-LS12).
@@ -207,7 +208,9 @@ def render(draft: EpisodeDraft) -> tuple[str, list[dict], int]:
 def stamps_for(draft: EpisodeDraft, body: str) -> list[dict]:
     """The sidecar for ``body`` when it is exactly ``draft``'s own rendering
     (scrubbed or raw), else ``[]`` — the offsets would vouch for text they do
-    not index. For the router's compat wrappers, which take a body as given."""
+    not index. For callers that hold a body as given: the router's compat
+    wrappers, and the Stop hook's writer (``transcript_capture``, G141 PJ-4),
+    whose ``role: text`` body is this module's line shape byte for byte."""
     if draft.body is not None:
         return []
     for texts in ([episode_scrub.scrub(t.text)[0] for t in draft.turns], [t.text for t in draft.turns]):
@@ -342,6 +345,32 @@ def _requeue_for_authorship(fm: dict, draft: EpisodeDraft) -> None:
     elif not draft.queue_for_sleep and not fm.get("processed"):
         fm["processed"] = True
         fm["processed_by"] = PARSED_ONLY
+
+
+def reattribute(path: Path, *, extra: dict, queue_for_sleep: bool) -> bool:
+    """Same body, same hash, new authorship (F2-back R-B6): a folder's rule
+    changed, and the episode must say whose words it holds without the app
+    re-posting a byte. Frontmatter only — ``content_hash``, ``content_sha``,
+    ``source_id``, ``source_deleted_at`` and the body are untouched, so every
+    evidence span into it stays ``current`` (G118) and a tombstone stays one.
+
+    The queue follows :func:`_requeue_for_authorship`, the rule ``_refresh``
+    and ``_repoint`` already share, so a rule change and a glob flip on re-post
+    cannot disagree (R-B7) — for a tombstoned episode too, because an agent's
+    words are never queued for Sleep (R-LS10) and a deletion never touched the
+    queue. Returns whether the file changed. Runs under ``STAGE_LOCK``."""
+    with STAGE_LOCK:
+        parsed = markdown_parser.parse(path)
+        fm = dict(parsed.frontmatter)
+        before = dict(fm)
+        fm.update(extra)
+        _requeue_for_authorship(fm, EpisodeDraft(queue_for_sleep=queue_for_sleep))
+        if fm == before:
+            return False
+        if "turns" in fm:
+            fm["turns"] = fm.pop("turns")  # R-PB4: the sidecar stays the last key
+        markdown_parser.write(path, fm, parsed.body)
+        return True
 
 
 def _restamp(path: Path, draft: EpisodeDraft) -> None:

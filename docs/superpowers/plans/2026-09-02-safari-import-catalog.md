@@ -2330,7 +2330,7 @@ If the G30 tail string does not match exactly (the row may have been edited), ru
 
 - [ ] **Step 3: TODO.md**
 
-1. Under `**2026-09-02**` in `## ✅ Shipped` add: `- **Safari import track** (`feat/safari-import`, PR #TBD) — Safari iCloud tabs (device picker), bookmark folder selection with tree preview (Reading List as its own folder), per-browser channels, the app reads `~/Library` and posts bytes (the launchd backend never could), Full-Disk-Access fix shown in place, and the `+` sheet re-layered into a logo-first family → member catalog with keyboard navigation. Follow-up: G118 (Arc/Firefox/Brave).`
+1. Under `**2026-09-02**` in `## ✅ Shipped` add: `- **Safari import track** (`feat/safari-import`, PR #88) — Safari iCloud tabs (device picker), bookmark folder selection with tree preview (Reading List as its own folder), per-browser channels, the app reads `~/Library` and posts bytes (the launchd backend never could), Full-Disk-Access fix shown in place, and the `+` sheet re-layered into a logo-first family → member catalog with keyboard navigation. Follow-up: G118 (Arc/Firefox/Brave).`
 2. In `## Where things stand` (TODO.md `:7`, currently headed "2026-09-01, evening"), retitle the heading to 2026-09-02 and add a first paragraph naming `feat/safari-import` as the open PR and the one manual step the orchestrator runs (Verification below).
 3. In `## Pick up here`, add item **0.**: "Merge `feat/safari-import` after an independent re-run of both suites, then run the live import once with the owner present (Full Disk Access to Cicada.app is a one-time grant)."
 4. Refresh `_Last synced:` line.

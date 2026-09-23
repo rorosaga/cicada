@@ -59,7 +59,7 @@ def test_watch_carries_its_terms_and_cicada_s_own_rail():
     watch = BY_ID["watch"]
     assert watch["terms"]["url"].startswith("https://www.youtube.com/t/terms")
     assert "never downloads video" in watch["cicadaNote"]
-    assert watch["bridge"] == {"key": "video", "tool": "cicada_record_watch", "active": False}
+    assert watch["bridge"] == {"key": "video", "tool": "cicada_record_watch", "active": True}
 
 
 def test_active_bridges_name_existing_tools_with_existing_arguments():
@@ -165,7 +165,10 @@ def test_bridge_lines_only_for_installed_active_bridges_in_that_agent(tmp_path):
     home = tmp_path / "h"
     assert skill_catalog.bridge_lines("claude-code", home=home) == []
     _skill(home, ".claude/skills", "paper-lookup")
-    _skill(home, ".claude/skills", "watch")           # installed, but its bridge is not active
+    plugins = home / ".claude" / "plugins"
+    plugins.mkdir(parents=True)
+    # `pdf` is installed, but its `documents` bridge stays inactive (R-B14).
+    (plugins / "installed_plugins.json").write_text(json.dumps({"document-skills@anthropic-agent-skills": {}}))
     lines = skill_catalog.bridge_lines("claude-code", home=home)
     assert len(lines) == 1 and "`paper-lookup` is installed" in lines[0] and "cicada_save_url(url)" in lines[0]
     assert skill_catalog.bridge_lines("codex", home=home) == []
@@ -173,3 +176,36 @@ def test_bridge_lines_only_for_installed_active_bridges_in_that_agent(tmp_path):
     _skill(home, ".claude/skills", "literature-review")
     both = skill_catalog.bridge_lines("claude-code", home=home)
     assert len(both) == 1 and "are installed" in both[0], "one line per bridge key"
+
+
+def test_the_video_and_meeting_bridges_are_active_and_documents_is_not():
+    """R-B14: the watch record (G140) and speaker-aware evidence (G134) shipped, so
+    these bridges name tools that work; nothing yet says who wrote a document."""
+    active = {e["id"]: (e["bridge"] or {}).get("active") for e in SKILLS}
+    assert active["watch"] is True
+    assert (active["wispr-flow"], active["granola"], active["transcribe"]) == (True, True, True)
+    assert active["pdf"] is False
+    assert set(skill_catalog.BRIDGE_TEXT) == {"papers", "video", "meetings"}
+
+
+def test_a_watch_skill_gets_the_watch_record_line(tmp_path):
+    home = tmp_path / "h"
+    _skill(home, ".claude/skills", "watch")
+    (line,) = skill_catalog.bridge_lines("claude-code", home=home)
+    assert "`watch` is installed" in line and "`cicada_record_watch(url, summary, excerpts)`" in line
+
+
+def test_a_transcription_skill_gets_the_speaker_line(tmp_path):
+    home = tmp_path / "h"
+    _skill(home, ".codex/skills", "transcribe")
+    (line,) = skill_catalog.bridge_lines("codex", home=home)
+    assert "`cicada_save_episode(content, title)`" in line
+    assert "speaker:<name>:" in line and "never `user:`" in line
+
+
+def test_a_meeting_saved_the_bridges_way_is_never_the_persons_words():
+    """The line's promise, checked against the one marker grammar (R-N2)."""
+    from api.services import evidence
+
+    body = "speaker:Alex Example: we ship alpha-project on Friday\nspeaker:unknown: sounds good"
+    assert {evidence.speaker_kind(body, 0), evidence.speaker_kind(body, body.index("sounds"))} == {"speaker"}

@@ -400,10 +400,11 @@ def turn_stamps(frontmatter: dict | None) -> dict[int, dict]:
     """The ``turns: [{offset, ts, speaker}]`` sidecar (R-PB4), keyed by offset.
 
     Written by ONE writer, ``episode_staging`` — the chat importer (through the
-    router's compat wrappers) and every Local-sources draft (a watched folder,
-    a Wispr Flow meeting or dictation day) — which IS the coordination
-    contract. Tolerant by design: the Stop hook's ``turns: <count>``
-    (``transcript_capture``) is an int, not a sidecar, and reads as no stamps;
+    router's compat wrappers), every Local-sources draft (a watched folder, a
+    Wispr Flow meeting or dictation day), and since G141 PJ-4 the Stop hook
+    (through ``stamps_for``) — which IS the coordination contract. Tolerant by
+    design: a Stop-hook episode written before PJ-4 holds ``turns: <count>``,
+    an int that reads as no stamps;
     a malformed or duplicate entry is skipped, never raised. ``ts``/``speaker``
     pass through verbatim (``None`` when absent) — nothing here infers a time.
     """

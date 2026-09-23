@@ -552,21 +552,31 @@ async def add_entity_source(
     request: EntitySourceCreate,
     settings: Settings = Depends(get_settings),
 ):
-    """Append one source. ``kind`` is inferred from ``ref`` when not supplied."""
+    """Append one source. ``kind`` is inferred from ``ref`` when not supplied.
+
+    G61 phase 2 S1 (plan R-AC21, R-AC27): the person's ``access``/``accepted``/
+    ``only_me`` ride along, and a value the record does not allow is a 400 with
+    ``fact_sources.InvalidSource``'s message — never a silently dropped field."""
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
     if not (request.ref or "").strip():
         raise HTTPException(400, "ref is required")
 
-    fact_sources.add_source(
-        settings.memory_path,
-        entity_id,
-        request.ref,
-        kind=request.kind,
-        predicate=request.predicate,
-        added_by="user",
-    )
+    try:
+        fact_sources.add_source(
+            settings.memory_path,
+            entity_id,
+            request.ref,
+            kind=request.kind,
+            predicate=request.predicate,
+            added_by="user",
+            access=request.access,
+            accepted=request.accepted,
+            only_me=request.only_me,
+        )
+    except fact_sources.InvalidSource as exc:
+        raise HTTPException(400, str(exc)) from exc
     await _commit_sources(settings.memory_path, entity_id, "Add")
     return _sources_payload(settings.memory_path, entity_id)
 

@@ -41,7 +41,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import episode_ids, episode_scrub, markdown_parser, owner_identity
+from api.services import demo_guard, episode_ids, episode_scrub, markdown_parser, owner_identity
 
 # Telegram doesn't ship its own "find URLs in free text" primitive, and
 # media_ingestor's URL handling assumes a URL is already the whole field
@@ -232,6 +232,12 @@ async def ingest_telegram_update(
     chat_id = parsed["chat_id"]
     captured_at = parsed["date"]
 
+    if demo_guard.is_demo(memory_path):
+        # G141 capture-side track (R-CS14): a 200 with a reply, never an error —
+        # Telegram retries a non-2xx for hours, and a retry landing after the
+        # person switched back would save a message they were told was not saved.
+        return {"kind": "skipped", "reason": "demo_bank", "ack": demo_guard.TELEGRAM_ACK, "chat_id": chat_id}
+
     try:
         if parsed["command"] == "remind":
             fn = save_episode_fn or _default_save_episode
@@ -310,6 +316,7 @@ def _write_saved_because_claim(
     """
     from api.config import get_settings
     from api.services import evidence as evidence_mod
+    from api.services import git_service
     from api.services.agentic_write import write_claim
 
     # G118 R13: the reason lives in the episode's `## Saved because` section
@@ -339,6 +346,8 @@ def _write_saved_because_claim(
         confidence=0.9,
         source_episode=episode_id or None,
         origin="telegram",
+        # F2-back R-B11: the person typed the reason; its commit is already `user`.
+        authored_by=git_service.USER_AUTHOR,
         evidence=(
             [{"episode": episode_id, "quote": reason, "window": window}] if episode_id else None
         ),
