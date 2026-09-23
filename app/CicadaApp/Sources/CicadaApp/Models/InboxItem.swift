@@ -125,7 +125,10 @@ extension InboxOption: Codable {
 /// Why an item exists (G97): the conversation and sentence that raised it,
 /// resolved server-side at read. `mentionOffsets` index the EXCERPT as
 /// Unicode-scalar offsets (Python `str` indices); `start`/`end` are the
-/// absolute offsets into the episode body. `tier == "none"` carries the literal
+/// EXCERPT WINDOW's absolute offsets into the episode body
+/// (`inbox_context.excerpt_around` — G118 slice 2 corrected this comment,
+/// which used to call them the mention's), so the mention itself sits at
+/// `start + mentionOffsets[0]` (R-PB16). `tier == "none"` carries the literal
 /// `[ no source recorded ]` in `excerpt` — shown, never hidden.
 struct InboxCause: Codable, Hashable {
     var episodeId: String?
@@ -288,5 +291,25 @@ extension InboxItem {
     /// without a view, same pattern as `SourceOverview.ownedItems`.
     static func openRemovals(in items: [InboxItem], channelId: String) -> [InboxItem] {
         items.filter { $0.kind == .removal && $0.channel == channelId }
+    }
+}
+
+extension InboxCause {
+    /// Where "Show in conversation" opens (G118 slice 2, design §4.7, R-PB16):
+    /// the mention's absolute offsets, asked for with NO hash — the cause is
+    /// recomputed at every read, so it is current by construction. A cause
+    /// found by name (`spanKind == "derived"`) stays labelled derived in the
+    /// Reader; an asserted G118 span lands washed. A cause with no mention
+    /// opens its conversation at the top; tier `none` has nothing to open.
+    func readerTarget(subjectId: String?) -> ReaderTarget? {
+        guard tier != "none", let episodeId, !episodeId.isEmpty else { return nil }
+        if let start, let pair = mentionOffsets.first, pair.count == 2, pair[0] >= 0, pair[1] > pair[0] {
+            return ReaderTarget(episode: episodeId,
+                                focus: .span(start: start + pair[0], end: start + pair[1], hash: nil,
+                                             derived: spanKind != "asserted"),
+                                subjectId: subjectId, knownTitle: conversationTitle, knownHarness: harness)
+        }
+        return ReaderTarget(episode: episodeId, subjectId: subjectId, knownTitle: conversationTitle,
+                            knownHarness: harness)
     }
 }

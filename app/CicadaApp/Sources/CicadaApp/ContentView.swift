@@ -142,6 +142,10 @@ struct ContentView: View {
             showFirstRun = true
             router.pendingFirstRun = false
         }
+        // G118 slice 2 (P5) — an evidence chip inside the Ask sheet opens the
+        // Reader, which lives on THIS window; the sheet steps aside so the
+        // person sees the sentence instead of a modal covering it.
+        .onChange(of: provenance.revision) { _, _ in showAskPanel = false }
         .sheet(isPresented: $showAskPanel) {
             // G123: a citation lands ON its node — the graph zooms to that
             // node's neighbourhood, not just opens its card. An answer's

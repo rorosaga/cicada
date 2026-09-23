@@ -202,3 +202,13 @@ enum EvidenceLabel {
         }
     }
 }
+
+extension AskCitation {
+    /// An answer's source snippets as evidence chips (§4.7, P5): the claim's
+    /// stored spans when the hit was a claim (R-PB12), else — an entity-only
+    /// hit, or a legacy claim — derived chips for the conversations the page
+    /// lists, capped like any legacy claim.
+    var evidenceChips: [EvidenceChipModel] {
+        EvidenceChipModel.chips(evidence: evidence, sourceEpisodes: sourceEpisodes, subjectId: entityId)
+    }
+}

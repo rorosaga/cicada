@@ -127,3 +127,9 @@ extension Copy.Provenance {
     static func showOnGraph(_ name: String) -> String { "Show \(name) on the graph" }
     static let noLongerCurrent = "No longer current"
 }
+
+// MARK: - Inbox and Ask (§4.7, P5) — Task 6
+
+extension Copy.Provenance {
+    static let showInConversation = "Show in conversation"
+}
