@@ -18,7 +18,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from api.config import Settings, get_settings
-from api.services import telemetry
+from api.services import bank_registry, demo_guard
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
     ensure_webhook_secret,
@@ -162,23 +162,40 @@ async def capture_transcript_endpoint(
     which of ``created | updated | unchanged | empty`` happened. Runs the
     read + parse off the event loop — an 85 MB transcript takes real time
     and must not stall SSE or the app.
+
+    G141 capture-side track (R-CS12): the demo bank is never the target. While
+    it is open, the session is saved into the real bank left most recently
+    (``bank_registry.capture_bank``) and the response names it — ``bank`` and
+    ``redirectedFrom`` — so the hook's log says where it went; with no real
+    bank to choose, ``409`` and nothing is read. Every Stop re-captures the
+    whole session, so the first reply after switching back saves it in full.
     """
+    target = bank_registry.capture_bank(settings.memory_root)
+    # No real bank to fall back to: the service is handed the demo path and
+    # refuses it unread, so the refusal lands in the ledger like any other.
+    memory_path = target.path if target is not None else settings.memory_path
     result = await asyncio.to_thread(
         capture_transcript,
-        settings.memory_path,
+        memory_path,
         harness=req.harness,
         session_id=req.session_id,
         transcript_path=req.transcript_path,
         cwd=req.cwd,
         keep_assistant=settings.capture_assistant_replies,
-        bank=telemetry.bank_name(settings),
+        bank=memory_path.name,
     )
-    if result.status == "refused":
+    if target is None or result.status == "refused":
+        if target is None or result.reason == "demo_bank":
+            raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
         raise HTTPException(status_code=400, detail=result.reason)
+    if target.redirected_from:
+        logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
     return {
         "status": result.status,
         "episodeId": result.episode_id,
         "turnsUser": result.turns_user,
         "turnsAssistant": result.turns_assistant,
         "summary": result.summary,
+        "bank": target.name,
+        "redirectedFrom": target.redirected_from,
     }

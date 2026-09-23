@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import time
 import zipfile
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -37,7 +38,7 @@ from typing import Any
 import yaml
 from loguru import logger
 
-from api.services import predicates
+from api.services import demo_guard, predicates
 from api.services.id_utils import sanitize_id
 
 REGISTRY_FILENAME = "banks.yaml"
@@ -418,13 +419,78 @@ def create_bank(root: Path, name: str, description: str = "") -> str:
 
 
 def activate_bank(root: Path, name: str) -> None:
-    """Point ``active`` at ``name``. Raises ``ValueError`` if unknown."""
+    """Point ``active`` at ``name``. Raises ``ValueError`` if unknown.
+
+    Stamps ``last_active_at`` (aware UTC) on the bank being LEFT (G141
+    capture-side track, R-CS11): the one record of which real bank was open
+    most recently, which is where the Stop hook saves a session while the demo
+    bank is open (:func:`capture_bank`). Re-activating the active bank stamps
+    nothing; ``list_banks`` never reads the key, so ``/banks`` is unchanged.
+    """
     root = Path(root)
     registry = _ensure_registry(root)
-    if name not in (registry.get("banks", {}) or {}):
+    banks = registry.get("banks", {}) or {}
+    if name not in banks:
         raise ValueError(f"Unknown bank '{name}'")
+    previous = registry.get("active")
+    if previous and previous != name and isinstance(banks.get(previous), dict):
+        banks[previous]["last_active_at"] = datetime.now(timezone.utc).isoformat()
     registry["active"] = name
     save_registry(root, registry)
+
+
+def most_recent_real_bank(root: Path) -> str | None:
+    """The real bank a capture falls back to while a demo bank is active (R-CS11).
+
+    Among the registered banks that are not active, exist on disk and are not
+    demo banks: the one LEFT most recently (``last_active_at``). A registry
+    written before the stamp existed has none — then the only real bank is the
+    answer when there is exactly one (the common install: the legacy
+    ``default`` plus ``demo``), and ``None`` when there are several: Cicada
+    never guesses which of two real memories a conversation belongs to.
+    """
+    root = Path(root)
+    registry = load_registry(root)
+    active = registry.get("active")
+    candidates: list[tuple[str, str]] = []
+    for name, record in (registry.get("banks", {}) or {}).items():
+        if name == active:
+            continue
+        path = bank_dir(root, name)
+        if not path.is_dir() or demo_guard.is_demo(path):
+            continue
+        stamp = str(record.get("last_active_at") or "") if isinstance(record, dict) else ""
+        candidates.append((stamp, name))
+    stamped = [c for c in candidates if c[0]]
+    if stamped:
+        return max(stamped)[1]
+    return candidates[0][1] if len(candidates) == 1 else None
+
+
+@dataclass(frozen=True)
+class CaptureBank:
+    """Where an unattended capture writes (R-CS12). ``redirected_from`` names
+    the demo bank that was active when the capture was sent elsewhere."""
+
+    name: str
+    path: Path
+    redirected_from: str | None = None
+
+
+def capture_bank(root: Path) -> CaptureBank | None:
+    """The active bank, unless it is a demo bank — then the real bank left most
+    recently, or ``None`` when there is none to choose (R-CS12). Resolved per
+    call from ``banks.yaml``, like every bank path (the split-brain rule)."""
+    root = Path(root)
+    registry = load_registry(root)
+    active = str(registry.get("active") or DEFAULT_BANK)
+    path = resolve_active_bank_path(root)
+    if not demo_guard.is_demo(path):
+        return CaptureBank(active, path)
+    fallback = most_recent_real_bank(root)
+    if fallback is None:
+        return None
+    return CaptureBank(fallback, bank_dir(root, fallback), redirected_from=active)
 
 
 def duplicate_bank(root: Path, name: str, new_name: str) -> str:

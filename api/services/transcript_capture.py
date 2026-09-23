@@ -38,7 +38,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import episode_ids, episode_staging, markdown_parser, session_stats, telemetry
+from api.services import demo_guard, episode_ids, episode_staging, markdown_parser, session_stats, telemetry
 from api.services.transcript_extract import HARNESSES, Conversation, extract
 
 #: 256 MiB. The largest transcript seen on the author's machine during the
@@ -124,7 +124,7 @@ class CaptureResult:
     turns_user: int
     turns_assistant: int
     summary: dict
-    reason: str | None = None
+    reason: str | None = None  # a TranscriptRefused enum, or "demo_bank" (G141 capture-side track)
 
 
 def _utc(ts: str | None) -> str:
@@ -247,11 +247,20 @@ def capture_transcript(
 ) -> CaptureResult:
     """Validate (R2), extract, and write or update the session's one episode (R3).
 
-    ``status``: ``refused`` (nothing read, nothing written), ``empty`` (read,
+    ``status``: ``refused`` (nothing read, nothing written — an unsafe path,
+    or a demo bank, reason ``demo_bank``), ``empty`` (read,
     nothing worth keeping, nothing written), ``created``, ``updated`` (body
     changed — re-queued for Sleep), ``unchanged`` (same hash — no write, so
     a Stop that fires after every reply costs no git noise).
     """
+    if demo_guard.is_demo(memory_path):
+        # G141 capture-side track (R-CS12): a demo bank holds only made-up
+        # examples, so a real session is never written into it — refused
+        # before the transcript is even validated, and recorded like every
+        # other refusal. The router sends the session to a real bank first;
+        # this is the guard for any caller that does not.
+        _record(harness, session_id, "refused", None, bank, "demo_bank")
+        return CaptureResult("refused", None, 0, 0, {}, reason="demo_bank")
     try:
         path = validate_transcript_path(harness, session_id, transcript_path)
     except TranscriptRefused as exc:

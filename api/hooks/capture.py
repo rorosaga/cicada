@@ -36,7 +36,9 @@ Codex (R9): its Stop payload is unverified, so a payload without
 
 One line per firing goes to ``~/.cicada/logs/capture.log`` (0600): a
 timestamp, the harness, the first 8 characters of the session id, and the
-outcome — never a path, never content. The token comes from
+outcome — plus, when the demo memory was open, the name of the bank the
+session was saved into (G141 capture-side track) — never a path, never
+content. The token comes from
 ``~/.cicada/api_token``, never from an env-embedded key.
 """
 
@@ -145,6 +147,10 @@ def main(argv=None, *, stdin=None, environ=None, post=None, log_path=None, token
         try:
             parsed = json.loads(text)
             outcome = str(parsed.get("status") or parsed.get("detail") or "")
+            if parsed.get("redirectedFrom"):
+                # R-CS12: the demo bank was open, so the backend saved this
+                # session into a real bank — say which (a name, never a path).
+                outcome += f" into {parsed.get('bank')} (the demo memory is open)"
         except (ValueError, AttributeError):
             pass
         _log(log_path, f"{tag} http {status} {outcome}".rstrip())

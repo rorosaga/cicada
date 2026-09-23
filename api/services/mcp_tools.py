@@ -34,7 +34,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from api.services import agent_commits, agentic_write, episode_ids, episode_scrub, search_service
+from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import markdown_parser
 
@@ -168,6 +168,17 @@ class ToolContext:
         return _backend_sleep_running(self.backend_url, self.backend_headers())
 
 
+def _demo_refusal(memory_path: Path) -> str | None:
+    """G141 capture-side track (R-CS13): every write tool refuses a demo bank —
+    one check for stdio and remote alike. It takes the bank the tool already
+    resolved for this call, so the check, the write, the ledger row and the
+    commit all name ONE bank (the split-brain rule; `write_claim`'s "one bank
+    resolution per call"). The demo holds only made-up examples; a real
+    conversation's note or belief written into it leaks into the demo's
+    content and its screenshots."""
+    return demo_guard.AGENT_REFUSAL if demo_guard.is_demo(memory_path) else None
+
+
 def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
     """Answer a NL question over memory with citations + explicit gaps.
 
@@ -273,6 +284,8 @@ def _saved_reply(status: str, title: str, media_type: str, entity_id: str, episo
 def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
     """Save a URL as media. Prefers the running backend (shared dedup index,
     background enrichment); falls back to direct ingestion via the api package."""
+    if (refusal := _demo_refusal(ctx.memory_path())) is not None:
+        return refusal
     url = (url or "").strip()
     if not url.startswith(("http://", "https://")):
         return "Error: URL must start with http:// or https://"
@@ -381,6 +394,8 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
     if not url.startswith(("http://", "https://", "file://")):
         return "Error: url must be the saved video's link (http(s):// or file://)."
     memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
     target = watch_record.resolve(memory_path, url)
     if target is None:
         if url.startswith("file://"):
@@ -892,6 +907,8 @@ def write_claim(
     # One bank resolution per call: the write, the ledger row and the commit
     # must all name the same bank even if the active bank flips mid-call.
     memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
     author = ctx.author
     result = agentic_write.write_claim(
         memory_path,
@@ -1022,6 +1039,8 @@ def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, ev
     wrote. The claim stays in its page's history, a record keeps the reason,
     and the page commits alone under the caller — like ``write_claim``."""
     memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
     result = agentic_write.retract_claim(
         memory_path, subject, (claim_id or "").strip(), reason=reason, author=ctx.author,
         origin=ctx.claim_origin, session_id=ctx.session_id, evidence=evidence,
@@ -1762,6 +1781,8 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     from datetime import timezone
 
     memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
 
