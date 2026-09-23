@@ -547,9 +547,22 @@ no `$`/token columns, no cost-per-day chart. The `/consumption/*` endpoints and 
 unchanged for future use.
 
 **Navigation.** Six sidebar rows (⌘1–6): Graph, Clusters, Feed, Sleep, Inbox, Sources. Setup lives
-in a native `Settings{}` scene (⌘,), a `NavigationSplitView` over five sections — General · Sleep ·
-Integrations · Agents · Plans & keys (`SettingsSection`, replacing the earlier four-tab `TabView`).
-⌘K opens the find palette (below). `AppTab` raw values are the persisted identity of a tab, and
+in a native `Settings{}` scene (⌘,): a `NavigationSplitView` whose sidebar starts with a search field
+and groups its rows as Cicada · Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General ·
+You · Privacy & data · Memory · Sleep; Customize: Integrations · Agents · From anywhere · Skills; Engines & keys:
+Engines · Plans & keys · Advanced. Privacy & data exports a bank and moves one to `<root>/.trash/`, but
+never switches banks (that stays in the Graph page's `BankSwitcher` — a second switcher in another
+window is the split-brain class); Memory has no "Look for duplicates" until the dedup endpoint stops
+blocking the event loop and commits what it merges (R-O17).
+Search is `SettingsIndex` over `QuickMatch` — the palette's one ranker, so Settings and ⌘K never rank
+one name two ways — and landing (search, `SettingsSectionLink(section:row:)`,
+an in-window pointer) always selects, scrolls, washes and announces the row (G139).
+`SettingsSection` raw values are the persisted selection and did not move when the groups arrived.
+General's appearance offers System, which follows the Mac's own light/dark through one app-scope
+observer (`ThemeStore.observeSystemAppearance`), not a per-window one.
+⌘K (Find in Memory…) opens the find palette — Find, with Ask as a mode on ⌘⏎. ⌘K and ⌘F are menu
+commands in `Support/FindCommands.swift`; `HiddenShortcutLintTests` fails the build on either
+shortcut anywhere else (G136). `AppTab` raw values are the persisted identity of a tab, and
 `AppTab.restored(from:)` maps retired ones onto the pages that inherited them, so an older selection
 never traps. A page's top-right control is the `?` alone — Track P's audit removed the global Sleep
 button, because a cycle starts from the Sleep page's one Consolidate control (G125 R10) or the
@@ -564,7 +577,7 @@ owns `Store.intakeInFlight` through a counter of requests in flight. The card's 
 R10's first narrow amendment: a user trigger, subtitled with the manual engine like Consolidate,
 shown only when an engine can run and the import landed in the active bank.
 
-**Settings → Sleep: the engine picker (G122, Track E).** A row of cards with real marks — Auto,
+**Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
 `PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
 `use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
@@ -575,6 +588,12 @@ way a Claude cycle continues past the plan's included usage; otherwise it stops 
 sentence and the reset time. Ask follows the same choice. The ChatGPT plan runs as `codex exec` in
 Cicada's own Codex home (`~/.cicada/codex`), signed into in-app with a device code; Cicada never
 opens that home's files — `codex app-server` answers plan, limit and models.
+`EngineChooser` is the component (`EngineCard` wraps it for onboarding); the Sleep page shows the two
+previews read-only with a link here. The Claude plan's old *Use for Sleep* switch moved here too —
+same `use_for_sleep` pref, same endpoint — but `engine_select.resolve_llm_mode` reads that pref only
+when the chosen mode is `byok`, so it shows only while the API key card is chosen, as *Use my Claude
+plan when I start a cycle*, and a flip reloads the chooser's preview. Plans & keys is credentials
+only: the Max-tier cost-estimate picker is gone (the no-price ruling).
 
 **Settings → Integrations (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
@@ -592,6 +611,19 @@ unparseable settings file is `invalid`, never `off`), plus the exact argv instal
 **app** runs them, only after the person's click (spec decision 14, D-1), with
 `CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout; the backend never writes a
 harness root.
+
+**Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
+licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it
+bridges; `scripts/verify-skills.sh` re-checks it) served by `GET /skills/recommended` — at most
+five not-installed entries by rank, install state derived per request from `SKILL.md` files and
+Claude Code plugin ids, never an agent's config. **The backend never installs anything.** The app
+runs only the agent's own installer (`claude`, `codex`, `npx skills` pinned to the reviewed
+commit), after a consent sheet that shows the exact command, as an argv with
+`CICADA_CAPTURE=off`; hosted MCP servers are copy-only. The app writes files only for Cicada's
+own `cicada` and `cicada-librarian` (`SkillInstaller`, a `.cicada-managed.json` marker, never
+over a changed copy). The handshake gains a capability line only for an installed, active bridge
+whose tool exists; the video and meeting bridges stay inactive until they are wired to the watch
+record (`cicada_record_watch`) and speaker-aware evidence, both of which have landed (G140, G134).
 
 **Sources page — v2 (G124).** One card system: fixed tile height, one column count derived from the
 container width in **scaled** units (`SourceGridColumns`, 2–4) and shared by every section, five
@@ -720,7 +752,7 @@ opens, and a bank switch closes it and empties the cache (episode ids repeat acr
 
 ## API Design
 
-26 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+27 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, and an OAuth adapter's

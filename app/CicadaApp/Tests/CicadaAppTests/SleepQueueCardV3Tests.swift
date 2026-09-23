@@ -144,6 +144,10 @@ final class SleepQueueCardV3Tests: XCTestCase {
             .sorted()
         XCTAssertEqual(writers, ["SettingsSectionLink.swift"],
                        "the section seed must be written in exactly one place (P5)")
+        let rowWriters = try ThemeTokenTests.swiftSources()
+            .filter { try String(contentsOf: $0, encoding: .utf8).contains(#"forKey: "cicada.settingsRowFocus""#) }
+            .map(\.lastPathComponent)
+        XCTAssertEqual(rowWriters, ["SettingsSectionLink.swift"], "the row seed has one writer too (G139)")
     }
 
     /// `EmptyStateView` adopted `SettingsSectionLink`, so the key must be gone

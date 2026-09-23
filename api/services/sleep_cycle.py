@@ -677,7 +677,7 @@ def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> st
     # AFTER the claude-cli/ollama checks above (unaffected by it) and BEFORE
     # the generic byok return below (the one it replaces for this one case).
     if engine_detail and "no sleep engine chosen" in engine_detail.lower():
-        return "Stage 1 extracted nothing — no engine chosen — pick one in Settings → Sleep."
+        return "Stage 1 extracted nothing — no engine chosen — pick one in Settings → Engines."
     return (
         "Stage 1 extracted nothing — every episode failed on the API engine "
         "(check the model id, and that the key still has credit). "

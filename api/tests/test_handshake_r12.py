@@ -14,7 +14,7 @@ from _stdio_server import stdio_server
 from _synthetic_bank import _bank, _ok_repo, _settings
 from api.remote import catalog
 from api.remote import tools as remote_tools
-from api.services import handshake, state_dictionary
+from api.services import handshake, skill_catalog, state_dictionary
 
 CALL = re.compile(r"`(cicada_[a-z_]+)\(([^`]*)\)`")
 SUBSETS = [frozenset(c) for n in range(1, len(catalog.SCOPES) + 1) for c in combinations(catalog.SCOPES, n)]
@@ -59,6 +59,19 @@ def test_every_argument_the_local_primer_names_is_in_the_schema(tmp_path, monkey
     for variant in handshake.VARIANTS:
         _check(handshake.build(state_dictionary.read_state(memory), variant=variant, bank="memory",
                                tz="Europe/Madrid"), schemas)
+
+
+def test_every_argument_a_bridge_line_names_is_in_the_schema(tmp_path, monkeypatch):
+    """G138's bridge lines sit in the local primer's capabilities, so R12 holds
+    them too — every active bridge text, on every local variant."""
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    schemas = {t["name"]: set(t["inputSchema"].get("properties", {})) for t in stdio_server().TOOLS}
+    bridges = tuple(text.format(names="`example-skill` is") for text in skill_catalog.BRIDGE_TEXT.values())
+    assert bridges
+    for variant in handshake.VARIANTS:
+        text = handshake.build(None, variant=variant, bank="memory", tz="Europe/Madrid", bridges=bridges)
+        assert all(line in text for line in bridges[: skill_catalog.MAX_BRIDGE_LINES])
+        _check(text, schemas)
 
 
 @pytest.mark.parametrize("scopes", SUBSETS, ids=lambda s: "+".join(sorted(s)))

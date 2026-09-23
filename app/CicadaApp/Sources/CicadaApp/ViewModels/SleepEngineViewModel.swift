@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Backs `EngineCard` (G122). Ruling 6: `/sleep/engine` has no `Store`
+/// Backs `EngineChooser` (G122). Ruling 6: `/sleep/engine` has no `Store`
 /// domain, no ETag, and is never SSE-pushed — the same shape as
 /// `ScheduleConfig`/`SleepViewModel.updateSchedule`, which already gets by
 /// with a plain `APIClient` round trip and no optimistic-apply/rollback

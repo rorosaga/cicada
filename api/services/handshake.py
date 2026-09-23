@@ -38,7 +38,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import state_dictionary
+from api.services import skill_catalog, state_dictionary
 from api.services.auth import cicada_home
 
 # Bump when the contract or capability copy changes: the cache key carries
@@ -47,7 +47,9 @@ from api.services.auth import cicada_home
 # filtered, Cause/Recommended stated as conditional) — final review.
 # 3: G140 — timeline, record_watch, expected_end and retract named;
 # recall_detail(entity_id) (R12).
-CONTRACT_VERSION = 3
+# 4: capability lines for installed bridge skills (G138) — bumped past
+# G140's 3 at the merge, so neither side's cached 3 is ever served.
+CONTRACT_VERSION = 4
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -349,8 +351,10 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
     return "\n".join(lines)
 
 
-def _assemble(state: dict | None, variant: str, bank: str, tz: str | None = None) -> str:
-    return "\n\n".join([_WHAT, _PRELUDE[variant], _CONTRACT, _now_block(state, bank, tz=tz), _CAPABILITIES])
+def _assemble(state: dict | None, variant: str, bank: str, tz: str | None = None,
+              bridges: tuple[str, ...] = ()) -> str:
+    capabilities = _CAPABILITIES + "".join(f"\n{line}" for line in bridges)
+    return "\n\n".join([_WHAT, _PRELUDE[variant], _CONTRACT, _now_block(state, bank, tz=tz), capabilities])
 
 
 def _fit(assemble, state: dict | None) -> str:
@@ -374,7 +378,8 @@ def _fit(assemble, state: dict | None) -> str:
     return assemble(slim)
 
 
-def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None) -> str:
+def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
+          bridges: tuple[str, ...] = ()) -> str:
     """Pure: the primer for a parsed state (or none) and a variant.
 
     The state block is the only elastic part (the contract is verbatim by
@@ -384,9 +389,16 @@ def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None)
     working agreements' one-liners — current before standing, and the
     projects list (what a cursor exists for, R10) is never dropped whole.
     ``tz`` is the per-request zone ``load_or_build`` passes; never stored.
+
+    ``bridges`` are at most three capability lines for installed bridge
+    skills (G138, R-O28) — they tell the agent what to do in Cicada after the
+    skill ran, and never advertise the skill. They sit in the fixed part of
+    the primer, so ``_fit`` never trims them; three short lines are the cap
+    that keeps the budget honest.
     """
     variant = variant if variant in VARIANTS else "generic"
-    return _fit(lambda st: _assemble(st, variant, bank, tz), state)
+    bridges = tuple(bridges)[: skill_catalog.MAX_BRIDGE_LINES]
+    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges), state)
 
 
 def build_remote(state: dict | None, *, tools: frozenset[str], bank: str, tz: str | None = None) -> str:
@@ -455,9 +467,15 @@ def load_or_build(
         make = lambda st: build_remote(st, tools=frozenset(tools), bank=memory_path.name, tz=tz)  # noqa: E731
     else:
         variant = variant if variant in VARIANTS else variant_for(client_name)
+        # G138 R-O28: only the claude-code and codex variants ever carry a
+        # bridge (`bridge_lines` returns [] otherwise); `build_remote` above is
+        # untouched — a remote connection has no local skills.
+        bridges = tuple(skill_catalog.bridge_lines(variant))
         cache_name = variant
-        key = f"{CONTRACT_VERSION}:{variant}:{stamp}:{tz_key}"
-        make = lambda st: build(st, variant=variant, bank=memory_path.name, tz=tz)  # noqa: E731
+        # The bridge set is part of the text, so it is part of the key: installing
+        # or removing a bridged skill must never serve yesterday's primer.
+        key = f"{CONTRACT_VERSION}:{variant}:{stamp}:{tz_key}:{skill_catalog.fingerprint(bridges)}"
+        make = lambda st: build(st, variant=variant, bank=memory_path.name, tz=tz, bridges=bridges)  # noqa: E731
     cache_dir = Path(cache_dir) if cache_dir is not None else _cache_dir()
     cache_file = cache_dir / f"{memory_path.name}.{cache_name}.json"
     state = state_dictionary.read_state(memory_path)

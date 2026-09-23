@@ -193,7 +193,7 @@ async def put_schedule(
 
 @router.get("/sleep/engine", response_model=SleepEngineResponse)
 async def get_sleep_engine(settings: Settings = Depends(get_settings)):
-    """G122 — Settings → Sleep's engine & model picker: what's configured
+    """G122 — Settings → Engines's engine & model picker: what's configured
     now, every candidate's live state, and both trigger-source previews
     (ruling 4 made visible, not hidden — see `SleepEnginePreviews`)."""
     return await sleep_engine_prefs.build_response(settings, get_registry(settings))

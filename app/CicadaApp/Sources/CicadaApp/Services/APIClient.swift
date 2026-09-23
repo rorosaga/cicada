@@ -52,27 +52,33 @@ struct MemoryBank: Codable, Identifiable {
     let episodeCount: Int
     let createdAt: String
     let description: String?
+    /// G139 (R-O18) — the bank IS the memory folder (a pre-banks layout
+    /// served in place). Privacy & data never offers it for deletion; an older
+    /// backend that omits the field decodes as `false`.
+    let legacy: Bool
 
     var id: String { name }
 
     enum CodingKeys: String, CodingKey {
-        case name, active, entityCount, episodeCount, createdAt, description
+        case name, active, entityCount, episodeCount, createdAt, description, legacy
     }
 
     /// Memberwise init (the `init(from:)` below suppresses the synthesized
     /// one). `ActivateBank`'s optimistic apply needs to flip `active` on a
     /// roster row before the server echoes the new roster back.
     init(name: String, active: Bool, entityCount: Int, episodeCount: Int,
-         createdAt: String, description: String?) {
+         createdAt: String, description: String?, legacy: Bool = false) {
         self.name = name; self.active = active
         self.entityCount = entityCount; self.episodeCount = episodeCount
         self.createdAt = createdAt; self.description = description
+        self.legacy = legacy
     }
 
     /// A copy with `active` replaced.
     func settingActive(_ isActive: Bool) -> MemoryBank {
         MemoryBank(name: name, active: isActive, entityCount: entityCount,
-                   episodeCount: episodeCount, createdAt: createdAt, description: description)
+                   episodeCount: episodeCount, createdAt: createdAt, description: description,
+                   legacy: legacy)
     }
 
     init(from decoder: Decoder) throws {
@@ -83,6 +89,7 @@ struct MemoryBank: Codable, Identifiable {
         episodeCount = (try? c.decode(Int.self, forKey: .episodeCount)) ?? 0
         createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
         description = try c.decodeIfPresent(String.self, forKey: .description)
+        legacy = (try? c.decode(Bool.self, forKey: .legacy)) ?? false
     }
 }
 
@@ -121,12 +128,21 @@ struct BanksResponse: Codable {
 /// follow-up).
 struct HealthSnapshot: Codable {
     let memoryRoot: String?
+    /// G139 — Settings → Advanced's backend line. `/healthz` has always sent
+    /// these; each is still `try?` so a probe that answers oddly never costs
+    /// the `memoryRoot` read `ConnectView` depends on.
+    let version: String?
+    let entityCount: Int?
+    let episodeCount: Int?
 
-    enum CodingKeys: String, CodingKey { case memoryRoot }
+    enum CodingKeys: String, CodingKey { case memoryRoot, version, entityCount, episodeCount }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         memoryRoot = try? c.decode(String.self, forKey: .memoryRoot)
+        version = try? c.decode(String.self, forKey: .version)
+        entityCount = try? c.decode(Int.self, forKey: .entityCount)
+        episodeCount = try? c.decode(Int.self, forKey: .episodeCount)
     }
 }
 
@@ -2052,6 +2068,63 @@ actor APIClient {
         if let email { body["email"] = email }
         return try await put("/settings/owner", body: body)
     }
+
+    // MARK: - Settings v3 (G139)
+
+    /// `DELETE /banks/{name}` — moves the bank to `<root>/.trash/` (R-O19).
+    /// 409 (in plain words) for the active bank and for the memory folder
+    /// itself; the Privacy page hides both, this is the backstop.
+    func deleteBank(name: String) async throws -> BankTrashResult {
+        let data = try await delete("/banks/\(encodedBank(name))")
+        do {
+            return try decoder.decode(BankTrashResult.self, from: data)
+        } catch {
+            throw APIError.decodingError("\(error)")
+        }
+    }
+
+    /// `GET /banks/{name}/export` downloaded to a temporary file the caller
+    /// moves to where the person chose (R-O20). A large bank with its history
+    /// can take a while, hence the long timeout.
+    func exportBank(name: String) async throws -> URL {
+        var request = makeRequest("/banks/\(encodedBank(name))/export", method: "GET", json: false)
+        request.timeoutInterval = 300
+        let (tmp, response) = try await session.download(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            let msg = (try? String(contentsOf: tmp, encoding: .utf8)) ?? "Export failed"
+            try? FileManager.default.removeItem(at: tmp)
+            throw APIError.httpError(http.statusCode, msg)
+        }
+        // URLSession deletes its download file when this call returns, so it
+        // is moved somewhere this process owns first.
+        let kept = FileManager.default.temporaryDirectory.appendingPathComponent("cicada-export-\(UUID().uuidString).zip")
+        try FileManager.default.moveItem(at: tmp, to: kept)
+        return kept
+    }
+
+    /// `GET /maintenance/search-index` — asking may start the catch-up (it is
+    /// the same `ensure_fresh` every read path calls).
+    func fetchSearchIndexStatus() async throws -> SearchIndexStatus { try await get("/maintenance/search-index") }
+
+    /// 409 while Sleep or another rebuild runs; 503 with a plain sentence if
+    /// the rebuild fails. The rebuild itself is CPU on the backend's side,
+    /// which can outlast the default 60 s on a large bank — a timeout here
+    /// only means the app stopped waiting.
+    func rebuildSearchIndex() async throws -> SearchIndexStatus { try await post("/maintenance/search-index/rebuild") }
+
+    /// `GET /skills/recommended` (G138) — the reviewed catalog with install
+    /// state derived per request. No ETag and no Store domain (R-O23).
+    func fetchRecommendedSkills() async throws -> RecommendedSkillsResponse { try await get("/skills/recommended") }
+
+    /// `POST /maintenance/enrich-links` — the on-demand twin of the Sleep-tail
+    /// backfill (G102); 409 while Sleep or another run is going. `limit=10`,
+    /// not the backend's per-cycle 20: each link is a ≤ 4 s fetch plus a
+    /// summary, and `post` keeps URLSession's 60 s default, so a bigger batch
+    /// would time out on the app's side while the backend kept going. The
+    /// report's `remaining` tells the person whether another click is worth it.
+    func enrichLinksNow() async throws -> EnrichLinksReport { try await post("/maintenance/enrich-links?limit=10") }
 
     // MARK: - Remote connector (G135)
 

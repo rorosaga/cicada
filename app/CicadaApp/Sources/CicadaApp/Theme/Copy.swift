@@ -213,8 +213,6 @@ enum Copy {
         }
     }
 
-    static let sleepEngineTitle = "Use for Sleep"
-
     /// The three honest things about running Sleep on a subscription: what it
     /// spends, who starts it, and what a throttle does. Not "free" — plan
     /// quota is a real budget, just not a dollar one.
@@ -251,7 +249,6 @@ enum Copy {
         + "On: Sleep keeps going on extra usage, which Anthropic bills separately."
     static let scheduledNeverSpendsPlans =
         "Scheduled cycles never use your Claude or ChatGPT plan — only a cycle you start yourself does."
-    static let yourMaxTier = "Your Max tier"
 
     // MARK: Sleep control (cancel + episode cap)
 
@@ -336,8 +333,10 @@ enum Copy {
     /// above this is now literally "Sleep", and `CopyConstantsTests`'s
     /// `testSubtitlesAreShortAndDoNotRepeatTheirTitle` bans a subtitle that
     /// repeats its own title.
-    static let sleepSettingsSubtitle = "Who runs the nightly cycle, and when."
-    static let generalSubtitle = "Appearance and text size."
+    /// G139 (A3): the engine moved to Settings → Engines, so "Who runs…"
+    /// stopped being true of this section.
+    static let sleepSettingsSubtitle = "When Cicada consolidates what it captured."
+    static let generalSubtitle = "Appearance, text size and setup."
     static let integrationsSubtitle = "Every app connected to Cicada, in one place."
 
     // MARK: Remote connector (G135) — pinned by RemoteConnectorTests

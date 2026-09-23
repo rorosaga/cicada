@@ -128,6 +128,24 @@ struct StatusSnapshot: Codable, Equatable {
     var episodes: Episodes
     var lastSleepAt: String?         // ISO8601, null if never
     var nextSleepAt: String?         // ISO8601, null if schedule disabled
+
+    /// G139 — facts about the backend that name nothing (R-O21/R-O22): the
+    /// usage ledger's switch, the three outbound gates, and which env switches
+    /// are set, by name. Optional, so the on-disk snapshot cache and an older
+    /// backend still decode; the memberwise init keeps working through the
+    /// defaults.
+    var telemetry: String? = nil
+    var gates: Gates? = nil
+    var envOverrides: [String]? = nil
+
+    /// Each gate optional too: a missing key reads as "—" on Privacy & data,
+    /// never as a guessed On or Off, and never fails the whole `/status`
+    /// decode (which would blank the menu-bar bookworm with it).
+    struct Gates: Codable, Equatable {
+        var connectorFetch: Bool?
+        var feedFetch: Bool?
+        var logoFetch: Bool?
+    }
 }
 
 // MARK: - Date parsing helpers
@@ -135,14 +153,30 @@ struct StatusSnapshot: Codable, Equatable {
 extension StatusSnapshot {
     /// Parse an ISO8601 timestamp from the snapshot. Tolerant of the
     /// with/without fractional-seconds variants the backend emits.
-    static func parseDate(_ iso: String?) -> Date? {
+    ///
+    /// A string with no zone is read as local time in `naiveTimeZone`
+    /// (Track O review, R-O10): `sleep_scheduler.next_run_at` returns a naive
+    /// `datetime.now()`-based ISO string for the daily and interval modes
+    /// (e.g. `2026-09-24T03:00:00`), and `.withInternetDateTime` requires a
+    /// zone, so every schedule read as "not scheduled". The backend and the
+    /// app share one machine, so naive means local. This only ever turns a
+    /// `nil` into a date — an offset-bearing string parses exactly as before.
+    static func parseDate(_ iso: String?, naiveTimeZone: TimeZone = .current) -> Date? {
         guard let iso, !iso.isEmpty else { return nil }
         let withFractional = ISO8601DateFormatter()
         withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let d = withFractional.date(from: iso) { return d }
         let plain = ISO8601DateFormatter()
         plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: iso)
+        if let d = plain.date(from: iso) { return d }
+        let naive = DateFormatter()
+        naive.locale = Locale(identifier: "en_US_POSIX")
+        naive.timeZone = naiveTimeZone
+        for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss.SSS"] {
+            naive.dateFormat = format
+            if let d = naive.date(from: iso) { return d }
+        }
+        return nil
     }
 }
 

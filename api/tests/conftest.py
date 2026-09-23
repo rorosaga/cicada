@@ -88,6 +88,17 @@ def _default_cicada_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_agent_home(tmp_path, monkeypatch):
+    """G138: the handshake and GET /skills/recommended look for SKILL.md files
+    and plugin ids under the agents' home. The suite must never read the
+    developer's own `~/.claude` — every test gets an empty tmp home."""
+    from api.services import skill_catalog
+
+    home = tmp_path / "_agent_home"
+    monkeypatch.setattr(skill_catalog, "agent_home", lambda: home)
+
+
+@pytest.fixture(autouse=True)
 def _no_live_sleep_probe(monkeypatch):
     """G135 final review: a stdio `cicada_write_claim` asks the backend's
     `GET /sleep/status` before committing. Unpinned, every such test would hit

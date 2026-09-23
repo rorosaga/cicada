@@ -140,6 +140,12 @@ def _network_allowed(allow_fetch: bool | None) -> bool:
     return os.environ.get("CICADA_ALLOW_FEED_FETCH") == "1"
 
 
+def fetch_allowed() -> bool:
+    """The unattended RSS/ICS gate as Settings reports it (G139) — the same
+    check `_network_allowed(None)` makes before a poll."""
+    return _network_allowed(None)
+
+
 async def _default_fetch(url: str) -> str:
     """The gated live-HTTP fetch — same shape as the ``feedUrl`` path in
     ``POST /sources/rss``. Only ever invoked when the network gate is open."""

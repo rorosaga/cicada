@@ -50,6 +50,45 @@ struct ContentView: View {
     @State private var dropTargeted = false
 
     var body: some View {
+        // Split in two (the merge of `dev` into settings-v3): the whole chain in
+        // one expression outgrew the type checker's budget. The window and its
+        // observers first, then the cross-window hand-offs staged on `AppRouter`.
+        windowWithObservers
+        // G126 R9 — Integrations lives in the `Settings{}` scene, a
+        // separate window from this one, so it cannot just flip
+        // `selectedTab` itself; it stages a tab on the shared `AppRouter`
+        // instead and this view is the one that actually switches.
+        .onChange(of: router.pendingTab) { _, newTab in
+            guard let newTab else { return }
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
+            router.pendingTab = nil
+        }
+        // G139 — Settings → You → "Show on graph": the tab switch above and
+        // the reveal here are staged together by `routeToEntity`.
+        .onChange(of: router.pendingRevealEntity) { _, id in
+            guard id != nil, let id = router.consumeRevealEntity() else { return }
+            graphVM.revealEntity(id: id)
+        }
+        // G117 — Settings → General's "Run setup again" hand-off. Settings
+        // is a separate window/scene (same reason `pendingTab` exists above
+        // for G126 R9's Feed hand-off) so it cannot flip `showFirstRun`
+        // directly; it stages this flag on the shared `AppRouter` instead.
+        .onChange(of: router.pendingFirstRun) { _, isPending in
+            guard isPending else { return }
+            showFirstRun = true
+            router.pendingFirstRun = false
+        }
+        // G118 slice 2 (P5) — an evidence chip inside the palette's Ask mode
+        // opens the Reader, which lives on THIS window; the palette steps
+        // aside so the person sees the sentence instead of an overlay
+        // covering it (the Ask sheet did the same before G136).
+        .onChange(of: provenance.revision) { _, _ in if paletteOpen { closePalette() } }
+        .sheet(item: $previewItem) { item in
+            FeedItemPreviewSheet(item: item)
+        }
+    }
+
+    private var windowWithObservers: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 selectedTab: $selectedTab,
@@ -155,32 +194,6 @@ struct ContentView: View {
         // R-SU5 — the instant tier is rebuilt off the main actor whenever an
         // input moves, open or not, so the first ⌘K never waits on a build.
         .background { FindIndexTask() }
-        // G126 R9 — Integrations lives in the `Settings{}` scene, a
-        // separate window from this one, so it cannot just flip
-        // `selectedTab` itself; it stages a tab on the shared `AppRouter`
-        // instead and this view is the one that actually switches.
-        .onChange(of: router.pendingTab) { _, newTab in
-            guard let newTab else { return }
-            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
-            router.pendingTab = nil
-        }
-        // G117 — Settings → General's "Run setup again" hand-off. Settings
-        // is a separate window/scene (same reason `pendingTab` exists above
-        // for G126 R9's Feed hand-off) so it cannot flip `showFirstRun`
-        // directly; it stages this flag on the shared `AppRouter` instead.
-        .onChange(of: router.pendingFirstRun) { _, isPending in
-            guard isPending else { return }
-            showFirstRun = true
-            router.pendingFirstRun = false
-        }
-        // G118 slice 2 (P5) — an evidence chip inside the palette's Ask mode
-        // opens the Reader, which lives on THIS window; the palette steps
-        // aside so the person sees the sentence instead of an overlay
-        // covering it (the Ask sheet did the same before G136).
-        .onChange(of: provenance.revision) { _, _ in if paletteOpen { closePalette() } }
-        .sheet(item: $previewItem) { item in
-            FeedItemPreviewSheet(item: item)
-        }
     }
 
     /// G117 — the one place the first-run sheet is raised automatically.
