@@ -141,11 +141,32 @@ func lastCycleEntry(_ history: [SleepHistoryEntry]) -> SleepHistoryEntry? {
     history.first { $0.kind == "sleep" }
 }
 
+/// I17 vs I18 — the one running → idle edge that earns a cheer: not a cancel
+/// (it filed nothing) and not a failure (that is news, told in danger). A
+/// first observation (`old == nil`) is a page load, not an edge.
+func isRealCompletion(old: String?, new: String?, cancelled: Bool, error: String?) -> Bool {
+    old == "running" && new == "idle" && !cancelled && (error ?? "").isEmpty
+}
+
+/// The commit a completion produced, once history has it: the newest sleep
+/// commit that was not the newest before the cycle finished (Z-P17). `nil`
+/// while history has not caught up. It goes through `lastCycleEntry`, so the
+/// G85 decay commit and an inbox answer landing in the same poll can never be
+/// mistaken for what the cycle wrote (Z-P3).
+func completedCommit(baseline: String?, history: [SleepHistoryEntry]) -> String? {
+    guard let newest = lastCycleEntry(history)?.commitHash, newest != baseline else { return nil }
+    return newest
+}
+
 extension SleepPageModel {
     /// The sentence's and the answers' inputs (Track Z §5, §6.3), from this
     /// one reading — so the status line and every rung the worm answers with
     /// can never read two different snapshots (H1).
-    func roomContext(locale: Locale = .autoupdatingCurrent) -> RoomContext {
+    ///
+    /// `recentCycleCommit` is the one input that is not a reading: it is the
+    /// room's own memory of a completion it watched (Task 8, `RoomModel`), so
+    /// the page passes it in rather than the model resolving it.
+    func roomContext(recentCycleCommit: String? = nil, locale: Locale = .autoupdatingCurrent) -> RoomContext {
         var context = RoomContext(mood: mood, debt: debt, queueLoad: queueLoad, activeStage: runningStage,
                                   read: read, total: total, cycleError: cycleError, cancelled: cancelled,
                                   capped: capped, indexWarning: indexWarning, scheduleMode: schedule.mode,
@@ -162,6 +183,7 @@ extension SleepPageModel {
         context.lastEngine = lastEngine
         context.engineDetail = engineDetail
         context.inboxTotal = inboxTotal
+        context.recentCycleCommit = recentCycleCommit
         return context
     }
 }

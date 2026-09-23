@@ -13,6 +13,15 @@ import Observation
 /// Every decision is a static pure function (`nextAnswerIndex`,
 /// `shouldPerk`, `beatAllowed`) so `RoomModelTests` pins the rules without a
 /// view or a clock; the instance methods only sequence them.
+/// A completion seen at the status edge, waiting for its commit (Z-P17):
+/// `SleepViewModel`'s poll flips `status` to idle before `load()` refetches
+/// history, so the edge and the commit it produced arrive apart. `baseline`
+/// is the newest sleep commit the page knew when the edge fired.
+struct PendingCompletion: Equatable {
+    let baseline: String?
+    let at: Date
+}
+
 @Observable
 @MainActor
 final class RoomModel {
@@ -29,6 +38,12 @@ final class RoomModel {
     /// Z-P25 — one lamp popover, two anchors: which control presented it, or
     /// `nil` while it is closed.
     var lampPopover: LampAnchor?
+    /// T7's link target — the commit the last real completion produced.
+    /// Cleared on click, when the next cycle starts, and (by construction —
+    /// `SleepView` owns this model as `@State`) when the page goes away.
+    var recentCycleCommit: String?
+    /// Nothing draws a pending edge, so it is not observed (§10).
+    @ObservationIgnored var pendingCompletion: PendingCompletion?
 
     @ObservationIgnored private var pointerInWorm = false
     @ObservationIgnored private var lastPerkAt: Date?
@@ -80,6 +95,36 @@ final class RoomModel {
         } else if hoveredOrigin == origin {
             hoveredOrigin = nil
         }
+    }
+
+    // MARK: The completion edge (Task 8, §6.5, Z-P17)
+
+    func recordCompletion(baseline: String?, at date: Date) {
+        pendingCompletion = PendingCompletion(baseline: baseline, at: date)
+    }
+
+    /// Returns the commit the first time history brings it, else `nil` — so
+    /// the caller cheers exactly once per completion, however many history
+    /// refreshes follow.
+    func resolveCompletion(history: [SleepHistoryEntry]) -> String? {
+        guard let pending = pendingCompletion,
+              let commit = completedCommit(baseline: pending.baseline, history: history) else { return nil }
+        pendingCompletion = nil
+        recentCycleCommit = commit
+        return commit
+    }
+
+    /// A new cycle makes the last one's link stale ("what changed" would now
+    /// be two cycles ago), and drops any edge still waiting for its commit.
+    func cycleStarted() {
+        pendingCompletion = nil
+        if recentCycleCommit != nil { recentCycleCommit = nil }
+    }
+
+    /// The link was followed: hand back its commit and clear it.
+    func followWhatChanged() -> String? {
+        defer { recentCycleCommit = nil }
+        return recentCycleCommit
     }
 
     /// Starts a beat if §6.4 allows it for `state` and Reduce Motion is off.

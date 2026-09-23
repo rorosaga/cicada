@@ -89,6 +89,9 @@ struct StudyRoom: View {
     /// the remainder spine go (Details › What's waiting).
     let episodes: [EpisodeQueueItem]
     let onOpenDetails: (DetailsSection) -> Void
+    /// Task 8 — follows T7's link; `nil` while no completion link lives, so
+    /// the worm offers the named action only when it has somewhere to go.
+    var onWhatChanged: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -127,7 +130,8 @@ struct StudyRoom: View {
             }
             if let worm = spots[.worm] {
                 WormHotspot(mood: page.mood, bracket: sleepDebtBracketText(page.mood, debt: page.debt),
-                            help: statusLine.spoken, answers: answers, room: room)
+                            help: statusLine.spoken, answers: answers, room: room,
+                            whatChanged: onWhatChanged)
                     .frame(width: worm.width, height: worm.height)
                     .offset(x: worm.minX, y: -worm.minY)
             }
@@ -183,6 +187,8 @@ struct WormHotspot: View {
     let help: String
     let answers: [SentenceLine]
     let room: RoomModel
+    /// §11 — while T7's link lives, VoiceOver reaches it from the worm too.
+    var whatChanged: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -211,6 +217,11 @@ struct WormHotspot: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { poke() }
             .accessibilityAction(named: Copy.wormWhatAreYouDoing) { announceAll() }
+            .accessibilityActions {
+                if let whatChanged {
+                    Button(Copy.whatChanged, action: whatChanged)   // §11 — while T7's link lives
+                }
+            }
             .accessibilitySortPriority(RoomA11yOrder.worm)
     }
 

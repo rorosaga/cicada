@@ -15,7 +15,8 @@ enum DetailsSection: String, CaseIterable, Hashable {
 }
 
 /// Where a tail link goes. Every case is a destination that exists on the page
-/// or one tab away — Z-P5: a link a commit cannot follow yet renders as words.
+/// or one tab away (R-Z2: a link that does nothing is a lie). Z-P5 rendered an
+/// action as words until its destination existed; since Task 8 all five do.
 enum SentenceAction: Hashable {
     case retry
     case openInbox
@@ -161,6 +162,9 @@ struct RoomContext: Equatable {
     var lastEngine: String? = nil
     var engineDetail: String? = nil
     var inboxTotal: Int? = nil
+    /// Task 8 (T7) — the commit the last real completion produced, while its
+    /// "See what changed ›" link lives (`RoomModel.recentCycleCommit`).
+    var recentCycleCommit: String? = nil
 }
 
 /// The status sentence (design §5): the first matching lead row, then the
@@ -243,7 +247,9 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
         return SentenceTail(text: "Finished with a warning — it's in Details.", tone: .warning,
                             action: .openDetails(.lastCycle))
     }
-    // T7 ("See what changed ›") lands with the completion edge (Task 8).
+    if ctx.recentCycleCommit != nil {                                                             // T7
+        return SentenceTail(text: "See what changed ›", action: .whatChanged)
+    }
     let count = ctx.debt?.unprocessedCount ?? 0
     if ctx.debt?.hasRunBefore == false {                                                         // T8 / T9
         return SentenceTail(text: count > 0 ? "My first night — nothing's been filed yet."
@@ -288,8 +294,9 @@ struct RoomSentenceView: View {
     var answers: [SentenceLine] = []
     /// The room's interaction state; `nil` shows the status only.
     var room: RoomModel? = nil
-    /// Z-P5 — an action the page cannot perform yet renders as plain words.
-    var canPerform: (SentenceAction) -> Bool = { _ in false }
+    /// Every `SentenceAction` has a destination since Task 8 built the last
+    /// one (`.whatChanged`), so a tail with an action always renders as a
+    /// link — Z-P5's `canPerform` seam existed only while some did not.
     var perform: (SentenceAction) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -335,7 +342,7 @@ struct RoomSentenceView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(shown.spoken)
         .accessibilityActions {
-            if let action = shown.action, let tail = shown.tail, canPerform(action) {
+            if let action = shown.action, let tail = shown.tail {
                 Button(tailLink(tail)) { perform(action) }
             }
         }
@@ -396,7 +403,7 @@ struct RoomSentenceView: View {
         let tail = line.tail ?? " "
         let tailFont = CicadaTheme.font(size: 22, design: .serif).italic()
         let tailColor = color(line.tailTone, plain: CicadaTheme.textSecondary)
-        if let action = line.action, line.tail != nil, canPerform(action) {
+        if let action = line.action, line.tail != nil {
             let link = tailLink(tail)
             let prefix = String(tail.dropLast(link.count))
             Button { perform(action) } label: {

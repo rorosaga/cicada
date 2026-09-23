@@ -67,6 +67,11 @@ enum Copy {
     static let wormHint = "Click to ask what it's doing."
     /// The worm's named action and context-menu item: every answer at once.
     static let wormWhatAreYouDoing = "What are you doing?"
+    /// Track Z §6.5 / §11 — the cheer's text twin, announced when a real
+    /// completion's commit arrives (never on a cancel or a failure, I18).
+    static let sleepFinished = "Sleep finished."
+    /// The worm's named action while T7's "See what changed ›" link lives.
+    static let whatChanged = "What changed"
 
     /// The queue card's footer line, shown ONLY when `preview.manual` and
     /// `preview.scheduled` name different engines (R-A9). The standing ruling

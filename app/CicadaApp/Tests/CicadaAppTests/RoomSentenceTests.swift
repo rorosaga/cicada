@@ -2,9 +2,9 @@ import XCTest
 @testable import CicadaApp
 
 /// Track Z, Z2 — the sentence slot (R-Z5, R-Z13, design §5). Every row of the
-/// lead table (L1–L11, plus this plan's L8b) and the tail table (T1–T6,
-/// T8–T12, T14; T7 lands with the completion edge in Task 8, T13 with feeding)
-/// is a case, then the rules that cut across all of them.
+/// lead table (L1–L11, plus this plan's L8b) and the tail table (T1–T12,
+/// T14; T13 lands with feeding) is a case, then the rules that cut across all
+/// of them.
 final class RoomSentenceTests: XCTestCase {
 
     private let en = Locale(identifier: "en_US")
@@ -116,6 +116,17 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertEqual(runningAndCancelled.tail, SleepStages.all[1].detail, "T2 before T4")
         let cancelledFirstNight = roomSentence(ctx(.reading, debt: debt(3, hasRunBefore: false)) { $0.cancelled = true })
         XCTAssertEqual(cancelledFirstNight.tail, "Stopped early — nothing was lost.", "T4 before T8")
+    }
+
+    /// T7 — below the news (T3–T6), above the first-night and state tails.
+    func test_T7_seeWhatChanged() {
+        let line = roomSentence(ctx(.digesting, debt: debt(0)) { $0.recentCycleCommit = "c0ffee" })
+        XCTAssertEqual(line.tail, "See what changed ›")
+        XCTAssertEqual(line.action, .whatChanged)
+        let warned = roomSentence(ctx(.happy, debt: debt(0)) { $0.recentCycleCommit = "c0ffee"; $0.indexWarning = "w" })
+        XCTAssertEqual(warned.tail, "Finished with a warning — it's in Details.", "T6 before T7")
+        let firstNight = roomSentence(ctx(.happy, debt: debt(0, hasRunBefore: false)) { $0.recentCycleCommit = "c0ffee" })
+        XCTAssertEqual(firstNight.tail, "See what changed ›", "T7 before T9")
     }
 
     func test_T8_T9_theFirstNight() {

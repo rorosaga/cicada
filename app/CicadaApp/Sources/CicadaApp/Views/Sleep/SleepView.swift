@@ -279,14 +279,31 @@ struct SleepView: View {
                 await sleepVM.load()
             }
         }
-        // G106 amendment: this view's own edge-detection for the mood
-        // card's `.digesting` window — see `justFinishedAt`'s declaration
-        // for why this can't reuse `SleepViewModel.onCycleCompleted` or
-        // `Store.onStatus`.
+        // G106 amendment + Track Z §6.5 / Z-P17. This view's own edge
+        // detection — see `justFinishedAt`'s declaration for why it can't
+        // reuse `SleepViewModel.onCycleCompleted` or `Store.onStatus`.
+        // `justFinishedAt` is stamped on every running → idle edge as before:
+        // `deriveSleepPageMood` alone decides that a cancel never chews. A
+        // REAL completion additionally records the newest sleep commit it
+        // will be compared against, and the history observer below resolves
+        // the cheer and the link once the new commit arrives.
         .onChange(of: sleepVM.status?.status) { oldValue, newValue in
-            if oldValue == "running" && newValue == "idle" {
-                justFinishedAt = Date()
+            if oldValue == "running" && newValue == "idle" { justFinishedAt = Date() }
+            if newValue == "running" && oldValue != "running" { room.cycleStarted() }
+            if isRealCompletion(old: oldValue, new: newValue, cancelled: sleepVM.status?.cancelled == true,
+                                error: sleepVM.status?.error) {
+                room.recordCompletion(baseline: lastCycleEntry(sleepVM.history)?.commitHash, at: Date())
             }
+        }
+        .onChange(of: sleepVM.history) { _, history in
+            guard room.resolveCompletion(history: history) != nil else { return }
+            // R-Z12 — one of the page's two beats not caused by input, and it
+            // has a fact behind it: the new commit. The §6.4 matrix decides
+            // whether the mood may cheer now (`.digesting` / `.happy`); a
+            // history that lands after the 6 s digest still sets the link,
+            // silently. The announcement is the cheer's text twin (§11).
+            room.play(.cheer, state: resolvePage().mood, reduceMotion: reduceMotion)
+            AccessibilityNotification.Announcement(Copy.sleepFinished).post()
         }
         // PR #19 review: the study list's header reads SSE-live `store.status`
         // while its rows stay pinned to whatever `sleepVM.load()` last
@@ -488,6 +505,16 @@ struct SleepView: View {
         }
     }
 
+    /// T7 / I17 — open Details, expand the cycle's history row (its detail
+    /// loads through the one cached path, `toggleHistory` → `loadDetail`),
+    /// and land on Past nights. The link clears as it is followed: what
+    /// changed is now on screen, so the sentence goes back to the state.
+    private func showWhatChanged() {
+        guard let commit = room.followWhatChanged() else { return }
+        if sleepVM.expanded != commit { toggleHistory(commit) }
+        openDetails(.pastNights)
+    }
+
     // MARK: Header
 
     private var headerRow: some View {
@@ -573,7 +600,7 @@ struct SleepView: View {
     private func roomCard(_ page: SleepPageModel) -> some View {
         // One reading feeds the status line AND the answers (Task 6), so the
         // worm can never answer from a different snapshot than it states.
-        let context = page.roomContext()
+        let context = page.roomContext(recentCycleCommit: room.recentCycleCommit)
         let status = roomSentence(context)
         let answers = wormAnswers(context)
 
@@ -583,21 +610,15 @@ struct SleepView: View {
             // derived from the same pure layout. The bracket line (P8) moved
             // from this group's label onto the worm's own element as its value.
             StudyRoom(page: page, statusLine: status, answers: answers, room: room,
-                      episodes: sleepVM.queuedEpisodes, onOpenDetails: openDetails)
+                      episodes: sleepVM.queuedEpisodes, onOpenDetails: openDetails,
+                      onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() })
                 .accessibilitySortPriority(RoomA11yOrder.room)
 
             // R-Z5 — the one slot the worm speaks in; an answer replaces the
-            // status here (R-Z7). Z-P5: an action renders as a link only once
-            // its destination exists — `.retry`, `.openDetails`, `.openInbox`
-            // (Z5) and `.openLamp` (Z6); the completion link stays words until
-            // Task 8 builds it.
+            // status here (R-Z7). Every action has its destination since
+            // Task 8 (Z-P5's seam is gone), so the switch is exhaustive: a
+            // new action cannot ship without somewhere to go.
             RoomSentenceView(line: status, answers: answers, room: room,
-                             canPerform: { action in
-                                 switch action {
-                                 case .retry, .openDetails, .openInbox, .openLamp: true
-                                 default: false
-                                 }
-                             },
                              perform: { action in
                                  switch action {
                                  case .retry: Task { await store.refresh([.status]) }
@@ -606,7 +627,7 @@ struct SleepView: View {
                                  // Z-P25 — the sentence names the lamp, so the
                                  // popover points at the lamp, not the whisper line.
                                  case .openLamp: room.lampPopover = .lamp
-                                 default: break
+                                 case .whatChanged: showWhatChanged()
                                  }
                              })
             SleepControlRow(consolidateEnabled: page.consolidateEnabled,
