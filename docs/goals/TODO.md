@@ -249,7 +249,7 @@ Everything about *what to do next and why* lives in one place:
 The queue there, in order: **G118 slice 2** (server merged PR #72; the app is built on
 `feat/provenance-ui` and awaits the live check and merge; P6 rides Track S — drop this from the
 queue once it merges) → **G93** (cross-stream ask). Then the bigger
-rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a build. Before
+rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** — now a character selector to build (owner 2026-09-23, Strawberry browser's companions as inspiration). Before
 any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 from the **demo** bank
 (Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
 demo bank, never the live one, after the next visual change.
