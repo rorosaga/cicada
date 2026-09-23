@@ -25,6 +25,9 @@ if str(_REPO_ROOT) not in sys.path:
 # so tests can monkeypatch `server.agentic_write.write_claim` — the name
 # binding lives here, but handle_write_claim's body still calls through it.
 from api.services import agentic_write  # noqa: E402
+# G135 R-R11: a claim write commits its own page under the harness that wrote
+# it. Hoisted beside `agentic_write` for the same reason (patchable here).
+from api.services import agent_commits  # noqa: E402
 # Pure filesystem + datetime, no bank/config state — safe to hoist alongside.
 from api.services import episode_ids  # noqa: E402
 # Track P R8/R9 — the legacy observer value is protocol and must stay in the
@@ -1262,8 +1265,12 @@ def handle_write_claim(
     spans, and which episode a missed quote was NOT found in — so the agent
     can re-cite the exact words instead of silently leaving ``reasoning``.
     """
+    # One bank resolution per call: the write, the ledger row and the commit
+    # must all name the same bank even if the active bank flips mid-call.
+    memory_path = get_memory_path()
+    author = agent_commits.author_for(SESSION.harness)
     result = agentic_write.write_claim(
-        get_memory_path(),
+        memory_path,
         subject,
         predicate,
         object_,
@@ -1279,6 +1286,9 @@ def handle_write_claim(
         # conversation touched this entity — see agentic_write.write_claim's
         # docstring and session_stats._group's claims fallback.
         session_id=SESSION.session_id,
+        # G135 R-R11: the claim carries its real author instead of the shim's
+        # "mcp-agentic-write" placeholder.
+        authored_by=author,
     )
 
     if result.get("action") == "ambiguous_subject":
@@ -1300,7 +1310,7 @@ def handle_write_claim(
 
     telemetry.record(telemetry.UsageEvent(
         kind="agentic_write", stage="driver", connection="session", engine="mcp-client",
-        model=None, bank=get_memory_path().name, billing="subscription", invocations=1,
+        model=None, bank=memory_path.name, billing="subscription", invocations=1,
         refs={
             "entity_id": result.get("entity_id"),
             "claim_id": result.get("claim_id"),
@@ -1314,6 +1324,20 @@ def handle_write_claim(
             "client_version": CLIENT_INFO.get("version") or None,
         },
     ))
+
+    # G135 R-R11: the page this write touched is committed on its own, under
+    # the harness that wrote it — no longer swept into the next writer's
+    # `git add -A` (the G85 smear).
+    if result.get("path"):
+        change = "created" if result.get("page_created") else "updated"
+        agent_commits.commit_write(
+            memory_path,
+            subject="Agent write",
+            lines=[f"{result['path']}: {change} (source: {source_episode or 'n/a'}, trigger: mcp/{author})"],
+            paths=[result["path"]],
+            author=author,
+            session=SESSION.session_id,
+        )
 
     action = result.get("action")
     verb = {

@@ -1911,11 +1911,15 @@ async def ingest_batch(
     return created, len(items) - len(fresh)
 
 
-async def _commit_media(memory_path: Path, count: int, paths: list[str]) -> None:
+async def _commit_media(
+    memory_path: Path, count: int, paths: list[str], *, author: str = "user",
+    sessions: list[str] | None = None, trigger: str = "user/media_save",
+) -> None:
     """Commit scoped to exactly ``paths`` — never ``git add -A`` (finding 3
     above). ``paths`` is memory-relative: ``sources/url_index.json`` plus one
     ``entities/<id>.md`` + ``episodes/<id>.md`` pair per item this batch
-    actually created.
+    actually created. ``author``/``sessions``/``trigger`` (G135 R-R12) let a
+    single save made by an agent say so; the batch importer keeps the defaults.
     """
     from api.services import git_service
 
@@ -1923,10 +1927,11 @@ async def _commit_media(memory_path: Path, count: int, paths: list[str]) -> None
     message = git_service.build_commit_message(
         f"Sources ingest {date_str}",
         [
-            "sources/url_index.json: updated (trigger: user/media_save)",
-            f"{count} media item(s) saved (trigger: user/media_save)",
+            f"sources/url_index.json: updated (trigger: {trigger})",
+            f"{count} media item(s) saved (trigger: {trigger})",
         ],
-        authors=["user"],
+        authors=[author],
+        sessions=sessions,
     )
     await git_service.commit_paths(memory_path, message, paths)
 
