@@ -453,6 +453,7 @@ final class GraphViewModel {
 
     nonisolated static func searchFields(_ node: GraphNode) -> [QuickMatch.Field] {
         [QuickMatch.Field(node.name, weight: QuickMatch.Weight.name)]
+            + node.aliases.map { QuickMatch.Field($0, weight: QuickMatch.Weight.alias) }
             + node.tags.map { QuickMatch.Field($0, weight: QuickMatch.Weight.keyword) }
     }
 

@@ -1041,6 +1041,10 @@ class GraphNode(CamelModel):
     # (`owner_identity.ensure_owner_entity`). Additive/optional: an older
     # client ignores it; the app renders "Name (you)" when true.
     is_owner: bool = False
+    # G136 S6 — the page's `aliases:` (≤ 8, `graph_builder.node_aliases`), for the
+    # app's instant search tier. Shipped after measuring the payload (plan
+    # R-SU23; the number is on the G136 row). Additive/defaulted.
+    aliases: list[str] = []
 
 
 class GraphLink(CamelModel):
