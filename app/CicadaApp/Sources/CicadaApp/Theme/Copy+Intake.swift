@@ -75,6 +75,32 @@ extension Copy {
     static let foundRefused = "Cicada couldn't vouch for these commands, so it didn't run them. Copy them into Terminal instead."
     static let foundBackendDown = "Waiting for Cicada's background service…"
 
+    // MARK: Honesty (Task 6, design §5.3) — ruling 4, said out loud
+    static let afterImportWhenYouAsk = "Cicada reads these when you ask."
+    static let afterImportPlanWaits = "Scheduled reads never use a plan, so these wait until you read them. Read now, or add a key."
+    static let afterImportWaits = "Nothing can read these on a schedule yet, so they wait until you read them."
+    static func afterImportScheduled(when: String, engine: String) -> String { "Cicada reads these \(when), using \(engine)." }
+    static let honestyPlanThenKey = "Your plan reads when you ask. Scheduled reads use your API key."
+    static let honestyPlanThenOllama = "Your plan reads when you ask. Scheduled reads run on this Mac."
+    static let honestyPlanBoth = "Your plan reads, when you ask and on a schedule."
+    static let honestyPlanOnly = "Plans read when you ask. A key or Ollama can also read on a schedule."
+    static let honestyOllama = "Reads on this Mac, whenever it runs. Nothing leaves this Mac."
+    static let honestyKey = "Your key reads, when you ask and on a schedule. Your provider bills per use."
+    static let honestyNothingYet = "Nothing can read yet. Choose who reads before the first read."
+    static let foundStartNothing = "Sets your name. You can add sources any time."
+
+    /// The engine as a person says it, inside a sentence ("using your API key").
+    /// `Copy.engineLabel` stays the noun for pickers and pills.
+    static func engineUse(_ engine: String) -> String {
+        switch engine {
+        case "claude-cli": "your Claude plan"
+        case "codex-cli": "your ChatGPT plan"
+        case "ollama": "Ollama on this Mac"
+        case "litellm": "your API key"
+        default: engineLabel(engine)
+        }
+    }
+
     /// Buttons, titles and one-line captions — held to 60 characters.
     static let intakeLabels: [String] = [
         intakeDropTitle, intakeChooseFile, intakeNoExportYet, intakeOpenExportPage, intakeHowToGet,
@@ -87,7 +113,14 @@ extension Copy {
         foundSavingBookmarks, foundWhatThisChanges, foundCopyCommands, foundAgentDetail,
         foundBrowserDetail, foundCursorDetail, foundClaudeDesktopDetail, foundNeedsDiskAccess,
         foundCheckingApps, foundCouldNotCheck, foundPastStays, foundBackendDown,
+        afterImportWhenYouAsk, honestyPlanBoth, foundStartNothing,
     ]
     /// Longer sentences — no length rule, the same vocabulary rule.
-    static let intakeSentences: [String] = [intakeDropSubtitle, foundInvalidSettings, foundRefused]
+    /// `honestyPlanThenKey` (63) and `honestyPlanThenOllama` (62) are two-sentence
+    /// captions, so they live here rather than failing the 60-character rule.
+    static let intakeSentences: [String] = [
+        intakeDropSubtitle, foundInvalidSettings, foundRefused,
+        afterImportPlanWaits, afterImportWaits, honestyPlanThenKey, honestyPlanThenOllama,
+        honestyPlanOnly, honestyOllama, honestyKey, honestyNothingYet,
+    ]
 }
