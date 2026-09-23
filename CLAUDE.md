@@ -410,7 +410,8 @@ one-liner (through G117's resolver), their timezone (per request, never in `_sta
 cache key), *How to work with me* (standing `skill` pages by confidence alone), long-standing
 durable/evergreen pages — then **Current** — projects, each project with its `now`/`next` (G141),
 pages in focus in the last 14 days, people, recent conversations (G140, schema v2). A test holds R12 for every argument either primer names, for
-every remote scope set. Delivered three ways — the MCP `initialize` result's
+every remote scope set. Contract item 3 names `cicada_note_progress` (G141 PJ-3a; remotely only when the
+connection holds it). Delivered three ways — the MCP `initialize` result's
 `instructions`, the `cicada_handshake` tool, and `GET /handshake`. **R12: a primer naming an
 argument the schema rejects is a bug** — every argument it names must exist in the tool schema.
 `SKILL.md` points at the generated text rather than restating the contract — one prose source.
@@ -533,7 +534,9 @@ video, and never keeps a transcript. **`cicada_project(project, since?, tz?)`** 
 scope remotely) answers where a project stands — next milestones, what passed with no word, the Sleep
 queue, what happened and what is around it — from the engine-free read model, printing every relative
 word beside its absolute date ("yesterday (2026-09-22)"); a quote of the person's words needs
-`sources` remotely.
+`sources` remotely. **`cicada_note_progress`** (G141) records a happening or a milestone the person
+described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
+was decided; `cicada_retract_claim` withdraws an event the same way.
 
 **Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
 clarification naturally in the flow when the conversation touches its entity, and offer related

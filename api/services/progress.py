@@ -571,7 +571,7 @@ def advance(memory_path: Path, *, subject: str, slug: str, status: str | None = 
             bumped = _bump(memory_path, [entity_id], valid_from)
             return {"action": _outcome(claim, claims, audit), "entity_id": entity_id,
                     "claim_id": getattr(claim, "_folded_into", None) or claim.id, "slug": slug,
-                    "supersedes": claim.supersedes, "paths": _paths(page, bumped, inbox_paths),
+                    "target": claim.target, "supersedes": claim.supersedes, "paths": _paths(page, bumped, inbox_paths),
                     "evidence": [e.to_dict() for e in spans]}
 
         m = _DUE_SLUG.match(slug or "")
@@ -601,7 +601,7 @@ def advance(memory_path: Path, *, subject: str, slug: str, status: str | None = 
                                                          today)
         bumped = _bump(memory_path, [entity_id], valid_from)
         return {"action": _outcome(claim, claims, audit), "entity_id": entity_id, "claim_id": claim.id,
-                "slug": key, "supersedes": due.id, "paths": _paths(page, bumped, inbox_paths),
+                "slug": key, "target": claim.target, "supersedes": due.id, "paths": _paths(page, bumped, inbox_paths),
                 "evidence": [e.to_dict() for e in spans]}
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"progress.advance failed: {type(exc).__name__}: {exc}")

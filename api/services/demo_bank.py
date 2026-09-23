@@ -114,6 +114,7 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     scenario = _write_scenario(bank_dir, today)
     _commit_scenario(bank_dir, today, scenario)
     _expire_scenario(bank_dir, today)
+    _write_scenario_events(bank_dir, today, scenario)
 
 
 def _write_entities(bank_dir: Path, day: date) -> None:
@@ -633,3 +634,88 @@ def _expire_scenario(bank_dir: Path, today: date) -> None:
     report = claim_expiry.expire(bank_dir, today)
     if report.paths:
         _run_commit(bank_dir, claim_expiry.commit_message(report, today), report.paths)
+
+
+# --- G141 PJ-3a (T5): the scenario's happenings, through the one event writer --
+#
+# (episode key, subject, sentence, status, when, participants, quote). The first
+# three are what a Sleep cycle extracts the night each was said; S7's two are
+# what an agent recorded live over MCP the evening the owner said them (§4.2).
+
+_SLEEP_EVENTS = (
+    ("S1", "rover-arm-project", "Bob started the Rover Arm Project", "done", None,
+     [{"role": "owner", "surface": "Bob"}], "Started the Rover Arm Project today"),
+    ("S3", "rover-arm-project", "The arm is fully assembled", "done", None, [],
+     "The arm on the Rover Arm Project is fully assembled"),
+    ("S5", "rover-arm-project", "Bob started calibrating the gripper camera", "ongoing", None,
+     [{"role": "owner", "surface": "Bob"}], "Started calibrating the gripper camera on the Rover Arm Project"),
+)
+_AGENT_EVENTS = (
+    ("S7", "pick-and-place-demo",
+     "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example",
+     "done", "yesterday",
+     [{"role": "owner", "surface": "Bob"},
+      {"role": "document", "surface": "lab cluster onboarding guide", "entity": "media-example-cluster-guide",
+       "url": _GUIDE_URL},
+      {"role": "from", "surface": "Hana Example", "entity": "hana-example"},
+      {"role": "about", "surface": "Lab Cluster Example", "entity": "lab-cluster-example"}],
+     "Yesterday Hana Example sent me the lab cluster onboarding guide (" + _GUIDE_URL + "). It walks me through "
+     "connecting to Lab Cluster Example"),
+    ("S7", "pick-and-place-demo", "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
+     "ongoing", None,
+     [{"role": "owner", "surface": "Bob"}, {"role": "used", "surface": "Lab Cluster Example",
+                                           "entity": "lab-cluster-example"},
+      {"role": "for", "surface": "Pick And Place Demo", "entity": "pick-and-place-demo"}],
+     "I'm connecting now so I can run the Pick And Place Demo"),
+)
+_AGENT_SESSION = "ses_demo_rover_02"
+
+
+def _write_scenario_events(bank_dir: Path, today: date, scenario: dict) -> None:
+    """Five happenings through `progress.record_happening` — the writer every
+    live path uses, so the demo's events carry the same ids, spans, date bases
+    and born-closed validity as a real bank's — in two commits authored by who
+    wrote them: a Sleep-shaped one (model `gpt-5.4-mini`, each claim recorded
+    the night of its own episode, so a thread's quiet clock starts where a
+    real one would) and an `mcp/claude-code` one (spec §12).
+
+    Every call passes `tz_name="UTC"`, the scenario's own zone: on a machine
+    far from UTC a 13:00 UTC turn must not land on the next local day, and
+    `today`/`now` are pinned so no real clock reaches a page (R-PJB7)."""
+    from datetime import datetime, time, timezone
+
+    from api.services import progress
+
+    ids = scenario["episodes"]
+    offsets = {e[0]: e[1] for e in _SCENARIO_EPISODES}
+    origins = {e[0]: e[2] for e in _SCENARIO_EPISODES}
+
+    def run(rows, **who) -> list[tuple[str, str]]:
+        touched: list[tuple[str, str]] = []
+        for key, subject, text, status, when, participants, quote in rows:
+            ep = ids[key]
+            kw = dict(who)
+            if "today" not in kw:       # Sleep-shaped: recorded the night its episode was consolidated
+                kw.update(origin=origins[key], today=today + timedelta(days=offsets[key]))
+            result = progress.record_happening(
+                bank_dir, subject=subject, text=text, status=status, participants=participants, when=when,
+                evidence=[{"episode": ep, "quote": quote}], observer="agent", tz_name="UTC", **kw)
+            touched += [(p, ep) for p in result.get("paths") or []]
+        return touched
+
+    def commit(touched, subject: str, trigger: str, **trailers) -> None:
+        first: dict[str, str] = {}
+        for path, ep in touched:
+            first.setdefault(path, ep)
+        if first:
+            _run_commit(bank_dir, git_service.build_commit_message(
+                f"{subject} {today}",
+                [f"{p}: updated (source: {ep}, trigger: {trigger})" for p, ep in first.items()], **trailers),
+                list(first))
+
+    commit(run(_SLEEP_EVENTS, authored_by="gpt-5.4-mini"), "Sleep cycle", "sleep/extraction",
+           authors=["gpt-5.4-mini"], engine="litellm")
+    s7_day = today + timedelta(days=offsets["S7"])
+    commit(run(_AGENT_EVENTS, origin="mcp", authored_by="claude-code", session_id=_AGENT_SESSION, today=today,
+               now=datetime.combine(s7_day, time(18, 0), tzinfo=timezone.utc)),
+           "Agent write", "mcp/claude-code", authors=["claude-code"], sessions=[_AGENT_SESSION])

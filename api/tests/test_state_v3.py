@@ -31,3 +31,28 @@ def test_the_primer_shows_the_current_line_and_stays_in_budget(tmp_path, monkeyp
     assert f"`rover-arm-project` Rover Arm Project — A small arm that picks parts off a tray. · next: Pick And Place Demo, {d(12)}" in text
     assert "Ask where a project stands with `cicada_project(project)`." in text
     assert len(text) // 4 <= handshake.MAX_TOKENS
+
+
+def test_seven_projects_with_now_fit_in_six_kilobytes(tmp_path):
+    """§10.3: the cap is measured with 7 projects that ALL carry `now`."""
+    from _synthetic_bank import _bank, _entity
+    from api.services import bank_index
+    from api.services.claims import Claim, write_claims
+
+    memory = _bank(tmp_path, git=False)
+    for n in range(7):
+        pid = f"omega-{n}-project"
+        text = f"Bob is wiring sensor rig {n} into the lab network and checking each channel"
+        claims = [Claim(id=f"clm_{pid}_happened_0000000{n}_2026-09-20", text=text, subject=pid, predicate="happened",
+                        object=text.lower(), object_kind="literal", valid_from="2026-09-20", status="ongoing",
+                        date_basis="turn", confidence=0.8),
+                  Claim(id=f"clm_{pid}_milestone_ship_2026-09-01", text="Ship the rig", subject=pid,
+                        predicate="milestone", object="ship", object_kind="literal", valid_from="2026-09-01",
+                        status="planned", target="2026-10-01", date_basis="person")]
+        _entity(memory, pid, type="project", confidence=0.95, last_referenced="2026-09-20",
+                body=write_claims(f"## Summary\n{pid} is a synthetic project with a one-line summary.\n", claims))
+    bank_index.invalidate()
+    state_dictionary.refresh(memory, None, force=True, probe_repos=False)
+    assert len(state_dictionary.state_path(memory).read_bytes()) <= state_dictionary.MAX_BYTES
+    rows = [p for p in state_dictionary.read_state(memory)["projects"] if p["id"].startswith("omega-")]
+    assert len(rows) == 7 and all(p.get("now") and p.get("next") for p in rows)

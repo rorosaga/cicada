@@ -6,7 +6,9 @@ call that made it.
 
 R12 holds for tool output as for the primer: the closing line names
 `cicada_recall_detail(entity_id)` only when the caller holds it, and
-`cicada_note_progress` only when the caller holds that (T5). A quote is the
+`cicada_note_progress` only when the caller holds that (T5). The Now and
+Quiet lines print each thread's claim id: `settles` needs it, and this reply is
+the only place an agent can learn it (§10.2). A quote is the
 person's verbatim words, printed only when `raw` — a remote caller needs the
 `sources` scope (R-PJ23), the line G135 draws for every other verbatim word.
 
@@ -110,13 +112,84 @@ def _quote_text(item, memory_path: Path, texts: dict[str, str | None]) -> str | 
     return words if len(words) <= QUOTE_CHARS else words[: QUOTE_CHARS - 1].rstrip() + "…"
 
 
-def _happened_lines(timeline, *, memory_path: Path, today: date, raw: bool) -> list[str]:
-    rows = [i for i in timeline.items if i.kind in ("moment", "happening", "milestone") and i.day]
+def _names(timeline) -> dict[str, str]:
+    return {timeline.project.id: timeline.project.name, **{
+        m.id: m.name for g in timeline.cluster.groups for m in g.members if m.id}}
+
+
+def _page_name(timeline, memory_path: Path, stem: str | None) -> str:
+    if not stem:
+        return timeline.project.name
+    known = _names(timeline).get(stem)
+    if known:
+        return known
+    try:
+        from api.services import markdown_parser
+
+        fm = markdown_parser.parse(Path(memory_path) / "entities" / f"{stem}.md").frontmatter or {}
+    except Exception:  # noqa: BLE001 — a name is never worth a failed reply
+        fm = {}
+    return str(fm.get("name") or stem.replace("-", " ").title())
+
+
+def _asked(memory_path: Path) -> set[str]:
+    """Claim ids a pending `followup` inbox item already asks about (PJ-6) —
+    the Quiet line then says so, so an agent does not ask the same question."""
+    from api.services import bank_index
+
+    out: set[str] = set()
+    for f in bank_index.files(Path(memory_path), "inbox"):
+        fm = f.frontmatter or {}
+        if fm.get("kind") == "followup" and str(fm.get("status") or "pending") == "pending" and fm.get("claim_id"):
+            out.add(str(fm["claim_id"]))
+    return out
+
+
+def _thread_lines(timeline, state: dict, *, memory_path: Path, today: date) -> tuple[list[str], list[str]]:
+    """`(Now lines, Quiet lines)`: a thread still inside its quiet threshold is
+    NOW; one past it (`followupEligible`, §6.2) is QUIET, with the day it was
+    last heard — the same split the app draws from the same function."""
+    eligible = {t.get("claimId") for t in state.get("threads") or [] if t.get("followupEligible")}
+    quiet_days = {t.get("claimId"): t.get("quietDays") for t in state.get("threads") or []}
+    asked = _asked(memory_path) if eligible else set()
+    now, quiet = [], []
+    for t in timeline.now.threads:
+        if t.claim_id in eligible:
+            tail = "; asked in Inbox" if t.claim_id in asked else ""
+            quiet.append(f"Quiet: {t.text} — quiet {quiet_days.get(t.claim_id)} days (last {t.last_heard}){tail} "
+                         f"[{t.claim_id}]")
+        else:
+            now.append(f"Now: {t.text} — since {rel(t.since, today)} "
+                       f"[on {_page_name(timeline, memory_path, t.on)}; {t.claim_id}]")
+    return now, quiet
+
+
+def _early_late(days) -> str:
+    if not days:
+        return "on time"
+    return f"{abs(days)} day{'s' if abs(days) != 1 else ''} {'early' if days < 0 else 'late'}"
+
+
+def _happened_lines(timeline, state: dict, *, memory_path: Path, today: date, raw: bool) -> list[str]:
+    done = {m.get("slug"): m for m in state.get("milestones") or [] if m.get("state") == "done"}
+    marks = [(m.done_on, m) for m in timeline.milestones if m.slug in done and m.done_on]
+    rows = [(i.day, i) for i in timeline.items if i.kind in ("moment", "happening") and i.day]
+    rows += marks
+    # Newest first, a happening before a moment and a milestone on the same day.
+    rank = {"happening": 0, "moment": 1}
+    rows.sort(key=lambda r: (r[0], -rank.get(getattr(r[1], "kind", ""), 2)), reverse=True)
     if not rows:
         return []
     texts: dict[str, str | None] = {}
     out = ["Happened (newest first):"]
-    for item in rows[:HAPPENED_ROWS]:
+    for day, item in rows[:HAPPENED_ROWS]:
+        if not hasattr(item, "kind"):      # a done milestone (§10.2)
+            out.append(f"- {rel(day, today)} · done · {item.name} "
+                       f"(milestone, {_early_late(done[item.slug].get('days'))})")
+            continue
+        if item.kind == "happening":
+            out.append(_happening_line(timeline, item, memory_path=memory_path, today=today, raw=raw, texts=texts))
+            continue
         line = f"- {rel(item.day, today)} · {item.state or 'said'} · "
         quote = _quote_text(item, memory_path, texts) if raw else None
         if quote:
@@ -135,15 +208,43 @@ def _happened_lines(timeline, *, memory_path: Path, today: date, raw: bool) -> l
     return out
 
 
+def _happening_line(timeline, item, *, memory_path: Path, today: date, raw: bool, texts: dict) -> str:
+    """`- day · status · sentence <document url> · "quote" [claim, episode]`.
+    The person's own Log words (`verbatim`) are a quote too: without `raw`
+    (a remote caller lacking `sources`, R-PJ23) the row says only that a note
+    of theirs exists, never its words."""
+    head = f"- {rel(item.day, today)} · {item.state or 'done'} · "
+    if item.verbatim and not raw:
+        return head + f"a note of yours on {_page_name(timeline, memory_path, item.project)} [{item.id}]"
+    line = head + item.text
+    for p in item.participants:
+        if p.role == "document" and p.url:
+            line += f" <{p.url}>"
+    quote = _quote_text(item, memory_path, texts) if raw else None
+    if quote:
+        line += f' · "{quote}"'
+    episode = item.quote.episode if item.quote else None
+    return line + (f" [{item.id}, {episode}]" if episode else f" [{item.id}]")
+
+
 def _around_line(timeline) -> str | None:
     def member(m) -> str:
         return f"{m.name} ({m.fact})" if m.fact else m.name
 
-    bits = [f"{g.label} — " + ", ".join(member(m) for m in g.members) + (f" +{g.more} more" if g.more else "")
-            for g in timeline.cluster.groups if g.members]
+    bits = []
+    for g in timeline.cluster.groups:
+        linked = [m for m in g.members if not m.pending]
+        if linked:
+            bits.append(f"{g.label} — " + ", ".join(member(m) for m in linked) + (f" +{g.more} more" if g.more else ""))
     if timeline.cluster.also_uses:
         bits.append("Also uses — " + ", ".join(member(m) for m in timeline.cluster.also_uses))
-    return ("Around it: " + " · ".join(bits)) if bits else None
+    if not bits:
+        return None
+    # §6.4: a name that took part in an event but has no page yet — the
+    # promotion rule made visible, never hidden.
+    pending = [m.name for g in timeline.cluster.groups for m in g.members if m.pending]
+    bits.append("Not a page yet — " + (", ".join(pending) if pending else "(none)"))
+    return "Around it: " + " · ".join(bits)
 
 
 def render(timeline, state: dict, *, memory_path: Path, today: date, raw: bool, can_note: bool,
@@ -151,8 +252,8 @@ def render(timeline, state: dict, *, memory_path: Path, today: date, raw: bool, 
     """The reply, line by line (§10.2). `state` is `project_state.timeline_state`
     for `today`; it carries only `slug/state/days/moved` per milestone, so
     names, targets and chains are joined from `timeline.milestones` by slug.
-    `can_note` names `cicada_note_progress` in the closing line once that tool
-    exists (T5); `Now:` and `Quiet:` join with the event layer then too."""
+    `can_note` names `cicada_note_progress` in the closing line (T5) only for
+    a caller that holds it (R12 for tool output)."""
     lines: list[str] = []
     head = f"{timeline.project.name} — {'planned' if state.get('planned') else 'unplanned'}"
     if state.get("planned"):
@@ -161,19 +262,27 @@ def render(timeline, state: dict, *, memory_path: Path, today: date, raw: bool, 
     if timeline.last_moment_day:
         head += f" · last activity {rel(timeline.last_moment_day, today)}"
     lines.append(head)
+    now_lines, quiet_lines = _thread_lines(timeline, state, memory_path=memory_path, today=today)
+    lines += now_lines
     for line in (_next_line(timeline, state), _passed_line(timeline, state)):
         if line:
             lines.append(line)
+    lines += quiet_lines
     pending = timeline.pending
     if pending.unconsolidated:
         n = pending.unconsolidated
         # The word only ("from today"): the date is the newest conversation's, not a deadline.
         since = f" from {rel(pending.newest_day, today).split(' (')[0]}" if pending.newest_day else ""
         lines.append(f"Waiting for Sleep: {n} conversation{'s' if n != 1 else ''}{since}")
-    lines += _happened_lines(timeline, memory_path=memory_path, today=today, raw=raw)
+    lines += _happened_lines(timeline, state, memory_path=memory_path, today=today, raw=raw)
     around = _around_line(timeline)
     if around:
         lines.append(around)
-    if can_detail:
+    note = "record progress with cicada_note_progress (settles=<claim id> to finish a thread above)"
+    if can_detail and can_note:
+        lines.append(f"Open a page with cicada_recall_detail(entity_id); {note}.")
+    elif can_detail:
         lines.append("Open a page with cicada_recall_detail(entity_id).")
+    elif can_note:
+        lines.append(f"{note[0].upper()}{note[1:]}.")
     return "\n".join(lines)

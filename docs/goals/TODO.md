@@ -277,7 +277,11 @@ the detail's 150 ms p95 but not yet the list's 80 ms on its 2,500-page worst cas
 same branch: `cicada_project` (stdio + remote `read`), `_state.md` schema v3 project `next` (`now` waits
 for PJ-3's happenings) and the handshake's Current line — contract 5, remote contract 3. PJ-3a's claim
 layer (T4) is there too: event claims born closed, one writer (`progress.py`), `write_claim` refusing the
-event predicates and Stage 1's stray labels relabelled; nothing can write an event yet (T5 adds the tool).
+event predicates and Stage 1's stray labels relabelled. PJ-3a's agent path (T5) is there now:
+`cicada_note_progress` (stdio + remote `record`, observer always the agent, never a new page),
+`cicada_retract_claim` withdrawing an event through `progress.withdraw`, happenings, open threads and
+`milestone` chains in the read model (`PROJECT_SHAPE` `g141-2`), `_state.md`'s `now` filled, the Now/Quiet
+lines in `cicada_project`, and the demo's two event commits — contract 6, remote contract 4.
 
 **Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
 open is on the row.
@@ -573,7 +577,8 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     decisions below. PJ-1's read model and demo scenario are on `feat/g141-read-write` (T1), served over
     `GET /projects[/{id}/timeline]` (T2); PJ-2 (`cicada_project`, `_state.md` v3, the Current line) is T3;
     PJ-3a's claim layer (`happened`/`milestone`, `when.py`'s closed table, `progress.py`, `reconcile_events`,
-    the `is_event` readers and their grep gate) is T4 — no writer is exposed until T5.
+    the `is_event` readers and their grep gate) is T4; its agent path (`cicada_note_progress`, the event
+    layer in the read model, the demo's event commits) is T5.
 14. **G102** site recon — cheap slice shipped 2026-09-02 (see Shipped). Next slice: relate a link to a
     pending candidate when it promotes; fetch-side improvements stay out of scope until a measured
     need — S

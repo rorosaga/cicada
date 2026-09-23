@@ -125,3 +125,28 @@ def test_endpoint_is_409_if_demo_already_exists(tmp_path, monkeypatch):
     client, _ = _client(tmp_path, monkeypatch)
     assert client.post("/banks/demo").status_code == 200
     assert client.post("/banks/demo").status_code == 409
+
+
+def test_the_event_commits_are_authored_by_who_wrote_them_and_store_nothing_relative(tmp_path):
+    """G141 PJ-3a (T5): the S1/S3/S5 happenings land in a Sleep-shaped commit
+    and S7's two in an `Agent write` under `claude-code`; the R-PJ6 gate holds
+    over every event claim in the bank — no relative word in what is stored."""
+    import subprocess
+
+    from api.services import when
+    from api.services.claims import is_event
+
+    bank = demo(tmp_path, index=False, person=False, followups=False)
+    log = subprocess.run(["git", "-C", str(bank), "log", "--format=%s%n%b---END---"], check=True,
+                         capture_output=True, text=True).stdout
+    agent = next(c for c in log.split("---END---") if c.strip().startswith(f"Agent write {T.isoformat()}"))
+    assert "Cicada-Author: claude-code" in agent and "Cicada-Session: ses_demo_rover_02" in agent
+    assert "trigger: mcp/claude-code" in agent and "entities/pick-and-place-demo.md" in agent
+    assert any("trigger: sleep/extraction" in c and "Cicada-Author: gpt-5.4-mini" in c
+               and "entities/rover-arm-project.md" in c for c in log.split("---END---")[:2])
+    events = [c for p in (bank / "entities").glob("*.md")
+              for c in parse_claims(markdown_parser.parse(p).body) if is_event(c)]
+    assert len(events) == 5
+    for c in events:
+        for value in (c.text, c.valid_from, c.target, c.status):
+            assert not when.RELATIVE_GREP.search(str(value or "")), (c.id, value)

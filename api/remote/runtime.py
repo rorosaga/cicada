@@ -187,6 +187,10 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         c, str(a.get("subject") or ""), str(a.get("claim_id") or ""), str(a.get("reason") or ""),
         a.get("evidence")),
     "cicada_save_url": lambda c, a: mcp_tools.save_url(c, str(a.get("url") or ""), a.get("note")),
+    "cicada_note_progress": lambda c, a: mcp_tools.note_progress(
+        c, str(a.get("project") or ""), str(a.get("kind") or ""), str(a.get("summary") or ""),
+        str(a.get("status") or ""), when=a.get("when"), target=a.get("target"), milestone=a.get("milestone"),
+        settles=a.get("settles"), participants=a.get("participants"), evidence=a.get("evidence")),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, str(a.get("url") or ""), str(a.get("summary") or ""), a.get("excerpts"), a.get("chapters")),
     "cicada_resolve_inbox": lambda c, a: mcp_tools.resolve_inbox(

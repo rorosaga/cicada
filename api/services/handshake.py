@@ -52,7 +52,8 @@ from api.services.auth import cicada_home
 # 4: capability lines for installed bridge skills (G138) — bumped past
 # G140's 3 at the merge, so neither side's cached 3 is ever served.
 # 5: G141 — cicada_project named; project rows carry now/next.
-CONTRACT_VERSION = 5
+# 6: G141 PJ-3a — item 3 names cicada_note_progress.
+CONTRACT_VERSION = 6
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -66,7 +67,8 @@ REMOTE_VARIANT = "remote"
 # recall_detail(entity_id) (R12).
 # 3: G141 — cicada_project named (read scope); project rows carry now/next,
 # a person-verbatim `now` shown as "a note of yours" without `sources`.
-REMOTE_CONTRACT_VERSION = 3
+# 4: G141 PJ-3a — cicada_note_progress named when the connection holds it.
+REMOTE_CONTRACT_VERSION = 4
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -117,6 +119,12 @@ def _remote_contract(tools: frozenset[str]) -> str:
         items.append("Save as you learn: `cicada_save_episode(content, title)` for a decision, plan or fact "
                      "worth keeping" + ("; `cicada_save_url(url, note)` for a link." if "cicada_save_url" in tools
                                         else "."))
+    if "cicada_note_progress" in tools:
+        # G141 PJ-3a: named only where the tool exists (R12); a remote app is
+        # never the person, so the observer is said out loud.
+        items.append("When the person says what they did, got, started or finished in a project, record it "
+                     "with `cicada_note_progress(project, kind, summary, status, evidence)` — observer is "
+                     "always you, never the person.")
     if "cicada_record_watch" in tools:
         items.append("After watching a video the person saved: `cicada_record_watch(url, summary, "
                      "excerpts=[{t, quote}])` — short timestamped quotes, never the transcript.")
@@ -207,7 +215,9 @@ _CONTRACT = (
     "items are app-only and the ask path never returns them.\n"
     "3. Save as you learn: `cicada_save_episode(content, title)` for a decision, plan or fact worth keeping; "
     "`cicada_save_url` for a link; after watching a video the person saved, `cicada_record_watch(url, summary, "
-    "excerpts=[{t, quote}])` — short timestamped quotes, never the transcript.\n"
+    "excerpts=[{t, quote}])` — short timestamped quotes, never the transcript. When the person says what they "
+    "did, got, started or finished in a project, record it with `cicada_note_progress(project, kind, summary, "
+    "status, evidence)`.\n"
     "4. Write facts as claims: `cicada_write_claim(subject, predicate, object, evidence=[{episode, quote}], "
     "sources=[url])` — quote the exact words you relied on, give `sources` for anything you looked up, and "
     "`expected_end` when the fact states an end; withdraw a claim you wrote that proved wrong with "

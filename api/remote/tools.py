@@ -172,6 +172,33 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "since": {"type": "string", "description": "Optional: YYYY-MM-DD, or a number of days back. Default 90."},
            "tz": {"type": "string", "description": "Optional: the person's IANA timezone, for relative dates."}},
           ("project",), read_only=True),
+    # G141 §5.2: the same schema the stdio server declares; observer is always
+    # this app (never the person), so the schema carries no observer at all.
+    _tool("cicada_note_progress",
+          "Record something that happened in one of the person's projects, something under way, or a milestone "
+          "they planned — dated, with who and what took part. Quote the person's words in evidence. For a "
+          "standing fact (a spec, who works where) use cicada_write_claim instead.",
+          {"project": {"type": "string", "description": "The project page (id or name). Use the person's own "
+                                                        "page for something outside any project."},
+           "kind": {"type": "string", "enum": ["happened", "milestone"]},
+           "summary": {"type": "string", "description": "One sentence, third person, naming each participant "
+                                                        "exactly as the person did. No relative time words."},
+           "status": {"type": "string", "enum": ["ongoing", "done", "dropped", "planned", "missed"]},
+           "when": {"type": "string", "description": "Optional: YYYY-MM-DD, or the person's own words "
+                                                     "('yesterday'), resolved against the cited episode."},
+           "target": {"type": "string", "description": "Milestone only: the planned date, YYYY-MM-DD."},
+           "milestone": {"type": "string", "description": "Milestone only: an existing milestone's name or slug, "
+                                                          "to move it or mark it done."},
+           "settles": {"type": "string", "description": "Optional: the claim id of an ongoing item this finishes "
+                                                        "or stops."},
+           "participants": {"type": "array", "items": {"type": "object", "required": ["name", "role"], "properties": {
+               "name": {"type": "string"},
+               "role": {"type": "string", "enum": ["owner", "from", "with", "for", "about", "used", "document",
+                                                   "project"]},
+               "url": {"type": "string"}}}},
+           "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
+               "episode": {"type": "string"}, "quote": {"type": "string"}}}}},
+          ("project", "kind", "summary", "status"), read_only=False),
     _tool("cicada_resolve_inbox",
           "Record the person's own answer to one of Cicada's questions: the option_key they chose, defer=true "
           "to ask again later, reject=true when two names are NOT the same, or skip=true when they did not "

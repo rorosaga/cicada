@@ -31,7 +31,9 @@ def test_the_local_reply_prints_both_date_forms_and_the_quote(bank):
     assert "Passed, no word on how it went: Arm assembled" in out
     assert "Waiting for Sleep: 1 conversation from today" in out
     assert '"Yesterday Hana Example sent me' in out           # the washed quote, locally
-    assert out.rstrip().endswith("Open a page with cicada_recall_detail(entity_id).")
+    # T5: a stdio caller holds every tool, cicada_note_progress included (R12 for tool output).
+    assert out.rstrip().endswith("Open a page with cicada_recall_detail(entity_id); record progress with "
+                                 "cicada_note_progress (settles=<claim id> to finish a thread above).")
 
 
 def test_a_remote_connection_without_sources_sees_no_quote(bank):

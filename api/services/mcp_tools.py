@@ -910,6 +910,182 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
                                can_note=ctx.can("cicada_note_progress"), can_detail=ctx.can("cicada_recall_detail"))
 
 
+def _now_in(tz_name: str | None) -> datetime:
+    """The one clock `cicada_note_progress` reads — a seam so tests pin an
+    instant. Inside `note_progress` the name `when` is the caller's string, so
+    the module is imported under its own name here (the G141 plan's rule)."""
+    from api.services import when
+
+    return datetime.now(when.zone(tz_name))
+
+
+# How a happening's day was decided, in the reply's words (§7: the date is
+# provenance too). `stated` never reaches this table — it echoes the words.
+_BASIS_WORDS = {"turn": "the turn it was said in", "episode": "the conversation's day",
+                "written": "when it was recorded", "person": "the day given"}
+
+
+def _page_name(memory_path: Path, stem: str) -> str:
+    try:
+        fm = markdown_parser.parse(Path(memory_path) / "entities" / f"{stem}.md").frontmatter or {}
+    except Exception:  # noqa: BLE001 — a name is never worth a failed reply
+        fm = {}
+    return str(fm.get("name") or stem.replace("-", " ").title())
+
+
+def _match_milestone(rows, wanted: str):
+    """G141 §5.2: an agent names a milestone the way the person does. Open
+    `milestone` heads first (by slug or name), then the read-compat `due`
+    rows (`due-<date>` or the due's own name) — so "Lab showcase" advances the
+    G17 due the read model already shows under that name instead of opening a
+    second row beside it (R-PJ4). Case-insensitive, exact: never fuzzy."""
+    from api.services.id_utils import sanitize_id
+
+    key, slug = wanted.strip().lower(), sanitize_id(wanted)
+    for source in ("milestone", "due"):
+        for row in rows:
+            if row.source == source and (row.slug == slug or row.slug.lower() == key or row.name.lower() == key):
+                return row
+    return None
+
+
+def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, status: str, when=None,
+                  target=None, milestone=None, settles=None, participants=None, evidence=None) -> str:
+    """`cicada_note_progress` (G141 §5.2): record a happening or a milestone the
+    person described. An ENRICHMENT, never the only path to a timeline (G105:
+    capture stays the Stop hook's). Observer `agent`, never the owner — remote or
+    not; the origin is `mcp` or `remote:<id>`; the page commits alone under the
+    harness (G135 R-R11). Never creates a page. The reply echoes how the date
+    was decided so the agent can correct it.
+
+    Validation is this wrapper's and `progress.py`'s: every refusal is one line
+    and writes nothing. `settles` names a thread anywhere in the project's tree
+    (the thread's own page is the one written — a thread lives where it was
+    filed, and `reconcile_events` settles within one page). The clock is the
+    MACHINE's day (`_now_in`), never UTC's: "yesterday" is where the person
+    lives (R-PJ6)."""
+    from api.services import handshake, progress, project_timeline, telemetry
+    from api.services import when as when_mod
+    from api.services.claims import EVENT_STATUSES, HAPPENED
+    from api.services.id_utils import resolve_entity_file
+
+    memory_path = ctx.memory_path()
+    ref = (project or "").strip()
+    kind = (kind or "").strip()
+    status = (status or "").strip()
+    summary = " ".join(str(summary or "").split())
+    if not ref:
+        return "project is required — a project's id or name. Nothing was recorded."
+    page = resolve_entity_file(memory_path, ref)
+    if page is None:
+        near = agentic_write._find_subject_candidates(memory_path, ref)
+        if not near:
+            return f"No page for '{ref}' — name one of the person's projects. Nothing was recorded."
+        lines = [f"NOT recorded — ambiguous subject '{ref}'. Existing entities are close matches:"]
+        lines += [f"  - {c['entity_id']} (match {c['score']})" for c in near]
+        lines.append("Re-issue cicada_note_progress with the intended project id.")
+        return "\n".join(lines)
+    stem = page.stem
+    name = _page_name(memory_path, stem)
+    bank = project_timeline._Bank(memory_path, None)
+    etype = bank.type_of(stem) or "page"
+    if etype != "project" and stem != bank.owner():
+        # R-PJ10's homes hold for agents: a happening lives on a project, or on
+        # the person's own page when it belongs to none.
+        return f"{name} is a {etype}; name the project it belongs to."
+    if kind not in EVENT_STATUSES:
+        return f"'{kind}' isn't a kind — use happened or milestone. Nothing was recorded."
+    if status not in EVENT_STATUSES[kind]:
+        return f"'{status}' isn't a status for a {kind} — use one of: {', '.join(EVENT_STATUSES[kind])}."
+    if when_mod.has_relative(summary):
+        return "Write the summary without time words ('yesterday', 'today'); put them in `when` instead."
+    tree = project_timeline._tree(bank, stem)[0]
+    subject = stem
+    if settles:
+        settles = str(settles).strip()
+        holder = next((p for p in tree for c in bank.all_claims(p)
+                       if c.id == settles and c.predicate == HAPPENED and c.status == "ongoing"
+                       and c.valid_to is None and not c.superseded_by), None)
+        if kind != HAPPENED or holder is None:
+            return f"No open thread `{settles}` in {name} — nothing was recorded."
+        subject = holder
+
+    machine_tz = handshake.local_timezone() or "UTC"
+    now = _now_in(machine_tz)
+    today = now.date()
+    common = dict(observer="agent", origin=ctx.claim_origin or "mcp", authored_by=ctx.author,
+                  session_id=ctx.session_id, evidence=evidence, today=today, tz_name=machine_tz)
+    slug = None
+    if kind == HAPPENED:
+        result = progress.record_happening(memory_path, subject=subject, text=summary, status=status,
+                                           participants=participants, when=when, settles=settles, now=now,
+                                           **common)
+    else:
+        rows = [m for m in project_timeline._milestones(bank, tree) if m.source != "expectedEnd"]
+        row = _match_milestone(rows, milestone or summary)
+        if row is not None:
+            result = progress.advance(memory_path, subject=row.on or stem, slug=row.slug, status=status,
+                                      target=target, **common)
+        elif milestone:
+            listed = ", ".join(f"{m.name} ({m.slug})" for m in rows) or "none"
+            return f"No milestone '{milestone}' on {name} — open milestones: {listed}. Nothing was recorded."
+        else:
+            result = progress.set_milestone(memory_path, subject=stem, name=summary, target=target, status=status,
+                                            **common)
+        slug = result.get("slug")
+    action = result.get("action")
+    if action in ("error", "not_found") or not result.get("claim_id"):
+        return "Not recorded: " + str(result.get("error") or "unknown error")
+
+    refs = {"entity_id": result.get("entity_id"), "claim_id": result.get("claim_id"), "episode_id": None,
+            "action": "progress", "session_id": ctx.session_id, "harness": ctx.harness,
+            "client_name": ctx.client_name, "client_version": ctx.client_version}
+    if ctx.is_remote:
+        refs["connector_id"] = ctx.connector_id
+    telemetry.record(telemetry.UsageEvent(
+        kind="agentic_write", stage="driver", connection="session",
+        engine="mcp-remote" if ctx.is_remote else "mcp-client",
+        model=None, bank=memory_path.name, billing="subscription", invocations=1, refs=refs,
+    ))
+    paths = result.get("paths") or []
+    spans = result.get("evidence") or []
+    episode = next((e.get("episode") for e in spans if e.get("episode")), None)
+    # G135 R-R11 and the Sleep race: exactly `write_claim`'s rule — a stdio
+    # write mid-cycle leaves its pages dirty for Sleep's own sweep.
+    if paths and not ctx.sleep_running():
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"{p}: updated (source: {episode or 'n/a'}, trigger: {ctx.trigger})" for p in paths],
+            paths=paths, author=ctx.author, session=ctx.session_id,
+        )
+
+    cid = result["claim_id"]
+    where = _page_name(memory_path, result.get("entity_id") or subject)
+    if action == "reinforced":
+        reply = f"Already recorded on {where}: nothing new (reinforced claim `{cid}`)"
+    elif kind == HAPPENED:
+        how = f" from '{when}'" if result.get("matched") else \
+            f" ({_BASIS_WORDS.get(result.get('date_basis'), 'when it was recorded')})"
+        cited = sum(1 for e in spans if e.get("kind") != "reasoning")
+        ev = f"{cited} quote verified" if cited else "reasoning"
+        reply = f"Recorded: filed on {where}, dated {result['day']}{how} — {status} (claim `{cid}`; evidence: {ev})"
+    else:
+        lead = "Recorded alongside the person's own milestone (they will be asked which stands)" \
+            if action == "coexist" else "Recorded"
+        if action == "rejected":
+            lead = "NOT recorded — a later state of this milestone already stands"
+        tgt = result.get("target")
+        reply = f"{lead}: filed on {where} as milestone '{slug}' — {status}" + (f", target {tgt}" if tgt else "") \
+            + f" (claim `{cid}`)"
+    settled = result.get("settled")
+    if settled == "closed":
+        reply += f"; closed the thread `{settles}`"
+    elif settled == "refused":
+        # R-PJB14: an agent's `settles` never closes a human thread.
+        reply += f"; the thread `{settles}` stays open — only the person can close their own thread"
+    return reply + "."
+
+
 def write_claim(
     ctx: ToolContext,
     subject: str,
@@ -1063,15 +1239,51 @@ def write_claim(
     )
 
 
+def _event_claim(memory_path: Path, subject: str, claim_id: str):
+    """`(claim, page stem)` when `claim_id` names a happening or a milestone on
+    `subject`'s page, else None (the general withdrawal path answers)."""
+    from api.services.claims import is_event, parse_claims
+    from api.services.id_utils import resolve_entity_file
+
+    page = resolve_entity_file(memory_path, (subject or "").strip()) if claim_id else None
+    if page is None:
+        return None
+    try:
+        claims = parse_claims(markdown_parser.parse(page).body)
+    except Exception:  # noqa: BLE001 — an unreadable page is the general path's error to report
+        return None
+    same = [c for c in claims if c.id == claim_id]
+    claim = next((c for c in same if c.valid_to is None), same[0] if same else None)
+    return (claim, page.stem) if claim is not None and is_event(claim) else None
+
+
 def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, evidence: list | None = None) -> str:
     """``cicada_retract_claim`` (G140 Q-R5, R3 P7): withdraw a claim THIS caller
     wrote. The claim stays in its page's history, a record keeps the reason,
     and the page commits alone under the caller — like ``write_claim``."""
     memory_path = ctx.memory_path()
-    result = agentic_write.retract_claim(
-        memory_path, subject, (claim_id or "").strip(), reason=reason, author=ctx.author,
-        origin=ctx.claim_origin, session_id=ctx.session_id, evidence=evidence,
-    )
+    event = _event_claim(memory_path, subject, (claim_id or "").strip())
+    if event is not None:
+        # G141 §5.2: an event is withdrawn through `progress.withdraw`. A done
+        # happening is born closed, so `agentic_write.retract_claim` would
+        # answer "already stopped being current" — true of its shape, wrong
+        # about the fact. Ownership is the same rule (`owns`).
+        from api.services import progress
+
+        claim, stem = event
+        if not agentic_write.owns(claim, author=ctx.author, origin=ctx.claim_origin):
+            result = {"action": "not_yours", "entity_id": stem, "claim_id": claim.id}
+        else:
+            result = progress.withdraw(memory_path, subject=stem, claim_id=claim.id, author=ctx.author,
+                                       reason=reason, origin=ctx.claim_origin, session_id=ctx.session_id,
+                                       evidence=evidence)
+            if result.get("paths"):
+                result["path"] = result["paths"][0]
+    else:
+        result = agentic_write.retract_claim(
+            memory_path, subject, (claim_id or "").strip(), reason=reason, author=ctx.author,
+            origin=ctx.claim_origin, session_id=ctx.session_id, evidence=evidence,
+        )
     action = result.get("action")
     if action == "already_closed":
         return (f"Claim `{claim_id}` on `{result['entity_id']}` already stopped being current on "

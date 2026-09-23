@@ -13,8 +13,11 @@ episode and a local day, widened by span co-citation — R-PJB20); MILESTONES
 (G17 `due` claims read as milestones — R-PJ4 read-compat, R-PJB21 — and stated
 ends); legacy `## History` bullets; activity density; the Sleep queue's pending
 conversations (R-PJB5); the CLUSTER around the project with the commons guard
-(R-PJ20). PJ-3's event claims join as their own layer (T5) and suppress the
-moment of any episode they cite, so a day never says the same thing twice.
+(R-PJ20). PJ-3's EVENT claims (T5) are their own layer: happenings as rows and
+open threads, `milestone` chains beside the read-compat dues, their
+participants in the cluster. An event suppresses the moment of any episode it
+cites, so a day never says the same thing twice — and an event claim never
+becomes a moment's fact chip itself (it is already a row).
 """
 from __future__ import annotations
 
@@ -28,7 +31,7 @@ from pathlib import Path
 from typing import Callable
 
 from api.models.schemas import (
-    ActivityDay, ClusterGroup, ClusterMember, MilestoneRow, PendingConversations, ProjectCluster,
+    ActivityDay, ClusterGroup, ClusterMember, MilestoneRow, OpenThread, PendingConversations, ProjectCluster,
     ProjectNow, ProjectProgress, ProjectRef, ProjectRow, ProjectsResponse, ProjectTimeline, TimelineConversation,
     TimelineFact, TimelineItem, TimelineParticipant, TimelineQuote, TimelineWindow,
 )
@@ -36,13 +39,14 @@ from api.services import (
     bank_index, claim_expiry, entity_body, evidence, inbox_context, project_state,
     search_index, session_stats, when,
 )
-from api.services.claims import Claim, Evidence, is_record, parse_claims, strip_claims_block
+from api.services.claims import HAPPENED, MILESTONE, Claim, Evidence, is_event, is_record, parse_claims, strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import sanitize_id
 from api.services.transclusion_resolver import claim_to_model
 
 # Bumped when a payload gains a field a client must see (the graph.NODE_SHAPE rule); rides both ETags.
-PROJECT_SHAPE = "g141-1"
+# g141-2 (T5): happenings, open threads and `milestone` chains join the payload.
+PROJECT_SHAPE = "g141-2"
 TREE_DEPTH = 2
 MAX_SCAN_PAGES = 200          # §6.6: raw scans are capped; hitting the cap sets `partial`
 COMMONS_DEGREE = 12           # R-PJ20
@@ -458,7 +462,7 @@ def _candidates(bank: _Bank, tree: list[str], owner: str | None, members: list[s
     core: set[str] = set()
 
     def take(c: Claim, page: str) -> _Anchor | None:
-        if c.id in seen:
+        if c.id in seen or is_event(c):      # an event is its own row (T5), never a moment's fact
             return None
         a = _anchor(bank, c)
         if a is None:
@@ -489,7 +493,7 @@ def _candidates(bank: _Bank, tree: list[str], owner: str | None, members: list[s
             if not bank.live(m):
                 continue
             for c in bank.claims(m):
-                if c.id in seen:
+                if c.id in seen or is_event(c):
                     continue
                 a = _anchor(bank, c)
                 if a is not None and lo <= a.day <= hi:
@@ -608,7 +612,7 @@ def _moments(bank: _Bank, root: str, tree: list[str], owner: str | None,
         if ep:
             have = {c.id for c, _, _ in group}
             for page, c in bank.co_cited(ep):
-                if c.id in have or page in commons:
+                if c.id in have or page in commons or is_event(c):
                     continue
                 a = _anchor(bank, c)
                 if a is not None and a.episode == ep and a.day == day:
@@ -639,12 +643,43 @@ def _due_name(claim: Claim, page_name: str) -> str:
     return text or page_name
 
 
+def _link_target(c: Claim) -> str | None:
+    """A chain link's planned day: a milestone's `target`, a `due`'s own date."""
+    return _day(c.target) if c.predicate == MILESTONE else claim_expiry.stated_end(c)
+
+
+def _milestone_chain(bank: _Bank, page: str, head: Claim) -> list[Claim]:
+    """The head, then `supersedes` back through the slot, newest first, across
+    the G17 `due` the first real milestone replaced (R-PJ4) — that is where a
+    slip shows. A withdrawn link is skipped, never followed into: its
+    successor already carries the chain on (R-PJB28)."""
+    page_claims = bank.all_claims(page)
+    records = {x.id for x in page_claims if is_record(x)}
+    chain, seen, cur = [head], {head.id}, head
+    while cur.supersedes and cur.supersedes not in seen:
+        nxt = next((x for x in page_claims if x.id == cur.supersedes and x.predicate in (MILESTONE, "due")), None)
+        if nxt is None:
+            break
+        seen.add(nxt.id)
+        if (nxt.superseded_by or "") not in records:
+            chain.append(nxt)
+        if nxt.predicate != MILESTONE:
+            break
+        cur = nxt
+    return chain
+
+
 def _milestones(bank: _Bank, tree: list[str]) -> list[MilestoneRow]:
-    """R-PJB21 read-compat: a G17 `due` with a date is a milestone — open →
+    """PJ-3's `milestone` slots first: the open head per slug on each tree page
+    (a slot whose only open claim was withdrawn has no head and is not listed —
+    R-PJB28), its chain, and `moved` when an earlier link planned another day.
+    A done head stays the open head: "done on Aug 9" is a current truth.
+
+    Then R-PJB21 read-compat: a G17 `due` with a date is a milestone — open →
     planned; closed at its own stated end with nothing after it → passed with
     no word (never "missed": nobody said so); closed any other way → dropped;
-    superseded → not listed. An open claim's `expected_end` is a tick
-    (`source: expectedEnd`), never a goal."""
+    superseded → not listed (the milestone chain carries it). An open claim's
+    `expected_end` is a tick (`source: expectedEnd`), never a goal."""
     root = tree[0]
     rows: list[MilestoneRow] = []
     slugs: set[str] = set()
@@ -656,6 +691,21 @@ def _milestones(bank: _Bank, tree: list[str]) -> list[MilestoneRow]:
         slugs.add(slug)
         return slug
 
+    for page in tree:
+        for c in bank.claims(page):
+            if c.predicate != MILESTONE or not _open(c) or not c.object:
+                continue
+            # The real slug, never de-duplicated: it is what `progress.advance`
+            # keys the slot on, and `on` tells two pages' same-named slots apart.
+            slugs.add(str(c.object))
+            chain = _milestone_chain(bank, page, c)
+            target = _day(c.target)
+            rows.append(MilestoneRow(
+                slug=str(c.object), name=c.text or str(c.object), status=c.status or "planned", target=target,
+                done_on=_day(c.valid_from) if c.status == "done" else None,
+                moved=any((t := _link_target(x)) is not None and t != target for x in chain[1:]),
+                source="milestone", on=page if page != root else None, claim_id=c.id,
+                chain=[claim_to_model(x) for x in chain]))
     for page in tree:
         for c in bank.claims(page):
             if c.predicate == "due":
@@ -684,6 +734,134 @@ def _milestones(bank: _Bank, tree: list[str]) -> list[MilestoneRow]:
                      key=lambda m: (m.target is None, m.target or "", m.slug))
     rest = sorted((m for m in rows if m.status != "planned"), key=lambda m: (m.target or "", m.slug), reverse=True)
     return planned + rest
+
+
+def _linked(bank: _Bank, p: dict) -> tuple[str | None, bool]:
+    """`(page, derived)` for one participant: the stored `entity` while it is a
+    live page; else its `surface` resolved by name or alias at read — the
+    relink R-PJ9 allows for a page merged, archived or made after the write,
+    said `derived` and never written back."""
+    eid = str(p.get("entity") or "")
+    if eid and bank.live(eid):
+        return eid, False
+    ref = bank.resolve(p.get("surface"))
+    if ref and bank.live(ref):
+        return ref, True
+    return None, False
+
+
+def _events(bank: _Bank, tree: list[str], owner: str | None) -> list[tuple[Claim, str]]:
+    """§6.1 layer 2: event claims on the tree's pages, plus the owner page's
+    events that name a tree page (by id, or by a name at read — a happening
+    outside any project that is still about this one). `claims()` has already
+    dropped withdrawn ones."""
+    out: list[tuple[Claim, str]] = []
+    seen: set[str] = set()
+    for page in tree:
+        for c in bank.claims(page):
+            if is_event(c) and c.id not in seen:
+                seen.add(c.id)
+                out.append((c, page))
+    targets = set(tree)
+    if owner and owner not in targets and bank.live(owner):
+        for c in bank.claims(owner):
+            if is_event(c) and c.id not in seen and any(_linked(bank, p)[0] in targets for p in c.participants):
+                seen.add(c.id)
+                out.append((c, owner))
+    return out
+
+
+def _happening(bank: _Bank, owner: str | None, c: Claim, page: str) -> TimelineItem:
+    """One `happened` claim as a row: its day is `valid_from` (when it
+    happened, never when it was written), its quote the first span it cites,
+    `verbatim` when the words are the person's own Log sentence (R-PJ23)."""
+    span = next((e for e in c.evidence if e.is_span() and e.episode in bank.episodes), None)
+    quote = conversation = None
+    if span is not None:
+        quote = _quote(bank, c, page, _Anchor(span.episode, _day(c.valid_from) or "", None, "turn", span))
+        conversation = _conversation(bank, span.episode)
+    participants = []
+    for p in c.participants:
+        eid, derived = _linked(bank, p)
+        fm = bank.fm(eid) if eid else {}
+        media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+        participants.append(TimelineParticipant(
+            id=eid, name=bank.name(eid) if eid else str(p.get("surface") or ""), type=bank.type_of(eid),
+            role=p.get("role"), surface=p.get("surface"), url=p.get("url") or (media or {}).get("url"),
+            is_owner=eid is not None and eid == owner, derived=derived))
+    return TimelineItem(kind="happening", id=c.id, day=_day(c.valid_from), date_basis=c.date_basis,
+                        state=c.status, project=page, text=c.text or "", participants=participants, quote=quote,
+                        conversation=conversation, claim=claim_to_model(c), verbatim=c.origin == "companion_app")
+
+
+def _last_heard(bank: _Bank, c: Claim) -> str:
+    """§6.2: the thread's newest sign of life — its own day, `recorded_at` (what
+    "Still going" moves), every episode it cites, and every episode of the
+    sessions it was written in. The quiet clock reads this, never today."""
+    days = [d for d in (_day(c.valid_from), _day(c.recorded_at)) if d]
+    eps = _claim_episodes(c)
+    for sid in c.all_session_ids():
+        eps += bank.session_episodes(sid)
+    for ep in dict.fromkeys(eps):
+        if ep in bank.episodes and (day := _ep_day(bank, ep)):
+            days.append(day)
+    return max(days) if days else ""
+
+
+def _threads(bank: _Bank, root: str, events: list[tuple[Claim, str]]) -> list[OpenThread]:
+    """Open `ongoing` happenings, newest first — what "Now" and "Quiet" read."""
+    rows = [(c, page) for c, page in events
+            if c.predicate == HAPPENED and c.status == "ongoing" and _open(c) and _day(c.valid_from)]
+    rows.sort(key=lambda r: (_neg(_day(r[0].valid_from)), r[0].id))
+    return [OpenThread(claim_id=c.id, text=c.text or "", since=_day(c.valid_from),
+                       last_heard=_last_heard(bank, c) or _day(c.valid_from), on=page if page != root else None,
+                       verbatim=c.origin == "companion_app") for c, page in rows]
+
+
+def _event_members(bank: _Bank, tree: list[str], owner: str | None,
+                   events: list[tuple[Claim, str]]) -> tuple[dict[str, dict], list[ClusterMember]]:
+    """§6.4: the participants of the tree's events, as cluster rows — linked
+    pages weighted by count and recency with their most frequent ROLE (the wire
+    carries the role word; "gave you …" is PJ-5 copy), and names no page holds
+    yet as `pending` members, so the promotion rule is visible, not hidden."""
+    linked: dict[str, dict] = {}
+    pending: dict[str, dict] = {}
+    targets = set(tree)
+    for c, _ in events:
+        day = _day(c.valid_from)
+        for p in c.participants:
+            role = str(p.get("role") or "")
+            eid, _derived = _linked(bank, p)
+            if eid:
+                if eid in targets or eid == owner:
+                    continue
+                row = linked.setdefault(eid, {"count": 0, "last": None, "roles": Counter()})
+            elif p.get("surface") and role != "owner":
+                row = pending.setdefault(str(p["surface"]).lower(),
+                                         {"name": str(p["surface"]), "count": 0, "last": None, "roles": Counter()})
+            else:
+                continue
+            row["count"] += 1
+            row["roles"][role] += 1
+            if day and (row["last"] is None or day > row["last"]):
+                row["last"] = day
+    names = [ClusterMember(name=r["name"], role_phrase=r["roles"].most_common(1)[0][0], last_seen=r["last"],
+                           count=r["count"], pending=True)
+             for r in sorted(pending.values(), key=lambda r: (-r["count"], r["name"]))]
+    return linked, names
+
+
+def _merge_members(neighbours: dict[str, dict], linked: dict[str, dict]) -> dict[str, dict]:
+    """Graph neighbours plus event participants — a copy, so the moment layer's
+    member set (§6.1 layer 3) never grows because someone took part in an event."""
+    out = {k: {**v, "phrases": Counter(v["phrases"])} for k, v in neighbours.items()}
+    for eid, row in linked.items():
+        cur = out.setdefault(eid, {"count": 0, "last": None, "phrases": Counter()})
+        cur["count"] += row["count"]
+        if row["last"] and (cur["last"] is None or row["last"] > cur["last"]):
+            cur["last"] = row["last"]
+        cur["roles"] = row["roles"]
+    return out
 
 
 def _history(bank: _Bank, tree: list[str]) -> list[TimelineItem]:
@@ -817,7 +995,8 @@ def _member_fact(bank: _Bank, eid: str) -> str:
     t = bank.type_of(eid)
     fm = bank.fm(eid)
     if t in ("tool", "directory"):
-        lits = [str(c.object) for c in bank.claims(eid) if _open(c) and c.object_kind == "literal" and c.object]
+        lits = [str(c.object) for c in bank.claims(eid)
+                if _open(c) and c.object_kind == "literal" and c.object and not is_event(c)]
         return " · ".join(lits[:3])
     if t == "person":
         c = next((c for c in bank.claims(eid) if _open(c) and c.predicate == "works-at"), None)
@@ -832,12 +1011,17 @@ def _member_fact(bank: _Bank, eid: str) -> str:
     return ""
 
 
-def _cluster(bank: _Bank, tree: list[str], neighbours: dict[str, dict], commons: set[str]) -> ProjectCluster:
+def _cluster(bank: _Bank, tree: list[str], neighbours: dict[str, dict], commons: set[str],
+             pending: list[ClusterMember] = ()) -> ProjectCluster:
     """§6.4: the pages around the project, grouped by kind, each with one
-    fact worth knowing; sub-projects are the tree's own (R-PJB4)."""
+    fact worth knowing; sub-projects are the tree's own (R-PJB4). An event
+    participant's role word wins over a graph phrase; names no page holds yet
+    close their group (a document under Documents, anyone else under People)."""
     def member(eid: str) -> ClusterMember:
         row = neighbours.get(eid) or {"count": 0, "last": None, "phrases": Counter()}
-        phrase = row["phrases"].most_common(1)[0][0] if row["phrases"] else ""
+        roles = row.get("roles")
+        phrase = roles.most_common(1)[0][0] if roles else (
+            row["phrases"].most_common(1)[0][0] if row["phrases"] else "")
         return ClusterMember(id=eid, type=bank.type_of(eid), name=bank.name(eid), role_phrase=phrase,
                              fact=_member_fact(bank, eid), last_seen=row["last"], count=row["count"])
 
@@ -856,9 +1040,14 @@ def _cluster(bank: _Bank, tree: list[str], neighbours: dict[str, dict], commons:
         if label == "Sub-projects":
             label = "Ideas"      # a linked project outside the tree is a neighbour, not a child (R-PJB4)
         buckets[label].append(member(eid))
+    for label in buckets:
+        if label != "Sub-projects":
+            buckets[label].sort(key=order)
+    for m in pending:       # after every linked member: a name is a hint, a page is a fact
+        buckets["Documents" if m.role_phrase == "document" else "People"].append(m)
     groups = []
     for label, _ in GROUPS:
-        members = sorted(buckets[label], key=order) if label != "Sub-projects" else buckets[label]
+        members = buckets[label]
         if members:
             groups.append(ClusterGroup(label=label, members=members[:GROUP_CAP], more=max(0, len(members) - GROUP_CAP)))
     return ProjectCluster(groups=groups, also_uses=sorted(also, key=order))
@@ -877,12 +1066,17 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
     commons = _commons(bank, neighbours)
     members = [m for m in neighbours if m not in commons]
     rows, core_ids = _candidates(bank, tree, owner, members, reverse)
-    suppressed: set[str] = set()                     # T5: episodes an event claim cites
+    events = _events(bank, tree, owner)
+    # §4.4: a derived moment steps aside for the event that cites its episode.
+    suppressed = {e.episode for c, _ in events for e in c.evidence if e.is_span()}
     moments = _moments(bank, root, tree, owner, rows, suppressed, commons)
+    happenings = [_happening(bank, owner, c, page) for c, page in events if c.predicate == HAPPENED]
     milestones = _milestones(bank, tree)
+    linked, pending_names = _event_members(bank, tree, owner, events)
+    around = _merge_members(neighbours, linked)
     fm = bank.fm(root)
     created = _day(fm.get("created"))
-    items = moments + _history(bank, tree)
+    items = moments + happenings + _history(bank, tree)
     if created:
         items.append(TimelineItem(kind="created", id=f"c:{root}", day=created, project=root,
                                   text="Cicada started tracking this"))
@@ -891,8 +1085,9 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
         items = [i for i in items if i.day is None or i.day >= since_day]
     order = {"happening": 0, "moment": 1, "history": 2, "created": 3}
     items.sort(key=lambda i: (i.day is None, "" if i.day is None else _neg(i.day), order[i.kind], i.id))
-    moment_days = sorted({m.day for m in moments if m.day})
-    core = [c for c, _, _ in rows if c.id in core_ids]
+    moment_days = sorted({m.day for m in moments if m.day} | {h.day for h in happenings if h.day})
+    core = [c for c, _, _ in rows if c.id in core_ids] + [c for c, _ in events]
+    done = [h for h in happenings if h.state == "done" and h.day]
     activity = _activity(bank, core)
     next_slug = project_state.next_slug([m.model_dump(by_alias=True) for m in milestones])
     targets = [m.target for m in milestones if m.target]
@@ -904,12 +1099,15 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
         window=TimelineWindow(start=min([x for x in (created, *days) if x], default=None),
                               end=max([x for x in (*(a.day for a in activity), *targets) if x], default=None)),
         # `now` ignores `since`: "me today" is never cut by a history filter.
-        now=ProjectNow(threads=[], next=next((m for m in milestones if m.slug == next_slug), None),
-                       last=max(moments, key=lambda m: (m.day or "", m.at or "", m.id), default=None)),
+        now=ProjectNow(threads=_threads(bank, root, events),
+                       next=next((m for m in milestones if m.slug == next_slug), None),
+                       last=max(done, key=lambda h: (h.day, h.id)) if done else
+                       max(moments, key=lambda m: (m.day or "", m.at or "", m.id), default=None)),
         pending=_pending(bank, tree), milestones=milestones, items=items, activity=activity,
         moment_days=moment_days, last_moment_day=moment_days[-1] if moment_days else None,
         median_gap_days=project_state.median_gap(moment_days),
-        cluster=_cluster(bank, tree, neighbours, commons), conversations=_conversations(bank, core),
+        cluster=_cluster(bank, tree, around, _commons(bank, around), pending_names),
+        conversations=_conversations(bank, core),
         partial=bank.partial)
 
 
@@ -932,8 +1130,18 @@ def now_next(memory_path: Path, project_id: str) -> tuple[dict | None, dict | No
 
 
 def _now_thread(bank: _Bank, tree: list[str]) -> dict | None:
-    """T5 (PJ-3): the event layer fills this — no happening exists before it."""
-    return None
+    """`_state.md` v3's `now` (§10.3, R-PJB18): the newest open `ongoing`
+    happening in the tree, its text clipped to 80 characters, and `verbatim`
+    only when those are the person's own Log words — a remote primer then shows
+    "a note of yours" without the `sources` scope (R-PJ23)."""
+    threads = _threads(bank, tree[0], _events(bank, tree, bank.owner()))
+    if not threads:
+        return None
+    t = threads[0]
+    row = {"claim": t.claim_id, "text": t.text[:80], "since": t.since}
+    if t.verbatim:
+        row["verbatim"] = True
+    return row
 
 
 def _payload_claim(payload: dict) -> Claim | None:
@@ -1011,7 +1219,12 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
                 continue
             seen.add(c.id)
             claims.append(c)
-        days = sorted({a.day for c in claims if (a := _anchor(bank, c)) is not None and a.day})
+        events = _events(bank, tree, owner)
+        # An event's day is when it happened (`valid_from`), not the day of the
+        # episode it cites — the detail's rule for `momentDays`, kept here so
+        # list and detail agree (R-PJB19). A milestone is a plan, not activity.
+        days = sorted({a.day for c in claims if not is_event(c) and (a := _anchor(bank, c)) is not None and a.day}
+                      | {d for c, _ in events if c.predicate == HAPPENED and (d := _day(c.valid_from))})
         milestones = _milestones(bank, tree)
         progress = project_state.progress([m.model_dump(by_alias=True) for m in milestones])
         shown = [m.model_copy(update={"chain": []}) for m in
@@ -1021,7 +1234,8 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
             id=root, name=bank.name(root), one_liner=_one_liner(bank, root), parent=parent, children=tree[1:],
             status=str(fm.get("status") or "active"), created=_day(fm.get("created")),
             planned=bool(milestones), last_moment_day=days[-1] if days else None,
-            median_gap_days=project_state.median_gap(days), open_threads=[], milestones=shown,
+            median_gap_days=project_state.median_gap(days),
+            open_threads=_threads(bank, root, events)[:THREADS_IN_ROW], milestones=shown,
             progress=ProjectProgress(**progress), activity=_activity(bank, claims),
             followups=sum(followups.get(t, 0) for t in tree)))
     rows.sort(key=lambda r: (r.last_moment_day is None, _neg(r.last_moment_day) if r.last_moment_day else "", r.id))

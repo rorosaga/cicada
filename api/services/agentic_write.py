@@ -390,10 +390,13 @@ def write_claim(
         # G141 §5.1: only progress.py writes an event — without its rules a
         # plain write would store a happening with no status and no
         # born-closed validity. Checked before any page is resolved or made.
+        # The reply names the tool that does write one (G141 PJ-3a), so an
+        # agent's next call is the right one. R12 holds: an MCP caller that
+        # holds `cicada_write_claim` holds `cicada_note_progress` (both `record`).
         return {"subject": subject_raw, "entity_id": None, "claim_id": None, "action": "error",
                 "observer": observer,
                 "error": f"'{sanitize_id(predicate_raw)}' is a happening or a milestone, not a plain fact; "
-                         "nothing was written"}
+                         "nothing was written — record it with cicada_note_progress"}
 
     try:
         memory_path = Path(memory_path)
