@@ -25,22 +25,6 @@ final class ConnectionCopyTests: XCTestCase {
         XCTAssertNil(c.powersLine)
     }
 
-    /// The tier picker is a cost-estimate control only, and only Claude Max
-    /// has tiers — a Claude Pro or an Ollama card must not show it.
-    func testTierPickerOnlyForClaudeMax() {
-        func make(_ id: String, _ plan: String?) -> ConnectionStatus {
-            ConnectionStatus(id: id, label: id, kind: "subscription", available: true,
-                             connected: true, plan: plan, planLabel: nil, tier: nil,
-                             account: nil, priceUsdMonth: nil, priceNote: nil,
-                             billing: "subscription", engineRole: nil, detail: nil,
-                             how: nil, powers: [], login: nil)
-        }
-        XCTAssertTrue(make("claude-plan", "max").showsTierPicker)
-        XCTAssertFalse(make("claude-plan", "pro").showsTierPicker)
-        XCTAssertFalse(make("chatgpt-plan", "pro").showsTierPicker)
-        XCTAssertFalse(make("ollama-local", nil).showsTierPicker)
-    }
-
     /// R-E26 / the 2026-09-03 ruling: Plans & keys names the plan, never its price.
     func testPlansAndKeysNeverShowsAPrice() {
         let max = ConnectionStatus(id: "claude-plan", label: "Claude plan", kind: "subscription",

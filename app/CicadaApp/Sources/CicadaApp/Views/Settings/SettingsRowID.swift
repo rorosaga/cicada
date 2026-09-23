@@ -14,6 +14,18 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let appearance = SettingsRowID("appearance")
     static let textSize = SettingsRowID("textSize")
     static let runSetup = SettingsRowID("runSetup")
+    // Sleep (Task 2)
+    static let sleepRuns = SettingsRowID("sleepRuns")
+    static let sleepTime = SettingsRowID("sleepTime")
+    static let sleepInterval = SettingsRowID("sleepInterval")
+    static let sleepEngine = SettingsRowID("sleepEngine")
+    // Engines (Task 2)
+    static let engineChoice = SettingsRowID("engineChoice")
+    static let engineModel = SettingsRowID("engineModel")
+    static let engineOverage = SettingsRowID("engineOverage")
+    static let enginePreview = SettingsRowID("enginePreview")
+    static let engineAsk = SettingsRowID("engineAsk")
+    static let engineAutoClaude = SettingsRowID("engineAutoClaude")
 
     /// Every section's header — what a section-level hit lands on (R-O14).
     static func page(_ section: SettingsSection) -> SettingsRowID { SettingsRowID("page:\(section.rawValue)") }

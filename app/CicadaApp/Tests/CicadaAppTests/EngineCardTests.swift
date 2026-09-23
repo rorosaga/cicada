@@ -3,7 +3,7 @@ import XCTest
 
 /// G122 — the Settings → Sleep engine-and-model picker. `OllamaGuideState`
 /// is a pure state machine over a `SleepEngineCandidate` (no network, no
-/// view), `EngineCard.previewLine` is a pure formatter over one
+/// view), `EngineChooser.previewLine` is a pure formatter over one
 /// `SleepEnginePreview` (ruling 4's two-line display), and
 /// `SleepEngineResponse` must decode a payload from before `candidates`/
 /// `preview` existed on the wire without crashing (decode tolerance).
@@ -45,13 +45,13 @@ final class EngineCardTests: XCTestCase {
     func testPreviewLineFormatting() {
         let manual = SleepEnginePreview(engine: "claude-cli", model: "sonnet", why: "user-triggered")
         XCTAssertEqual(
-            EngineCard.previewLine(manual, label: "Next cycle you start"),
+            EngineChooser.previewLine(manual, label: "Next cycle you start"),
             "Next cycle you start: \(Copy.engineLabel("claude-cli")) · sonnet"
         )
 
         let scheduled = SleepEnginePreview(engine: "litellm", model: "gpt-5.4-mini", why: "scheduled cycle")
         XCTAssertEqual(
-            EngineCard.previewLine(scheduled, label: "Nightly schedule"),
+            EngineChooser.previewLine(scheduled, label: "Nightly schedule"),
             "Nightly schedule: \(Copy.engineLabel("litellm")) · gpt-5.4-mini"
         )
     }
@@ -90,7 +90,7 @@ final class EngineCardTests: XCTestCase {
     func testTheCodexPreviewLineNamesTheChatGPTPlan() {
         let manual = SleepEnginePreview(engine: "codex-cli", model: "gpt-5.6-luna",
                                         why: "Sleep engine set to 'codex' in Settings")
-        XCTAssertEqual(EngineCard.previewLine(manual, label: "Next cycle you start"),
+        XCTAssertEqual(EngineChooser.previewLine(manual, label: "Next cycle you start"),
                        "Next cycle you start: Codex (your ChatGPT plan) · gpt-5.6-luna")
     }
 

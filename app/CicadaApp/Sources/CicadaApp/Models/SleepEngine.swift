@@ -29,7 +29,7 @@ struct SleepEnginePreview: Codable, Hashable {
 }
 
 /// Both previews, always both — ruling 4 (a scheduled cycle never spends
-/// plan quota) is made VISIBLE here rather than hidden: `EngineCard` renders
+/// plan quota) is made VISIBLE here rather than hidden: `EngineChooser` renders
 /// `manual` and `scheduled` side by side so a prefs-chosen "agent" that
 /// silently degrades on the nightly schedule is obvious, never a surprise.
 struct SleepEnginePreviews: Codable, Hashable {

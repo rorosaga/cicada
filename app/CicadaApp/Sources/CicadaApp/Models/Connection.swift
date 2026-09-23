@@ -102,12 +102,6 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
         powers.isEmpty ? nil : powers.joined(separator: " · ")
     }
 
-    /// The Max tier picker is a **cost-estimate** control, and only Claude
-    /// Max is tiered — showing it anywhere else implied it changed behaviour.
-    var showsTierPicker: Bool {
-        connected && isSubscription && id == "claude-plan" && plan == "max"
-    }
-
     /// Only a connected Claude plan can drive the Sleep engine — the `claude
     /// -p` rung does not exist for anything else.
     var showsSleepEngineToggle: Bool { id == "claude-plan" && connected }

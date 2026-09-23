@@ -82,6 +82,7 @@ struct SettingsScene: View {
         case .sleep: SettingsSleepView()
         case .integrations: IntegrationsView()
         case .agents: ConnectView()
+        case .engines: EnginesView()
         case .plansAndKeys: ConnectionsView()
         }
     }

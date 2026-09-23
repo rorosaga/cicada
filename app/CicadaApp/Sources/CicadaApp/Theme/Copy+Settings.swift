@@ -21,4 +21,27 @@ extension Copy {
     static let setup = "Setup"
     static let runSetupAgain = "Run setup again"
     static let runSetupDetail = "Walk through the first steps for this memory again."
+
+    // MARK: Engines (A3, R-O8)
+    static let engines = "Engines"
+    static let enginesSubtitle = "Which model does Cicada's thinking."
+    static let settingsEngines = "\(settings) → \(engines)"
+    static let enginesChooseGroup = "Engine"
+    static let autoGroup = "Auto"
+    /// Was "Use for Sleep" on the Claude plan card — same pref, same endpoint.
+    static let autoMayUseClaudePlan = "Auto may use my Claude plan"
+    static let askGroup = "Ask"
+    static let askTitle = "Ask"
+    static let askFollowsEngine = "Answers your questions with the same engine as a cycle you start."
+
+    // MARK: Sleep (R-O10)
+    static let runsGroup = "Runs"
+    static let runsTitle = "Runs"
+    static let runsAt = "At"
+    static let runsEvery = "Every"
+    static let sleepEngineGroup = "Engine"
+    static let sleepEngineRowTitle = "Engine"
+    static let whenYouStart = "When you start one"
+    static let onTheSchedule = "On the schedule"
+    static let changeInEngines = "Change in Engines"
 }
