@@ -808,13 +808,18 @@ def _last_heard(bank: _Bank, c: Claim) -> str:
     return max(days) if days else ""
 
 
-def _threads(bank: _Bank, root: str, events: list[tuple[Claim, str]]) -> list[OpenThread]:
-    """Open `ongoing` happenings, newest first — what "Now" and "Quiet" read."""
+def _threads(bank: _Bank, root: str, events: list[tuple[Claim, str]], *,
+             heard: bool = True) -> list[OpenThread]:
+    """Open `ongoing` happenings, newest first — what "Now" and "Quiet" read.
+    `heard=False` skips `_last_heard` (a scan of every session episode per
+    thread): `_state.md`'s `now` row reads only claim/text/since and is built
+    on every refresh, so it must not pay for the quiet clock (task-5 review r1)."""
     rows = [(c, page) for c, page in events
             if c.predicate == HAPPENED and c.status == "ongoing" and _open(c) and _day(c.valid_from)]
     rows.sort(key=lambda r: (_neg(_day(r[0].valid_from)), r[0].id))
     return [OpenThread(claim_id=c.id, text=c.text or "", since=_day(c.valid_from),
-                       last_heard=_last_heard(bank, c) or _day(c.valid_from), on=page if page != root else None,
+                       last_heard=(_last_heard(bank, c) if heard else "") or _day(c.valid_from),
+                       on=page if page != root else None,
                        verbatim=c.origin == "companion_app") for c, page in rows]
 
 
@@ -1043,13 +1048,18 @@ def _cluster(bank: _Bank, tree: list[str], neighbours: dict[str, dict], commons:
     for label in buckets:
         if label != "Sub-projects":
             buckets[label].sort(key=order)
-    for m in pending:       # after every linked member: a name is a hint, a page is a fact
-        buckets["Documents" if m.role_phrase == "document" else "People"].append(m)
+    # A name no page holds yet goes AFTER the cap (task-5 review r1): `more`
+    # counts linked pages only, so "+N more" never includes a name the reply
+    # already lists under "Not a page yet". A name is a hint, a page is a fact.
+    hints: dict[str, list[ClusterMember]] = {label: [] for label, _ in GROUPS}
+    for m in pending:
+        hints["Documents" if m.role_phrase == "document" else "People"].append(m)
     groups = []
     for label, _ in GROUPS:
         members = buckets[label]
-        if members:
-            groups.append(ClusterGroup(label=label, members=members[:GROUP_CAP], more=max(0, len(members) - GROUP_CAP)))
+        if members or hints[label]:
+            groups.append(ClusterGroup(label=label, members=members[:GROUP_CAP] + hints[label],
+                                       more=max(0, len(members) - GROUP_CAP)))
     return ProjectCluster(groups=groups, also_uses=sorted(also, key=order))
 
 
@@ -1134,7 +1144,7 @@ def _now_thread(bank: _Bank, tree: list[str]) -> dict | None:
     happening in the tree, its text clipped to 80 characters, and `verbatim`
     only when those are the person's own Log words — a remote primer then shows
     "a note of yours" without the `sources` scope (R-PJ23)."""
-    threads = _threads(bank, tree[0], _events(bank, tree, bank.owner()))
+    threads = _threads(bank, tree[0], _events(bank, tree, bank.owner()), heard=False)
     if not threads:
         return None
     t = threads[0]

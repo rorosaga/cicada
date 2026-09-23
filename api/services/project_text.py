@@ -145,21 +145,29 @@ def _asked(memory_path: Path) -> set[str]:
     return out
 
 
-def _thread_lines(timeline, state: dict, *, memory_path: Path, today: date) -> tuple[list[str], list[str]]:
+def _thread_lines(timeline, state: dict, *, memory_path: Path, today: date,
+                  raw: bool) -> tuple[list[str], list[str]]:
     """`(Now lines, Quiet lines)`: a thread still inside its quiet threshold is
     NOW; one past it (`followupEligible`, §6.2) is QUIET, with the day it was
-    last heard — the same split the app draws from the same function."""
+    last heard — the same split the app draws from the same function. A thread
+    in the person's own Log words (`verbatim`) is a quote like any other: without
+    `raw` it reads "a note of yours on <page>" (R-PJ23; task-5 review r1 found
+    these lines printing the words the Happened row already hid). The claim id
+    stays, so `settles` still works."""
     eligible = {t.get("claimId") for t in state.get("threads") or [] if t.get("followupEligible")}
     quiet_days = {t.get("claimId"): t.get("quietDays") for t in state.get("threads") or []}
     asked = _asked(memory_path) if eligible else set()
     now, quiet = [], []
     for t in timeline.now.threads:
+        text = t.text
+        if t.verbatim and not raw:
+            text = f"a note of yours on {_page_name(timeline, memory_path, t.on)}"
         if t.claim_id in eligible:
             tail = "; asked in Inbox" if t.claim_id in asked else ""
-            quiet.append(f"Quiet: {t.text} — quiet {quiet_days.get(t.claim_id)} days (last {t.last_heard}){tail} "
+            quiet.append(f"Quiet: {text} — quiet {quiet_days.get(t.claim_id)} days (last {t.last_heard}){tail} "
                          f"[{t.claim_id}]")
         else:
-            now.append(f"Now: {t.text} — since {rel(t.since, today)} "
+            now.append(f"Now: {text} — since {rel(t.since, today)} "
                        f"[on {_page_name(timeline, memory_path, t.on)}; {t.claim_id}]")
     return now, quiet
 
@@ -262,7 +270,7 @@ def render(timeline, state: dict, *, memory_path: Path, today: date, raw: bool, 
     if timeline.last_moment_day:
         head += f" · last activity {rel(timeline.last_moment_day, today)}"
     lines.append(head)
-    now_lines, quiet_lines = _thread_lines(timeline, state, memory_path=memory_path, today=today)
+    now_lines, quiet_lines = _thread_lines(timeline, state, memory_path=memory_path, today=today, raw=raw)
     lines += now_lines
     for line in (_next_line(timeline, state), _passed_line(timeline, state)):
         if line:

@@ -115,6 +115,30 @@ def test_milestones_advance_a_named_due_then_move_on_and_open_new_slots(bank, co
     assert "arm-demo-video" in missing
 
 
+def test_a_milestones_when_is_its_day_and_the_reply_says_so(bank, commits):
+    """Task-5 review r1: `when` on a milestone reached only `record_happening`,
+    so "done yesterday" was stored as today with no word in the reply."""
+    out = mcp_tools.note_progress(_ctx(bank), "rover-arm-project", "milestone", "Lab showcase", "done",
+                                  milestone="Lab showcase", when="yesterday")
+    assert "as milestone 'lab-showcase' — done, on 2026-09-22 from 'yesterday'" in out, out
+    [head] = [c for c in _claims(bank, "rover-arm-project")
+              if c.predicate == "milestone" and c.object == "lab-showcase"]
+    assert (head.valid_from, head.status, head.date_basis) == ("2026-09-22", "done", "stated")
+
+    new = mcp_tools.note_progress(_ctx(bank), "rover-arm-project", "milestone", "Arm demo video", "done",
+                                  when="2026-09-20")
+    assert "as milestone 'arm-demo-video' — done, on 2026-09-20 from '2026-09-20'" in new, new
+    video = next(c for c in _claims(bank, "rover-arm-project") if c.object == "arm-demo-video")
+    assert video.valid_from == "2026-09-20"
+
+    before = _page_bytes(bank)
+    for when in ("someday soon", "tomorrow"):
+        refused = mcp_tools.note_progress(_ctx(bank), "rover-arm-project", "milestone", "Poster", "done",
+                                          when=when)
+        assert refused.startswith(f"I can't read '{when}' as a day") and "\n" not in refused, refused
+    assert _page_bytes(bank) == before
+
+
 @pytest.mark.parametrize("call, expected", [
     (("pick-and-place-demo", "happened", SENTENCE, "planned"), "'planned' isn't a status for a happened"),
     (("pick-and-place-demo", "happened", SENTENCE, "done", {"when": "tomorrow"}), "can't be in the future"),

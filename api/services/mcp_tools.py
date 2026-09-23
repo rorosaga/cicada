@@ -1016,6 +1016,19 @@ def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, statu
     common = dict(observer="agent", origin=ctx.claim_origin or "mcp", authored_by=ctx.author,
                   session_id=ctx.session_id, evidence=evidence, today=today, tz_name=machine_tz)
     slug = None
+    on_day = None
+    if kind != HAPPENED and when is not None and str(when).strip():
+        # §5.2: `when` is the day a milestone's state changed ("done yesterday").
+        # Resolved exactly as `record_happening` resolves it — the cited turn,
+        # then the episode, then now (R-PJ6) — so it is never silently dropped
+        # into today (task-5 review r1). Unreadable → one line, nothing written.
+        tz = progress._zone(machine_tz)
+        anchor = progress._anchor(memory_path, progress._spans(memory_path, evidence, None), now, tz)
+        on_day, basis = when_mod.resolve(str(when), anchor, direction=when_mod.PAST)
+        if on_day is None or basis != "stated":
+            return (f"I can't read '{when}' as a day within the last year — pass a date like 2026-09-22 "
+                    "or 'yesterday'. Nothing was recorded.")
+    dated = dict(on=on_day, date_basis="stated") if on_day else {}
     if kind == HAPPENED:
         result = progress.record_happening(memory_path, subject=subject, text=summary, status=status,
                                            participants=participants, when=when, settles=settles, now=now,
@@ -1025,13 +1038,13 @@ def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, statu
         row = _match_milestone(rows, milestone or summary)
         if row is not None:
             result = progress.advance(memory_path, subject=row.on or stem, slug=row.slug, status=status,
-                                      target=target, **common)
+                                      target=target, **dated, **common)
         elif milestone:
             listed = ", ".join(f"{m.name} ({m.slug})" for m in rows) or "none"
             return f"No milestone '{milestone}' on {name} — open milestones: {listed}. Nothing was recorded."
         else:
             result = progress.set_milestone(memory_path, subject=stem, name=summary, target=target, status=status,
-                                            **common)
+                                            **dated, **common)
         slug = result.get("slug")
     action = result.get("action")
     if action in ("error", "not_found") or not result.get("claim_id"):
@@ -1075,8 +1088,9 @@ def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, statu
         if action == "rejected":
             lead = "NOT recorded — a later state of this milestone already stands"
         tgt = result.get("target")
-        reply = f"{lead}: filed on {where} as milestone '{slug}' — {status}" + (f", target {tgt}" if tgt else "") \
-            + f" (claim `{cid}`)"
+        reply = f"{lead}: filed on {where} as milestone '{slug}' — {status}" \
+            + (f", on {on_day.isoformat()} from '{when}'" if on_day else "") \
+            + (f", target {tgt}" if tgt else "") + f" (claim `{cid}`)"
     settled = result.get("settled")
     if settled == "closed":
         reply += f"; closed the thread `{settles}`"

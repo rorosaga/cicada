@@ -5,9 +5,10 @@ from datetime import UTC, datetime
 
 import pytest
 
-from _demo_scenario import T, d, demo
+from _demo_scenario import T, d, day_one, demo
 from api.remote import catalog
-from api.services import handshake, markdown_parser, mcp_tools, project_state, project_timeline, state_dictionary
+from api.services import (handshake, markdown_parser, mcp_tools, progress, project_state, project_timeline,
+                          state_dictionary)
 
 ONGOING = "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo"
 CAMERA = "Bob started calibrating the gripper camera"
@@ -98,3 +99,70 @@ def test_the_project_reply_prints_now_quiet_and_the_closing_clause(bank, clock):
                                  "(settles=<claim id> to finish a thread above).")
     remote = mcp_tools.project(_ctx(bank, remote_scopes={"search", "read"}), "rover-arm-project")
     assert "cicada_note_progress" not in remote and f"Now: {ONGOING}" in remote
+
+
+def test_a_remote_caller_without_sources_never_reads_the_persons_thread(tmp_path, clock):
+    """R-PJ23 (task-5 review r1): the person's own Log sentence is a quote on
+    the Now line as on the Happened row — a remote caller without `sources`
+    gets "a note of yours" and the claim id, never the words."""
+    bank = day_one(tmp_path, index=False)
+    secret = "Secret personal sentence here"
+    got = progress.record_happening(bank, subject="rover-arm-project", text=secret, status="ongoing",
+                                    observer="user", origin="companion_app", authored_by="user",
+                                    today=T, tz_name="UTC")
+    assert got["action"] == "written", got
+    remote = mcp_tools.project(_ctx(bank, remote_scopes={"search", "read"}), "rover-arm-project")
+    assert secret not in remote, remote
+    assert (f"Now: a note of yours on Rover Arm Project — since today (2026-09-23) "
+            f"[on Rover Arm Project; {got['claim_id']}]") in remote, remote
+    full = mcp_tools.project(_ctx(bank, remote_scopes={"search", "read", "sources"}), "rover-arm-project")
+    assert f"Now: {secret}" in full
+    assert f"Now: {secret}" in mcp_tools.project(_ctx(bank), "rover-arm-project")
+
+
+def test_names_without_a_page_sit_after_the_cap_and_never_count_as_more(monkeypatch):
+    """Task-5 review r1: a pending name counted toward `more`, so "+N more"
+    could include a name the reply also lists under "Not a page yet"."""
+    from collections import Counter
+
+    from api.models.schemas import ClusterMember
+    from api.services import project_text
+
+    class _Stub:
+        def type_of(self, eid):
+            return "person"
+
+        def name(self, eid):
+            return eid.title()
+
+    monkeypatch.setattr(project_timeline, "_member_fact", lambda bank, eid: "")
+    linked = {f"p{i:02d}": {"count": 1, "last": None, "phrases": Counter()}
+              for i in range(project_timeline.GROUP_CAP + 2)}
+    pending = [ClusterMember(name=f"Name {i}", role_phrase="with", count=1, pending=True) for i in range(3)]
+    cluster = project_timeline._cluster(_Stub(), ["root"], linked, set(), pending)
+    [people] = [g for g in cluster.groups if g.label == "People"]
+    assert people.more == 2
+    assert [m.name for m in people.members if m.pending] == ["Name 0", "Name 1", "Name 2"]
+    assert len([m for m in people.members if not m.pending]) == project_timeline.GROUP_CAP
+
+    class _Timeline:
+        pass
+
+    tl = _Timeline()
+    tl.cluster = cluster
+    line = project_text._around_line(tl)
+    assert "+2 more" in line and line.endswith("Not a page yet — Name 0, Name 1, Name 2"), line
+
+    only = project_timeline._cluster(_Stub(), ["root"], {}, set(), pending[:1])
+    assert [(g.label, g.more, [m.name for m in g.members]) for g in only.groups] == [("People", 0, ["Name 0"])]
+
+
+def test_the_state_cursor_never_runs_the_quiet_clock(bank, monkeypatch):
+    """Task-5 review r1: `now` reads claim/text/since only, and `_state.md` is
+    rebuilt on every refresh — `_last_heard`'s session scan is not its cost."""
+    def boom(*a, **kw):
+        raise AssertionError("_last_heard ran on the state path")
+
+    monkeypatch.setattr(project_timeline, "_last_heard", boom)
+    now, _ = project_timeline.now_next(bank, "rover-arm-project")
+    assert now["text"] == ONGOING and now["since"] == d(0)
