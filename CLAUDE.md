@@ -790,7 +790,7 @@ opens, and a bank switch closes it and empties the cache (episode ids repeat acr
 
 ## API Design
 
-27 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+31 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, and an OAuth adapter's
@@ -809,7 +809,10 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
 `.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
 (`graph.NODE_SHAPE`), bumped when a node gains a field a client must see or the body changes for
 the same files (F1's context filter and fence strip); an entity node's hash also folds its derived
-`contexts` and `summary`, so `GraphDiff` re-pushes a node whose derivation changed.
+`contexts` and `summary`, so `GraphDiff` re-pushes a node whose derivation changed. `/projects` and
+`/projects/{id}/timeline` (G141) ETag over `entities`+`episodes`+`inbox` with `extra` =
+`projects|<shape>|<machine zone>` — never today, never a viewer zone — and are **not** Store domains
+(no `VersionVector` mapping, fetched on demand like provenance).
 
 **Endpoint traps worth knowing before you touch them:**
 
@@ -834,6 +837,10 @@ the same files (F1's context filter and fence strip); an entity node's hash also
   call is still running (a process-local lock — two overlapping clicks would stage each other's
   half-written pages under their own trailers).
 - `GET /sync/version` is the cheap change-detector (<10 ms); `GET /sync/events` is the SSE stream.
+- `GET /projects[/{id}/timeline]` serve absolute days (`tzName` is the machine zone they are bucketed
+  in) and never a relative word; the client derives 'yesterday', 'overdue' and 'quiet' through
+  `project_state.timeline_state` (its Swift twin shares `api/tests/fixtures/timeline_state.json`). A
+  404 means no page or not a `project`.
 - `POST /intake/import` answers **202** with `{job}` when more than 10 episodes would be written; poll
   `GET /intake/jobs/{id}` (process-local — gone after a restart or an hour; the episodes are not). One
   stage runs at a time per process.

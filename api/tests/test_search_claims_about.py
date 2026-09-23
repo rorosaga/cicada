@@ -41,3 +41,15 @@ def test_both_answer_none_while_no_usable_index_exists(bank, monkeypatch):
 
 def test_no_usable_name_is_an_empty_list(bank):
     assert search_index.claims_about(bank, ["", "  "]) == []
+
+
+def test_pages_citing_many_agrees_with_one_at_a_time(bank, monkeypatch):
+    """R-PJB9's batch read: one reader for every moment's episode must answer
+    exactly what `pages_citing` answers per episode — an uncited one is []."""
+    eps = sorted(p.stem for p in (bank / "episodes").glob("*.md"))
+    many = search_index.pages_citing_many(bank, eps + ["ep_1999-01-01_001"])
+    assert {ep: many[ep] for ep in eps} == {ep: search_index.pages_citing(bank, ep) for ep in eps}
+    assert many["ep_1999-01-01_001"] == [] and any(many.values())
+    assert search_index.pages_citing_many(bank, []) == {}
+    monkeypatch.setattr(search_index, "ensure_fresh", lambda *a, **k: "building")
+    assert search_index.pages_citing_many(bank, eps) is None

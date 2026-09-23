@@ -18,7 +18,9 @@ moment of any episode they cite, so a day never says the same thing twice.
 """
 from __future__ import annotations
 
+import os
 import re
+import threading
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -57,6 +59,36 @@ _ISO_DAY = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _HISTORY_DATE = re.compile(r"^(\d{4}-\d{2}-\d{2})\s*[:—–-]?\s*")
 _NODE = ("", "node")
 
+# Parsed claims per entity page, across requests, keyed on the `bank_index`
+# stamp (mtime_ns, size) — the frontmatter cache's own rule, one level down.
+# R-PJB9's bench: the pure-Python YAML constructor was ~40% of a project read
+# even with the libyaml scanner. Stored as tuples and served as fresh lists;
+# nothing in this module mutates a Claim, so sharing them is safe. Bounded:
+# a bank switch or a mass rewrite simply refills it.
+_CLAIMS_CACHE: dict[str, tuple[int, int, tuple[Claim, ...]]] = {}
+_CLAIMS_CACHE_MAX = 8192
+_CLAIMS_LOCK = threading.Lock()
+
+
+def _cached_claims(f: bank_index.IndexedFile, body: Callable[[], str]) -> list[Claim]:
+    key = str(f.path)
+    with _CLAIMS_LOCK:
+        hit = _CLAIMS_CACHE.get(key)
+    if hit is not None and hit[0] == f.mtime_ns and hit[1] == f.size:
+        return list(hit[2])
+    claims = parse_claims(body())
+    try:
+        st = os.stat(f.path)
+        unchanged = (st.st_mtime_ns, st.st_size) == (f.mtime_ns, f.size)
+    except OSError:
+        unchanged = False
+    if unchanged:                      # never file a parse under a stamp it does not match
+        with _CLAIMS_LOCK:
+            if len(_CLAIMS_CACHE) >= _CLAIMS_CACHE_MAX:
+                _CLAIMS_CACHE.clear()
+            _CLAIMS_CACHE[key] = (f.mtime_ns, f.size, tuple(claims))
+    return claims
+
 
 def _day(value) -> str | None:
     try:
@@ -85,6 +117,9 @@ class _Bank:
         self._texts: dict[str, str | None] = {}
         self._names: dict[str, str] | None = None
         self._sessions: dict[str, list[str]] | None = None
+        self._parents: tuple[dict[str, str], dict[str, list[str]]] | None = None
+        self._citing: dict[str, list[str]] = {}
+        self._ep_keys: dict[str, tuple] = {}
         self.scanned = 0
         self.partial = False
         self.transcript_exists = transcript_exists or session_stats.default_transcript_exists
@@ -113,7 +148,8 @@ class _Bank:
     def all_claims(self, eid: str) -> list[Claim]:
         """Every claim on the page, records included (successor lookups need them)."""
         if eid not in self._all:
-            self._all[eid] = parse_claims(self.body(eid)) if eid in self.entities else []
+            f = self.entities.get(eid)
+            self._all[eid] = _cached_claims(f, lambda: self.body(eid)) if f is not None else []
         return self._all[eid]
 
     def claims(self, eid: str) -> list[Claim]:
@@ -177,6 +213,17 @@ class _Bank:
                     self._sessions.setdefault(s, []).append(ep)
         return self._sessions.get(sid, [])
 
+    def ep_key(self, ep: str) -> tuple:
+        """`(sort key, instant)` of an episode's `timestamp`, once per request:
+        `_anchor` asks for the same episode for every claim citing it."""
+        hit = self._ep_keys.get(ep)
+        if hit is None:
+            from api.services import episode_ids
+
+            ts = (self.episodes[ep].frontmatter or {}).get("timestamp")
+            hit = self._ep_keys[ep] = (episode_ids.timestamp_sort_key(ts), when.parse_instant(ts))
+        return hit
+
     def charge(self) -> bool:
         self.scanned += 1
         if self.scanned > MAX_SCAN_PAGES:
@@ -220,9 +267,19 @@ class _Bank:
                 out[s] = found
         return out
 
+    def prefetch_citing(self, episodes: list[str]) -> None:
+        """One index read for every moment's episode instead of one reader per
+        episode (R-PJB9's bench: ~75 reader opens were a third of a build).
+        A miss leaves `co_cited` on its own per-episode path and fallback."""
+        found = search_index.pages_citing_many(self.path, [e for e in episodes if e not in self._citing])
+        if found is not None:
+            self._citing.update(found)
+
     def co_cited(self, episode: str) -> list[tuple[str, Claim]]:
         """Every claim with a SPAN into `episode` (R-PJB20)."""
-        pages = search_index.pages_citing(self.path, episode)
+        pages = self._citing.get(episode)
+        if pages is None:
+            pages = search_index.pages_citing(self.path, episode)
         if pages is None:
             from api.services import provenance
 
@@ -251,14 +308,12 @@ class _Anchor:
 def _anchor(bank: _Bank, claim: Claim) -> _Anchor | None:
     """§6.1: the earliest evidence episode, else `source_episodes[0]`, else
     `valid_from` alone. The turn's own time wins over the episode's (G118)."""
-    from api.services import episode_ids
-
     spans = [e for e in claim.evidence if e.is_span() and e.episode in bank.episodes]
     candidates = [e.episode for e in spans] or [ep for ep in claim.source_episodes if ep in bank.episodes]
     if not candidates:
         day = _day(claim.valid_from)
         return _Anchor(None, day, None, "day", None) if day else None
-    ep = min(candidates, key=lambda e: (episode_ids.timestamp_sort_key(bank.episodes[e].frontmatter.get("timestamp")), e))
+    ep = min(candidates, key=lambda e: (bank.ep_key(e)[0], e))
     span = next((e for e in spans if e.episode == ep), None)
     fm = bank.episodes[ep].frontmatter or {}
     instant, basis = None, "episode"
@@ -269,29 +324,39 @@ def _anchor(bank: _Bank, claim: Claim) -> _Anchor | None:
             instant = when.parse_instant((turn or {}).get("ts"))
             basis = "turn" if instant else "episode"
     if instant is None:
-        instant = when.parse_instant(fm.get("timestamp"))
+        instant = bank.ep_key(ep)[1]
     if instant is None:
         day = _day(claim.valid_from)
         return _Anchor(ep, day, None, "day", span) if day else None
     return _Anchor(ep, when.local_day(instant, bank.tz).isoformat(), when.utc_z(instant), basis, span)
 
 
+def _parents(bank: _Bank) -> tuple[dict[str, str], dict[str, list[str]]]:
+    """`(parent_of, children)` over every live project page, built once per
+    request: `list_projects` asks for every project's tree, and rebuilding
+    this per root made the list O(projects²) in page walks (R-PJB9's bench)."""
+    if bank._parents is None:
+        parent_of: dict[str, str] = {}
+        for stem in sorted(bank.entities):
+            if bank.type_of(stem) != "project" or not bank.live(stem):
+                continue
+            for c in bank.claims(stem):
+                if c.predicate == "part-of":
+                    p = bank.resolve(c.object)
+                    if p and p != stem and bank.type_of(p) == "project":
+                        parent_of[stem] = p
+                        break
+        children: dict[str, list[str]] = {}
+        for child, p in parent_of.items():
+            children.setdefault(p, []).append(child)
+        bank._parents = (parent_of, children)
+    return bank._parents
+
+
 def _tree(bank: _Bank, root: str) -> tuple[list[str], str | None]:
     """`(tree, parent of root)`. R-PJB4: `project` pages only; a `part-of` claim,
     current or closed, links a child to a parent; depth 2."""
-    parent_of: dict[str, str] = {}
-    for stem in sorted(bank.entities):
-        if bank.type_of(stem) != "project" or not bank.live(stem):
-            continue
-        for c in bank.claims(stem):
-            if c.predicate == "part-of":
-                p = bank.resolve(c.object)
-                if p and p != stem and bank.type_of(p) == "project":
-                    parent_of[stem] = p
-                    break
-    children: dict[str, list[str]] = {}
-    for child, p in parent_of.items():
-        children.setdefault(p, []).append(child)
+    parent_of, children = _parents(bank)
     out, frontier = [root], [root]
     for _ in range(TREE_DEPTH):
         frontier = [k for p in frontier for k in sorted(children.get(p, [])) if k not in out]
@@ -538,6 +603,7 @@ def _moments(bank: _Bank, root: str, tree: list[str], owner: str | None,
             continue
         groups.setdefault((a.episode or "", a.day), []).append((c, page, a))
     items: list[TimelineItem] = []
+    bank.prefetch_citing(sorted({ep for ep, _ in groups if ep}))
     for (ep, day), group in sorted(groups.items()):
         if ep:
             have = {c.id for c, _, _ in group}
@@ -886,6 +952,21 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
     partial = payloads is None
     payloads = payloads or []
     followups = _followup_counts(bank)
+    # Each payload is converted and resolved ONCE and filed under the page its
+    # object names; a project then reads only its own tree's buckets, in the
+    # payloads' order. Scanning every payload per project was O(projects ×
+    # payloads) — ~600k conversions on R-PJB9's 2,500-page bench.
+    by_target: dict[str, list[int]] = {}
+    converted: list[tuple[str, Claim]] = []
+    for ref, payload in payloads:
+        c = _payload_claim(payload)
+        if c is None or not _open(c):
+            continue
+        target = bank.resolve(c.object)
+        if target is None:
+            continue
+        by_target.setdefault(target, []).append(len(converted))
+        converted.append((ref, c))
     rows: list[ProjectRow] = []
     for root in projects:
         tree, parent = _tree(bank, root)
@@ -901,11 +982,9 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
             if c.id not in seen and c.object_kind in _NODE and bank.resolve(c.object) in targets:
                 seen.add(c.id)
                 claims.append(c)
-        for ref, payload in payloads:
-            if ref in targets or ref == owner:
-                continue
-            c = _payload_claim(payload)
-            if c is None or c.id in seen or not _open(c) or bank.resolve(c.object) not in targets:
+        for i in sorted(i for t in tree for i in by_target.get(t, ())):
+            ref, c = converted[i]
+            if ref in targets or ref == owner or c.id in seen:
                 continue
             seen.add(c.id)
             claims.append(c)

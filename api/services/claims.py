@@ -44,6 +44,12 @@ CLAIMS_FENCE_LANG = "claims"
 # Matches a fenced ```claims ... ``` block (the language tag on the opening
 # fence, then everything up to the closing fence). DOTALL so the body spans
 # lines; non-greedy so we stop at the first closing fence.
+# The libyaml scanner, the `markdown_parser._SAFE_LOADER` precedent: same
+# SafeConstructor, same output as `safe_load`, only the scanner differs. G141
+# PJ-1's bench (R-PJB9) measured a 4-claim page at ~7 ms in pure Python, so a
+# project read that opens ~200 pages spent ~1.5 s in the scanner alone.
+_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 _CLAIMS_BLOCK_RE = re.compile(
     r"^```claims[ \t]*\r?\n(?P<payload>.*?)^```[ \t]*\r?$\r?\n?",
     re.DOTALL | re.MULTILINE,
@@ -298,7 +304,7 @@ def parse_claims(body: str, *, strict: bool = False) -> list[Claim]:
         return []
     payload = match.group("payload")
     try:
-        loaded = yaml.safe_load(payload)
+        loaded = yaml.load(payload, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
     except yaml.YAMLError as exc:
         if strict:
             raise MalformedClaimsBlockError(f"YAML error in ```claims block: {exc}") from exc

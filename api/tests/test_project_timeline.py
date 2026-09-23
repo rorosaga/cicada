@@ -203,3 +203,24 @@ def test_the_list_agrees_with_the_detail_on_the_demo(bank):
 def test_a_non_project_page_is_none(bank):
     assert project_timeline.build(bank, "lab-cluster-example", tz_name=TZ) is None
     assert project_timeline.build(bank, "nobody-here", tz_name=TZ) is None
+
+
+def test_the_claims_cache_follows_a_rewritten_page(tmp_path):
+    """R-PJB9: parsed claims are cached across requests on the `bank_index`
+    stamp, so a page rewritten between two reads must never serve its old
+    claims — the second read sees the new `part-of` and grows the tree."""
+    import os
+
+    memory = _bank(tmp_path, git=False)
+    _entity(memory, "rover-arm-project", type="project")
+    _with_claims(memory, "pick-and-place-demo", [], type="project")
+    bank_index.invalidate()
+    assert project_timeline.build(memory, "rover-arm-project", tz_name=TZ).project.children == []
+    page = memory / "entities" / "pick-and-place-demo.md"
+    _with_claims(memory, "pick-and-place-demo", [Claim(
+        id="clm_part", text="Pick And Place Demo is part of Rover Arm Project", subject="pick-and-place-demo",
+        predicate="part-of", object="rover-arm-project", valid_from=d(-3))], type="project")
+    t = page.stat().st_mtime + 10
+    os.utime(page, (t, t))
+    bank_index.invalidate()
+    assert project_timeline.build(memory, "rover-arm-project", tz_name=TZ).project.children == ["pick-and-place-demo"]

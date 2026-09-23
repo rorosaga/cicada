@@ -731,6 +731,31 @@ def pages_citing(memory_path: Path, episode_id: str) -> list[str] | None:
     return sorted({d.ref for d in docs.values()})
 
 
+def pages_citing_many(memory_path: Path, episode_ids: list[str]) -> dict[str, list[str]] | None:
+    """`pages_citing` for many episodes through ONE reader: `{episode: sorted
+    page ids}`, every asked episode present (an uncited one maps to `[]`).
+    A project read asks for every moment's episode at once (R-PJB9's bench).
+    `None` when no usable index answers."""
+    if not episode_ids:
+        return {}
+    if ensure_fresh(memory_path) not in ("ready", "stale"):
+        return None
+    out: dict[str, set[str]] = {ep: set() for ep in episode_ids}
+    try:
+        with Reader(memory_path) as reader:
+            for i in range(0, len(episode_ids), 500):        # SQLite's bound-parameter ceiling
+                chunk = episode_ids[i:i + 500]
+                marks = ",".join("?" * len(chunk))
+                rows = reader.conn.execute(
+                    f"SELECT DISTINCT x.episode, d.ref FROM claim_evidence x "
+                    f"JOIN docs d ON d.id = (x.row >> {ROW_BITS}) WHERE x.episode IN ({marks})", chunk)
+                for ep, ref in rows:
+                    out.setdefault(str(ep), set()).add(str(ref))
+    except sqlite3.Error:
+        return None
+    return {ep: sorted(refs) for ep, refs in out.items()}
+
+
 # --- reading ------------------------------------------------------------------
 
 
