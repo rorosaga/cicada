@@ -28,6 +28,7 @@ from api.services import (
     media_ingestor,
     origin_stats,
     sync_state,
+    wispr_flow,
 )
 from api.services.connectors import ADAPTERS
 
@@ -332,4 +333,8 @@ def build_channels(
     for folder in folder_source.list_folders(memory_path):
         rows.append(_local_channel(folder_source.channel_id(folder["id"]),
                                    str(folder.get("label") or "Folder"), state, "note"))
+    # G134: shown once the person turned it on (or it has ever synced), so an
+    # unused note-taker is not a disconnected row on every install (R-LS25).
+    if wispr_flow.load_settings(memory_path)["enabled"] or state.get(wispr_flow.CHANNEL_ID):
+        rows.append(_local_channel(wispr_flow.CHANNEL_ID, "Wispr Flow", state, "capture"))
     return rows

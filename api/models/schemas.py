@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
@@ -1953,6 +1953,45 @@ class FolderSyncResponse(CamelModel):
 
 class FolderRemoveResponse(CamelModel):
     removed: bool
+
+
+class WisprFlowSettings(CamelModel):
+    """G134 — per bank. Dictation is opt-in (R-LS23); `owner_speaker_names` is the
+    only way a meeting speaker is ever the owner (R-LS22)."""
+
+    enabled: bool = False
+    include_dictation: bool = False
+    owner_speaker_names: list[str] = []
+
+
+class WisprMeetingIn(CamelModel):
+    row: dict[str, Any] = {}
+    utterances: list[dict[str, Any]] = []
+
+
+class WisprFlowPayload(CamelModel):
+    """The app's whitelisted projection (R-LS21). The backend re-reads only the
+    whitelisted keys from each dict, whatever else arrives."""
+
+    meetings: list[WisprMeetingIn] = []
+    notes: list[dict[str, Any]] = []
+    todos: list[dict[str, Any]] = []
+    history: Optional[list[dict[str, Any]]] = None
+    deleted_meeting_ids: list[str] = []
+    deleted_note_ids: list[str] = []
+
+
+class WisprFlowCaptureResponse(CamelModel):
+    meetings_seen: int = 0
+    notes_seen: int = 0
+    dictation_days: int = 0
+    dictation_refused: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    tombstoned: int = 0
+    todo_claims: int = 0
+    todos_skipped_no_owner: int = 0
 
 
 # --- Saved-content connectors (G71 §2) ---

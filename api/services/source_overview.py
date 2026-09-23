@@ -26,7 +26,8 @@ from pathlib import Path
 
 from api.services import bank_index, folder_source
 
-KIND_ORDER = ("harness", "browser", "social", "feed", "messaging", "import")
+# G134: meetings and dictation are their own section, VOICE & MEETINGS (R-LS25).
+KIND_ORDER = ("harness", "browser", "social", "feed", "messaging", "voice", "import")
 
 # R-A16: the Memory-sources sparkline's window. Bounded so the payload cannot
 # grow with the age of the bank, and keyed by ABSOLUTE dates so a 304'd
@@ -97,6 +98,7 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("rss", "RSS feeds", "feed", "rss", ("rss",), "rss"),
     SourceSpec("calendar", "Calendars", "feed", "calendar", ("calendar",), "calendar"),
     SourceSpec("telegram", "Telegram", "messaging", "telegram", ("telegram",), "telegram"),
+    SourceSpec("wispr-flow", "Wispr Flow", "voice", "wispr-flow", ("wispr-flow",), "wispr-flow"),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),
     SourceSpec("files", "Files & links", "import", "bookmark", ("saved-link",), "files"),
 )

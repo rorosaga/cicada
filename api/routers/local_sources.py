@@ -20,8 +20,11 @@ from api.models.schemas import (
     FolderSyncRequest,
     FolderSyncResponse,
     FolderUpdateRequest,
+    WisprFlowCaptureResponse,
+    WisprFlowPayload,
+    WisprFlowSettings,
 )
-from api.services import folder_source, local_refs, paper_metadata, papers, sync_state
+from api.services import folder_source, local_refs, paper_metadata, papers, sync_state, wispr_flow
 
 router = APIRouter()
 
@@ -151,3 +154,40 @@ async def sync_folder(
         # after the response, one run per process, skipped while Sleep runs.
         background.add_task(paper_metadata.resolve_in_background, memory_path)
     return FolderSyncResponse(**out)
+
+
+@router.get("/capture/local-source/wispr-flow/settings", response_model=WisprFlowSettings)
+async def get_wispr_settings(settings: Settings = Depends(get_settings)):
+    return WisprFlowSettings(**wispr_flow.load_settings(settings.memory_path))
+
+
+@router.put("/capture/local-source/wispr-flow/settings", response_model=WisprFlowSettings)
+async def put_wispr_settings(req: WisprFlowSettings, settings: Settings = Depends(get_settings)):
+    saved = wispr_flow.save_settings(settings.memory_path, enabled=req.enabled,
+                                     include_dictation=req.include_dictation,
+                                     owner_speaker_names=req.owner_speaker_names)
+    await folder_source.commit_paths_for(
+        settings.memory_path, [f"sources/{wispr_flow.SETTINGS_FILENAME}"],
+        subject="Wispr Flow settings", trigger="user/companion_app")
+    return WisprFlowSettings(**saved)
+
+
+@router.post("/capture/local-source/wispr-flow", response_model=WisprFlowCaptureResponse)
+async def capture_wispr_flow(req: WisprFlowPayload, settings: Settings = Depends(get_settings)):
+    """Stage what the app read from Wispr Flow (R-N1). 409 while the source is off
+    for this memory — the app only posts when it is on, so a 409 means the two
+    disagree, and staging would ignore the person's choice."""
+    memory_path = settings.memory_path
+    current = wispr_flow.load_settings(memory_path)
+    if not current["enabled"]:
+        raise HTTPException(409, "Wispr Flow is turned off for this memory — turn it on in Settings → Integrations.")
+    if len(req.meetings) > wispr_flow.MAX_MEETINGS or len(req.history or []) > wispr_flow.MAX_HISTORY:
+        raise HTTPException(413, "too many rows in one request — send them in smaller batches")
+    # `by_alias=False` is load-bearing: `CamelModel` sets `serialize_by_alias=True`, so a bare
+    # `model_dump()` returns `deletedMeetingIds`/`deletedNoteIds` and `ingest` (which reads the
+    # snake_case keys) would silently never tombstone anything. `test_the_routes` pins it.
+    report = await run_in_threadpool(wispr_flow.ingest, memory_path, req.model_dump(by_alias=False), current)
+    sync_state.record_sync(memory_path, wispr_flow.CHANNEL_ID, count=report.pop("live"))
+    await folder_source.commit_paths_for(memory_path, report.pop("paths"), subject="Wispr Flow sync",
+                                         trigger="wispr-flow/sync")
+    return WisprFlowCaptureResponse(**report)
