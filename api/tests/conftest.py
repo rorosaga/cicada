@@ -20,9 +20,18 @@ itself pass their own ``resolver=``, which always wins over this default.
 import os
 from pathlib import Path
 
+import json
+import sys
+
 import pytest
 
 from api.services import logo_service
+from api.services.connections import base as _conn_base
+
+#: Captured at import, before `_no_real_agent_spawn` replaces it per test —
+#: `fake_cli` restores it so a test can drive the genuine subprocess path
+#: against a binary that can never reach a vendor.
+_REAL_RUN_CLI_SYNC = _conn_base.run_cli_sync
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -130,6 +139,69 @@ def _no_real_agent_spawn(monkeypatch):
         )
 
     monkeypatch.setattr(base, "run_cli_sync", _boom)
+
+
+@pytest.fixture(autouse=True)
+def _no_plan_override_env(monkeypatch):
+    """R-E6: a developer's shell must not leak an ANTHROPIC_BASE_URL or a
+    CODEX_API_KEY into `how` sentences the suite pins verbatim."""
+    for key in (*_conn_base.CLAUDE_PLAN_OVERRIDE_ENV, *_conn_base.CODEX_PLAN_OVERRIDE_ENV,
+                "CODEX_HOME", "CLAUDE_CODE_RETRY_WATCHDOG"):
+        monkeypatch.delenv(key, raising=False)
+
+
+_FAKE_CLI = r'''#!@PYTHON@
+"""A stand-in vendor CLI for hermetic tests: it records what it was given
+and prints a recorded stream. It can never reach a vendor."""
+import json, os, sys, time
+watch = json.loads(os.environ.get("CICADA_FAKE_WATCH") or "[]")
+record = {"argv": sys.argv[1:], "env": {k: os.environ.get(k) for k in watch},
+          "stdin": sys.stdin.read()}
+with open(os.environ["CICADA_FAKE_SEEN"], "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(record) + "\n")
+with open(os.environ["CICADA_FAKE_STDOUT"], encoding="utf-8") as fh:
+    sys.stdout.write(fh.read())
+sys.stdout.flush()
+time.sleep(float(os.environ.get("CICADA_FAKE_SLEEP") or 0))
+sys.exit(int(os.environ.get("CICADA_FAKE_RC") or 0))
+'''
+
+
+@pytest.fixture
+def fake_cli(tmp_path, monkeypatch):
+    """Install a fake `claude`/`codex` behind `resolve_binary`'s
+    `CICADA_<NAME>_CLI` override and restore the REAL `run_cli_sync`, so the
+    genuine argv/env/stdin path runs. Returns
+    `install(name, stdout, *, rc=0, sleep=0.0, watch=()) -> read_seen`, where
+    `read_seen()` is every invocation's `{argv, env (watched names), stdin}`.
+    The `CICADA_FAKE_*` variables pass the scrub by design (not in any list)."""
+    monkeypatch.setattr(_conn_base, "run_cli_sync", _REAL_RUN_CLI_SYNC)
+    bindir = tmp_path / "fakebin"
+    bindir.mkdir(exist_ok=True)
+
+    def install(name, stdout, *, rc=0, sleep=0.0, watch=()):
+        script = bindir / name
+        script.write_text(_FAKE_CLI.replace("@PYTHON@", sys.executable), encoding="utf-8")
+        script.chmod(0o755)
+        out = tmp_path / f"{name}.stdout"
+        out.write_text(stdout, encoding="utf-8")
+        seen = tmp_path / f"{name}.seen.jsonl"
+        monkeypatch.setenv(f"CICADA_{name.upper()}_CLI", str(script))
+        monkeypatch.setenv("CICADA_FAKE_STDOUT", str(out))
+        monkeypatch.setenv("CICADA_FAKE_SEEN", str(seen))
+        monkeypatch.setenv("CICADA_FAKE_RC", str(rc))
+        monkeypatch.setenv("CICADA_FAKE_SLEEP", str(sleep))
+        monkeypatch.setenv("CICADA_FAKE_WATCH", json.dumps(list(watch)))
+
+        def read_seen():
+            if not seen.exists():
+                return []
+            return [json.loads(line) for line in seen.read_text(encoding="utf-8").splitlines()
+                    if line.strip()]
+
+        return read_seen
+
+    return install
 
 
 @pytest.fixture(autouse=True)

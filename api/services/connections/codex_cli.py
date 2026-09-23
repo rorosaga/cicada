@@ -2,18 +2,19 @@
 
 Login state comes from ``codex login status`` (exit 0 = logged in). The plan
 and email are decoded **display-only** from the ``id_token`` JWT in
-``$CODEX_HOME/auth.json`` (payload base64 only, no signature check, no token
-ever leaves this process or is written anywhere). Login uses
+``auth.json`` in Cicada's own Codex home (``$CICADA_HOME/codex``, R-E7 —
+never the person's ~/.codex; payload base64 only, no signature check, no
+token ever leaves this process or is written anywhere). Login uses
 ``codex login --device-auth`` which prints a one-time code + URL — the app
 shows them; a watcher task flips the session to ``done`` when the process
-exits 0. Logout is ``codex logout``.
+exits 0. Logout is ``codex logout``. Every ``codex`` child runs in that home
+(``base.scrubbed_env`` sets ``CODEX_HOME``).
 """
 from __future__ import annotations
 
 import asyncio
 import base64
 import json
-import os
 import re
 import shutil
 import uuid
@@ -25,7 +26,9 @@ from loguru import logger
 
 from api.models.schemas import ConnectionKind, ConnectionStatus, LoginHint, LoginSession
 from api.services import pricing
-from api.services.connections.base import Runner, run_cli, scrubbed_env, resolve_binary
+from api.services.connections.base import (
+    Runner, codex_home, override_note, resolve_binary, run_cli, scrubbed_env,
+)
 
 _AUTH_CLAIM = "https://api.openai.com/auth"
 _URL_RE = re.compile(r"https?://\S+")
@@ -42,7 +45,9 @@ RAW_OUTPUT_CAP = 4096
 
 
 def codex_home_dir() -> Path:
-    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser()
+    """Cicada's own Codex home — ``base.codex_home()`` (R-E7). The inherited
+    ``CODEX_HOME`` (the person's own ~/.codex) is never read here any more."""
+    return codex_home()
 
 
 def decode_jwt_claims(token: str) -> dict:
@@ -89,9 +94,14 @@ class CodexPlanAdapter:
 
     @staticmethod
     async def _default_spawn(argv: list[str]):
+        # R-E28: resolved like every other spawn (a launchd PATH may not
+        # carry the install dir), and in Cicada's own Codex home.
+        binary = resolve_binary(argv[0])
+        if binary is None:
+            raise FileNotFoundError(argv[0])
         return await asyncio.create_subprocess_exec(
-            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-            stdin=asyncio.subprocess.DEVNULL, env=scrubbed_env(),
+            binary, *argv[1:], stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            stdin=asyncio.subprocess.DEVNULL, env=scrubbed_env(argv[0]),
         )
 
     def available(self) -> bool:
@@ -120,14 +130,17 @@ class CodexPlanAdapter:
             usd, note = None, "plan not detected — run the CLI once to refresh"
         else:
             usd, note = pricing.price_for(self.id, plan, self._tier)
+        how = (
+            "Signed in to Codex CLI on this Mac. Cicada runs through "
+            "`codex exec` on your ChatGPT plan."
+        )
+        # `override`, never `note`: `note` above is the price note (R-E6).
+        override = override_note("codex")
         return self._base(
             available=True, connected=True, plan=plan, engine_role="subscription-cli",
             plan_label=pricing.plan_label(self.id, plan, self._tier),
             account=email, price_usd_month=usd, price_note=note,
-            how=(
-                "Signed in to Codex CLI on this Mac. Cicada runs through "
-                "`codex exec` on your ChatGPT plan."
-            ),
+            how=f"{how} {override}" if override else how,
         )
 
     async def begin_login(self) -> LoginSession:

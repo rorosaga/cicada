@@ -617,4 +617,11 @@ def probe(*, runner: Runner | None = None, binary: str = "claude", timeout: floa
             "to switch it to your Claude subscription."
         )
     email = info.get("email")
-    return True, f"Claude Code signed in as {email}." if email else "Claude Code signed in on this Mac."
+    sentence = f"Claude Code signed in as {email}." if email else "Claude Code signed in on this Mac."
+    # R-E6: `auth status` cannot see an env override (it still says
+    # `claude.ai`), so the pre-flight names any that is set — and that Cicada
+    # strips it for its own calls.
+    from api.services.connections.base import override_note
+
+    override = override_note("claude")
+    return True, f"{sentence} {override}" if override else sentence
