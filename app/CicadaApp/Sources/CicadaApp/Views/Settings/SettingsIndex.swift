@@ -1,0 +1,186 @@
+// SwiftUI, not just Foundation: `attributedTitle` sets SwiftUI's `Font`
+// attribute on an `AttributedString`, which needs SwiftUI's attribute scope.
+import SwiftUI
+
+/// Everything Settings search can find (G139, design §2.4). Static entries are
+/// every row on every page, in page order (ties break by this order); page
+/// entries make each section a hit (R-O14); dynamic entries are built from
+/// the snapshots the Settings window already holds — never a fetch of its own,
+/// and never an account, a token or a command (only names and ids).
+struct SettingsEntry: Identifiable, Hashable {
+    let id: SettingsRowID
+    let section: SettingsSection
+    let title: String
+    let keywords: [String]
+    let detail: String?
+    /// Where landing scrolls and washes — the row itself unless the row lives
+    /// in a view that carries no anchors (From anywhere, R-O12).
+    let anchor: SettingsRowID
+    let fields: [QuickMatch.Field]
+
+    init(_ id: SettingsRowID, _ section: SettingsSection, _ title: String,
+         keywords: [String] = [], detail: String? = nil, anchor: SettingsRowID? = nil) {
+        self.id = id
+        self.section = section
+        self.title = title
+        self.keywords = keywords
+        self.detail = detail
+        self.anchor = anchor ?? id
+        var fields = [QuickMatch.Field(title, weight: QuickMatch.titleWeight)]
+        fields += keywords.map { QuickMatch.Field($0, weight: QuickMatch.keywordWeight) }
+        if let detail { fields.append(QuickMatch.Field(detail, weight: QuickMatch.detailWeight)) }
+        // R-O14 — rows also match their section's title, at low weight, so
+        // "sleep" finds Sleep's rows beneath the section itself.
+        fields.append(QuickMatch.Field(section.title, weight: QuickMatch.detailWeight))
+        self.fields = fields
+    }
+}
+
+struct SettingsHit: Identifiable, Hashable {
+    let entry: SettingsEntry
+    let score: Double
+    let titleRanges: [Range<Int>]
+    let order: Int
+    var id: SettingsRowID { entry.id }
+}
+
+enum SettingsIndex {
+    /// Every static row id a page renders. `SettingsIndexTests` holds this
+    /// list and `staticEntries` to one another, and `SettingsRowLintTests`
+    /// holds the entries to the pages — a task that adds a row adds it here
+    /// in the same commit (R-O1).
+    static let staticIDs: [SettingsRowID] = [
+        .appearance, .textSize, .runSetup,
+        .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
+        .agentsInstall, .agentsCloud,
+        .remoteSwitch, .remoteReach, .remoteNew,
+        .engineChoice, .engineModel, .engineOverage, .enginePreview, .engineAsk, .engineAutoClaude,
+    ]
+
+    static let staticEntries: [SettingsEntry] = [
+        // General
+        SettingsEntry(.appearance, .general, Copy.appearance, keywords: ["dark", "light", "theme", "mode", "system", "night"]),
+        SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"], detail: Copy.textSizeDetail),
+        SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over"], detail: Copy.runSetupDetail),
+        // Sleep
+        SettingsEntry(.sleepRuns, .sleep, Copy.runsTitle, keywords: ["schedule", "nightly", "daily", "interval", "automatic", "consolidate", "when"]),
+        SettingsEntry(.sleepTime, .sleep, Copy.runsAt, keywords: ["time", "hour", "clock"]),
+        SettingsEntry(.sleepInterval, .sleep, Copy.runsEvery, keywords: ["hours", "how often", "interval"]),
+        SettingsEntry(.sleepEngine, .sleep, Copy.sleepEngineRowTitle, keywords: ["model", "who runs"]),
+        // Agents
+        SettingsEntry(.agentsInstall, .agents, Copy.agentsInstallTitle, keywords: ["make install", "setup", "python", "service"]),
+        SettingsEntry(.agentsCloud, .agents, Copy.agentsCloudTitle, keywords: ["web", "cloud", "mobile", "claude.ai", "chatgpt"]),
+        // From anywhere — landing on its header (R-O12)
+        SettingsEntry(.remoteSwitch, .remote, Copy.remoteSwitchTitle,
+                      keywords: ["phone", "claude.ai", "chatgpt", "perplexity", "connector", "remote", "mobile"], anchor: .page(.remote)),
+        SettingsEntry(.remoteReach, .remote, Copy.remoteReachTitle,
+                      keywords: ["tailscale", "funnel", "ngrok", "tunnel", "public address", "https"], anchor: .page(.remote)),
+        SettingsEntry(.remoteNew, .remote, Copy.remoteNewConnectorTitle,
+                      keywords: ["token", "link", "connect an app", "revoke"], anchor: .page(.remote)),
+        // Engines
+        SettingsEntry(.engineChoice, .engines, Copy.enginesChooseGroup,
+                      keywords: ["model", "llm", "claude", "chatgpt", "codex", "ollama", "api key", "plan", "auto"]),
+        SettingsEntry(.engineModel, .engines, Copy.engineModelTitle, keywords: ["sonnet", "haiku", "opus", "gpt", "llama", "model id"]),
+        SettingsEntry(.engineOverage, .engines, Copy.keepGoingOnExtraUsage, keywords: ["extra usage", "overage", "limit"]),
+        SettingsEntry(.enginePreview, .engines, Copy.enginePreviewTitle, keywords: ["schedule", "nightly", "which engine"]),
+        SettingsEntry(.engineAsk, .engines, Copy.askTitle, keywords: ["questions", "answers"], detail: Copy.askFollowsEngine),
+        // The switch was A3's "Auto may use my Claude plan"; the final review
+        // renamed it to what it does (shown only under the API key card).
+        SettingsEntry(.engineAutoClaude, .engines, Copy.useClaudePlanWhenIStart,
+                      keywords: ["claude plan", "subscription", "use for sleep", "api key"]),
+    ]
+
+    static let pageEntries: [SettingsEntry] = SettingsSection.allCases.map {
+        SettingsEntry(.page($0), $0, $0.title, detail: $0.subtitle)
+    }
+
+    /// Names and ids only: a connection's account line, an agent's install
+    /// command (which carries this machine's paths) and any token stay out,
+    /// so typing in Settings never matches — or displays — a secret.
+    static func dynamicEntries(channels: [SourceChannel], harnessRows: [SourceOverview],
+                               exportOnly: [AddSourceTile], connections: [ConnectionStatus],
+                               agents: [AgentSetup]) -> [SettingsEntry] {
+        var out: [SettingsEntry] = []
+        out += channels.map { SettingsEntry(.channel($0.id), .integrations, $0.label,
+                                            keywords: [$0.id, IntegrationCategory.of(channelId: $0.id).title]) }
+        out += harnessRows.map { SettingsEntry(.harness($0.harness ?? $0.id), .integrations, $0.label,
+                                               keywords: ["agent", "conversations"]) }
+        out += exportOnly.map { SettingsEntry(.exportOnly($0.id), .integrations, $0.title, keywords: ["import", "export"]) }
+        out += connections.map { SettingsEntry(.connection($0.id), .plansAndKeys, $0.label,
+                                               keywords: [$0.planLabel ?? "", "sign in", "key", "plan"].filter { !$0.isEmpty }) }
+        out += agents.map { SettingsEntry(.agent($0.id), .agents, $0.name, keywords: ["mcp", "connect", "register"]) }
+        return out
+    }
+
+    /// Best score first; a tie keeps index order (pages, then rows in page
+    /// order), so equal matches read the way the pages do.
+    static func search(_ query: String, in entries: [SettingsEntry]) -> [SettingsHit] {
+        let tokens = QuickMatch.tokens(query)
+        guard !tokens.isEmpty else { return [] }
+        return entries.enumerated()
+            .compactMap { index, entry in
+                QuickMatch.match(tokens, fields: entry.fields).map {
+                    SettingsHit(entry: entry, score: $0.score, titleRanges: $0.titleRanges, order: index)
+                }
+            }
+            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.order < $1.order }
+    }
+
+    /// The sidebar's per-section badges.
+    static func counts(_ hits: [SettingsHit]) -> [SettingsSection: Int] {
+        hits.reduce(into: [:]) { $0[$1.entry.section, default: 0] += 1 }
+    }
+
+    /// Results read in sidebar order; within a section, best first.
+    static func grouped(_ hits: [SettingsHit]) -> [(section: SettingsSection, hits: [SettingsHit])] {
+        SettingsSection.allCases.compactMap { section in
+            let inSection = hits.filter { $0.entry.section == section }
+            return inSection.isEmpty ? nil : (section, inSection)
+        }
+    }
+
+    static func entry(for id: SettingsRowID, in entries: [SettingsEntry]) -> SettingsEntry? {
+        entries.first { $0.id == id || $0.anchor == id }
+    }
+
+    /// The result's title with the matched letters in semibold (design §2.4).
+    /// A range past the end is skipped rather than trusted.
+    static func attributedTitle(_ title: String, ranges: [Range<Int>]) -> AttributedString {
+        var out = AttributedString(title)
+        let chars = Array(title)
+        for range in ranges where range.upperBound <= chars.count {
+            let lower = out.index(out.startIndex, offsetByCharacters: range.lowerBound)
+            let upper = out.index(out.startIndex, offsetByCharacters: range.upperBound)
+            out[lower..<upper].font = CicadaTheme.font(size: 13, weight: .semibold)
+        }
+        return out
+    }
+}
+
+/// A cheap, already-known value beside a result (design §2.4) — read from what
+/// the window holds, never fetched.
+enum SettingsLiveValue {
+    struct Inputs {
+        var scheduleMode: String?
+        var appearance: AppearancePreference = .dark
+        var uiScale: Double = 1.0
+        var connections: [ConnectionStatus] = []
+    }
+
+    static func text(for id: SettingsRowID, _ inputs: Inputs) -> String? {
+        if let connection = id.item(of: "connection") {
+            guard let c = inputs.connections.first(where: { $0.id == connection }) else { return nil }
+            return !c.available ? Copy.settingsNotInstalled : c.connected ? Copy.settingsConnected : Copy.settingsNotConnected
+        }
+        switch id {
+        case .sleepRuns:
+            return SleepScheduleText.modes.first { $0.value == inputs.scheduleMode }?.label
+        case .appearance:
+            return inputs.appearance.label
+        case .textSize:
+            return "\(Int((inputs.uiScale * 100).rounded()))%"
+        default:
+            return nil
+        }
+    }
+}

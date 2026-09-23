@@ -25,7 +25,7 @@ struct IntegrationsView: View {
     /// four — the walkthrough sheet is the only way in today), so they can
     /// only ever appear here as a pointer into the Feed's `+` sheet, never
     /// as a connected/disconnected row like the thirteen real channels.
-    private static let exportOnlyTiles: [AddSourceTile] = [.instagram, .youtube, .linkedin, .tiktok]
+    static let exportOnlyTiles: [AddSourceTile] = [.instagram, .youtube, .linkedin, .tiktok]
 
     private var channels: [SourceChannel] { store.channels.value ?? [] }
     private var harnessRows: [SourceOverview] {
@@ -73,9 +73,9 @@ struct IntegrationsView: View {
     private var loadError: String? { store.domainErrors[.channels] ?? store.domainErrors[.sourcesOverview] }
 
     var body: some View {
-        ScrollView {
+        SettingsScroll {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
-                PageHeader(title: Copy.integrations, subtitle: Copy.integrationsSubtitle) {}
+                SettingsDetailHeader(section: .integrations)
 
                 switch Self.loadState(channels: store.channels.value, overview: store.sourcesOverview.value,
                                       isLoading: isLoading, error: loadError) {
@@ -219,6 +219,7 @@ private struct IntegrationChannelRow: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
+        .settingsRow(.channel(channel.id))
     }
 
     @ViewBuilder
@@ -335,6 +336,7 @@ private struct IntegrationHarnessRow: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
+        .settingsRow(.harness(source.harness ?? source.id))
     }
 }
 
@@ -375,5 +377,6 @@ private struct IntegrationExportOnlyRow: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
+        .settingsRow(.exportOnly(tile.id))
     }
 }

@@ -24,8 +24,16 @@ import SwiftUI
 ///    — the reader in `SettingsScene.swift` stays where it is; what must never
 ///    fork is the write, because a second copy-pasted writer with a typo'd key
 ///    fails silently by opening Settings on the wrong section.
+///    The row seed (`cicada.settingsRowFocus`, G139) is written here too, in
+///    the same gesture, as `<row>@<unix ms>` — the nonce lets `SettingsScene`
+///    tell a new deep link from one it already consumed without ever clearing
+///    the key (clearing would be a second writer).
 struct SettingsSectionLink: View {
     let section: SettingsSection
+    /// G139 (R-O15) — land on (scroll to and briefly wash) this row once
+    /// Settings opens. Written in the SAME gesture as the section seed, in this
+    /// file only, so the P5 one-writer rule covers both keys.
+    var row: SettingsRowID? = nil
     let label: String
     /// G137 R-M18: an empty state's one action is the page's one prominent
     /// action — same link, same seed write, drawn through
@@ -47,6 +55,9 @@ struct SettingsSectionLink: View {
         }
         .simultaneousGesture(TapGesture().onEnded {
             UserDefaults.standard.set(section.rawValue, forKey: "cicada.settingsSection")
+            if let row {
+                UserDefaults.standard.set(SettingsRowFocusSeed.encode(row, at: Date()), forKey: "cicada.settingsRowFocus")
+            }
         })
         .accessibilityLabel("\(label), opens \(Copy.settings) — \(section.title)")
     }

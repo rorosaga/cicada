@@ -485,11 +485,14 @@ no `$`/token columns, no cost-per-day chart. The `/consumption/*` endpoints and 
 unchanged for future use.
 
 **Navigation.** Six sidebar rows (⌘1–6): Graph, Clusters, Feed, Sleep, Inbox, Sources. Setup lives
-in a native `Settings{}` scene (⌘,), a `NavigationSplitView` over six sections in three groups
-(`SettingsGroup`, G139) — Cicada: General · Sleep; Customize: Integrations · Agents; Engines & keys:
-Engines · Plans & keys. `SettingsSection` raw values are the persisted selection and did not move
-when the groups arrived. General's appearance offers System, which follows the Mac's own light/dark
-through one app-scope observer (`ThemeStore.observeSystemAppearance`), not a per-window one.
+in a native `Settings{}` scene (⌘,): a `NavigationSplitView` whose sidebar starts with a search field
+and groups its rows as Cicada · Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General ·
+Sleep; Customize: Integrations · Agents · From anywhere; Engines & keys: Engines · Plans & keys.
+Search is `SettingsIndex` over `QuickMatch`, and landing (search, `SettingsSectionLink(section:row:)`,
+an in-window pointer) always selects, scrolls, washes and announces the row (G139).
+`SettingsSection` raw values are the persisted selection and did not move when the groups arrived.
+General's appearance offers System, which follows the Mac's own light/dark through one app-scope
+observer (`ThemeStore.observeSystemAppearance`), not a per-window one.
 ⌘K opens the Ask panel. `AppTab` raw values are the persisted identity of a tab, and
 `AppTab.restored(from:)` maps retired ones onto the pages that inherited them, so an older selection
 never traps. A page's top-right control is the `?` alone — Track P's audit removed the global Sleep

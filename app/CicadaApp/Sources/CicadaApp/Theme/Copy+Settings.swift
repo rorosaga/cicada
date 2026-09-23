@@ -61,4 +61,23 @@ extension Copy {
     static let agentsOnThisMacGroup = "Agents on this Mac"
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
     static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in from the Feed."
+
+    // MARK: Search (design §2.4)
+    static let searchSettings = "Search settings"
+    static func noSettingsMatch(_ query: String) -> String { "No settings match \u{201C}\(query)\u{201D}" }
+    static func resultsFor(_ query: String) -> String { "Results for \u{201C}\(query)\u{201D}" }
+    static func settingsCount(_ n: Int) -> String { n == 1 ? "1 setting" : "\(UsageFormat.count(n)) settings" }
+    static func matchingSettings(_ n: Int) -> String { n == 1 ? "1 matching setting" : "\(UsageFormat.count(n)) matching settings" }
+    /// Index titles for rows whose on-page words live inside another track's
+    /// view (Track R's From anywhere, Track E's chooser) — the same words the
+    /// page shows, so a result reads like the row it lands on.
+    static let remoteReachTitle = "How apps reach this Mac"
+    static let remoteNewConnectorTitle = "New connector"
+    static let engineModelTitle = "Model"
+    static let enginePreviewTitle = "What runs"
+    /// A result's live value for a Plans & keys row — the state, never the
+    /// account line (an email is not something to show beside a search hit).
+    static let settingsConnected = "Connected"
+    static let settingsNotConnected = "Not connected"
+    static let settingsNotInstalled = "Not installed"
 }

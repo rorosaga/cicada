@@ -119,3 +119,32 @@ struct SettingsScroll<Content: View>: View {
         }
     }
 }
+
+/// The row half of a deep link (R-O15): `"<row>@<unix ms>"`, written only by
+/// `SettingsSectionLink`, consumed by `SettingsScene` when it is new AND
+/// younger than `maxAge` — the key persists in UserDefaults, and a stale seed
+/// must never re-land on every launch. Split on the LAST `@`, so a row id
+/// that itself carries one (a catalog item's id) survives the round trip.
+enum SettingsRowFocusSeed {
+    static let maxAge: TimeInterval = 30
+
+    struct Seed: Equatable {
+        let row: SettingsRowID
+        let millis: Int64
+    }
+
+    static func encode(_ row: SettingsRowID, at date: Date) -> String {
+        "\(row.rawValue)@\(Int64(date.timeIntervalSince1970 * 1000))"
+    }
+
+    static func parse(_ raw: String) -> Seed? {
+        guard let at = raw.lastIndex(of: "@") else { return nil }
+        let row = String(raw[..<at])
+        guard !row.isEmpty, let millis = Int64(raw[raw.index(after: at)...]) else { return nil }
+        return Seed(row: SettingsRowID(row), millis: millis)
+    }
+
+    static func isFresh(_ seed: Seed, now: Date = Date()) -> Bool {
+        now.timeIntervalSince1970 * 1000 - Double(seed.millis) <= maxAge * 1000
+    }
+}

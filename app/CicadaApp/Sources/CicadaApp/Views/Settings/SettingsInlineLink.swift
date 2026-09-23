@@ -16,7 +16,7 @@ struct SettingsInlineLink: View {
                 .buttonStyle(.cicadaPlain)
                 .foregroundStyle(CicadaTheme.accent)
         } else {
-            SettingsSectionLink(section: section, label: label)
+            SettingsSectionLink(section: section, row: row, label: label)
         }
     }
 }
