@@ -283,27 +283,32 @@ struct SleepView: View {
         // detection — see `justFinishedAt`'s declaration for why it can't
         // reuse `SleepViewModel.onCycleCompleted` or `Store.onStatus`.
         // `justFinishedAt` is stamped on every running → idle edge as before:
-        // `deriveSleepPageMood` alone decides that a cancel never chews. A
-        // REAL completion additionally records the newest sleep commit it
-        // will be compared against, and the history observer below resolves
-        // the cheer and the link once the new commit arrives.
+        // `deriveSleepPageMood` alone decides that a cancel never chews.
+        // Task 8 review r1: the baseline a completion is compared against is
+        // taken at the START edge — the backend commits several seconds
+        // before it reports idle (the engine-independent tail runs in
+        // between), and a reconcile `load()` in that window already brings
+        // the new commit, so an idle-edge baseline would be the commit
+        // itself. The end edge then resolves against the history in hand,
+        // and the history observer below catches a commit that lands later.
         .onChange(of: sleepVM.status?.status) { oldValue, newValue in
             if oldValue == "running" && newValue == "idle" { justFinishedAt = Date() }
-            if newValue == "running" && oldValue != "running" { room.cycleStarted() }
-            if isRealCompletion(old: oldValue, new: newValue, cancelled: sleepVM.status?.cancelled == true,
-                                error: sleepVM.status?.error) {
-                room.recordCompletion(baseline: lastCycleEntry(sleepVM.history)?.commitHash, at: Date())
+            if newValue == "running" && oldValue != "running" {
+                room.cycleStarted(baseline: lastCycleEntry(sleepVM.history)?.commitHash,
+                                  historyLoaded: sleepVM.historyLoaded)
+            }
+            if oldValue == "running" && newValue != "running" {
+                let real = isRealCompletion(old: oldValue, new: newValue,
+                                            cancelled: sleepVM.status?.cancelled == true,
+                                            error: sleepVM.status?.error)
+                if room.cycleEnded(real: real, edgeBaseline: lastCycleEntry(sleepVM.history)?.commitHash,
+                                   history: sleepVM.history) != nil {
+                    celebrateCompletion()
+                }
             }
         }
         .onChange(of: sleepVM.history) { _, history in
-            guard room.resolveCompletion(history: history) != nil else { return }
-            // R-Z12 — one of the page's two beats not caused by input, and it
-            // has a fact behind it: the new commit. The §6.4 matrix decides
-            // whether the mood may cheer now (`.digesting` / `.happy`); a
-            // history that lands after the 6 s digest still sets the link,
-            // silently. The announcement is the cheer's text twin (§11).
-            room.play(.cheer, state: resolvePage().mood, reduceMotion: reduceMotion)
-            AccessibilityNotification.Announcement(Copy.sleepFinished).post()
+            if room.resolveCompletion(history: history) != nil { celebrateCompletion() }
         }
         // PR #19 review: the study list's header reads SSE-live `store.status`
         // while its rows stay pinned to whatever `sleepVM.load()` last
@@ -503,6 +508,18 @@ struct SleepView: View {
         if opening {
             Task { @MainActor in await sleepVM.loadDetail(commit) }
         }
+    }
+
+    /// R-Z12 — one of the page's two beats not caused by input, and it has a
+    /// fact behind it: the new commit. The one helper both completion
+    /// observers call (the end edge and a later history change, Task 8
+    /// review r1), so the cheer and its announcement can never diverge. The
+    /// §6.4 matrix decides whether the mood may cheer now (`.digesting` /
+    /// `.happy`); a history that lands after the 6 s digest still sets the
+    /// link, silently. The announcement is the cheer's text twin (§11).
+    private func celebrateCompletion() {
+        room.play(.cheer, state: resolvePage().mood, reduceMotion: reduceMotion)
+        AccessibilityNotification.Announcement(Copy.sleepFinished).post()
     }
 
     /// T7 / I17 — open Details, expand the cycle's history row (its detail

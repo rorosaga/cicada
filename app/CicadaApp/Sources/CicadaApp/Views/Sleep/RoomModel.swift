@@ -2,6 +2,30 @@ import CoreGraphics
 import Foundation
 import Observation
 
+/// A completion seen at the status edge, waiting for its commit (Z-P17):
+/// `SleepViewModel`'s poll flips `status` to idle before `load()` refetches
+/// history, so the edge and the commit it produced can arrive apart.
+/// `baseline` is the newest sleep commit the page knew BEFORE the cycle —
+/// taken at the start edge when it could be (Task 8 review r1, see
+/// `RunStart`). `at` bounds how long the edge may wait (`pendingLifetime`).
+struct PendingCompletion: Equatable {
+    let baseline: String?
+    let at: Date
+}
+
+/// The newest sleep commit the page knew when it saw a cycle START (Task 8
+/// review r1). The backend commits in `_finalize` and only flips `status` to
+/// idle after the engine-independent tail (state refresh, connector and feed
+/// polls, the link backfill), several seconds later. Inside that window the
+/// live unprocessed count moves, `SleepView`'s reconcile calls `load()`, and
+/// history already holds the new commit — so a baseline read at the idle edge
+/// IS the new commit and the completion never resolves. A cycle's commit
+/// cannot exist before the cycle starts, so the start edge is the one moment
+/// the baseline is certainly older than it.
+struct RunStart: Equatable {
+    let baseline: String?
+}
+
 /// The room's own interaction state (Track Z §6, §8).
 ///
 /// Observation scoping is the performance budget (§10): `gaze` and
@@ -13,15 +37,6 @@ import Observation
 /// Every decision is a static pure function (`nextAnswerIndex`,
 /// `shouldPerk`, `beatAllowed`) so `RoomModelTests` pins the rules without a
 /// view or a clock; the instance methods only sequence them.
-/// A completion seen at the status edge, waiting for its commit (Z-P17):
-/// `SleepViewModel`'s poll flips `status` to idle before `load()` refetches
-/// history, so the edge and the commit it produced arrive apart. `baseline`
-/// is the newest sleep commit the page knew when the edge fired.
-struct PendingCompletion: Equatable {
-    let baseline: String?
-    let at: Date
-}
-
 @Observable
 @MainActor
 final class RoomModel {
@@ -44,6 +59,9 @@ final class RoomModel {
     var recentCycleCommit: String?
     /// Nothing draws a pending edge, so it is not observed (§10).
     @ObservationIgnored var pendingCompletion: PendingCompletion?
+    /// Set at the start edge only when history had loaded by then; consumed
+    /// by whichever end edge comes next (§10: nothing draws it either).
+    @ObservationIgnored var runStart: RunStart?
 
     @ObservationIgnored private var pointerInWorm = false
     @ObservationIgnored private var lastPerkAt: Date?
@@ -99,16 +117,33 @@ final class RoomModel {
 
     // MARK: The completion edge (Task 8, §6.5, Z-P17)
 
+    /// How long a completion may wait for its commit (Task 8 review r1). The
+    /// commit is written before the idle edge, and the poll's own `load()`
+    /// follows the edge within a round-trip, so a real one arrives in
+    /// seconds. An edge that committed nothing (an idle night) would
+    /// otherwise stay armed until some LATER cycle's commit — one whose
+    /// running edge this page never saw (a scheduled run while the page sat
+    /// unpolled, or a sub-second cycle) — and cheer for a cycle whose cancel
+    /// and error state were never checked.
+    static let pendingLifetime: TimeInterval = 120
+
+    /// Test seam kept for the pure rules; `SleepView` goes through
+    /// `cycleEnded`, which picks the baseline.
     func recordCompletion(baseline: String?, at date: Date) {
         pendingCompletion = PendingCompletion(baseline: baseline, at: date)
     }
 
     /// Returns the commit the first time history brings it, else `nil` — so
     /// the caller cheers exactly once per completion, however many history
-    /// refreshes follow.
-    func resolveCompletion(history: [SleepHistoryEntry]) -> String? {
-        guard let pending = pendingCompletion,
-              let commit = completedCommit(baseline: pending.baseline, history: history) else { return nil }
+    /// refreshes follow. An edge older than `pendingLifetime` is dropped
+    /// unresolved.
+    func resolveCompletion(history: [SleepHistoryEntry], now: Date = Date()) -> String? {
+        guard let pending = pendingCompletion else { return nil }
+        guard now.timeIntervalSince(pending.at) <= Self.pendingLifetime else {
+            pendingCompletion = nil
+            return nil
+        }
+        guard let commit = completedCommit(baseline: pending.baseline, history: history) else { return nil }
         pendingCompletion = nil
         recentCycleCommit = commit
         return commit
@@ -116,9 +151,31 @@ final class RoomModel {
 
     /// A new cycle makes the last one's link stale ("what changed" would now
     /// be two cycles ago), and drops any edge still waiting for its commit.
-    func cycleStarted() {
+    /// `baseline` is the newest sleep commit in history right now; it is kept
+    /// only when `historyLoaded`, since a page opened mid-run can see this
+    /// edge before its first history fetch lands (an empty list that means
+    /// "not yet", not "no cycles").
+    func cycleStarted(baseline: String?, historyLoaded: Bool) {
         pendingCompletion = nil
+        runStart = historyLoaded ? RunStart(baseline: baseline) : nil
         if recentCycleCommit != nil { recentCycleCommit = nil }
+    }
+
+    /// Any running → not-running edge. Consumes the start baseline either way
+    /// (a cancel must not leave it for a later cycle whose start this page
+    /// missed). A real completion records its edge against the start
+    /// baseline — or, when the page never saw the start with history loaded,
+    /// the edge-time one, which can only err toward no cheer — and resolves
+    /// at once against the history already in hand: when the reconcile load
+    /// brought the commit during the backend's tail, no later history change
+    /// will come to resolve it. Returns the commit when it resolved here.
+    func cycleEnded(real: Bool, edgeBaseline: String?, history: [SleepHistoryEntry],
+                    at date: Date = Date()) -> String? {
+        let start = runStart
+        runStart = nil
+        guard real else { return nil }
+        recordCompletion(baseline: start.map(\.baseline) ?? edgeBaseline, at: date)
+        return resolveCompletion(history: history, now: date)
     }
 
     /// The link was followed: hand back its commit and clear it.

@@ -24,6 +24,13 @@ final class SleepViewModel {
     /// G125 R4 — the consolidation history the Sleep page's history card
     /// lists, newest first. Loaded alongside everything else in `load()`.
     var history: [SleepHistoryEntry] = []
+    /// Whether `history` has been fetched at least once (Task 8 review r1).
+    /// An empty `history` is ambiguous — a bank with no cycle yet, or a page
+    /// opened mid-run whose first `load()` set `status` before its history
+    /// fetch landed — and the completion edge must not take a baseline from
+    /// the second kind: every older sleep commit would then read as "what
+    /// this cycle changed".
+    private(set) var historyLoaded = false
     /// G125 R12 — a history row's expanded detail, cached by commit hash so
     /// a second click on an already-open row is a dictionary hit rather than
     /// a second fetch. Never evicted within a session; a bank switch simply
@@ -275,7 +282,7 @@ final class SleepViewModel {
         let token = loadToken
         do {
             let h = try await fetchHistory()
-            if token == loadToken { history = h }
+            if token == loadToken { history = h; historyLoaded = true }
         } catch {
             if token == loadToken { errorMessage = "History: \(error.localizedDescription)" }
         }
