@@ -23,6 +23,7 @@ enum FindMerge {
         if var hit = top {
             groups[hit.group]?.removeAll { $0.key == hit.key }
             results.localCounts[hit.group] = max(0, (local.counts[hit.group] ?? 1) - 1)
+            results.topHitGroup = hit.group
             hit.group = .topHit
             results.topHit = hit
         }

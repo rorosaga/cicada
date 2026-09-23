@@ -54,6 +54,43 @@ final class PaletteMergeTests: XCTestCase {
                      "never a guessed number")
     }
 
+    /// Final review M1/M3 (and task-2-review-r1): `QuickIndex.query` materialises
+    /// at most `rowCap` rows per group but counts every match, and a
+    /// one-letter query never reaches the server, so nothing can deliver all N.
+    func testALocalGroupCutByTheRowCapNeverPromisesAllN() {
+        let rows = (0..<QuickIndex.rowCap).map { row(.entity, "e\($0)", .entities, score: Double(100 - $0)) }
+        let results = FindMerge.fresh(query: "a", local: QuickIndex.Result(rows: rows, counts: [.entities: 60]))
+        let collapsed = results.sections(expanded: []).first { $0.group == .entities }
+        XCTAssertEqual(collapsed?.rows.count, 5)
+        XCTAssertEqual(collapsed?.more, .atLeast, "\"More…\", not a \"Show all 59\" no click can deliver")
+        XCTAssertEqual(collapsed?.headerCount, "5 of 59", "the count itself is still exact")
+        let opened = results.sections(expanded: [.entities]).first { $0.group == .entities }
+        XCTAssertEqual(opened?.rows.count, 49)
+        XCTAssertNil(opened?.more, "an open group offers nothing more to press")
+        XCTAssertEqual(opened?.headerCount, "49 of 59", "and still says not every row is listed")
+    }
+
+    /// Final review M2/M4: the lifted top hit left its group's local count at 0,
+    /// and the server's exact total — which counts the top hit — passed through.
+    func testAServerTotalBesideTheLiftedTopHitIsNeverExact() {
+        var results = FindMerge.fresh(query: "al", local: local([row(.entity, "a", .entities, score: 4)]))
+        XCTAssertEqual(results.topHitGroup, .entities)
+        XCTAssertNil(results.groups[.entities])
+        results = FindMerge.append((0..<5).map { row(.entity, $0 == 0 ? "a" : "s\($0)", .entities) },
+                                   totals: [.entities: .exact(5)], to: results)
+        XCTAssertEqual(results.groups[.entities]?.count, 4, "the top hit is not repeated")
+        XCTAssertEqual(results.count(for: .entities), .atLeast)
+        let collapsed = results.sections(expanded: []).first { $0.group == .entities }
+        XCTAssertEqual(collapsed?.more, .atLeast, "\"More…\", never \"Show all 5\"")
+        XCTAssertNil(collapsed?.headerCount, "no \"4 of 5\"")
+        XCTAssertNil(results.sections(expanded: [.entities]).first { $0.group == .entities }?.more,
+                     "opened, the button clears")
+        let withB = FindMerge.fresh(query: "al", local: local([row(.entity, "a", .entities, score: 4),
+                                                               row(.entity, "b", .entities, score: 3)]))
+        let none = FindMerge.append([], totals: [.entities: .exact(0)], to: withB)
+        XCTAssertEqual(none.count(for: .entities), .exact(1), "a server that found nothing leaves the local count")
+    }
+
     func testCountsCombine() {
         XCTAssertEqual(FindCount.combine(local: nil, server: .exact(9)), .exact(9))
         XCTAssertEqual(FindCount.combine(local: .exact(0), server: .exact(9)), .exact(9))

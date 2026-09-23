@@ -156,7 +156,8 @@ enum FindCount: Equatable, Sendable {
 struct FindSection: Identifiable, Equatable, Sendable {
     let group: FindGroupID
     let rows: [FindRow]
-    /// The row under the group: "Show all N" (`.exact`) or "More…" (`.atLeast`); nil when all is shown.
+    /// The row under the group: "Show all N" (`.exact`) or "More…" (`.atLeast`); nil when all is
+    /// shown and always nil once the group is open — nothing more can arrive by pressing it again.
     let more: FindCount?
     /// "5 of 12" beside the header — only for an exact count.
     let headerCount: String?
@@ -170,6 +171,10 @@ struct FindResults: Equatable, Sendable {
     var query = ""
     var ask: FindRow? = nil
     var topHit: FindRow? = nil
+    /// The group the top hit was lifted out of. The server's total for it may
+    /// or may not count that row, so a server count there is never exact
+    /// (R-SU15; final review M2).
+    var topHitGroup: FindGroupID? = nil
     var groups: [FindGroupID: [FindRow]] = [:]
     /// Every local match per group (before the render cap).
     var localCounts: [FindGroupID: Int] = [:]
@@ -196,6 +201,13 @@ struct FindResults: Equatable, Sendable {
     func count(for group: FindGroupID) -> FindCount {
         let local = localCounts[group].map { FindCount.exact($0) }
         guard let server = serverCounts[group] else { return local ?? .exact(groups[group]?.count ?? 0) }
+        // The lift left this group's local count one short of what the local
+        // tier matched, often at 0, and `combine` would then pass the server's
+        // exact total through — a total that still counts the lifted row the
+        // dedupe removed ("4 of 5" with a "Show all 5" that never clears). Two
+        // tiers fed the group, so its union is unknown unless the server found
+        // nothing (final review M2).
+        if group == topHitGroup, server != .exact(0) { return .atLeast }
         return FindCount.combine(local: local, server: server)
     }
 
@@ -213,7 +225,14 @@ struct FindResults: Equatable, Sendable {
             var header: String? = nil
             switch count(for: group) {
             case .exact(let n):
-                more = n > shown.count ? .exact(n) : nil
+                // Only the local tier fed this group and it holds fewer rows
+                // than it counted: `QuickIndex.rowCap` cut it, and nothing
+                // fetches the rest (a one-letter query never reaches the
+                // server). "Show all N" would promise rows no click delivers,
+                // so the button says "More…" and the header keeps the honest
+                // "k of N" (R-SU15; final review M1, task-2-review-r1).
+                let capped = serverCounts[group] == nil && rows.count < n
+                more = (!open && n > shown.count) ? (capped ? .atLeast : .exact(n)) : nil
                 if n > shown.count { header = "\(UsageFormat.count(shown.count)) of \(UsageFormat.count(n))" }
             case .atLeast:
                 // An expanded "More…" group has asked for all the server will give (R-SU14).
