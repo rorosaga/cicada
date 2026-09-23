@@ -455,3 +455,19 @@ def test_a_model_pref_applies_only_to_the_mode_that_wrote_it():
     assert engine_select._model_overrides(reg, "byok") == {}
     assert engine_select._model_overrides(reg, "local") == {}
     assert engine_select._model_overrides(reg, "codex") == {}
+
+
+def test_powered_connection_follows_the_configured_mode_and_never_probes():
+    class _NoStatus(_FakeRegistry):
+        async def status(self, *a, **k):
+            raise AssertionError("powers must never probe")
+
+    both = {"claude-plan", "chatgpt-plan", "ollama-local", "byok-openai"}
+    pick = engine_select.powered_connection_id
+    assert pick(Settings(), _NoStatus(prefs={"sleep-engine": {"mode": "codex"}}), both) == "chatgpt-plan"
+    assert pick(Settings(), _NoStatus(prefs={"sleep-engine": {"mode": "codex"}}), {"claude-plan"}) is None
+    assert pick(Settings(llm_mode="auto"), _NoStatus(), both) == "claude-plan"
+    assert pick(Settings(llm_mode="auto"), _NoStatus(), {"chatgpt-plan", "byok-openai"}) == "chatgpt-plan"
+    assert pick(Settings(), _NoStatus(prefs={"claude-plan": {"use_for_sleep": True}}), both) == "claude-plan"
+    assert pick(Settings(), _NoStatus(), both) == "byok-openai"
+    assert pick(Settings(), _NoStatus(), {"claude-plan"}) is None

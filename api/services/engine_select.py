@@ -138,6 +138,61 @@ def _prefs_mode(registry) -> str | None:
     return mode if mode in _VALID_PREF_MODES else None
 
 
+#: R-E20's auto ladder, in the order ``resolve_llm_mode`` walks it — the
+#: POWERS line reads the same order so a card never claims an engine the
+#: ladder would not reach first.
+_AUTO_LADDER = (CLAUDE_CONNECTION_ID, CODEX_CONNECTION_ID, OLLAMA_CONNECTION_ID)
+
+
+def configured_mode(settings, registry) -> str:
+    """What a Sleep you start yourself is CONFIGURED to use — env pin, else
+    the G122 pref, else the env default. No probe (R-E24).
+
+    The same env-explicit gate ``resolve_llm_mode`` applies (R4): an explicit
+    ``CICADA_LLM_MODE`` is a dotfile pin and a Settings choice never
+    overrides it. A duck-typed stand-in without ``model_fields_set`` reads
+    as "not explicit", but only a registry is ever consulted for the pref.
+    """
+    configured = (getattr(settings, "llm_mode", None) or "byok").strip().lower()
+    env_explicit = hasattr(settings, "model_fields_set") and "llm_mode" in settings.model_fields_set
+    if not env_explicit and registry is not None:
+        pref = _prefs_mode(registry)
+        if pref is not None:
+            configured = pref
+    return configured
+
+
+def powered_connection_id(settings, registry, connected_ids) -> str | None:
+    """R-E24: which connection a Sleep you start would run on, from the
+    configured mode and an ALREADY-probed connected set — the answer the
+    POWERS line and ``/status``'s engine report, never a probe of its own.
+    ``None`` when the configured engine is not connected.
+
+    A person present is assumed (user-triggered), so ruling 4's scheduled
+    degradation is not applied here: the card answers "what runs when I
+    press Consolidate", and the Settings → Sleep card already shows the
+    scheduled line separately (G122). The ``byok`` fallthrough names the key
+    card the configured API model bills (``telemetry.connection_for_model``,
+    the join ``consumption_stats`` already uses), so a default install's
+    POWERS sit on its API key rather than on whichever plan is listed first.
+    """
+    connected = set(connected_ids)
+    mode = configured_mode(settings, registry)
+    direct = {"agent": CLAUDE_CONNECTION_ID, "codex": CODEX_CONNECTION_ID, "local": OLLAMA_CONNECTION_ID}
+    if mode in direct:
+        return direct[mode] if direct[mode] in connected else None
+    if mode == "auto":
+        for connection_id in _AUTO_LADDER:
+            if connection_id in connected:
+                return connection_id
+    elif registry is not None and use_for_sleep(registry) and CLAUDE_CONNECTION_ID in connected:
+        return CLAUDE_CONNECTION_ID
+    from api.services import telemetry
+
+    key_card, _billing = telemetry.connection_for_model(str(getattr(settings, "litellm_model", "") or ""))
+    return key_card if key_card in connected else None
+
+
 def _model_overrides(registry, mode: str) -> dict:
     """The ``{field: value}`` overrides a G122 model/disambiguation-model
     pref applies for ``mode``, keyed off whichever field that mode actually

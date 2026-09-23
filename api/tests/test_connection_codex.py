@@ -1,27 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import json
-from pathlib import Path
 
-from api.services.connections import codex_cli
+from api.services import codex_app_server
+from api.services.codex_app_server import CodexSnapshot
+from api.services.connections import base, codex_cli
 from api.services.connections.base import CliResult
-
-
-def _jwt(claims: dict) -> str:
-    def b64(obj):
-        return base64.urlsafe_b64encode(json.dumps(obj).encode()).decode().rstrip("=")
-    return f"{b64({'alg': 'none'})}.{b64(claims)}.sig"
-
-
-def _auth_json(tmp_path: Path, plan="plus", email="r@example.com") -> Path:
-    claims = {"email": email, "https://api.openai.com/auth": {"chatgpt_plan_type": plan}}
-    (tmp_path / "auth.json").write_text(json.dumps({
-        "auth_mode": "chatgpt",
-        "tokens": {"id_token": _jwt(claims), "access_token": "x", "refresh_token": "y"},
-    }))
-    return tmp_path
 
 
 def _runner(rc=0, stdout="", stderr=""):
@@ -33,69 +17,6 @@ def _runner(rc=0, stdout="", stderr=""):
 
     run.calls = calls  # type: ignore[attr-defined]
     return run
-
-
-def test_decode_jwt_claims_handles_missing_padding():
-    claims = codex_cli.decode_jwt_claims(_jwt({"a": 1, "email": "e"}))
-    assert claims == {"a": 1, "email": "e"}
-
-
-def test_read_plan_from_auth_json(tmp_path):
-    home = _auth_json(tmp_path, plan="pro")
-    assert codex_cli.read_plan_from_auth_json(home / "auth.json") == ("pro", "r@example.com")
-
-
-def test_read_plan_missing_file(tmp_path):
-    assert codex_cli.read_plan_from_auth_json(tmp_path / "nope.json") == (None, None)
-
-
-def test_decode_jwt_claims_scalar_payload_returns_empty_dict():
-    assert codex_cli.decode_jwt_claims(_jwt(5)) == {}
-    assert codex_cli.decode_jwt_claims(_jwt([1, 2])) == {}
-
-
-def test_read_plan_from_auth_json_scalar_payload_degrades(tmp_path):
-    claims_token = _jwt(5)
-    (tmp_path / "auth.json").write_text(json.dumps({
-        "auth_mode": "chatgpt",
-        "tokens": {"id_token": claims_token, "access_token": "x", "refresh_token": "y"},
-    }))
-    assert codex_cli.read_plan_from_auth_json(tmp_path / "auth.json") == (None, None)
-
-
-def test_status_connected(tmp_path, monkeypatch):
-    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
-    home = _auth_json(tmp_path, plan="plus")
-    run = _runner(stdout="Logged in using ChatGPT")
-    s = asyncio.run(codex_cli.CodexPlanAdapter(runner=run, codex_home=home).status())
-    assert run.calls == [["codex", "login", "status"]]
-    assert s.connected and s.plan == "plus" and s.plan_label == "ChatGPT Plus"
-    assert s.price_usd_month == 20.0 and s.account == "r@example.com"
-    assert s.login.mode == "device-code"
-
-
-def test_status_connected_with_unknown_plan(tmp_path, monkeypatch):
-    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
-    # No auth.json at tmp_path -> read_plan_from_auth_json returns (None, None),
-    # and the fake CLI's stdout mentions neither "api key" nor a plan.
-    run = _runner(stdout="Logged in")
-    s = asyncio.run(codex_cli.CodexPlanAdapter(runner=run, codex_home=tmp_path).status())
-    assert s.connected and s.plan is None
-    assert s.price_usd_month is None
-    assert s.price_note == "plan not detected — run the CLI once to refresh"
-
-
-def test_status_logged_out(tmp_path, monkeypatch):
-    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
-    s = asyncio.run(codex_cli.CodexPlanAdapter(runner=_runner(rc=1, stderr="Not logged in"), codex_home=tmp_path).status())
-    assert s.available and not s.connected and s.plan is None
-
-
-def test_status_api_key_mode_is_not_a_plan(tmp_path, monkeypatch):
-    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
-    (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "apikey", "OPENAI_API_KEY": "sk"}))
-    s = asyncio.run(codex_cli.CodexPlanAdapter(runner=_runner(stdout="Logged in using API key"), codex_home=tmp_path).status())
-    assert not s.connected and "API key" in s.detail
 
 
 def test_parse_device_output():
@@ -126,7 +47,7 @@ def test_begin_login_spawns_device_auth_and_tracks_session(tmp_path, monkeypatch
         spawned.append(argv)
         return _Proc()
 
-    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), codex_home=tmp_path, spawn=spawn)
+    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), spawn=spawn)
 
     async def go():
         sess = await adapter.begin_login()
@@ -176,7 +97,7 @@ def test_begin_login_supersedes_prior_pending_session(tmp_path, monkeypatch):
         procs.append(proc)
         return proc
 
-    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), codex_home=tmp_path, spawn=spawn)
+    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), spawn=spawn)
 
     async def go():
         first = await adapter.begin_login()
@@ -214,7 +135,7 @@ def test_raw_output_is_capped(tmp_path, monkeypatch):
     async def spawn(argv):
         return _Proc()
 
-    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), codex_home=tmp_path, spawn=spawn)
+    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), spawn=spawn)
 
     async def go():
         sess = await adapter.begin_login()
@@ -230,7 +151,7 @@ def test_raw_output_is_capped(tmp_path, monkeypatch):
 def test_status_binary_vanishes_between_which_and_exec(tmp_path, monkeypatch):
     monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
     s = asyncio.run(codex_cli.CodexPlanAdapter(
-        runner=_runner(rc=127, stderr="codex: not found"), codex_home=tmp_path,
+        runner=_runner(rc=127, stderr="codex: not found"),
     ).status())
     assert not s.available and not s.connected
     assert "install" in s.detail.lower()
@@ -251,7 +172,7 @@ def test_a_failed_spawn_orphans_no_pending_session(tmp_path, monkeypatch):
     async def spawn(argv):
         raise FileNotFoundError("codex")
 
-    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), codex_home=tmp_path, spawn=spawn)
+    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), spawn=spawn)
     with pytest.raises(HTTPException) as exc:
         asyncio.run(adapter.begin_login())
 
@@ -261,7 +182,112 @@ def test_a_failed_spawn_orphans_no_pending_session(tmp_path, monkeypatch):
     assert codex_cli._live.get(adapter.id) is None
 
 
-def test_logout_runs_cli(tmp_path):
+def _snap(**kw):
+    base_kw = dict(signed_in=True, account_type="chatgpt", plan="plus", email="bob@example.com")
+    base_kw.update(kw)
+    return CodexSnapshot(**base_kw)
+
+
+def _adapter(run, snap):
+    async def snapshot(**_kw):
+        return snap
+    return codex_cli.CodexPlanAdapter(runner=run, snapshot=snapshot)
+
+
+def test_cicada_never_reads_auth_json_any_more():
+    """R-E8: an id_token is a vendor token; the app-server answers instead."""
+    assert not hasattr(codex_cli, "read_plan_from_auth_json")
+    assert not hasattr(codex_cli, "decode_jwt_claims")
+
+
+def test_status_reads_plan_and_email_from_the_app_server(monkeypatch):
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
+    run = _runner(stdout="Logged in using ChatGPT")
+    s = asyncio.run(_adapter(run, _snap()).status())
+    assert run.calls == [["codex", "login", "status"]]
+    assert s.connected and s.plan == "plus" and s.plan_label == "ChatGPT Plus" and s.account == "bob@example.com"
+    assert s.engine_role == "subscription-cli" and s.login.mode == "device-code"
+    assert s.how.startswith("Signed in to ChatGPT with Cicada's own Codex sign-in on this Mac")
+
+
+def test_a_prolite_plan_reads_as_words(monkeypatch):
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
+    s = asyncio.run(_adapter(_runner(stdout="Logged in using ChatGPT"), _snap(plan="prolite")).status())
+    assert s.plan_label == "ChatGPT Pro Lite"
+
+
+def test_status_stays_connected_when_the_app_server_is_unavailable(monkeypatch):
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
+    s = asyncio.run(_adapter(_runner(stdout="Logged in using ChatGPT"), None).status())
+    assert s.connected and s.plan is None and s.plan_label is None
+
+
+def test_status_logged_out_names_the_in_app_sign_in(monkeypatch):
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
+    s = asyncio.run(_adapter(_runner(rc=1, stderr="Not logged in"), None).status())
+    assert s.available and not s.connected and "Sign in with ChatGPT" in s.detail
+
+
+def test_an_api_key_account_is_not_a_plan(monkeypatch):
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
+    s = asyncio.run(_adapter(_runner(stdout="Logged in using an API key"),
+                             _snap(account_type="apiKey", plan=None, email=None)).status())
+    assert not s.connected and "API key" in s.detail
+
+
+def test_logout_runs_in_cicadas_home_and_forgets_the_snapshot(monkeypatch):
+    invalidated = []
+    monkeypatch.setattr(codex_app_server, "invalidate", lambda: invalidated.append(True))
     run = _runner()
-    asyncio.run(codex_cli.CodexPlanAdapter(runner=run, codex_home=tmp_path).logout())
-    assert run.calls == [["codex", "logout"]]
+    asyncio.run(codex_cli.CodexPlanAdapter(runner=run).logout())
+    assert run.calls == [["codex", "logout"]] and invalidated == [True]
+
+
+def test_the_default_spawn_resolves_the_binary_and_runs_in_cicadas_home(monkeypatch):
+    seen = {}
+
+    async def fake_exec(*argv, **kw):
+        seen["argv"], seen["env"] = argv, kw["env"]
+        return object()
+
+    monkeypatch.setattr(codex_cli, "resolve_binary", lambda name: f"/opt/tools/{name}")
+    monkeypatch.setattr(codex_cli.asyncio, "create_subprocess_exec", fake_exec)
+    asyncio.run(codex_cli.CodexPlanAdapter._default_spawn(["codex", "login", "--device-auth"]))
+    assert seen["argv"] == ("/opt/tools/codex", "login", "--device-auth")
+    assert seen["env"]["CODEX_HOME"] == str(base.codex_home())
+
+
+def test_a_failed_sign_in_says_so_in_plain_words(monkeypatch):
+    """R-E28: "codex login exited 1" was a process fact, not a sentence the
+    Plans & keys card can show a person."""
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
+    codex_cli._live.pop("chatgpt-plan", None)  # other tests in this module leave one
+
+    class _Proc:
+        returncode = None
+
+        def __init__(self):
+            self.lines = [b"Error: device code sign-in is not enabled for this account\n"]
+            self.stdout = self
+
+        async def readline(self):
+            return self.lines.pop(0) if self.lines else b""
+
+        async def wait(self):
+            self.returncode = 1
+            return 1
+
+    async def spawn(argv):
+        return _Proc()
+
+    adapter = codex_cli.CodexPlanAdapter(runner=_runner(), spawn=spawn)
+
+    async def go():
+        sess = await adapter.begin_login()
+        await asyncio.sleep(0.05)  # let the watcher drain the fake process
+        return sess
+
+    sess = asyncio.run(go())
+    tracked = codex_cli.login_sessions[sess.session_id]
+    assert tracked.state == "failed"
+    assert tracked.detail == "Sign-in didn't finish (codex exited 1)."

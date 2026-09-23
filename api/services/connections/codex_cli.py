@@ -1,20 +1,17 @@
-"""ChatGPT plan connection — delegates to the ``codex`` CLI.
+"""ChatGPT plan connection — delegates to the ``codex`` CLI, in Cicada's own home.
 
-Login state comes from ``codex login status`` (exit 0 = logged in). The plan
-and email are decoded **display-only** from the ``id_token`` JWT in
-``auth.json`` in Cicada's own Codex home (``$CICADA_HOME/codex``, R-E7 —
-never the person's ~/.codex; payload base64 only, no signature check, no
-token ever leaves this process or is written anywhere). Login uses
-``codex login --device-auth`` which prints a one-time code + URL — the app
-shows them; a watcher task flips the session to ``done`` when the process
-exits 0. Logout is ``codex logout``. Every ``codex`` child runs in that home
-(``base.scrubbed_env`` sets ``CODEX_HOME``).
+Every ``codex`` child runs with ``CODEX_HOME = $CICADA_HOME/codex``
+(``base.scrubbed_env``, spec Decision 2): Cicada's sign-in is its own,
+separate from Codex in the person's terminal. Login state comes from ``codex
+login status`` (exit 0 = logged in). Plan, email and account type come from
+the read-only ``codex app-server`` (``codex_app_server.snapshot``) — Cicada
+never opens ``auth.json`` (R-E8). Login is ``codex login --device-auth``: the
+app shows the one-time code and opens the link; a watcher flips the session
+to ``done`` when the process exits 0 (R-E28). Logout is ``codex logout``.
 """
 from __future__ import annotations
 
 import asyncio
-import base64
-import json
 import re
 import shutil
 import uuid
@@ -25,15 +22,26 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.models.schemas import ConnectionKind, ConnectionStatus, LoginHint, LoginSession
-from api.services import pricing
+from api.services import codex_app_server, pricing
 from api.services.connections.base import (
     Runner, codex_home, override_note, resolve_binary, run_cli, scrubbed_env,
 )
 
-_AUTH_CLAIM = "https://api.openai.com/auth"
 _URL_RE = re.compile(r"https?://\S+")
 _CODE_RE = re.compile(r"\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b")
-_INSTALL_HINT = "Install Codex CLI (npm i -g @openai/codex) and run `codex login` once."
+_INSTALL_HINT = "Install Codex CLI (npm i -g @openai/codex), then Sign in with ChatGPT here."
+# R-E28: the sign-in is in-app now, so no line tells a person to open a
+# terminal — and "Connect" was never the button's name.
+_SIGNED_OUT = "Not signed in — “Sign in with ChatGPT” shows a one-time code to enter on the ChatGPT website."
+# An API-key login in Cicada's home would bill per token behind a card that
+# says "plan" — refuse to call it connected and say how to fix it.
+_API_KEY = ("Cicada's Codex sign-in is using an API key, not a ChatGPT plan — that bills per token. "
+            "Sign out, then Sign in with ChatGPT.")
+# R-E24: conditional — the card is connected whether or not Sleep runs on it;
+# the POWERS line says which, this line says whose sign-in and through what.
+_HOW = ("Signed in to ChatGPT with Cicada's own Codex sign-in on this Mac — separate from Codex in "
+        "your terminal. When Sleep or Ask runs on your ChatGPT plan it goes through `codex exec`; "
+        "Cicada never sees your token.")
 
 login_sessions: dict[str, LoginSession] = {}
 _watchers: set[asyncio.Task] = set()
@@ -50,30 +58,6 @@ def codex_home_dir() -> Path:
     return codex_home()
 
 
-def decode_jwt_claims(token: str) -> dict:
-    parts = token.split(".")
-    if len(parts) < 2:
-        return {}
-    payload = parts[1] + "=" * (-len(parts[1]) % 4)
-    try:
-        data = json.loads(base64.urlsafe_b64decode(payload.encode()).decode("utf-8", "replace"))
-    except (ValueError, UnicodeDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def read_plan_from_auth_json(path: Path) -> tuple[str | None, str | None]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None, None
-    if data.get("auth_mode") not in (None, "chatgpt"):
-        return None, None
-    claims = decode_jwt_claims(((data.get("tokens") or {}).get("id_token")) or "")
-    plan = ((claims.get(_AUTH_CLAIM) or {}).get("chatgpt_plan_type") or "").lower() or None
-    return plan, claims.get("email")
-
-
 def parse_device_output(text: str) -> tuple[str | None, str | None]:
     url = _URL_RE.search(text)
     code = _CODE_RE.search(text)
@@ -86,11 +70,15 @@ class CodexPlanAdapter:
     kind = ConnectionKind.subscription
 
     def __init__(self, runner: Runner | None = None, tier: str | None = None,
-                 codex_home: Path | None = None, spawn: Callable[[list[str]], Awaitable] | None = None):
+                 spawn: Callable[[list[str]], Awaitable] | None = None,
+                 snapshot: Callable[..., Awaitable] | None = None):
         self._run = runner or run_cli
         self._tier = tier
-        self._home = codex_home or codex_home_dir()
         self._spawn = spawn or self._default_spawn
+        # Bound per adapter: `Registry.adapters()` builds fresh adapters on
+        # every call, so a monkeypatched `codex_app_server.snapshot` is
+        # honoured by the next registry read (R-E8/R-E18).
+        self._snapshot = snapshot or codex_app_server.snapshot
 
     @staticmethod
     async def _default_spawn(argv: list[str]):
@@ -122,25 +110,26 @@ class CodexPlanAdapter:
         if res.rc == 127:
             return self._base(available=False, detail=_INSTALL_HINT)
         if res.rc != 0:
-            return self._base(available=True, detail="Not signed in — Connect shows a one-time code for your ChatGPT account.")
-        plan, email = read_plan_from_auth_json(self._home / "auth.json")
-        if plan is None and "api key" in (res.stdout + res.stderr).lower():
-            return self._base(available=True, detail="Codex is using an API key, not a ChatGPT plan. Use the OpenAI API-key connection for usage-based billing.")
-        if plan is None:
-            usd, note = None, "plan not detected — run the CLI once to refresh"
-        else:
-            usd, note = pricing.price_for(self.id, plan, self._tier)
-        how = (
-            "Signed in to Codex CLI on this Mac. Cicada runs through "
-            "`codex exec` on your ChatGPT plan."
-        )
-        # `override`, never `note`: `note` above is the price note (R-E6).
+            return self._base(available=True, detail=_SIGNED_OUT)
+        # R-E8/R-E18: the app-server (30 s cached, read-only, no quota) answers
+        # plan, email and account type with Codex reading its own file. `None`
+        # (unavailable) keeps the card connected on `codex login status` alone
+        # and only the plan name goes missing; the CLI's own wording is the
+        # API-key fallback then.
+        snap = await self._snapshot()
+        api_key_login = "api key" in (res.stdout + res.stderr).lower()
+        if (snap is not None and snap.signed_in and snap.account_type not in (None, "chatgpt")) or (
+                snap is None and api_key_login):
+            return self._base(available=True, detail=_API_KEY)
+        plan = snap.plan if snap else None
+        usd, price_note = (None, "plan not detected") if plan is None else pricing.price_for(self.id, plan, self._tier)
+        # `override`, never `note`: `price_note` above is the price note (R-E6).
         override = override_note("codex")
         return self._base(
             available=True, connected=True, plan=plan, engine_role="subscription-cli",
             plan_label=pricing.plan_label(self.id, plan, self._tier),
-            account=email, price_usd_month=usd, price_note=note,
-            how=f"{how} {override}" if override else how,
+            account=snap.email if snap else None, price_usd_month=usd, price_note=price_note,
+            how=f"{_HOW} {override}" if override else _HOW,
         )
 
     async def begin_login(self) -> LoginSession:
@@ -200,7 +189,12 @@ class CodexPlanAdapter:
             rc = await proc.wait()
             sess.state = "done" if rc == 0 else "failed"
             if rc != 0:
-                sess.detail = f"codex login exited {rc}"
+                # R-E28: the Plans & keys card shows this line to a person.
+                sess.detail = f"Sign-in didn't finish (codex exited {rc})."
+            else:
+                # A fresh sign-in changes plan/email — never serve the
+                # signed-out snapshot for the rest of its 30 s.
+                codex_app_server.invalidate()
         except Exception as exc:  # never let a watcher crash the loop
             logger.warning(f"codex login watcher failed: {exc}")
             sess.state, sess.detail = "failed", str(exc)
@@ -212,4 +206,7 @@ class CodexPlanAdapter:
                 self._prune_terminal_sessions(keep_session_id=sess.session_id)
 
     async def logout(self) -> None:
+        # `run_cli` runs every `codex` child in Cicada's own home (R-E7), so
+        # this signs out Cicada's sign-in only — never Codex in the terminal.
         await self._run(["codex", "logout"])
+        codex_app_server.invalidate()
