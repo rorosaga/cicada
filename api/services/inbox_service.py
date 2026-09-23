@@ -8,6 +8,7 @@ loads them into ``InboxItem`` and resolves them by routing on ``kind``.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -47,7 +48,7 @@ def next_inbox_num(inbox_dir: Path) -> int:
 
 
 def _required_input_for(kind: str) -> str:
-    if kind in ("decay", "conflict", "divergence", "normalization", "removal"):
+    if kind in ("decay", "conflict", "divergence", "normalization", "removal", "followup"):
         return "choice"
     if kind == "merge_suggestion":
         return "merge"
@@ -81,7 +82,17 @@ def _item_from_file(
     allow_defer = bool(fm.get("allow_defer", kind in ("conflict", "clarification", "divergence")))
 
     extra: dict = {}
+    followup_human: bool | None = None
     if context is not None:
+        if kind == "followup":
+            # G141 PJ-6: served as a question at read, like decay — the file
+            # holds only which claim to ask about. A claim that is gone raises,
+            # so `load_inbox` skips the card with a logged warning and the next
+            # proposer run removes the file.
+            synthesised, followup_human = followup_synthesis(fm, context.claims(entity_id), now)
+            question = synthesised["question"]
+            raw_options = inbox_questions.normalize_options(synthesised["options"])
+            allow_other, allow_defer = synthesised["allow_other"], synthesised["allow_defer"]
         if kind == "decay" and not raw_options:
             # G115 R5: decay is SERVED as a question object and never written as
             # one — the age phrase is computed from the subject page's live
@@ -127,9 +138,10 @@ def _item_from_file(
                 # keeps its pre-G115 shape: no marker, no wire verdict.
                 recommended=(context is not None and str(raw.get("key")) == extra.get("recommended_key")),
                 verdict=(
-                    _option_verdict(kind, str(raw.get("key", "")), fm, raw_options)
-                    if context is not None
-                    else None
+                    None if context is None
+                    else _followup_verdict(str(raw.get("key", "")), bool(followup_human))
+                    if kind == "followup"
+                    else _option_verdict(kind, str(raw.get("key", "")), fm, raw_options)
                 ),
             )
         )
@@ -373,6 +385,12 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
     key = (request.option_key or "").strip()
     if kind == "decay":
         return action or "answer"
+    if kind == "followup":
+        if action == "skip":
+            return "skip"
+        if key:
+            return key
+        return "answer" if (request.answer or "").strip() else (action or "answer")
     if kind == "removal":
         if action == "skip":
             return "skip"
@@ -456,6 +474,51 @@ def _verdict(
     if kind == "merge_suggestion":
         return {"merge": "agreed", "reject": "overruled"}.get(label, "neutral")
     return "neutral"
+
+
+def _followup_verdict(label: str, human: bool) -> str:
+    """R-PJB24: grade the extractor or agent that said "ongoing" — never the
+    person. On a thread Sleep or an agent wrote, Done and Still going agree
+    with it and "That didn't happen" overrules it; Stopped, Missed, Dropped, a
+    move or free text say nothing about whether the claim was right. On the
+    person's own thread, or a G17 `due` (a date, not a belief), every answer
+    is neutral — there is no model to grade."""
+    if human or label in _NEUTRAL_LABELS:
+        return "neutral"
+    return {"done": "agreed", "still": "agreed", "didnt": "overruled"}.get(label, "neutral")
+
+
+def _followup_claim(claims: list, claim_id: str):
+    """The follow-up's claim — its open copy first (a withdrawn event keeps
+    its id on the closed half), else any claim with that id, else None."""
+    same = [c for c in claims if c.id == claim_id]
+    return next((c for c in same if c.valid_to is None), same[0] if same else None)
+
+
+def followup_human(claim) -> bool:
+    """Whose words the follow-up asks about, for R-PJB24's grade."""
+    from api.services.claim_reconciler import is_human
+
+    return is_human(claim) or claim.predicate == "due"
+
+
+def followup_synthesis(fm: dict, claims: list, today: str, *, verbatim_ok: bool = True) -> tuple[dict, bool]:
+    """`(question object, the claim is the person's)` for a `followup` item —
+    one synthesis for `GET /inbox` and both MCP readers, so the agent and the
+    app are shown the same card (G115 R9). Raises `LookupError` when the claim
+    is gone. `verbatim_ok` is the caller's `raw_excerpts` (R-PJ23)."""
+    claim_id = str(fm.get("claim_id") or "")
+    claim = _followup_claim(claims, claim_id) if claim_id else None
+    if claim is None:
+        raise LookupError(f"follow-up claim {claim_id!r} is gone")
+    predicate = str(fm.get("predicate") or claim.predicate or "")
+    name = str(fm.get("entity_name") or fm.get("entity_id") or "")
+    if predicate == "due":
+        from api.services.project_timeline import _due_name   # lazy: a wide import graph
+
+        name = _due_name(claim, name)
+    return (inbox_questions.followup_question(predicate, claim, name=name, today=today, verbatim_ok=verbatim_ok),
+            followup_human(claim))
 
 
 # G115 R5 — the keys `QuestionView` sends for a decay item, mapped onto the
@@ -547,7 +610,8 @@ def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
     The name and date are irrelevant to the verdict table (only the KEYS are),
     so the cheap placeholder question is enough.
     """
-    if kind in ("merge_suggestion", "clarification", "removal"):
+    if kind in ("merge_suggestion", "clarification", "removal", "followup"):
+        # G141 PJ-6: a follow-up proposes nothing — it asks how it went.
         return None
     if kind == "decay" and not options:
         options = inbox_questions.normalize_options(
@@ -669,6 +733,8 @@ def _emit_resolution(
     losers=(),
     extractor_confidence: float | None = None,
     extractor_model: str | None = None,
+    verdict_override: str | None = None,
+    extra_refs: dict | None = None,
 ) -> None:
     """Append one ``resolution`` ledger row. Ids/enums/numbers only. Never raises.
 
@@ -683,7 +749,7 @@ def _emit_resolution(
     try:
         options = inbox_questions.normalize_options(fm.get("options") or [])
         rec = recommended_key(kind, fm, options)
-        verdict = _verdict(kind, label, request.option_key, _opt_str(fm.get("claim_id")), options)
+        verdict = verdict_override or _verdict(kind, label, request.option_key, _opt_str(fm.get("claim_id")), options)
         telemetry.record(
             telemetry.UsageEvent(
                 kind="resolution",
@@ -709,6 +775,8 @@ def _emit_resolution(
                     "recommended_key": rec,
                     "picked_recommended": bool(rec)
                     and (str(request.option_key or "").strip().lower() == rec or label == rec),
+                    # G141 PJ-6 (R-PJB24): ids and enums only — never the sentence.
+                    **(extra_refs or {}),
                 },
             )
         )
@@ -731,6 +799,14 @@ async def resolve(
     # `resolve` + `archive|keep`; translate it into the legacy verb here, before
     # `_action_label`, so the G113 R1 commit triggers stay byte-identical.
     request = _normalize_decay_request(kind, request)
+    # G141 PJ-6 (R-PJB3): a follow-up's "not now" is 30 days, whatever asked
+    # for it — its explicit option, an MCP `defer`, or an older client's 7-day
+    # button — so a quiet thread is never re-asked within the month.
+    if kind == "followup" and ((request.action or "").strip().lower() in ("defer", "remind_later")
+                               or (request.option_key or "").strip() == "remind_later"):
+        days = max(inbox_questions.FOLLOWUP_DEFER_DAYS, int(request.remind_days or 0))
+        return await _defer(path, parsed, request.model_copy(update={"remind_days": days}), settings, item_id,
+                            label="remind_later")
     # G113 R6 (landed by G115 Phase 1): `remind_later` was a snooze nothing
     # read — it wrote `snooze_until`, left the item visible, and committed
     # "entity updated" for an entity it never touched. It is a 7-day defer.
@@ -753,6 +829,7 @@ async def resolve(
     feedback = _feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path)
 
     extra_lines: list[str] = []
+    emit_extra: dict = {}
     if kind == "decay":
         entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
     elif kind == "removal":
@@ -773,12 +850,16 @@ async def resolve(
         entity_id, skipped, extra_lines = await _resolve_clarification(
             path, parsed, request, settings
         )
+    elif kind == "followup":
+        entity_id, skipped, extra_lines, emit_extra = await _resolve_followup(
+            path, parsed, request, settings, item_id, label
+        )
     else:
         raise HTTPException(400, f"Unknown kind {kind}")
 
     # A skip is a neutral row, not a missing one — "asked, not answered" is
     # itself informative about the question.
-    _emit_resolution(parsed.frontmatter, item_id, kind, request, label, settings, **feedback)
+    _emit_resolution(parsed.frontmatter, item_id, kind, request, label, settings, **feedback, **emit_extra)
 
     if skipped:
         return {"status": "skipped", "id": item_id}
@@ -966,6 +1047,182 @@ async def _resolve_removal(path, parsed, request: InboxResolveRequest, settings)
         markdown_parser.write(entity_path, entity.frontmatter, entity.body)
     path.unlink(missing_ok=True)
     return entity_id, False
+
+
+# ---------- G141 PJ-6: follow-ups ----------
+
+# The answers each follow-up takes by key; `remind_later` is routed to
+# `_defer` by `resolve` before any of these is read.
+_FOLLOWUP_KEYS = {"happened": ("done", "still", "stopped", "didnt"),
+                  "milestone": ("done", "missed", "dropped"), "due": ("done", "missed", "dropped")}
+# The closed grammar a free-text answer is read with — a word, then an
+# optional day. Anything else on a thread is what happened, in the person's
+# words; anything else on a milestone is refused (it has only four answers).
+_FOLLOWUP_ANSWER = re.compile(
+    r"^\s*(?:(?P<done>done|finished|completed)|(?P<missed>missed)|(?P<dropped>dropped|stopped|cancell?ed)"
+    r"|(?P<still>still)|(?P<move>moved?(?:\s+it)?\s+to))\b[\s,.:;!-]*(?P<rest>.*)$", re.I | re.S)
+FOLLOWUP_MILESTONE_GRAMMAR = "Say done, missed, dropped, or 'move it to <date>'"
+FOLLOWUP_THREAD_MOVE = "A thread has no date to move — say done, still going or stopped"
+FOLLOWUP_BAD_DATE = "That date can't be read — try '<date>' or 'last Friday'"
+FOLLOWUP_TWO_DAYS = "Say one day, or pick it with the date chip"
+FOLLOWUP_NOT_HAPPENED = "The person said this did not happen"
+
+
+def _read_followup_answer(answer: str, predicate: str, anchor) -> tuple[str, "date | None", str | None, str | None]:
+    """Free text → `(verb, day, date_basis, target)` through the closed
+    grammar and `when.resolve` (R-PJ6: Python decides every date, against
+    `inbox_service`'s one clock). `verb` is an option key, `move`, or `note`
+    (an unrecognised answer on a thread: the person's own words)."""
+    from api.services import when
+
+    m = _FOLLOWUP_ANSWER.match(answer)
+    if m is None:
+        if predicate != "happened":
+            raise HTTPException(400, FOLLOWUP_MILESTONE_GRAMMAR)
+        return "note", None, None, None
+    rest = (m.group("rest") or "").strip()
+    if m.group("move"):
+        if predicate == "happened":
+            raise HTTPException(400, FOLLOWUP_THREAD_MOVE)
+        target, basis = when.resolve(rest, anchor, direction=when.FUTURE)
+        if target is None or basis != "stated":
+            raise HTTPException(400, FOLLOWUP_BAD_DATE)
+        return "move", None, "stated", target.isoformat()
+    if m.group("still"):
+        if predicate != "happened":
+            raise HTTPException(400, FOLLOWUP_MILESTONE_GRAMMAR)
+        return "still", anchor.day, "person", None
+    if m.group("done"):
+        verb = "done"
+    elif m.group("missed"):
+        # A thread has no plan to miss: it stopped without finishing.
+        verb = "stopped" if predicate == "happened" else "missed"
+    else:
+        verb = "stopped" if predicate == "happened" else "dropped"
+    day, basis = when.resolve(rest, anchor, direction=when.PAST)
+    if day is None:
+        raise HTTPException(400, FOLLOWUP_BAD_DATE)
+    return verb, day, ("stated" if basis == "stated" else "person"), None
+
+
+async def _resolve_followup(path, parsed, request, settings, item_id: str,
+                            label: str) -> tuple[str, bool, list[str], dict]:
+    """A follow-up's answer, written through `progress` — the ONE event writer
+    — as the person (`origin: clarification`, R-PJB13: an answer can arrive
+    through `cicada_resolve_inbox`, relayed by an agent, so it is the inbox's
+    human channel and never `companion_app`). Every day is today in the
+    machine zone unless the answer names one; a done `due` is done on its own
+    date. A claim that is gone or already settled makes the item a no-op
+    (removed, nothing written). Returns the ledger's R-PJB24 grade and ids."""
+    from datetime import time as dtime
+
+    from api.services import bank_index, claim_expiry, episode_scrub, handshake, progress, when
+    from api.services.claims import MalformedClaimsBlockError, parse_claims
+
+    fm = parsed.frontmatter
+    entity_id = str(fm.get("entity_id", "") or "")
+    predicate = str(fm.get("predicate", "") or "")
+    if (request.action or "").strip().lower() == "skip":
+        return entity_id, True, [], {}
+    memory = settings.memory_path
+    page = resolve_entity_file(memory, entity_id)
+    claim = None
+    if page is not None and page.exists():
+        try:
+            claims = parse_claims(markdown_parser.parse(page).body, strict=True)
+        except MalformedClaimsBlockError as exc:
+            raise HTTPException(
+                409, f"Cannot resolve {path.stem}: the claims block in entities/{entity_id}.md is malformed. "
+                     "Fix the page by hand; the question has been kept.") from exc
+        claim = _followup_claim(claims, str(fm.get("claim_id", "") or ""))
+    settled = claim is None or bool(claim.superseded_by) or (
+        predicate != "due" and (claim.valid_to is not None or (predicate == "happened" and claim.status != "ongoing")))
+    if settled:
+        path.unlink(missing_ok=True)
+        return entity_id, False, [], {}
+
+    key = (request.option_key or "").strip().lower()
+    answer = (request.answer or "").strip()
+    tz_name = handshake.local_timezone() or "UTC"
+    tz = when.zone(tz_name)
+    today = date.today()        # the module's one clock (the tests pin it)
+    anchor = when.Anchor(datetime.combine(today, dtime(12, 0), tzinfo=tz), "written", tz)
+    target: str | None = None
+    if key:
+        allowed = _FOLLOWUP_KEYS.get(predicate, ())
+        if key not in allowed:
+            raise HTTPException(400, f"Unknown optionKey {key!r} for {path.stem} — expected one of "
+                                     f"{sorted((*allowed, 'remind_later'))}.")
+        verb, day, basis = key, today, "person"
+    elif answer:
+        verb, day, basis, target = _read_followup_answer(answer, predicate, anchor)
+    else:
+        raise HTTPException(400, "Pick an answer, or say what happened")
+
+    owner = _owner_observer(settings, memory)
+    who = dict(observer=owner, origin="clarification", authored_by="user", today=today, tz_name=tz_name)
+    extra_paths: list[str] = []
+    if predicate == "happened":
+        if verb in ("done", "stopped", "still"):
+            result = progress.record_happening(
+                memory, subject=entity_id, text=claim.text, status={"done": "done", "stopped": "dropped",
+                                                                    "still": "ongoing"}[verb],
+                participants=claim.participants, settles=None if verb == "still" else claim.id,
+                day=day, date_basis=basis, **who)
+        elif verb == "didnt":
+            result = progress.withdraw(memory, subject=entity_id, claim_id=claim.id, author="user",
+                                       reason=FOLLOWUP_NOT_HAPPENED, origin="clarification", today=today)
+        else:   # "note": the person's own words become the happening that settles the thread (G4)
+            try:
+                phrase, rest = when.split_phrase(answer)
+            except when.TwoDates:
+                raise HTTPException(400, FOLLOWUP_TWO_DAYS)
+            text = episode_scrub.scrub(rest)[0].strip()
+            if not text:
+                raise HTTPException(400, "Say what happened")
+            if when.has_relative(text):
+                raise HTTPException(400, FOLLOWUP_TWO_DAYS)
+            day, basis = today, "person"
+            if phrase:
+                day, _ = when.resolve(phrase, anchor, direction=when.PAST)
+                if day is None:
+                    raise HTTPException(400, FOLLOWUP_BAD_DATE)
+                basis = "stated"
+            name = str(fm.get("entity_name") or entity_id)
+            ep = progress.write_note_episode(memory, answer, origin="inbox", title=f"Answer on {name}",
+                                             now=anchor.instant)
+            result = progress.record_happening(
+                memory, subject=entity_id, text=text, status="done", settles=claim.id,
+                participants=progress.link_participants(memory, text),
+                evidence=[{"episode": ep, "quote": episode_scrub.scrub(answer)[0]}], day=day, date_basis=basis,
+                **who)
+            if result.get("action") in ("error", "not_found"):
+                (memory / "episodes" / f"{ep}.md").unlink(missing_ok=True)
+                bank_index.invalidate()
+            else:
+                extra_paths.append(f"episodes/{ep}.md")
+    else:
+        end = claim_expiry.stated_end(claim) if predicate == "due" else None
+        slug = f"due-{end}" if predicate == "due" else str(claim.object or "")
+        if verb == "move":
+            result = progress.advance(memory, subject=entity_id, slug=slug, target=target, on=today,
+                                      date_basis="stated", **who)
+        else:
+            if predicate == "due" and verb == "done" and key and end:
+                day = date.fromisoformat(end)    # "Done (on its date)"
+            result = progress.advance(memory, subject=entity_id, slug=slug, status=verb, on=day,
+                                      date_basis=basis, **who)
+    if result.get("action") == "error":
+        raise HTTPException(400, result.get("error") or "That couldn't be saved")
+    if result.get("action") == "not_found":
+        path.unlink(missing_ok=True)
+        return entity_id, False, [], {}
+    path.unlink(missing_ok=True)
+    lines = [f"{p}: updated (source: {item_id}, trigger: inbox/followup/resolved)"
+             for p in [*result.get("paths", []), *extra_paths]]
+    return entity_id, False, lines, {
+        "verdict_override": _followup_verdict(label, followup_human(claim)),
+        "extra_refs": {"authored_by": claim.authored_by or "unknown", "date_basis": basis, "claim_id": claim.id}}
 
 
 def _user_claim_id(entity_id: str, predicate: str, obj: str, today: str) -> str:

@@ -1519,6 +1519,9 @@ class InboxKind(str, Enum):
     # diff, never from the extractor, so it carries no recommendation and its
     # verdict is always `neutral` (see `inbox_service._verdict`).
     removal = "removal"
+    # G141 PJ-6: "how did it go?" on a quiet thread or an overdue milestone —
+    # engine-free, question synthesised at read (like decay).
+    followup = "followup"
 
 
 class RequiredInput(str, Enum):

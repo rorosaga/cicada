@@ -285,6 +285,13 @@ lines in `cicada_project`, and the demo's two event commits — contract 6, remo
 the person's path, is there too: five Projects writes (milestones add/move/rename, the Log with its
 companion note, a thread settled or restated, "Not right" on a happening), `companion_app` a human
 origin, a 409 while Sleep runs, and the demo's `user` commit (the arm done early, first grasp moved).
+PJ-6 (T7), the engine-free `followup` inbox kind, closes the backend: a quiet thread, an overdue milestone
+or a passed `due` raises one follow-up (one per project, three in the bank) from Sleep's tail right after
+expiry (`Follow-ups <date>`, `cicada`, `sleep/followup`), served as a question at read with a 30-day
+"not now", answered through `progress.py` and graded against the extractor (R-PJB24). **Status: PJ-1,
+PJ-2, PJ-3 (3a+3b), PJ-6 built on `feat/g141-read-write`; PJ-0, PJ-4 on their own tracks; PJ-5 waits for
+the DS shell; PJ-7/PJ-8 gated.** The Swift `followup` case (its kind label reads "Update available" until
+then) and `GraphNode` dates ride PJ-5.
 
 **Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
 open is on the row.
@@ -582,7 +589,8 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     PJ-3a's claim layer (`happened`/`milestone`, `when.py`'s closed table, `progress.py`, `reconcile_events`,
     the `is_event` readers and their grep gate) is T4; its agent path (`cicada_note_progress`, the event
     layer in the read model, the demo's event commits) is T5; PJ-3b, the person's writes
-    (`/projects/{id}/milestones|happenings|threads|withdraw`, `companion_app` human), is T6.
+    (`/projects/{id}/milestones|happenings|threads|withdraw`, `companion_app` human), is T6; PJ-6, the
+    `followup` inbox kind (`followups.py`, Sleep's tail after expiry, a 30-day not-now), is T7.
 14. **G102** site recon — cheap slice shipped 2026-09-02 (see Shipped). Next slice: relate a link to a
     pending candidate when it promotes; fetch-side improvements stay out of scope until a measured
     need — S

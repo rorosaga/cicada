@@ -32,7 +32,8 @@ def test_populate_writes_the_expected_counts(tmp_path):
     demo_bank.populate(bank_dir)
     assert len(list((bank_dir / "entities").glob("*.md"))) >= 60
     assert len(list((bank_dir / "episodes").glob("*.md"))) >= 40
-    assert len(list((bank_dir / "inbox").glob("inbox-*.md"))) == 6
+    # PJ-6: the quiet camera thread's follow-up (spec §12), deliberately.
+    assert len(list((bank_dir / "inbox").glob("inbox-*.md"))) == 7
     assert (bank_dir / "entities" / "bob-example.md").exists()  # placeholder owner (R7)
 
 

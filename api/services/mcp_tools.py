@@ -1917,7 +1917,7 @@ def _inbox_ctx(memory_path: Path, today: str):
 
 
 def _agent_question(
-    memory_path: Path, fm: dict, today: str, *, ctx=None
+    memory_path: Path, fm: dict, today: str, *, ctx=None, verbatim_ok: bool = True
 ) -> tuple[dict, dict | None, str | None]:
     """What both MCP readers hand :func:`render_question` (G115 Phase 1, R9).
 
@@ -1935,6 +1935,11 @@ def _agent_question(
     pays for the episode/entity scan ONCE (final review H3). Omitting it keeps
     the old per-call behaviour, which is what the standalone degrade path and
     the single-item tests want.
+
+    G141 PJ-6: a ``followup`` is synthesised the same way (``followup_synthesis``,
+    the one ``GET /inbox`` uses). ``verbatim_ok`` is the caller's
+    ``raw_excerpts`` — a remote relay without ``sources`` is told a thread the
+    person logged in the app exists, never its words (R-PJ23).
     """
     try:
         from api.services import inbox_context, inbox_questions, inbox_service
@@ -1950,6 +1955,11 @@ def _agent_question(
                 ctx.entity_last_referenced(entity_id),
                 today,
             )
+            fm.update(question)
+            options = inbox_questions.normalize_options(fm["options"])
+        if str(fm.get("kind") or "") == "followup":
+            question, _ = inbox_service.followup_synthesis(fm, ctx.claims(entity_id), today,
+                                                           verbatim_ok=verbatim_ok)
             fm.update(question)
             options = inbox_questions.normalize_options(fm["options"])
         rec = inbox_service.recommended_key(str(fm.get("kind") or ""), fm, options)
@@ -2065,7 +2075,7 @@ def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True)
         # later, not on the next unrelated question.
         if inbox_questions.is_deferred(fm, today):
             continue
-        fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx)
+        fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx, verbatim_ok=raw_excerpts)
         blurbs.append(_format_inbox_blurb(
             fm, body, cause=cause, recommended_key=rec, raw_excerpts=raw_excerpts))
     return blurbs
@@ -2198,7 +2208,7 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
         # Decay becomes a question object here, and every question object gains
         # its cause + `(Recommended)` marker, so the agent reads the same card
         # the app shows (G115 Phase 1, R9).
-        fm, cause, rec = _agent_question(memory_path, fm, today, ctx=inbox_ctx)
+        fm, cause, rec = _agent_question(memory_path, fm, today, ctx=inbox_ctx, verbatim_ok=ctx.raw_excerpts)
 
         kind = str(fm.get("kind", fm.get("type", "")) or "")
         ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))

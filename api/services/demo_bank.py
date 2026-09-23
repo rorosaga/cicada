@@ -116,6 +116,7 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     _expire_scenario(bank_dir, today)
     _write_scenario_events(bank_dir, today, scenario)
     _write_scenario_person(bank_dir, today)
+    _write_scenario_followups(bank_dir, today)
 
 
 def _write_entities(bank_dir: Path, day: date) -> None:
@@ -751,3 +752,18 @@ def _write_scenario_person(bank_dir: Path, today: date) -> None:
         _run_commit(bank_dir, git_service.build_commit_message(
             f"Project update {today}", [f"{p}: updated (source: n/a, trigger: user/companion_app)" for p in paths],
             authors=["user"]), paths)
+
+
+def _write_scenario_followups(bank_dir: Path, today: date) -> None:
+    """The night's follow-up (spec §12, G141 PJ-6): the gripper-camera thread
+    has been quiet 24 days against the project's Q of 20, so the engine-free
+    proposer asks "how did it go?" — exactly as Sleep's tail would, through
+    `followups.propose`, in its own `Follow-ups <date>` / `cicada` commit.
+    `tz_name="UTC"` like the rest of the scenario: a machine east of UTC+7
+    must not move S9's 17:00, or a turn stamp, onto the next local day and
+    change which thread is quiet."""
+    from api.services import followups
+
+    report = followups.propose(bank_dir, today, tz_name="UTC")
+    if report.written:
+        _run_commit(bank_dir, followups.commit_message(report, today), report.written)

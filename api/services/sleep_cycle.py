@@ -814,6 +814,39 @@ async def _expire_claims_safely(memory_path: Path) -> None:
         await asyncio.to_thread(claim_expiry.restore, memory_path, report.paths)
 
 
+async def _propose_followups_safely(memory_path: Path) -> None:
+    """G141 PJ-6 — the engine-free follow-up proposer, in its own `cicada`
+    commit (R-PJB23). Same rules as expiry: pages dirty before it ran are
+    skipped (a person's uncommitted edit is never asked about or smeared), an
+    unreadable tree means nothing tonight, a failed commit undoes what it wrote.
+    Never raises."""
+    from api.services import followups
+
+    today = date.today()
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Follow-ups skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    try:
+        report = await asyncio.to_thread(followups.propose, memory_path, today, skip=skip)
+    except Exception as exc:
+        logger.warning(f"Follow-ups failed: {type(exc).__name__}: {exc}")
+        return
+    paths = report.written + report.removed
+    if not paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(memory_path, followups.commit_message(report, today), paths)
+        logger.info(f"Follow-ups: {len(report.written)} asked, {len(report.removed)} cleared")
+    except Exception as exc:
+        logger.warning(f"Follow-ups commit failed — undoing: {type(exc).__name__}: {exc}")
+        await asyncio.to_thread(followups.restore, memory_path, report)
+
+
 async def _run_engine_independent_tail(
     memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
 ) -> None:
@@ -871,6 +904,11 @@ async def _run_engine_independent_tail(
     G140: expiry (_expire_claims_safely) shares this branch — its commit is
     scoped, but on a half-written cycle it would stage Sleep's hunks on the
     same page.
+
+    G141 PJ-6: the follow-up proposer (_propose_followups_safely) runs right
+    after expiry — tonight's closed dues are then visible to it — and before
+    any poll, whose `git add -A` would otherwise sweep its inbox files into a
+    poll commit; its own commit is scoped and `cicada`-authored.
     """
     await _refresh_state_safely(memory_path, settings)
     if outcome.committed or not _state.write_started or await _tree_is_clean(memory_path):
@@ -882,6 +920,8 @@ async def _run_engine_independent_tail(
         # swept into a media/feed/calendar commit with no session provenance.
         # G140 Q-R7: expiry commits itself via commit_paths; first, so no poll's git add -A can sweep it.
         await _expire_claims_safely(memory_path)
+        # G141 PJ-6: after expiry (the night's ends are visible), before any poll's `git add -A`.
+        await _propose_followups_safely(memory_path)
         await _poll_connectors_safely(memory_path)
         await _poll_feeds_and_calendars_safely(memory_path)
         await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
@@ -889,7 +929,7 @@ async def _run_engine_independent_tail(
         await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(
-            "claim expiry, connector, feed/calendar, link-backfill, paper details and Wispr "
+            "claim expiry, follow-ups, connector, feed/calendar, link-backfill, paper details and Wispr "
             "to-do steps skipped: this cycle "
             "wrote entity/inbox changes but never committed them, and the polls' "
             "own `git add -A` would absorb those uncommitted writes into a "

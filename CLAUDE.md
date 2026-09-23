@@ -208,8 +208,8 @@ answer.
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
-refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit), the
-connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
+refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
+follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
 enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s own commit so the poll's
 `git add -A` sweeps only its own files.
 
@@ -481,7 +481,7 @@ Cicada-Session: <id>
 ```
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
-`sleep/state`, `sleep/expiry`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
+`sleep/state`, `sleep/expiry`, `sleep/followup`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
 `user/companion_app` (also the Projects page's writes, G141 — `Project update <date>`,
 `Cicada-Author: user`),
 `mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135).
@@ -493,7 +493,7 @@ Cicada-Session: <id>
   arrived through MCP, where the model is not disclosed (G135; G49 keeps the model reserved), the
   literal **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits,
   and **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
-  migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` commit). Built by
+  migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` and `Follow-ups` commits). Built by
   `git_service.build_commit_message(...)`, parsed by `_parse_authors`. Powers `GET /contributors`.
 - **`Cicada-Engine:`** — exactly one per main commit (`claude-cli|ollama|litellm`), **omitted
   entirely rather than guessed** when no LLM ran. Read back via git's own
@@ -897,7 +897,7 @@ Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, ea
 discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`, `removal`, `divergence`,
 `normalization` — the last two were written by Sleep since G49/G98 but only became loadable and
 resolvable kinds with G113; `removal` is written by a live browser sync, not Sleep, at proposal
-time (G129 slice 2)), behind `GET /inbox` /
+time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail), behind `GET /inbox` /
 `POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
 shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`.
 
@@ -940,6 +940,15 @@ synthesised at read from the page's `last_referenced`, never written. Its questi
 (`keep`/`remove`), no free text, no recommendation (the proposal came from the browser's own
 before/after diff, not the extractor) — `remove` archives the media entity it named; it is never
 deleted.
+
+**Follow-ups (G141 PJ-6).** A quiet ongoing happening (quiet ≥ max(21 days, the project's own Q)), a
+planned milestone 3 days overdue, or a `due` that expiry closed in the last 14 days raises one
+engine-free `followup` item — at most one open per project and three in the bank — written by Sleep's
+tail right after expiry (`Follow-ups <date>`, `cicada`, `sleep/followup`, dirty pages skipped) and served
+as a question at read, like decay. Its 'not now' is an explicit option that defers 30 days (`allow_defer`
+false, so the shipped app's 7-day button never shows; the server clamps any defer to 30). Answers go
+through `progress.py` (origin `clarification`) and grade the extractor: done/still agreed, 'That didn't
+happen' overruled, a person's own thread always neutral.
 
 **G98 rule.** A multi-valued predicate never opens a conflict; an existing one is served
 `informational: true` — the card lists the values and offers `Got it`, which removes the item and
