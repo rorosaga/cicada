@@ -164,6 +164,14 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           {"since": {"type": "string", "description": "Optional: a date (YYYY-MM-DD) or a number of days "
                                                       "back. Default 7, at most 90."}},
           read_only=True),
+    _tool("cicada_project",
+          "Where one of the person's projects stands: what is under way, what is next, what went quiet, what "
+          "happened (dated, from whose words), and the people, tools, documents and sub-projects around it. "
+          "Read-only. Use when the person asks how a project is going, what happened on it, or what's next.",
+          {"project": {"type": "string", "description": "A project's id or name."},
+           "since": {"type": "string", "description": "Optional: YYYY-MM-DD, or a number of days back. Default 90."},
+           "tz": {"type": "string", "description": "Optional: the person's IANA timezone, for relative dates."}},
+          ("project",), read_only=True),
     _tool("cicada_resolve_inbox",
           "Record the person's own answer to one of Cicada's questions: the option_key they chose, defer=true "
           "to ask again later, reject=true when two names are NOT the same, or skip=true when they did not "

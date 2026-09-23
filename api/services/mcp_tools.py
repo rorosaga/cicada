@@ -864,6 +864,52 @@ def timeline(ctx: ToolContext, since=None) -> str:
     return change_timeline.render(change_timeline.collect(ctx.memory_path(), start, today), start, today)
 
 
+def _today_in(tz_name: str | None) -> date:
+    """The one clock `cicada_project` reads — a seam so tests pin a day.
+    `when` is imported under another name: `note_progress` (PJ-3) takes a
+    `when=` argument in this module (the G141 plan's global constraint)."""
+    from api.services import when as when_mod
+
+    return datetime.now(when_mod.zone(tz_name)).date()
+
+
+def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -> str:
+    """`cicada_project` (G141 PJ-2): where one project stands, as text an agent
+    can act on. Relative words are derived HERE, per call, in the caller's `tz`
+    (default the machine zone), and printed beside the absolute date so an agent
+    never trusts a relative word alone (R-PJ6). A quote is the person's verbatim
+    words: remote, it needs `sources` (R-PJ23). Engine-free, writes nothing but
+    an ids-only `read` ledger row."""
+    from api.services import handshake, project_state, project_text, project_timeline, telemetry
+    from api.services.id_utils import resolve_entity_file
+
+    memory_path = ctx.memory_path()
+    ref = (project or "").strip()
+    if not ref:
+        return "project is required — a project's id or name."
+    machine_tz = handshake.local_timezone() or "UTC"
+    today = _today_in(tz or machine_tz)
+    since_day = project_text.since_day(since, today)
+    # `build` resolves ids, names and aliases itself; the page lookup below only
+    # explains a miss, so an alias the stem scan cannot see still answers.
+    timeline = project_timeline.build(memory_path, ref, tz_name=machine_tz, since=since_day)
+    if timeline is None:
+        page = resolve_entity_file(memory_path, ref)
+        if page is None:
+            near = agentic_write._find_subject_candidates(memory_path, ref)
+            close = ", ".join(f"`{c['entity_id']}`" for c in near)
+            return f"No project '{ref}'." + (f" Close matches: {close}." if close else "")
+        fm = parse_frontmatter(page.read_text(encoding="utf-8"))[0]
+        etype = str(fm.get("type") or "page")
+        if etype == "project":   # `build` returns None for a dropped project page too
+            return f"`{page.stem}` was dropped from memory — cicada_project reads live projects."
+        return f"`{page.stem}` is a {etype}, not a project — cicada_project reads projects."
+    state = project_state.timeline_state(project_state.input_from_timeline(timeline), today)
+    telemetry.record_read(timeline.project.id, surface=f"{ctx.read_surface}-project", bank=memory_path.name)
+    return project_text.render(timeline, state, memory_path=memory_path, today=today, raw=ctx.raw_excerpts,
+                               can_note=ctx.can("cicada_note_progress"), can_detail=ctx.can("cicada_recall_detail"))
+
+
 def write_claim(
     ctx: ToolContext,
     subject: str,

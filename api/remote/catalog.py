@@ -34,6 +34,7 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_get_perspective": "read",
     "cicada_check_nudges": "read",
     "cicada_timeline": "read",
+    "cicada_project": "read",
     "cicada_save_episode": "record",
     "cicada_write_claim": "record",
     "cicada_retract_claim": "record",
@@ -47,7 +48,8 @@ NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_rep
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_write_claim", "cicada_retract_claim",
                          "cicada_save_url", "cicada_record_watch"})
 READ_TOOLS = frozenset({"cicada_recall", "cicada_open_hub", "cicada_recall_detail", "cicada_get_perspective",
-                        "cicada_check_nudges", "cicada_timeline", "cicada_sources", "cicada_ask"})
+                        "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources",
+                        "cicada_ask"})
 
 TOKEN_RE = re.compile(r"^cic_rc_([a-z0-9]{8})_([A-Za-z0-9_-]{43})$")
 PRM_PATH = "/.well-known/oauth-protected-resource"

@@ -25,7 +25,9 @@ blocked on a projection.
 
 Privacy: everything in the now-view is already in ``_state.md`` (ids, names
 on entity pages, one-liners, conversation titles, counts, enums — never
-claim text, never a transcript line, never a key or an account). The ledger
+claim text, except ``now.text``, one clipped happening sentence per project
+(G141), whose person-verbatim form never reaches a remote primer without
+``sources``; never a transcript line, never a key or an account). The ledger
 row ``record`` writes is ids/enums only (R14).
 """
 
@@ -49,7 +51,8 @@ from api.services.auth import cicada_home
 # recall_detail(entity_id) (R12).
 # 4: capability lines for installed bridge skills (G138) — bumped past
 # G140's 3 at the merge, so neither side's cached 3 is ever served.
-CONTRACT_VERSION = 4
+# 5: G141 — cicada_project named; project rows carry now/next.
+CONTRACT_VERSION = 5
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -61,7 +64,9 @@ VARIANTS = ("claude-code", "codex", "generic")
 REMOTE_VARIANT = "remote"
 # 2: G140 — timeline, record_watch, expected_end and retract named;
 # recall_detail(entity_id) (R12).
-REMOTE_CONTRACT_VERSION = 2
+# 3: G141 — cicada_project named (read scope); project rows carry now/next,
+# a person-verbatim `now` shown as "a note of yours" without `sources`.
+REMOTE_CONTRACT_VERSION = 3
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -95,6 +100,7 @@ def _remote_contract(tools: frozenset[str]) -> str:
         ("cicada_recall_detail", "`cicada_recall_detail(entity_id)` for a page"),
         ("cicada_ask", "`cicada_ask` for a direct factual question"),
         ("cicada_timeline", "`cicada_timeline(since)` for what changed recently"),
+        ("cicada_project", "`cicada_project(project)` for where a project stands"),
     ) if tool in tools]
     if reads:
         items.append("Recall first: " + ", ".join(reads) + ". State only what the tools returned.")
@@ -192,7 +198,7 @@ _CONTRACT = (
     "## Contract\n"
     "1. Recall first: `cicada_recall(query)` at the start of a topic, `cicada_recall_detail(entity_id)` for a "
     "page, `cicada_ask` for a direct factual question, `cicada_timeline(since)` for what changed recently. State "
-    "only what the tools returned.\n"
+    "only what the tools returned. Ask where a project stands with `cicada_project(project)`.\n"
     "2. After `cicada_recall`, call `cicada_check_nudges(entity_ids=<recall ids>)`; at most one question per "
     "turn, after the user's request is done; quote the Cause line and lead with the Recommended option when the "
     "item shows them; never a blocking question at the end of an unrelated turn; "
@@ -273,7 +279,7 @@ def _holds_read_scope(tools: frozenset[str]) -> bool:
 
 
 def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str | None = None,
-               personal: bool = True) -> str:
+               personal: bool = True, raw: bool = True) -> str:
     """``remote`` (G135 R-R15) drops what a caller off this Mac must not see
     or cannot act on: the `GET /state` hint (a loopback endpoint) and every
     repo path. Repo paths never leave the Mac. Stdio output is unchanged.
@@ -291,7 +297,12 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
     *Long-standing* and *In focus*. The id itself stays — every write needs a
     subject. Projects, people ids and conversation titles predate G140 and
     reach such a connection too; that older exposure is recorded in G135's
-    open list rather than silently changed here."""
+    open list rather than silently changed here.
+
+    ``raw`` (G141 R-PJ23, R-PJB18): whether a remote caller holds
+    ``cicada_sources``. Without it a project's ``now`` that is the person's
+    own words (``verbatim``) reads "a note of yours" — the same line the
+    ``sources`` scope draws for every other verbatim word of theirs."""
     tz_line = f"- Their timezone: {tz}." if tz and personal else None
     if state is None and remote:
         head = f"## Now\n- Bank `{bank}` has no now-view yet; the contract above still applies."
@@ -335,7 +346,14 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
             for r in p.get("repos", []) or [] if r.get("state") == "ok"
         )
         tail = f" — {p['one_liner']}" if p.get("one_liner") else ""
-        lines.append(f"  - `{p['id']}` {p['name']}{tail}" + (f" [{repos}]" if repos else ""))
+        cursor = ""
+        now = p.get("now")
+        if now:
+            text = "a note of yours" if (remote and now.get("verbatim") and not raw) else now["text"]
+            cursor += f" · now: {text} (since {now['since']})"
+        if p.get("next"):
+            cursor += f" · next: {p['next']['name']}, {p['next'].get('target') or 'no date'}"
+        lines.append(f"  - `{p['id']}` {p['name']}{tail}{cursor}" + (f" [{repos}]" if repos else ""))
     focus = (state.get("focus") or []) if personal else []
     if focus:
         lines.append(f"- In focus (last {state_dictionary.FOCUS_WINDOW_DAYS} days): "
@@ -370,6 +388,11 @@ def _fit(assemble, state: dict | None) -> str:
         text = assemble(slim)
         if len(text) // 4 <= MAX_TOKENS:
             return text
+    # G141 §10.3: the slim path drops `now:` before it drops anything of a project.
+    slim["projects"] = [{k: v for k, v in p.items() if k != "now"} for p in slim.get("projects", []) or []]
+    text = assemble(slim)
+    if len(text) // 4 <= MAX_TOKENS:
+        return text
     slim["projects"] = [{**p, "one_liner": ""} for p in slim.get("projects", []) or []]
     text = assemble(slim)
     if len(text) // 4 <= MAX_TOKENS:
@@ -409,9 +432,10 @@ def build_remote(state: dict | None, *, tools: frozenset[str], bank: str, tz: st
     ``_holds_read_scope``)."""
     tools = frozenset(tools)
     personal = _holds_read_scope(tools)
+    raw = "cicada_sources" in tools
     return _fit(lambda st: "\n\n".join([
         _WHAT, _REMOTE_PRELUDE, _remote_contract(tools),
-        _now_block(st, bank, remote=True, tz=tz, personal=personal),
+        _now_block(st, bank, remote=True, tz=tz, personal=personal, raw=raw),
         _remote_capabilities(tools)]), state)
 
 

@@ -84,3 +84,10 @@ def test_the_parser_reads_nested_and_alternative_arguments():
     assert _args("subject, evidence=[{episode, quote}], sources=[url]") == ["subject", "evidence", "sources"]
     assert _args("entity_id|path") == ["entity_id", "path"] and _args("'projects'") == []
     assert _args("entity_ids=<recall ids>") == ["entity_ids"]
+
+
+@pytest.mark.parametrize("scopes", SUBSETS, ids=lambda s: "+".join(sorted(s)))
+def test_the_project_sentence_appears_only_with_the_tool(scopes):
+    tools = catalog.tool_names_for(scopes)
+    text = handshake.build_remote(None, tools=tools, bank="memory")
+    assert ("cicada_project(" in text) == ("cicada_project" in tools)

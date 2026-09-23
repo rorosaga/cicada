@@ -913,6 +913,29 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
         partial=bank.partial)
 
 
+def now_next(memory_path: Path, project_id: str) -> tuple[dict | None, dict | None]:
+    """`_state.md` v3's two cursor fields (G53, G141 §10.3) — pure functions of
+    the claims; neither reads today (the file's `inputs_version` would not
+    notice a day passing, so a today-dependent field would go stale silently).
+    `now` is the newest open `ongoing` happening in the tree (PJ-3; absent
+    before it); `next` the open planned milestone with the earliest target
+    (`project_state.next_slug`, overdue or upcoming alike). A light path: one
+    tree and its milestones — no moments, no cluster, no FTS."""
+    bank = _Bank(memory_path, None)
+    if bank.type_of(project_id) != "project" or not bank.live(project_id):
+        return None, None
+    tree, _ = _tree(bank, project_id)
+    milestones = _milestones(bank, tree)
+    slug = project_state.next_slug([m.model_dump(by_alias=True) for m in milestones])
+    nxt = next(({"slug": m.slug, "name": m.name, "target": m.target} for m in milestones if m.slug == slug), None)
+    return _now_thread(bank, tree), nxt
+
+
+def _now_thread(bank: _Bank, tree: list[str]) -> dict | None:
+    """T5 (PJ-3): the event layer fills this — no happening exists before it."""
+    return None
+
+
 def _payload_claim(payload: dict) -> Claim | None:
     """An FTS claim payload as a Claim thin enough for `_anchor` — the list
     never opens a member page (R-PJB19)."""

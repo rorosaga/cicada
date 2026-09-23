@@ -384,13 +384,19 @@ Sleep's tail" gets swept into the next `git add -A` writer's commit under the wr
 G85-class smear. `sleep.next_at` is computed per request, never persisted: in the file it advanced
 every day and made every idle night commit.
 
+**`_state.md` schema v3 (G141):** each of the top 7 project rows gains `next: {slug, name, target}`
+and, once happenings exist, `now: {claim, text ≤ 80, since, verbatim?}` — the first claim text the
+file holds; `verbatim` marks the person's own Log sentence, which a remote primer shows as 'a note of
+yours' without `sources`. Neither field depends on today, and `_fit` drops every `now` before it
+drops a project.
+
 **The handshake** (`api/services/handshake.py`) turns `_state.md` + a fixed contract into ≤ 1,800
 tokens of primer: what Cicada is, a per-harness prelude (the contract never varies), the contract
 itself, the now-view, and capability notes. The now-view is **Standing** — the person's page and
 one-liner (through G117's resolver), their timezone (per request, never in `_state.md`, part of the
 cache key), *How to work with me* (standing `skill` pages by confidence alone), long-standing
-durable/evergreen pages — then **Current** — projects, pages in focus in the last 14 days, people,
-recent conversations (G140, schema v2). A test holds R12 for every argument either primer names, for
+durable/evergreen pages — then **Current** — projects, each project with its `now`/`next` (G141),
+pages in focus in the last 14 days, people, recent conversations (G140, schema v2). A test holds R12 for every argument either primer names, for
 every remote scope set. Delivered three ways — the MCP `initialize` result's
 `instructions`, the `cicada_handshake` tool, and `GET /handshake`. **R12: a primer naming an
 argument the schema rejects is a bug** — every argument it names must exist in the tool schema.
@@ -510,7 +516,11 @@ subject — so an alias or a relationship label reaches its page. The top three 
 answers "what changed" from the commit manifests on demand — ids and counts only, nothing stored,
 `read` scope remotely. **`cicada_record_watch`** records what an agent's own tools saw in a saved
 video — a summary and ≤ 12 timestamped quotes as `media` spans; Cicada never downloads or watches a
-video, and never keeps a transcript.
+video, and never keeps a transcript. **`cicada_project(project, since?, tz?)`** (G141 PJ-2, `read`
+scope remotely) answers where a project stands — next milestones, what passed with no word, the Sleep
+queue, what happened and what is around it — from the engine-free read model, printing every relative
+word beside its absolute date ("yesterday (2026-09-22)"); a quote of the person's words needs
+`sources` remotely.
 
 **Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
 clarification naturally in the flow when the conversation touches its entity, and offer related

@@ -21,7 +21,10 @@ Three rails, each from a review that cost something:
 * **Never persisted: ``resumable`` (G48) or anything not already on a page.**
   Conversations carry id/harness/title/last_seen/episode_count; the API adds
   ``resumable`` per request. No transcript content, no claim text, no secret
-  (engine *model names* and connection *ids* only).
+  (engine *model names* and connection *ids* only). One amendment (G141
+  §10.3, R-PJB18): a project row's ``now.text`` is one clipped happening
+  sentence, and ``verbatim`` marks the person's own words so a remote primer
+  can withhold them without ``sources``.
 
 The file is a projection, never a source of truth: a reader that finds it
 stale (``generated_at``) must still work, and every field has a live twin
@@ -73,7 +76,9 @@ STATE_FILENAME = "_state.md"
 # 2: G140 Q-R13 — `standing`, `focus` and `owner_one_liner`; `preferences`
 # re-ranked by confidence alone. A v1 file still renders (the handshake
 # reads every new key with `.get`).
-SCHEMA_VERSION = 2
+# 3: G141 §10.3 — each project row gains `next` (and `now` once PJ-3 writes
+# happenings); both absolute, neither today-dependent.
+SCHEMA_VERSION = 3
 # R10: the handshake primer that embeds this file is budgeted at ~1,800
 # tokens; 6 KiB of cursor leaves room for the contract text around it.
 MAX_BYTES = 6 * 1024
@@ -480,14 +485,30 @@ def build(
     # a test can monkeypatch `REPO_BUDGET_S` to 0.0 and probe nothing.
     budget = [float(REPO_BUDGET_S if repo_budget_s is None else repo_budget_s)]
 
+    # Imported here, not at module load: the handshake imports this module on
+    # every connect, and must never pull the project read model in with it.
+    from api.services import project_timeline
+
     projects = []
     for f in _ranked(memory_path, "project", today, _limit(settings, "state_projects")):
-        projects.append({
+        row = {
             "id": f.stem, "name": _name(f), "one_liner": _one_liner(f),
             "confidence": round(float(f.frontmatter.get("confidence", 0.5) or 0.0), 2),
             "last_referenced": str(f.frontmatter.get("last_referenced") or "")[:10] or None,
             "repos": _repo_blocks(f.frontmatter.get("repos") or [], resolver=resolver, budget=budget, previous=prev_repos),
-        })
+        }
+        # G141 §10.3: the cursor's two project fields, absolute and read
+        # without today, so an idle night still renders byte-identically (R1).
+        try:
+            now_row, next_row = project_timeline.now_next(memory_path, f.stem)
+        except Exception as exc:  # noqa: BLE001 — a cursor field is never worth a failed state file
+            logger.warning(f"_state.md project cursor skipped: {type(exc).__name__}")
+            now_row = next_row = None
+        if now_row:
+            row["now"] = now_row
+        if next_row:
+            row["next"] = next_row
+        projects.append(row)
     people = [{"id": f.stem, "name": _name(f), "one_liner": _one_liner(f),
                "last_referenced": str(f.frontmatter.get("last_referenced") or "")[:10] or None}
               for f in _ranked(memory_path, "person", today, _limit(settings, "state_people"))]
@@ -544,7 +565,8 @@ def render_body(fm: dict) -> str:
             if r.get("state") == "ok" else f"{r['path']} ({r.get('state')})" for r in p.get("repos", [])
         )
         tail = f" — {p['one_liner']}" if p.get("one_liner") else ""
-        lines.append(f"- [[{p['name']}]] (`{p['id']}`){tail}" + (f" — repo: {repo_bits}" if repo_bits else ""))
+        lines.append(f"- [[{p['name']}]] (`{p['id']}`){tail}{_cursor(p)}"
+                     + (f" — repo: {repo_bits}" if repo_bits else ""))
     if not fm["projects"]:
         lines.append("- (no active projects yet)")
     lines += ["", f"## In focus (last {FOCUS_WINDOW_DAYS} days)"]
@@ -563,6 +585,18 @@ def render_body(fm: dict) -> str:
               "- This file is a cursor: open `entities/<id>.md` (or `cicada_recall_detail`) for the page; `_index.md` is the map.",
               "- Never edit entity files directly — write through `cicada_write_claim` / `cicada_save_episode`."]
     return "\n".join(lines)
+
+
+def _cursor(p: dict) -> str:
+    """` · now: … (since D) · next: N, D` — absolute only (G141 §10.3): a
+    relative word here would be wrong by the next morning, and the file only
+    rebuilds when its inputs change."""
+    bits = []
+    if p.get("now"):
+        bits.append(f"now: {p['now']['text']} (since {p['now']['since']})")
+    if p.get("next"):
+        bits.append(f"next: {p['next']['name']}, {p['next'].get('target') or 'no date'}")
+    return "".join(f" · {b}" for b in bits)
 
 
 def render(fm: dict, body: str) -> str:
@@ -585,6 +619,11 @@ def _fit(fm: dict) -> None:
     # late, and projects last (R10's reason stands: the projects list is what
     # a cursor exists for).
     for key in ("people", "focus", "standing", "conversations", "preferences", "projects"):
+        if key == "projects" and size() > MAX_BYTES:
+            # G141 §10.3: every project's `now` (its one claim sentence) goes
+            # first, so a project is never dropped while a `now` survives.
+            for p in fm.get("projects") or []:
+                p.pop("now", None)
         while fm.get(key) and size() > MAX_BYTES:
             fm[key].pop()
 
