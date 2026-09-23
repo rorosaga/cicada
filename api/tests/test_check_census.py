@@ -31,13 +31,13 @@ def test_a_fresh_demo_banks_census(demo):
     """inbox-003 (works-at, the person's example.com source, access unverified);
     inbox-005 (a clarification with no page); two decays; the `uses` conflict;
     the merge suggestion's subject has no page, so it is not served; and G141
-    PJ-6's one follow-up (the quiet camera thread), a kind the S2 table does not
-    rank, so it is never checked."""
+    PJ-6's one follow-up (the quiet camera thread): only the person knows how it
+    went, so it is never checked (person_locus)."""
     c = source_check.census(demo)
     assert c["total"] == 6 and c["deferred"] == 0
     assert c["by_state"] == {"checkable": 1, "needs_source": 1, "inform_only": 0, "never": 4}
     assert c["by_reason"] == {"checkable/access_unverified": 1, "needs_source/no_source": 1,
-                              "never/informational": 1, "never/not_a_question": 2, "never/unknown_kind": 1}
+                              "never/informational": 1, "never/not_a_question": 2, "never/person_locus": 1}
     assert c["by_rung"] == {"fetch": 1, "agent": 1, "agent_local": 0}
     assert c["targets_by_access"] == {"public": 0, "signed_in": 0, "local": 0, "unknown": 1}
     assert c["settle_eligible"] == 0 and c["checkable_share"] == 0.167
