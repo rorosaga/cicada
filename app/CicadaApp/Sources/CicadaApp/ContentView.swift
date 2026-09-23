@@ -255,13 +255,13 @@ struct ContentView: View {
                 withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .sources }
             }
         case .conversation(let target):
-            // Seam (R-SU18 → Track P, P6): the Reader opens `target.span` here
-            // once `ProvenanceRouter` lands; until then its own source lists it,
-            // filtered to its title.
-            openFind(.conversations(harness: target.harness, origin: target.origin, query: target.title))
-        case .evidence:
-            // Produced only when `FindReaderSeam.isAvailable` (R-SU18).
-            break
+            // R-SU18 — the Reader lands on the best passage; the source's own
+            // list, filtered to the title, stays one ⌥⏎ away (`.conversations`).
+            provenance.open(FindReaderRoute.target(for: target.span, title: target.title, harness: target.harness))
+        case .evidence(let span):
+            // A belief's "where it was said" (R-SU18); offered only while
+            // `FindReaderSeam.isAvailable`.
+            provenance.open(FindReaderRoute.target(for: span))
         case .inbox(let id):
             router.pendingInboxItem = id
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .inbox }

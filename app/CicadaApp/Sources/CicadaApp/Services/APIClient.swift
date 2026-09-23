@@ -1913,6 +1913,18 @@ actor APIClient {
         return resp.results
     }
 
+    /// G136 — the ⌘K palette's server tier (`GET /search`, "The wire" in the
+    /// search-backend plan). `mode=prefix` is FTS only and never embeds;
+    /// `hybrid` adds the stored vectors. The query is percent-encoded the way
+    /// `fetchRecentConversations` encodes its filters, and it goes nowhere
+    /// else — no log, no cache, no telemetry (design §3.8).
+    func searchMemory(_ query: String, kinds: [String], mode: String, perKind: Int) async throws -> MemorySearchResponse {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        let q = query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query
+        return try await get("/search?q=\(q)&kinds=\(kinds.joined(separator: ","))&mode=\(mode)&per_kind=\(perKind)")
+    }
+
     // MARK: - Sleep
 
     func fetchSleepStatus() async throws -> SleepStatusResponse {
