@@ -7,8 +7,12 @@ plus ``enrich-links``, the on-demand twin of the Sleep-tail link backfill
 """
 import asyncio
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
@@ -17,7 +21,9 @@ from api.models.schemas import (
     MaintenanceEnrichLinksResponse,
     MaintenanceMergePair,
     MaintenanceNudgePair,
+    SearchIndexStatus,
 )
+from api.services import search_index
 from api.services.dedup_sweep import dedup_sweep
 
 router = APIRouter()
@@ -119,3 +125,51 @@ async def run_enrich_links(
                 engine=engine,
             )
     return MaintenanceEnrichLinksResponse(**report.as_dict(), engine=engine, engine_detail=why)
+
+
+# --- Search index (G139, Settings → Memory) ----------------------------------
+
+# One rebuild per process, for the reason `_enrich_lock` exists: two
+# overlapping rebuilds would each drop and refill the same tables.
+_index_lock = asyncio.Lock()
+
+
+def _built_at(memory_path: Path) -> str | None:
+    db = search_index.db_path(memory_path)
+    if not db.exists():
+        return None
+    return datetime.fromtimestamp(db.stat().st_mtime, tz=timezone.utc).isoformat()
+
+
+@router.get("/maintenance/search-index", response_model=SearchIndexStatus)
+async def search_index_status(settings: Settings = Depends(get_settings)):
+    """Settings → Memory (G139): how fresh the derived FTS5 index is. Deleting
+    or rebuilding it costs CPU, never a fact (TODO ruling 3). The same
+    `ensure_fresh` every read path calls, so asking may start the catch-up."""
+    memory_path = settings.memory_path
+    state = await run_in_threadpool(search_index.ensure_fresh, memory_path)
+    return SearchIndexStatus(state=state, built_at=_built_at(memory_path))
+
+
+@router.post("/maintenance/search-index/rebuild", response_model=SearchIndexStatus)
+async def rebuild_search_index(settings: Settings = Depends(get_settings)):
+    """Rebuild the derived index now. 409 while a Sleep cycle runs (it rebuilds
+    the same file) or while another rebuild runs; a failure is a plain 503 —
+    search keeps working from the frontmatter cache (G136)."""
+    from api.services import sleep_cycle
+
+    if _index_lock.locked():
+        raise HTTPException(409, "A rebuild is already running.")
+    if sleep_cycle.get_sleep_state().status == "running":
+        raise HTTPException(409, "A Sleep cycle is running and rebuilds the index itself.")
+    # Resolved once: a bank switch mid-rebuild must not make the status below
+    # describe a different bank than the one just rebuilt (the split-brain rule).
+    memory_path = settings.memory_path
+    async with _index_lock:
+        try:
+            documents = await run_in_threadpool(search_index.rebuild, memory_path)
+        except Exception as exc:  # noqa: BLE001 — the reason is logged by class, never sent
+            logger.warning(f"search index rebuild failed ({type(exc).__name__})")
+            raise HTTPException(503, "The search index couldn't be rebuilt. Search still works from your pages.")
+    state = await run_in_threadpool(search_index.ensure_fresh, memory_path)
+    return SearchIndexStatus(state=state, built_at=_built_at(memory_path), documents=documents)

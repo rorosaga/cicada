@@ -1333,6 +1333,13 @@ class StatusEpisodes(CamelModel):
     last_ingested_at: Optional[str] = None
 
 
+class StatusGates(CamelModel):
+    """G139 — the three outbound gates, booleans only (R-O21)."""
+    connector_fetch: bool = True
+    feed_fetch: bool = False
+    logo_fetch: bool = True
+
+
 class StatusResponse(CamelModel):
     sleep: StatusSleep
     inbox: StatusInbox
@@ -1340,6 +1347,11 @@ class StatusResponse(CamelModel):
     last_sleep_at: Optional[str] = None
     next_sleep_at: Optional[str] = None
     connections: Optional["StatusConnections"] = None
+    # G139 — facts about this backend that name nothing: whether the usage
+    # ledger records, the outbound gates, and which env switches are set (names).
+    telemetry: Optional[str] = None
+    gates: Optional[StatusGates] = None
+    env_overrides: list[str] = []
 
 
 # --- Health (liveness probe for installer / doctor) ---
@@ -1697,11 +1709,28 @@ class BankInfo(CamelModel):
     episode_count: int = 0
     created_at: str = ""
     description: str = ""
+    # G139 R-O18 — the in-place bank that IS the memory folder; the app hides
+    # it from Delete (the server refuses it too, 409).
+    legacy: bool = False
 
 
 class BankListResponse(CamelModel):
     banks: list[BankInfo] = []
     active: str = ""
+
+
+class BankTrashResponse(BankListResponse):
+    """G139 — the roster after a delete, and where the bank went, relative to
+    the memory folder (never an absolute path on the wire)."""
+    trashed_to: str = ""
+
+
+class SearchIndexStatus(CamelModel):
+    """G139 — Settings → Memory's search-index row. `state` is
+    `search_index.ensure_fresh`'s own word."""
+    state: str
+    built_at: Optional[str] = None
+    documents: Optional[int] = None
 
 
 class BankCreateRequest(CamelModel):
