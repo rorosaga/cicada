@@ -155,8 +155,9 @@ Everything about *what to do next and why* lives in one place:
 > reasoning for its order. Workflow agents run on sonnet/haiku unless the owner says otherwise for a
 > session (round 2 ran on opus with that permission); the orchestrator plans, verifies and merges.
 
-The queue there, in order: **G118 slice 2** (the provenance viewer — slice 1's spans and slice 2's
-read routes are server-side; nothing renders them yet) → **G93** (cross-stream ask). Then the bigger
+The queue there, in order: **G118 slice 2** (server merged PR #72; the app is built on
+`feat/provenance-ui` and awaits the live check and merge; P6 rides Track S — drop this from the
+queue once it merges) → **G93** (cross-stream ask). Then the bigger
 rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a build. Before
 any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 from the **demo** bank
 (Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the

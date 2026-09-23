@@ -100,6 +100,22 @@ final class ProvenanceRouterTests: XCTestCase {
         XCTAssertEqual(api.spanCalls, 1)
     }
 
+    func testForgettingSpansRefetchesThemButKeepsTheDocumentsValidator() async {
+        // Final review — `/span` has no ETag but its stale/grown flags are
+        // per request, so a bank change must drop the previews; documents
+        // already revalidate and keep their last-known-good copy.
+        let api = FakeProvenanceAPI()
+        let cache = ProvenanceCache(api: api)
+        let ev = Evidence(episode: "ep_1", start: 1, end: 2, kind: .user, hash: "h")
+        _ = await cache.span(ev)
+        _ = await cache.document(episode: "ep_1", focus: .none)
+        cache.forgetSpans()
+        _ = await cache.span(ev)
+        XCTAssertEqual(api.spanCalls, 2, "a rewritten episode's preview is asked again, not served stale")
+        _ = await cache.document(episode: "ep_1", focus: .none)
+        XCTAssertEqual(api.lastTextETag, "\"v1\"", "documents are untouched — they revalidate by ETag")
+    }
+
     func testADocumentRevalidatesWithItsETagAndKeepsTheValueOnA304() async {
         let api = FakeProvenanceAPI()
         let cache = ProvenanceCache(api: api)

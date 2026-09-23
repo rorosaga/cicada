@@ -102,6 +102,15 @@ struct ContentView: View {
             provenance.close()
             provenanceCache.reset()
         }
+        // A cached hover preview has no validator, so any change to the
+        // bank's episodes or entities forgets them (final review): `/inbox`
+        // ETags over inbox + entities + episodes, so its snapshot landing a
+        // new value is the one Store signal that covers an episode rewritten
+        // in place (G104) as well as a page re-enriched; the graph covers
+        // entities on its own. A 304 leaves `loadedAt` alone, so an idle
+        // sync never empties the cache.
+        .onChange(of: store.inbox.loadedAt) { _, _ in provenanceCache.forgetSpans() }
+        .onChange(of: store.graph.loadedAt) { _, _ in provenanceCache.forgetSpans() }
         .onChange(of: store.banks.loadedAt) { _, _ in evaluateFirstRun() }
         .onChange(of: store.graph.loadedAt) { _, _ in evaluateFirstRun() }
         .onChange(of: selectedTab) { _, newValue in

@@ -99,8 +99,21 @@ final class ProvenanceCache {
         citationSets = LRUCache(capacity: Self.citationsCapacity)
     }
 
+    /// Forget the hover previews only — called whenever the bank's episodes or
+    /// entities change (`ContentView`, final review). A `/span` payload has no
+    /// ETag, yet its `stale`/`grown` flags are computed by the server per
+    /// request: after a G104 in-place rewrite, a page re-enrich or a re-synced
+    /// file, a span cached before the change would keep washing the old words
+    /// under "Quoted by the contributor" until relaunch — the stale-highlight
+    /// case §4.9 and `classify` rule out. Documents, provenance and citations
+    /// need no such hook: they revalidate by ETag on every ask.
+    func forgetSpans() {
+        spans = LRUCache(capacity: Self.spanCapacity)
+    }
+
     /// The hover preview's words. No ETag by design (slice-1 R9), so a hit is
-    /// served from memory without a request.
+    /// served from memory without a request — until `forgetSpans()`, which a
+    /// change to the bank's episodes or entities triggers.
     func span(_ ev: Evidence) async -> ProvenanceLoad<EpisodeSpan> {
         let key = SpanKey(episode: ev.episode, start: ev.start, end: ev.end, hash: ev.hash)
         if let hit = spans.get(key) { return .loaded(hit) }

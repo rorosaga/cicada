@@ -67,6 +67,74 @@ final class ReaderTurnsTests: XCTestCase {
         XCTAssertEqual(out[1].washes, [ReaderWash(range: 0..<4, style: .focus)])
     }
 
+    // MARK: A long turn is cut into chunks (final review)
+
+    /// One 50K-scalar turn with no markers: a note, or a file with no
+    /// headings. Lines are 40 scalars ("alpha-project line 00000 …\n").
+    private func longTurn(scalars: Int = 50_000) -> EpisodeText {
+        var text = ""
+        var n = 0
+        while text.unicodeScalars.count < scalars {
+            text += "alpha-project line " + String(format: "%05d", n) + " bob-example ok\n"
+            n += 1
+        }
+        let count = text.unicodeScalars.count
+        return EpisodeText(episode: "ep_2026-09-03_009", text: text, title: "A long note",
+                           turns: [EpisodeTurn(index: 1, start: 0, contentStart: 0, end: count, role: "user",
+                                               marker: "user")])
+    }
+
+    func testALongTurnIsCutIntoChunksOnLineBreaksThatLoseNoWords() {
+        let doc = longTurn()
+        let out = blocks(doc, focus: nil)
+        XCTAssertGreaterThan(out.count, 1, "one Text per 400K turn froze the main thread for 11 s")
+        XCTAssertTrue(out.allSatisfy { $0.text.unicodeScalars.count <= ReaderLayout.chunkLimit })
+        XCTAssertEqual(out.map(\.chunk), Array(0..<out.count))
+        XCTAssertEqual(Set(out.map(\.index)), [1], "every chunk belongs to the one turn")
+        XCTAssertEqual(out.filter(\.startsTurn).count, 1, "the speaker line is drawn once")
+        XCTAssertEqual(Set(out.map(\.id)).count, out.count, "each chunk is its own scroll and rotor target")
+        // Each cut drops exactly the "\n" it was made on, so the pieces joined
+        // by line breaks are the document again, and every chunk's own
+        // offsets point at its own words.
+        XCTAssertEqual(out.map(\.text).joined(separator: "\n"), doc.text)
+        let scalars = ScalarText(doc.text)
+        for block in out {
+            XCTAssertEqual(scalars.slice(block.contentStart, block.contentStart + block.text.unicodeScalars.count),
+                           block.text)
+        }
+        for block in out.dropLast() {
+            XCTAssertFalse(block.text.hasSuffix("\n"), "a break at a cut would draw a blank line")
+        }
+    }
+
+    func testAWashAcrossAChunkBoundaryIsSplitIntoTwoLocalRanges() {
+        let doc = longTurn()
+        let first = blocks(doc, focus: nil)
+        let boundary = first[1].contentStart   // one past the dropped "\n"
+        let out = blocks(doc, focus: (boundary - 11)..<(boundary + 5))
+        let firstLength = out[0].text.unicodeScalars.count
+        XCTAssertEqual(out[0].washes, [ReaderWash(range: (firstLength - 10)..<firstLength, style: .focus)],
+                       "the tail of chunk 0, in chunk 0's own offsets")
+        XCTAssertEqual(out[1].washes, [ReaderWash(range: 0..<5, style: .focus)],
+                       "the head of chunk 1, in chunk 1's own offsets")
+        XCTAssertTrue(out[2...].allSatisfy(\.washes.isEmpty))
+        XCTAssertEqual(ReaderLayout.blockID(containing: boundary + 2, in: out), out[1].id,
+                       "landing addresses the chunk that holds the words")
+    }
+
+    func testAHardCutNeverTearsACombiningMarkFromItsLetter() {
+        // No line break or space anywhere: "é" as e + U+0301, repeated.
+        let text = String(repeating: "e\u{0301}", count: 3_000)
+        let scalars = ScalarText(text)
+        let cuts = ReaderLayout.chunks(0..<scalars.count, in: scalars)
+        XCTAssertGreaterThan(cuts.count, 1)
+        XCTAssertEqual(cuts.map(\.count).reduce(0, +), scalars.count, "a hard cut drops nothing")
+        for cut in cuts.dropFirst() {
+            XCTAssertFalse(scalars.scalars[cut.lowerBound].properties.isGraphemeExtend,
+                           "a chunk never opens on a combining mark")
+        }
+    }
+
     // MARK: Times — shown only when stored
 
     func testATimeIsShownOnlyWhenTheEpisodeStoresOne() {

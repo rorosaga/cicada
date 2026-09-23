@@ -223,7 +223,11 @@ struct ReaderInspector: View {
         let blocks = ReaderLayout.blocks(doc: doc, scalars: scalars, focus: presentation.focus,
                                          focusStyle: presentation.focusStyle,
                                          others: stops.filter { $0 != presentation.focus })
-        let landingBlock = presentation.landing.flatMap { ReaderLayout.blockIndex(containing: $0, in: blocks) }
+        let landingBlock = presentation.landing.flatMap { ReaderLayout.blockID(containing: $0, in: blocks) }
+        // One rotor stop per cited turn, even when the words straddle two of
+        // its chunks — the rotor names turns, not layout pieces.
+        var citedTurns = Set<Int>()
+        let citedBlocks = blocks.filter { $0.holdsFocus && citedTurns.insert($0.index).inserted }
         return ScrollViewReader { proxy in
             VStack(alignment: .leading, spacing: 0) {
                 // Pinned ABOVE the text, never inside it: landing scrolls the
@@ -238,31 +242,38 @@ struct ReaderInspector: View {
                     Divider().background(CicadaTheme.border)
                 }
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                    // Spacing 0 so a long turn's chunks (`ReaderLayout.chunks`)
+                    // read on as one text; the gap goes between turns instead.
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(presentation.banners, id: \.self) { banner in
                             ReaderBannerView(banner: banner)
+                                .padding(.bottom, CicadaTheme.spacingMD)
                         }
                         if blocks.isEmpty {
                             message(Copy.Provenance.empty, icon: "text.bubble")
                         }
                         ForEach(blocks) { block in
-                            ReaderTurnView(block: block, isLanding: block.index == landingBlock,
+                            // The landing TURN reads in the primary colour, all
+                            // of its chunks, not just the one scrolled to.
+                            ReaderTurnView(block: block, isLanding: block.index == landingBlock?.turn,
                                            revealed: washVisible)
-                                .id(block.index)
+                                .padding(.top, block.startsTurn && block.id != blocks.first?.id
+                                         ? CicadaTheme.spacingMD : 0)
+                                .id(block.id)
                         }
                     }
                     .padding(CicadaTheme.spacingMD)
                 }
                 .accessibilityRotor("Cited passages") {
-                    ForEach(blocks.filter(\.holdsFocus)) { block in
+                    ForEach(citedBlocks) { block in
                         AccessibilityRotorEntry(Text("\(block.speaker), \(Copy.Provenance.turn(block.index))"),
-                                                id: block.index)
+                                                id: block.id)
                     }
                 }
                 .accessibilityRotor("Turns") {
-                    ForEach(blocks) { block in
+                    ForEach(blocks.filter(\.startsTurn)) { block in
                         AccessibilityRotorEntry(Text("\(block.speaker), \(Copy.Provenance.turn(block.index))"),
-                                                id: block.index)
+                                                id: block.id)
                     }
                 }
                 .onChange(of: landingToken, initial: true) { _, _ in
@@ -399,12 +410,15 @@ struct ReaderInspector: View {
 
     /// Scroll to the cited turn after the first layout, fade the wash in over
     /// `spanReveal`, then say what was landed on (§4.4 Landing).
-    private func land(proxy: ScrollViewProxy, block: Int?, blocks: [ReaderBlock],
+    private func land(proxy: ScrollViewProxy, block: ReaderBlock.Key?, blocks: [ReaderBlock],
                       presentation: ReaderPresentation) {
         Task { @MainActor in
             await Task.yield()
             if let block { proxy.scrollTo(block, anchor: .center) }
             withAnimation(CicadaMotion.spanReveal(reduceMotion: reduceMotion)) { washVisible = true }
+            // The first block's piece of the words: a chunk holds at least
+            // `chunkLimit / 2` scalars, so the 120 announced almost always sit
+            // in one block, and never read a marker line out loud.
             guard presentation.focus != nil, let hit = blocks.first(where: { $0.holdsFocus }),
                   let wash = hit.washes.first(where: { $0.style != .other }) else { return }
             let words = ScalarText(hit.text).slice(wash.range.lowerBound, wash.range.upperBound)
@@ -423,7 +437,7 @@ struct ReaderTurnView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            if !block.speaker.isEmpty {
+            if block.startsTurn, !block.speaker.isEmpty {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     if let mark = block.mark {
                         OriginMark(origin: mark, size: CicadaTheme.scaled(12))
@@ -455,7 +469,7 @@ struct ReaderTurnView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(block.speaker.isEmpty
+        .accessibilityLabel(block.speaker.isEmpty || !block.startsTurn
                             ? block.text
                             : "\(block.speaker), \(Copy.Provenance.turn(block.index)): \(block.text)")
     }
