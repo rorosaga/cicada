@@ -21,6 +21,13 @@ enum IntakeOrigin: Hashable {
     }
 }
 
+extension IntakeOrigin {
+    /// A door that tells its own outcome — the Sleep room's worm (Track Z
+    /// R-Z10, Z-B6). The router neither raises the overlay nor toasts for a
+    /// refusal or a busy router there: the worm's line says it, once.
+    var answersInPlace: Bool { self == .sleepRoom }
+}
+
 enum IntakeHost: Equatable { case overlay, feedPlus }
 
 enum IntakeTarget: Hashable {
@@ -152,6 +159,42 @@ struct IntakeOutcome: Equatable {
     }
 }
 
+/// What no door may import, whatever the file is (Track Z R-Z10, design §7.4,
+/// Z-B5). Named for the worm that asked for it; enforced at every door,
+/// because the capture rail is not a Sleep-page rule: transcripts under
+/// `~/.claude/` are read by the Stop hook's endpoint and nowhere else, Codex's
+/// home is Codex's, and `~/.cicada` holds the api token, `secrets.env` and the
+/// remote connectors' database — none of it an export, all of it sniffable.
+enum FeedRefusal: String, Equatable, CaseIterable {
+    case claudeSessions, codexSessions, cicadaHome, unreadable
+
+    /// The panel's words — every door but the room, which speaks for itself
+    /// in the worm's voice (Z-B18).
+    var panelText: String {
+        switch self {
+        case .claudeSessions: Copy.intakeRefusedClaude
+        case .codexSessions: Copy.intakeRefusedCodex
+        case .cicadaHome: Copy.intakeRefusedCicada
+        case .unreadable: Copy.intakeNothingReadable
+        }
+    }
+}
+
+/// `accept`'s answer (Z-B6), so a door that speaks for itself can.
+enum IntakeAcceptance: Equatable {
+    case accepted
+    case refused(FeedRefusal)
+    /// An import is still landing; nothing about this drop was read.
+    case busy
+}
+
+/// The guard's verdict: refused, or the files `expand` found — walked once,
+/// and only after every dropped URL cleared the refused roots.
+enum IntakeAdmission: Equatable {
+    case refused(FeedRefusal)
+    case admitted(files: [URL], capped: Bool)
+}
+
 /// The one import seam (R-IA20) — testable with a fake.
 protocol IntakeAPI: Sendable {
     func sniffIntake(fileURL: URL, bank: String?) async throws -> IntakeSniff
@@ -191,9 +234,17 @@ final class IntakeRouter {
     private(set) var isOverlayPresented = false
     private(set) var target: IntakeTarget = .active
     private(set) var inFlight = 0
+    /// A drop target nearer the pointer than the window has the drag (the
+    /// Sleep room, Z-B8): the window's veil steps aside so that target's own
+    /// cue — the worm's open mouth, its outline — is not under the scrim.
+    private(set) var nearerDrop: IntakeOrigin?
 
     @ObservationIgnored private let api: any IntakeAPI
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
+    /// Where the refused roots are resolved from (Z-B5) — injected so
+    /// `FeedGuardTests` runs on a temporary home, never the person's.
+    @ObservationIgnored private let home: URL
+    @ObservationIgnored private let env: [String: String]
     @ObservationIgnored private var store: Store?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -204,9 +255,13 @@ final class IntakeRouter {
     private(set) var sniffedPreview: IntakePreview?
 
     init(api: any IntakeAPI = APIClient.shared,
-         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+         home: URL = FileManager.default.homeDirectoryForCurrentUser,
+         env: [String: String] = ProcessInfo.processInfo.environment) {
         self.api = api
         self.sleep = sleep
+        self.home = home
+        self.env = env
     }
 
     /// Strong, like `BrowserWatcher.store` — the app owns both for its lifetime.
@@ -226,24 +281,47 @@ final class IntakeRouter {
     }
 
     /// Files arrived. Public on purpose: Track Z's Sleep-room worm calls this
-    /// with `.sleepRoom` (design §12 cross-track seam).
-    func accept(urls: [URL], from origin: IntakeOrigin) {
+    /// with `.sleepRoom` (design §12 cross-track seam). Every door passes the
+    /// same guard (Z-B5); the answer lets a door that speaks for itself do so
+    /// (Z-B6) and is discardable everywhere else.
+    @discardableResult
+    func accept(urls: [URL], from origin: IntakeOrigin) -> IntakeAcceptance {
         guard !isImporting else {
-            store?.toast = Copy.intakeBusy
-            return
+            if !origin.answersInPlace { store?.toast = Copy.intakeBusy }
+            return .busy
         }
-        host = origin.host
-        if host == .overlay { isOverlayPresented = true }
-        let expanded = Self.expand(urls)
-        files = expanded.files
-        capped = expanded.capped
-        target = .active
-        guard !files.isEmpty else {
+        switch Self.feedGuard(urls: urls, home: home, env: env) {
+        case .refused(let refusal):
+            guard !origin.answersInPlace else { return .refused(refusal) }
+            host = origin.host
+            if host == .overlay { isOverlayPresented = true }
+            // As the old empty-drop path did: a refused drop resets the Into
+            // picker too (final review, finding 3 — no "New memory" outlives
+            // the drop it was chosen for).
+            target = .active
             generation &+= 1
-            phase = .failed(Copy.intakeNothingReadable)
-            return
+            phase = .failed(refusal.panelText)
+            return .refused(refusal)
+        case .admitted(let found, let wasCapped):
+            host = origin.host
+            if host == .overlay { isOverlayPresented = true }
+            files = found
+            capped = wasCapped
+            target = .active
+            sniff()
+            return .accepted
         }
-        sniff()
+    }
+
+    /// Z-B8 — the room has the drag; the veil yields until it lets go.
+    func claimDrop(_ origin: IntakeOrigin) {
+        if nearerDrop != origin { nearerDrop = origin }
+    }
+
+    /// Only the claimant releases, so a late exit from one target never
+    /// clears another's claim.
+    func releaseDrop(_ origin: IntakeOrigin) {
+        if nearerDrop == origin { nearerDrop = nil }
     }
 
     /// The Into picker (G87). An existing bank re-sniffs, so the delta is that
@@ -375,7 +453,16 @@ final class IntakeRouter {
     /// panel; the counter still owns the flag.
     func commit(urls: [URL], from origin: IntakeOrigin) async -> IntakeOutcome {
         var outcome = IntakeOutcome()
-        for url in Self.expand(urls).files {
+        // The same door as `accept` (Z-B5): a refused root is never walked.
+        let files: [URL]
+        switch Self.feedGuard(urls: urls, home: home, env: env) {
+        case .refused(let refusal):
+            outcome.failures.append(refusal.panelText)
+            return outcome
+        case .admitted(let found, _):
+            files = found
+        }
+        for url in files {
             do {
                 let r = try await tracked { try await api.importIntake(fileURL: url, bank: nil) }
                 if let job = r.job {
@@ -434,9 +521,70 @@ final class IntakeRouter {
         return try await work()
     }
 
+    /// The door (design §7.4, Z-B5). Order matters: a dropped URL under a
+    /// refused root is refused BEFORE `expand` walks it — listing the names in
+    /// `~/.claude/projects` is already more than the capture rail allows. The
+    /// walk of an innocent folder asks about every entry it meets: a folder
+    /// under a refused root is pruned, never descended into (a visible
+    /// `$CLAUDE_CONFIG_DIR` inside a dropped `~`), and a file under one (a
+    /// symlink can point anywhere) is caught the same way; either refuses the
+    /// whole drop. Then a drop with nothing export-shaped in it is refused by
+    /// name. Both sides are compared resolved and component by component
+    /// (`~/.claudette` is not `~/.claude`). Nothing is opened. `walk` is the
+    /// test seam that lets `FeedGuardTests` prove a refused root is never
+    /// walked; production always uses `expand`.
+    nonisolated static func feedGuard(
+        urls: [URL], home: URL, env: [String: String],
+        walk: (_ urls: [URL], _ prune: (URL) -> Bool) -> (files: [URL], capped: Bool)
+            = { IntakeRouter.expand($0, prune: $1) }
+    ) -> IntakeAdmission {
+        let roots = refusedRoots(home: home, env: env)
+        func refusal(_ url: URL) -> FeedRefusal? {
+            let path = resolved(url).pathComponents
+            return roots.first { path.starts(with: $0.components) }?.refusal
+        }
+        if let why = urls.lazy.compactMap(refusal).first { return .refused(why) }
+        var inner: FeedRefusal?
+        let walked = walk(urls) { url in
+            guard let why = refusal(url) else { return false }
+            if inner == nil { inner = why }
+            return true
+        }
+        // `inner` covers everything the walk met; the second look covers a
+        // custom `walk` that ignores `prune` (defence in depth, zero cost).
+        if let why = inner ?? walked.files.lazy.compactMap(refusal).first { return .refused(why) }
+        guard !walked.files.isEmpty else { return .refused(.unreadable) }
+        return .admitted(files: walked.files, capped: walked.capped)
+    }
+
+    /// The three homes and their environment overrides, resolved once per call.
+    nonisolated static func refusedRoots(home: URL, env: [String: String])
+        -> [(components: [String], refusal: FeedRefusal)] {
+        var roots: [(URL, FeedRefusal)] = [
+            (home.appendingPathComponent(".claude"), .claudeSessions),
+            (home.appendingPathComponent(".codex"), .codexSessions),
+            (home.appendingPathComponent(".cicada"), .cicadaHome),
+        ]
+        let overrides: [(String, FeedRefusal)] = [("CLAUDE_CONFIG_DIR", .claudeSessions),
+                                                  ("CODEX_HOME", .codexSessions),
+                                                  ("CICADA_HOME", .cicadaHome)]
+        for (key, refusal) in overrides {
+            guard let value = env[key], !value.isEmpty else { continue }
+            roots.append((URL(fileURLWithPath: (value as NSString).expandingTildeInPath), refusal))
+        }
+        return roots.map { (components: resolved($0.0).pathComponents, refusal: $0.1) }
+    }
+
+    nonisolated static func resolved(_ url: URL) -> URL { url.resolvingSymlinksInPath().standardizedFileURL }
+
+
     /// Folders walked, hidden files and `__MACOSX` skipped, export-shaped
-    /// extensions kept, capped at `maxFiles` with a stated warning.
-    nonisolated static func expand(_ urls: [URL], fileManager fm: FileManager = .default) -> (files: [URL], capped: Bool) {
+    /// extensions kept, capped at `maxFiles` with a stated warning. `prune`
+    /// (Z-B5) is asked about every entry the walk meets; `true` skips it and,
+    /// for a folder, everything under it — so a refused root inside a dropped
+    /// folder is never listed. It defaults to "never", which is today's walk.
+    nonisolated static func expand(_ urls: [URL], fileManager fm: FileManager = .default,
+                                   prune: (URL) -> Bool = { _ in false }) -> (files: [URL], capped: Bool) {
         var out: [URL] = []
         func consider(_ url: URL) {
             guard !url.lastPathComponent.hasPrefix("."), !url.pathComponents.contains("__MACOSX") else { return }
@@ -447,7 +595,10 @@ final class IntakeRouter {
             if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
                 let walker = fm.enumerator(at: url, includingPropertiesForKeys: nil,
                                            options: [.skipsHiddenFiles, .skipsPackageDescendants])
-                while let next = walker?.nextObject() as? URL, out.count <= maxFiles { consider(next) }
+                while let next = walker?.nextObject() as? URL, out.count <= maxFiles {
+                    if prune(next) { walker?.skipDescendants(); continue }
+                    consider(next)
+                }
             } else {
                 consider(url)
             }

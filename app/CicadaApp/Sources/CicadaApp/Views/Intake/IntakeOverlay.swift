@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Resolves the file URLs a drop carries, then hands them over on the main actor.
 /// One loader for every drop target (the window, an empty state, the panel).
@@ -16,6 +17,25 @@ enum IntakeDrop {
             }
         }
         group.notify(queue: .main) { MainActor.assumeIsolated { completion(urls) } }
+    }
+}
+
+/// The one file picker every intake door opens (Z-B17) — the panel's *Choose a
+/// file…* and the Sleep room's *Feed a file…* (Track Z I16) — so no door can
+/// drift to a narrower list of types than the panel reads.
+enum IntakePicker {
+    static let allowedContentTypes: [UTType] = [.zip, .json, .html, .folder, .commaSeparatedText, .plainText,
+                                                .xml, .propertyList]
+
+    /// Runs the open panel. An empty list means the person cancelled.
+    @MainActor
+    static func choose() -> [URL] {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = allowedContentTypes
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = true
+        panel.message = Copy.intakeDropTitle
+        return panel.runModal() == .OK ? panel.urls : []
     }
 }
 
@@ -43,12 +63,19 @@ struct IntakeLayer: View {
     @Environment(IntakeRouter.self) private var intake
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Z-B8 — the veil yields to a nearer target that has the drag (the Sleep
+    /// room): its own cue would sit under the scrim otherwise. Pure; tested.
+    static func showsVeil(windowTargeted: Bool, nearerDrop: IntakeOrigin?) -> Bool {
+        windowTargeted && nearerDrop == nil
+    }
+
     var body: some View {
+        let veil = Self.showsVeil(windowTargeted: dropTargeted, nearerDrop: intake.nearerDrop)
         ZStack {
             if intake.isOverlayPresented { IntakeOverlay().transition(.opacity) }
-            if dropTargeted { IntakeDropVeil().transition(.opacity) }
+            if veil { IntakeDropVeil().transition(.opacity) }
         }
-        .animation(CicadaMotion.dropVeil(reduceMotion: reduceMotion), value: dropTargeted)
+        .animation(CicadaMotion.dropVeil(reduceMotion: reduceMotion), value: veil)
         .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: intake.isOverlayPresented)
     }
 }

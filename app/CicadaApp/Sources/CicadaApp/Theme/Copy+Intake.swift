@@ -36,6 +36,15 @@ extension Copy {
     static let intakeBusy = "Finish the import in progress first."
     static let intakeNothingReadable = "Nothing here is an export Cicada can read."
     static let intakeUnreadable = "Cicada couldn't read this file."
+    /// Track Z Z-B5/Z-B18 — the panel's words when a door refuses a folder that
+    /// is not an export (the Sleep room's worm says the same in its own voice).
+    /// "Once it's connected" is the condition, not a promise: capture needs
+    /// the agent wired (the Stop hook, G105). Never "Cicada never reads these":
+    /// the hook's endpoint does read a session's transcript, and "read" here
+    /// is also a Sleep read (Track I final review, finding 7).
+    static let intakeRefusedClaude = "Claude Code sessions come in on their own once it's connected, so there's nothing to import here."
+    static let intakeRefusedCodex = "Codex sessions come in on their own once it's connected, so there's nothing to import here."
+    static let intakeRefusedCicada = "That's Cicada's own folder, so it can't be imported."
     static let intakeFailed = "The import didn't finish."
     static let intakeFilterPlaceholder = "Filter titles"
     static let intakeFilterLabel = "Filter conversation titles"
@@ -132,5 +141,6 @@ extension Copy {
         intakeDropSubtitle, foundInvalidSettings, foundRefused,
         afterImportPlanWaits, afterImportWaits, honestyPlanThenKey, honestyPlanThenOllama,
         honestyPlanOnly, honestyOllama, honestyKey, honestyNothingYet,
+        intakeRefusedClaude, intakeRefusedCodex, intakeRefusedCicada,
     ]
 }
