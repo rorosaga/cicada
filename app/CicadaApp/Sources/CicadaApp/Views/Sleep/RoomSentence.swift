@@ -288,9 +288,16 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
 /// — so a longer tail, an answer or no tail at all never reflows what sits
 /// below it.
 ///
-/// New York through `CicadaTheme.font(size:design: .serif)` until Meadow's
-/// `displayFont` exists (design §5; Z10 swaps these two calls and nothing else).
+/// Meadow's faces (Z10, Z-B12): the lead in Instrument Serif at 30 pt, shrinking
+/// only to the display floor; the tail in New York italic at 22 pt — two lines
+/// of text, which is what the quote face is optically sized for.
 struct RoomSentenceView: View {
+    static let leadSize: CGFloat = 30
+    static let tailSize: CGFloat = 22
+    /// The lead fits one line by shrinking no further than the display
+    /// face's own floor (R-M3) — the old 0.7 would have reached 21 pt.
+    static var leadMinimumScale: CGFloat { CicadaTheme.displayMinimumSize / leadSize }
+
     /// The status sentence — what the slot shows whenever no answer is up.
     let line: SentenceLine
     /// Task 6 — the worm's answer ladder (`wormAnswers`). An answer REPLACES
@@ -347,9 +354,9 @@ struct RoomSentenceView: View {
         ZStack {
             VStack(spacing: CicadaTheme.spacingXS) {
                 leadText(shown)
-                    .font(CicadaTheme.font(size: 30, design: .serif))
+                    .font(CicadaTheme.displayFont(size: Self.leadSize))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(Self.leadMinimumScale)
                 tailView(shown)
             }
             // Keyed on the kind of line so a status ⇄ answer ⇄ feed change
@@ -407,7 +414,7 @@ struct RoomSentenceView: View {
                 return text + Text(verbatim: run.text).foregroundStyle(plainColor)
             case .numeral:
                 return text + Text(verbatim: run.text)
-                    .font(CicadaTheme.font(size: 30, weight: .medium, design: .rounded))
+                    .font(CicadaTheme.font(size: Self.leadSize, weight: .medium, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(plainColor)
             case .qualifier:
@@ -432,7 +439,7 @@ struct RoomSentenceView: View {
     @ViewBuilder
     private func tailText(_ line: SentenceLine) -> some View {
         let tail = line.tail ?? " "
-        let tailFont = CicadaTheme.font(size: 22, design: .serif).italic()
+        let tailFont = CicadaTheme.quoteFont(size: Self.tailSize)
         let tailColor = color(line.tailTone, plain: CicadaTheme.textSecondary)
         if let action = line.action, line.tail != nil {
             let link = tailLink(tail)
