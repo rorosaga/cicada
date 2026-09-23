@@ -8,6 +8,7 @@ struct TopicsView: View {
     @State private var selectedLabels: Set<String> = []
     @State private var showLabelPopover = false
     @State private var selectedEntity: Entity?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -19,7 +20,7 @@ struct TopicsView: View {
             if let entity = selectedEntity {
                 // Detail view
                 TopicDetailView(entity: entity, onBack: {
-                    withAnimation(.spring(duration: 0.3)) {
+                    withAnimation(CicadaMotion.panel(reduceMotion: reduceMotion)) {
                         selectedEntity = nil
                     }
                 })
@@ -40,7 +41,7 @@ struct TopicsView: View {
                     selectedLabels: $selectedLabels,
                     showLabelPopover: $showLabelPopover,
                     onSelect: { entity in
-                        withAnimation(.spring(duration: 0.3)) {
+                        withAnimation(CicadaMotion.panel(reduceMotion: reduceMotion)) {
                             selectedEntity = entity
                         }
                     }
@@ -83,6 +84,7 @@ private struct TopicsListView: View {
     // desync the Graph tab — it's purely a way to navigate THIS list by type.
     @State private var expandedTypes: Set<EntityType> = []
     @State private var focusedType: EntityType?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var filteredEntities: [Entity] {
         var list = graphVM.entities.filter { enabledTypes.contains($0.type) }
@@ -158,13 +160,13 @@ private struct TopicsListView: View {
     /// second tap on the focused chip clears focus and collapses everything.
     private func focus(_ type: EntityType, proxy: ScrollViewProxy) {
         if focusedType == type {
-            withAnimation(.spring(duration: 0.25)) {
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) {
                 focusedType = nil
                 expandedTypes.remove(type)
             }
             return
         }
-        withAnimation(.spring(duration: 0.3)) {
+        withAnimation(CicadaMotion.panel(reduceMotion: reduceMotion)) {
             focusedType = type
             expandedTypes = [type]
             proxy.scrollTo(type, anchor: .top)
@@ -270,7 +272,7 @@ private struct TopicsListView: View {
                         if !isSearching && presentTypes.count > 1 {
                             let allExpanded = expandedTypes.isSuperset(of: presentTypes)
                             Button {
-                                withAnimation(.spring(duration: 0.25)) {
+                                withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) {
                                     if allExpanded {
                                         expandedTypes.removeAll()
                                     } else {
@@ -313,7 +315,7 @@ private struct TopicsListView: View {
                                         type: group.type,
                                         count: group.entities.count,
                                         isExpanded: expandedTypes.contains(group.type),
-                                        onToggle: { withAnimation(.spring(duration: 0.25)) { toggle(group.type) } }
+                                        onToggle: { withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { toggle(group.type) } }
                                     )
                                     .id(group.type)
 
@@ -355,6 +357,7 @@ private struct TypeSectionHeader: View {
     let isExpanded: Bool
     let onToggle: () -> Void
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: onToggle) {
@@ -396,7 +399,7 @@ private struct TypeSectionHeader: View {
         }
         .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
     }
 }
 
@@ -433,6 +436,7 @@ private struct TypeChip: View {
     let isFocused: Bool
     let onTap: () -> Void
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let color = CicadaTheme.entityColor(for: type)
@@ -463,7 +467,7 @@ private struct TypeChip: View {
         }
         .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
     }
 }
 
@@ -637,6 +641,7 @@ private struct TopicRowListItem: View {
     let entity: Entity
     let onTap: () -> Void
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: onTap) {
@@ -675,7 +680,7 @@ private struct TopicRowListItem: View {
         }
         .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
     }
 }
 

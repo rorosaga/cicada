@@ -112,12 +112,12 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
     /// -p` rung does not exist for anything else.
     var showsSleepEngineToggle: Bool { id == "claude-plan" && connected }
 
-    /// "Claude Max 20x · $200/mo", "OpenAI API key · usage-based", "Ollama · free, local".
+    /// "Claude Max 20x", "OpenAI API key · usage-based", "Ollama · free, local" —
+    /// the plan's name, never its price (R-E26, the 2026-09-03 ruling). The
+    /// price fields stay on the wire for the retained `/consumption/*` endpoints.
     var priceLine: String {
         switch billing {
-        case "subscription":
-            if let usd = priceUsdMonth { return "\(planLabel ?? label) · $\(Int(usd))/mo" }
-            return planLabel ?? label
+        case "subscription": return planLabel ?? label
         case "free": return "\(planLabel ?? label) · free, local"
         default: return connected ? "\(label) · usage-based" : label
         }

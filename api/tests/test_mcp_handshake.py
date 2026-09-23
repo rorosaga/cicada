@@ -71,8 +71,8 @@ def test_handshake_tool_returns_the_same_text(server, bank):
 
 
 def test_recall_hints_carry_the_state_once_per_process(server, bank, monkeypatch):
-    monkeypatch.setattr(server, "_leann_search_entities", lambda *a, **k: [])
-    monkeypatch.setattr(server, "_leann_search_episodes", lambda *a, **k: [])
+    monkeypatch.setattr(server.mcp_tools, "_leann_search_entities", lambda *a, **k: [])
+    monkeypatch.setattr(server.mcp_tools, "_leann_search_episodes", lambda *a, **k: [])
     first = server.handle_recall("alpha project")
     assert "`" * 3 + "cicada-hints" in first
     assert '"state"' in first and '"alpha-project"' in first and '"pending": 1' in first
@@ -81,8 +81,8 @@ def test_recall_hints_carry_the_state_once_per_process(server, bank, monkeypatch
 
 
 def test_recall_with_nothing_to_suggest_emits_no_hints_block(server, bank, monkeypatch):
-    monkeypatch.setattr(server, "_leann_search_entities", lambda *a, **k: [])
-    monkeypatch.setattr(server, "_leann_search_episodes", lambda *a, **k: [])
+    monkeypatch.setattr(server.mcp_tools, "_leann_search_entities", lambda *a, **k: [])
+    monkeypatch.setattr(server.mcp_tools, "_leann_search_episodes", lambda *a, **k: [])
     out = server.handle_recall("zzzz-nothing-matches-this")
     assert "`" * 3 + "cicada-hints" not in out
     assert server._STATE_HINT_SENT is False, "an unsent cursor is not consumed"

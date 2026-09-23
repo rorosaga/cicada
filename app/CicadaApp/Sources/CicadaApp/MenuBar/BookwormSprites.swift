@@ -26,7 +26,7 @@ enum BookwormPalette {
         "w": 0xFFFFFF,  // lens white
         "r": 0xF28BAE,  // blush
         "a": 0xE0A93A,  // accent: glasses rim, book cover (= CicadaTheme hub gold)
-        "z": 0x8896FF,  // zZ + sweat drop (= CicadaTheme dark accent)
+        "z": 0x8896FF,  // zZ + sweat drop (the pre-G137 dark accent — the mascot's palette is its own and did not move)
         "q": 0xFFCB57,  // ? mark, sparkle, badge pill (= CicadaTheme pendingPulse)
         "e": 0xE5484D,  // error red pupils — an art red, not the `danger` state token (see above)
     ]

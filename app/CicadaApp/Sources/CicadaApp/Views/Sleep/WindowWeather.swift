@@ -34,7 +34,7 @@ enum WindowWeather: String, CaseIterable, Identifiable, Equatable {
         case .fair: "Things are waiting to be read."
         case .overcast: "Overdue: it's been a while."
         case .storm: "The last cycle failed."
-        case .curtains: "No reading yet."
+        case .curtains: "Waiting to hear how Sleep is doing."
         }
     }
 }

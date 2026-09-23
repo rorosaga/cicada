@@ -15,7 +15,7 @@ import uuid
 
 from api.models.schemas import ConnectionKind, ConnectionStatus, LoginHint, LoginSession
 from api.services import pricing
-from api.services.connections.base import Runner, resolve_binary, run_cli
+from api.services.connections.base import Runner, override_note, resolve_binary, run_cli
 
 LOGIN_COMMAND = "claude auth login"
 _INSTALL_HINT = "Install Claude Code (npm i -g @anthropic-ai/claude-code) and run `claude` once to sign in."
@@ -66,16 +66,20 @@ class ClaudePlanAdapter:
             usd, note = pricing.price_for(self.id, plan, self._tier)
         account = info.get("email")
         who = f"as `{account}`" if account else "on your Claude account"
+        # R-E24: conditional — POWERS, not `how`, says whether this plan runs
+        # Sleep right now, so `how` must not claim it does.
+        how = (
+            f"Signed in to Claude Code on this Mac {who}. When Sleep or Ask runs on your "
+            "Claude plan it goes through the `claude` CLI — Cicada never sees your token."
+        )
+        # `override`, never `note`: `note` above is the price note (R-E6).
+        override = override_note("claude")
         return self._base(
             available=True, connected=True, plan=plan, engine_role="subscription-cli",
             plan_label=pricing.plan_label(self.id, plan, self._tier),
             account=account, price_usd_month=usd, price_note=note,
             detail=info.get("orgName"),
-            how=(
-                f"Signed in to Claude Code on this Mac {who}. Cicada runs its "
-                "memory work through the `claude` CLI on your plan — it never "
-                "sees your token."
-            ),
+            how=f"{how} {override}" if override else how,
         )
 
     async def begin_login(self) -> LoginSession:

@@ -16,7 +16,7 @@
 // of exploding. The canvas + quadtree pipeline is untouched.
 
 // MUST stay byte-identical to CicadaTheme.entityColor(for:) — Tailwind-400-band
-// hues on the darker #0E0F14 base so all 8 pop and clear ~4.5:1+ contrast.
+// hues on the darker #0D1216 (G137 night meadow) base so all 8 pop and clear ~4.5:1+ contrast.
 const typeColors = {
     person:   "#5AA8FF",
     project:  "#B57BFF",
@@ -69,7 +69,7 @@ const CONTEXT_COLORS = {
     general:       "#7A8290",
 };
 const OBSERVER_BADGE_COLORS = {
-    agent:    "#8896FF",   // accent
+    agent:    "#8896FF",   // the pre-G137 accent, frozen — an observer's identity, not the theme (R-M8)
     rodrigo:  "#5AA8FF",   // blue (person)
     external: "#F65BA6",   // pink (media)
 };
@@ -80,29 +80,29 @@ const OBSERVER_BADGE_COLORS = {
 // `labelShadow` is a HALO, not a drop shadow: on a light ground a black blur
 // around dark text is what made light mode unreadable, so the light value is
 // the background colour instead. `edge` takes `borderLight` in light mode —
-// `border` (#E3E5EC) is invisible as a 1px line on #F5F6FA.
+// `border` (#DFE4D9) is invisible as a 1px line on #F4F6F1.
 //
 // CONTEXT_COLORS and OBSERVER_BADGE_COLORS above are deliberately NOT in here:
 // they are IDENTITY colours (which context, which observer), and an identity
 // that changes hue with the theme stops being an identity.
 const PALETTES = {
     dark: {
-        label:       "#ECEDF2",                    // = CicadaTheme.Dark.textPrimary
+        label:       "#E8EEE9",                    // = CicadaTheme.Dark.textPrimary
         labelShadow: "rgba(0, 0, 0, 0.85)",
-        plate:       "rgba(14, 15, 20, 0.85)",     // = Dark.background
-        plateStrong: "rgba(14, 15, 20, 0.92)",
+        plate:       "rgba(13, 18, 22, 0.85)",     // = Dark.background
+        plateStrong: "rgba(13, 18, 22, 0.92)",     // = Dark.background
         plateText:   "#C7CBD6",
-        edge:        "#262A33",                    // = Dark.border
+        edge:        "#25303A",                    // = Dark.border
         nodeStroke:  "#FFFFFF",
     },
     light: {
-        label:       "#14161C",                    // = CicadaTheme.Light.textPrimary
-        labelShadow: "rgba(245, 246, 250, 0.95)",  // = Light.background, as a halo
+        label:       "#1B1F1A",                    // = CicadaTheme.Light.textPrimary
+        labelShadow: "rgba(244, 246, 241, 0.95)",  // = Light.background, as a halo
         plate:       "rgba(255, 255, 255, 0.92)",  // = Light.surface
-        plateStrong: "rgba(255, 255, 255, 0.96)",
-        plateText:   "#51566A",                    // = Light.textSecondary
-        edge:        "#CACDD9",                    // = Light.borderLight
-        nodeStroke:  "#14161C",
+        plateStrong: "rgba(255, 255, 255, 0.96)",  // = Light.surface
+        plateText:   "#4C5548",                    // = Light.textSecondary
+        edge:        "#C5CCBC",                    // = Light.borderLight
+        nodeStroke:  "#1B1F1A",                    // = Light.textPrimary
     },
 };
 let themeMode = "dark";

@@ -219,6 +219,12 @@ struct ConnectView: View {
     /// after this page did re-runs the probe — no second poller.
     @Environment(Store.self) private var store
 
+    /// G135 (R-R7) — which half of the Agents page is showing: the local
+    /// stdio setup cards, or the remote connector. Persisted so the page
+    /// reopens where the person left it.
+    private enum AgentsMode: String { case thisMac, anywhere }
+    @AppStorage("cicada.agentsMode") private var modeRaw = AgentsMode.thisMac.rawValue
+
     var body: some View {
         VStack(spacing: 0) {
             PageHeader(
@@ -241,21 +247,40 @@ struct ConnectView: View {
                 }
             }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                    if isOnboarding {
-                        introCard
-                    }
-                    prereqCard
-
-                    ForEach(agents) { agent in
-                        AgentSetupCard(agent: agent)
-                    }
-
-                    webNoteCard
+            if !isOnboarding {
+                // G135 R-R34: onboarding stays about this Mac; the remote door is a
+                // deliberate, later choice.
+                Picker("Where your AI apps are", selection: $modeRaw) {
+                    Text(Copy.onThisMac).tag(AgentsMode.thisMac.rawValue)
+                    Text(Copy.fromAnywhere).tag(AgentsMode.anywhere.rawValue)
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: CicadaTheme.scaled(320))
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, CicadaTheme.spacingXL)
-                .padding(.bottom, CicadaTheme.spacingXXL)
+                .padding(.bottom, CicadaTheme.spacingMD)
+            }
+
+            if !isOnboarding && modeRaw == AgentsMode.anywhere.rawValue {
+                RemoteAccessView()
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                        if isOnboarding {
+                            introCard
+                        }
+                        prereqCard
+
+                        ForEach(agents) { agent in
+                            AgentSetupCard(agent: agent)
+                        }
+
+                        webNoteCard
+                    }
+                    .padding(.horizontal, CicadaTheme.spacingXL)
+                    .padding(.bottom, CicadaTheme.spacingXXL)
+                }
             }
         }
         .background(CicadaTheme.background)
@@ -344,10 +369,10 @@ struct ConnectView: View {
                 .frame(width: 44, height: 44)
                 .background(RoundedRectangle(cornerRadius: 10).fill(CicadaTheme.surfaceElevated))
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text("claude.ai / ChatGPT on the web")
+                Text("claude.ai, ChatGPT and your phone")
                     .font(CicadaTheme.headingFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
-                Text("Web apps only reach hosted (remote) MCP connectors served from the public internet — they can't launch the local Cicada server on your Mac. Use Claude Desktop or a terminal agent instead, or import your web conversations with the Upload button on the Graph page: exports from claude.ai, ChatGPT, and Gemini consolidate into the same memory. (A hosted Cicada connector — Streamable HTTP behind a tunnel with OAuth — is possible future work.)")
+                Text("Cloud apps can't start a program on your Mac, so they reach Cicada through a link instead — switch to From anywhere above. Or bring your web conversations in from the Feed: exports from claude.ai, ChatGPT and Gemini consolidate into the same memory.")
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

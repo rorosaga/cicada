@@ -169,7 +169,7 @@ def test_a_non_engine_error_from_the_runner_still_emits_an_event():
     is making failures visible."""
     events: list[UsageEvent] = []
 
-    def _boom(argv, *, stdin=None, timeout=None, cwd=None):
+    def _boom(argv, *, stdin=None, timeout=None, cwd=None, **_kw):
         raise RuntimeError("the subprocess machinery itself blew up")
 
     fn = providers.resolve_llm_fn(_agent_settings(), sink=events.append, runner=_boom)
@@ -267,7 +267,7 @@ def test_the_rung_semaphore_caps_concurrent_spawns():
     peak = 0
     lock = threading.Lock()
 
-    def runner(argv, *, stdin=None, timeout=None, cwd=None):
+    def runner(argv, *, stdin=None, timeout=None, cwd=None, **_kw):
         nonlocal live, peak
         with lock:
             live += 1
@@ -310,7 +310,7 @@ def test_the_rung_semaphore_is_shared_across_sync_and_async_callers():
     peak = 0
     lock = threading.Lock()
 
-    def runner(argv, *, stdin=None, timeout=None, cwd=None):
+    def runner(argv, *, stdin=None, timeout=None, cwd=None, **_kw):
         nonlocal live, peak
         with lock:
             live += 1
@@ -351,3 +351,75 @@ def test_the_rung_semaphore_is_shared_across_sync_and_async_callers():
 
     asyncio.run(_drive())
     assert peak <= 2
+
+
+def test_reasoning_off_maps_to_low_effort_on_the_agent_rung(agent_runner, agent_envelopes):
+    runner = agent_runner(agent_envelopes["success"])
+    fn = providers.resolve_llm_fn(_agent_settings(), stage="extraction", runner=runner, is_async=False)
+    msgs = [{"role": "user", "content": "x"}]
+    fn(messages=msgs, response_format={"type": "json_object"}, extra_body={"reasoning": {"enabled": False}})
+    fn(messages=msgs, response_format={"type": "json_object"})
+    first, second = runner.calls[0]["argv"], runner.calls[1]["argv"]
+    assert first[first.index("--effort") + 1] == "low" and "--effort" not in second
+
+
+def test_an_empty_low_effort_setting_restores_the_cli_default(agent_runner, agent_envelopes):
+    runner = agent_runner(agent_envelopes["success"])
+    settings = _agent_settings().model_copy(update={"agent_low_effort": ""})
+    providers.resolve_llm_fn(settings, runner=runner, is_async=False)(
+        messages=[{"role": "user", "content": "x"}], extra_body={"reasoning": {"enabled": False}})
+    assert "--effort" not in runner.calls[0]["argv"]
+
+
+def test_a_near_limit_success_in_a_sleep_scope_trips_once_and_records_one_throttle(agent_runner, claude_stream):
+    events: list[UsageEvent] = []
+    runner = agent_runner(CliResult(0, claude_stream("success", rate_limits=[
+        {"status": "allowed_warning", "rateLimitType": "five_hour", "utilization": 0.95}]), ""))
+    fn = providers.resolve_llm_fn(_agent_settings(), sink=events.append, runner=runner,
+                                  is_async=False, scope="sleep:test")
+    fn(messages=[{"role": "user", "content": "x"}])          # the answer is kept
+    with pytest.raises(engine_errors.EngineThrottled):
+        fn(messages=[{"role": "user", "content": "again"}])  # fails fast, never spawns
+    assert len(runner.calls) == 1
+    assert [e.kind for e in events] == ["llm_call", "throttle"]
+    throttle = events[1]
+    assert throttle.refs["rate_limit_type"] == "five_hour" and throttle.refs["utilization_bucket"] == ">95"
+    assert "95% used" in agent_engine.breaker_reason(scope="sleep:test")
+
+
+def test_an_unscoped_caller_is_never_blocked_by_a_stop_or_an_exhaustion_it_saw(
+        agent_runner, claude_stream, agent_envelopes):
+    """R-E12: the unscoped bucket (Ask, MCP, the tail) is never reset, so the
+    two NEW trip causes apply only inside a workload scope."""
+    near = agent_runner(CliResult(0, claude_stream("success", rate_limits=[
+        {"status": "allowed_warning", "rateLimitType": "five_hour", "utilization": 0.95}]), ""))
+    fn = providers.resolve_llm_fn(_agent_settings(), runner=near, is_async=False)
+    fn(messages=[{"role": "user", "content": "x"}])
+    fn(messages=[{"role": "user", "content": "y"}])
+    assert len(near.calls) == 2 and agent_engine.breaker_reason() is None
+    spent = agent_runner(agent_envelopes["budget_exhausted"])
+    fn = providers.resolve_llm_fn(_agent_settings(), runner=spent, is_async=False)
+    for _ in range(2):
+        with pytest.raises(engine_errors.EngineExhausted):
+            fn(messages=[{"role": "user", "content": "z"}])
+    assert len(spent.calls) == 2 and agent_engine.breaker_reason() is None
+
+
+def test_an_llm_call_records_turns_and_the_credential_source_as_enums(agent_runner, claude_stream):
+    events: list[UsageEvent] = []
+    runner = agent_runner(CliResult(0, claude_stream("success"), ""))
+    providers.resolve_llm_fn(_agent_settings(), sink=events.append, runner=runner, is_async=False)(
+        messages=[{"role": "user", "content": "x"}])
+    assert events[0].refs == {"num_turns": 1, "api_key_source": "none"}
+
+
+def test_an_exhaustion_inside_a_sleep_scope_stops_the_rest_of_the_cycle(agent_runner, agent_envelopes):
+    events: list[UsageEvent] = []
+    runner = agent_runner(agent_envelopes["budget_exhausted"])
+    fn = providers.resolve_llm_fn(_agent_settings(), sink=events.append, runner=runner,
+                                  is_async=False, scope="sleep:test")
+    with pytest.raises(engine_errors.EngineExhausted):
+        fn(messages=[{"role": "user", "content": "hi"}])
+    with pytest.raises(engine_errors.EngineThrottled):      # fail-fast, no spawn
+        fn(messages=[{"role": "user", "content": "hi"}])
+    assert len(runner.calls) == 1 and [e.kind for e in events] == ["llm_call", "throttle"]

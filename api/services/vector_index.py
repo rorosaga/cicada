@@ -270,17 +270,24 @@ class SqliteVecIndexer:
         return info
 
     def _knn(
-        self, conn: sqlite3.Connection, kind: str, query: str, top_k: int
+        self,
+        conn: sqlite3.Connection,
+        kind: str,
+        query: str,
+        top_k: int,
+        *,
+        qvec: np.ndarray | None = None,
     ) -> list[dict]:
         import sqlite_vec
 
         vec_table = f"vec_{kind}"
         meta_table = f"meta_{kind}"
-        try:
-            qvec = self._embed([query], is_query=True)[0]
-        except Exception as exc:  # noqa: BLE001
-            logger.debug(f"vector search embed failed ({kind}): {exc}")
-            return []
+        if qvec is None:
+            try:
+                qvec = self._embed([query], is_query=True)[0]
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"vector search embed failed ({kind}): {exc}")
+                return []
         cur = conn.execute(
             f"SELECT v.rowid, v.distance, m.text, m.metadata "
             f"FROM {vec_table} v JOIN {meta_table} m ON m.rowid = v.rowid "
@@ -371,6 +378,39 @@ class SqliteVecIndexer:
             return active[:top_k]
         archived = [r for r in results if r.get("metadata", {}).get("status") == "archived"]
         return (active + archived)[:top_k]
+
+    def search_kinds(self, query: str, top_k_by_kind: dict[str, int]) -> dict[str, list[dict]]:
+        """KNN over several kinds with ONE query embedding (G136).
+
+        ``/search``'s hybrid mode wants the entity, claim and episode legs of
+        one query at once; three ``search_*`` calls embed the same text three
+        times, and the embed is the dominant cost of a warm search (G58). Same
+        graceful degrade as :meth:`_search_kind`: a missing db, a missing
+        table or a failed embed gives empty lists, never a raise. No
+        archived-tier or superseded filtering happens here — the caller ranks.
+        """
+        out: dict[str, list[dict]] = {kind: [] for kind in top_k_by_kind}
+        if not top_k_by_kind or not self.db_path.exists():
+            return out
+        try:
+            qvec = self._embed([query], is_query=True)[0]
+        except Exception as exc:  # noqa: BLE001
+            # The exception class only: a provider's error can echo its input,
+            # and the input is the person's query (K9).
+            logger.debug(f"vector search embed failed (search_kinds): {type(exc).__name__}")
+            return out
+        conn = self._connect()
+        try:
+            for kind, top_k in top_k_by_kind.items():
+                try:
+                    out[kind] = self._knn(conn, kind, query, top_k, qvec=qvec)
+                except sqlite3.OperationalError as exc:
+                    logger.warning(
+                        f"vector_index.search_kinds({kind!r}): query failed ({exc}); degrading to []"
+                    )
+        finally:
+            conn.close()
+        return out
 
     def _search_kind(self, kind: str, query: str, top_k: int) -> list[dict]:
         """Shared search helper: returns [] for a missing db or missing table."""

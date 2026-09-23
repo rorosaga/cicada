@@ -1,5 +1,5 @@
-import importlib
-mcp = importlib.import_module("mcp.server")
+from _stdio_server import stdio_server
+mcp = stdio_server()
 
 
 def test_sources_tool_registered_and_dispatches(monkeypatch, tmp_path):

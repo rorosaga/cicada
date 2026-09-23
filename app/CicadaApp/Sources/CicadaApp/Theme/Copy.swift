@@ -105,7 +105,7 @@ enum Copy {
         "If you light it, scheduled runs would use \(engineLabel(engine))"
     }
     // Track Z §7.3 — the window's weather and its legend (the text twin).
-    static let windowLegendHeader = "The window shows how Cicada is doing, not the time of day."
+    static let windowLegendHeader = "The window shows how Sleep is doing, not the time of day."
     static let windowLegendPointer = "The window in the room shows how Sleep is doing — click it to see what each sky means."
     static let windowHint = "Shows what the sky means"
     // MARK: The `?` popover (Track P)
@@ -206,6 +206,7 @@ enum Copy {
     static func engineLabel(_ id: String) -> String {
         switch id {
         case "claude-cli": "Claude Code (your plan)"
+        case "codex-cli": "Codex (your ChatGPT plan)"
         case "ollama": "Ollama (on this Mac)"
         case "litellm": "API key"
         default: id
@@ -221,6 +222,36 @@ enum Copy {
         "Sleep runs through the `claude` CLI on your plan: it spends plan quota, not money. "
         + "Only when you start a cycle yourself — never on the nightly schedule — and if the "
         + "plan throttles it stops cleanly with the queue intact."
+
+    // MARK: Engines (Track E — R-E4, R-E13, R-E24, R-E28)
+
+    static let signInWithChatGPT = "Sign in with ChatGPT"
+    static let signOut = "Sign out"
+    static let tryAgain = "Try again"
+    static let copyCode = "Copy"
+    static let copied = "Copied"
+    static let openSignInPage = "Open the sign-in page"
+    static let deviceCodeStarting = "Getting a sign-in code from ChatGPT…"
+    static let deviceCodeRawFallback = "No code yet — here's what ChatGPT's sign-in said so far:"
+    static let deviceCodeInstructions = "Enter this code on the ChatGPT page that just opened:"
+    static let deviceCodeWaiting = "Waiting for you to finish signing in…"
+    static let deviceCodeDone = "Signed in."
+    static let deviceCodeFailed = "Sign-in didn't finish."
+    /// The one owner-side switch the device-code flow can need (R2 §3.1: it
+    /// must be enabled in the ChatGPT account's security settings).
+    static let deviceCodeFailedHint =
+        "If ChatGPT says code sign-in is turned off, turn on device code sign-in in your "
+        + "ChatGPT account's security settings, then try again."
+    static let chatgptSignOutTitle = "Sign out of ChatGPT in Cicada?"
+    static let chatgptSignOutExplainer =
+        "Cicada's ChatGPT sign-in is its own. Codex in your terminal stays signed in."
+    static let keepGoingOnExtraUsage = "Keep going on extra usage"
+    static let keepGoingOnExtraUsageExplainer =
+        "Off: when your Claude plan's included usage runs out, Sleep stops and waits. "
+        + "On: Sleep keeps going on extra usage, which Anthropic bills separately."
+    static let scheduledNeverSpendsPlans =
+        "Scheduled cycles never use your Claude or ChatGPT plan — only a cycle you start yourself does."
+    static let yourMaxTier = "Your Max tier"
 
     // MARK: Sleep control (cancel + episode cap)
 
@@ -248,7 +279,7 @@ enum Copy {
     static let cancelCaption = "Stops at the next safe point — nothing is lost."
     /// The whisper line's hover reason when the next run is "—" (R-A14: a dash
     /// is a value with a reason).
-    static let nextRunUnknownReason = "The backend hasn't said when the next run is."
+    static let nextRunUnknownReason = "Cicada hasn't worked out the next run yet."
 
     /// Pause/resume the nightly auto-run schedule — the third quick control
     /// on the Sleep page (alongside run + cancel). The full time editor
@@ -308,6 +339,16 @@ enum Copy {
     static let sleepSettingsSubtitle = "Who runs the nightly cycle, and when."
     static let generalSubtitle = "Appearance and text size."
     static let integrationsSubtitle = "Every app connected to Cicada, in one place."
+
+    // MARK: Remote connector (G135) — pinned by RemoteConnectorTests
+    static let onThisMac = "On this Mac"
+    static let fromAnywhere = "From anywhere"
+    static let remoteSwitchTitle = "Let AI apps outside this Mac use your memory."
+    static let remoteSwitchDetail = "Works while this Mac is awake and online. Everything still lives here."
+    static let remoteNeverOpensTunnel = "Cicada never opens a tunnel on its own."
+    static let remoteShownOnce = "You won't see this again. Revoke any time."
+    static let remoteMachineNameWarning = "Turning on HTTPS in Tailscale writes this Mac's name into a public certificate log. Rename your Mac first if its name is personal."
+    static let remoteGeminiApp = "Using the Gemini app? It can't connect to outside memory yet. Use Gemini CLI, or bring your Gemini history in from the Feed."
 
     // MARK: Pointers
 

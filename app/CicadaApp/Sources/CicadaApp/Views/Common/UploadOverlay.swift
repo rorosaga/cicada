@@ -56,6 +56,7 @@ struct UploadOverlay: View {
     // the "Switch" action offered alongside the toast. nil hides it.
     @State private var inactiveImportBank: String?
     @State private var isSwitchingBank = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -64,7 +65,7 @@ struct UploadOverlay: View {
                 .ignoresSafeArea()
                 .onTapGesture {
                     if !isUploading {
-                        withAnimation(.spring(duration: 0.3)) {
+                        withAnimation(CicadaMotion.panel(reduceMotion: reduceMotion)) {
                             isPresented = false
                         }
                     }
@@ -204,7 +205,7 @@ struct UploadOverlay: View {
             .overlay(
                 RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
                     .stroke(isDragOver ? CicadaTheme.accent : CicadaTheme.border, lineWidth: isDragOver ? 2 : 1)
-                    .animation(.easeInOut(duration: 0.2), value: isDragOver)
+                    .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isDragOver)
             )
             .onDrop(of: [.fileURL], isTargeted: $isDragOver) { providers in
                 handleDrop(providers: providers)
@@ -440,7 +441,7 @@ struct UploadOverlay: View {
                     uploadResult = Self.importSummary(created: totalCreated, updated: totalUpdated, skipped: totalSkipped)
                     // Auto-close after success
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        withAnimation(.spring(duration: 0.3)) {
+                        withAnimation(CicadaMotion.panel(reduceMotion: reduceMotion)) {
                             isPresented = false
                         }
                     }
