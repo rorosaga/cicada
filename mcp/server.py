@@ -306,6 +306,39 @@ TOOLS = [
         },
     },
     {
+        "name": "cicada_record_watch",
+        "description": "After you watch a video the person saved (with your own video tools — Cicada never downloads or watches one), record what it covers: a short summary and up to 12 short quotes with the time each is said. Cicada keeps one episode and a 'describes' claim on the video's page whose evidence points at your summary and at each quote, marked as the video's words — never the person's. Cite ≤240-character excerpts; never paste the transcript. A link that is not saved yet is saved first. The reply names the episode, to cite from cicada_write_claim.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The video's link as saved (http(s)://, or file:// for a local recording the app added)."},
+                "summary": {"type": "string", "description": "Your faithful account of what the video covers, one paragraph (at most 1,500 characters)."},
+                "excerpts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "t": {"type": "string", "description": "When it is said: m:ss or h:mm:ss (e.g. '12:34'), or whole seconds."},
+                            "quote": {"type": "string", "description": "The words the video says, verbatim (at most 240 characters)."},
+                        },
+                        "required": ["t", "quote"],
+                    },
+                    "description": "Optional. Up to 12 short timestamped quotes — the video's own words.",
+                },
+                "chapters": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"t": {"type": "string"}, "title": {"type": "string"}},
+                        "required": ["t", "title"],
+                    },
+                    "description": "Optional. The video's chapters as {t, title}; stored only when the page has none.",
+                },
+            },
+            "required": ["url", "summary"],
+        },
+    },
+    {
         "name": "cicada_sources",
         "description": "Return the primary source conversation chunks that produced an entity "
                        "(the episodes it was consolidated from). Use this to ground or verify a "
@@ -709,6 +742,9 @@ def handle_tool(name: str, arguments: dict) -> str:
         )
     elif name == "cicada_save_url":
         return handle_save_url(arguments.get("url", ""), arguments.get("note"))
+    elif name == "cicada_record_watch":
+        return handle_record_watch(arguments.get("url", ""), arguments.get("summary", ""),
+                                   arguments.get("excerpts"), arguments.get("chapters"))
     elif name == "cicada_sources":
         return handle_sources(arguments.get("entity_id", ""))
     elif name == "cicada_write_claim":
@@ -840,6 +876,10 @@ def handle_save_episode(content, title) -> str:
 
 def handle_save_url(url, note) -> str:
     return mcp_tools.save_url(_ctx(), url, note)
+
+
+def handle_record_watch(url, summary, excerpts=None, chapters=None) -> str:
+    return mcp_tools.record_watch(_ctx(), url, summary, excerpts, chapters)
 
 
 def handle_ask(query, top_k=6) -> str:

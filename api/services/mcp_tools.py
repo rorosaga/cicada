@@ -365,6 +365,79 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
         return f"Error: could not save URL ({type(e).__name__}: {e})"
 
 
+def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None = None,
+                 chapters: list | None = None) -> str:
+    """``cicada_record_watch`` (G140 Q-R8, R5 §5.7): record what the caller's
+    own tools saw in a saved video — a summary, ≤ 12 timestamped quotes, and
+    optional chapters — as one episode and one ``describes`` claim, committed
+    together under the caller. Cicada fetches nothing for a saved video; an
+    unsaved ``http(s)`` link is saved first through ``save_url`` (its own
+    rails), and a ``file://`` one must be added in the app."""
+    from api.services import watch_record
+
+    url = (url or "").strip()
+    if not url.startswith(("http://", "https://", "file://")):
+        return "Error: url must be the saved video's link (http(s):// or file://)."
+    memory_path = ctx.memory_path()
+    target = watch_record.resolve(memory_path, url)
+    if target is None:
+        if url.startswith("file://"):
+            return ("That video isn't saved in Cicada yet. Add the file in the Cicada app first, then record "
+                    "the watch.")
+        # Q-R8: saved first through save_url's own two paths and rails. On
+        # stdio's backend-down path that save stays uncommitted (as any
+        # cicada_save_url does there), so the page's creation rides in the
+        # watch commit below; url_index.json and the save's episode do not.
+        saved = save_url(ctx, url, None)
+        if saved.startswith("Error"):
+            return saved
+        target = watch_record.resolve(memory_path, url)
+        if target is None:
+            return "Error: the link could not be saved, so the watch was not recorded."
+    r = watch_record.record(
+        memory_path, target, summary=summary, excerpts=excerpts, chapters=chapters,
+        session_frontmatter=ctx.session_frontmatter(), author=ctx.author, session_id=ctx.session_id,
+        origin=ctx.claim_origin or watch_record.ORIGIN,
+    )
+    if r.get("error"):
+        return f"Could not record the watch: {r['error']}"
+
+    from api.services import telemetry
+
+    refs = {"entity_id": r["entity_id"], "claim_id": r["claim_id"], "episode_id": r["episode_id"],
+            "action": "watch_recorded", "session_id": ctx.session_id, "harness": ctx.harness,
+            "client_name": ctx.client_name, "client_version": ctx.client_version}
+    if ctx.is_remote:
+        refs["connector_id"] = ctx.connector_id
+    telemetry.record(telemetry.UsageEvent(
+        kind="agentic_write", stage="driver", connection="session",
+        engine="mcp-remote" if ctx.is_remote else "mcp-client",
+        model=None, bank=memory_path.name, billing="subscription", invocations=1, refs=refs,
+    ))
+    if not ctx.sleep_running():
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"episodes/{r['episode_id']}.md: created (trigger: {ctx.trigger})",
+                   f"entities/{r['entity_id']}.md: updated (source: {r['episode_id']}, trigger: {ctx.trigger})"],
+            paths=r["paths"], author=ctx.author, session=ctx.session_id,
+        )
+    quotes = sum(1 for e in r["evidence"] if e.get("kind") == "media")
+    parts = [f"Recorded the watch of \"{target.title}\" (entity `{r['entity_id']}`): episode "
+             f"`{r['episode_id']}`, claim `{r['claim_id']}`. Evidence: the summary and {quotes} timestamped "
+             "quote(s) from the video."]
+    if r["dropped"]:
+        parts.append(f"{r['dropped']} excerpt(s) left out (no readable time, a time past 24 hours, empty, "
+                     "or past the 12-quote cap).")
+    if r["summary_clipped"]:
+        parts.append("The summary was cut at 1,500 characters.")
+    if r["chapters"] is True:
+        parts.append("Chapters saved on the page.")
+    elif r["chapters"] is False:
+        parts.append("The page already has chapters; yours were not stored.")
+    parts.append("Cicada keeps these short quotes, never the transcript.")
+    return " ".join(parts)
+
+
 def parse_frontmatter(content: str) -> tuple[dict, str]:
     """Parse YAML frontmatter without requiring pyyaml. Simple key: value parsing."""
     if not content.startswith("---"):

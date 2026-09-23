@@ -56,7 +56,8 @@ _CLAIMS_BLOCK_RE = re.compile(
 # and carries no offsets. The set is closed on purpose: a viewer renders each
 # kind differently, and G100's derived-span class, if it ever ships, will be
 # a fifth value rather than a flag on one of these.
-EVIDENCE_KINDS = ("user", "assistant", "page", "reasoning")
+# G140 Q-R9: `media` is the fifth — what a video said (a watch record's cited excerpt, a `video [m:ss]:` line). Append-only: older readers degrade an unknown kind to `reasoning`.
+EVIDENCE_KINDS = ("user", "assistant", "page", "reasoning", "media")
 
 
 @dataclass

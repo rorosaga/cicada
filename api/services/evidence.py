@@ -44,6 +44,8 @@ __all__ = [
     # G118 slice 2
     "SPAN_CURRENT", "SPAN_GROWN", "SPAN_STALE", "turn_starts", "span_status", "TurnSpan", "turns",
     "turn_stamps", "source_document",
+    # G140 Q-R9
+    "media_time",
 ]
 
 # The longest quote a writer may cite. A longer one is clipped, not refused:
@@ -65,8 +67,38 @@ _EPISODE_PREFIX = "ep_"
 # third-party episodes. `system` is the person's configured context and
 # `unknown` is unattributed, so both count as `user` below — the only way a
 # span is labelled the model's is a line that says so.
-_TURN_RE = re.compile(r"^(user|human|assistant|ai|system|unknown)\s*:", re.IGNORECASE)
+#
+# G140 Q-R9: a `video`/`media` line is what a video said — a watch record's
+# cited excerpt (`video [12:34]: …`, `watch_record`). Its `[m:ss]`/`[h:mm:ss]`
+# is REQUIRED: "Video:" opens ordinary lines in a person's own messages, and
+# reading those as a video's words would be R5 §2 defect 3 in reverse. The six
+# original words keep their alternative byte for byte, so no stored episode
+# reads differently. `media_time` reads the time back at read time.
+_TURN_RE = re.compile(
+    r"^(?:(user|human|assistant|ai|system|unknown)"
+    r"|(video|media)\s*\[(?P<t>\d{1,2}(?::\d{2}){1,2})\])\s*:",
+    re.IGNORECASE,
+)
 _ASSISTANT_ROLES = frozenset({"assistant", "ai"})
+_MEDIA_ROLES = frozenset({"video", "media"})
+
+
+def _marker_word(m: re.Match[str]) -> str:
+    """The marker word a ``_TURN_RE`` match stands on, lower-cased — group 1
+    for the six conversation words, group 2 for a timed video line."""
+    return (m.group(1) or m.group(2) or "").lower()
+
+
+def _role(marker: str | None) -> str:
+    """The kind a marker word stands for — ONE mapping, read by both
+    ``speaker_kind`` and ``turns``, so a turn's role and a span's kind can
+    never disagree (R-PB3)."""
+    word = (marker or "").lower()
+    if word in _ASSISTANT_ROLES:
+        return "assistant"
+    if word in _MEDIA_ROLES:
+        return "media"
+    return "user"
 
 
 def body_hash(text: str) -> str:
@@ -179,8 +211,9 @@ def locate(
 
 def speaker_kind(text: str, start: int) -> str:
     """R4: ``assistant`` when the last turn marker at or before ``start`` is
-    the model's; ``user`` otherwise — including no marker at all, because
-    every marker-less writer captures the person's own input.
+    the model's, ``media`` when it is a timed video line (G140), ``user``
+    otherwise — including no marker at all, because every marker-less writer
+    captures the person's own input.
 
     Scans through the END of the line that contains ``start`` (not just
     ``text[:start]``): a marker only ever matches at a line's first column,
@@ -196,12 +229,46 @@ def speaker_kind(text: str, start: int) -> str:
     for line in head.splitlines():
         m = _TURN_RE.match(line)
         if m:
-            kind = "assistant" if m.group(1).lower() in _ASSISTANT_ROLES else "user"
+            kind = _role(_marker_word(m))
     return kind
 
 
-def _marker_lines(text: str) -> list[tuple[int, str, int]]:
-    """``(line start, marker word, content start)`` for every turn-marker line.
+def _seconds(raw: str | None) -> int | None:
+    """``m:ss`` / ``h:mm:ss`` → seconds. Local on purpose: this module
+    imports only ``markdown_parser`` and ``claims`` (G80)."""
+    if not raw:
+        return None
+    total = 0
+    for part in raw.split(":"):
+        if not part.isdigit():
+            return None
+        total = total * 60 + int(part)
+    return total
+
+
+def media_time(text: str, start: int) -> int | None:
+    """Seconds into the video for a span on a ``video [m:ss]:`` line (G140
+    Q-R9) — read at read time from the marker line at or before ``start``,
+    the same line ``speaker_kind`` reads, and never stored on the evidence.
+    ``None`` on any other line."""
+    text = text or ""
+    start = max(int(start), 0)
+    line_end = text.find("\n", start)
+    head = text if line_end == -1 else text[:line_end]
+    found = None
+    for line in head.splitlines():
+        m = _TURN_RE.match(line)
+        if m:
+            found = m
+    if found is None or _role(_marker_word(found)) != "media":
+        return None
+    return _seconds(found.group("t"))
+
+
+def _marker_lines(text: str) -> list[tuple[int, str, int, str | None]]:
+    """``(line start, marker word, content start, time)`` for every
+    turn-marker line — ``time`` is the raw ``m:ss`` of a timed video line
+    (G140 Q-R9), ``None`` for the six conversation words.
 
     The SAME lines :func:`speaker_kind` treats as turn boundaries — same
     ``_TURN_RE``, same ``splitlines`` — so a turn's role and a span's kind can
@@ -209,7 +276,7 @@ def _marker_lines(text: str) -> list[tuple[int, str, int]]:
     skips the marker and the spaces after it, so no client runs a regex of its
     own. Ascending by construction.
     """
-    out: list[tuple[int, str, int]] = []
+    out: list[tuple[int, str, int, str | None]] = []
     pos = 0
     for line in (text or "").splitlines(keepends=True):
         m = _TURN_RE.match(line)
@@ -217,14 +284,14 @@ def _marker_lines(text: str) -> list[tuple[int, str, int]]:
             content = m.end()
             while content < len(line) and line[content] in " \t":
                 content += 1
-            out.append((pos, m.group(1).lower(), pos + content))
+            out.append((pos, _marker_word(m), pos + content, m.group("t")))
         pos += len(line)
     return out
 
 
 def turn_starts(text: str) -> list[int]:
     """Offsets of every turn-marker line, ascending (R-PB3)."""
-    return [start for start, _marker, _content in _marker_lines(text)]
+    return [start for start, *_ in _marker_lines(text)]
 
 
 @dataclass
@@ -235,12 +302,14 @@ class TurnSpan:
     or of the document for a block before any marker; ``content_start`` skips
     the marker and the spaces after it; ``end`` is exclusive and stops before
     the newline that separates it from the next turn. ``role`` is exactly what
-    :func:`speaker_kind` answers inside the turn (``user`` | ``assistant``), or
-    ``page`` for an entity page. ``marker`` is the word as written, lower-cased
+    :func:`speaker_kind` answers inside the turn (``user`` | ``assistant`` |
+    ``media``), or ``page`` for an entity page. ``marker`` is the word as written, lower-cased
     — ``system``/``unknown`` count as the person under R4 and the Reader may
     say so — and ``None`` for a block with no marker line. ``ts``/``speaker``
     come only from a stored ``turns`` sidecar entry at exactly ``start``: a
-    time is never inferred (§4.4).
+    time is never inferred (§4.4). ``t`` is the seconds into the video for a
+    ``video [m:ss]:`` turn (G140 Q-R9) — derived from the marker, never
+    stored.
     """
 
     index: int
@@ -251,6 +320,7 @@ class TurnSpan:
     marker: str | None = None
     ts: str | None = None
     speaker: str | None = None
+    t: int | None = None
 
 
 def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = None) -> list[TurnSpan]:
@@ -268,18 +338,19 @@ def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = Non
     if page:
         return [TurnSpan(index=1, start=0, content_start=0, end=len(text), role="page")]
     stamps = stamps or {}
-    blocks: list[tuple[int, str | None, int]] = list(_marker_lines(text))
+    blocks: list[tuple[int, str | None, int, str | None]] = list(_marker_lines(text))
     if not blocks or blocks[0][0] > 0:
-        blocks.insert(0, (0, None, 0))
+        blocks.insert(0, (0, None, 0, None))
     out: list[TurnSpan] = []
-    for i, (start, marker, content_start) in enumerate(blocks):
+    for i, (start, marker, content_start, stamp_raw) in enumerate(blocks):
         nxt = blocks[i + 1][0] if i + 1 < len(blocks) else len(text)
         end = start + len(text[start:nxt].rstrip("\r\n"))
-        stamp = stamps.get(start) or {}
+        sidecar = stamps.get(start) or {}
+        role = _role(marker)
         out.append(TurnSpan(
             index=i + 1, start=start, content_start=min(content_start, end), end=end,
-            role="assistant" if marker in _ASSISTANT_ROLES else "user",
-            marker=marker, ts=stamp.get("ts"), speaker=stamp.get("speaker"),
+            role=role, marker=marker, ts=sidecar.get("ts"), speaker=sidecar.get("speaker"),
+            t=_seconds(stamp_raw) if role == "media" else None,
         ))
     return out
 

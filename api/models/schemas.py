@@ -737,14 +737,17 @@ class EpisodeSpan(CamelModel):
     stale: bool = False
     grown: bool = False
     kind: str = "user"
+    # G140 Q-R9: for a span on a video line, seconds into the video — derived, never stored.
+    t: Optional[int] = None
 
 
 class EpisodeTurn(CamelModel):
     """One turn of a document (G118 slice 2, design §4.8.1) — offsets into the
     evidence text, never a copy of it. See ``evidence.TurnSpan``: ``role`` is
-    ``user`` | ``assistant`` | ``page``; ``marker`` is the word as written
-    (``None`` for a marker-less block); ``ts``/``speaker`` exist only where the
-    episode stores a ``turns`` sidecar entry for this turn."""
+    ``user`` | ``assistant`` | ``page`` | ``media``; ``marker`` is the word as
+    written (``None`` for a marker-less block); ``ts``/``speaker`` exist only
+    where the episode stores a ``turns`` sidecar entry for this turn; ``t`` =
+    seconds into the video for a media turn (G140)."""
 
     index: int
     start: int
@@ -754,6 +757,7 @@ class EpisodeTurn(CamelModel):
     marker: Optional[str] = None
     speaker: Optional[str] = None
     ts: Optional[str] = None
+    t: Optional[int] = None
 
 
 class EpisodeFocus(CamelModel):

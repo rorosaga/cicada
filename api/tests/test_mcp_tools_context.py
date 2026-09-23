@@ -11,7 +11,7 @@ from api.services import mcp_tools
 REPO = Path(__file__).resolve().parents[2]
 MOVED = ("recall", "recall_detail", "open_hub", "sources", "write_claim", "get_perspective",
          "check_nudges", "resolve_inbox", "save_episode", "save_url", "ask", "timeline",
-         "retract_claim")
+         "retract_claim", "record_watch")
 
 
 def test_every_remote_capable_body_lives_in_mcp_tools():

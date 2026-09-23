@@ -15,6 +15,9 @@ No tool is destructive: nothing deletes or edits in place.
 `cicada_retract_claim` closes a claim this connection wrote and keeps it, with
 the reason, as history (G140 Q-R5): its validity changes, its words never do.
 `cicada_save_url` is open-world, because it may fetch the page's title.
+`cicada_record_watch` is open-world for the same reason: a link that is not
+saved yet is saved first, through `cicada_save_url`'s own path (G140 Q-R8).
+Cicada never fetches the video itself.
 """
 from __future__ import annotations
 
@@ -134,6 +137,22 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           {"url": {"type": "string", "description": "The http(s) link."},
            "note": {"type": "string", "description": "Optional: why it matters."}},
           ("url",), read_only=False, idempotent=True, open_world=True),
+    _tool("cicada_record_watch",
+          "After you watch a video the person saved, record what it covers: a short summary and up to 12 "
+          "short quotes with the time each is said. Cicada keeps these quotes as the video's words, never "
+          "the whole transcript, and never downloads the video itself. The reply names the episode to cite "
+          "in cicada_write_claim.",
+          {"url": {"type": "string", "description": "The video's link as saved."},
+           "summary": {"type": "string", "description": "What the video covers, one paragraph."},
+           "excerpts": {"type": "array", "description": "Optional: up to 12 short quotes with their time.",
+                        "items": {"type": "object", "required": ["t", "quote"], "properties": {
+                            "t": {"type": "string", "description": "When it is said, e.g. '12:34'."},
+                            "quote": {"type": "string", "description": "The words, verbatim (at most 240 characters)."},
+                        }}},
+           "chapters": {"type": "array", "description": "Optional: the video's chapters.",
+                        "items": {"type": "object", "required": ["t", "title"], "properties": {
+                            "t": {"type": "string"}, "title": {"type": "string"}}}}},
+          ("url", "summary"), read_only=False, idempotent=True, open_world=True),
     _tool("cicada_sources",
           "Return the conversation excerpts a page was built from, word for word (at most three, each cut at "
           "1,000 characters).",

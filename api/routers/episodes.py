@@ -72,6 +72,7 @@ async def get_episode_span(
         stale=status == evidence.SPAN_STALE,
         grown=status == evidence.SPAN_GROWN,
         kind=evidence.speaker_kind(text, start) if evidence.is_episode_id(episode_id) else "page",
+        t=evidence.media_time(text, start) if evidence.is_episode_id(episode_id) else None,
     )
 
 
