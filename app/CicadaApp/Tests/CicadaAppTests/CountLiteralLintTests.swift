@@ -28,7 +28,9 @@ final class CountLiteralLintTests: XCTestCase {
     /// Home is a page of numbers, each shown once, so it formats them the same
     /// way the Sources grid does — and `Views/Onboarding/` (Task 4): the
     /// Welcome's start line and its dropped-export rows carry counts too — and
-    /// `Views/Shell/` (DS-1 T3): the rail's Inbox numeral and its "6 pending" label.
+    /// `Views/Shell/` (DS-1 T3): the rail's Inbox numeral and its "6 pending" label —
+    /// and the two list-header components (DS-1 T5, DR-25/DR-45): a tab's count and
+    /// the eyebrow's "6 pending" are the numbers every list page will show first.
     static let scope = [
         "/Views/Sources/",
         "/Views/Contributors/",
@@ -37,6 +39,8 @@ final class CountLiteralLintTests: XCTestCase {
         "/Views/Home/",
         "/Views/Onboarding/",
         "/Views/Shell/",
+        "/Views/Common/TextTabs.swift",
+        "/Views/Common/EyebrowRow.swift",
     ]
 
     /// The documented way out, for a line the needle flags but that renders no

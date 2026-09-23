@@ -4,7 +4,7 @@ import XCTest
 /// DR-22 / DR-45 / DR-5 — navigation and tab state never spend the accent: selection is
 /// brightness plus one neutral fill. The scope grows as the shell and the page tracks add files.
 final class SelectionTintLintTests: XCTestCase {
-    static let scoped = ["Views/Shell/NavRail.swift"]
+    static let scoped = ["Views/Shell/NavRail.swift", "Views/Common/TextTabs.swift"]
     static let needles = ["CicadaTheme.accent", "CicadaTheme.wash", "CicadaTheme.onAccent", "accentColor"]
 
     func testNavigationAndTabStateNeverSpendTheAccent() throws {
