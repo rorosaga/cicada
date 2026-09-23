@@ -1,8 +1,14 @@
 import asyncio
+import os
 import re
+import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+
+from loguru import logger
 
 from api.models.schemas import (
     Contributor,
@@ -400,7 +406,123 @@ def _user_avatar_url(handle: str | None) -> str | None:
     return f"https://github.com/{handle}.png"
 
 
+# --- One git writer per bank (F2-back R-B1 … R-B4) ---------------------------
+#
+# Found in the owner's review (2026-09-23): a background paper-details commit
+# failed with git's own "Unable to create '.git/index.lock': File exists"
+# because a folder-sync commit was running at the same moment, and the pages it
+# wrote stayed dirty for the next `git add -A` writer to sweep under its own
+# author — the G85-class smear. Eight concurrent `commit_paths` on one test bank
+# reproduced it in five trials out of five. So every mutating git command runs
+# under ONE re-entrant lock per bank, keyed by the resolved path, and held by a
+# worker thread for the whole add → status → commit sequence: a thread lock, so
+# loop tasks, the threadpool, `asyncio.run` bridges on other threads and sync
+# startup migrations all queue on the same object (R-B4); the whole sequence, so
+# a `status` check and its commit never straddle another writer. The backend is
+# one process (R-B1); across processes git's own index.lock is the guard, and
+# only its "File exists" refusal is retried (R-B2).
+
+#: Subcommands that write the index, the working tree or a ref. `_run_git`
+#: routes these through the lock; `test_git_write_lock.py`'s lint refuses a
+#: literal of any of them spawned anywhere else in `api/` or `mcp/`.
+WRITE_SUBCOMMANDS = frozenset({
+    "add", "apply", "checkout", "cherry-pick", "clean", "commit", "merge", "mv",
+    "reset", "restore", "revert", "rm", "stash", "update-index",
+})
+#: Waits between tries while ANOTHER process holds the index (R-B2): five tries
+#: in about two seconds. A terminal's `git add` takes milliseconds; an editor left
+#: open by `git commit` does not, and that case is R-B5's to keep.
+INDEX_LOCK_BACKOFF_S: tuple[float, ...] = (0.1, 0.25, 0.5, 1.0)
+#: The retry's clock — a seam, so the suite never sleeps.
+_sleep = time.sleep
+
+_WRITE_LOCKS: dict[str, threading.RLock] = {}
+_WRITE_LOCKS_GUARD = threading.Lock()
+
+
+def write_lock(memory_path) -> threading.RLock:
+    """The one lock every git writer of this bank holds (R-B1). Keyed by the
+    resolved path, so `bank`, `bank/` and a symlink to it are one bank.
+    Re-entrant: a caller already holding it may call `commit_paths_sync`."""
+    key = os.path.realpath(os.fspath(memory_path))
+    with _WRITE_LOCKS_GUARD:
+        return _WRITE_LOCKS.setdefault(key, threading.RLock())
+
+
+def _index_lock_busy(stderr: str) -> bool:
+    """Git's refusal while another process holds `.git/index.lock` — the one
+    failure a writer retries (R-B2)."""
+    return "index.lock" in stderr and "File exists" in stderr
+
+
+def _spawn(memory_path: Path, args: tuple[str, ...]) -> subprocess.CompletedProcess:
+    """The one place a mutating git command starts (a test seam)."""
+    return subprocess.run(["git", *args], cwd=str(memory_path), capture_output=True)
+
+
+def _git_sync(memory_path: Path, *args: str) -> str:
+    """One git command, called with the bank's write lock held. Retries only git's
+    index-lock refusal and never deletes the lock (R-B2): another process owns
+    it, and removing it under a live commit corrupts the index."""
+    for delay in (*INDEX_LOCK_BACKOFF_S, None):
+        try:
+            proc = _spawn(memory_path, args)
+        except OSError as exc:
+            raise GitError(f"git {' '.join(args)} failed: {exc}") from exc
+        if proc.returncode == 0:
+            return proc.stdout.decode(errors="replace")
+        stderr = proc.stderr.decode(errors="replace")
+        if delay is None or not _index_lock_busy(stderr):
+            raise GitError(f"git {' '.join(args)} failed: {stderr}")
+        logger.info(f"git {args[0]}: another git process holds this bank's index — retrying in {delay}s")
+        _sleep(delay)
+    raise GitError(f"git {' '.join(args)} failed")  # unreachable: the last try has no delay
+
+
+def run_git_write_sync(memory_path, *args: str) -> str:
+    """One mutating git command under the bank's write lock (R-B1) — for a sync
+    caller (the expiry restore) and for `_run_git`'s write branch."""
+    memory_path = Path(memory_path)
+    with write_lock(memory_path):
+        return _git_sync(memory_path, *args)
+
+
+def commit_paths_sync(memory_path, message: str, paths) -> None:
+    """Stage and commit ONLY ``paths`` (memory-relative), never ``git add -A``,
+    under the bank's write lock (R-B1, R-B4).
+
+    A targeted write (adding a fact source, deferring one inbox item, a
+    migration) must not sweep unrelated dirty files into its commit — that
+    would attribute someone else's change to this action's trigger and author.
+    """
+    paths = [str(p) for p in paths or ()]
+    if not paths:
+        return
+    memory_path = Path(memory_path)
+    with write_lock(memory_path):
+        _git_sync(memory_path, "add", "--", *paths)
+        if not _git_sync(memory_path, "status", "--porcelain", "--", *paths).strip():
+            return  # Nothing to commit
+        _git_sync(memory_path, "commit", "-m", message, "--", *paths)
+
+
+def commit_changes_sync(memory_path, message: str) -> str | None:
+    """Stage all changes and commit under the bank's write lock. The new commit
+    hash, or ``None`` when there was nothing to commit."""
+    memory_path = Path(memory_path)
+    with write_lock(memory_path):
+        _git_sync(memory_path, "add", "-A")
+        if not _git_sync(memory_path, "status", "--porcelain").strip():
+            return None  # Nothing to commit
+        _git_sync(memory_path, "commit", "-m", message)
+        return _git_sync(memory_path, "rev-parse", "HEAD").strip()
+
+
 async def _run_git(memory_path: Path, *args: str) -> str:
+    if args and args[0] in WRITE_SUBCOMMANDS:
+        # R-B1: a write through the async helper (`inbox_service`'s `git mv` /
+        # `git rm`) queues on the same lock as every commit.
+        return await asyncio.to_thread(run_git_write_sync, memory_path, *args)
     try:
         proc = await asyncio.create_subprocess_exec(
             "git",
@@ -408,6 +530,9 @@ async def _run_git(memory_path: Path, *args: str) -> str:
             cwd=str(memory_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            # R-B3: `git status` otherwise takes the index lock to refresh its
+            # stat cache — the very lock a Cicada writer then finds held.
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
         )
     except OSError as exc:
         # cwd missing (e.g. a bank/memory dir not yet scaffolded) -> treat like
@@ -1152,30 +1277,17 @@ async def get_sleep_cycle_detail(memory_path: Path, commit: str) -> SleepCycleDe
 
 async def commit_changes(memory_path: Path, message: str) -> str | None:
     """Stage all changes and commit. Returns the new commit hash, or ``None``
-    when there was nothing to commit."""
-    await _run_git(memory_path, "add", "-A")
-    # Check if there's anything to commit first
-    status = await _run_git(memory_path, "status", "--porcelain")
-    if not status.strip():
-        return None  # Nothing to commit
-    await _run_git(memory_path, "commit", "-m", message)
-    return (await _run_git(memory_path, "rev-parse", "HEAD")).strip()
+    when there was nothing to commit. Runs in a worker thread under the bank's
+    one write lock (R-B4)."""
+    return await asyncio.to_thread(commit_changes_sync, memory_path, message)
 
 
 async def commit_paths(memory_path: Path, message: str, paths: list[str]) -> None:
-    """Stage and commit ONLY ``paths`` (memory-relative), never ``git add -A``.
-
-    A targeted write (adding a fact source, deferring one inbox item) must not
-    sweep unrelated dirty files in ``memory/`` into its commit — that would
-    attribute someone else's change to this action's trigger and author.
-    """
+    """Stage and commit ONLY ``paths`` (memory-relative), never ``git add -A`` —
+    :func:`commit_paths_sync` in a worker thread (R-B4)."""
     if not paths:
         return
-    await _run_git(memory_path, "add", "--", *paths)
-    status = await _run_git(memory_path, "status", "--porcelain", "--", *paths)
-    if not status.strip():
-        return  # Nothing to commit
-    await _run_git(memory_path, "commit", "-m", message, "--", *paths)
+    await asyncio.to_thread(commit_paths_sync, memory_path, message, list(paths))
 
 
 async def porcelain_status(memory_path: Path) -> str:

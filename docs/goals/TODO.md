@@ -108,6 +108,12 @@ Pro Display — semibold titles tracked 2 % tight behind the same `displayFont`,
 (R-FX12, R-FX13). Baselines: backend **2954 passed**, Swift **1433 executed, 0 failures**, graph JS
 7/7 — measured on `fix/owner-feedback-1`; replace with the merged numbers.
 
+**Round 3 · Track F2-back — backend fixes, batch 2 (2026-09-23, `fix/backend-batch-2`, plan
+`docs/superpowers/plans/2026-09-23-backend-batch-2.md`).**
+- One git writer per bank: every mutating git command queues on one per-bank lock, another
+  process's `index.lock` is waited out and never deleted, readers never take it, and a lint keeps
+  it that way (R-B1 … R-B4).
+
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
 Do not re-derive the queue from this file.

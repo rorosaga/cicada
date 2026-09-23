@@ -13,7 +13,6 @@ present in the legacy dirs. Safe to call on every API startup.
 
 from __future__ import annotations
 
-import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -190,32 +189,14 @@ def _commit_migration(memory_path: Path, moved: int) -> None:
     """Commit the migration scoped to ONLY inbox/, nudges/, clarifications/.
 
     Never ``git add -A`` — concurrent unrelated changes in the working tree
-    must not be swept into the migration commit.
+    must not be swept into the migration commit. Through ``git_service`` so it
+    queues on the bank's one write lock (F2-back R-B1).
     """
-    paths = ["inbox", "nudges", "clarifications"]
-    subprocess.run(
-        ["git", "add", "--", *paths],
-        cwd=str(memory_path),
-        check=True,
-    )
-    status = subprocess.run(
-        ["git", "status", "--porcelain", "--", *paths],
-        cwd=str(memory_path),
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    if not status.stdout.strip():
-        return
     message = (
         "Migrate nudges + clarifications into unified inbox/\n\n"
         f"Moved {moved} legacy items into inbox/ (trigger: migration/inbox)"
     )
-    subprocess.run(
-        ["git", "commit", "-m", message, "--", *paths],
-        cwd=str(memory_path),
-        check=True,
-    )
+    git_service.commit_paths_sync(memory_path, message, ["inbox", "nudges", "clarifications"])
 
 
 _DEDUP_MARKER = ".deduped"
@@ -295,21 +276,11 @@ def dedup_open_items(memory_path: Path) -> int:
 
 
 def _commit_dedup(memory_path: Path, removed: int) -> None:
-    """Commit the dedup scoped to ONLY inbox/ (never ``git add -A``)."""
-    subprocess.run(["git", "add", "--", "inbox"], cwd=str(memory_path), check=True)
-    status = subprocess.run(
-        ["git", "status", "--porcelain", "--", "inbox"],
-        cwd=str(memory_path), check=True, capture_output=True, text=True,
-    )
-    if not status.stdout.strip():
-        return
+    """Commit the dedup scoped to ONLY inbox/ (never ``git add -A``), under the
+    bank's write lock (F2-back R-B1)."""
     message = git_service.build_commit_message(
         "Collapse duplicate open inbox questions",
         [f"inbox/: {removed} duplicate item(s) merged into their oldest sibling (trigger: inbox/dedup)"],
         authors=["cicada"],
     )
-    subprocess.run(
-        ["git", "commit", "-m", message, "--", "inbox"],
-        cwd=str(memory_path),
-        check=True,
-    )
+    git_service.commit_paths_sync(memory_path, message, ["inbox"])

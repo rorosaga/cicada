@@ -489,6 +489,13 @@ path-granular, not hunk-granular, so a subject that is both decay-eligible and c
 same cycle lands whole in the `cicada` commit. Narrow in practice; fixing it needs hunk-level
 staging.
 
+**One git writer per bank (F2-back R-B1 … R-B4).** Every mutating git command — `git_service`'s
+commits, a `_run_git` write, the one-shot migrations, the expiry restore — runs in a worker thread
+under one re-entrant lock per resolved bank path, so tasks, threads and `asyncio.run` bridges queue
+instead of colliding on `index.lock`; the backend is one process, git's own lock is the cross-process
+guard, and only its `File exists` refusal is retried (five tries, the lock never deleted). Reads pass
+`GIT_OPTIONAL_LOCKS=0`, and `test_git_write_lock.py` refuses a git write spawned anywhere else.
+
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
 overhead, no growing fields.
