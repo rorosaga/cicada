@@ -739,6 +739,13 @@ unnoticed. Nominative use only — a vendor mark is never restyled or recoloured
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
 `LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
 
+**Design rules — Direction D, "Focus columns" (2026-09-23).** [`docs/design/DESIGN_RULES.md`](docs/design/DESIGN_RULES.md)
+is the binding target for every UI change: graphite neutrals, the system accent, SF Pro only, a 56 pt icon rail, a centred
+command bar holding the bank selector and search, and progressive columns (the list alone → list + detail → list + detail +
+Reader). Rules are numbered `DR-n` and a UI PR cites the ids it applies; a departure needs a dated ruling in its §9. The owner
+chose D from three mocked directions (the Inbox and the Reader). Until the implementing track lands, the paragraphs below
+describe what ships today, not the target.
+
 **Meadow (round 3, G137).** The visual system: *nature is the ground, glass is the chrome.*
 Neutrals are a warm "day meadow" (`#F4F6F1`) and a blue-green "night meadow" (`#0D1216`); the
 nature tokens (`sky`, `meadow`, `dandelion`, `cloud`, `bark`, `soil`, their washes, and procedural
