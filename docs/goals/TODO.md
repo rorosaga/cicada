@@ -51,8 +51,9 @@ settings kit, a sidebar grouped Cicada · Customize · Engines & keys, General w
 (one app-scope observer), and a new Engines page that owns engine choice; Plans & keys is credentials
 only. Final-review ruling on the design doc's A3: the moved `use_for_sleep` switch shows only under the
 API key card as "Use my Claude plan when I start a cycle", because `engine_select` never reads it under
-Auto. Tasks 3–8 of `docs/superpowers/plans/2026-09-23-settings-v3.md` (From anywhere's own row, search,
-the Cicada-group pages, G138 recommended skills) are open.
+Auto. Tasks 3–7 of `docs/superpowers/plans/2026-09-23-settings-v3.md` are built (From anywhere's own
+row, search, the Cicada-group pages, and G138's server half: the reviewed catalog, `GET /skills/recommended`,
+the handshake bridge at `CONTRACT_VERSION` 3); Task 8 (the Skills page and `SkillInstaller`) is open.
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.

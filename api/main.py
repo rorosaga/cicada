@@ -32,6 +32,7 @@ from api.routers import (
     remote,
     search,
     settings as settings_router,
+    skills,
     sleep,
     sources,
     state,
@@ -218,3 +219,4 @@ app.include_router(connections.router, tags=["connections"])
 app.include_router(sync.router, tags=["sync"])
 app.include_router(consumption.router, tags=["consumption"])
 app.include_router(remote.router, tags=["remote"])
+app.include_router(skills.router, tags=["skills"])

@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "reviewedAt": "2026-09-23",
+  "maxShown": 5,
+  "skills": [
+    {
+      "id": "watch", "kind": "skill", "rank": 1,
+      "title": "Watch a video",
+      "summary": "Your agent watches a video you point it at and tells you what's in it.",
+      "why": "A saved video in Cicada is only a title. With this, your agent can look at the frames and captions when you ask, so you can talk about what a video actually says.",
+      "publisher": "bradautomates", "sourceUrl": "https://github.com/bradautomates/claude-video",
+      "licence": "MIT", "mark": null, "symbol": "play.rectangle",
+      "pin": {"repo": "bradautomates/claude-video", "ref": "v0.2.0", "sha": "83da59fa78c3eee9e20f515fe75c438bb5166efd",
+              "path": "skills/watch", "skillMdSha256": "10dc8e56699e99a97f9b29c25881a3b3d94873d42ee6a2b6a84fef4ead6927b2"},
+      "agents": {
+        "claude-code": {"method": "plugin", "marketplace": "bradautomates/claude-video", "plugin": "watch@claude-video"},
+        "codex": {"method": "skills-cli"}
+      },
+      "detect": {"skillDirs": ["watch"], "pluginIds": ["watch@claude-video"]},
+      "needs": {
+        "binaries": ["ffmpeg", "yt-dlp"],
+        "keys": [{"name": "GROQ_API_KEY", "optional": true}, {"name": "OPENAI_API_KEY", "optional": true}],
+        "network": ["the video's own website", "api.groq.com, only when a video has no captions", "api.openai.com, only when a video has no captions"],
+        "writes": ["~/.config/watch/.env", "a temporary folder holding the video while it works"],
+        "allowedTools": "Bash, Read, AskUserQuestion",
+        "hooks": ["In Claude Code, a short setup check each time a session starts"],
+        "firstRun": "On a Mac it installs ffmpeg and yt-dlp with Homebrew the first time it runs.",
+        "limits": ["Reads English captions; other languages need one of the transcription keys."]
+      },
+      "terms": {
+        "summary": "It downloads videos with yt-dlp. YouTube's terms don't allow downloading or automated access without YouTube's permission.",
+        "url": "https://www.youtube.com/t/terms",
+        "safeUses": ["your own recordings", "videos you made, like your own Looms"]
+      },
+      "cicadaNote": "Cicada itself never downloads video. It only keeps what your agent tells it afterwards.",
+      "bridge": {"key": "video", "tool": "cicada_record_watch", "active": false}
+    },
+    {
+      "id": "paper-lookup", "kind": "skill", "rank": 2,
+      "title": "Look up papers",
+      "summary": "Your agent searches arXiv, OpenAlex, Crossref and other scholarly sources.",
+      "why": "When you ask about research, your agent finds the real paper and its link — and can save it to Cicada so it joins your memory.",
+      "publisher": "K-Dense", "sourceUrl": "https://github.com/K-Dense-AI/scientific-agent-skills",
+      "licence": "MIT", "mark": null, "symbol": "doc.text.magnifyingglass",
+      "pin": {"repo": "K-Dense-AI/scientific-agent-skills", "ref": "main", "sha": "49c6e97775eaa18ba791bebe23162a70ae601c18",
+              "path": "skills/paper-lookup", "skillMdSha256": "487f39acbc2d7988e967a4f479bf43100c221c1e258c2d24fdc7168e2098e33c"},
+      "agents": {"claude-code": {"method": "skills-cli"}, "codex": {"method": "skills-cli"}},
+      "detect": {"skillDirs": ["paper-lookup"]},
+      "needs": {
+        "binaries": ["curl", "python3"],
+        "keys": [{"name": "NCBI_API_KEY", "optional": true}, {"name": "S2_API_KEY", "optional": true},
+                 {"name": "CORE_API_KEY", "optional": true}, {"name": "OPENALEX_API_KEY", "optional": true}],
+        "network": ["public scholarly services such as arXiv, OpenAlex, Crossref and Semantic Scholar"],
+        "allowedTools": "Read, Bash"
+      },
+      "bridge": {"key": "papers", "tool": "cicada_save_url", "active": true}
+    },
+    {
+      "id": "wispr-flow", "kind": "mcp-hosted", "rank": 3,
+      "title": "Wispr Flow meetings",
+      "summary": "Your agent reads the notes Wispr Flow's notetaker took in your meetings.",
+      "why": "Meetings are conversations with other people. Connecting Wispr Flow lets your agent read a meeting's notes when you ask.",
+      "publisher": "Wispr", "sourceUrl": "https://docs.wisprflow.ai/articles/4759919286-how-to-connect-wispr-flow-to-claude-chatgpt-and-other-ai-tools-mcp",
+      "licence": "Hosted service", "mark": "wispr-flow", "symbol": "waveform",
+      "endpoint": "https://api.wisprflow.ai/connect/mcp",
+      "agents": {"claude-code": {"method": "mcp-http", "name": "wispr-flow"}, "codex": {"method": "mcp-http", "name": "wispr-flow"}},
+      "needs": {"accounts": ["a Wispr Flow account"], "network": ["api.wisprflow.ai"],
+                "limits": ["Read-only.", "Meetings only — it can't see your dictation history."]},
+      "cicadaNote": "Meetings hold other people's words. Keep only what you'd be comfortable keeping.",
+      "bridge": {"key": "meetings", "tool": "cicada_save_episode", "active": false}
+    },
+    {
+      "id": "granola", "kind": "mcp-hosted", "rank": 4,
+      "title": "Granola meetings",
+      "summary": "Your agent reads your Granola meeting notes.",
+      "why": "Your agent can look up what was said in a meeting when you ask, instead of you pasting notes in.",
+      "publisher": "Granola", "sourceUrl": "https://docs.granola.ai/help-center/sharing/integrations/mcp",
+      "licence": "Hosted service", "mark": "granola", "symbol": "note.text",
+      "endpoint": "https://mcp.granola.ai/mcp",
+      "agents": {"claude-code": {"method": "mcp-http", "name": "granola"}, "codex": {"method": "mcp-http", "name": "granola"}},
+      "needs": {"accounts": ["a Granola account; full transcripts need a Granola paid plan"], "network": ["mcp.granola.ai"],
+                "limits": ["Read-only."]},
+      "cicadaNote": "Meetings hold other people's words. Keep only what you'd be comfortable keeping.",
+      "bridge": {"key": "meetings", "tool": "cicada_save_episode", "active": false}
+    },
+    {
+      "id": "skill-creator", "kind": "plugin", "rank": 5,
+      "title": "Make your own skills",
+      "summary": "Your agent helps you write, test and tune a skill.",
+      "why": "Cicada will later turn what it learns about how you work into skills. This is Anthropic's tool for writing and testing them yourself.",
+      "publisher": "Anthropic", "sourceUrl": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/skill-creator",
+      "licence": "Apache-2.0", "mark": "claude", "symbol": "hammer",
+      "pin": {"repo": "anthropics/claude-plugins-official", "ref": "main", "sha": "db467cc56673fc963ca418b4165c688dfbe77007",
+              "path": "plugins/skill-creator/skills/skill-creator", "skillMdSha256": "dcd4803e61e913e6fc27294184cd3a71f09f5e924ff20c8a9a20173e7b3c2bcf"},
+      "agents": {"claude-code": {"method": "plugin", "marketplace": "anthropics/claude-plugins-official", "plugin": "skill-creator@claude-plugins-official"}},
+      "detect": {"skillDirs": ["skill-creator"], "pluginIds": ["skill-creator@claude-plugins-official"]},
+      "needs": {"network": ["none of its own"]},
+      "bridge": null
+    },
+    {
+      "id": "arxiv-mcp-server", "kind": "mcp", "rank": 6,
+      "title": "Read arXiv papers",
+      "summary": "Your agent searches arXiv and reads a paper's sections.",
+      "why": "Useful when you read research: your agent can open the paper itself, and save the link to Cicada.",
+      "publisher": "blazickjp", "sourceUrl": "https://github.com/blazickjp/arxiv-mcp-server",
+      "licence": "Apache-2.0", "mark": "arxiv", "symbol": "books.vertical",
+      "pin": {"repo": "blazickjp/arxiv-mcp-server", "ref": "v0.7.2", "sha": "0e29e8540635e4d9619d32abaab5490d180b824e", "path": ""},
+      "agents": {
+        "claude-code": {"method": "mcp-stdio", "name": "arxiv", "command": ["uvx", "arxiv-mcp-server@0.7.2"]},
+        "codex": {"method": "mcp-stdio", "name": "arxiv", "command": ["uvx", "arxiv-mcp-server@0.7.2"]}
+      },
+      "needs": {"binaries": ["uv"], "network": ["arxiv.org"], "writes": ["~/.arxiv-mcp-server/papers"]},
+      "bridge": {"key": "papers", "tool": "cicada_save_url", "active": true}
+    },
+    {
+      "id": "pdf", "kind": "plugin", "rank": 7,
+      "title": "Read PDFs",
+      "summary": "Your agent reads PDFs, pulls out their tables and fills in forms.",
+      "why": "Handy for the papers and documents you save. Already built into claude.ai's paid plans; this brings it to Claude Code.",
+      "publisher": "Anthropic", "sourceUrl": "https://github.com/anthropics/skills/tree/main/skills/pdf",
+      "licence": "Proprietary", "mark": "claude", "symbol": "doc.richtext",
+      "pin": {"repo": "anthropics/skills", "ref": "main", "sha": "34040c9c568585f6929bedeaad110ad08f079624",
+              "path": "skills/pdf", "skillMdSha256": "9f78b8359fbd4943ad260a7a1e436e5a96503406d6c34e99f69223d647d85b9c"},
+      "agents": {"claude-code": {"method": "plugin", "marketplace": "anthropics/skills", "plugin": "document-skills@anthropic-agent-skills"}},
+      "detect": {"pluginIds": ["document-skills@anthropic-agent-skills"]},
+      "needs": {"binaries": ["python3"], "limits": ["Comes as one set with Anthropic's Word, Excel and PowerPoint skills."]},
+      "cicadaNote": "Anthropic's licence doesn't allow copying these files, so Cicada only runs Claude Code's own installer.",
+      "bridge": {"key": "documents", "tool": "cicada_save_episode", "active": false}
+    },
+    {
+      "id": "literature-review", "kind": "skill", "rank": 8,
+      "title": "Review the literature",
+      "summary": "Your agent runs a careful literature review across several databases.",
+      "why": "For a research question: your agent gathers papers with checked citations, and can save the ones that matter to Cicada.",
+      "publisher": "K-Dense", "sourceUrl": "https://github.com/K-Dense-AI/scientific-agent-skills",
+      "licence": "MIT", "mark": null, "symbol": "text.book.closed",
+      "pin": {"repo": "K-Dense-AI/scientific-agent-skills", "ref": "main", "sha": "49c6e97775eaa18ba791bebe23162a70ae601c18",
+              "path": "skills/literature-review", "skillMdSha256": "950a6d0863ef657523813b985fe86599ac6bb99b695eee5953612d7e20c78011"},
+      "agents": {"claude-code": {"method": "skills-cli"}, "codex": {"method": "skills-cli"}},
+      "detect": {"skillDirs": ["literature-review"]},
+      "needs": {"keys": [{"name": "OPENROUTER_API_KEY", "optional": true}], "network": ["public scholarly services"],
+                "allowedTools": "Read, Write, Edit, Bash"},
+      "bridge": {"key": "papers", "tool": "cicada_save_url", "active": true}
+    },
+    {
+      "id": "transcribe", "kind": "skill", "rank": 9,
+      "title": "Transcribe recordings",
+      "summary": "Your agent turns an audio or video file into text, with who said what.",
+      "why": "For your own recordings of meetings and calls, so what was said can be kept.",
+      "publisher": "OpenAI", "sourceUrl": "https://github.com/openai/skills/tree/main/skills/.curated/transcribe",
+      "licence": "Apache-2.0", "mark": "codex", "symbol": "waveform.and.mic",
+      "pin": {"repo": "openai/skills", "ref": "main", "sha": "49f948faa9258a0c61caceaf225e179651397431",
+              "path": "skills/.curated/transcribe", "skillMdSha256": "f530021da9f377362ee4214e0bc689cbb5404640d2eb88ee272d51d61f530a09"},
+      "agents": {"codex": {"method": "skills-cli"}},
+      "detect": {"skillDirs": ["transcribe"]},
+      "needs": {"keys": [{"name": "OPENAI_API_KEY", "optional": false}], "network": ["api.openai.com"]},
+      "cicadaNote": "Recordings hold other people's words. Keep only what you'd be comfortable keeping.",
+      "bridge": {"key": "meetings", "tool": "cicada_save_episode", "active": false}
+    }
+  ]
+}
