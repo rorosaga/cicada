@@ -60,7 +60,7 @@ struct PaperWhyItem: Codable, Equatable, Identifiable {
 
     init(predicate: String, text: String? = nil, target: String? = nil, snippet: String = "",
          highlightStart: Int = -1, highlightEnd: Int = -1, file: String? = nil, heading: String? = nil,
-         edited: String? = nil, kind: String = "user", episode: String, start: Int = -1, end: Int = -1,
+         edited: String? = nil, kind: String = "reasoning", episode: String, start: Int = -1, end: Int = -1,
          stale: Bool = false) {
         self.predicate = predicate; self.text = text; self.target = target; self.snippet = snippet
         self.highlightStart = highlightStart; self.highlightEnd = highlightEnd; self.file = file
@@ -80,7 +80,10 @@ struct PaperWhyItem: Codable, Equatable, Identifiable {
         file = try c.decodeIfPresent(String.self, forKey: .file)
         heading = try c.decodeIfPresent(String.self, forKey: .heading)
         edited = try c.decodeIfPresent(String.self, forKey: .edited)
-        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "user"
+        // A missing `kind` is NOT credited to the owner: "user" would be the
+        // over-credit direction R-LS22 / R-F2 rule out (task 7 review r1).
+        // "reasoning" is G118's neutral kind — no claim on who wrote it.
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "reasoning"
         episode = try c.decode(String.self, forKey: .episode)
         start = try c.decodeIfPresent(Int.self, forKey: .start) ?? -1
         end = try c.decodeIfPresent(Int.self, forKey: .end) ?? -1

@@ -20,6 +20,17 @@ struct EntityCardNavigation {
 }
 
 struct EntityDetailCard: View {
+    /// G133 — should the card ask `GET /entities/{id}/paper`? Any `media`
+    /// entity whose kind is unknown (the graph-node stub carries no `media`
+    /// block) or known to be a paper. Only a media block that says it is NOT
+    /// a paper skips the call. Pure so the stub case is pinned by a test
+    /// (task 7 review r1: the stub never fetched, so a first open showed no
+    /// paper card and — with the `!isPaper` preview guard — no preview).
+    static func wantsPaperDetail(type: EntityType, media: MediaBlock?) -> Bool {
+        guard type == .media else { return false }
+        return media?.isPaper ?? true
+    }
+
     let entity: Entity
     @Environment(GraphViewModel.self) private var graphVM
     /// `nil` (the default) means "use `graphVM`'s own history" — see
@@ -389,7 +400,12 @@ struct EntityDetailCard: View {
             loadingCommits = []
             diffErrors = []
             sources = (try? await APIClient.shared.fetchEntitySources(entityId: entity.id)) ?? []
-            if entity.media?.isPaper == true {
+            // Gated on what the graph-node STUB already knows (task 7 review
+            // r1): the card opens on a stub whose `media` is nil, and the
+            // full-entity swap below keeps the same `.task(id:)`, so a check
+            // on `media?.isPaper` alone never fired on a first open. The
+            // endpoint 404s for a non-paper, which `try?` reads as nil.
+            if Self.wantsPaperDetail(type: entity.type, media: entity.media) {
                 paperDetail = try? await APIClient.shared.fetchPaperDetail(id: entity.id)
             }
             // §5.7 — the card opened on the graph-node stub, whose

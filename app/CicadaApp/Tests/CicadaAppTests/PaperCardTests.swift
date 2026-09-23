@@ -77,10 +77,23 @@ final class PaperCardTests: XCTestCase {
         let why = try XCTUnwrap(detail.why.first)
         XCTAssertEqual(why.snippet, "")
         XCTAssertEqual(why.highlightStart, -1)
-        XCTAssertEqual(why.kind, "user")
+        // Never defaulted to "user" — a partial payload is not credited to the owner.
+        XCTAssertEqual(why.kind, "reasoning")
         XCTAssertFalse(why.stale)
         XCTAssertEqual(PaperCardText.whereLine(why), "a note")
         let bare = try JSONDecoder().decode(PaperSummary.self, from: Data("{}".utf8))
         XCTAssertEqual(bare, PaperSummary())
+    }
+
+    /// Task 7 review r1 — the card opens on the graph-node stub, whose `media`
+    /// is nil; it must still ask for the paper detail, or a first open shows
+    /// neither the paper card nor a preview.
+    func testTheCardAsksForPaperDetailFromTheGraphStub() throws {
+        XCTAssertTrue(EntityDetailCard.wantsPaperDetail(type: .media, media: nil))
+        let paper = try JSONDecoder().decode(MediaBlock.self, from: Data(#"{"url": "https://arxiv.org/abs/2401.00001", "mediaType": "url", "kind": "paper"}"#.utf8))
+        XCTAssertTrue(EntityDetailCard.wantsPaperDetail(type: .media, media: paper))
+        let link = try JSONDecoder().decode(MediaBlock.self, from: Data(#"{"url": "https://example.com", "mediaType": "url"}"#.utf8))
+        XCTAssertFalse(EntityDetailCard.wantsPaperDetail(type: .media, media: link))
+        XCTAssertFalse(EntityDetailCard.wantsPaperDetail(type: .project, media: nil))
     }
 }

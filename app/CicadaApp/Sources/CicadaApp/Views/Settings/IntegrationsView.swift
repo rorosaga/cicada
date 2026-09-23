@@ -20,6 +20,11 @@ struct IntegrationsView: View {
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
     @Environment(LocalSourceWatcher.self) private var localSources
+    /// Looked up once per appearance, not per body evaluation: it is a
+    /// synchronous LaunchServices call on the main actor (task 7 review r1).
+    /// Re-checked on every appearance so installing Obsidian while the app
+    /// runs shows the row the next time the page opens.
+    @State private var obsidianInstalled = false
 
     /// One row per export-only social platform: no persisted backend
     /// channel exists for these (`AddSourceTile.channelIds` is `[]` for all
@@ -111,6 +116,7 @@ struct IntegrationsView: View {
             .padding(CicadaTheme.spacingXL)
         }
         .background(CicadaTheme.background)
+        .onAppear { obsidianInstalled = AddFolderRow.isObsidianInstalled() }
     }
 
     /// Rows a category renders beyond its channels — the informational harness
@@ -180,7 +186,7 @@ struct IntegrationsView: View {
                 }
                 if category == .notesAndFiles {
                     AddFolderRow.folder
-                    if AddFolderRow.obsidianInstalled { AddFolderRow.obsidian }
+                    if obsidianInstalled { AddFolderRow.obsidian }
                 }
                 if category == .voiceAndMeetings, showsWispr(rows) {
                     WisprFlowRow(channel: rows.first { $0.id == LocalSourceWatcher.wisprChannel })

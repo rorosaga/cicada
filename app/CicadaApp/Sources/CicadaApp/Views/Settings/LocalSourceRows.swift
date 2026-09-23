@@ -106,7 +106,10 @@ struct AddFolderRow: View {
     @State private var picked: PickedFolder?
 
     static let obsidianBundleId = "md.obsidian"
-    static var obsidianInstalled: Bool {
+    /// A LaunchServices lookup — a function, not a computed property, so a
+    /// call site reads as work and never runs it per body evaluation
+    /// (task 7 review r1). `IntegrationsView` asks once per appearance.
+    static func isObsidianInstalled() -> Bool {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: obsidianBundleId) != nil
     }
 
