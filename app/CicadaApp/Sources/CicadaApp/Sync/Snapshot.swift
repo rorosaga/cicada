@@ -39,6 +39,10 @@ enum SyncDomain: String, CaseIterable, Codable {
     /// no etag, no version-vector mapping — so `Store.refresh`/`refreshAll`
     /// skip it explicitly (see the `case .askHistory: continue` there).
     case askHistory
+    /// G136 — the ⌘K palette's recents: `(kind, id)` pairs only, per bank
+    /// (plan R-SU6). Cache-only like `.askHistory`: nothing to GET, no ETag, no
+    /// version-vector mapping; `Store.refresh` skips both.
+    case quickRecents
     /// G124 — one card per memory source (`GET /sources/overview`). Per-bank;
     /// rides the `episodes`, `entities` and `sources` version-vector
     /// components — exactly the files its ETag covers (R7, ship-together).

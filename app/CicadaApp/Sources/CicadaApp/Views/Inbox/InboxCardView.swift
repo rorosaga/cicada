@@ -12,6 +12,8 @@ import SwiftUI
 ///   - `.none`              → simple Dismiss
 struct InboxCardView: View {
     let item: InboxItem
+    /// G136 — a palette inbox row opens its card expanded (design §3.3).
+    var startsExpanded = false
     /// One resolution value (action + answer/optionKey/remindDays/merge fields),
     /// forwarded to `InboxViewModel.resolve`. Returns whether the resolve
     /// succeeded — `fire()` uses this to reset `resolving` on failure.
@@ -56,6 +58,8 @@ struct InboxCardView: View {
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
         .animation(CicadaMotion.standard(reduceMotion: reduceMotion), value: resolving)
         .onHover { isHovered = $0 }
+        .onAppear { if startsExpanded { isExpanded = true } }
+        .onChange(of: startsExpanded) { _, now in if now { isExpanded = true } }
     }
 
     // MARK: - Header (collapsed, always visible)

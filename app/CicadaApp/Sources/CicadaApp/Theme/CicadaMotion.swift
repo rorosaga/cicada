@@ -42,6 +42,11 @@ enum CicadaMotion {
     static let liftDuration: TimeInterval = 0.18
     static let settleDuration: TimeInterval = 0.35
     static let morphDuration: TimeInterval = 0.35
+    /// G136 — the ⌘K palette arriving (`snappy`, with a 0.98 → 1 scale) and
+    /// leaving (fade), and a group's "Show all" (round-3 design §1.1).
+    static let paletteInDuration: TimeInterval = 0.16
+    static let paletteOutDuration: TimeInterval = 0.12
+    static let groupExpandDuration: TimeInterval = 0.2
     /// G118 slice 2 (design §1.1): the Reader's cited-span wash fading in
     /// after it lands. Short — the eye is already moving to the words.
     static let spanRevealDuration: TimeInterval = 0.25
@@ -65,6 +70,9 @@ enum CicadaMotion {
     static func lift(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .snappy(duration: liftDuration) }
     static func settle(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .easeInOut(duration: settleDuration) }
     static func morph(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .smooth(duration: morphDuration) }
+    static func paletteIn(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .snappy(duration: paletteInDuration) }
+    static func paletteOut(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .easeOut(duration: paletteOutDuration) }
+    static func groupExpand(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .snappy(duration: groupExpandDuration) }
     /// `spanReveal` — the Reader's wash arriving on the cited sentence. nil
     /// under Reduce Motion: the wash is simply there (a static wash, §4.3).
     static func spanReveal(reduceMotion: Bool) -> Animation? {

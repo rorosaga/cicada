@@ -313,8 +313,9 @@ final class MutationTests: XCTestCase {
         XCTAssertTrue(ok)
         // `.askHistory` (G52) has no server endpoint to reconcile against —
         // `Store.refresh` skips it explicitly — so it never generates an API
-        // call even though it's part of `allCases`.
-        XCTAssertEqual(Set(api.calls), Set(SyncDomain.allCases).subtracting([.askHistory]),
+        // call even though it's part of `allCases`. `.quickRecents` (G136) is
+        // the palette's cache-only twin of it.
+        XCTAssertEqual(Set(api.calls), Set(SyncDomain.allCases).subtracting([.askHistory, .quickRecents]),
                        "a successful activate reconciles the whole bank")
         XCTAssertEqual(api.calls.first, .banks, "the roster is refreshed first")
     }

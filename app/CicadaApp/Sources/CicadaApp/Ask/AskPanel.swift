@@ -2,26 +2,35 @@ import SwiftUI
 
 /// ⌘K panel (G52, spec §5.9): a question field over `POST /ask`, rendering a
 /// grounded markdown answer with wikilink-style citation chips, an explicit
-/// "I don't know" gap list, and a confidence meter. Presented as a `.sheet`
-/// from `ContentView`.
+/// "I don't know" gap list, and a confidence meter. Since G136 the ⌘K find
+/// palette hosts it as its Ask mode (`hostedViewModel`); standalone it still
+/// draws its own header and sheet size.
 struct AskPanel: View {
     @Environment(Store.self) private var store
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(\.dismiss) private var dismiss
 
     /// Called when a citation chip (or a history row with a cached answer)
-    /// is tapped — `ContentView` switches to the Graph tab before this view
-    /// dismisses itself.
+    /// is tapped — the host switches to the Graph tab and closes itself.
     var onSelectEntity: (String) -> Void
+    /// G136 (round-3 design §3.5, A11) — the ⌘K palette hosts this body in Ask
+    /// mode. When set, the palette owns the question field and the view model,
+    /// so this view draws the answer only: no header, no sheet size. `nil`
+    /// keeps the standalone panel exactly as it was. Nothing below
+    /// `// MARK: - Answer` changes — Track P edits that body in parallel.
+    var hostedViewModel: AskViewModel? = nil
 
-    @State private var vm: AskViewModel?
+    @State private var ownViewModel: AskViewModel?
+    private var vm: AskViewModel? { hostedViewModel ?? ownViewModel }
     @FocusState private var questionFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider().background(CicadaTheme.border)
+            if hostedViewModel == nil {
+                header
+                Divider().background(CicadaTheme.border)
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
@@ -51,7 +60,7 @@ struct AskPanel: View {
                 .padding(CicadaTheme.spacingLG)
             }
         }
-        .frame(width: 560, height: 460)
+        .frame(width: hostedViewModel == nil ? 560 : nil, height: hostedViewModel == nil ? 460 : nil)
         .background(CicadaTheme.surface)
         // The grounded answer (`MarkdownBody` at line ~109) can contain
         // `[[wikilinks]]` in its own prose, not just the citation chips
@@ -59,9 +68,12 @@ struct AskPanel: View {
         // did nothing on tap (bug 2). Same destination as a citation chip.
         .wikilinkNavigation(onSelect: onSelectEntity)
         .task {
-            if vm == nil {
+            // Hosted: the palette made the view model, loaded its history and
+            // owns the field's focus.
+            guard hostedViewModel == nil else { return }
+            if ownViewModel == nil {
                 let newVM = AskViewModel(store: store)
-                vm = newVM
+                ownViewModel = newVM
                 await newVM.loadHistory()
             }
             questionFocused = true
