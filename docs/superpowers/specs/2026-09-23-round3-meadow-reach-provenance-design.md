@@ -82,6 +82,8 @@ Each has a reason; each is reversible on the trigger named.
    (clouds, grass-and-dandelion edges, an onboarding hero) generated once with Codex image
    generation, bundled with a provenance manifest and `-dark` siblings. Art never appears on the
    graph, lists, grids, forms or anything that carries a number.
+   *Amended 2026-09-23 (Track F1, owner's instruction):* the display face is SF Pro Display;
+   Instrument Serif is no longer bundled.
 7. **Fast search gets a derived full-text index.** An FTS5 table (entities + aliases + claims +
    episodes + sources) lives beside the vector index: derived, disposable, rebuilt from markdown —
    allowed by ruling 3 (deleting it costs CPU, never a fact). ⌘K becomes a *find* palette with Ask
@@ -137,6 +139,8 @@ appended below when decided.
 - **R-M3.** `displayFont(size:italic:)` = Instrument Serif (bundled, OFL, registered with CoreText
   from `Bundle.cicadaResources`, bare `fonts` directory), ≥ 22 pt only; `quoteFont` = New York
   italic. The font lint extends to ban `.custom(` outside the theme.
+  *Amended 2026-09-23 (Track F1, owner's instruction):* the display face is SF Pro Display;
+  Instrument Serif is no longer bundled.
 - **R-M4.** `CicadaMotion` (nil under Reduce Motion) + `hoverLift()` for things that open something
   + `iconHover()` (wiggle on 15+, bounce on 14, removed under Reduce Motion). No literal `duration:`
   outside `CicadaMotion`/`SleepMotion`.
@@ -259,6 +263,8 @@ final documents are binding for their tracks and live beside this spec:
     with a legend popover as its text twin; the lamp and pile spines are controls. No autonomous
     beats without a fact behind them. The optional sky band above the page ships only if the
     screenshots say calm.
+    *Amended 2026-09-23 (Track F1, owner's instruction):* the display face is SF Pro Display;
+    Instrument Serif is no longer bundled.
 17. **Settings v3** groups: *Cicada* (General, You, Privacy & data, Memory, Sleep), *Customize*
     (Integrations, Agents, From anywhere, Skills), *Engines & keys* (Engines, Plans & keys,
     Advanced), with a sidebar search that also lists individual settings and highlights the row it

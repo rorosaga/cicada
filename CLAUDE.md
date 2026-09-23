@@ -291,6 +291,13 @@ SUBJECT's class multiplier.
 **Claims** are the machine-legible half: typed predicates, bi-temporal validity, observer and trust.
 A predicate the vocabulary marks multi-valued (`predicates.cardinality`) never opens a conflict.
 
+**Contexts and the fence (F1).** `context` is an open vocabulary whose *shape* is pinned by
+`claim_contexts` — a short lowercase slug. Any other value (G60's `as of <date>`) keeps its job as a
+claim key but is never a graph satellite, a legend row or an edge colour. `general` means "no
+particular context" and is never a facet: a satellite needs two real contexts. The claims fence sits
+after a page's last section (`write_claims`, the one writer), so **every reader strips it before
+sectioning** — `strip_claims_block` on the server, `EntityProse` in the app.
+
 **Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
 `evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source
 document's *evidence text* (the body as `markdown_parser.parse` returns it, with the ```claims fence
@@ -579,10 +586,11 @@ composes it back). Contributors is one chip strip over one **labelled** share-of
 `cicada`, `user` and `unknown` all have names, so no bucket the app can name renders as "?".
 
 **Sleep page — the study room (G125 v4, Track Z).** One 760 pt column at every width: the room,
-one serif sentence under it, one Consolidate/Cancel control, one whisper line for the schedule,
-and everything else under a single **Details** disclosure (Last cycle · What's waiting · Readout ·
-Past nights), closed by default, remembered per viewer (`cicada.sleep.detailsOpen`) and not built
-while closed. The worm speaks in that one fixed slot — `roomSentence` / `wormAnswers`, pure
+one sentence in the display face under it, one Consolidate/Cancel control, one whisper line for
+the schedule, and everything else under a single **Details** disclosure (Last cycle · What's
+waiting · Readout · Past nights), closed by default, remembered per viewer
+(`cicada.sleep.detailsOpen`) and not built while closed. The worm speaks in that one fixed slot —
+`roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
 omits its rung, never shows a guess); the floating bubble is retired. **Two kinds of art (R-Z1):**
 *state art* — the mood's frames, the lamp (= the schedule), the pile, and the window's **weather**,
@@ -648,9 +656,11 @@ material fallback (opaque under Reduce Transparency); a lint fails the build on 
 elsewhere, and `GlassCard` stays a standard material. **Painted art** (`Resources/art/`,
 `art.manifest.json` with generator, prompt, date, licence and sha256; every file has a `-dark`
 sibling) appears only on non-data surfaces — never the graph, a list, a grid, a form or a number,
-and text never sits directly on paint — enforced by an allowlist lint. **Type:** Instrument Serif
-(bundled OFL, registered at launch from `Bundle.cicadaResources`' bare `fonts` directory) through
-`displayFont(size:italic:)` at ≥ 22 pt, New York italic through `quoteFont`, SF for everything else.
+and text never sits directly on paint — enforced by an allowlist lint. **Type:** SF Pro Display
+through `displayFont(size:italic:)` at ≥ 22 pt — semibold titles tracked 2 % tight
+(`displayTracking(size:)`, paired at every call site and counted by `FontLiteralLintTests`), regular
+italic for a headline's second line; no font is bundled (the owner found the serif too ornate,
+2026-09-23). New York italic through `quoteFont`, SF for everything else.
 **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside `SleepMotion` a
 duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs.
 
