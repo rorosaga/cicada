@@ -193,15 +193,15 @@ enum AgentSetupCatalog {
     }
 }
 
-// MARK: - Connect page
+// MARK: - Agents page
 
-/// The "Connect your AI" page: how to wire any MCP-capable agent to this
-/// machine's Cicada memory. Doubles as the first-launch onboarding step when
-/// presented as a sheet (`isOnboarding` adds the intro + done affordances).
+/// Settings → Agents — "On this Mac" (G139 re-lay of the Connect page): the
+/// one-time install, one disclosure row per MCP-capable agent (one open at a
+/// time; seven expanded command cards WERE the page), and a pointer to From
+/// anywhere for cloud apps. The onboarding mode had no caller after G117's
+/// first-run sheet replaced it and is gone (R-O11); so is the segmented
+/// picker, now that From anywhere is its own row (A1).
 struct ConnectView: View {
-    var isOnboarding = false
-    var onDone: (() -> Void)? = nil
-
     private let home = BackendProcess.installRoot().path
     @State private var agents: [AgentSetup] = []
     /// The live backend's own configured memory root, once `/healthz`
@@ -214,82 +214,61 @@ struct ConnectView: View {
     /// until this arrives, or if the backend never answers). The probe
     /// owns the retry/never-regress rules — see `LiveMemoryRootProbe`.
     @State private var probe = LiveMemoryRootProbe()
+    /// The one agent whose steps are showing (R-O11): one open at a time,
+    /// so the page stays a list of names rather than seven command dumps.
+    @State private var openAgent: String?
     /// `isConnected` is the app's one backend-reachability signal (the SSE
     /// stream). Keyed into `.task(id:)` below so a backend that comes up
     /// after this page did re-runs the probe — no second poller.
     @Environment(Store.self) private var store
-
-    /// G135 (R-R7) — which half of the Agents page is showing: the local
-    /// stdio setup cards, or the remote connector. Persisted so the page
-    /// reopens where the person left it.
-    private enum AgentsMode: String { case thisMac, anywhere }
-    @AppStorage("cicada.agentsMode") private var modeRaw = AgentsMode.thisMac.rawValue
+    @Environment(SettingsFocus.self) private var focus: SettingsFocus?
 
     var body: some View {
-        VStack(spacing: 0) {
-            PageHeader(
-                title: isOnboarding ? "Welcome to Cicada" : Copy.agents,
-                subtitle: Copy.agentsSubtitle
-            ) {
-                if isOnboarding {
-                    Button {
-                        onDone?()
-                    } label: {
-                        Text("Get started")
-                            .font(CicadaTheme.font(size: 13, weight: .semibold))
-                            .padding(.horizontal, CicadaTheme.spacingLG)
-                            .padding(.vertical, CicadaTheme.spacingSM)
-                            .background(CicadaTheme.accent.opacity(0.9))
-                            .foregroundStyle(.white)
-                            .clipShape(Capsule())
+        SettingsPage(section: .agents) {
+            SettingsGroupCard(header: Copy.agentsInstallGroup) {
+                SettingsRow(.agentsInstall, title: Copy.agentsInstallTitle, detail: Copy.agentsInstallDetail) {
+                    EmptyView()
+                } below: {
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        CommandBox(command: "cd \(SnippetEscape.shell(home)) && make install")
+                        Text(Copy.agentsHomeCaption(home))
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .privacySensitive()
                     }
-                    .buttonStyle(.cicadaPlain)
                 }
             }
-
-            if !isOnboarding {
-                // G135 R-R34: onboarding stays about this Mac; the remote door is a
-                // deliberate, later choice.
-                Picker("Where your AI apps are", selection: $modeRaw) {
-                    Text(Copy.onThisMac).tag(AgentsMode.thisMac.rawValue)
-                    Text(Copy.fromAnywhere).tag(AgentsMode.anywhere.rawValue)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: CicadaTheme.scaled(320))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, CicadaTheme.spacingXL)
-                .padding(.bottom, CicadaTheme.spacingMD)
-            }
-
-            if !isOnboarding && modeRaw == AgentsMode.anywhere.rawValue {
-                RemoteAccessView()
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                        if isOnboarding {
-                            introCard
-                        }
-                        prereqCard
-
-                        ForEach(agents) { agent in
-                            AgentSetupCard(agent: agent)
-                        }
-
-                        webNoteCard
+            SettingsGroupCard(header: Copy.agentsOnThisMacGroup) {
+                ForEach(Array(agents.enumerated()), id: \.element.id) { index, agent in
+                    if index > 0 { SettingsDivider() }
+                    AgentSetupRow(agent: agent, isOpen: openAgent == agent.id) {
+                        openAgent = openAgent == agent.id ? nil : agent.id
                     }
-                    .padding(.horizontal, CicadaTheme.spacingXL)
-                    .padding(.bottom, CicadaTheme.spacingXXL)
+                    .settingsRow(.agent(agent.id))
+                }
+            }
+            SettingsGroupCard {
+                SettingsRow(.agentsCloud, title: Copy.agentsCloudTitle, detail: Copy.agentsCloudDetail) {
+                    SettingsInlineLink(section: .remote, label: Copy.fromAnywhere)
                 }
             }
         }
-        .background(CicadaTheme.background)
         .onAppear {
             if agents.isEmpty { agents = AgentSetupCatalog.all(home: home, memoryRoot: probe.liveRoot) }
+            // A landing from another section selects this page and lands in the
+            // same pass, before this view exists, so the `onChange` below never
+            // sees that nonce. The row is still washed (`highlighted`) for the
+            // hold, which is exactly "was just landed on".
+            if let id = focus?.highlighted?.item(of: "agent") { openAgent = id }
         }
         // Restarts (cancelling the previous loop) whenever the SSE stream
         // connects or drops, and runs once on appearance.
         .task(id: store.isConnected) { await refreshLiveMemoryRoot() }
+        // R-O11: landing on `agent:<id>` (search or a pointer) opens that row.
+        .onChange(of: focus?.landedNonce ?? 0) { _, _ in
+            if let id = focus?.landed?.item(of: "agent") { openAgent = id }
+        }
     }
 
     /// Ask the backend what memory root it's actually configured with
@@ -322,87 +301,47 @@ struct ConnectView: View {
             try? await Task.sleep(for: .seconds(delay))
         }
     }
-
-    private var introCard: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            BookwormView(state: .happy, pointSize: 48)
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text("Your agents share one memory")
-                    .font(CicadaTheme.headingFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text("Conversations become episodes; the nightly Sleep cycle consolidates them into the knowledge graph you see here. Connect the tools you use below — each one gets recall, save, and nudge tools automatically.")
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    private var prereqCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("STEP 0 — ONE-TIME INSTALL")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
-            Text("Sets up the Python environment, registers the backend service, and schedules the nightly Sleep cycle. Skip if you've already run it.")
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            CommandBox(command: "cd \(SnippetEscape.shell(home)) && make install")
-            Text("Cicada home: \(home) — commands below use this path; adjust if your checkout lives elsewhere.")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    private var webNoteCard: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            Image(systemName: "globe")
-                .font(CicadaTheme.font(size: 16))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .frame(width: 44, height: 44)
-                .background(RoundedRectangle(cornerRadius: 10).fill(CicadaTheme.surfaceElevated))
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text("claude.ai, ChatGPT and your phone")
-                    .font(CicadaTheme.headingFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text("Cloud apps can't start a program on your Mac, so they reach Cicada through a link instead — switch to From anywhere above. Or bring your web conversations in from the Feed: exports from claude.ai, ChatGPT and Gemini consolidate into the same memory.")
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
 }
 
-// MARK: - Agent card
+// MARK: - Agent row
 
-private struct AgentSetupCard: View {
+/// One agent as a disclosure row: tile, name and blurb; open, its steps and
+/// the deeplink pill (the old card's content, unchanged).
+private struct AgentSetupRow: View {
     let agent: AgentSetup
+    let isOpen: Bool
+    let toggle: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            HStack(spacing: CicadaTheme.spacingMD) {
-                AgentTile(agent: agent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(agent.name)
-                        .font(CicadaTheme.headingFont)
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                    Text(agent.blurb)
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            Button(action: toggle) {
+                HStack(spacing: CicadaTheme.spacingMD) {
+                    AgentTile(agent: agent)
+                    VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                        Text(agent.name)
+                            .font(CicadaTheme.font(size: 13, weight: .medium))
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                        Text(agent.blurb)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .lineLimit(isOpen ? nil : 1)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
                 }
-                Spacer(minLength: 0)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.cicadaPlain)
+            .accessibilityLabel(agent.name)
+            .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
+
+            if isOpen {
+                // Moved from the old AgentSetupCard; only the pill's literal
+                // 5 pt padding became a scaled token.
                 if let deeplink = agent.deeplink {
                     Button {
                         NSWorkspace.shared.open(deeplink.url)
@@ -410,7 +349,7 @@ private struct AgentSetupCard: View {
                         Text(deeplink.label)
                             .font(CicadaTheme.font(size: 11, weight: .semibold))
                             .padding(.horizontal, CicadaTheme.spacingMD)
-                            .padding(.vertical, 5)
+                            .padding(.vertical, CicadaTheme.scaled(5))
                             .background(agent.brand.opacity(0.25))
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .clipShape(Capsule())
@@ -419,28 +358,28 @@ private struct AgentSetupCard: View {
                     .buttonStyle(.cicadaPlain)
                     .help("One-click install via the Cursor deeplink")
                 }
-            }
-
-            ForEach(agent.steps) { step in
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    Text(step.label)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                    if let command = step.command {
-                        CommandBox(command: command)
-                    }
-                    if let note = step.note {
-                        Text(note)
+                ForEach(agent.steps) { step in
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        Text(step.label)
                             .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                        if let command = step.command {
+                            CommandBox(command: command)
+                        }
+                        if let note = step.note {
+                            Text(note)
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }
         }
-        .padding(CicadaTheme.spacingLG)
+        .padding(.vertical, CicadaTheme.spacingSM + CicadaTheme.scaled(2))
+        .padding(.horizontal, CicadaTheme.spacingMD)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .animation(CicadaMotion.snap(reduceMotion: reduceMotion), value: isOpen)
     }
 }
 

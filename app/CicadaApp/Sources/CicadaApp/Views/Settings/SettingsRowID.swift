@@ -26,6 +26,12 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let enginePreview = SettingsRowID("enginePreview")
     static let engineAsk = SettingsRowID("engineAsk")
     static let engineAutoClaude = SettingsRowID("engineAutoClaude")
+    // Agents and From anywhere (Task 3)
+    static let agentsInstall = SettingsRowID("agentsInstall")
+    static let agentsCloud = SettingsRowID("agentsCloud")
+    static let remoteSwitch = SettingsRowID("remoteSwitch")
+    static let remoteReach = SettingsRowID("remoteReach")
+    static let remoteNew = SettingsRowID("remoteNew")
 
     /// Every section's header — what a section-level hit lands on (R-O14).
     static func page(_ section: SettingsSection) -> SettingsRowID { SettingsRowID("page:\(section.rawValue)") }

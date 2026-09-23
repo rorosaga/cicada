@@ -49,7 +49,11 @@ struct SettingsScene: View {
         }
         .environment(focus)
         .frame(minWidth: Self.windowWidth, minHeight: Self.windowHeight)
-        .onAppear { selection = SettingsSection.restored(from: sectionRaw) }
+        .onAppear {
+            selection = SettingsSection.restored(from: sectionRaw,
+                                                 legacyAgentsMode: UserDefaults.standard.string(forKey: "cicada.agentsMode"))
+            UserDefaults.standard.removeObject(forKey: "cicada.agentsMode")   // read once (R-O11)
+        }
         .onChange(of: selection) { _, newValue in sectionRaw = newValue.rawValue }
         // recent-work #9 — `onAppear` fires once per view lifetime, and this
         // is a separate window that is usually ALREADY open when
@@ -82,6 +86,7 @@ struct SettingsScene: View {
         case .sleep: SettingsSleepView()
         case .integrations: IntegrationsView()
         case .agents: ConnectView()
+        case .remote: FromAnywhereView()
         case .engines: EnginesView()
         case .plansAndKeys: ConnectionsView()
         }

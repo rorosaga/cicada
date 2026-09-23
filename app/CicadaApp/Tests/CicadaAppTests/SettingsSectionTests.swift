@@ -24,6 +24,7 @@ final class SettingsSectionTests: XCTestCase {
         XCTAssertEqual(SettingsSection.sleep.title, Copy.sleepSettings)
         XCTAssertEqual(SettingsSection.integrations.title, Copy.integrations)
         XCTAssertEqual(SettingsSection.agents.title, Copy.agents)
+        XCTAssertEqual(SettingsSection.remote.title, Copy.fromAnywhere)
         XCTAssertEqual(SettingsSection.engines.title, Copy.engines)
         XCTAssertEqual(SettingsSection.plansAndKeys.title, Copy.plansAndKeys)
     }

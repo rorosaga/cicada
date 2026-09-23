@@ -48,4 +48,17 @@ extension Copy {
     static let whenYouStart = "When you start one"
     static let onTheSchedule = "On the schedule"
     static let changeInEngines = "Change in Engines"
+
+    // MARK: Customize (A1, R-O11)
+    static let remoteSubtitle = "Let AI apps outside this Mac use your memory."
+    static let settingsFromAnywhere = "\(settings) → \(fromAnywhere)"
+    static let agentsInstallGroup = "One-time install"
+    static let agentsInstallTitle = "Install Cicada on this Mac"
+    static let agentsInstallDetail = "Sets up Python, the background service and the nightly schedule. Skip it if you've done it."
+    static func agentsHomeCaption(_ home: String) -> String {
+        "The commands below use \(home). Change it if your copy of Cicada lives somewhere else."
+    }
+    static let agentsOnThisMacGroup = "Agents on this Mac"
+    static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
+    static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in from the Feed."
 }

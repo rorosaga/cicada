@@ -20,11 +20,13 @@ import Foundation
 /// detail header's second line) and its `group` (the sidebar heading it sits
 /// under); the raw values did not move, so a saved selection survives.
 /// `engines` (A3) is new and sits first under Engines & keys: the one page
-/// that answers "who does Cicada's thinking".
+/// that answers "who does Cicada's thinking". `remote` (A1) is From anywhere,
+/// promoted out of Agents' segmented picker so it can be deep-linked and
+/// searched like any other section.
 enum SettingsSection: String, CaseIterable, Identifiable {
     // Declared in sidebar order — `SettingsGroup.sections` filters this list,
     // and `SettingsKitTests` pins that the groups read it back unchanged.
-    case general, sleep, integrations, agents, engines, plansAndKeys
+    case general, sleep, integrations, agents, remote, engines, plansAndKeys
 
     var id: String { rawValue }
 
@@ -34,6 +36,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .sleep: Copy.sleepSettings
         case .integrations: Copy.integrations
         case .agents: Copy.agents
+        case .remote: Copy.fromAnywhere
         case .engines: Copy.engines
         case .plansAndKeys: Copy.plansAndKeys
         }
@@ -46,6 +49,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .sleep: Copy.sleepSettingsSubtitle
         case .integrations: Copy.integrationsSubtitle
         case .agents: Copy.agentsSubtitle
+        case .remote: Copy.remoteSubtitle
         case .engines: Copy.enginesSubtitle
         case .plansAndKeys: Copy.plansAndKeysSubtitle
         }
@@ -57,6 +61,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .sleep: "moon.zzz"
         case .integrations: "puzzlepiece.extension"
         case .agents: "cable.connector"
+        case .remote: "dot.radiowaves.left.and.right"
         case .engines: "cpu"
         // K4: `creditcard` read as a price on a page that must never show one.
         case .plansAndKeys: "key.horizontal"
@@ -66,7 +71,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var group: SettingsGroup {
         switch self {
         case .general, .sleep: .cicada
-        case .integrations, .agents: .customize
+        case .integrations, .agents, .remote: .customize
         case .engines, .plansAndKeys: .enginesAndKeys
         }
     }
@@ -81,6 +86,14 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             return .general
         }
         return section
+    }
+
+    /// R-O11 — the retired "On this Mac / From anywhere" segment was persisted
+    /// under `cicada.agentsMode`. A person who left Agents on "From anywhere"
+    /// reopens on the row that inherited it; everything else restores as before.
+    static func restored(from raw: String?, legacyAgentsMode: String?) -> SettingsSection {
+        let section = restored(from: raw)
+        return section == .agents && legacyAgentsMode == "anywhere" ? .remote : section
     }
 }
 

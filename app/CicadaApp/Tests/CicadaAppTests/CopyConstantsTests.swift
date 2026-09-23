@@ -43,6 +43,7 @@ final class CopyConstantsTests: XCTestCase {
             (Copy.integrations, Copy.integrationsSubtitle),
             (Copy.general, Copy.generalSubtitle),
             (Copy.engines, Copy.enginesSubtitle),
+            (Copy.fromAnywhere, Copy.remoteSubtitle),
         ]
         for (title, subtitle) in pairs {
             XCTAssertLessThanOrEqual(subtitle.count, 60, "\(title): \"\(subtitle)\"")
