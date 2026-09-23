@@ -356,11 +356,9 @@ struct ContentView: View {
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 9)
-                .background(
-                    Capsule().fill(CicadaTheme.surface)
-                        .overlay(Capsule().stroke(CicadaTheme.border, lineWidth: 1))
-                )
-                .shadow(color: .black.opacity(0.25), radius: 10, y: 3)
+                // DR-9/DR-10: a floating surface — the floating ring, and one soft
+                // shadow in light only (`Theme/Elevation.swift`).
+                .floatingSurface(in: Capsule())
                 .padding(.bottom, 22)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .task(id: toast) {

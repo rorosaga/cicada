@@ -36,14 +36,12 @@ for (const mode of modes) {
     }
 }
 assert.notDeepStrictEqual(palettes.dark, palettes.light, "the two palettes must actually differ");
-// G137 — the Meadow retune moved every neutral: the plate is the night-meadow
-// background (#0D1216) and the light label is the day-meadow text ink
-// (#1B1F1A, Light.textPrimary — not the `soil` token). The Swift side
-// (GraphPaletteTwinTests) holds every `// = Dark.x` twin to the theme; these
-// two pins keep this file honest on its own.
-assert.ok(palettes.dark.plate.startsWith("rgba(13, 18, 22,"),
-          `the dark plate is not the night-meadow background: ${palettes.dark.plate}`);
-assert.strictEqual(palettes.light.label, "#1B1F1A", "the light label is not Light.textPrimary");
+// Direction D (DS-1) — every neutral moved to graphite: the plate is `bgBase` (#111213) and
+// the light label is `textPrimary` (#141415). The Swift side (GraphPaletteTwinTests) holds
+// every `// = Dark.x` twin to the theme; these two pins keep this file honest on its own.
+assert.ok(palettes.dark.plate.startsWith("rgba(17, 18, 19,"),
+          `the dark plate is not the graphite base: ${palettes.dark.plate}`);
+assert.strictEqual(palettes.light.label, "#141415", "the light label is not Light.textPrimary");
 
 // Default is dark (what the page loads with, before Swift pushes anything).
 assert.strictEqual(get("PALETTE"), palettes.dark);
