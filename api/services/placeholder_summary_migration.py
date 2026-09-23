@@ -26,7 +26,6 @@ the marker stays off so the next start retries it. Never raises.
 from __future__ import annotations
 
 import re
-import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -103,14 +102,9 @@ def _rewrite_one(path: Path) -> bool:
 
 
 def _commit(memory_path: Path, rel: list[str]) -> None:
-    subprocess.run(["git", "add", "--", *rel], cwd=str(memory_path), check=True)
-    status = subprocess.run(["git", "status", "--porcelain", "--", *rel], cwd=str(memory_path),
-                            check=True, capture_output=True, text=True)
-    if not status.stdout.strip():
-        return
     message = git_service.build_commit_message(
         f"Write placeholder summaries {date.today().isoformat()}",
         [f"{p}: updated (trigger: {TRIGGER})" for p in rel],
         authors=["cicada"],
     )
-    subprocess.run(["git", "commit", "-q", "-m", message, "--", *rel], cwd=str(memory_path), check=True)
+    git_service.commit_paths_sync(memory_path, message, rel)  # F2-back R-B1: the bank's one write lock

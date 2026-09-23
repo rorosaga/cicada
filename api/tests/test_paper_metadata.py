@@ -260,6 +260,7 @@ def test_a_run_that_raises_still_commits_what_it_wrote(bank, monkeypatch):
 
     async def fake_commit(memory_path, paths, **kw):
         committed.append((list(paths), kw["author"], kw["trigger"]))
+        return True
 
     inner = _fetcher([])
 

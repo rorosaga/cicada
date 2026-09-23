@@ -35,7 +35,7 @@ from pathlib import Path
 from loguru import logger
 from thefuzz import fuzz
 
-from api.services import decay_policy, entity_body, markdown_parser, telemetry
+from api.services import decay_policy, entity_body, git_service, markdown_parser, telemetry
 # Aliased on purpose: `write_claim` takes a keyword argument named `evidence`
 # (the MCP schema, the tests and the docs all use that name), and a bare
 # `from api.services import evidence` would be shadowed inside the function.
@@ -95,10 +95,14 @@ def _date_from_episode_id(source_episode: str | None) -> str | None:
 class _ReconcileSettings:
     """Minimal settings shim satisfying claim_reconciler.reconcile_stage3's
     duck-typed ``settings`` argument (memory_path / litellm_model / thresholds).
+
+    ``litellm_model`` is what ``_stamp_new`` stamps on a claim that arrives with
+    no ``authored_by``: ``agent`` (F2-back R-B11), the G135 word for an agent
+    that never said which it was — never a model name, since no model ran here.
     """
 
     memory_path: Path
-    litellm_model: str = "mcp-agentic-write"
+    litellm_model: str = git_service.AGENT_AUTHOR
     archive_threshold: float = 0.2
     decay_nudge_threshold: float = 0.4
 
@@ -546,11 +550,11 @@ MAX_REASON_CHARS = 240
 # Every stdio MCP claim written before G135 R-R11 carried this author: the
 # reconcile shim's model name, stamped by `_stamp_new`. Any local agent could
 # have written it, so any local agent may withdraw it (Q-R5) — but ONLY when
-# its origin says stdio MCP. `_stamp_new` stamps the same placeholder on every
-# claim that arrives without `authored_by`, Telegram's user-stated
+# its origin says stdio MCP. `_stamp_new` stamped the same placeholder on every
+# claim that arrived without `authored_by` until F2-back R-B11, Telegram's user-stated
 # `saved-because` among them, so the author alone does not mean "an agent
 # wrote this" (final review, the T3 r1 M1 finding).
-_LEGACY_MCP_AUTHOR = _ReconcileSettings.litellm_model
+_LEGACY_MCP_AUTHOR = git_service.LEGACY_AGENT_AUTHOR
 _LEGACY_MCP_ORIGIN = "mcp"
 
 
@@ -572,9 +576,19 @@ def owns(claim: Claim, *, author: str, origin: str | None) -> bool:
     if claim_origin.startswith("remote:"):
         return False
     authored_by = claim.authored_by or ""
-    return authored_by == author or (
-        authored_by == _LEGACY_MCP_AUTHOR and claim_origin == _LEGACY_MCP_ORIGIN
-    )
+    if authored_by == _LEGACY_MCP_AUTHOR:
+        return claim_origin == _LEGACY_MCP_ORIGIN
+    if authored_by == git_service.AGENT_AUTHOR:
+        # F2-back R-B10: `agent` is also the author of a deterministic writer's
+        # assistant words (a folder's agent glob, a note-taker's to-dos), so the
+        # unidentified-agent bucket owns only what an unidentified MCP agent wrote:
+        # a claim (`mcp`) or a watch record (`agent/watch`) — final review F1, a
+        # harness-less stdio client must still withdraw its own watch record.
+        # Imported here because watch_record imports this module.
+        from api.services.watch_record import ORIGIN as WATCH_ORIGIN
+
+        return author == git_service.AGENT_AUTHOR and claim_origin in {_LEGACY_MCP_ORIGIN, WATCH_ORIGIN}
+    return authored_by == author
 
 
 def retract_claim(

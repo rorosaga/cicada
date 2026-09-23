@@ -17,10 +17,13 @@ name in shipped code — `test_owner_name_portability.py`). Rails, each a test
   MCP entry is `unknown` (R-O27);
 - the backend never runs an installer and never writes into an agent's folders.
   It names the command; the app runs it after consent (R-O24, R-O26);
-- a handshake line names only a tool that exists (R12), for an ACTIVE bridge:
-  saving someone else's words through `cicada_save_episode` today files them as
-  the owner's (`evidence.speaker_kind`), so the video and meeting bridges wait
-  for Track Q's watch record and Track N's speaker-aware evidence (R-O28).
+- a handshake line names only a tool that exists (R12), for an ACTIVE bridge.
+  The video bridge names `cicada_record_watch` (G140), and the meeting bridge
+  names `cicada_save_episode` with `speaker:<name>:` lines — the one marker
+  grammar that files a colleague's words as `speaker` (G134) — never `user:`,
+  since an agent cannot know the person's own speaker names (F2-back R-B14).
+  Documents stay off: nothing yet says who wrote a document, and an unmarked
+  episode reads as the person's own words (R-O28's hazard).
 """
 from __future__ import annotations
 
@@ -47,9 +50,17 @@ _PLUGIN_ID = re.compile(r"^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$")
 _SAFE_DIR = re.compile(r"^[A-Za-z0-9._-]+$")
 
 #: Handshake text per ACTIVE bridge key; `{names}` becomes "`a` is" / "`a`, `b` are".
+#: Arguments are plain names — `test_skill_catalog`'s R12 check splits on commas.
 BRIDGE_TEXT: dict[str, str] = {
     "papers": "- Papers: {names} installed. After you look a paper up, save the one you relied on with "
               "`cicada_save_url(url)` so it joins the person's memory.",
+    "video": "- Videos: {names} installed. After you watch a video the person asked about, record it with "
+             "`cicada_record_watch(url, summary, excerpts)` — a faithful summary and a few short timed "
+             "quotes in the video's own words, never a transcript.",
+    "meetings": "- Meetings: {names} installed. To keep a meeting, save it with "
+                "`cicada_save_episode(content, title)`, one line per utterance written "
+                "`speaker:<name>: words` (`speaker:unknown:` when you can't tell) — never `user:`, so "
+                "nobody else's words are filed as the person's.",
 }
 
 _PUBLIC = ("id", "kind", "rank", "title", "summary", "why", "publisher", "sourceUrl", "licence",

@@ -26,6 +26,7 @@ from api.services.decay_migration import backfill_decay_classes
 from api.services.decay_watermark_migration import backfill_decay_watermarks
 from api.services.export_origin_migration import backfill_export_origins
 from api.services.inbox_migration import dedup_open_items, migrate_to_inbox
+from api.services.paper_claim_text_migration import repair_paper_claim_text
 from api.services.paper_context_migration import repair_paper_contexts
 from api.services.placeholder_summary_migration import rewrite_placeholder_summaries
 
@@ -36,7 +37,8 @@ def run_bank_migrations(memory_path) -> dict:
     ``{"moved": int, "deduped": int, "classed": {"media": int, "skills": int,
     "restored": int}, "watermarked": {"entities": int, "claims": int},
     "originated": int, "paper_contexts": {"pages": int, "claims": int,
-    "edges": bool}, "placeholders": int}``.
+    "edges": bool}, "placeholders": int,
+    "paper_claim_text": {"pages": int, "claims": int}}``.
     Logs only when something actually changed, so a no-op re-run on every
     bank switch is silent.
     """
@@ -97,6 +99,15 @@ def run_bank_migrations(memory_path) -> dict:
     if placeholders:
         logger.info(f"Wrote a first Summary for {placeholders} placeholder page(s)")
 
+    # F2-back (R-B13): one-time strip of in-document anchors (`[N50](#note-n50)`)
+    # and footnote markers from folder-paper claims' words — ids unchanged.
+    paper_claim_text = repair_paper_claim_text(memory_path)
+    if paper_claim_text["claims"]:
+        logger.info(
+            f"Repaired the words of {paper_claim_text['claims']} paper claim(s) on "
+            f"{paper_claim_text['pages']} page(s)"
+        )
+
     return {
         "moved": moved,
         "deduped": deduped,
@@ -105,4 +116,5 @@ def run_bank_migrations(memory_path) -> dict:
         "originated": originated,
         "paper_contexts": paper_contexts,
         "placeholders": placeholders,
+        "paper_claim_text": paper_claim_text,
     }
