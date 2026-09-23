@@ -61,23 +61,21 @@ final class SettingsSectionTests: XCTestCase {
         XCTAssertTrue(text.contains("onChange(of: sectionRaw)"), "the read half — recent-work #9")
     }
 
-    /// recent-work #11 — `SettingsScene` and `FirstRunSheet` pin fixed frames
-    /// while every font and spacing token inside them scales with
-    /// `CicadaTheme.uiScale` (G130). At the top of `ThemeStore.scaleRange`
-    /// (1.4) the sheet's footer — which is NOT inside its ScrollView — is the
-    /// first thing to clip.
+    /// recent-work #11 — `SettingsScene` pins a fixed frame while every font
+    /// and spacing token inside it scales with `CicadaTheme.uiScale` (G130),
+    /// so the frame must scale too or its contents clip at the top of
+    /// `ThemeStore.scaleRange` (1.4). The Welcome that replaced the first-run
+    /// sheet has no fixed frame — `WelcomeLogicTests` pins its geometry and
+    /// its footer, pinned outside the card's scroll view.
     func testWindowFramesScaleWithUiScale() {
         let previous = CicadaTheme.uiScale
         defer { CicadaTheme.uiScale = previous }
         CicadaTheme.uiScale = 1.0
         XCTAssertEqual(SettingsScene.windowWidth, 900, accuracy: 0.5)
-        XCTAssertEqual(FirstRunSheet.sheetWidth, 780, accuracy: 0.5)
         // 1.4 is `ThemeStore.scaleRange.upperBound`; the setter snaps to the
         // nearest 0.1 step and clamps, so this is a value it really holds.
         CicadaTheme.uiScale = 1.4
         XCTAssertEqual(SettingsScene.windowWidth, 1260, accuracy: 1.0)
         XCTAssertEqual(SettingsScene.windowHeight, 896, accuracy: 1.0)
-        XCTAssertEqual(FirstRunSheet.sheetWidth, 1092, accuracy: 1.0)
-        XCTAssertEqual(FirstRunSheet.sheetHeight, 896, accuracy: 1.0)
     }
 }

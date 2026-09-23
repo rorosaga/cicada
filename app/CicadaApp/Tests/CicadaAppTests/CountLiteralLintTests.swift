@@ -26,13 +26,15 @@ final class CountLiteralLintTests: XCTestCase {
     /// `IntegrationCategory.swift` and `SourceOverview.swift` compose the same
     /// counts outside `Views/` — plus `Views/Home/` (Track I part b, R-IB9):
     /// Home is a page of numbers, each shown once, so it formats them the same
-    /// way the Sources grid does.
+    /// way the Sources grid does — and `Views/Onboarding/` (Task 4): the
+    /// Welcome's start line and its dropped-export rows carry counts too.
     static let scope = [
         "/Views/Sources/",
         "/Views/Contributors/",
         "/Models/SourceOverview.swift",
         "/Models/IntegrationCategory.swift",
         "/Views/Home/",
+        "/Views/Onboarding/",
     ]
 
     /// The documented way out, for a line the needle flags but that renders no

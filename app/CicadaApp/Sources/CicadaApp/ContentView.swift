@@ -10,17 +10,16 @@ struct ContentView: View {
     /// exists (G68 retired five of them).
     @AppStorage("cicada.selectedTab") private var selectedTabRaw = AppTab.home.rawValue
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
-    // G117 — the four-step first-run sheet (identity → engine → one capture
-    // channel → first Sleep), gated per-bank (`OnboardingState`, R5) rather
-    // than the old machine-global `hasSeenConnectGuide` flag: switching to a
-    // fresh bank (or the demo bank, G117 Task 5) must show the tour again
-    // even on a Mac that already onboarded a different bank. The old
-    // single-step `ConnectView(isOnboarding: true)` sheet this replaces is
-    // still reachable — it's the same view Settings → Agents opens, and its
-    // "MCP item" content now also lives inside the embedded
-    // `IntegrationsView`'s `.chatAndAgents` category (`harnessRows`), so
-    // nothing it offered is lost, only the old single-step framing.
+    // G117 / Track I part b (spec decision 14) — the Welcome: one screen
+    // (found on this Mac, the ticks as consent, Start into Home) replacing the
+    // four-step first-run sheet. Still gated per-bank (`OnboardingState`, R5)
+    // rather than the old machine-global `hasSeenConnectGuide` flag: switching
+    // to a fresh bank must show it again even on a Mac that already onboarded
+    // a different one. `FirstRunGate` still decides, and unknown is still
+    // never empty. Settings → Agents keeps the long-form wiring.
     @State private var showFirstRun = false
+    /// First run, or Settings → General's *Run setup again* (R-IB16).
+    @State private var welcomeMode: OnboardingMode = .firstRun
     /// G136 — the ⌘K find palette (Find, with Ask as a mode; round-3 design
     /// §3). An overlay on this root, not a sheet (A11).
     @State private var paletteOpen = false
@@ -53,6 +52,105 @@ struct ContentView: View {
     @State private var dropTargeted = false
 
     var body: some View {
+        windowLayers
+        // No `.task { load() }` here: `graphVM`/`inboxVM` are thin
+        // projections over `Store.graph`/`Store.inbox` (§5.5). The Store
+        // hydrates both from disk and refreshes them itself
+        // (`store.bootstrap()`, wired in `CicadaApp`'s `.onAppear`); the VMs
+        // pick up every subsequent change reactively (`GraphViewModel`'s
+        // `observeStore()`; `InboxViewModel.items` reads the snapshot
+        // directly), so there's nothing left for ContentView to kick off.
+        // R6 — still reads Store snapshots only, no extra fetch. But it can no
+        // longer decide on `.onAppear` alone: `store.bootstrap()` is async, so
+        // at this point `store.bank` is usually still the placeholder
+        // `"default"` and `store.graph` is unloaded. Deciding there asked
+        // `isOnboarded` about the wrong bank and read "not loaded" as "empty",
+        // which put the sheet on top of an onboarded bank's real data on every
+        // cold launch. `FirstRunGate` holds the rule (unknown is never empty);
+        // this view just re-asks it whenever an input lands.
+        .onAppear {
+            selectedTab = AppTab.restored(from: selectedTabRaw)
+            evaluateFirstRun()
+            intake.welcomeActive = showFirstRun
+        }
+        // R-IB15 — while the Welcome shows, every arrival is staged on it.
+        .onChange(of: showFirstRun) { _, showing in intake.welcomeActive = showing }
+        // The roster resolving the active bank, and the graph snapshot landing
+        // (from the on-disk cache or the network), are the two events that turn
+        // an unknown input into a known one.
+        .onChange(of: store.bank) { _, _ in evaluateFirstRun() }
+        // G118 slice 2 (R-PU26) — the Reader and its cache belong to no bank:
+        // episode ids restart every day in every bank, so a switch closes the
+        // Reader and forgets every cached document rather than show another
+        // bank's conversation under this one.
+        .onChange(of: store.bank) { _, _ in
+            provenance.close()
+            provenanceCache.reset()
+        }
+        // A cached hover preview has no validator, so any change to the
+        // bank's episodes or entities forgets them (final review): `/inbox`
+        // ETags over inbox + entities + episodes, so its snapshot landing a
+        // new value is the one Store signal that covers an episode rewritten
+        // in place (G104) as well as a page re-enriched; the graph covers
+        // entities on its own. A 304 leaves `loadedAt` alone, so an idle
+        // sync never empties the cache.
+        .onChange(of: store.inbox.loadedAt) { _, _ in provenanceCache.forgetSpans() }
+        .onChange(of: store.graph.loadedAt) { _, _ in provenanceCache.forgetSpans() }
+        .onChange(of: store.banks.loadedAt) { _, _ in evaluateFirstRun() }
+        .onChange(of: store.graph.loadedAt) { _, _ in evaluateFirstRun() }
+        .onChange(of: selectedTab) { _, newValue in
+            selectedTabRaw = newValue.rawValue
+            // Bug 3 / G108 — a different tab drops the entity card's stale
+            // "go deeper" trail (the currently-open card, if any, is left
+            // alone; only its click-through history is cleared).
+            graphVM.resetNavigationHistory()
+        }
+        // G136 — ⌘K is a menu command (`FindCommands`, A6) that stages a
+        // request on the router, so it works from the Settings window too.
+        .overlay {
+            if paletteOpen {
+                FindPalette(model: find, open: openFind, close: closePalette)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+            }
+        }
+        .onChange(of: router.pendingPalette) { _, _ in consumePaletteRequest() }
+        // R-SU5 — the instant tier is rebuilt off the main actor whenever an
+        // input moves, open or not, so the first ⌘K never waits on a build.
+        .background { FindIndexTask() }
+        // G126 R9 — Integrations lives in the `Settings{}` scene, a
+        // separate window from this one, so it cannot just flip
+        // `selectedTab` itself; it stages a tab on the shared `AppRouter`
+        // instead and this view is the one that actually switches.
+        .onChange(of: router.pendingTab) { _, newTab in
+            guard let newTab else { return }
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
+            router.pendingTab = nil
+        }
+        // G117 — Settings → General's "Run setup again" hand-off. Settings
+        // is a separate window/scene (same reason `pendingTab` exists above
+        // for G126 R9's Feed hand-off) so it cannot flip `showFirstRun`
+        // directly; it stages this flag on the shared `AppRouter` instead.
+        .onChange(of: router.pendingFirstRun) { _, isPending in
+            guard isPending else { return }
+            welcomeMode = .rerun
+            withAnimation(CicadaMotion.morph(reduceMotion: reduceMotion)) { showFirstRun = true }
+            router.pendingFirstRun = false
+        }
+        // G118 slice 2 (P5) — an evidence chip inside the palette's Ask mode
+        // opens the Reader, which lives on THIS window; the palette steps
+        // aside so the person sees the sentence instead of an overlay
+        // covering it (the Ask sheet did the same before G136).
+        .onChange(of: provenance.revision) { _, _ in if paletteOpen { closePalette() } }
+        .sheet(item: $previewItem) { item in
+            FeedItemPreviewSheet(item: item)
+        }
+    }
+
+    /// The split view and its window-wide layers (the drop veil, the Welcome,
+    /// the one drop target), split out of `body`: with the Welcome's layer the
+    /// single modifier chain passed what the type checker solves in reasonable
+    /// time.
+    private var windowLayers: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 selectedTab: $selectedTab,
@@ -89,104 +187,40 @@ struct ContentView: View {
         .navigationSplitViewStyle(.prominentDetail)
         // Track I T5 (R-IA24) — drop anywhere: one window-level target, the veil
         // while a file hovers, the overlay while the router shows it.
-        .overlay { IntakeLayer(dropTargeted: dropTargeted) }
+        .overlay { IntakeLayer(dropTargeted: dropTargeted && !showFirstRun) }
+        // Track I part b (spec decision 14, R-IB11) — the Welcome is a full-window
+        // layer, not a sheet: the split view underneath is already on Home, so
+        // Start reveals it. It sits above the intake layer, which stays unused
+        // while it shows (R-IB15), and INSIDE the window's one drop target below:
+        // a modifier's drop region is the view it wraps, so an overlay stacked
+        // after `.onDrop` would take a drag over the Welcome without delivering it.
+        .overlay { welcomeLayer }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
-            IntakeDrop.load(providers) { intake.accept(urls: $0, from: .windowDrop) }
+            let origin: IntakeOrigin = showFirstRun ? .welcome : .windowDrop
+            IntakeDrop.load(providers) { intake.accept(urls: $0, from: origin) }
             return true
-        }
-        // No `.task { load() }` here: `graphVM`/`inboxVM` are thin
-        // projections over `Store.graph`/`Store.inbox` (§5.5). The Store
-        // hydrates both from disk and refreshes them itself
-        // (`store.bootstrap()`, wired in `CicadaApp`'s `.onAppear`); the VMs
-        // pick up every subsequent change reactively (`GraphViewModel`'s
-        // `observeStore()`; `InboxViewModel.items` reads the snapshot
-        // directly), so there's nothing left for ContentView to kick off.
-        // R6 — still reads Store snapshots only, no extra fetch. But it can no
-        // longer decide on `.onAppear` alone: `store.bootstrap()` is async, so
-        // at this point `store.bank` is usually still the placeholder
-        // `"default"` and `store.graph` is unloaded. Deciding there asked
-        // `isOnboarded` about the wrong bank and read "not loaded" as "empty",
-        // which put the sheet on top of an onboarded bank's real data on every
-        // cold launch. `FirstRunGate` holds the rule (unknown is never empty);
-        // this view just re-asks it whenever an input lands.
-        .onAppear {
-            selectedTab = AppTab.restored(from: selectedTabRaw)
-            evaluateFirstRun()
-        }
-        // The roster resolving the active bank, and the graph snapshot landing
-        // (from the on-disk cache or the network), are the two events that turn
-        // an unknown input into a known one.
-        .onChange(of: store.bank) { _, _ in evaluateFirstRun() }
-        // G118 slice 2 (R-PU26) — the Reader and its cache belong to no bank:
-        // episode ids restart every day in every bank, so a switch closes the
-        // Reader and forgets every cached document rather than show another
-        // bank's conversation under this one.
-        .onChange(of: store.bank) { _, _ in
-            provenance.close()
-            provenanceCache.reset()
-        }
-        // A cached hover preview has no validator, so any change to the
-        // bank's episodes or entities forgets them (final review): `/inbox`
-        // ETags over inbox + entities + episodes, so its snapshot landing a
-        // new value is the one Store signal that covers an episode rewritten
-        // in place (G104) as well as a page re-enriched; the graph covers
-        // entities on its own. A 304 leaves `loadedAt` alone, so an idle
-        // sync never empties the cache.
-        .onChange(of: store.inbox.loadedAt) { _, _ in provenanceCache.forgetSpans() }
-        .onChange(of: store.graph.loadedAt) { _, _ in provenanceCache.forgetSpans() }
-        .onChange(of: store.banks.loadedAt) { _, _ in evaluateFirstRun() }
-        .onChange(of: store.graph.loadedAt) { _, _ in evaluateFirstRun() }
-        .onChange(of: selectedTab) { _, newValue in
-            selectedTabRaw = newValue.rawValue
-            // Bug 3 / G108 — a different tab drops the entity card's stale
-            // "go deeper" trail (the currently-open card, if any, is left
-            // alone; only its click-through history is cleared).
-            graphVM.resetNavigationHistory()
-        }
-        .sheet(isPresented: $showFirstRun) {
-            FirstRunSheet(bank: store.bank) { showFirstRun = false }
-        }
-        // G136 — ⌘K is a menu command (`FindCommands`, A6) that stages a
-        // request on the router, so it works from the Settings window too.
-        .overlay {
-            if paletteOpen {
-                FindPalette(model: find, open: openFind, close: closePalette)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
-            }
-        }
-        .onChange(of: router.pendingPalette) { _, _ in consumePaletteRequest() }
-        // R-SU5 — the instant tier is rebuilt off the main actor whenever an
-        // input moves, open or not, so the first ⌘K never waits on a build.
-        .background { FindIndexTask() }
-        // G126 R9 — Integrations lives in the `Settings{}` scene, a
-        // separate window from this one, so it cannot just flip
-        // `selectedTab` itself; it stages a tab on the shared `AppRouter`
-        // instead and this view is the one that actually switches.
-        .onChange(of: router.pendingTab) { _, newTab in
-            guard let newTab else { return }
-            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
-            router.pendingTab = nil
-        }
-        // G117 — Settings → General's "Run setup again" hand-off. Settings
-        // is a separate window/scene (same reason `pendingTab` exists above
-        // for G126 R9's Feed hand-off) so it cannot flip `showFirstRun`
-        // directly; it stages this flag on the shared `AppRouter` instead.
-        .onChange(of: router.pendingFirstRun) { _, isPending in
-            guard isPending else { return }
-            showFirstRun = true
-            router.pendingFirstRun = false
-        }
-        // G118 slice 2 (P5) — an evidence chip inside the palette's Ask mode
-        // opens the Reader, which lives on THIS window; the palette steps
-        // aside so the person sees the sentence instead of an overlay
-        // covering it (the Ask sheet did the same before G136).
-        .onChange(of: provenance.revision) { _, _ in if paletteOpen { closePalette() } }
-        .sheet(item: $previewItem) { item in
-            FeedItemPreviewSheet(item: item)
         }
     }
 
-    /// G117 — the one place the first-run sheet is raised automatically.
+    /// The Welcome over the whole window (R-IB11), or nothing.
+    @ViewBuilder
+    private var welcomeLayer: some View {
+        if showFirstRun {
+            WelcomeView(mode: welcomeMode, dropTargeted: dropTargeted,
+                        onShowHome: {
+                            withAnimation(CicadaMotion.morph(reduceMotion: reduceMotion)) {
+                                selectedTab = .home
+                                showFirstRun = false
+                            }
+                        },
+                        onClose: {
+                            withAnimation(CicadaMotion.morph(reduceMotion: reduceMotion)) { showFirstRun = false }
+                        })
+                .transition(.opacity)
+        }
+    }
+
+    /// G117 — the one place the Welcome is raised automatically.
     /// `store.banks.value != nil` is the honest "the bank is resolved" signal:
     /// `Store` has no `hydrated` flag, and `hydrate()` sets `bank` from the
     /// roster it just read (`Store.swift`, `roster.value.active`), so the
@@ -194,8 +228,8 @@ struct ContentView: View {
     /// being the placeholder. A hydrated on-disk cache counts as loaded for
     /// both roster and graph — rendering the first frame from disk is the
     /// point of that cache. Never lowers `showFirstRun`: dismissal belongs to
-    /// `FirstRunSheet`'s own completion and to the `pendingFirstRun` hand-off,
-    /// and a re-evaluation firing under an open sheet must not close it.
+    /// the Welcome's Start, Set up later, demo and (rerun) Close, and a
+    /// re-evaluation firing under an open Welcome must not close it.
     private func evaluateFirstRun() {
         guard !showFirstRun else { return }
         if FirstRunGate.shouldShow(
@@ -204,6 +238,7 @@ struct ContentView: View {
             graphLoaded: store.graph.value != nil,
             graphIsEmpty: store.graph.value?.nodes.isEmpty ?? false
         ) {
+            welcomeMode = .firstRun
             showFirstRun = true
         }
     }

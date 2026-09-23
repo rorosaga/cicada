@@ -72,14 +72,13 @@ final class CopyConstantsTests: XCTestCase {
         XCTAssertFalse(Copy.aboutCicadaCapture.lowercased().contains("mcp client"))
     }
 
-    /// Track P R3/R4 — the label must name the schedule `ScheduleToggle.
-    /// toggled(on: true, current: manual)` actually writes, or the toggle
-    /// promises one thing and does another. `03:00` is
-    /// `sleep_scheduler._DEFAULT`'s hour.
-    func testTheOnboardingToggleLabelNamesTheScheduleItWrites() {
-        XCTAssertTrue(Copy.onboardingRunNightly.contains("3:00"))
-        XCTAssertEqual(ScheduleToggle.toggled(on: true,
-                                              current: ScheduleConfig(mode: "manual", hour: 3, minute: 0)).hour, 3)
+    /// R-IB21 — the retired sheet's copy is gone with it; the Welcome says Start's
+    /// consequence in words a new person reads (design §4.1.2).
+    func testTheWelcomeNamesItsOneActionAndItsSecondaryExits() {
+        XCTAssertEqual(Copy.welcomeStart, "Start remembering")
+        XCTAssertTrue(Copy.welcomeHomeLabels.contains(Copy.welcomeSetUpLater))
+        XCTAssertTrue(Copy.welcomeHomeLabels.contains(Copy.welcomeTryDemo))
+        XCTAssertFalse(Copy.welcomeSubline.lowercased().contains("episode"))
     }
 
     /// Track P — the empty state must say what to DO, not just that there is

@@ -10,13 +10,6 @@ import SwiftUI
 ///
 /// This is Task 2's stub fleshed out in place, not a second file.
 struct IntegrationsView: View {
-    /// Fired after a row hands off to the main window. The default is a no-op
-    /// — in Settings → Integrations the window activation (`AppRouter`
-    /// R7) IS the whole hand-off — but `FirstRunSheet` passes `finish`, so a
-    /// hand-off from inside onboarding dismisses the sheet instead of routing
-    /// to a Feed the person cannot see behind a modal (recent-work #8).
-    var onHandOff: () -> Void = {}
-
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
     @Environment(LocalSourceWatcher.self) private var localSources
@@ -195,7 +188,6 @@ struct IntegrationsView: View {
                     ForEach(Self.exportOnlyTiles) { tile in
                         IntegrationExportOnlyRow(tile: tile) {
                             router.routeToFeedAddSource(tile)
-                            onHandOff()
                         }
                     }
                 }

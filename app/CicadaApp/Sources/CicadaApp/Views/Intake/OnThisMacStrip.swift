@@ -54,8 +54,7 @@ struct OnThisMacStrip: View {
             default: return .off
             }
         }()
-        let disclosure = (agent?.connect ?? []).flatMap { [$0.display] + $0.touches.map { "Changes \($0)" } }
-            + (agent == nil ? [] : [Copy.foundPastStays])
+        let disclosure = Self.disclosure(agent)
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             FoundRow(mark: Self.mark(item.id), title: item.title, detail: Self.detail(item.id),
                      state: states[item.id] ?? base, disclosure: disclosure,
@@ -70,6 +69,14 @@ struct OnThisMacStrip: View {
                 }
             }
         }
+    }
+
+    /// What a row's disclosure shows (W6): the exact commands Start or Turn on
+    /// would run and what each one changes, then the promise about the past.
+    /// Shared with the Welcome's checklist so both say the same thing.
+    static func disclosure(_ agent: AgentWiring?) -> [String] {
+        guard let agent else { return [] }
+        return agent.connect.flatMap { [$0.display] + $0.touches.map { "Changes \($0)" } } + [Copy.foundPastStays]
     }
 
     static func mark(_ id: FoundItemID) -> FoundMark {
