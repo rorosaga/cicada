@@ -24,6 +24,7 @@ final class WalkthroughTests: XCTestCase {
             "tiktok": "https://www.tiktok.com/setting/download-your-data",
             "linkedin": "https://www.linkedin.com/mypreferences/d/download-my-data",
             "redditExport": "https://www.reddit.com/settings/data-request",
+            "gemini": "https://takeout.google.com/",
         ])
     }
 
@@ -39,5 +40,12 @@ final class WalkthroughTests: XCTestCase {
         let names = WalkthroughVendor.allCases.map(\.videoName)
         XCTAssertEqual(Set(names).count, names.count)
         XCTAssertTrue(names.allSatisfy { $0.allSatisfy { c in c.isLetter || c.isNumber || c == "-" } })
+    }
+
+    /// Track I T5 — the intake takes the .zip, so no chat walkthrough says "unzip".
+    func testChatWalkthroughsNeverAskToUnzip() {
+        for vendor in [WalkthroughVendor.claude, .chatgpt, .gemini] {
+            XCTAssertFalse(vendor.steps.contains { $0.lowercased().contains("unzip") }, vendor.rawValue)
+        }
     }
 }

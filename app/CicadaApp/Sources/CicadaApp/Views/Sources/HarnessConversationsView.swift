@@ -13,6 +13,7 @@ struct HarnessConversationsView: View {
     @State private var loadedOnce = false
     @State private var query = ""
     @Environment(Store.self) private var store
+    @Environment(AppRouter.self) private var router
 
     private var visible: [ConversationSummary] { ConversationFilter.apply(viewModel.conversations, query: query) }
 
@@ -54,6 +55,12 @@ struct HarnessConversationsView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, CicadaTheme.spacingXL)
+        // G136 R-SU18 — a palette conversation row, until the Reader lands,
+        // opens this list filtered to its title.
+        .onAppear { if let q = router.consumeConversationQuery() { query = q } }
+        .onChange(of: router.pendingConversationQuery) { _, _ in
+            if let q = router.consumeConversationQuery() { query = q }
+        }
         .task {
             guard !loadedOnce else { return }
             loadedOnce = true

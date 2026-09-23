@@ -36,7 +36,8 @@ final class FeedChannelStripTests: XCTestCase {
     /// the sheet opens on the grid.
     func testManageResolvesEveryConnectedChannelToATile() {
         for id in ["rss", "calendar", "chrome-bookmarks", "safari-bookmarks", "safari-tabs",
-                   "notes", "telegram", "chat-export:claude", "chat-export:chatgpt", "files"] {
+                   "notes", "telegram", "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini",
+                   "files"] {
             XCTAssertNotNil(AddSourceTile.forChannel(id), id)
         }
     }

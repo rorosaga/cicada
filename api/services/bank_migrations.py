@@ -24,6 +24,7 @@ from loguru import logger
 
 from api.services.decay_migration import backfill_decay_classes
 from api.services.decay_watermark_migration import backfill_decay_watermarks
+from api.services.export_origin_migration import backfill_export_origins
 from api.services.inbox_migration import dedup_open_items, migrate_to_inbox
 
 
@@ -31,7 +32,8 @@ def run_bank_migrations(memory_path) -> dict:
     """Run every one-shot migration for one bank. Returns what each one did.
 
     ``{"moved": int, "deduped": int, "classed": {"media": int, "skills": int,
-    "restored": int}, "watermarked": {"entities": int, "claims": int}}``.
+    "restored": int}, "watermarked": {"entities": int, "claims": int},
+    "originated": int}``.
     Logs only when something actually changed, so a no-op re-run on every
     bank switch is silent.
     """
@@ -69,9 +71,16 @@ def run_bank_migrations(memory_path) -> dict:
             f"{watermarked['claims']} open claim(s)"
         )
 
+    # Track I D4 / R-IA13: one-time origin stamp on chat-export episodes the
+    # old `/conversations/upload` path left origin-less ("Unattributed").
+    originated = backfill_export_origins(memory_path)
+    if originated:
+        logger.info(f"Stamped export origin on {originated} imported episode(s)")
+
     return {
         "moved": moved,
         "deduped": deduped,
         "classed": classed,
         "watermarked": watermarked,
+        "originated": originated,
     }

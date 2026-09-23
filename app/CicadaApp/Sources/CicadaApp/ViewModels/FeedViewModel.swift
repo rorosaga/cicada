@@ -59,12 +59,21 @@ final class FeedViewModel {
 
     var filteredItems: [MediaFeedItem] {
         guard !searchText.isEmpty else { return items }
-        let q = searchText.lowercased()
-        return items.filter {
-            $0.title.lowercased().contains(q)
-                || ($0.site?.lowercased().contains(q) ?? false)
-                || $0.tags.contains(where: { $0.lowercased().contains(q) })
+        return items.filter { Self.matches($0, query: searchText) }
+    }
+
+    /// Title, site and tags — and for a paper its authors, arXiv id and DOI
+    /// (G133, R7 §5.2): a substring over the snapshot, so still no network.
+    nonisolated static func matches(_ item: MediaFeedItem, query: String) -> Bool {
+        let q = query.lowercased()
+        if item.title.lowercased().contains(q) || (item.site?.lowercased().contains(q) ?? false)
+            || item.tags.contains(where: { $0.lowercased().contains(q) }) {
+            return true
         }
+        guard let paper = item.paper else { return false }
+        return paper.authors.contains { $0.lowercased().contains(q) }
+            || (paper.arxivId?.lowercased().contains(q) ?? false)
+            || (paper.doi?.lowercased().contains(q) ?? false)
     }
 
     func load() async {

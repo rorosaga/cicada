@@ -3,6 +3,7 @@ import SwiftUI
 struct TopicsView: View {
     @Binding var selectedTab: AppTab
     @Environment(GraphViewModel.self) private var graphVM
+    @Environment(AppRouter.self) private var router
     @State private var searchText = ""
     @State private var showFilterPopover = false
     @State private var selectedLabels: Set<String> = []
@@ -65,6 +66,18 @@ struct TopicsView: View {
                 Spacer()
             }
         }
+        // G136 — a palette entity row's ⌥⏎ opens it here.
+        .onAppear { openPendingEntity() }
+        .onChange(of: router.pendingClustersEntity) { _, _ in openPendingEntity() }
+    }
+
+    /// Read-then-clear (`AppRouter.consumeClustersEntity`), so `onAppear` and
+    /// `onChange` seeing one hand-off open it once. An id the graph no longer
+    /// holds leaves the list showing rather than guessing a neighbour.
+    private func openPendingEntity() {
+        guard let id = router.consumeClustersEntity(),
+              let entity = graphVM.entities.first(where: { $0.id == id }) else { return }
+        withAnimation(CicadaMotion.panel(reduceMotion: reduceMotion)) { selectedEntity = entity }
     }
 }
 

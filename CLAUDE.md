@@ -144,10 +144,13 @@ Sources are many and the pipeline is **source-agnostic**: MCP-native clients, ho
 capture, chat exports, browsers (bookmarks and Safari tabs), Telegram, direct saved-content
 connectors (Pinterest/Reddit/X), RSS, calendars, files. The per-channel detail lives in
 `api/services/` and in the backlog rows that introduced each one — read the code, not a list here.
-Four rails hold across all of them:
+Six rails hold across all of them:
 
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
+  A browser is read only after the person turned it on — a Sync now, an all-folders import, or
+  onboarding's tick — through `cicada.browserWatch.enabled.<channel>`; an install that synced
+  before this gate keeps syncing (Track I T1).
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
   (`api/hooks/capture.py` → `POST /capture/transcript`). **The backend reads the transcript**, and
@@ -168,6 +171,24 @@ Four rails hold across all of them:
   migrated: readers accept both shapes and the queue sorts by `timestamp_sort_key`. A processed
   episode carries `processed_by` (`sleep` vs `agent`) so a flipped flag is distinguishable from a
   consolidation.
+- **Every writer scrubs, and every source-keyed writer stages through one module** (G133/G134,
+  R-N3). `api/services/episode_scrub.py` — secrets, long base64 runs, one-time codes anchored on a
+  connector word — runs before every writer's hash and write, and `test_episode_writers_scrub.py`
+  fails for any module that mints an episode id without it. `api/services/episode_staging.py` is the
+  G20 stager they share: an `EpisodeDraft` keyed by `source_id`, the hash over the scrubbed body, an
+  edit rewritten in place with `processed: false`, a rename kept by content hash, a deletion
+  tombstoned (`source_deleted_at`) and never unlinked. A multi-turn source records G118's per-turn
+  sidecar `turns: [{offset, ts, speaker}, …]` (R-PB4: an entry only for a turn with a time, the last
+  key, outside `content_hash`, capped head-stable at 500) — the one shape `evidence.turn_stamps`
+  reads; the Stop hook's `turns:` stays its integer count and reads as no stamps.
+- **A local source is read by the app and parsed by the backend** (G133/G134). A watched folder:
+  security-scoped bookmark, FSEvents, an mtime+size+sha manifest, bytes posted with relative paths to
+  `POST /sources/folders/{id}/sync`; files under an agent glob land as `evidence_kind: assistant`,
+  already processed, so an agent's sweep is never the owner's words. Wispr Flow: its SQLite opened
+  read-only by the app through a column whitelist (never audio, screenshots, accessibility or pasted
+  text); meetings and notes by default, dictation only when the person turns it on. A meeting line is
+  `speaker:<label>:` and counts as `user` evidence only when its label is one of the owner's listed
+  names.
 
 **Conversation identity (G48).** An MCP episode carries `session_id` plus `harness` and
 `project_dir` when exposed — minted once per MCP process from `CLAUDE_CODE_SESSION_ID` →
@@ -276,10 +297,12 @@ A predicate the vocabulary marks multi-valued (`predicates.cardinality`) never o
 document's *evidence text* (the body as `markdown_parser.parse` returns it, with the ```claims fence
 stripped for an entity page, so writing a claim never stales its own span); `hash` is
 `sha256[:12]` of that text, and a mismatch reads as `stale` rather than mis-highlighting. `kind` is
-`user` | `assistant` | `page` | `reasoning` | `media` (the contributor's own inference:
-`start == end == -1`, never a faked span). `media` is what a video said — a watch record's
-`video [m:ss]:` line (G140); its position is derived at read, never stored. One module,
-`api/services/evidence.py`, does the work for every writer: locate
+one of six: `user` | `assistant` | `page` | `speaker` (a meeting participant who is not the owner,
+G134) | `media` (what a video said — a watch record's timed `video [m:ss]:` line, G140; its position
+in the video is derived at read, never stored) | `reasoning` (the contributor's own inference:
+`start == end == -1`, never a faked span); an episode's `evidence_kind: user|assistant` (a folder's
+authorship rule, R-F2) overrides the line markers. One marker grammar, `evidence._marker`, reads
+both line families. One module, `api/services/evidence.py`, does the work for every writer: locate
 is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an unlocatable quote
 becomes `reasoning` and **the claim is still written — provenance never blocks memory**. Legacy
 claims carry no `evidence` and `to_dict` omits the empty key; there is no backfill.
@@ -297,8 +320,10 @@ claim is never an agent's to withdraw.
 built in `api/services/provenance.py` and fetched on demand — none is a Store domain, so each ETag
 serves the client's in-memory cache and there is no `VersionVector` mapping: `GET
 /episodes/{id}/text` (the whole evidence text, capped at 400,000 chars, with `turns[]` from the
-same marker lines `speaker_kind` reads and an asserted `start/end/hash` or derived
-`focus=<entity>`), `GET /entities/{id}/provenance` (contributors from claim `authored_by` plus one
+same marker lines `speaker_kind` reads — `speaker:<label>:` included, role `speaker`; a timed
+`video [m:ss]:` line is role `media` with its `t` in seconds, as a span's `t` is — each turn's
+role the `evidence.kind_for` answer, so an `evidence_kind` override relabels every turn — and an
+asserted `start/end/hash` or derived `focus=<entity>`), `GET /entities/{id}/provenance` (contributors from claim `authored_by` plus one
 trailer-only `git log` of the page — ETag includes `git_head` — conversations grouped by
 `session_id`/`source_id`, the best quote per conversation, coverage over current claims), and `GET
 /episodes/{id}/citations` (every claim citing the document, by a raw-text prefilter over
@@ -310,9 +335,10 @@ the cited page rather than the index. Every claim on the wire is built by one fu
 rewrite that way — and a turn-boundary prefix still hashes to the stored value, so the offsets are
 exact) or `stale`. A stale span travels without wash offsets; a `derived` span (found by name,
 `inbox_context.locate_mention`) exists on read payloads only — never in `EVIDENCE_KINDS`, never
-written. The chat importer keeps each message's time as `turns: [{offset, ts, speaker}]` in
-frontmatter, outside `content_hash`; the Stop hook's `turns:` is still a count, and a reader treats
-any non-list as no times.
+written. The chat importer and every Local-sources draft keep each turn's time as
+`turns: [{offset, ts, speaker}]` in frontmatter, written by `episode_staging` outside
+`content_hash`; the Stop hook's `turns:` is still a count, and a reader treats any non-list as no
+times.
 
 **Optional frontmatter keys**, each with a narrow meaning — don't conflate them:
 
@@ -327,6 +353,14 @@ any non-list as no times.
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
   resolve_observer` is what decides which page gets it, and every user-stated claim's `observer`
   field is that resolved value.
+- `paths:` (G133) — on a `project` page a watched folder anchors: `[{path, device}]`, where that
+  folder lives on which Mac. For display and relink only; the backend never opens it.
+- `media.kind: paper` + `paper:` (G133) — a paper page: `arxiv_id`, `doi`, `authors`, `published`,
+  `venue`, `sections`, and `metadata_status` once a lookup failed. The ids are the identity
+  (`media-arxiv-<id>` / `media-doi-<hash>`); the abstract is a `describes` claim from
+  `external:arxiv` or `external:crossref`, a dated cache shown under the personal tier (G121).
+- On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
+  `source_deleted_at`, and a section's `content_sha` — see the Awake rails.
 
 ### Live state + handshake (G53 / G75)
 
@@ -515,14 +549,22 @@ unchanged for future use.
 **Navigation.** Six sidebar rows (⌘1–6): Graph, Clusters, Feed, Sleep, Inbox, Sources. Setup lives
 in a native `Settings{}` scene (⌘,), a `NavigationSplitView` over five sections — General · Sleep ·
 Integrations · Agents · Plans & keys (`SettingsSection`, replacing the earlier four-tab `TabView`).
-⌘K opens the Ask panel. `AppTab` raw values are the persisted identity of a tab, and
+⌘K (Find in Memory…) opens the find palette — Find, with Ask as a mode on ⌘⏎. ⌘K and ⌘F are menu
+commands in `Support/FindCommands.swift`; `HiddenShortcutLintTests` fails the build on either
+shortcut anywhere else (G136). `AppTab` raw values are the persisted identity of a tab, and
 `AppTab.restored(from:)` maps retired ones onto the pages that inherited them, so an older selection
 never traps. A page's top-right control is the `?` alone — Track P's audit removed the global Sleep
 button, because a cycle starts from the Sleep page's one Consolidate control (G125 R10) or the
-menu-bar bookworm. **The Feed keeps its Upload button**, and that is the one exception: "a one-shot
-import lives behind the `+`" (the G126 rule above) covers a chat export, but importing an export
-*into a chosen or newly created memory bank* has no tile, and the upload overlay is also the only
-writer of `Store.intakeInFlight` — the flag that makes the bookworm read while an import lands.
+menu-bar bookworm.
+**One intake (Track I, spec decision 13).** Every way a file arrives — a drop anywhere on the
+window, the Dock icon, File → Import… (⌘⇧I), the menu-bar worm's *Import a file…*, an empty state,
+each `+` chat tile — goes through one `IntakeRouter`: sniff (`POST /intake/sniff`, stages nothing) →
+preview (counts, date range, new · grew · already here, skipped files by name, *Into* a memory) →
+import (`POST /intake/import`; a 202 and a job counter above 10 episodes) → a *what happens next*
+card that never closes on its own. `UploadOverlay` and the Feed's Upload button are gone; the router
+owns `Store.intakeInFlight` through a counter of requests in flight. The card's *Read now* is G125
+R10's first narrow amendment: a user trigger, subtitled with the manual engine like Consolidate,
+shown only when an engine can run and the import landed in the active bank.
 
 **Settings → Sleep: the engine picker (G122, Track E).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
@@ -541,7 +583,17 @@ opens that home's files — `codex app-server` answers plan, limit and models.
 *standing* connection (sign in once, polled on the Sleep tail, disconnect here) lives in
 Integrations; a *one-shot* import (drop an export, sync a folder once) stays where it already was,
 behind the Feed's `+`. Both read the same `channel_registry`, so a channel never drifts between the
-two surfaces.
+two surfaces. Round 3 added **Notes & files** (Apple Notes, every watched folder, *Add a folder* and,
+when Obsidian is installed, *Obsidian vault*) and **Voice & meetings** (Wispr Flow once it is on this
+Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
+
+**Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
+*recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 2 s
+each, a timeout is `unknown`) and *auto-save* (the G105 Stop hook, via `api/hooks/registry.py`; an
+unparseable settings file is `invalid`, never `off`), plus the exact argv install.sh would run. The
+**app** runs them, only after the person's click (spec decision 14, D-1), with
+`CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout; the backend never writes a
+harness root.
 
 **Sources page — v2 (G124).** One card system: fixed tile height, one column count derived from the
 container width in **scaled** units (`SourceGridColumns`, 2–4) and shared by every section, five
@@ -579,7 +631,7 @@ behind them, cloud drift, a storm flash, estimates, prices.
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and
 the menu bar's own precedence and sprite meaning are unchanged. `store.intakeInFlight` (set while
-the upload overlay runs) forces `reading` ahead of `happy`/`hungry` but never ahead of
+the intake router has a request in flight) forces `reading` ahead of `happy`/`hungry` but never ahead of
 `sleeping`/`error`/`digesting`. Per-cycle duration *estimates* stay deferred (G107's own ruling);
 only a measured, telemetry-joined duration is ever shown. Track Z adds **response art** inside
 `BookwormSprites`: `BookwormPose` (idle · attentive(gaze) · expectant(gaze) · eager) and
@@ -638,11 +690,27 @@ Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — an
 derived from the URL at read time (`VideoRef.resolve`), never read out of the page, so a bank never
 needs rewriting to teach the app a new one.
 
+**Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
+label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
+for a legacy claim's name match found at read), hovering shows the words in the quote face — washed
+when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a trailing
+`.inspector` on the main window driven by `ProvenanceRouter` (a stack of `ReaderTarget`s), beside
+whatever is open so a belief and its sentence are on screen together. It reads `/episodes/{id}/text`
+and `/citations` through `ProvenanceCache` — in memory, ETag-revalidated, **never a Store domain**,
+so there is no `VersionVector` mapping — slices every offset as a Unicode scalar through one
+`ScalarText`, shows a time only when the episode stores one, and says stale / grown / derived /
+inferred / truncated in words — a span its rewritten document no longer reaches (the server's 422) is
+stale too, never "couldn't open". The entity card's "Where this came from" (bottom of Content) reads
+`/entities/{id}/provenance` once per card; G61's section is "Look it up at". Chips read the router
+and cache as optional environment values, so a chip outside the main window renders without a
+click-through rather than trapping; the Ask and Belief Timeline sheets step aside when the Reader
+opens, and a bank switch closes it and empties the cache (episode ids repeat across banks).
+
 ---
 
 ## API Design
 
-20 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+26 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, and an OAuth adapter's
@@ -683,6 +751,12 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
   call is still running (a process-local lock — two overlapping clicks would stage each other's
   half-written pages under their own trailers).
 - `GET /sync/version` is the cheap change-detector (<10 ms); `GET /sync/events` is the SSE stream.
+- `POST /intake/import` answers **202** with `{job}` when more than 10 episodes would be written; poll
+  `GET /intake/jobs/{id}` (process-local — gone after a restart or an hour; the episodes are not). One
+  stage runs at a time per process.
+- `POST /conversations/upload` is a deprecated shim over the one intake — new callers use
+  `POST /intake/import`; its `turns` sidecar is a list on imported episodes and an **integer
+  count** on Stop-hook episodes, so a reader checks the type.
 
 ---
 
@@ -768,8 +842,14 @@ scheduled path — daily, interval, or the settle probe — passes `user_trigger
 scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`).
 
 ### 5. Conversation upload
-File picker for JSON/HTML exports; parses and stages into `episodes/`; dedups on timestamp +
-content hash.
+**One chat-export pipeline (Track I).** Claude, ChatGPT and Gemini exports — a whole .zip, a
+folder, or one file — go through `api/routers/intake.py`: every member a parser knows (a Claude
+zip's conversations, memories and projects), the known extras (`user(s).json`, feedback and
+comparison files, ChatGPT's `chat.html` viewer) skipped **by name**, the vendor's `origin` stamped
+on every path, per-message times kept as `turns: [{offset, ts, speaker}]` outside `content_hash`,
+and re-imports updating grown threads in place (G20) without duplicating. `POST /intake/sniff`
+previews and stages nothing; `POST /intake/import` stages. `/conversations/upload` (deprecated,
+`Deprecation: true`) and `/banks/{name}/import` are shims over it.
 
 ---
 
@@ -839,6 +919,14 @@ neither; the name lookup runs off the event loop).
 **A failed poll is recorded, not raised** (`sync_state.record_error`) and surfaces per-channel as
 `lastError`; a gate-skipped poll is recorded distinctly (`record_skip`) so a skip never reads as a
 failure or as a stale success.
+
+**Paper details (G133) ride the first gate, not a fourth.** The unattended Sleep-tail lookup is behind
+`CICADA_ALLOW_CONNECTOR_FETCH`; a folder sync the person asked for (`?resolve=true`) is not. Only two
+APIs are ever called — `export.arxiv.org/api/query` (≤ 50 ids a request, ≥ 3 s apart) and
+`api.crossref.org/works/{doi}` (public pool; no email is ever sent) — at the rail's 4 s / ≤ 512 KB;
+arxiv.org pages and PDFs are never fetched, and a 403/429 stops that API for the run. That holds for
+a paper link saved any other way too (a bookmark, `cicada_save_url`, Telegram): `papers.never_scraped`
+keeps arXiv/DOI links and every arxiv.org page out of save-time enrichment and the link backfill.
 
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a

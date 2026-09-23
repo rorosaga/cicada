@@ -32,7 +32,9 @@ enum BrowserImportActions {
             guard await store.perform(m), let r = m.result else { throw ImportActionError.failed(store.toast ?? "Sync failed") }
             return BrowserImportSummary.bookmarks(r)
         default:
-            throw ImportActionError.failed("Unknown channel \(id)")
+            // Only `ChannelActions.syncRoute`'s `.browserFile` ids arrive here; an
+            // internal id never belongs in the person's copy (L final review, finding 1).
+            throw ImportActionError.failed("This source can't be synced from here.")
         }
     }
 
@@ -214,6 +216,8 @@ struct BookmarkFolderPanel: View {
     let browser: Browser
 
     @Environment(Store.self) private var store
+    /// Track I T1: an all-folders import turns the browser's watch on (R-IA2).
+    @Environment(BrowserWatcher.self) private var watcher
     @State private var stage: BrowserImportStage = .idle
     @State private var tree: BookmarkFolderNode?
     @State private var selection = BookmarkFolderSelection.all
@@ -302,8 +306,17 @@ struct BookmarkFolderPanel: View {
             let m = SyncBrowserBookmarks(chromeData: browser == .chrome ? data : nil, safariData: browser == .safari ? data : nil, folders: folders)
             let ok = await store.perform(m)
             guard !Task.isCancelled else { return }
-            if ok, let r = m.result { stage = .done(BrowserImportSummary.bookmarks(r)) }
-            else { stage = .failed(store.toast ?? "Import failed") }
+            if ok, let r = m.result {
+                stage = .done(BrowserImportSummary.bookmarks(r))
+                // R-IA2: importing EVERY folder is the same scope the watch syncs,
+                // so it is consent to keep watching. A folder-scoped import stays
+                // one-shot — the watch would widen what the person just narrowed.
+                if folders == nil {
+                    watcher.enable(browser == .chrome ? "chrome-bookmarks" : "safari-bookmarks")
+                }
+            } else {
+                stage = .failed(store.toast ?? "Import failed")
+            }
         }
     }
 }

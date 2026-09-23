@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var selectedTab: AppTab = .graph
@@ -19,8 +20,16 @@ struct ContentView: View {
     // `IntegrationsView`'s `.chatAndAgents` category (`harnessRows`), so
     // nothing it offered is lost, only the old single-step framing.
     @State private var showFirstRun = false
-    // ⌘K Ask panel (G52, spec §5.9).
-    @State private var showAskPanel = false
+    /// G136 — the ⌘K find palette (Find, with Ask as a mode; round-3 design
+    /// §3). An overlay on this root, not a sheet (A11).
+    @State private var paletteOpen = false
+    /// A palette saved-item row previews the item in place (design §3.3).
+    @State private var previewItem: MediaFeedItem?
+    /// "Switch to light/dark" writes the key `CicadaApp` already observes.
+    @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw = AppColorScheme.dark.rawValue
+    @Environment(FindPaletteModel.self) private var find
+    /// "Switch to <bank>" makes `BankSwitcher`'s own call (R-SU13).
+    @Environment(BanksViewModel.self) private var banksVM
 
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(InboxViewModel.self) private var inboxVM
@@ -30,7 +39,15 @@ struct ContentView: View {
     /// G126 R9 — consumes a Settings → Integrations "Import in Feed →"
     /// hand-off by switching the sidebar's own selection.
     @Environment(AppRouter.self) private var router
+    /// Track I T5 — the one intake: every file dropped on this window lands here.
+    @Environment(IntakeRouter.self) private var intake
+    /// G118 slice 2 — drives the Reader inspector below; a bank switch
+    /// closes it and empties the cache (R-PU26).
+    @Environment(ProvenanceRouter.self) private var provenance
+    @Environment(ProvenanceCache.self) private var provenanceCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// True while a file is dragged over the window — shows the drop veil (I1).
+    @State private var dropTargeted = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -49,6 +66,15 @@ struct ContentView: View {
                 // nothing on screen) posts `store.toast`; show it at the
                 // bottom of whatever page is open (§5.4).
                 .overlay(alignment: .bottom) { toastBanner }
+                // G118 slice 2 (design §4.4) — the Reader opens BESIDE whatever
+                // is showing, never over it: the entity card stays up, so a
+                // belief and the sentence it came from are on screen together.
+                // Content, not chrome, so it is never glass (R-M5).
+                .inspector(isPresented: Bindable(provenance).isPresented) {
+                    ReaderInspector()
+                        .inspectorColumnWidth(min: CicadaTheme.scaled(360), ideal: CicadaTheme.scaled(440),
+                                              max: CicadaTheme.scaled(560))
+                }
         }
         // No `.id(colorSchemeRaw)` here any more. Keying this subtree on the
         // mode string used to be what repainted it, because the tokens were
@@ -58,6 +84,13 @@ struct ContentView: View {
         // backed by an `@Observable` store, so each view that reads a token
         // subscribes to the mode itself and repaints on its own.
         .navigationSplitViewStyle(.prominentDetail)
+        // Track I T5 (R-IA24) — drop anywhere: one window-level target, the veil
+        // while a file hovers, the overlay while the router shows it.
+        .overlay { IntakeLayer(dropTargeted: dropTargeted) }
+        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            IntakeDrop.load(providers) { intake.accept(urls: $0, from: .windowDrop) }
+            return true
+        }
         // No `.task { load() }` here: `graphVM`/`inboxVM` are thin
         // projections over `Store.graph`/`Store.inbox` (§5.5). The Store
         // hydrates both from disk and refreshes them itself
@@ -81,6 +114,23 @@ struct ContentView: View {
         // (from the on-disk cache or the network), are the two events that turn
         // an unknown input into a known one.
         .onChange(of: store.bank) { _, _ in evaluateFirstRun() }
+        // G118 slice 2 (R-PU26) — the Reader and its cache belong to no bank:
+        // episode ids restart every day in every bank, so a switch closes the
+        // Reader and forgets every cached document rather than show another
+        // bank's conversation under this one.
+        .onChange(of: store.bank) { _, _ in
+            provenance.close()
+            provenanceCache.reset()
+        }
+        // A cached hover preview has no validator, so any change to the
+        // bank's episodes or entities forgets them (final review): `/inbox`
+        // ETags over inbox + entities + episodes, so its snapshot landing a
+        // new value is the one Store signal that covers an episode rewritten
+        // in place (G104) as well as a page re-enriched; the graph covers
+        // entities on its own. A 304 leaves `loadedAt` alone, so an idle
+        // sync never empties the cache.
+        .onChange(of: store.inbox.loadedAt) { _, _ in provenanceCache.forgetSpans() }
+        .onChange(of: store.graph.loadedAt) { _, _ in provenanceCache.forgetSpans() }
         .onChange(of: store.banks.loadedAt) { _, _ in evaluateFirstRun() }
         .onChange(of: store.graph.loadedAt) { _, _ in evaluateFirstRun() }
         .onChange(of: selectedTab) { _, newValue in
@@ -93,16 +143,18 @@ struct ContentView: View {
         .sheet(isPresented: $showFirstRun) {
             FirstRunSheet(bank: store.bank) { showFirstRun = false }
         }
-        // ⌘K opens the Ask panel (G52) from anywhere in the app — a hidden
-        // button is the standard SwiftUI way to attach a global keyboard
-        // shortcut that isn't tied to a visible control.
-        .background {
-            Button("") { showAskPanel = true }
-                .keyboardShortcut("k", modifiers: .command)
-                .buttonStyle(.cicadaPlain)
-                .frame(width: 0, height: 0)
-                .opacity(0)
+        // G136 — ⌘K is a menu command (`FindCommands`, A6) that stages a
+        // request on the router, so it works from the Settings window too.
+        .overlay {
+            if paletteOpen {
+                FindPalette(model: find, open: openFind, close: closePalette)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+            }
         }
+        .onChange(of: router.pendingPalette) { _, _ in consumePaletteRequest() }
+        // R-SU5 — the instant tier is rebuilt off the main actor whenever an
+        // input moves, open or not, so the first ⌘K never waits on a build.
+        .background { FindIndexTask() }
         // G126 R9 — Integrations lives in the `Settings{}` scene, a
         // separate window from this one, so it cannot just flip
         // `selectedTab` itself; it stages a tab on the shared `AppRouter`
@@ -121,17 +173,13 @@ struct ContentView: View {
             showFirstRun = true
             router.pendingFirstRun = false
         }
-        .sheet(isPresented: $showAskPanel) {
-            // G123: a citation lands ON its node — the graph zooms to that
-            // node's neighbourhood, not just opens its card. An answer's
-            // citation is a claim about where something sits in the graph, and
-            // showing the card while the viewport stays wherever it was left
-            // makes the reader hunt for it.
-            AskPanel { entityId in
-                withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .graph }
-                graphVM.revealEntity(id: entityId)
-                showAskPanel = false
-            }
+        // G118 slice 2 (P5) — an evidence chip inside the palette's Ask mode
+        // opens the Reader, which lives on THIS window; the palette steps
+        // aside so the person sees the sentence instead of an overlay
+        // covering it (the Ask sheet did the same before G136).
+        .onChange(of: provenance.revision) { _, _ in if paletteOpen { closePalette() } }
+        .sheet(item: $previewItem) { item in
+            FeedItemPreviewSheet(item: item)
         }
     }
 
@@ -154,6 +202,92 @@ struct ContentView: View {
             graphIsEmpty: store.graph.value?.nodes.isEmpty ?? false
         ) {
             showFirstRun = true
+        }
+    }
+
+    private func consumePaletteRequest() {
+        guard let request = router.consumePalette() else { return }
+        switch PaletteToggle.outcome(for: request, isOpen: paletteOpen, firstRunShowing: showFirstRun) {
+        case .open(let prefill, let mode):
+            find.present(prefill: prefill, mode: mode)
+            withAnimation(CicadaMotion.paletteIn(reduceMotion: reduceMotion)) { paletteOpen = true }
+        case .close:
+            closePalette()
+        case .ignore:
+            break
+        }
+    }
+
+    private func closePalette() {
+        withAnimation(CicadaMotion.paletteOut(reduceMotion: reduceMotion)) { paletteOpen = false }
+        find.dismissed()
+    }
+
+    /// The one place a palette row becomes navigation (design §3.3). The
+    /// palette has already closed itself; `.ask`, `.askedBefore` and
+    /// `.settings` never arrive here (`FindPaletteModel.activate`).
+    private func openFind(_ destination: FindDestination) {
+        switch destination {
+        case .entity(let id), .belief(let id, _):
+            // Seam (Track P): a belief should also open the card on
+            // Perspectives, scrolled to the claim — the card is Track P's.
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .graph }
+            graphVM.revealEntity(id: id)
+        case .entityInClusters(let id):
+            router.pendingClustersEntity = id
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .clusters }
+        case .feedItem(let id):
+            if let item = store.sources.value?.first(where: { $0.mediaEntityId == id }) {
+                previewItem = item
+            } else {
+                openFind(.entity(id: id))
+            }
+        case .openURL(let raw):
+            if let url = URL(string: raw) { NSWorkspace.shared.open(url) }
+        case .source(let id):
+            router.routeToSourceDetail(id)
+        case .conversations(let harness, let origin, let query):
+            if let id = ConversationSource.sourceId(harness: harness, origin: origin,
+                                                    rows: store.sourcesOverview.value ?? []) {
+                router.pendingConversationQuery = query
+                router.routeToSourceDetail(id)
+            } else {
+                withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .sources }
+            }
+        case .conversation(let target):
+            // Seam (R-SU18 → Track P, P6): the Reader opens `target.span` here
+            // once `ProvenanceRouter` lands; until then its own source lists it,
+            // filtered to its title.
+            openFind(.conversations(harness: target.harness, origin: target.origin, query: target.title))
+        case .evidence:
+            // Produced only when `FindReaderSeam.isAvailable` (R-SU18).
+            break
+        case .inbox(let id):
+            router.pendingInboxItem = id
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .inbox }
+        case .tab(let tab):
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = tab }
+        case .action(let action):
+            run(action)
+        case .bank(let name):
+            // `BankSwitcher.switchTo`'s own pair (R-SU13).
+            Task { if await banksVM.activate(name) { await graphVM.loadGraph() } }
+        case .settings, .ask, .askedBefore:
+            break
+        }
+    }
+
+    /// R-SU13 — the same calls the owning pages make.
+    private func run(_ action: PaletteAction) {
+        switch action {
+        // `SleepControlRow`'s own call: trigger, then refresh what it changed.
+        case .consolidate: Task { await sleepVM.triggerManually(); await store.refresh([.status, .channels]) }
+        case .stopConsolidating: Task { await sleepVM.cancel() }
+        case .zoomIn: CicadaTheme.zoomIn()
+        case .zoomOut: CicadaTheme.zoomOut()
+        case .actualSize: CicadaTheme.resetZoom()
+        case .lightMode: colorSchemeRaw = AppColorScheme.light.rawValue
+        case .darkMode: colorSchemeRaw = AppColorScheme.dark.rawValue
         }
     }
 
@@ -192,7 +326,7 @@ struct ContentView: View {
     @ViewBuilder
     private var detailContent: some View {
         ZStack {
-            GraphContainerView(selectedTab: $selectedTab, showAskPanel: $showAskPanel)
+            GraphContainerView(selectedTab: $selectedTab)
                 .opacity(selectedTab == .graph ? 1 : 0)
                 .allowsHitTesting(selectedTab == .graph)
                 .accessibilityHidden(selectedTab != .graph)
@@ -238,9 +372,10 @@ struct ContentView: View {
 
 struct GraphContainerView: View {
     @Binding var selectedTab: AppTab
-    @Binding var showAskPanel: Bool
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(BanksViewModel.self) private var banksVM
+    /// Track I T5 (R-IA27) — the empty graph takes a dropped export itself.
+    @Environment(IntakeRouter.self) private var intake
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -259,17 +394,18 @@ struct GraphContainerView: View {
                     title: "Nothing here yet",
                     message: Copy.emptyGraphMessage,
                     actionLabel: "Open Integrations",
-                    settingsSection: .integrations
+                    settingsSection: .integrations,
+                    onDropFiles: { intake.accept(urls: $0, from: .emptyState(.graph)) }
                 )
             }
 
-            // Top-right: Ask + Help (Track P: the audit removed Sleep/Upload —
+            // Top-right: Search + Help (Track P: the audit removed Sleep/Upload —
             // a cycle starts on the Sleep page, an import behind the Feed's +)
             VStack {
                 HStack {
                     Spacer()
                     HStack(spacing: CicadaTheme.spacingSM) {
-                        AskButton(showAskPanel: $showAskPanel)
+                        SearchButton()
                         TopBarControls(
                             selectedTab: $selectedTab,
                             showUploadOverlay: .constant(false)
@@ -288,7 +424,7 @@ struct GraphContainerView: View {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                         HStack(spacing: CicadaTheme.spacingSM) {
                             BankSwitcher(banksVM: banksVM)
-                            GraphSearchField()
+                            GraphSearchField(isActive: selectedTab == .graph)
                         }
                         ObserverFilterBar()
                     }
@@ -503,23 +639,21 @@ struct ZoomControls: View {
     }
 }
 
-// MARK: - Ask Button (G52)
+// MARK: - Search Button (G136)
 
-/// Toolbar entry point for the ⌘K Ask panel — the keyboard shortcut works
-/// from anywhere in `ContentView`, this just gives it a discoverable button
-/// alongside Sleep/Upload/Help.
-struct AskButton: View {
-    @Binding var showAskPanel: Bool
+/// The graph's visible twin of ⌘K (design §3.1: "`AskButton` … is renamed
+/// Search and opens Find"). Ask is one keystroke away inside (⌘⏎).
+struct SearchButton: View {
+    @Environment(AppRouter.self) private var router
     @State private var isHovered = false
 
     var body: some View {
-        Button {
-            showAskPanel = true
-        } label: {
+        Button { router.requestPalette() } label: {
             HStack(spacing: CicadaTheme.spacingXS) {
-                Image(systemName: "sparkle.magnifyingglass")
+                Image(systemName: "magnifyingglass")
                     .font(CicadaTheme.font(size: 12))
-                Text("Ask")
+                    .iconHover(hovering: isHovered)
+                Text("Search")
                     .font(CicadaTheme.font(size: 12, weight: .medium))
             }
             .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.accent)
@@ -528,7 +662,8 @@ struct AskButton: View {
         }
         .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
         .onHover { isHovered = $0 }
-        .help("Ask your memory (⌘K)")
+        .help("Search your memory (⌘K)")
+        .accessibilityLabel("Search your memory")
     }
 }
 
@@ -559,7 +694,11 @@ private struct ZoomButton: View {
 /// zooms to the node's neighbourhood and opens its card, Esc clears. Matching
 /// is local (`GraphViewModel.searchMatches`) — no request per keystroke.
 struct GraphSearchField: View {
+    /// R-SU10 — the graph stays mounted under every other tab, so it claims
+    /// ⌘F only while it is the visible page.
+    var isActive = true
     @Environment(GraphViewModel.self) private var graphVM
+    @Environment(FindPaletteModel.self) private var find: FindPaletteModel?
     @State private var query = ""
     @State private var highlighted = 0
     @FocusState private var focused: Bool
@@ -593,13 +732,9 @@ struct GraphSearchField: View {
             .padding(.horizontal, CicadaTheme.spacingSM)
             .padding(.vertical, 6)
             .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
-            // ⌘F from anywhere on the page focuses the field.
-            .background(
-                Button("") { focused = true }
-                    .keyboardShortcut("f", modifiers: .command)
-                    .opacity(0)
-                    .frame(width: 0, height: 0)
-            )
+            // ⌘F (the menu's Find on This Page…, G136 A6) focuses the field —
+            // only while the graph is showing and the palette is closed.
+            .publishesPageFind(enabled: isActive && !(find?.isPresented ?? false)) { focused = true }
 
             if focused, !query.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
@@ -650,5 +785,22 @@ struct GraphSearchField: View {
         query = ""
         highlighted = 0
         focused = false
+    }
+}
+
+/// R-SU5 — keeps the palette's instant tier current. Its own view, so the
+/// inputs it watches (the graph, the inbox, Sleep's status, the theme) move
+/// this empty view when they change, never `ContentView`'s whole body.
+private struct FindIndexTask: View {
+    @Environment(Store.self) private var store
+    @Environment(FindPaletteModel.self) private var find
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .task(id: QuickIndexInputs.token(store, askHistoryCount: find.ask.history.count)) {
+                await find.rebuildIndex()
+            }
     }
 }

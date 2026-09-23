@@ -239,6 +239,10 @@ struct MediaFeedItem: Codable, Identifiable {
     /// duration pill reads it; absent means absent, never an estimate (R17).
     let provider: String?
     let durationS: Int?
+    /// G133 — `paper` for a paper page, with its byline; `nil` on every other
+    /// row and from an older backend.
+    let kind: String?
+    let paper: PaperSummary?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -285,6 +289,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case description, about
         case origin, folder
         case provider, durationS
+        case kind, paper
     }
 
     init(from decoder: Decoder) throws {
@@ -309,7 +314,11 @@ struct MediaFeedItem: Codable, Identifiable {
         folder = try c.decodeIfPresent(String.self, forKey: .folder)
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
         durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        paper = try c.decodeIfPresent(PaperSummary.self, forKey: .paper)
     }
+
+    var isPaper: Bool { kind == "paper" }
 }
 
 struct SourceListResponse: Codable {
@@ -1145,41 +1154,6 @@ actor APIClient {
         return expectedSlug
     }
 
-    /// `POST /banks/{name}/import` (multipart file) → stage parsed conversations
-    /// into bank `name` as dated episodes. Format is auto-detected server-side.
-    func importToBank(name: String, fileURL: URL) async throws -> BankImportResponse {
-        var request = makeRequest("/banks/\(encodedBank(name))/import", method: "POST", json: false)
-
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        let fileData = try Data(contentsOf: fileURL)
-        let filename = fileURL.lastPathComponent
-
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
-        body.append(fileData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        request.httpBody = body
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.serverUnreachable
-        }
-        guard (200...299).contains(http.statusCode) else {
-            if http.statusCode == 401 { Self.invalidateToken() }
-            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw APIError.httpError(http.statusCode, msg)
-        }
-        do {
-            return try decoder.decode(BankImportResponse.self, from: data)
-        } catch {
-            throw APIError.decodingError("\(error)")
-        }
-    }
-
     // MARK: - Entities
 
     /// Legacy entity ids can contain `#`, `$`, parens, etc. — `#` silently
@@ -1706,6 +1680,67 @@ actor APIClient {
         return try await post("/sources/sync-notes")
     }
 
+    // MARK: - Local sources (G133 / G134)
+
+    /// `GET /sources/folders` — the active memory's watched folders.
+    func fetchFolders() async throws -> [FolderRegistration] {
+        let response: FolderListResponse = try await get("/sources/folders")
+        return response.folders
+    }
+
+    /// `POST /sources/folders` — register (or re-pick) a folder; the backend
+    /// stamps the device and anchors the project by name (R-LS9, R-LS13).
+    func registerFolder(label: String, path: String, projectName: String,
+                        authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration {
+        try await post("/sources/folders", body: [
+            "label": label, "path": path, "projectName": projectName,
+            "authorship": authorship.map { ["glob": $0.glob, "authorship": $0.authorship] },
+        ])
+    }
+
+    func updateFolder(id: String, authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration {
+        try await put("/sources/folders/\(encodedID(id))", body: [
+            "authorship": authorship.map { ["glob": $0.glob, "authorship": $0.authorship] },
+        ])
+    }
+
+    func removeFolder(id: String) async throws {
+        _ = try await delete("/sources/folders/\(encodedID(id))")
+    }
+
+    /// `POST /sources/folders/{id}/sync` — file bytes as base64 (R-LS8).
+    func syncFolder(id: String, files: [FolderUpload], deleted: [String], preview: Bool,
+                    resolve: Bool) async throws -> FolderSyncResult {
+        let body: [String: Any] = [
+            "files": files.map { ["relpath": $0.relpath, "mtime": $0.mtime, "sha256": $0.sha256,
+                                  "contentB64": $0.data.base64EncodedString()] },
+            "deleted": deleted,
+        ]
+        return try await post("/sources/folders/\(encodedID(id))/sync?preview=\(preview)&resolve=\(resolve)", body: body)
+    }
+
+    func fetchWisprSettings() async throws -> WisprFlowSettings {
+        try await get("/capture/local-source/wispr-flow/settings")
+    }
+
+    func saveWisprSettings(_ settings: WisprFlowSettings) async throws -> WisprFlowSettings {
+        try await put("/capture/local-source/wispr-flow/settings", body: [
+            "enabled": settings.enabled, "includeDictation": settings.includeDictation,
+            "ownerSpeakerNames": settings.ownerSpeakerNames,
+        ])
+    }
+
+    /// `POST /capture/local-source/wispr-flow` — a projection already serialised
+    /// off the main actor by `WisprFlowReader`, so only `Data` crosses into the actor.
+    func postWisprFlow(_ json: Data) async throws -> WisprFlowSyncResult {
+        try await postData("/capture/local-source/wispr-flow", json: json)
+    }
+
+    /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
+    func fetchPaperDetail(id: String) async throws -> PaperDetail {
+        try await get("/entities/\(encodedID(id))/paper")
+    }
+
     // MARK: - RSS feed subscriptions (G9)
 
     /// `GET /sources/feeds` → every subscribed RSS/Atom feed, in subscription order.
@@ -2035,39 +2070,6 @@ actor APIClient {
         return try decoder.decode(RemoteConnector.self, from: data)
     }
 
-    // MARK: - Upload
-
-    func uploadFile(fileURL: URL) async throws -> UploadResponse {
-        var request = makeRequest("/conversations/upload", method: "POST", json: false)
-
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        let fileData = try Data(contentsOf: fileURL)
-        let filename = fileURL.lastPathComponent
-
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
-        body.append(fileData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-
-        request.httpBody = body
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.serverUnreachable
-        }
-        guard (200...299).contains(http.statusCode) else {
-            if http.statusCode == 401 { Self.invalidateToken() }
-            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw APIError.httpError(http.statusCode, msg)
-        }
-
-        return try decoder.decode(UploadResponse.self, from: data)
-    }
-
     // MARK: - Generic Helpers
 
     /// `timeout` overrides Foundation's 60 s default for this one request.
@@ -2099,6 +2101,21 @@ actor APIClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverUnreachable
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.httpError(http.statusCode, msg)
+        }
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func postData<T: Decodable>(_ path: String, json: Data) async throws -> T {
+        var request = makeRequest(path, method: "POST")
+        request.httpBody = json
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
@@ -2435,3 +2452,39 @@ extension APIClient: SyncAPI {
         return (SSELineSplitter.lines(from: bytes), http)
     }
 }
+
+// MARK: - One intake (Track I T5)
+
+extension APIClient: IntakeAPI {
+    private static func bankQuery(_ bank: String?) -> String {
+        guard let bank else { return "" }
+        // `.urlQueryAllowed` keeps `&`, `=` and `+`, which would split or
+        // re-read the one parameter; a bank slug never has them, but a name
+        // typed into "New memory…" is not a slug until the backend says so.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?#")
+        return "?bank=" + (bank.addingPercentEncoding(withAllowedCharacters: allowed) ?? bank)
+    }
+
+    /// `POST /intake/sniff` — stages nothing (G71 §4.3); safe on every drop.
+    func sniffIntake(fileURL: URL, bank: String?) async throws -> IntakeSniff {
+        try await uploadMultipart(path: "/intake/sniff" + Self.bankQuery(bank), fileURL: fileURL)
+    }
+
+    /// `POST /intake/import` — 200 with counts, or 202 with `job` (Track I T2b).
+    func importIntake(fileURL: URL, bank: String?) async throws -> IntakeImportResponse {
+        try await uploadMultipart(path: "/intake/import" + Self.bankQuery(bank), fileURL: fileURL)
+    }
+
+    func intakeJob(id: String) async throws -> IntakeJobStatus { try await get("/intake/jobs/\(id)") }
+
+    /// A `kind: saved` file commits through the path that previewed it (R-IA32).
+    func uploadSaved(fileURL: URL) async throws -> UploadResponse { try await uploadSource(fileURL: fileURL) }
+
+    /// `GET /agents/wiring` (Track I T3) — read-only: which agents are wired
+    /// and the exact argv `AgentConnect` may run after the person's click.
+    func fetchAgentWiring() async throws -> AgentWiringResponse { try await get("/agents/wiring") }
+}
+
+/// G133 / G134 — `LocalSourceWatcher` talks to the backend through this seam.
+extension APIClient: LocalSourcesAPI {}

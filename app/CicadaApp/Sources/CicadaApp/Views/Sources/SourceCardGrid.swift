@@ -36,6 +36,8 @@ struct SourceCardGrid: View {
     /// 0 until the first layout pass; `SourceGridColumns.count` floors at 2, so
     /// the first frame draws a valid grid rather than a crash or a blank.
     @State private var containerWidth: CGFloat = 0
+    /// Track I T5 (R-IA27) — the empty grid takes a dropped export itself.
+    @Environment(IntakeRouter.self) private var intake
 
     private var columnCount: Int {
         SourceGridColumns.count(width: containerWidth, scale: CicadaTheme.uiScale)
@@ -54,7 +56,8 @@ struct SourceCardGrid: View {
                     title: "Nothing here yet",
                     message: Copy.emptySourcesMessage,
                     actionLabel: "Add a source",
-                    settingsSection: .integrations
+                    settingsSection: .integrations,
+                    onDropFiles: { intake.accept(urls: $0, from: .emptyState(.sources)) }
                 )
             } else {
                 // ONE `today` per body evaluation, handed down to every tile,
@@ -153,6 +156,7 @@ private struct SourceCardTile: View {
 
     @Environment(Store.self) private var store
     @Environment(BrowserWatcher.self) private var watcher
+    @Environment(LocalSourceWatcher.self) private var localSources
     @State private var hovering = false
     @State private var busy = false
     @FocusState private var actionFocused: Bool
@@ -230,7 +234,7 @@ private struct SourceCardTile: View {
             // the detail page — and now, since R-S2, its first clause is on the
             // card's own status band.
             _ = try? await (title == "Poll now" ? ChannelActions.poll(channelId)
-                                                 : ChannelActions.sync(channelId, store: store))
+                                                 : ChannelActions.sync(channelId, store: store, watcher: watcher, local: localSources))
             await store.refresh([.channels, .sources, .sourcesOverview, .status])
             busy = false
         }
@@ -306,7 +310,7 @@ struct SourceCard: View {
             // the liveness tone, never by `connected` — "has ever fed memory"
             // is why the row exists (G124 R2), not what it is doing.
             if let watchState {
-                BrowserStatusLight(state: watchState, error: watchError, compact: true)
+                BrowserStatusLight(state: watchState, error: watchError, compact: true, channelId: source.channelId)
             } else {
                 Circle().fill(liveness.tone.color).frame(width: 7, height: 7)
             }

@@ -31,7 +31,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from api.services import agentic_write, bank_index, episode_ids, markdown_parser, media_ingestor, video_chapters
+from api.services import (
+    agentic_write, bank_index, episode_ids, episode_scrub, markdown_parser, media_ingestor, video_chapters,
+)
 from api.services import evidence as evidence_mod
 
 MAX_SUMMARY_CHARS = 1500
@@ -173,12 +175,22 @@ def record(
     """Write the watch episode and the ``describes`` claim. Never raises on a
     normal input; returns ``{error}`` or the ids, counts and ``paths`` to commit."""
     memory_path = Path(memory_path)
-    summary = _one_line(summary)
+    # R-N3 / R-LS6: one scrub for every episode writer — the summary and each
+    # quote are scrubbed before the body is built, so neither the episode nor
+    # the `describes` claim (whose object is the summary) holds a secret.
+    summary, scrubbed = episode_scrub.scrub(_one_line(summary))
     if not summary:
         return {"error": "a summary is required — say what the video covers; nothing was recorded"}
     clipped = len(summary) > MAX_SUMMARY_CHARS
     summary = summary[:MAX_SUMMARY_CHARS].rstrip()
     kept, dropped = _excerpts(excerpts)
+    cleaned: list[tuple[int, str]] = []
+    for t, quote in kept:
+        quote, n = episode_scrub.scrub(quote)
+        scrubbed += n
+        cleaned.append((t, quote))
+    kept = cleaned
+    episode_scrub.record("mcp", scrubbed, bank=memory_path.name)
     video_lines = [f"{MARKER} [{video_chapters.stamp(t)}]: {quote}" for t, quote in kept]
     body = "\n".join([f"assistant: {summary}", *([""] + video_lines if video_lines else [])])
     episode_id = _write_episode(memory_path, target, body, session_frontmatter or {})

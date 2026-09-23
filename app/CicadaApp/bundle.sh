@@ -66,6 +66,8 @@ PLIST
 fi
 
 # LSMinimumSystemVersion matches Package.swift's .macOS(.v14) floor (G137 R-M7; PlatformFloorTests holds the pair).
+# Track I T5 (R-IA25): offered in Open With and as a Dock drop
+# target, never the default opener (LSHandlerRank Alternate).
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -81,6 +83,21 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Chat export</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.zip-archive</string>
+        <string>public.json</string>
+        <string>public.html</string>
+        <string>public.folder</string>
+      </array>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST

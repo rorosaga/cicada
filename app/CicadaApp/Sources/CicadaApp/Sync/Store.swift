@@ -80,13 +80,13 @@ final class Store {
     /// Latest `event: sleep` payload; SleepViewModel observes this.
     var sleepEvent: SleepEventPayload?
 
-    /// G125 R2 — true while the upload overlay has an import/upload flow in
-    /// flight (conversations, saved media, or import-to-bank). The Sleep
-    /// page's mood reads this to force `.reading` ahead of happy/hungry — the
-    /// worm should look like it's taking in what just arrived, not idle,
-    /// even before Stage 1 of the next cycle has anything to report. Never
-    /// persisted: an app relaunch mid-upload just loses the animation, not
-    /// any data.
+    /// G125 R2 / Track I T5 — true while the `IntakeRouter` has a sniff, an
+    /// import or a background job in flight (its request counter owns this
+    /// flag; no view writes it — R-IA20). The Sleep page's mood reads it to
+    /// force `.reading` ahead of happy/hungry — the worm should look like it's
+    /// taking in what just arrived, not idle, even before Stage 1 of the next
+    /// cycle has anything to report. Never persisted: an app relaunch
+    /// mid-import just loses the animation, not any data.
     var intakeInFlight = false
 
     /// Pushed on every status change, carrying the running→idle edge timestamp
@@ -280,8 +280,8 @@ final class Store {
             // `AskViewModel` owns its own read/write through `store.cache`
             // directly. Nothing to do here; just don't let it fall through
             // to a case that doesn't exist.
-            case .askHistory:
-                pendingDomains.remove(.askHistory)
+            case .askHistory, .quickRecents:
+                pendingDomains.remove(domain)
                 continue
             }
         }

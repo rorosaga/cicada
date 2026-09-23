@@ -23,8 +23,10 @@ final class IntegrationsViewTests: XCTestCase {
     func testEveryChannelIdHasACategory() {
         let ids: [(String, IntegrationCategory)] = [
             ("chat-export:claude", .chatAndAgents), ("chat-export:chatgpt", .chatAndAgents),
+            ("chat-export:gemini", .chatAndAgents),
             ("chrome-bookmarks", .browsers), ("safari-bookmarks", .browsers), ("safari-tabs", .browsers),
-            ("notes", .filesAndImports),
+            // R-LS25: Apple Notes sits beside the watched folders now.
+            ("notes", .notesAndFiles),
             ("rss", .feedsAndCalendars), ("calendar", .feedsAndCalendars),
             ("pinterest", .socialAndSaved), ("reddit", .socialAndSaved), ("x", .socialAndSaved),
             ("telegram", .messaging), ("files", .filesAndImports),

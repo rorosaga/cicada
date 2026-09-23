@@ -49,15 +49,19 @@ _CLAIMS_BLOCK_RE = re.compile(
     re.DOTALL | re.MULTILINE,
 )
 
-# G118 slice 1 — the four evidence kinds. `user`/`assistant` are spans into a
-# conversation episode, attributed by the turn marker at or before the span
-# (R4); `page` is a span into an entity page's prose (a saved link's stored
-# description — link recon); `reasoning` is the contributor's own inference
-# and carries no offsets. The set is closed on purpose: a viewer renders each
-# kind differently, and G100's derived-span class, if it ever ships, will be
-# a fifth value rather than a flag on one of these.
-# G140 Q-R9: `media` is the fifth — what a video said (a watch record's cited excerpt, a `video [m:ss]:` line). Append-only: older readers degrade an unknown kind to `reasoning`.
-EVIDENCE_KINDS = ("user", "assistant", "page", "reasoning", "media")
+# G118 slice 1 — the evidence kinds, six since G140. `user`/`assistant` are
+# spans into a conversation episode, attributed by the turn marker at or before
+# the span (R4) or by the episode's declared `evidence_kind` (R-LS7); `speaker`
+# (G134, R-N2 / R-LS7) is a meeting utterance by someone other than the owner,
+# marked `speaker:<label>:`; `media` (G140 Q-R9) is what a video said — a watch
+# record's cited excerpt, a timed `video [m:ss]:` line; `page` is a span into an
+# entity page's prose (a saved link's stored description — link recon);
+# `reasoning` is the contributor's own inference and carries no offsets. The set
+# is closed on purpose: a viewer renders each kind differently, and G100's
+# derived-span class, if it ever ships, will be a seventh value rather than a
+# flag on one of these. Append-only: an older reader degrades an unknown kind to
+# `reasoning`.
+EVIDENCE_KINDS = ("user", "assistant", "page", "reasoning", "speaker", "media")
 
 
 @dataclass

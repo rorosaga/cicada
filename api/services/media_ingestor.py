@@ -28,7 +28,8 @@ from urllib.parse import parse_qs, urljoin, urlparse
 from loguru import logger
 
 from api.services import (
-    bank_index, decay_policy, episode_ids, markdown_parser, net_guard, saved_at, video_chapters, video_urls,
+    bank_index, decay_policy, episode_ids, episode_scrub, markdown_parser, net_guard, saved_at,
+    video_chapters, video_urls,
 )
 from api.services.id_utils import sanitize_id
 
@@ -287,6 +288,13 @@ async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMet
             return meta
         if media_type == "instagram":
             # Login-walled — never attempt scraping; URL-only by design.
+            return fallback
+        from api.services.papers import never_scraped  # lazy: papers imports this module
+
+        if never_scraped(url):
+            # An arXiv/DOI link or any arxiv.org page (G133 rail, L final review
+            # finding 4): the paper's details come from the arXiv and Crossref
+            # APIs only, never from a page or PDF fetch.
             return fallback
         if media_type == "linkedin":
             # ToS-walled (G69: §8.2 bans fetching the post body) — never
@@ -1566,12 +1574,12 @@ def write_media_episode(
     # raw value into frontmatter or the body.
     validated_added = saved_at.validate(item.added)
 
-    body = _episode_body(
+    body = episode_scrub.scrub_body(_episode_body(
         meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason,
         content_saved_at=validated_added,
         # G140 Q-R10 — a save carrying a session id came from an agent.
         note_by_agent=bool((item.session_id or "").strip()),
-    )
+    ), writer="media", bank=episodes_dir.parent.name)
     content_hash = hashlib.sha256(normalize_url(item.url).encode()).hexdigest()[:12]
 
     frontmatter = {
@@ -1774,6 +1782,9 @@ def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult)
     if by_agent:
         # One line, so no line of the note can pose as a turn marker.
         note = " ".join(note.split())
+    # R-N3 / R-LS6: scrubbed before hashing (the Telegram writer's order), so a
+    # repeat of the same note still finds its episode and no secret is stored.
+    note, scrubbed = episode_scrub.scrub(note)
     content_hash = hashlib.sha256(f"{existing.media_entity_id}\x00{note}".encode("utf-8")).hexdigest()[:12]
     for f in bank_index.files(memory_path, "episodes"):
         if f.frontmatter.get("content_hash") == content_hash:
@@ -1781,8 +1792,9 @@ def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult)
     episodes_dir = Path(memory_path) / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
     episode_id = episode_ids.next_episode_id(episodes_dir, datetime.now().strftime("%Y-%m-%d"))
-    body = "\n".join([f"# Note on {existing.title}", "", f"**URL:** {item.url}", "", "## Note",
-                      f"assistant: {note}" if by_agent else note])
+    body, more = episode_scrub.scrub("\n".join([f"# Note on {existing.title}", "", f"**URL:** {item.url}", "",
+                                                "## Note", f"assistant: {note}" if by_agent else note]))
+    episode_scrub.record("media", scrubbed + more, bank=Path(memory_path).name)
     frontmatter = {
         "id": episode_id,
         "timestamp": episode_ids.utc_now_iso(),

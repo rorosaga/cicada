@@ -34,17 +34,36 @@ struct CicadaApp: App {
     /// as `sleepEngineVM` above: nothing but `FeedView`/`ContentView`
     /// (main window) and `IntegrationsView` (Settings) observes this.
     @State private var appRouter = AppRouter()
+    /// G118 slice 2 — the Reader's navigation and its in-memory payload
+    /// cache. Main window only: Settings never opens a Reader, and neither is
+    /// a Store domain (R-PB11), so neither needs the Store.
+    @State private var provenanceRouter = ProvenanceRouter()
+    @State private var provenanceCache = ProvenanceCache()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
     @State private var connectionsVM: ConnectionsViewModel
     @State private var usageVM: UsageViewModel
+    /// G136 — the ⌘K find palette's state, one per app, so its Ask history,
+    /// recents and instant index survive the palette closing.
+    @State private var findModel: FindPaletteModel
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
     /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
     /// without a button. App-side because the launchd backend has no Full Disk
     /// Access — see `BrowserWatch.swift`.
-    @State private var browserWatcher = BrowserWatcher()
+    @State private var browserWatcher: BrowserWatcher
+    /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
+    /// never opens them). Lights ride `browserWatcher` (R-LS26).
+    @State private var localSources: LocalSourceWatcher
+    /// Track I T5 (design §5.1) — the one intake: a drop anywhere, the Dock,
+    /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
+    /// go through it, and its request counter owns `Store.intakeInFlight`.
+    @State private var intakeRouter = IntakeRouter()
+    /// R-IA25 — the one AppKit hook SwiftUI's `App` lacks: a Dock "Open With"
+    /// or a drop on the Dock icon. Its queue holds a cold launch's URLs until
+    /// `.onAppear` attaches the router.
+    @NSApplicationDelegateAdaptor(CicadaAppDelegate.self) private var appDelegate
     /// G130: the local key monitor that routes ⌘⇧= to `CicadaTheme.zoomIn()`
     /// (see `ZoomKeyRouter`). Held so `.onAppear` (which can fire again —
     /// see `enableFirstMouseAcceptance`'s own idempotence note below) never
@@ -79,6 +98,9 @@ struct CicadaApp: App {
         // independently.
         let store = Store()
         _store = State(initialValue: store)
+        let lights = BrowserWatcher()
+        _browserWatcher = State(initialValue: lights)
+        _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
         _graphVM = State(initialValue: GraphViewModel(store: store))
         _inboxVM = State(initialValue: InboxViewModel(store: store))
         _sleepVM = State(initialValue: SleepViewModel(store: store))
@@ -87,6 +109,7 @@ struct CicadaApp: App {
         _contributorsVM = State(initialValue: ContributorsViewModel(store: store))
         _connectionsVM = State(initialValue: ConnectionsViewModel(store: store))
         _usageVM = State(initialValue: UsageViewModel(store: store))
+        _findModel = State(initialValue: FindPaletteModel(store: store))
     }
 
     var body: some Scene {
@@ -97,13 +120,21 @@ struct CicadaApp: App {
                 .environment(sleepVM)
                 .environment(sleepEngineVM)
                 .environment(appRouter)
+                .environment(provenanceRouter)
+                .environment(provenanceCache)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)
                 .environment(connectionsVM)
                 .environment(usageVM)
                 .environment(store)
+                .environment(findModel)
                 .environment(browserWatcher)
+                .environment(localSources)
+                .environment(intakeRouter)
+                // R-IA24 — a Dock open reuses this window instead of opening a
+                // second one (the router, and its overlay, live in this one).
+                .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, newValue in
                     let mode = AppColorScheme(rawValue: newValue) ?? .dark
@@ -111,6 +142,11 @@ struct CicadaApp: App {
                     if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
                         syncWindowChrome(window, mode: mode)
                     }
+                }
+                // G133 / G134: folders and Wispr Flow settings are per memory, so a
+                // bank switch re-reads them and re-arms the watches.
+                .onChange(of: store.bank) { _, _ in
+                    Task { await localSources.reload() }
                 }
                 .onAppear {
                     // G130 R5: the View menu's CommandGroup below already
@@ -139,6 +175,15 @@ struct CicadaApp: App {
                     // Arms the per-browser watches and catches up on anything
                     // saved while the app was closed.
                     browserWatcher.start(store: store)
+                    // Track I T5 — the one intake owns `store.intakeInFlight`
+                    // through its request counter, and the Dock's opens wait in
+                    // `DockOpenQueue` until this line attaches it (R-IA25).
+                    intakeRouter.attach(store: store)
+                    appDelegate.opens.attach { [intakeRouter] urls in
+                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        intakeRouter.accept(urls: urls, from: .dock)
+                    }
+                    localSources.start(store: store)
                     // When SleepViewModel observes a cycle finish (running ->
                     // idle, no error), refresh the graph/topics layer in
                     // place. Without this, Sleep finishes successfully but
@@ -172,6 +217,13 @@ struct CicadaApp: App {
                         },
                         onSaveClipboardURL: {
                             await menuBarManager.saveClipboardURL()
+                        },
+                        // R-IA26 — "Import a file…": bring the window forward and
+                        // open the intake idle, like File → Import….
+                        onImportFile: { [intakeRouter] in
+                            NSApplication.shared.activate(ignoringOtherApps: true)
+                            NSApplication.shared.windows.first(where: { $0.canBecomeKey })?.makeKeyAndOrderFront(nil)
+                            intakeRouter.present(from: .menuBar)
                         }
                     )
 
@@ -218,6 +270,14 @@ struct CicadaApp: App {
                 Button("Actual Size") { CicadaTheme.resetZoom() }
                     .keyboardShortcut("0", modifiers: .command)
             }
+            // G136 A6 — ⌘K (Find in Memory…) and ⌘F (Find on This Page…).
+            FindCommands(router: appRouter)
+            // Track I T5 — File → Import… (⌘⇧I): the keyboard and VoiceOver twin
+            // of every drop (design §5.1).
+            CommandGroup(after: .newItem) {
+                Button(Copy.intakeFileMenuItem) { intakeRouter.present(from: .fileMenu) }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
+            }
         }
 
         // ⌘, and the sidebar's footer gear. Gets the same environment as the
@@ -228,11 +288,16 @@ struct CicadaApp: App {
         // without a refetch.
         Settings {
             SettingsScene()
+                .environment(localSources)
                 .environment(connectionsVM)
                 .environment(sleepVM)
                 .environment(sleepEngineVM)
                 .environment(appRouter)
                 .environment(store)
+                // Track I T1: Integrations' Sync now routes a watched browser
+                // through the watcher (consent), so it reads it from here;
+                // without this the Settings window would trap on that page.
+                .environment(browserWatcher)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 // The `.id(colorSchemeRaw)` that used to be here is gone with
                 // its twin in `ContentView`: `CicadaTheme.mode` is observable

@@ -257,7 +257,15 @@ def _excluded_media(url: str, mtype: str) -> bool:
     description at save time by design, so it would be the *first* thing a
     Sleep-time live fetch picks up and scrapes). Shared by the in-cycle
     ``_candidates`` and the backfill scan so the two can never disagree
-    about what is off-limits."""
+    about what is off-limits.
+
+    Paper links and arxiv.org pages too (``papers.never_scraped``, L final
+    review finding 4): a bookmarked arXiv link that no folder made a paper page
+    was still a backfill candidate."""
+    from api.services.papers import never_scraped
+
+    if never_scraped(url):
+        return True
     url = (url or "").lower()
     mtype = (mtype or "").lower()
     if mtype in ("youtube", "video") or "youtube.com" in url or "youtu.be" in url:
@@ -282,6 +290,12 @@ def _candidates(memory_path: Path, max_per_cycle: int) -> list[Path]:
             continue
         fm = parsed.frontmatter or {}
         if fm.get("type") != "media" or fm.get("enrichment_attempted"):
+            continue
+        # R-LS19: a paper page is described by the arXiv/Crossref APIs
+        # (`paper_metadata`), never by a page fetch of arxiv.org.
+        from api.services.papers import is_paper
+
+        if is_paper(fm):
             continue
         media = fm.get("media") or {}
         mtype = str(media.get("media_type", ""))
@@ -751,6 +765,12 @@ def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> 
             continue
         fm = parsed.frontmatter or {}
         if fm.get("type") != "media" or fm.get("enrichment_status") == "junk":
+            continue
+        # R-LS19: a paper page is described by the arXiv/Crossref APIs
+        # (`paper_metadata`), never by a page fetch of arxiv.org.
+        from api.services.papers import is_paper
+
+        if is_paper(fm):
             continue
         media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
         url = str(media.get("url") or "")

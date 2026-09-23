@@ -14,7 +14,9 @@ import UniformTypeIdentifiers
 /// current rows with remove buttons. The tile — not the family — stays the
 /// identity every channel maps to (R6).
 enum AddSourceTile: String, CaseIterable, Identifiable {
-    case chatExport, bookmarksFile, pasteLink, rssFeed, calendar
+    // Track I T5 (R-IA21) — one tile per chat vendor (was one combined chat tile),
+    // each wearing its real mark and owning its one channel.
+    case claudeExport, chatgptExport, geminiExport, bookmarksFile, pasteLink, rssFeed, calendar
     // R6 — one tile per browser (was a combined `browserBookmarks`): the
     // catalog gives every browser its own mark, and a channel must map to
     // exactly one tile, so a shared "Chrome & Safari" row could no longer
@@ -31,6 +33,16 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Track I T5 (R-IA21): the chat vendor a tile imports, nil for every other tile.
+    var chatVendor: ChatVendor? {
+        switch self {
+        case .claudeExport: .claude
+        case .chatgptExport: .chatgpt
+        case .geminiExport: .gemini
+        default: nil
+        }
+    }
+
     var route: ImportRoute {
         switch self {
         case .pinterest, .reddit, .x: return .connect
@@ -38,14 +50,17 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .rssFeed, .calendar: return .subscribe
         case .pasteLink: return .paste
         case .telegram: return .connect
-        case .chatExport, .bookmarksFile, .instagram, .youtube, .tiktok, .linkedin:
+        case .claudeExport, .chatgptExport, .geminiExport, .bookmarksFile,
+             .instagram, .youtube, .tiktok, .linkedin:
             return .importFile
         }
     }
 
     var title: String {
         switch self {
-        case .chatExport: "Chat export"
+        case .claudeExport: "Claude"
+        case .chatgptExport: "ChatGPT"
+        case .geminiExport: "Gemini"
         case .bookmarksFile: "Bookmarks file"
         case .pasteLink: "Paste a link"
         case .rssFeed: "RSS feed"
@@ -66,7 +81,7 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
 
     var blurb: String {
         switch self {
-        case .chatExport: "Everything you've said to Claude or ChatGPT, backdated."
+        case .claudeExport, .chatgptExport, .geminiExport: chatVendor?.walkthrough.summary ?? ""
         case .bookmarksFile: "An exported bookmarks file — HTML or JSON."
         case .pasteLink: "One URL, saved and enriched right now."
         case .rssFeed: "A blog or Substack Cicada checks for new posts."
@@ -87,7 +102,7 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .chatExport: "bubble.left.and.bubble.right"
+        case .claudeExport, .chatgptExport, .geminiExport: "bubble.left.and.bubble.right"
         case .bookmarksFile: "bookmark"
         case .pasteLink: "link"
         case .rssFeed: "dot.radiowaves.up.forward"
@@ -108,9 +123,9 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
 
     /// The `GET /sources/channels` ids this tile manages.
     ///
-    /// Chat export owns **both** export channels — its walkthrough picker is
-    /// where the user chooses Claude or ChatGPT, so one tile covers two rows.
-    /// Safari likewise owns both of its rows (`safari-bookmarks`,
+    /// Each chat tile owns its vendor's one channel (Track I T5, R-IA21 — the
+    /// single "Chat export" tile that owned all three is gone), so "Manage…"
+    /// on a vendor's row lands on that vendor's tile. Safari owns both of its rows (`safari-bookmarks`,
     /// `safari-tabs`): its panel is where the user picks bookmarks or
     /// iCloud tabs, so "Manage…" on either row lands on the same tile (R4).
     /// `pasteLink` owns none: it is an alternative route into `files`, which
@@ -122,7 +137,9 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     /// by no tile.
     var channelIds: [String] {
         switch self {
-        case .chatExport: ["chat-export:claude", "chat-export:chatgpt"]
+        case .claudeExport: ["chat-export:claude"]
+        case .chatgptExport: ["chat-export:chatgpt"]
+        case .geminiExport: ["chat-export:gemini"]
         case .bookmarksFile: ["files"]
         case .pasteLink: []
         case .rssFeed: ["rss"]
@@ -150,8 +167,12 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     /// points at it and the hand-drawn approximation is deleted — it was wrong
     /// on four independent axes. RSS likewise (the Mozilla feed icon).
     ///
-    /// Still `nil`, each for its own reason: multi-vendor exports and the local
-    /// file/paste actions are not one platform; `.calendar` is any ICS
+    /// The three chat tiles wear their export origin's mark through
+    /// `OriginIconography.logoName(for:)` (Track I T5, R-IA21), so the `+`
+    /// sheet and the Sources card cannot disagree about it.
+    ///
+    /// Still `nil`, each for its own reason: the local file/paste actions are
+    /// not one platform; `.calendar` is any ICS
     /// publisher, and the only available mark is *Google* Calendar's, which
     /// would be a lie about the vendor (R3); `.safari` and `.appleNotes` are
     /// Apple's marks, which R-L3 forbids redistributing — those two resolve
@@ -168,7 +189,9 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .telegram: "telegram"
         case .chrome: "chrome"
         case .rssFeed: "rss"
-        case .chatExport, .bookmarksFile, .pasteLink, .calendar,
+        case .claudeExport, .chatgptExport, .geminiExport:
+            chatVendor.flatMap { OriginIconography.logoName(for: $0.origin) }
+        case .bookmarksFile, .pasteLink, .calendar,
              .safari, .appleNotes:
             nil
         }
@@ -208,7 +231,9 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     /// 0". The tile, not the panel, decides.
     var vendors: [WalkthroughVendor] {
         switch self {
-        case .chatExport: [.claude, .chatgpt]
+        case .claudeExport: [.claude]
+        case .chatgptExport: [.chatgpt]
+        case .geminiExport: [.gemini]
         case .instagram: [.instagram]
         case .youtube: [.takeout]
         case .tiktok: [.tiktok]
@@ -307,6 +332,13 @@ struct AddSourceSheet: View {
                     // buttons below the fold on a 620 pt sheet.
                     switch level {
                     case .families:
+                        // Track I T5 (R-IA30) — the root takes a drop too: the
+                        // one intake, in place, without "how to get it".
+                        IntakePanel(origin: .feedPlus(nil), compact: true)
+                            .padding(.bottom, CicadaTheme.spacingMD)
+                        // Track I T7 (R-IA30) — what is already on this Mac,
+                        // each with the one action that turns it on.
+                        OnThisMacStrip().padding(.bottom, CicadaTheme.spacingMD)
                         LazyVGrid(columns: Self.columns, spacing: CicadaTheme.spacingMD) {
                             ForEach(Array(ImportFamily.allCases.enumerated()), id: \.element.id) { i, family in
                                 familyTile(family, focused: gridFocused && focus.index == i)
@@ -580,8 +612,10 @@ struct AddSourceSheet: View {
     private func flow(for tile: AddSourceTile) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             switch tile {
-            case .chatExport:
-                WalkthroughPanel(vendors: tile.vendors, vendor: $vendor) { pickChatExport() }
+            case .claudeExport, .chatgptExport, .geminiExport:
+                // Track I T5 — the one intake, in place (R-IA20: `.feedPlus` never
+                // raises the window overlay behind this sheet).
+                IntakePanel(vendor: tile.chatVendor, origin: .feedPlus(tile.chatVendor))
             case .instagram, .youtube, .tiktok, .linkedin:
                 // G71 §4.2–4.3 — drop straight into a live preview: the
                 // walkthrough shows exactly where to click, then a drop (or
@@ -779,18 +813,6 @@ struct AddSourceSheet: View {
         } catch { fail(error) }
     }
 
-    private func pickChatExport() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json, .html]
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = true
-        panel.message = "Select a Claude or ChatGPT conversation export"
-        guard panel.runModal() == .OK else { return }
-        let files = Self.expandToFiles(panel.urls, exts: ["json", "html"])
-        guard !files.isEmpty else { error = "No JSON or HTML files found"; return }
-        runImport(files: files) { try await APIClient.shared.uploadFile(fileURL: $0) }
-    }
-
     private func pickSavedContent() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json, .html, .commaSeparatedText, .zip]
@@ -883,45 +905,30 @@ struct AddSourceSheet: View {
         error = nil
         result = nil
         Task {
-            var created = 0, skipped = 0
+            var created = 0, updated = 0, skipped = 0
             var firstError: String?
             for file in files {
                 do {
                     let r = try await upload(file)
                     created += r.episodesCreated
+                    updated += r.episodesUpdated
                     skipped += r.duplicatesSkipped
                 } catch {
                     if firstError == nil { firstError = Self.friendlyError(error) }
                 }
             }
-            if created == 0, let firstError {
+            if created == 0, updated == 0, let firstError {
                 self.error = firstError
                 self.result = nil
                 busy = false
             } else {
-                var summary = "Imported \(created), skipped \(skipped)"
+                // R7 defect 4: "Imported N, skipped M" dropped G20's grown
+                // threads on the floor; the one intake sentence keeps them.
+                var summary = IntakeSummary.line(new: created, updated: updated, unchanged: skipped)
                 if firstError != nil { summary += " (some files failed)" }
                 await finish(summary)
             }
         }
-    }
-
-    private static func expandToFiles(_ urls: [URL], exts: Set<String>) -> [URL] {
-        var out: [URL] = []
-        let fm = FileManager.default
-        for url in urls {
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-                if let e = fm.enumerator(at: url, includingPropertiesForKeys: nil) {
-                    for case let f as URL in e where exts.contains(f.pathExtension.lowercased()) {
-                        out.append(f)
-                    }
-                }
-            } else if exts.contains(url.pathExtension.lowercased()) {
-                out.append(url)
-            }
-        }
-        return out
     }
 
     /// Same rule as the old SourcesView: surface the backend's `detail` rather

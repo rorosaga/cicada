@@ -445,25 +445,14 @@ final class GraphViewModel {
         return ids.compactMap { byId[$0] }
     }
 
+    /// G123's ranking, now `QuickMatch`'s (G136 R-SU4): the palette and this
+    /// typeahead can never order one name differently. `GraphSearchRankTests`
+    /// pins the behaviour it had before.
     nonisolated static func rankNames(_ items: [(id: String, name: String, degree: Int)], query: String, limit: Int = 8) -> [String] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return [] }
-        var scored: [(id: String, rank: Int, degree: Int, name: String)] = []
-        for item in items {
-            let name = item.name.lowercased()
-            let rank: Int
-            if name.hasPrefix(q) { rank = 0 }
-            else if name.split(separator: " ").contains(where: { $0.hasPrefix(q) }) { rank = 1 }
-            else if name.contains(q) { rank = 2 }
-            else { continue }
-            scored.append((item.id, rank, item.degree, name))
-        }
-        scored.sort { a, b in
-            if a.rank != b.rank { return a.rank < b.rank }
-            if a.degree != b.degree { return a.degree > b.degree }
-            return a.name < b.name
-        }
-        return Array(scored.prefix(limit)).map(\.id)
+        QuickMatch.rank(items, query: query, limit: limit,
+                        fields: { [QuickMatch.Field($0.name, weight: QuickMatch.Weight.name)] },
+                        tieBreak: { Double($0.degree) },
+                        name: { $0.name.lowercased() }).map { $0.item.id }
     }
 
     /// Navigate DEEPER from within an already-open card — a wikilink tap, a

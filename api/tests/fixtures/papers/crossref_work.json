@@ -1,0 +1,1 @@
+{"status": "ok", "message-type": "work", "message": {"DOI": "10.1234/example.5678", "title": ["Paper Beta: Examples at Scale"], "author": [{"given": "Carol", "family": "Example"}], "published": {"date-parts": [[2023, 5, 17]]}, "container-title": ["Journal of Synthetic Results"], "abstract": "<jats:p>We report synthetic results.</jats:p>"}}

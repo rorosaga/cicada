@@ -56,6 +56,7 @@ enum SourceDisplayName {
         "telegram": "Telegram",
         "notes": "Apple Notes",
         "files": "Files & links",
+        "wispr-flow": "Wispr Flow",
         // The open families a live bank produces (A2/A4).
         "origin:unknown": "Unattributed",
         "origin:bookmark": "Saved links",
@@ -68,7 +69,11 @@ enum SourceDisplayName {
     /// because `String.capitalized` has no idea "rss" is not a word.
     private static let acronyms: Set<String> = ["rss", "url", "mcp", "api", "id", "ics", "pdf", "csv"]
 
-    static func of(_ source: SourceOverview) -> String { of(id: source.id) }
+    /// A watched folder's name is the person's own label for it (G133) — the id
+    /// is a slug plus a hash, never a name to show.
+    static func of(_ source: SourceOverview) -> String {
+        source.id.hasPrefix("folder:") ? source.label : of(id: source.id)
+    }
 
     static func of(id: String) -> String {
         if let pinned = table[id] { return pinned }

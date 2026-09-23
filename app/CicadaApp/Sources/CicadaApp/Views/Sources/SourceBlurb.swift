@@ -10,7 +10,9 @@ import Foundation
 /// sentence rather than a generic placeholder.
 enum SourceBlurb {
     static func text(for source: SourceOverview) -> String {
-        byId[source.id] ?? fallback(kind: source.kind, label: source.label)
+        // G133: one row per watched folder, named by the person.
+        if source.id.hasPrefix("folder:") { return "Notes in \(source.label), kept in step as you edit them." }
+        return byId[source.id] ?? fallback(kind: source.kind, label: source.label)
     }
 
     private static func fallback(kind: SourceKind, label: String) -> String {
@@ -25,6 +27,8 @@ enum SourceBlurb {
             return "New items from \(label), the feeds and calendars you subscribed to."
         case .messaging:
             return "Messages you send to \(label), as notes."
+        case .voice:
+            return "Meetings and notes from \(label), with who said what."
         case .import, .unknown:
             return "Links or files you added through \(label)."
         }
@@ -40,7 +44,7 @@ enum SourceBlurb {
     private static let byId: [String: String] = [
         "chat-export:claude": "Claude conversations you exported and imported, one episode per thread.",
         "chat-export:chatgpt": "ChatGPT conversations you exported and imported, one episode per thread.",
-        "chat-export:gemini": "Gemini conversations you exported from Takeout, one episode per thread.",
+        "chat-export:gemini": "Your Gemini prompts and replies from Takeout, one episode per prompt.",
         "chrome-bookmarks": "Bookmarks you save in Chrome, synced as you add them.",
         "safari-bookmarks": "Bookmarks you save in Safari, synced as you add them.",
         "safari-tabs": "Your open Safari tabs across devices, via iCloud.",
@@ -56,5 +60,6 @@ enum SourceBlurb {
         "telegram": "Messages you send the bot, as notes.",
         "notes": "Notes you write in Apple Notes.",
         "files": "Links you pasted or files you dropped.",
+        "wispr-flow": "Your Wispr Flow meetings — with who said what — and Scratchpad notes.",
     ]
 }

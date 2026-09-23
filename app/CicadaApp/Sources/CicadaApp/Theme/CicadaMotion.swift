@@ -42,6 +42,14 @@ enum CicadaMotion {
     static let liftDuration: TimeInterval = 0.18
     static let settleDuration: TimeInterval = 0.35
     static let morphDuration: TimeInterval = 0.35
+    /// G136 — the ⌘K palette arriving (`snappy`, with a 0.98 → 1 scale) and
+    /// leaving (fade), and a group's "Show all" (round-3 design §1.1).
+    static let paletteInDuration: TimeInterval = 0.16
+    static let paletteOutDuration: TimeInterval = 0.12
+    static let groupExpandDuration: TimeInterval = 0.2
+    /// G118 slice 2 (design §1.1): the Reader's cited-span wash fading in
+    /// after it lands. Short — the eye is already moving to the words.
+    static let spanRevealDuration: TimeInterval = 0.25
 
     /// Clouds drift, grass never moves (R-M6): at most 8 pt either way over a
     /// 60–120 s period — peripheral, never noticed as movement — at no more
@@ -62,6 +70,38 @@ enum CicadaMotion {
     static func lift(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .snappy(duration: liftDuration) }
     static func settle(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .easeInOut(duration: settleDuration) }
     static func morph(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .smooth(duration: morphDuration) }
+    static func paletteIn(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .snappy(duration: paletteInDuration) }
+    static func paletteOut(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .easeOut(duration: paletteOutDuration) }
+    static func groupExpand(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .snappy(duration: groupExpandDuration) }
+
+    // Track I T4 (design §7). The drifting cloud reuses `ambientDefaultPeriod` /
+    // `ambientMaxAmplitude` — two names for one value is the drift this file
+    // exists to stop (R-IA18).
+    /// Welcome rows reveal one after another (W1), at most this many staggered.
+    static let revealStagger: TimeInterval = 0.04
+    static let revealMaxRows = 8
+    /// One nod of a brand mark on hover (`MarkHover`).
+    static let markNodDuration: TimeInterval = 0.32
+    /// The window-wide drop veil fading in (I1).
+    static let dropVeilDuration: TimeInterval = 0.18
+    /// The one-shot ✓ on a finished import (I6, W9).
+    static let successDuration: TimeInterval = 0.4
+
+    static func dropVeil(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .easeOut(duration: dropVeilDuration) }
+    static func success(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .spring(duration: successDuration, bounce: 0.3)
+    }
+    /// Row `index` of a staggered reveal. Past `revealMaxRows` a row waits no
+    /// longer than the eighth — capped, never dropped — so a long list never
+    /// makes its last rows arrive seconds late.
+    static func reveal(index: Int, reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeOut(duration: hoverDuration).delay(revealStagger * Double(min(index, revealMaxRows)))
+    }
+    /// `spanReveal` — the Reader's wash arriving on the cited sentence. nil
+    /// under Reduce Motion: the wash is simply there (a static wash, §4.3).
+    static func spanReveal(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeOut(duration: spanRevealDuration)
+    }
 }
 
 // MARK: - Hover lift (R-M14)
@@ -175,6 +215,73 @@ struct IconHover: ViewModifier {
     }
 }
 
+// MARK: - Mark hover (Track I T4, design §7)
+
+/// A brand mark acknowledges the pointer once: rotate −5° → +3° → 0 and scale
+/// 1 → 1.08 → 1 over `markNodDuration`. `symbolEffect` cannot animate a raster,
+/// so this is a `keyframeAnimator` on the transform only — it never tints (Track
+/// L: a vendor mark is never recoloured). Under Reduce Motion the nod is a 1 pt
+/// accent ring while hovered: a cue, not motion. Lives here because its keyframes
+/// spell durations, which only this file may (R-IA17). Apply it to the mark view
+/// that already clips itself (`LogoImage.platformTile`), so the clip sits inside
+/// the transform (design §14 item 4).
+struct MarkHover: ViewModifier {
+    /// `nil`: follow the mark's own hover; set: a larger target's (a row, a card).
+    var hovering: Bool?
+
+    @State private var ownHover = false
+    @State private var nods = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    struct Pose: Equatable {
+        var rotation: Double = 0
+        var scale: CGFloat = 1
+    }
+
+    static let rotationKeys: [Double] = [-5, 3, 0]
+    static let scaleKeys: [CGFloat] = [1.08, 1]
+
+    /// Pure; tested. Wrapping add, like `IconHover.nextBump`.
+    static func nextNod(_ current: Int, entering: Bool, reduceMotion: Bool) -> Int {
+        entering && !reduceMotion ? current &+ 1 : current
+    }
+
+    static func showsRing(hovering: Bool, reduceMotion: Bool) -> Bool { hovering && reduceMotion }
+
+    private var isHovering: Bool { hovering ?? ownHover }
+
+    func body(content: Content) -> some View {
+        content
+            .keyframeAnimator(initialValue: Pose(), trigger: nods) { view, pose in
+                view.rotationEffect(.degrees(pose.rotation)).scaleEffect(pose.scale)
+            } keyframes: { _ in
+                KeyframeTrack(\.rotation) {
+                    LinearKeyframe(Self.rotationKeys[0], duration: CicadaMotion.markNodDuration * 0.3)
+                    LinearKeyframe(Self.rotationKeys[1], duration: CicadaMotion.markNodDuration * 0.35)
+                    LinearKeyframe(Self.rotationKeys[2], duration: CicadaMotion.markNodDuration * 0.35)
+                }
+                KeyframeTrack(\.scale) {
+                    LinearKeyframe(Self.scaleKeys[0], duration: CicadaMotion.markNodDuration * 0.5)
+                    LinearKeyframe(Self.scaleKeys[1], duration: CicadaMotion.markNodDuration * 0.5)
+                }
+            }
+            .overlay {
+                if Self.showsRing(hovering: isHovering, reduceMotion: reduceMotion) {
+                    RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall, style: .continuous)
+                        .stroke(CicadaTheme.accent, lineWidth: 1)
+                }
+            }
+            .onHover { inside in
+                guard hovering == nil else { return }
+                ownHover = inside
+                nods = Self.nextNod(nods, entering: inside, reduceMotion: reduceMotion)
+            }
+            .onChange(of: hovering ?? false) { _, now in
+                nods = Self.nextNod(nods, entering: now, reduceMotion: reduceMotion)
+            }
+    }
+}
+
 extension View {
     /// See `HoverLift` — only on things that open something.
     func hoverLift(scale: CGFloat = 1.015, lift: CGFloat = 2) -> some View {
@@ -186,4 +293,7 @@ extension View {
     func iconHover(hovering: Bool? = nil, selected: Bool = false) -> some View {
         modifier(IconHover(hovering: hovering, selected: selected))
     }
+
+    /// See `MarkHover` — for brand marks (rasters); glyphs use `iconHover()`.
+    func markHover(hovering: Bool? = nil) -> some View { modifier(MarkHover(hovering: hovering)) }
 }

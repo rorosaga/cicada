@@ -11,6 +11,9 @@ import Foundation
 /// the app, with the fix beside it (R9).
 enum BrowserFile: CaseIterable {
     case safariTabsDb, safariTabsWal, safariBookmarks, chromeBookmarks
+    /// G134 — Wispr Flow's local store. Same seam: the app reads it, the backend
+    /// parses what the app projects (R-N1), and a refused read shows the fix.
+    case wisprFlowDatabase
 
     /// Where the file lives, most-likely first. iCloud tabs moved into
     /// Safari's container on modern macOS; the legacy path is kept second
@@ -29,6 +32,8 @@ enum BrowserFile: CaseIterable {
             return [legacy.appendingPathComponent("Bookmarks.plist")]
         case .chromeBookmarks:
             return [home.appendingPathComponent("Library/Application Support/Google/Chrome/Default/Bookmarks")]
+        case .wisprFlowDatabase:
+            return [WisprFlowReader.standardRoot.appendingPathComponent("flow.sqlite")]
         }
     }
 
@@ -37,6 +42,7 @@ enum BrowserFile: CaseIterable {
         case .safariTabsDb, .safariTabsWal: "Safari iCloud tabs"
         case .safariBookmarks: "Safari bookmarks"
         case .chromeBookmarks: "Chrome bookmarks"
+        case .wisprFlowDatabase: "Wispr Flow"
         }
     }
 }
@@ -87,6 +93,8 @@ enum BrowserFileError: Error, Equatable, LocalizedError {
                 return "Safari has no Bookmarks.plist on this Mac."
             case .chromeBookmarks:
                 return "Chrome isn't installed, or has no default profile bookmarks yet."
+            case .wisprFlowDatabase:
+                return "Wispr Flow isn't on this Mac yet, or hasn't recorded anything."
             }
         }
     }
