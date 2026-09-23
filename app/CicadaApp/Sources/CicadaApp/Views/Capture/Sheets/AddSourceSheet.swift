@@ -336,6 +336,9 @@ struct AddSourceSheet: View {
                         // one intake, in place, without "how to get it".
                         IntakePanel(origin: .feedPlus(nil), compact: true)
                             .padding(.bottom, CicadaTheme.spacingMD)
+                        // Track I T7 (R-IA30) — what is already on this Mac,
+                        // each with the one action that turns it on.
+                        OnThisMacStrip().padding(.bottom, CicadaTheme.spacingMD)
                         LazyVGrid(columns: Self.columns, spacing: CicadaTheme.spacingMD) {
                             ForEach(Array(ImportFamily.allCases.enumerated()), id: \.element.id) { i, family in
                                 familyTile(family, focused: gridFocused && focus.index == i)

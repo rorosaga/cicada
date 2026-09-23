@@ -2354,4 +2354,8 @@ extension APIClient: IntakeAPI {
 
     /// A `kind: saved` file commits through the path that previewed it (R-IA32).
     func uploadSaved(fileURL: URL) async throws -> UploadResponse { try await uploadSource(fileURL: fileURL) }
+
+    /// `GET /agents/wiring` (Track I T3) — read-only: which agents are wired
+    /// and the exact argv `AgentConnect` may run after the person's click.
+    func fetchAgentWiring() async throws -> AgentWiringResponse { try await get("/agents/wiring") }
 }
