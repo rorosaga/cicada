@@ -281,6 +281,27 @@ is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an 
 becomes `reasoning` and **the claim is still written — provenance never blocks memory**. Legacy
 claims carry no `evidence` and `to_dict` omits the empty key; there is no backfill.
 
+**Reading provenance back (G118 slice 2, server half).** Three engine-free, bank-only reads, all
+built in `api/services/provenance.py` and fetched on demand — none is a Store domain, so each ETag
+serves the client's in-memory cache and there is no `VersionVector` mapping: `GET
+/episodes/{id}/text` (the whole evidence text, capped at 400,000 chars, with `turns[]` from the
+same marker lines `speaker_kind` reads and an asserted `start/end/hash` or derived
+`focus=<entity>`), `GET /entities/{id}/provenance` (contributors from claim `authored_by` plus one
+trailer-only `git log` of the page — ETag includes `git_head` — conversations grouped by
+`session_id`/`source_id`, the best quote per conversation, coverage over current claims), and `GET
+/episodes/{id}/citations` (every claim citing the document, by a raw-text prefilter over
+`entities/` — no index dependency). `/ask` citations also carry `claimId` + `evidence`, read from
+the cited page rather than the index. Every claim on the wire is built by one function,
+`transclusion_resolver.claim_to_model`, and carries `authorKind`/`authorProvider` from
+`git_service.author_identity`. **Freshness is one rule, `evidence.span_status`:** `current`,
+`grown` (an episode that was appended to after the span was minted — the Stop hook and G20 both
+rewrite that way — and a turn-boundary prefix still hashes to the stored value, so the offsets are
+exact) or `stale`. A stale span travels without wash offsets; a `derived` span (found by name,
+`inbox_context.locate_mention`) exists on read payloads only — never in `EVIDENCE_KINDS`, never
+written. The chat importer keeps each message's time as `turns: [{offset, ts, speaker}]` in
+frontmatter, outside `content_hash`; the Stop hook's `turns:` is still a count, and a reader treats
+any non-list as no times.
+
 **Optional frontmatter keys**, each with a narrow meaning — don't conflate them:
 
 - `repos:` — links a project/directory entity to local git checkouts. The page only ever *declares*
