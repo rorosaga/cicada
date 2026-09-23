@@ -9,7 +9,8 @@ struct ContentView: View {
     /// `AppTab.restored(from:)`: this string can name a tab that no longer
     /// exists (G68 retired five of them).
     @AppStorage("cicada.selectedTab") private var selectedTabRaw = AppTab.home.rawValue
-    @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
+    /// R-DS15 — per viewer: the icon rail (default) or the labelled sidebar.
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     // G117 / Track I part b (spec decision 14) — the Welcome: one screen
     // (found on this Mac, the ticks as consent, Start into Home) replacing the
     // four-step first-run sheet. Still gated per-bank (`OnboardingState`, R5)
@@ -39,7 +40,7 @@ struct ContentView: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(ConnectionsViewModel.self) private var connectionsVM
     /// G126 R9 — consumes a Settings → Integrations "Import in Feed →"
-    /// hand-off by switching the sidebar's own selection.
+    /// hand-off by switching the rail's own selection.
     @Environment(AppRouter.self) private var router
     /// Track I T5 — the one intake: every file dropped on this window lands here.
     @Environment(IntakeRouter.self) private var intake
@@ -152,20 +153,22 @@ struct ContentView: View {
         }
     }
 
-    /// The split view and its window-wide layers (the drop veil, the Welcome,
+    /// The shell and its window-wide layers (the drop veil, the Welcome,
     /// the one drop target), split out of `body`: with the Welcome's layer the
     /// single modifier chain passed what the type checker solves in reasonable
     /// time.
     private var windowLayers: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(
+        // Direction D's shell (DR-22, R-DS13): the rail, then the page. The rail draws above its
+        // sibling so its tooltips float over the page instead of under it.
+        HStack(spacing: 0) {
+            NavRail(
                 selectedTab: $selectedTab,
+                labelled: labelledSidebar,
                 inboxCount: inboxVM.pendingCount,
                 isSleeping: store.status.value?.sleep.status == "running" || sleepVM.isRunning,
                 needsAttention: connectionsVM.needsAttention
             )
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
-        } detail: {
+            .zIndex(1)
             detailContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CicadaTheme.background)
@@ -176,24 +179,26 @@ struct ContentView: View {
                 // G118 slice 2 (design §4.4) — the Reader opens BESIDE whatever
                 // is showing, never over it: the entity card stays up, so a
                 // belief and the sentence it came from are on screen together.
-                // Content, not chrome, so it is never glass (R-M5).
+                // Content, not chrome, so it is never glass (R-M5). DS-2 turns it into a column (DR-31).
                 .inspector(isPresented: Bindable(provenance).isPresented) {
                     ReaderInspector()
                         .inspectorColumnWidth(min: CicadaTheme.scaled(360), ideal: CicadaTheme.scaled(440),
                                               max: CicadaTheme.scaled(560))
                 }
         }
+        .toolbar {
+            ShellToolbar(labelled: $labelledSidebar, chrome: ShellChrome(welcomeShowing: showFirstRun))
+        }
         // No `.id(colorSchemeRaw)` here any more. Keying this subtree on the
         // mode string used to be what repainted it, because the tokens were
         // static reads SwiftUI could not track — but it rebuilt the whole
-        // sidebar/detail tree on every flip, which tears down and reloads the
+        // rail/page tree on every flip, which tears down and reloads the
         // graph's WKWebView and loses its layout. `CicadaTheme.mode` is now
         // backed by an `@Observable` store, so each view that reads a token
         // subscribes to the mode itself and repaints on its own.
-        .navigationSplitViewStyle(.prominentDetail)
         // The Welcome is an overlay, not a modal sheet, so without this the
-        // split view under it stays live: Home's field takes keyboard focus and
-        // swallows typing, Tab and VoiceOver reach the hidden sidebar and cards,
+        // shell under it stays live: Home's field takes keyboard focus and
+        // swallows typing, Tab and VoiceOver reach the hidden rail and cards,
         // ⌘1–7 switch a hidden tab, and in rerun mode Home's Esc answers before
         // the Welcome's (I-b final review, finding 3). Inert while it shows.
         .disabled(showFirstRun)
@@ -202,7 +207,7 @@ struct ContentView: View {
         // while a file hovers, the overlay while the router shows it.
         .overlay { IntakeLayer(dropTargeted: dropTargeted && !showFirstRun) }
         // Track I part b (spec decision 14, R-IB11) — the Welcome is a full-window
-        // layer, not a sheet: the split view underneath is already on Home, so
+        // layer, not a sheet: the shell underneath is already on Home, so
         // Start reveals it. It sits above the intake layer, which stays unused
         // while it shows (R-IB15), and INSIDE the window's one drop target below:
         // a modifier's drop region is the view it wraps, so an overlay stacked

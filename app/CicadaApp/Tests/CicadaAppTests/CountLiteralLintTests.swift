@@ -27,7 +27,8 @@ final class CountLiteralLintTests: XCTestCase {
     /// counts outside `Views/` — plus `Views/Home/` (Track I part b, R-IB9):
     /// Home is a page of numbers, each shown once, so it formats them the same
     /// way the Sources grid does — and `Views/Onboarding/` (Task 4): the
-    /// Welcome's start line and its dropped-export rows carry counts too.
+    /// Welcome's start line and its dropped-export rows carry counts too — and
+    /// `Views/Shell/` (DS-1 T3): the rail's Inbox numeral and its "6 pending" label.
     static let scope = [
         "/Views/Sources/",
         "/Views/Contributors/",
@@ -35,6 +36,7 @@ final class CountLiteralLintTests: XCTestCase {
         "/Models/IntegrationCategory.swift",
         "/Views/Home/",
         "/Views/Onboarding/",
+        "/Views/Shell/",
     ]
 
     /// The documented way out, for a line the needle flags but that renders no

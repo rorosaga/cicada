@@ -61,6 +61,7 @@ final class SidebarTabTests: XCTestCase {
         for (index, tab) in AppTab.allCases.enumerated() {
             XCTAssertLessThan(index, 9, "\(tab.rawValue) has no ⌘ slot")
             XCTAssertFalse(tab.icon.isEmpty, tab.rawValue)
+            XCTAssertFalse(tab.icon.hasSuffix(".fill"), "DR-53: outline glyphs")
             XCTAssertEqual(tab.title, tab.rawValue, "the label and the identity must agree")
         }
     }

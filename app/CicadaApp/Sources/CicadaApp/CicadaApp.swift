@@ -302,6 +302,9 @@ struct CicadaApp: App {
                 // and the bookworm is fed by the Store's status snapshot.
         }
         .defaultSize(width: 1200, height: 800)
+        // DR-23 — the titlebar is a command bar: the window's title is hidden, and the toolbar's
+        // unified 52 pt band holds the toggle, the bar and the `?` (R-DS16).
+        .windowToolbarStyle(.unified(showsTitle: false))
         // G130 R5: the View menu — ⌘+/⌘−/⌘0 scale the whole SwiftUI chrome
         // through the one persisted `CicadaTheme.uiScale` (Task 1). Placed
         // `after: .sidebar` so it lands right after macOS's own "Enter Full
@@ -322,6 +325,8 @@ struct CicadaApp: App {
             }
             // G136 A6 — ⌘K (Find in Memory…) and ⌘F (Find on This Page…).
             FindCommands(router: appRouter)
+            // DS-1 T3 (R-DS15) — View → Show labelled sidebar / Show icon rail (⌃⌘S).
+            ShellCommands()
             // Track I T5 — File → Import… (⌘⇧I): the keyboard and VoiceOver twin
             // of every drop (design §5.1).
             CommandGroup(after: .newItem) {

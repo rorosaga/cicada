@@ -43,7 +43,7 @@ final class SettingsEntryPointTests: XCTestCase {
     /// The gear is the only in-app way to reach Settings besides ⌘, so if this
     /// disappears, the entry point is gone with it.
     func testTheSidebarStillCarriesASettingsLink() throws {
-        let sidebar = try sourceFiles().first { $0.lastPathComponent == "SidebarView.swift" }
+        let sidebar = try sourceFiles().first { $0.lastPathComponent == "NavRail.swift" }
         let text = try String(contentsOf: try XCTUnwrap(sidebar), encoding: .utf8)
         XCTAssertTrue(text.contains("SettingsLink"), "the sidebar footer no longer opens Settings")
     }

@@ -60,6 +60,11 @@ enum CicadaMotion {
     static let rowHighlightHold: TimeInterval = 1.2
     static let rowHighlightFadeDuration: TimeInterval = 0.6
 
+    /// DR-22 / R-F2 (R-DS14) — the rail's first tooltip waits, the next opens at once while
+    /// one is showing or within this window of one hiding. Not an animation: a hover delay.
+    static let railTooltipDelay: TimeInterval = 0.45
+    static let railTooltipWarmWindow: TimeInterval = 1.0
+
     /// Clouds drift, grass never moves (R-M6): at most 8 pt either way over a
     /// 60–120 s period — peripheral, never noticed as movement — at no more
     /// than 30 frames a second.

@@ -3,8 +3,10 @@ import SwiftUI
 /// Liquid Glass, in exactly one file (G137, spec R-M5; plan R-M17 … R-M19).
 ///
 /// **Chrome only.** HIG Materials: "Don't use Liquid Glass in the content
-/// layer" — glass is for the sidebar, the toolbar, floating controls and ONE
-/// prominent action per page. Content cards stay a standard material
+/// layer" — glass is for the toolbar, floating controls and ONE prominent
+/// action per page. The sidebar is no longer glass: Direction D's icon rail is
+/// opaque `bgRail` (R-DS13), and the chrome glass this file now *hides* is
+/// macOS 26's shared toolbar platter (`ChromeToolbarItem`, R-DS16). Content cards stay a standard material
 /// (`GlassCard`, despite its name). Never glass on glass: what sits on a glass
 /// surface uses fills and vibrancy (WWDC25-219). Never over the graph canvas
 /// without the G109 frame-time check.
@@ -190,20 +192,24 @@ struct MeadowCapsuleButtonStyle: ButtonStyle {
     }
 }
 
-/// Paints nothing on macOS 26, so the system's floating glass sidebar shows
-/// (WWDC25-323: extra backgrounds interfere with it); the opaque theme
-/// background before, exactly as the sidebar always looked there.
-private struct SidebarChromeBackground: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
+/// A toolbar item that draws its own surface (R-DS16). On macOS 26 the system groups toolbar
+/// items on a shared Liquid Glass platter; the command bar, the `?` and the sidebar toggle
+/// draw DR-23's own surfaces, so the platter is hidden — glass on glass is the one thing
+/// WWDC25-219 says never to do. Both gates, as every 26-only call in this file (M1 review).
+struct ChromeToolbarItem<Content: View>: ToolbarContent {
+    let placement: ToolbarItemPlacement
+    @ViewBuilder let content: () -> Content
+
+    var body: some ToolbarContent {
         #if canImport(SwiftUI, _version: 7.0)
         if #available(macOS 26, *) {
-            content
+            ToolbarItem(placement: placement) { content() }
+                .sharedBackgroundVisibility(.hidden)
         } else {
-            content.background(CicadaTheme.background)
+            ToolbarItem(placement: placement) { content() }
         }
         #else
-        content.background(CicadaTheme.background)
+        ToolbarItem(placement: placement) { content() }
         #endif
     }
 }
@@ -262,7 +268,4 @@ extension View {
 
     /// See `MeadowPillStyleModifier` — the intake's Import / Read now only (R-IA16).
     func meadowPillStyle() -> some View { modifier(MeadowPillStyleModifier()) }
-
-    /// The sidebar column's background — see `SidebarChromeBackground`.
-    func sidebarChromeBackground() -> some View { modifier(SidebarChromeBackground()) }
 }
