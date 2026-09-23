@@ -174,19 +174,6 @@ final class SleepStageStripTests: XCTestCase {
         XCTAssertGreaterThan(snap(1.0), 32)
     }
 
-    // MARK: - The caught-up worm
-
-    /// R-A8's right end: the `.happy` worm shows only when there is nothing to
-    /// count — the strip's own "and there is nothing waiting" mark. Any state
-    /// with a numeral keeps the numeral instead.
-    func test_theCaughtUpWorm_showsOnlyWhenHappyAndCountless() {
-        XCTAssertTrue(stageStripShowsCaughtUpWorm(mood: .happy, debt: nil))
-        XCTAssertFalse(stageStripShowsCaughtUpWorm(mood: .reading, debt: nil))
-        XCTAssertFalse(stageStripShowsCaughtUpWorm(mood: .sleeping(stage: 2), debt: nil))
-        XCTAssertFalse(stageStripShowsCaughtUpWorm(mood: .curious(count: 3), debt: nil))
-        XCTAssertFalse(stageStripShowsCaughtUpWorm(mood: .error, debt: nil))
-    }
-
     // MARK: - The motion budget (R-A13)
 
     func test_pulsePeriod_isInsideTheMotionBudget() {

@@ -69,12 +69,18 @@ enum DeskScene {
     /// - The worm is 20 cells of ink and the window is 20 cells wide, so a
     ///   worm centred on the window erases it. The cushion sits under the
     ///   window's RIGHT third; the moon and the left panes stay in view.
+    ///
+    /// The weather pane (Track Z §7.3) is the one layer BEHIND the window: it
+    /// sits exactly in the glass (`cellX` = the window's + the glass's first
+    /// column, same `cellY`), so the frame's jambs and mullions occlude the
+    /// sky for free.
     static let plan: [DeskLayer] = [
-        DeskLayer(prop: .window, cellX: 18, cellY: 4, z: 0),
-        DeskLayer(prop: .lamp, cellX: 0, cellY: 0, z: 1),
-        DeskLayer(prop: .plant, cellX: 11, cellY: 0, z: 2),
-        DeskLayer(prop: .cushion, cellX: 30, cellY: 0, z: 3),
-        DeskLayer(prop: .mug, cellX: 52, cellY: 0, z: 4),
+        DeskLayer(prop: .pane, cellX: 20, cellY: 4, z: 0),      // the sky, behind the frame (Track Z §7.3)
+        DeskLayer(prop: .window, cellX: 18, cellY: 4, z: 1),
+        DeskLayer(prop: .lamp, cellX: 0, cellY: 0, z: 2),
+        DeskLayer(prop: .plant, cellX: 11, cellY: 0, z: 3),
+        DeskLayer(prop: .cushion, cellX: 30, cellY: 0, z: 4),
+        DeskLayer(prop: .mug, cellX: 52, cellY: 0, z: 5),
     ]
 
     /// The worm's own 24×24 box, in cells. `cellY: 4` is the cushion's top ink
@@ -123,18 +129,26 @@ func deskSceneLayout(pointSize: CGFloat = 120,
 /// The room as pixels. A back-to-front stack of cached prop images, every one
 /// `.interpolation(.none)` so a cell stays a hard square at any zoom.
 ///
-/// **No `TimelineView`** — the backdrop is static (R-A13: idle is still). The
+/// **No `TimelineView`** — the backdrop is static (R-A13: idle is still). It
+/// changes only when the SCHEDULE changes (the lamp, P11) or the MOOD changes
+/// (the window's pane, Track Z R-Z11), and the pane's crossfade is the
+/// second — and last — beat on this page not caused by input (R-Z12). The
 /// whole stack is hit-test-transparent and accessibility-hidden: the worm
-/// already carries the state label and `BookPileView` its own, and six props
-/// read aloud would bury both.
+/// already carries the state label, `BookPileView` its own, and the lamp and
+/// window hotspots theirs; seven props read aloud would bury all of them.
 struct DeskSceneView: View {
     /// The worm's requested point size — the scene snaps it exactly the way
     /// `BookwormView` does, so passing the same number to both is what keeps
     /// them on one lattice.
     var pointSize: CGFloat = 120
-    /// R-A3 — lit iff Sleep is scheduled. The one data-driven bit in the room
-    /// (P11), and the schedule row states the same fact in words.
+    /// R-A3 — lit iff Sleep is scheduled. One of the room's two data-driven
+    /// bits (P11), and the whisper line states the same fact in words.
     var lampLit: Bool
+    /// R-Z11 — the sky behind the window, a function of the mood alone
+    /// (`windowWeather(for:)`); the window's legend is its text twin.
+    var weather: WindowWeather = .night
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let layout = deskSceneLayout(pointSize: pointSize)
@@ -145,17 +159,23 @@ struct DeskSceneView: View {
             // from a rect, not from whatever the widest child happened to be.
             Color.clear
             ForEach(layout.layers, id: \.prop) { layer in
-                Image(nsImage: PixelRenderer.cachedImage(
-                    key: Self.cacheKey(layer.prop, lampLit: lampLit, pointSize: spritePt),
-                    grid: DeskSceneSprites.grid(layer.prop, lampLit: lampLit),
-                    gridSize: BookwormRenderer.gridSize,
-                    pointSize: spritePt,
-                    palette: DeskPalette.ns))
-                    .interpolation(.none)
-                    .frame(width: spritePt, height: spritePt)
+                if layer.prop == .pane {
+                    // R-Z12 — a mood change crossfades the sky (a jump under
+                    // Reduce Motion: `weather(reduceMotion:)` is nil there).
+                    // `.id(weather)` makes each sky its own view, so the
+                    // transition has an old and a new one to fade between.
+                    ZStack {
+                        sprite(layer, pointSize: spritePt)
+                            .id(weather)
+                            .transition(.opacity)
+                    }
+                    .animation(SleepMotion.weather(reduceMotion: reduceMotion), value: weather)
                     // Bottom-leading: +x is right, −y is up.
-                    .offset(x: CGFloat(layer.cellX) * layout.cell,
-                            y: -CGFloat(layer.cellY) * layout.cell)
+                    .offset(x: CGFloat(layer.cellX) * layout.cell, y: -CGFloat(layer.cellY) * layout.cell)
+                } else {
+                    sprite(layer, pointSize: spritePt)
+                        .offset(x: CGFloat(layer.cellX) * layout.cell, y: -CGFloat(layer.cellY) * layout.cell)
+                }
             }
         }
         .frame(width: layout.size.width, height: layout.size.height, alignment: .bottomLeading)
@@ -163,12 +183,31 @@ struct DeskSceneView: View {
         .accessibilityHidden(true)
     }
 
+    /// One layer's cached image, at the scene's one snapped point size (P12).
+    private func sprite(_ layer: DeskLayer, pointSize spritePt: CGFloat) -> some View {
+        Image(nsImage: PixelRenderer.cachedImage(
+            key: Self.cacheKey(layer.prop, lampLit: lampLit, weather: weather, pointSize: spritePt),
+            grid: DeskSceneSprites.grid(layer.prop, lampLit: lampLit, weather: weather),
+            gridSize: BookwormRenderer.gridSize,
+            pointSize: spritePt,
+            palette: DeskPalette.ns))
+            .interpolation(.none)
+            .frame(width: spritePt, height: spritePt)
+    }
+
     /// Namespaced per P13: `PixelRenderer`'s scene cache has no state enum to
     /// derive a key from, so whoever asks for an image owns its identity. The
-    /// variant segment is `-` for every prop but the lamp, whose two grids
-    /// must never share a key.
-    static func cacheKey(_ prop: DeskProp, lampLit: Bool, pointSize: CGFloat) -> String {
-        let variant = prop == .lamp ? (lampLit ? "lit" : "dark") : "-"
+    /// variant segment is `lit`/`dark` for the lamp, the weather for the pane
+    /// (`desk.pane|fair|120`, Track Z §7.3), and `-` for every other prop —
+    /// two grids that differ must never share a key.
+    static func cacheKey(_ prop: DeskProp, lampLit: Bool, weather: WindowWeather = .night,
+                         pointSize: CGFloat) -> String {
+        let variant: String
+        switch prop {
+        case .lamp: variant = lampLit ? "lit" : "dark"
+        case .pane: variant = weather.rawValue
+        default: variant = "-"
+        }
         return "desk.\(prop.rawValue)|\(variant)|\(Int(pointSize))"
     }
 }

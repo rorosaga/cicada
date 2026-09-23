@@ -529,25 +529,41 @@ server ships `countNoun`/`countIsDelta` instead of a pre-formatted `detail` (`Ch
 composes it back). Contributors is one chip strip over one **labelled** share-of-entities bar;
 `cicada`, `user` and `unknown` all have names, so no bucket the app can name renders as "?".
 
-**Sleep page — the study room (G125 v3).** Two columns above 1000 pt of content width, one 760 pt
-column below. Left: a pixel room (window, cushion, mug, plant, lamp) on one cell lattice at the
-worm's snapped size, whose desk lamp is **lit iff the schedule isn't manual** — art encodes **state,
-never quantity**, every art bit has a text twin, and this side's one volume encoding is the real
-`BookPileView`; a hero of count + qualifier chip (`sleepDebtBracketText` re-composed from it), a
-meter that **never renders without its noun** (`Rested n%` idle, `Read a of b` running), three
-measured tiles and one Consolidate control; the five-stage strip read from `SleepStages.all`, the
-array the `?` popover renders too (only Read carries a fill; a cancel freezes it where it stopped);
-and *In the queue* — what's `waiting` per origin, the schedule sentence, the scheduled engine named
-only when it differs. Right: memory sources (`captured`, never `waiting`) over
-`SourceOverview.activity`, and consolidations with an engine·author pill. `—` is a value with a
-hover reason, never a guess. **Refused: no clusters, no insights, no estimate, no price.**
+**Sleep page — the study room (G125 v4, Track Z).** One 760 pt column at every width: the room,
+one serif sentence under it, one Consolidate/Cancel control, one whisper line for the schedule,
+and everything else under a single **Details** disclosure (Last cycle · What's waiting · Readout ·
+Past nights), closed by default, remembered per viewer (`cicada.sleep.detailsOpen`) and not built
+while closed. The worm speaks in that one fixed slot — `roomSentence` / `wormAnswers`, pure
+`SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
+omits its rung, never shows a guess); the floating bubble is retired. **Two kinds of art (R-Z1):**
+*state art* — the mood's frames, the lamp (= the schedule), the pile, and the window's **weather**,
+a total function of the mood with a legend popover as its twin — and *response art* (gaze, perk,
+talk, cheer), transient and never contradicting state. The art layer stays inert; interaction is a
+hotspot layer derived from the pure layout (`deskHotspots`), and **no click on art changes what the
+machine does**: the lamp's popover shows the scheduled engine and its reason *before* its labelled
+toggle can flip, and Consolidate stays the one trigger. The strip appears only while running or
+frozen after a cancel or failure; the running stage is `activeStage(completed:)` = completed + 1
+everywhere (page, menu bar, onboarding, strip). A real completion cheers once and offers "See what
+changed ›"; a cancel neither chews nor cheers. Memory sources left the page (Sources v2 draws it;
+the series live in `Views/Sources/ActivitySeries.swift`). Refused: autonomous beats with no fact
+behind them, cloud drift, a storm flash, estimates, prices.
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and
 the menu bar's own precedence and sprite meaning are unchanged. `store.intakeInFlight` (set while
 the upload overlay runs) forces `reading` ahead of `happy`/`hungry` but never ahead of
 `sleeping`/`error`/`digesting`. Per-cycle duration *estimates* stay deferred (G107's own ruling);
-only a measured, telemetry-joined duration is ever shown.
+only a measured, telemetry-joined duration is ever shown. Track Z adds **response art** inside
+`BookwormSprites`: `BookwormPose` (idle · attentive(gaze) · expectant(gaze) · eager) and
+`BookwormReaction` (perk · talk · gulp · shake · cheer), gated by one state × response matrix
+(`BookwormState.allows`, `acceptsGaze`) so a sleeping worm's eyes stay shut and red pupils never
+look away; every beat is ≤ 3 frames × 0.12 s; a hop is a whole-cell shift (a capped state crouches
+instead — the nightcap owns the grid's headroom); and a lint bans
+`.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(` on the worm except its lattice placement. The
+renderer key gains one `look` segment, omitted for idle (every older key byte-identical); the
+page's reachable set is ≤ 256 keys per size and the wipe bound is 1024. **Feeding** — a file dropped
+on the worm imports through the one intake — is ruled (R-Z10) and lands with Track I's
+`IntakeRouter`.
 
 **View menu (G130 slice 1a).** ⌘+ / ⌘− / ⌘0 scale the whole chrome — one persisted `uiScale` behind
 every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the

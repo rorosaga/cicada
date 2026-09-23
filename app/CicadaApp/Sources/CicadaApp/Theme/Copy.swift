@@ -61,6 +61,18 @@ enum Copy {
     /// above stays for the callers that have no such context.
     static let changeEllipsis = "Change…"
 
+    /// The worm's accessibility hint (Track Z §11). The design's second clause
+    /// ("Drop a file to import it.") lands with feeding — a hint must be true
+    /// the day it ships (Z-P16).
+    static let wormHint = "Click to ask what it's doing."
+    /// The worm's named action and context-menu item: every answer at once.
+    static let wormWhatAreYouDoing = "What are you doing?"
+    /// Track Z §6.5 / §11 — the cheer's text twin, announced when a real
+    /// completion's commit arrives (never on a cancel or a failure, I18).
+    static let sleepFinished = "Sleep finished."
+    /// The worm's named action while T7's "See what changed ›" link lives.
+    static let whatChanged = "What changed"
+
     /// The queue card's footer line, shown ONLY when `preview.manual` and
     /// `preview.scheduled` name different engines (R-A9). The standing ruling
     /// — a scheduled cycle never spends plan quota — makes that difference
@@ -72,6 +84,30 @@ enum Copy {
     static func scheduledRunsOn(engine: String) -> String {
         "Scheduled runs use \(engineLabel(engine))"
     }
+
+    // Track Z §7 — the room's props as controls (the lamp's popover, a
+    // spine's popover). Plain words: the lamp is the schedule, and lighting
+    // it is the one thing the toggle does.
+    static let whenIRead = "When I read"
+    static let lampOn = "The lamp is on."
+    static let lampOff = "The lamp is off."
+    static let lampOffExplainer = "I read only when you press Consolidate now."
+    static let lampHint = "Opens the schedule"
+    static let readOnSchedule = "Read on a schedule"
+    static let rhythmAndTime = "Rhythm and time:"
+    static let scheduleWriteFailed = "Couldn't change the schedule — nothing changed."
+    static let openInSources = "Open in Sources ›"
+    static func moreInDetails(_ n: Int) -> String { "+\(UsageFormat.count(n)) more in Details" }
+    /// The lamp popover's line while the lamp is off (§7.2): what a scheduled
+    /// run WOULD use, shown before the person lights it (ruling 4 at the
+    /// moment of choice).
+    static func scheduledRunsWouldUse(engine: String) -> String {
+        "If you light it, scheduled runs would use \(engineLabel(engine))"
+    }
+    // Track Z §7.3 — the window's weather and its legend (the text twin).
+    static let windowLegendHeader = "The window shows how Sleep is doing, not the time of day."
+    static let windowLegendPointer = "The window in the room shows how Sleep is doing — click it to see what each sky means."
+    static let windowHint = "Shows what the sky means"
     // MARK: The `?` popover (Track P)
     //
     // Shown on Graph, Clusters and Feed, so every sentence has to be true on
@@ -238,6 +274,13 @@ enum Copy {
         + "housekeeping checks (logos, connectors) can still run right after, "
         + "so \"Cancelling…\" may stay up a few seconds longer than expected."
 
+    /// The control row's one-line caption while a cycle runs (Track Z §4.1
+    /// sketch B); the long explainer stays the button's tooltip.
+    static let cancelCaption = "Stops at the next safe point — nothing is lost."
+    /// The whisper line's hover reason when the next run is "—" (R-A14: a dash
+    /// is a value with a reason).
+    static let nextRunUnknownReason = "Cicada hasn't worked out the next run yet."
+
     /// Pause/resume the nightly auto-run schedule — the third quick control
     /// on the Sleep page (alongside run + cancel). The full time editor
     /// lives in Settings → Schedule (`settingsSchedule`); this only flips
@@ -282,6 +325,9 @@ enum Copy {
     /// promising *today* contradicted a number the same screen was drawing.
     /// What a cycle actually does is fold whatever is waiting, however old.
     static let sleepSubtitle = "Fold what's waiting into the graph."
+    /// The Sleep page's one disclosure (Track Z R-Z6): everything past the
+    /// room, the sentence, the button and the whisper line lives behind it.
+    static let sleepDetails = "Details"
     static let inboxSubtitle = "Questions waiting on you."
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."

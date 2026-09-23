@@ -59,7 +59,7 @@ struct SourceCardGrid: View {
             } else {
                 // ONE `today` per body evaluation, handed down to every tile,
                 // so two cards can never straddle a UTC midnight inside one
-                // render — the same posture `MemorySourcesCard` holds.
+                // render — the posture every `ActivitySeries.swift` caller holds.
                 let today = Date()
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     ForEach(SourceSections.group(rows), id: \.kind) { section in
@@ -357,8 +357,8 @@ struct SourceCard: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             // State, not quantity — the sparkline already encodes how much, so
             // a second graded mark twelve points away would ask the reader to
-            // tell two charts apart by weight (G125 R1, as `MemorySourcesCard`
-            // reads it).
+            // tell two charts apart by weight (G125 R1, as Track A's week dots
+            // first read it; the series live in `ActivitySeries.swift`).
             HStack(spacing: 3) {
                 ForEach(Array(dots.enumerated()), id: \.offset) { _, count in
                     Circle()

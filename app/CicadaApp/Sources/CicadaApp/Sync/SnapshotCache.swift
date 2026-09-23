@@ -11,10 +11,11 @@ actor SnapshotCache {
     /// takes a 304, and keeps the old body. A field added since that body was
     /// written therefore stays at its decode default until some unrelated bank
     /// write moves the server's etag. Version 2 is `SourceOverview.activity`
-    /// (G125 v3): a pre-`activity` payload decodes fine (`[:]`), still passes
-    /// `memorySourceRows`' `episodes > 0` filter, and renders a flat sparkline
-    /// plus "0 of the last 4 weeks had captures" beside a count line reading
-    /// "312 captured" — the page contradicting itself. Dropping the envelope
+    /// (G125 v3): a pre-`activity` payload decodes fine (`[:]`), still counts
+    /// as a source with captures (`episodes > 0`), and renders a flat
+    /// sparkline (`ActivitySeries.swift`) plus "0 of the last 4 weeks had
+    /// captures" beside a count line reading "312 captured" — the page
+    /// contradicting itself. Dropping the envelope
     /// costs exactly one cold render on upgrade, which is what this field is
     /// for.
     ///

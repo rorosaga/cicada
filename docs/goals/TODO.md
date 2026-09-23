@@ -143,6 +143,15 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
    short-circuit makes per-turn firing idempotent. Revisit only if `capture.log` starts showing
    timeout `error:` lines (the hook's 3 s budget, `TIMEOUT_S` in `api/hooks/capture.py`) on the live
    bank — the hook logs no timing, so a blown budget surfaces as an `error:` line, not a latency figure.
+8. **The Sleep page shows the ACTIVE stage, and there is one translation** (Track Z R-Z14). The
+   wire's `stage` counts completed stages (`sleep_cycle.py` sets 1 only after Stage 1 returns);
+   three derivations clamped it without adding one, so the worm, the bracket line and VoiceOver
+   said "stage 1" while Sort ran. `activeStage(completed:)` is the only way any view turns the
+   wire number into a stage. Revisit only if the backend starts reporting the stage in flight.
+9. **Pixel art beside the worm is checked against the real worm, per weather** (Track Z
+   Z-P13). A hand-approximated worm passed two window clouds the real frames hide (the head's
+   shake uncovers a column); `WindowSpritesTests` masks with every look of every mood that shows
+   that weather. Any new art near the worm gets the same test.
 
 ## How work is run here
 
