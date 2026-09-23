@@ -5,9 +5,12 @@ import SwiftUI
 /// one action that turns it on. Agents run `AgentConnect` (D-1: after THIS click,
 /// with the commands visible under the row's disclosure); browsers run
 /// `BrowserWatcher.syncNow` (T1's consent); Cursor opens its own confirm via its
-/// deep link; Claude Desktop is finished in Settings → Agents (slice 1).
+/// deep link; Claude Desktop is finished in Settings → Agents (slice 1). Every
+/// one of those decisions now lives in `FoundTurnOn` (part b), which the Welcome
+/// and Getting started run too; this strip only maps the result onto its row.
 struct OnThisMacStrip: View {
     @Environment(BrowserWatcher.self) private var watcher
+    @Environment(IntakeRouter.self) private var intake
     @State private var inventory: LocalInventory?
     @State private var states: [FoundItemID: FoundRowState] = [:]
     @State private var refused: [FoundItemID: [String]] = [:]
@@ -56,7 +59,7 @@ struct OnThisMacStrip: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             FoundRow(mark: Self.mark(item.id), title: item.title, detail: Self.detail(item.id),
                      state: states[item.id] ?? base, disclosure: disclosure,
-                     action: { Task { await turnOn(item, agent: agent, wiring: wiring) } },
+                     action: { Task { await turnOn(item) } },
                      settingsLink: item.id == .agent("claude-desktop") ? .agents : nil)
             if let lines = refused[item.id] {
                 Text(Copy.foundRefused).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
@@ -90,40 +93,24 @@ struct OnThisMacStrip: View {
         }
     }
 
-    private func turnOn(_ item: FoundItem, agent: AgentWiring?, wiring: AgentWiringResponse?) async {
-        switch item.id {
-        case .agent("cursor"):
-            // An empty `repo` (a trimmed payload decodes to "") must not build
-            // a deep link against "/api/.venv/bin/python".
-            let repo = wiring?.repo.isEmpty == false ? wiring!.repo : BackendProcess.installRoot().path
-            let catalog = AgentSetupCatalog.all(home: repo, memoryRoot: wiring?.memory)
-            if let url = catalog.first(where: { $0.id == "cursor" })?.deeplink?.url { NSWorkspace.shared.open(url) }
-        case .agent:
-            guard let agent, let wiring else { return }
-            states[item.id] = .working(Copy.foundConnecting)
-            let outcome = await AgentConnect.run(agent.connect, installRoot: BackendProcess.installRoot(),
-                                                 binaries: Set(wiring.agents.compactMap(\.binary)))
-            switch outcome {
-            case .done: states[item.id] = nil
-            case .refused(let lines): states[item.id] = nil; refused[item.id] = lines
-            case .failed(let why): states[item.id] = .failed(why)
-            }
-            await inventory?.refresh()
-        case .browser(let channel):
-            if item.readiness == .needsPermission {
-                NSWorkspace.shared.open(BrowserFileError.fullDiskAccessURL)
-                return
-            }
-            states[item.id] = .working(Copy.foundSavingBookmarks)
-            do {
-                _ = try await watcher.syncNow(channel)
-                states[item.id] = nil
-            } catch {
-                states[item.id] = .failed(AddSourceSheet.friendlyError(error))
-            }
-            await inventory?.refresh()
-        default:
-            return
+    /// One honest difference from part a: a click on an agent before
+    /// `/agents/wiring` has answered used to do nothing; it now says so on the row
+    /// (`Copy.foundBackendDown`).
+    private func turnOn(_ item: FoundItem) async {
+        guard let inventory else { return }
+        if item.id != .agent("cursor") {   // Cursor opens its own confirm at once
+            states[item.id] = .working(SetupRunner.workingText(item.id))
+        }
+        refused[item.id] = nil
+        let result = await FoundTurnOn.run(item.id, deps: .live(inventory: inventory, watcher: watcher, intake: intake))
+        switch result {
+        case .on, .openedApp, .finishInSettings, .needsPermission:
+            states[item.id] = nil
+        case .refused(let lines):
+            states[item.id] = nil
+            refused[item.id] = lines
+        case .failed(let why):
+            states[item.id] = .failed(why)
         }
     }
 }

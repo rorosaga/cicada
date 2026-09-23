@@ -45,12 +45,31 @@ extension Copy {
     static func homeSaveLinkRow(_ host: String) -> String { "\(homeSaveLink) · \(host)" }
     static func homeLinkSaved(_ host: String) -> String { "Saved \(host)" }
 
+    // MARK: Who reads (Task 2, R-IB13)
+    static let costModelPlan = "Uses your plan"
+    static let costModelLocal = "Free, on this Mac. Slower."
+    static let costModelKey = "Billed per use by your provider"
+    static let engineKeySaved = "Key saved"
+    static let engineAddKey = "Add a key in \(plansAndKeys)"
+    static let welcomeNotChosen = "Not chosen yet. Cicada asks before its first read."
+    static let welcomeWillRead = "Will read"
+    static let welcomeProviderLine = "Plans and keys send what Cicada reads to that provider."
+    static func welcomePickSaved(_ label: String) -> String { "\(label) · saved when you press Start" }
+    static func welcomeDemoFailed(_ why: String) -> String { "Couldn't create the demo memory: \(why)" }
+
+    // MARK: Getting started (Tasks 2–3)
+    static let gsBringingIn = "Bringing it in…"
+    static let gsEngineFailed = "Couldn't save who reads. Choose again below."
+
     /// Buttons, titles and one-line captions — ≤ 60 characters (CopyConstantsTests).
     static let welcomeHomeLabels: [String] = [
         homeHeadline, homeHeadlineItalic, homeFieldPrompt, homeToday, homeNeedsYou, homeLastRead,
         homeCapturedHelp, homeLoading, homeNothingCapturedToday, homeNothingWaiting, homeNothingNeedsYou,
         homeNothingReadYet, homeNothingChanged, homeOpenSleep, homeSaveLink,
+        costModelPlan, costModelLocal, costModelKey, engineKeySaved, engineAddKey, welcomeWillRead,
+        welcomeNotChosen, welcomeProviderLine, welcomePickSaved("ChatGPT plan"), gsBringingIn, gsEngineFailed,
     ]
     /// Longer sentences — the vocabulary rule only.
-    static let welcomeHomeSentences: [String] = []
+    /// `welcomeDemoFailed` carries the server's own reason, so its length is not ours.
+    static let welcomeHomeSentences: [String] = [welcomeDemoFailed("the service is not running")]
 }

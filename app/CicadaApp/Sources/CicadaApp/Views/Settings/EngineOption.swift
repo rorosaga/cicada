@@ -74,4 +74,36 @@ enum EngineOption {
     static func showsOverageToggle(selectedMode: String) -> Bool {
         selectedMode == "agent" || selectedMode == "auto"
     }
+
+    /// G117 (owner 2026-09-04): each option states how it is paid for BEFORE it
+    /// is chosen — a cost model in words, never a price (2026-09-03).
+    static func costModel(for candidateId: String) -> String? {
+        switch candidateId {
+        case "agent", "codex": Copy.costModelPlan
+        case "local": Copy.costModelLocal
+        case "byok": Copy.costModelKey
+        default: nil
+        }
+    }
+
+    /// R-IB13 — onboarding offers the four engines a new person can name; the
+    /// Auto ladder stays a Settings → Sleep choice. Leaving the row untouched
+    /// keeps the install's configured default (`byok` unless a pref or
+    /// `CICADA_LLM_MODE` says otherwise), which `EngineReadiness` reports honestly.
+    static func compactCandidates(_ candidates: [SleepEngineCandidate]) -> [SleepEngineCandidate] {
+        candidates.filter { $0.id != "auto" }
+    }
+
+    /// The key card's state comes from `Store.connections`, never from the byok
+    /// candidate, which is `connected: true` even with no key (F6).
+    static func compactCaption(for candidate: SleepEngineCandidate, hasKey: Bool) -> String {
+        candidate.id == "byok" ? (hasKey ? Copy.engineKeySaved : Copy.engineAddKey) : caption(for: candidate)
+    }
+
+    /// The ring: the person's pick, else the engine a manual read would really use.
+    static func ringed(pick: String?, readiness: EngineReadiness) -> String? {
+        if let pick { return pick }
+        if case .ready(let id) = readiness { return id }
+        return nil
+    }
 }

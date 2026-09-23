@@ -152,6 +152,11 @@ struct IntakeOutcome: Equatable {
     }
 }
 
+struct WelcomeDrop: Identifiable, Equatable {
+    let id: String
+    let preview: IntakePreview
+}
+
 /// The one import seam (R-IA20) — testable with a fake.
 protocol IntakeAPI: Sendable {
     func sniffIntake(fileURL: URL, bank: String?) async throws -> IntakeSniff
@@ -203,6 +208,34 @@ final class IntakeRouter {
     /// picker's "new memory" delta.
     private(set) var sniffedPreview: IntakePreview?
 
+    /// Track I part b (R-IB15) — `ContentView` sets this while the Welcome shows:
+    /// every arrival (window, Dock, menu bar, File → Import) is sniffed and staged
+    /// as a ticked row there, never raised as an overlay hidden underneath, and
+    /// nothing imports until Start commits it. Raising it clears an earlier
+    /// Welcome's leftovers and adopts a sniff already on the overlay: a Dock open
+    /// on a cold launch reaches `accept` before the gate has resolved the bank.
+    var welcomeActive = false {
+        didSet {
+            guard welcomeActive, !oldValue else { return }
+            welcomeDrops = []
+            welcomeDropError = nil
+            let adoptable: Bool
+            switch phase {
+            case .reading, .preview: adoptable = host == .overlay
+            default: adoptable = false
+            }
+            guard adoptable, !files.isEmpty else { return }
+            let pending = files
+            cancel()                      // the generation drops the overlay's answer
+            isOverlayPresented = false
+            stageForWelcome(pending)
+        }
+    }
+    private(set) var welcomeDrops: [WelcomeDrop] = []
+    private(set) var welcomeDropError: String?
+    /// ⌘⇧I and the menu bar while the Welcome shows: it opens its own file panel.
+    private(set) var welcomeChooseRequest = 0
+
     init(api: any IntakeAPI = APIClient.shared,
          sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.api = api
@@ -219,6 +252,7 @@ final class IntakeRouter {
 
     /// No file yet — ⌘⇧I, the menu-bar item, a reminder: open the panel idle.
     func present(from origin: IntakeOrigin) {
+        if welcomeActive { welcomeChooseRequest &+= 1; return }
         host = origin.host
         if host == .overlay { isOverlayPresented = true }
         if case .reading = phase { cancel() }
@@ -232,6 +266,7 @@ final class IntakeRouter {
             store?.toast = Copy.intakeBusy
             return
         }
+        if welcomeActive { stageForWelcome(urls); return }
         host = origin.host
         if host == .overlay { isOverlayPresented = true }
         let expanded = Self.expand(urls)
@@ -371,11 +406,56 @@ final class IntakeRouter {
         }
     }
 
-    /// Part b's Welcome Start path: import dropped files without opening the
-    /// panel; the counter still owns the flag.
+    /// Imports dropped chat files without opening the panel; the counter still
+    /// owns the flag. Delegates to `commit(_ preview:from:)` — identical for its
+    /// chat-only callers.
     func commit(urls: [URL], from origin: IntakeOrigin) async -> IntakeOutcome {
-        var outcome = IntakeOutcome()
-        for url in Self.expand(urls).files {
+        await commit(IntakePreview(chatFiles: Self.expand(urls).files), from: origin)
+    }
+
+    // MARK: Welcome staging (R-IB15)
+
+    private func stageForWelcome(_ urls: [URL]) {
+        let expanded = Self.expand(urls)
+        welcomeDropError = nil
+        guard !expanded.files.isEmpty else { welcomeDropError = Copy.intakeNothingReadable; return }
+        Task { [weak self] in
+            guard let self else { return }
+            var results: [IntakeFileSniff] = []
+            for url in expanded.files {
+                do {
+                    let s = try await self.tracked { try await self.api.sniffIntake(fileURL: url, bank: nil) }
+                    results.append(IntakeFileSniff(url: url, sniff: s))
+                } catch {
+                    results.append(IntakeFileSniff(url: url, error: AddSourceSheet.friendlyError(error)))
+                }
+            }
+            switch IntakePreview.aggregate(results, capped: expanded.capped) {
+            case .preview(let p): self.welcomeDrops.append(WelcomeDrop(id: UUID().uuidString, preview: p))
+            case .failed(let reason): self.welcomeDropError = reason
+            default: break
+            }
+        }
+    }
+
+    func removeWelcomeDrop(_ id: String) { welcomeDrops.removeAll { $0.id == id } }
+
+    /// Start's path for a staged drop: commit it, then forget it — unless a file
+    /// failed, so Getting started's Retry can commit it again (a re-commit of the
+    /// files that did land reads as unchanged, G20).
+    func commitWelcomeDrop(_ id: String) async -> IntakeOutcome? {
+        guard let drop = welcomeDrops.first(where: { $0.id == id }) else { return nil }
+        let outcome = await commit(drop.preview, from: .welcome)
+        if outcome.failures.isEmpty { removeWelcomeDrop(id) }
+        return outcome
+    }
+
+    /// Chat files through `/intake/import` (a background job followed to its end),
+    /// saved files through `/sources/upload` — the route that previewed them
+    /// (R-IA32) — then one Store refresh. The counter owns the flag throughout.
+    func commit(_ preview: IntakePreview, from origin: IntakeOrigin) async -> IntakeOutcome {
+        var outcome = IntakeOutcome(vendor: preview.vendor, origin: preview.origin)
+        for url in preview.chatFiles {
             do {
                 let r = try await tracked { try await api.importIntake(fileURL: url, bank: nil) }
                 if let job = r.job {
@@ -384,6 +464,15 @@ final class IntakeRouter {
                 } else {
                     outcome.add(created: r.episodesStaged, updated: r.episodesUpdated, unchanged: r.duplicatesSkipped, response: r)
                 }
+            } catch {
+                outcome.failures.append("\(url.lastPathComponent): \(AddSourceSheet.friendlyError(error))")
+            }
+        }
+        for url in preview.savedFiles {
+            do {
+                let r = try await tracked { try await api.uploadSaved(fileURL: url) }
+                outcome.savedCreated += r.episodesCreated
+                outcome.unchanged += r.duplicatesSkipped
             } catch {
                 outcome.failures.append("\(url.lastPathComponent): \(AddSourceSheet.friendlyError(error))")
             }

@@ -226,4 +226,72 @@ final class IntakeRouterTests: XCTestCase {
         XCTAssertEqual(many.count, IntakeRouter.maxFiles)
         XCTAssertTrue(cappedMany)
     }
+
+    /// R-IB15 — while the Welcome shows, every arrival is staged on it; nothing imports before Start.
+    func testWhileTheWelcomeShowsEveryArrivalIsStagedAndNothingImports() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("chatgpt", new: 4)]
+        let router = IntakeRouter(api: api)
+        router.welcomeActive = true
+        router.accept(urls: [try file("conversations.json")], from: .dock)
+        try await eventually("a staged row") { router.welcomeDrops.count == 1 }
+        XCTAssertFalse(router.isOverlayPresented, "the Welcome is the host; no overlay hidden under it")
+        XCTAssertEqual(router.phase, .idle)
+        XCTAssertTrue(api.importedBanks.isEmpty, "nothing imports before Start (principle 2)")
+        XCTAssertEqual(router.welcomeDrops.first?.preview.delta.new, 4)
+        XCTAssertEqual(router.inFlight, 0)
+    }
+
+    func testPresentWhileTheWelcomeShowsAsksItToChooseAFile() {
+        let router = IntakeRouter(api: FakeIntakeAPI())
+        router.welcomeActive = true
+        router.present(from: .fileMenu)
+        XCTAssertEqual(router.welcomeChooseRequest, 1)
+        XCTAssertFalse(router.isOverlayPresented)
+    }
+
+    func testAStagedDropCommitsChatAndSavedFilesThroughTheirOwnRoutes() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("claude"),
+                      "bookmarks.html": IntakeSniff(recognized: true, kind: "saved", counts: IntakeCounts(items: 2))]
+        api.imports = ["conversations.json": IntakeImportResponse(episodesStaged: 1)]
+        let router = IntakeRouter(api: api)
+        router.welcomeActive = true
+        router.accept(urls: [try file("conversations.json"), try file("bookmarks.html")], from: .welcome)
+        try await eventually("staged") { router.welcomeDrops.count == 1 }
+        let outcome = await router.commitWelcomeDrop(router.welcomeDrops[0].id)
+        XCTAssertEqual(outcome?.created, 1)
+        XCTAssertEqual(outcome?.savedCreated, 2, "saved content commits through /sources/upload (R-IA32)")
+        XCTAssertTrue(router.welcomeDrops.isEmpty)
+    }
+
+    /// R-IB15 — a commit that failed keeps its drop staged, so Getting started's Retry has
+    /// something to commit (a forgotten drop would fail "The import didn't finish." forever).
+    func testAFailedStagedCommitStaysForRetry() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("claude")]
+        api.failImport = ["conversations.json"]
+        let router = IntakeRouter(api: api)
+        router.welcomeActive = true
+        router.accept(urls: [try file("conversations.json")], from: .welcome)
+        try await eventually("staged") { router.welcomeDrops.count == 1 }
+        let outcome = await router.commitWelcomeDrop(router.welcomeDrops[0].id)
+        XCTAssertEqual(outcome?.failures.count, 1)
+        XCTAssertEqual(router.welcomeDrops.count, 1)
+    }
+
+    /// R-IB15 — a Dock open that reached the overlay before the gate raised the Welcome is
+    /// moved onto the Welcome, never left as a preview hidden underneath it.
+    func testRaisingTheWelcomeAdoptsASniffAlreadyOnTheOverlay() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("chatgpt", new: 3)]
+        let router = IntakeRouter(api: api)
+        router.accept(urls: [try file("conversations.json")], from: .dock)
+        XCTAssertTrue(router.isOverlayPresented)
+        router.welcomeActive = true
+        XCTAssertFalse(router.isOverlayPresented, "nothing hidden under the Welcome")
+        try await eventually("adopted") { router.welcomeDrops.count == 1 }
+        XCTAssertEqual(router.phase, .idle)
+        XCTAssertTrue(api.importedBanks.isEmpty, "adopting is staging, never importing")
+    }
 }
