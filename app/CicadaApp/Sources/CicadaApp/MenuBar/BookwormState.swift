@@ -134,14 +134,30 @@ struct StatusSnapshot: Codable, Equatable {
 extension StatusSnapshot {
     /// Parse an ISO8601 timestamp from the snapshot. Tolerant of the
     /// with/without fractional-seconds variants the backend emits.
-    static func parseDate(_ iso: String?) -> Date? {
+    ///
+    /// A string with no zone is read as local time in `naiveTimeZone`
+    /// (Track O review, R-O10): `sleep_scheduler.next_run_at` returns a naive
+    /// `datetime.now()`-based ISO string for the daily and interval modes
+    /// (e.g. `2026-09-24T03:00:00`), and `.withInternetDateTime` requires a
+    /// zone, so every schedule read as "not scheduled". The backend and the
+    /// app share one machine, so naive means local. This only ever turns a
+    /// `nil` into a date — an offset-bearing string parses exactly as before.
+    static func parseDate(_ iso: String?, naiveTimeZone: TimeZone = .current) -> Date? {
         guard let iso, !iso.isEmpty else { return nil }
         let withFractional = ISO8601DateFormatter()
         withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let d = withFractional.date(from: iso) { return d }
         let plain = ISO8601DateFormatter()
         plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: iso)
+        if let d = plain.date(from: iso) { return d }
+        let naive = DateFormatter()
+        naive.locale = Locale(identifier: "en_US_POSIX")
+        naive.timeZone = naiveTimeZone
+        for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss.SSS"] {
+            naive.dateFormat = format
+            if let d = naive.date(from: iso) { return d }
+        }
+        return nil
     }
 }
 

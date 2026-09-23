@@ -3,7 +3,9 @@ import Foundation
 /// The Sleep page's schedule words (G139, R-O10), pure so they are tested.
 /// "Next run" is the server's `nextSleepAt` — computed per request by
 /// `sleep_scheduler.next_run_at`, calibrated to the mode — never the local
-/// picker's date, which was wrong in interval and after-import modes.
+/// picker's date, which was wrong in interval and after-import modes. The
+/// daily and interval values arrive naive (no offset) and are read as local
+/// time in `calendar.timeZone`, so an injected calendar keeps tests exact.
 enum SleepScheduleText {
     static let modes: [PillOption<String>] = [
         PillOption(value: "manual", label: "Manual"),
@@ -17,7 +19,7 @@ enum SleepScheduleText {
     static func detail(mode: String, nextSleepAt: String?, now: Date = Date(),
                        calendar: Calendar = .current, locale: Locale = .autoupdatingCurrent) -> String {
         if mode == "manual" { return "Only when you press Consolidate now." }
-        if let next = StatusSnapshot.parseDate(nextSleepAt) {
+        if let next = StatusSnapshot.parseDate(nextSleepAt, naiveTimeZone: calendar.timeZone) {
             return "Next run: \(relative(next, now: now, calendar: calendar, locale: locale))"
         }
         if mode == "after_import" {

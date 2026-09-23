@@ -1,7 +1,7 @@
 import Foundation
 
 /// Wire mirror of `api.models.schemas.SleepEngineCandidate` — one row of the
-/// G122 Settings → Sleep picker's segmented control. Deliberately NOT a
+/// G122 Settings → Engines picker's segmented control. Deliberately NOT a
 /// reuse of `ConnectionStatus` (that model carries login/billing fields no
 /// candidate needs, and G124 bans price/token fields from this surface
 /// entirely) — a candidate only needs enough to render a segment and, once
@@ -49,7 +49,7 @@ struct SleepEngineResponse: Codable, Hashable {
     let source: String
     let candidates: [SleepEngineCandidate]
     let preview: SleepEnginePreviews?
-    /// R-E13 — the Settings → Sleep "Keep going on extra usage" switch;
+    /// R-E13 — the Settings → Engines "Keep going on extra usage" switch;
     /// absent on an older backend → false (off is the safe default: a Claude
     /// plan cycle stops at the included usage rather than billing past it).
     let allowOverage: Bool

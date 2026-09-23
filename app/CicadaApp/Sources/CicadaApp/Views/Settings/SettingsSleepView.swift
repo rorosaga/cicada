@@ -19,7 +19,9 @@ import SwiftUI
 /// follows at once.
 ///
 /// The engine moved to Settings → Engines (G139, A3); this page shows it
-/// read-only — both ruling-4 previews, and a pointer to where it changes.
+/// read-only — both ruling-4 previews, each wearing its engine's mark through
+/// `EngineChooser.previewRow` (a named service shows its real mark), and a
+/// pointer to where it changes.
 struct SettingsSleepView: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var engineVM
@@ -39,12 +41,20 @@ struct SettingsSleepView: View {
     var body: some View {
         SettingsPage(section: .sleep) {
             SettingsGroupCard(header: Copy.runsGroup) {
+                // The four pills sit in the row's below slot, not beside the
+                // detail: next to a multi-word sentence ("Starts about 10
+                // minutes after…") they truncated or squeezed the title
+                // column at narrow Settings widths (Task 2 review round 1).
+                // `fixedSize` keeps every label whole on its own line.
                 SettingsRow(.sleepRuns, title: Copy.runsTitle,
-                            detail: SleepScheduleText.detail(mode: mode, nextSleepAt: store.status.value?.nextSleepAt)) {
+                            detail: SleepScheduleText.detail(mode: mode, nextSleepAt: store.status.value?.nextSleepAt),
+                            control: { EmptyView() },
+                            below: {
                     PillPicker(title: Copy.runsTitle,
                                selection: Binding(get: { mode }, set: { mode = $0; commitSchedule() }),
                                options: SleepScheduleText.modes)
-                }
+                        .fixedSize()
+                })
                 if mode == "daily" {
                     SettingsDivider()
                     SettingsRow(.sleepTime, title: Copy.runsAt) {
@@ -65,9 +75,16 @@ struct SettingsSleepView: View {
                 }
             }
             SettingsGroupCard(header: Copy.sleepEngineGroup) {
-                SettingsRow(.sleepEngine, title: Copy.sleepEngineRowTitle, detail: engineLines) {
-                    SettingsInlineLink(section: .engines, label: Copy.changeInEngines)
-                }
+                SettingsRow(.sleepEngine, title: Copy.sleepEngineRowTitle,
+                            control: { SettingsInlineLink(section: .engines, label: Copy.changeInEngines) },
+                            below: {
+                    if let preview = engineVM.response?.preview {
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                            EngineChooser.previewRow(preview.manual, label: Copy.whenYouStart)
+                            EngineChooser.previewRow(preview.scheduled, label: Copy.onTheSchedule)
+                        }
+                    }
+                })
             }
         }
         .task {
@@ -78,13 +95,6 @@ struct SettingsSleepView: View {
             if engineVM.response == nil { await engineVM.load() }
         }
         .onChange(of: sleepVM.schedule) { _, _ in syncScheduleState() }
-    }
-
-    /// Both ruling-4 previews, read-only (the What-runs block on Engines is the editable twin).
-    private var engineLines: String? {
-        guard let preview = engineVM.response?.preview else { return nil }
-        return [EngineChooser.previewLine(preview.manual, label: Copy.whenYouStart),
-                EngineChooser.previewLine(preview.scheduled, label: Copy.onTheSchedule)].joined(separator: "\n")
     }
 
     private func syncScheduleState() {

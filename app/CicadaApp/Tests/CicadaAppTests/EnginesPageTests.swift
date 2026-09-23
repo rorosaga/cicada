@@ -27,6 +27,14 @@ final class EnginesPageTests: XCTestCase {
                       "onboarding is another track's; it keeps the card until it moves (R-O8)")
     }
 
+    /// Review round 1: the Sleep page's read-only engine lines name services,
+    /// so they draw through the Engines page's marked row, never bare text.
+    func testTheSleepPagesEngineLinesWearTheirMarks() throws {
+        let sleep = try source("Views/Settings/SettingsSleepView.swift")
+        XCTAssertTrue(sleep.contains("EngineChooser.previewRow(preview.manual"))
+        XCTAssertTrue(sleep.contains("EngineChooser.previewRow(preview.scheduled"))
+    }
+
     /// K4 / R-O9 — no price, no cost-estimate control, no engine switch left on Plans & keys.
     func testPlansAndKeysIsCredentialsOnly() throws {
         for file in ["Views/Connections/ConnectionsView.swift", "Views/Settings/EnginesView.swift",
@@ -67,6 +75,31 @@ final class EnginesPageTests: XCTestCase {
         XCTAssertTrue(d("2026-09-23T15:00:00Z").hasPrefix("Next run: today at "))
         XCTAssertTrue(d("2026-09-24T03:00:00Z").hasPrefix("Next run: tomorrow at "))
         XCTAssertTrue(d("2026-09-26T03:00:00Z").hasPrefix("Next run: Saturday at "))
+    }
+
+    /// Review round 1: `sleep_scheduler.next_run_at` sends a naive local ISO
+    /// string for daily and interval (no offset). It must read as a run, not
+    /// as "not scheduled yet" — the tests above only fed `Z` strings.
+    func testANaiveServerValueIsReadAsLocalTime() {
+        XCTAssertTrue(SleepScheduleText.detail(mode: "daily", nextSleepAt: "2026-09-24T03:00:00",
+                                               now: now, calendar: utc, locale: en)
+                        .hasPrefix("Next run: tomorrow at "))
+        XCTAssertTrue(SleepScheduleText.detail(mode: "interval", nextSleepAt: "2026-09-23T13:54:02",
+                                               now: now, calendar: utc, locale: en)
+                        .hasPrefix("Next run: today at "))
+        XCTAssertTrue(SleepScheduleText.detail(mode: "daily", nextSleepAt: "2026-09-24T03:00:00.123456",
+                                               now: now, calendar: utc, locale: en)
+                        .hasPrefix("Next run: tomorrow at "))
+    }
+
+    /// Naive means the calendar's zone, not UTC: 03:00 in Lima is 08:00Z.
+    func testNaiveParseUsesTheGivenZoneAndLeavesOffsetStringsAlone() {
+        let lima = TimeZone(identifier: "America/Lima")!
+        XCTAssertEqual(StatusSnapshot.parseDate("2026-09-24T03:00:00", naiveTimeZone: lima),
+                       ISO8601DateFormatter().date(from: "2026-09-24T08:00:00Z"))
+        XCTAssertEqual(StatusSnapshot.parseDate("2026-09-24T03:00:00Z", naiveTimeZone: lima),
+                       ISO8601DateFormatter().date(from: "2026-09-24T03:00:00Z"))
+        XCTAssertNil(StatusSnapshot.parseDate("not a date"))
     }
 
     func testAfterImportsWithNothingQueuedSaysWhatItWaitsFor() {

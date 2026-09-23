@@ -206,8 +206,8 @@ struct EngineChooser: View {
     @ViewBuilder
     private func previewSection(_ preview: SleepEnginePreviews) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            previewRow(preview.manual, label: "Next cycle you start")
-            previewRow(preview.scheduled, label: "Nightly schedule")
+            Self.previewRow(preview.manual, label: "Next cycle you start")
+            Self.previewRow(preview.scheduled, label: "Nightly schedule")
             // Ruling 4 stays binding and VISIBLE: a scheduled cycle never
             // spends plan quota. The caption only earns its place when the
             // two previews actually diverge — an `auto`/`byok` choice that
@@ -223,7 +223,9 @@ struct EngineChooser: View {
 
     /// One "What runs" line wearing its engine's mark — the same vendor mark
     /// the chosen card wears (G139: a named service shows its real mark).
-    private func previewRow(_ preview: SleepEnginePreview, label: String) -> some View {
+    /// Internal and static so the Sleep page's read-only engine row draws the
+    /// same marked line (Task 2 review round 1) instead of a bare-text twin.
+    static func previewRow(_ preview: SleepEnginePreview, label: String) -> some View {
         HStack(spacing: CicadaTheme.spacingXS) {
             LogoImage.platformTile(name: EngineOption.previewMark(engine: preview.engine) ?? "",
                                    size: CicadaTheme.scaled(16), systemFallback: "key.fill")

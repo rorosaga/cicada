@@ -26,7 +26,7 @@ struct CicadaApp: App {
     @State private var graphVM: GraphViewModel
     @State private var inboxVM: InboxViewModel
     @State private var sleepVM: SleepViewModel
-    /// G122: Settings → Sleep's engine-and-model picker. No `Store`
+    /// G122: the engine-and-model picker (Settings → Engines since G139 A3). No `Store`
     /// dependency (ruling 6 — a plain `APIClient` round trip, nothing else
     /// observes this domain) — constructed bare, unlike every view model
     /// above it.

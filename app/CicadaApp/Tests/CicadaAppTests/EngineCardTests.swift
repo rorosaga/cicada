@@ -1,7 +1,7 @@
 import XCTest
 @testable import CicadaApp
 
-/// G122 — the Settings → Sleep engine-and-model picker. `OllamaGuideState`
+/// G122 — the Settings → Engines engine-and-model picker. `OllamaGuideState`
 /// is a pure state machine over a `SleepEngineCandidate` (no network, no
 /// view), `EngineChooser.previewLine` is a pure formatter over one
 /// `SleepEnginePreview` (ruling 4's two-line display), and
