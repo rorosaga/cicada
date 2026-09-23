@@ -572,7 +572,9 @@ re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
 no `$`/token columns, no cost-per-day chart. The `/consumption/*` endpoints and the ledger are
 unchanged for future use.
 
-**Navigation.** Six sidebar rows (⌘1–6): Graph, Clusters, Feed, Sleep, Inbox, Sources. Setup lives
+**Navigation.** Seven sidebar rows (⌘1–7): Home, Graph, Clusters, Feed, Sleep, Inbox, Sources
+(G108, ruled 2026-09-23). Relaunch restores the last tab: nothing stored, or a value no build knows,
+opens Home, and a stored Graph stays on Graph. Setup lives
 in a native `Settings{}` scene (⌘,): a `NavigationSplitView` whose sidebar starts with a search field
 and groups its rows as Cicada · Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General ·
 You · Privacy & data · Memory · Sleep; Customize: Integrations · Agents · From anywhere · Skills; Engines & keys:
@@ -612,6 +614,31 @@ the router — the Add-source walkthrough's drop and *Choose file…*, its saved
 Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
+
+**Home (G108, Track I part b).** The front door at ⌘1: "What would you like / *to remember?*" over a
+procedural sky with one cloud (art composed in `Views/Meadow/`, never under a number), then the
+palette's own `FindPanelBody` in `.page` placement — a second `FindPaletteModel` sharing the one
+Ask and keeping no recents; ⌘K on Home focuses it, a pasted `http(s)` link offers *Save this link*.
+Below it: Getting started (while it lasts), then Today (captured today, UTC, with the three busiest
+marks), Needs you (the inbox's first three) and Last read (the newest Sleep commit and its pages) —
+each number once, each a link to the page that owns it; the waiting count is a link to Sleep, never a
+Consolidate.
+
+**Onboarding (G117, Track I part b).** One full-window Welcome, shown by the unchanged
+`FirstRunGate` (unknown is never empty): the hero meadow as its band, the headline on the card that
+rises into it, what Cicada found on this Mac as a checklist whose ticks are the consent (own acts, no
+new permission prompt, no other app — `FoundPolicy`), a chat-export drop zone that stages rows and
+imports nothing before Start, the engine cards with each one's cost model (`EngineChoice`, never
+blocking — an untouched choice keeps the install's configured engine, and Getting started asks
+"who reads" only if that cannot run), and one meadow pill whose text twin says exactly what it
+will do. A browser's bookmarks are neither counted nor read before its tick. Start is `SetupRunner`:
+the owner PUT first and alone, then Home, then every ticked row side by side, each failure on its
+own row. Getting started continues on Home — rows from the machine's own state, the first read
+(*Read now*, G125 R10's second narrow amendment, only inside the card), and "Keep reading on its
+own?" asked once of a person still on `manual`, its options gated by ruling 4. *Set up later*,
+*Try the demo instead* and Settings → General's *Run setup again* / *Show setup checklist* remain.
+Export reminders (`ExportWaits`) ask for notification permission only when the person chooses a
+delay; the Feed strip, the menu bar and the card say the same with notifications off.
 
 **Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
@@ -777,7 +804,9 @@ material fallback (opaque under Reduce Transparency); a lint fails the build on 
 elsewhere, and `GlassCard` stays a standard material. **Painted art** (`Resources/art/`,
 `art.manifest.json` with generator, prompt, date, licence and sha256; every file has a `-dark`
 sibling) appears only on non-data surfaces — never the graph, a list, a grid, a form or a number,
-and text never sits directly on paint — enforced by an allowlist lint. **Type:** SF Pro Display
+and text never sits directly on paint — enforced by an allowlist lint. The Welcome's hero band
+(`WelcomeHero`) and Home's sky band (`HomeSkyBand`) are composed inside `Views/Meadow/`, so the
+pages that carry text and numbers never name a painted component. **Type:** SF Pro Display
 through `displayFont(size:italic:)` at ≥ 22 pt — semibold titles tracked 2 % tight
 (`displayTracking(size:)`, paired at every call site and counted by `FontLiteralLintTests`), regular
 italic for a headline's second line; no font is bundled (the owner found the serif too ornate,

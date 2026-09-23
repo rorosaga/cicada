@@ -81,14 +81,13 @@ final class CopyConstantsTests: XCTestCase {
         XCTAssertFalse(Copy.aboutCicadaCapture.lowercased().contains("mcp client"))
     }
 
-    /// Track P R3/R4 — the label must name the schedule `ScheduleToggle.
-    /// toggled(on: true, current: manual)` actually writes, or the toggle
-    /// promises one thing and does another. `03:00` is
-    /// `sleep_scheduler._DEFAULT`'s hour.
-    func testTheOnboardingToggleLabelNamesTheScheduleItWrites() {
-        XCTAssertTrue(Copy.onboardingRunNightly.contains("3:00"))
-        XCTAssertEqual(ScheduleToggle.toggled(on: true,
-                                              current: ScheduleConfig(mode: "manual", hour: 3, minute: 0)).hour, 3)
+    /// R-IB21 — the retired sheet's copy is gone with it; the Welcome says Start's
+    /// consequence in words a new person reads (design §4.1.2).
+    func testTheWelcomeNamesItsOneActionAndItsSecondaryExits() {
+        XCTAssertEqual(Copy.welcomeStart, "Start remembering")
+        XCTAssertTrue(Copy.welcomeHomeLabels.contains(Copy.welcomeSetUpLater))
+        XCTAssertTrue(Copy.welcomeHomeLabels.contains(Copy.welcomeTryDemo))
+        XCTAssertFalse(Copy.welcomeSubline.lowercased().contains("episode"))
     }
 
     /// Track P — the empty state must say what to DO, not just that there is
@@ -137,5 +136,19 @@ final class CopyConstantsTests: XCTestCase {
         XCTAssertFalse(Copy.foundRefused.localizedCaseInsensitiveContains("terminal"))
         XCTAssertFalse(Copy.foundRefused.localizedCaseInsensitiveContains("copy them"))
         XCTAssertFalse(Copy.intakeDropSubtitle.localizedCaseInsensitiveContains("read"))
+    }
+
+    /// Track I part b — Welcome, Getting started, Home and reminder labels are short,
+    /// never say "claim", and never state a price or a token count (2026-09-03).
+    func testWelcomeAndHomeCopyIsShortPlainAndPriceless() {
+        XCTAssertGreaterThan(Copy.welcomeHomeLabels.count, 10, "a lint over nothing passes vacuously")
+        for label in Copy.welcomeHomeLabels {
+            XCTAssertLessThanOrEqual(label.count, 60, label)
+        }
+        for text in Copy.welcomeHomeLabels + Copy.welcomeHomeSentences {
+            XCTAssertFalse(text.lowercased().contains("claim"), text)
+            XCTAssertFalse(text.contains("$"), text)
+            XCTAssertFalse(text.lowercased().contains("token"), text)
+        }
     }
 }

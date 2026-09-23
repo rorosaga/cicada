@@ -45,7 +45,7 @@ final class FixWaveTests: XCTestCase {
     /// It is deliberately NOT tree-wide, and that is a measured decision, not
     /// a shortcut: `sleepVM.triggerManually()` also lives in
     /// `Views/Common/TopBarControls.swift`, `Views/Sources/SourceQueueStrip.swift`,
-    /// `Views/Onboarding/OnboardingSleepStep.swift` and `CicadaApp.swift` —
+    /// `Views/Home/GettingStartedCard.swift` and `CicadaApp.swift` —
     /// the top bar, the Sources queue strip, onboarding and the ⌘-key
     /// command, four OTHER surfaces that each legitimately own a trigger. R10
     /// and R-A7 are rulings about the Sleep PAGE, so the folder is the scope

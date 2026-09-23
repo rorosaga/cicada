@@ -17,9 +17,12 @@ final class OnboardingFlowTests: XCTestCase {
                        [.saveOwner("Ada"), .markOnboarded, .recordGettingStarted([]), .showHome])
     }
 
-    func testRerunSavesChangesAndClosesWithoutReMarking() {
+    /// I-b final review, finding 2 — Run setup again cleared the flag, so a saved
+    /// rerun marks the bank onboarded again, or an empty bank would re-raise
+    /// the first-run Welcome at the next launch.
+    func testRerunSavesChangesMarksTheBankAgainAndCloses() {
         XCTAssertEqual(OnboardingFlow.plan(name: "Ada", pickedEngine: nil, ticked: [.browser("chrome-bookmarks")], mode: .rerun),
-                       [.saveOwner("Ada"), .recordGettingStarted([.browser("chrome-bookmarks")]), .close,
+                       [.saveOwner("Ada"), .markOnboarded, .recordGettingStarted([.browser("chrome-bookmarks")]), .close,
                         .turnOn(.browser("chrome-bookmarks"))])
     }
 

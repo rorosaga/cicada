@@ -23,8 +23,10 @@ final class EnginesPageTests: XCTestCase {
         XCTAssertTrue(try source("Views/Settings/EnginesView.swift").contains("EngineChooser()"))
         XCTAssertFalse(try source("Views/Settings/SettingsSleepView.swift").contains("EngineCard("),
                        "Sleep shows one read-only engine line now (A3)")
-        XCTAssertTrue(try source("Views/Onboarding/FirstRunSheet.swift").contains("EngineCard()"),
-                      "onboarding is another track's; it keeps the card until it moves (R-O8)")
+        // Track I part b retired `FirstRunSheet`: the Welcome embeds the card's
+        // `.compact` form through `EngineChoice` (R-IB13).
+        XCTAssertTrue(try source("Views/Onboarding/EngineChoice.swift").contains("EngineCard(style: .compact"),
+                      "onboarding keeps the card, in its compact form (R-O8, R-IB13)")
     }
 
     /// Review round 1: the Sleep page's read-only engine lines name services,

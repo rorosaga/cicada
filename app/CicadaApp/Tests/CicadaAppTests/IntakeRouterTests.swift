@@ -232,6 +232,131 @@ final class IntakeRouterTests: XCTestCase {
         XCTAssertTrue(cappedMany)
     }
 
+    /// R-IB15 — while the Welcome shows, every arrival is staged on it; nothing imports before Start.
+    func testWhileTheWelcomeShowsEveryArrivalIsStagedAndNothingImports() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("chatgpt", new: 4)]
+        let router = IntakeRouter(api: api)
+        router.welcomeActive = true
+        router.accept(urls: [try file("conversations.json")], from: .dock)
+        try await eventually("a staged row") { router.welcomeDrops.count == 1 }
+        XCTAssertFalse(router.isOverlayPresented, "the Welcome is the host; no overlay hidden under it")
+        XCTAssertEqual(router.phase, .idle)
+        XCTAssertTrue(api.importedBanks.isEmpty, "nothing imports before Start (principle 2)")
+        XCTAssertEqual(router.welcomeDrops.first?.preview.delta.new, 4)
+        XCTAssertEqual(router.inFlight, 0)
+    }
+
+    func testPresentWhileTheWelcomeShowsAsksItToChooseAFile() {
+        let router = IntakeRouter(api: FakeIntakeAPI())
+        router.welcomeActive = true
+        router.present(from: .fileMenu)
+        XCTAssertEqual(router.welcomeChooseRequest, 1)
+        XCTAssertFalse(router.isOverlayPresented)
+    }
+
+    func testAStagedDropCommitsChatAndSavedFilesThroughTheirOwnRoutes() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("claude"),
+                      "bookmarks.html": IntakeSniff(recognized: true, kind: "saved", counts: IntakeCounts(items: 2))]
+        api.imports = ["conversations.json": IntakeImportResponse(episodesStaged: 1)]
+        let router = IntakeRouter(api: api)
+        router.welcomeActive = true
+        router.accept(urls: [try file("conversations.json"), try file("bookmarks.html")], from: .welcome)
+        try await eventually("staged") { router.welcomeDrops.count == 1 }
+        let outcome = await router.commitWelcomeDrop(router.welcomeDrops[0].id)
+        XCTAssertEqual(outcome?.created, 1)
+        XCTAssertEqual(outcome?.savedCreated, 2, "saved content commits through /sources/upload (R-IA32)")
+        XCTAssertTrue(router.welcomeDrops.isEmpty)
+    }
+
+    /// R-IB15 — a commit that failed keeps its drop staged, so Getting started's Retry has
+    /// something to commit (a forgotten drop would fail "The import didn't finish." forever).
+    func testAFailedStagedCommitStaysForRetry() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("claude")]
+        api.failImport = ["conversations.json"]
+        let router = IntakeRouter(api: api)
+        router.welcomeActive = true
+        router.accept(urls: [try file("conversations.json")], from: .welcome)
+        try await eventually("staged") { router.welcomeDrops.count == 1 }
+        let outcome = await router.commitWelcomeDrop(router.welcomeDrops[0].id)
+        XCTAssertEqual(outcome?.failures.count, 1)
+        XCTAssertEqual(router.welcomeDrops.count, 1)
+    }
+
+    /// R-IB15 — a Dock open that reached the overlay before the gate raised the Welcome is
+    /// moved onto the Welcome, never left as a preview hidden underneath it.
+    func testRaisingTheWelcomeAdoptsASniffAlreadyOnTheOverlay() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("chatgpt", new: 3)]
+        let router = IntakeRouter(api: api)
+        router.accept(urls: [try file("conversations.json")], from: .dock)
+        XCTAssertTrue(router.isOverlayPresented)
+        router.welcomeActive = true
+        XCTAssertFalse(router.isOverlayPresented, "nothing hidden under the Welcome")
+        try await eventually("adopted") { router.welcomeDrops.count == 1 }
+        XCTAssertEqual(router.phase, .idle)
+        XCTAssertTrue(api.importedBanks.isEmpty, "adopting is staging, never importing")
+    }
+
+    /// R-IB22 — a sniff of the export someone was waiting for clears that wait.
+    func testASniffedExportReportsItsVendor() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("chatgpt")]
+        let router = IntakeRouter(api: api)
+        var sniffed: [String] = []
+        router.onVendorSniffed = { sniffed.append($0) }
+        router.accept(urls: [try file("conversations.json")], from: .windowDrop)
+        try await eventually("the preview") { self.isPreview(router) }
+        XCTAssertEqual(sniffed, ["chatgpt"])
+    }
+
+    /// R-IB22 — the export arriving on the Welcome clears its wait too: the
+    /// Welcome's staging is a sniff like any other.
+    func testAnExportStagedOnTheWelcomeReportsItsVendor() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("claude")]
+        let router = IntakeRouter(api: api)
+        var sniffed: [String] = []
+        router.onVendorSniffed = { sniffed.append($0) }
+        router.welcomeActive = true
+        router.accept(urls: [try file("conversations.json")], from: .welcome)
+        try await eventually("staged") { router.welcomeDrops.count == 1 }
+        XCTAssertEqual(sniffed, ["claude"])
+    }
+
+    /// I-b final review, findings 6 and 7 — the Welcome is a door like any other:
+    /// `feedGuard` runs before staging, so a drop under a refused root is
+    /// refused on the Welcome's own line and nothing is sniffed or staged.
+    func testWhileTheWelcomeShowsARefusedRootIsRefusedAndNothingIsSniffed() throws {
+        let api = FakeIntakeAPI()
+        let router = IntakeRouter(api: api, home: dir.appendingPathComponent("home"), env: [:])
+        router.welcomeActive = true
+        let transcript = try file("home/.claude/projects/alpha-project/session.json")
+        XCTAssertEqual(router.accept(urls: [transcript], from: .dock), .refused(.claudeSessions))
+        XCTAssertEqual(router.welcomeDropError, Copy.intakeRefusedClaude)
+        XCTAssertTrue(router.welcomeDrops.isEmpty)
+        XCTAssertFalse(router.isOverlayPresented, "the Welcome says it; no overlay hidden under it")
+        XCTAssertEqual(api.sniffed, [], "nothing under a refused root is ever sent")
+    }
+
+    /// The same, for a folder that CONTAINS a refused root (a visible
+    /// `$CLAUDE_CONFIG_DIR` inside a dropped folder): the walk is pruned and the
+    /// whole drop refused — the Welcome never re-walks what the guard walked.
+    func testWhileTheWelcomeShowsAFolderHoldingARefusedRootIsRefused() throws {
+        let api = FakeIntakeAPI()
+        let home = dir.appendingPathComponent("home")
+        let router = IntakeRouter(api: api, home: home,
+                                  env: ["CLAUDE_CONFIG_DIR": home.appendingPathComponent("claude-config").path])
+        router.welcomeActive = true
+        _ = try file("home/claude-config/projects/alpha-project/session.json")
+        _ = try file("home/Downloads/conversations.json")
+        XCTAssertEqual(router.accept(urls: [home], from: .welcome), .refused(.claudeSessions))
+        XCTAssertTrue(router.welcomeDrops.isEmpty)
+        XCTAssertEqual(api.sniffed, [])
+    }
+
     // MARK: Track Z — the room's door (Z-B5 … Z-B8, Z-B17)
 
     func testTheRoomsRefusalIsTheRoomsToTell_everyOtherDoorShowsIt() throws {

@@ -424,40 +424,6 @@ enum Copy {
         "The API only reaches your most recent ~1,000 saves. A one-off data "
         + "export backfills everything older."
 
-    // MARK: - First-run sheet (G117)
-
-    /// Step 2's caption above the embedded `IntegrationsView` — R4's
-    /// justification made visible: the whole Integrations page is shown, not
-    /// a hand-picked subset, and this line is what tells the reader they
-    /// only need to pick ONE row here, not connect everything before moving
-    /// on.
-    static let onboardingChannelCaption =
-        "Connect one thing to get started — add the rest anytime in Settings → Integrations."
-
-    /// The footer's demo-bank shortcut (Task 5, G117) — skips the remaining
-    /// steps entirely since `POST /banks/demo` ships pre-populated.
-    static let onboardingTryDemoBank = "Try it on a demo bank first"
-    static let onboardingCreatingDemoBank = "Creating demo bank…"
-
-    /// Track P R3 — the first-run toggle's label. Says the exact schedule it
-    /// writes (`daily`, 03:00), because the sentence beneath it is derived
-    /// from what the backend reports and the two must agree on a fresh bank.
-    /// On a bank that ALREADY carries `interval`/`after_import` the toggle
-    /// reads ON and the derived line names THAT mode (R4) — the label is the
-    /// name of the thing the toggle turns on, not a claim about the current
-    /// schedule.
-    static let onboardingRunNightly = "Run a Sleep cycle nightly at 3:00"
-
-    /// One title per `OnboardingStep`, shown in the sheet's header.
-    static func onboardingStepTitle(_ step: OnboardingStep) -> String {
-        switch step {
-        case .identity: return "Who's using Cicada?"
-        case .engine: return "Choose a Sleep engine"
-        case .channel: return "Connect a source"
-        case .sleep: return "Run your first Sleep cycle"
-        }
-    }
-
     // MARK: - Empty states (G117) — `EmptyStateView`'s honest one-sentence copy
 
     /// Graph's own blank canvas — the G117 row's opening evidence — finally

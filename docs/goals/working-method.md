@@ -147,7 +147,8 @@ merges; agents never push.
 ### Next
 
 **G118 slice 2 — the provenance viewer** (item 6 below), then **G93** (item 7), then the bigger rocks.
-(G90's README screenshots were re-taken from the demo bank on 2026-09-06.) Start a track by
+**In parallel, backend-only: G61 phase 2 S0–S2** (item 9 below) — no app surface, no owner ruling needed
+until S3. (G90's README screenshots were re-taken from the demo bank on 2026-09-06.) Start a track by
 writing a brief from its entry and following §2.
 
 ### Done on 2026-09-05, kept here for the reasoning
@@ -204,6 +205,36 @@ here.
 7. **G93 — cross-stream ask.** A question that spans conversations, links, calendar and notes, with
    span citations rather than page citations. Partly a DECIDE row: what "smart" adds over today's
    `/ask` is still open.
+8. **G141 — project timelines** (owner 2026-09-23: track projects with clusters of knowledge and dated
+   ongoing things, "see graphically me today and progress throughout the timeline"). Spec
+   `docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md`. *Why this order inside it:*
+   derive, write, spend. PJ-1's read model is truthful on every existing bank at $0, because the dated data
+   (G17 `due`, G140 `expected_end`, supersede chains, G118 spans) already exists and is simply never drawn
+   together. PJ-3's writers cost nothing either: an agent in the conversation records the owner's own
+   sentence as a dated happening the same day. On a live bank that has never consolidated, that is the
+   fastest route to what he described. Sleep extraction (PJ-7, 💸) is built only after the owner grades
+   derived moments (M1–M3 in the spec). PJ-0 goes first because the timeline is only as rich as the claims
+   Sleep keeps, and today Sleep silently drops every claim on a page-less subject. PJ-4 goes before PJ-7
+   because without Stop-hook turn stamps every Claude Code happening is dated "around" the session's first
+   day. *Why not sooner:* the app half (PJ-5) wants the DS shell, and the rail cell wants a G108 ruling.
+   *Two tracks:* backend (PJ-0 ∥ PJ-1 ∥ PJ-4 now; then PJ-2 ∥ PJ-3 once PJ-1 lands; then PJ-6 after PJ-3),
+   then app (PJ-5 after DS). Every slice runs the §1 bar; PJ-3's merge bar also includes the grep-gate test (every module that
+   iterates closed claims calls `is_record` or `is_event`).
+9. **G61 phase 2 — check the source before asking the person** (owner 2026-09-23; spec
+   `docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`). An inbox question
+   climbs an escalation ladder — Cicada's own public fetch, then an agent the person runs (browser
+   harness, computer use, an app) reporting through `cicada_record_check`, then the person — and only
+   what a source cannot settle reaches them, pre-answered. *Why this order:* S0 fixes a live rail breach
+   (Stage 5.57's `default_summarize` fetches outside `CICADA_ALLOW_CONNECTOR_FETCH`, at 5 s, reading the
+   whole body before slicing it to 1.5 MB), and that must land before any new fetch sits beside it; S1 is additive frontmatter and one small tool; S2
+   is a read-only census (share of pending items by checkability state) — **the gate**: re-measured two
+   weeks after S5 ships the card's source prompt, under 10 % checkable means stop after S5, because Check
+   now and pre-answered cards still pay. S3 (the record, recommend-only) waits on owner decisions D-AC3 (seventh evidence kind
+   `source`) and D-AC5 (the contract change); S4 is rung 1; S5 is the card behind `inbox.sourceCheck`;
+   S6 is the shadow settle, so precision exists before anything settles; S7 (settle, retire, undo)
+   waits on D-AC1 and G116(a); S8 is 💸. The two judge lenses (owner intent and inbox load; rails,
+   safety and cost) and the rulings R-AC1 to R-AC16 are in the spec — read them before re-deriving any
+   default. Workflow agents run on sonnet/haiku unless the owner says otherwise.
 
 **Filed 2026-09-03, unqueued:** **G128** — visits and places as a capture channel, grounded in MemPal
 (arXiv:2502.01801), whose transferable result is that *a text diary beat a spatial index*. First step is
@@ -222,6 +253,13 @@ three shapes judged: lead with *distributed Awake, one Sleep* — the satellite 
 locally and POSTs scrubbed turns to the primary over an overlay network, with a spool, ids still minted
 on the MacBook — then a read-only git mirror for recall. Two owner decisions gate it (thin satellite vs
 full second node; shared bearer vs per-device tokens), so it is DECIDE before APPLY.
+
+**Filed 2026-09-23, queued (item 8):** **G141** — project timelines. Happenings and milestones are claims:
+`happened` / `milestone`, with `status`, `target`, `participants` and `date_basis`. A done happening is born
+closed, so no current-belief reader changes. A quiet ongoing thread asks (`followup`) instead of decaying. The
+Projects page is list → project → Reader, with a 96 pt band whose Today marker is `textPrimary`, never the
+accent; its dots stay neutral unless the owner picks data hues. Three DECIDEs are recorded on the row: the
+rail cell (G108), the band's colour, and holding page-less claims in the pending store.
 
 Then the standing bigger rocks, unchanged: **G81 → G95** (contacts, then meetings and human-to-human
 conversations — the largest gap between the vision and the code), **G112 steps 2–4** (portable
@@ -262,3 +300,8 @@ lints in `SettingsEntryPointTests`, because neither failure mode is unit testabl
   is a parser decision.
 - **The inbox asks like Claude Code asks** (G115). One question object per item, the cause on the card,
   Sleep's proposal marked *(Recommended)*, never auto-applied.
+- **Cicada never asks an agent to do what it may not do itself** (G61 phase 2, D-AC2). The ToS rail binds
+  Cicada's own bytes; an agent in the person's own session is the person reading (the G140 precedent).
+  Cicada never spawns, schedules or drives a browsing agent, never relays a credential, never searches
+  for a person, and gives no `Check first:` line for a host it refuses to fetch (`_excluded_media`,
+  `papers.never_scraped`).

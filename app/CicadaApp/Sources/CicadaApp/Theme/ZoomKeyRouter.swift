@@ -28,7 +28,7 @@ enum ChromeZoomAction {
 /// (idempotent, guarded by `zoomMonitor == nil`, same pattern as
 /// `enableFirstMouseAcceptance`) that calls this and returns the event
 /// unhandled (`nil` result here) for everything else, so no other shortcut
-/// in the app (⌘1–6, ⌘K, ⌘F, ⌘N, ⌘[) is ever intercepted.
+/// in the app (⌘1–7, ⌘K, ⌘F, ⌘N, ⌘[) is ever intercepted.
 enum ZoomKeyRouter {
     static func action(characters: String, modifiers: NSEvent.ModifierFlags) -> ChromeZoomAction? {
         // Strip caps-lock/function/etc. noise so only the modifiers that
