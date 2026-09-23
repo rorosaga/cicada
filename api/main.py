@@ -29,6 +29,7 @@ from api.routers import (
     maintenance,
     nudges,
     origins,
+    remote,
     search,
     settings as settings_router,
     sleep,
@@ -123,9 +124,16 @@ async def lifespan(app: FastAPI):
     sleep_scheduler.register_job(scheduler, settings, cfg)
     app.state.scheduler = scheduler
 
+    # G135 — the remote connector's own listener (127.0.0.1:8765), started only
+    # when the person turned "From anywhere" on. Never raises into boot (R-R21).
+    from api.remote import listener as remote_listener
+
+    await remote_listener.start_if_enabled()
+
     try:
         yield
     finally:
+        await remote_listener.LISTENER.stop()
         scheduler.shutdown(wait=False)
 
 
@@ -178,3 +186,4 @@ app.include_router(maintenance.router, tags=["maintenance"])
 app.include_router(connections.router, tags=["connections"])
 app.include_router(sync.router, tags=["sync"])
 app.include_router(consumption.router, tags=["consumption"])
+app.include_router(remote.router, tags=["remote"])
