@@ -6,11 +6,13 @@ import hashlib
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from api import config, main
 from api.services import bank_index, evidence, folder_source as fs, markdown_parser, media_ingestor, papers
-from api.services.claims import parse_claims
+from api.services.claims import parse_claims, write_claims
+from api.services.graph_builder import build_graph
 
 REFERENCES = """# References
 
@@ -331,3 +333,75 @@ def test_an_ordinary_link_is_still_a_candidate():
 
     assert papers.never_scraped("https://example.com/post") is False
     assert link_enrichment._excluded_media("https://example.com/post", "url") is False
+
+
+def test_paper_claims_say_general_and_keep_the_ids_they_always_had(bank):
+    """R-FX4/R-FX5 — the context is the house word; the id still names the slot."""
+    folder = _folder(bank)
+    _sync(bank, folder, [_file("REFERENCES.md", REFERENCES)])
+    claims = _claims(bank, "media-arxiv-2401-00001")
+    assert {c.context for c in claims} == {"general"}
+    note = "the architecture alpha-project builds on"
+    saved = {c.object: c for c in claims if c.predicate == "saved-because"}
+    assert saved[note].id == papers.claim_id(
+        "media-arxiv-2401-00001", "saved-because", note, "owner", f"folder:{folder['id']}:retrieval")
+
+
+def test_editing_the_second_sections_note_supersedes_its_own_claim_not_its_sibling(bank):
+    """R-FX5 — with every note in `general`, only the slot tells two sections apart."""
+    folder = _folder(bank)
+    _sync(bank, folder, [_file("REFERENCES.md", REFERENCES)])
+    edited = REFERENCES.replace("reused for the eval baseline", "the baseline we compare against")
+    _sync(bank, folder, [_file("REFERENCES.md", edited, mtime=1_756_100_000.0)])
+    saved = {c.object: c for c in _claims(bank, "media-arxiv-2401-00001") if c.predicate == "saved-because"}
+    old, new = saved["reused for the eval baseline"], saved["the baseline we compare against"]
+    assert old.valid_to and old.superseded_by == new.id and new.valid_to is None
+    assert saved["the architecture alpha-project builds on"].valid_to is None
+
+
+def test_a_sync_repairs_a_pre_f1_context_on_a_claim_it_re_reads(bank):
+    """R-FX6(b) — the writer's context wins on an id it already has."""
+    folder = _folder(bank)
+    _sync(bank, folder, [_file("REFERENCES.md", REFERENCES)])
+    page = bank / "entities" / "media-arxiv-2401-00001.md"
+    parsed = markdown_parser.parse(page)
+    legacy = parse_claims(parsed.body, strict=True)
+    for c in legacy:
+        if c.predicate == "saved-because":
+            c.context = f"folder:{folder['id']}:retrieval"
+    markdown_parser.write(page, parsed.frontmatter, write_claims(parsed.body, legacy))
+    _sync(bank, folder, [_file("REFERENCES.md", "Intro.\n\n" + REFERENCES, mtime=1_756_100_000.0)])
+    assert {c.context for c in _claims(bank, "media-arxiv-2401-00001")} == {"general"}
+
+
+def test_a_folder_sync_puts_each_paper_by_the_project_that_cites_it(bank):
+    """R-FX7 — the edges exist without waiting for a Sleep cycle, and no satellite."""
+    markdown_parser.write(bank / "entities" / "retrieval.md", {"name": "Retrieval", "type": "concept"}, "## Summary\nx")
+    folder = _folder(bank)
+    report = _sync(bank, folder, [_file("REFERENCES.md", REFERENCES)])
+    assert "graph_edges.yaml" in report["paths"]
+    edges = yaml.safe_load((bank / "graph_edges.yaml").read_text(encoding="utf-8"))["edges"]
+    pairs = {(e["source"], e["label"], e["target"]) for e in edges}
+    assert ("media-arxiv-2401-00001", "cited-in", folder["project_id"]) in pairs
+    assert ("media-arxiv-2401-00001", "about", "retrieval") in pairs
+    bank_index.invalidate()
+    graph = build_graph(bank)
+    assert any(l.source == "media-arxiv-2401-00001" and l.target == folder["project_id"] for l in graph.links)
+    assert not any(n.is_facet for n in graph.nodes)
+
+
+def test_a_sync_that_changes_no_claim_leaves_the_edges_alone(bank):
+    folder = _folder(bank)
+    _sync(bank, folder, [_file("REFERENCES.md", REFERENCES)])
+    edges = bank / "graph_edges.yaml"
+    before = edges.read_bytes()
+    report = _sync(bank, folder, [_file("REFERENCES.md", REFERENCES, mtime=1_756_100_000.0)])
+    assert "graph_edges.yaml" not in report["paths"] and edges.read_bytes() == before
+
+
+def test_a_deleted_file_takes_its_papers_edges_with_it(bank):
+    folder = _folder(bank)
+    _sync(bank, folder, [_file("REFERENCES.md", REFERENCES)])
+    _sync(bank, folder, [], deleted=["REFERENCES.md"])
+    edges = yaml.safe_load((bank / "graph_edges.yaml").read_text(encoding="utf-8"))["edges"]
+    assert not any(e["source"] in ("media-arxiv-2401-00001", BETA) for e in edges)

@@ -359,25 +359,39 @@ enum CicadaTheme {
     /// ~12 files as 10 pt monospaced semibold with 1.2 tracking).
     static var labelFont: Font { font(size: 10, weight: .semibold, design: .monospaced) }
 
-    // MARK: - Display + quote faces (G137, spec R-M3; plan R-M15)
-    /// Instrument Serif is a display cut: its hairlines break up under ~22 pt.
+    // MARK: - Display + quote faces (G137, spec R-M3; F1 R-FX12)
+    /// Display is a role, not a face: page titles, onboarding headlines,
+    /// empty-state titles — never a number, never body text. The floor keeps
+    /// the role honest (a 13 pt "display" title is a heading), and
+    /// `FontLiteralLintTests` fails a literal below it.
     static let displayMinimumSize: CGFloat = 22
 
-    /// Page titles, onboarding headlines, empty-state titles — never a
-    /// number, never body text. Scaled by `uiScale` like every token, and
-    /// clamped to `displayMinimumSize` so a misuse degrades to legible, not
-    /// spindly (`FontLiteralLintTests` also fails a literal below it). The
-    /// ONE custom-font call in the app: the lint bans it everywhere else, so
-    /// a second face cannot arrive unnoticed. An unregistered face falls back
-    /// to SF (see `CicadaFonts`).
+    /// SF Pro Display — the system face at display sizes (macOS picks the
+    /// Display cut itself above 20 pt): semibold for a title, regular italic
+    /// for a headline's quieter second line. The owner found the bundled
+    /// Instrument Serif too ornate (2026-09-23: "Change it to something more
+    /// minimal"), so nothing is bundled or registered and the API every caller
+    /// used is unchanged. Scaled by `uiScale` like every token and clamped to
+    /// `displayMinimumSize`.
     static func displayFont(size: CGFloat, italic: Bool = false) -> Font {
-        .custom(italic ? CicadaFonts.displayItalic : CicadaFonts.displayRegular,
-                size: scaled(max(size, displayMinimumSize)))
+        let resolved = scaled(max(size, displayMinimumSize))
+        return italic
+            ? Font.system(size: resolved, weight: .regular, design: .default).italic()
+            : Font.system(size: resolved, weight: .semibold, design: .default)
+    }
+
+    /// A roman display title sits 2 % tighter than SF's own display spacing —
+    /// the difference between a system header and a set headline. `Font`
+    /// cannot carry tracking, so each roman call site pairs
+    /// `.font(displayFont(size: n))` with `.tracking(displayTracking(size: n))`;
+    /// `FontLiteralLintTests` counts the pairs. Italic keeps SF's spacing.
+    static func displayTracking(size: CGFloat) -> CGFloat {
+        -0.02 * scaled(max(size, displayMinimumSize))
     }
 
     /// The person's own words — provenance excerpts and quoted snippets. New
     /// York italic ships with macOS (zero bundle cost) and is optically sized
-    /// for text, where Instrument Serif is not.
+    /// for text.
     static var quoteFont: Font { quoteFont(size: 13) }
     static func quoteFont(size: CGFloat) -> Font { font(size: size, design: .serif).italic() }
 

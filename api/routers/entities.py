@@ -41,6 +41,7 @@ from api.services import (
     repo_context,
     telemetry,
 )
+from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
@@ -192,7 +193,9 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
         return None
 
     description = None
-    match = _SUMMARY_RE.search(body or "")
+    # F1 R-FX8 — the claims fence follows the last section, so on a
+    # Summary-only page (a paper's) it would ride into the description.
+    match = _SUMMARY_RE.search(strip_claims_block(body or ""))
     if match:
         text = match.group(1).strip()
         if text:

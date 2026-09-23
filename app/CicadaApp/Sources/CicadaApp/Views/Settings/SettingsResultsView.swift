@@ -17,6 +17,7 @@ struct SettingsResultsView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(Copy.resultsFor(query))
                     .font(CicadaTheme.displayFont(size: 24))
+                    .tracking(CicadaTheme.displayTracking(size: 24))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()

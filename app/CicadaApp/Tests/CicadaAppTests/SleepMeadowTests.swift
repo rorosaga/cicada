@@ -12,11 +12,15 @@ final class SleepMeadowTests: XCTestCase {
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.hasPrefix("//") }
     }
 
-    /// Z-B12 — Instrument Serif for the lead, New York italic for the tail.
+    /// Z-B12, amended by F1 R-FX13 — the display face (SF Pro Display
+    /// semibold, tracked) for the lead, its italic for the tail. The owner asked
+    /// for a minimal sans, so the New York quote face left the sentence too.
     func test_theSentenceSpeaksInMeadowsFaces() throws {
         let code = try sleepFile("RoomSentence.swift")
         XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayFont(size: Self.leadSize)") })
-        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.quoteFont(size: Self.tailSize)") })
+        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayTracking(size: Self.leadSize)") })
+        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayFont(size: Self.tailSize, italic: true)") })
+        XCTAssertFalse(code.contains { $0.contains("quoteFont") }, "the sentence left the serif (R-FX13)")
         XCTAssertFalse(code.contains { $0.contains("design: .serif") }, "the New York stand-in part a used until M1")
         XCTAssertGreaterThanOrEqual(RoomSentenceView.leadSize, CicadaTheme.displayMinimumSize)
     }

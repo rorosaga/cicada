@@ -594,7 +594,7 @@ struct SleepView: View {
     /// frames, never the room's geometry.
     ///
     /// Track Z Z2 (R-Z5): the bubble that floated above the room is gone. The
-    /// worm speaks in one fixed slot directly under it — the serif sentence —
+    /// worm speaks in one fixed slot directly under it — the display-face sentence —
     /// then the one control and the whisper line, all centred on the room.
     ///
     /// Track Z Z3 (R-Z6): this card IS the default view. The readout, the

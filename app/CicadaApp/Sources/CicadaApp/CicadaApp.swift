@@ -92,8 +92,6 @@ struct CicadaApp: App {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
 
-        // G137 R-M3: before any view asks for `CicadaTheme.displayFont`.
-        CicadaFonts.registerBundled()
         // G139 final review: the System-appearance observer lives at app
         // scope, not on one window — see `ThemeStore.observeSystemAppearance`.
         ThemeStore.shared.observeSystemAppearance()

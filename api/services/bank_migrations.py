@@ -26,6 +26,8 @@ from api.services.decay_migration import backfill_decay_classes
 from api.services.decay_watermark_migration import backfill_decay_watermarks
 from api.services.export_origin_migration import backfill_export_origins
 from api.services.inbox_migration import dedup_open_items, migrate_to_inbox
+from api.services.paper_context_migration import repair_paper_contexts
+from api.services.placeholder_summary_migration import rewrite_placeholder_summaries
 
 
 def run_bank_migrations(memory_path) -> dict:
@@ -33,7 +35,8 @@ def run_bank_migrations(memory_path) -> dict:
 
     ``{"moved": int, "deduped": int, "classed": {"media": int, "skills": int,
     "restored": int}, "watermarked": {"entities": int, "claims": int},
-    "originated": int}``.
+    "originated": int, "paper_contexts": {"pages": int, "claims": int,
+    "edges": bool}, "placeholders": int}``.
     Logs only when something actually changed, so a no-op re-run on every
     bank switch is silent.
     """
@@ -77,10 +80,29 @@ def run_bank_migrations(memory_path) -> dict:
     if originated:
         logger.info(f"Stamped export origin on {originated} imported episode(s)")
 
+    # F1 (R-FX6): one-time move of folder-paper claims off the pre-F1
+    # `folder:<id>:<section>` context — the junk graph satellites — plus their
+    # edges, so each paper sits by the project that cites it.
+    paper_contexts = repair_paper_contexts(memory_path)
+    if paper_contexts["pages"] or paper_contexts["edges"]:
+        logger.info(
+            f"Repaired paper contexts: {paper_contexts['claims']} claim(s) on "
+            f"{paper_contexts['pages']} page(s); edges projected: {paper_contexts['edges']}"
+        )
+
+    # F1 (R-FX10): one-time real first line for the pages `agentic_write` once
+    # opened with `<name> — created via agentic write.`, from their own open
+    # claims — no LLM.
+    placeholders = rewrite_placeholder_summaries(memory_path)
+    if placeholders:
+        logger.info(f"Wrote a first Summary for {placeholders} placeholder page(s)")
+
     return {
         "moved": moved,
         "deduped": deduped,
         "classed": classed,
         "watermarked": watermarked,
         "originated": originated,
+        "paper_contexts": paper_contexts,
+        "placeholders": placeholders,
     }

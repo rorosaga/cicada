@@ -2,7 +2,7 @@ import XCTest
 @testable import CicadaApp
 
 /// Live check 2026-09-23 (Z-B4) — the Sleep page's title was still SF 20
-/// semibold after G137 R-M16 moved every page title to the display serif,
+/// semibold after G137 R-M16 moved every page title to the display face,
 /// because it spelled its own `Text(…).font(titleFont)` instead of sharing
 /// `PageHeader`'s. One title view now, and both draw through it.
 final class PageTitleTests: XCTestCase {

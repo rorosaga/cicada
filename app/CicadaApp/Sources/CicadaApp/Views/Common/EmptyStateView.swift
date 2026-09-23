@@ -21,7 +21,7 @@ import UniformTypeIdentifiers
 /// frame by the owner's brief, kept apart by size and opacity). The words sit
 /// on a `surface` card, never directly on paint, so a grass corner reaching
 /// under them in a short window is behind a card, not behind a sentence. The
-/// title is the display serif; the one action is the page's one prominent
+/// title is the display face; the one action is the page's one prominent
 /// action, and it lifts on hover because it opens something.
 struct EmptyStateView: View {
     let title: String
@@ -48,6 +48,7 @@ struct EmptyStateView: View {
             VStack(spacing: CicadaTheme.spacingSM) {
                 Text(title)
                     .font(CicadaTheme.displayFont(size: 26))
+                    .tracking(CicadaTheme.displayTracking(size: 26))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .multilineTextAlignment(.center)
                 Text(message)

@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The detail pane's header (design §2.1): a section shows its title in the
-/// display serif with its subtitle beneath; a sub-page shows `‹ Parent /
+/// display face (SF Pro Display semibold, tracked — F1 R-FX12) with its
+/// subtitle beneath; a sub-page shows `‹ Parent /
 /// Title`, the chevron and parent being the way back (⌘[ — a visible
 /// button's shortcut, never a hidden one; R-O5). The header is its section's
 /// landing anchor (R-O14).
@@ -33,12 +34,14 @@ struct SettingsDetailHeader: View {
                             .foregroundStyle(CicadaTheme.textTertiary)
                         Text(subpage.title)
                             .font(CicadaTheme.displayFont(size: 24))
+                            .tracking(CicadaTheme.displayTracking(size: 24))
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .accessibilityAddTraits(.isHeader)
                     }
                 } else {
                     Text(section.title)
                         .font(CicadaTheme.displayFont(size: 24))
+                        .tracking(CicadaTheme.displayTracking(size: 24))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .accessibilityAddTraits(.isHeader)
                     Text(section.subtitle)

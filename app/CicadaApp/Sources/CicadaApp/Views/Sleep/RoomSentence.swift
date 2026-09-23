@@ -54,7 +54,7 @@ struct SentenceLine: Hashable {
     /// The service the tail names, if any, drawn beside it as its mark.
     var mark: SentenceMark? = nil
 
-    /// R-Z13's two budgets: one line of 30 pt serif, two of 22 pt italic.
+    /// R-Z13's two budgets: one line of the 30 pt display face, two of 22 pt italic.
     static let maxLead = 40
     static let maxTail = 80
 
@@ -70,8 +70,8 @@ struct SentenceRun: Equatable {
 }
 
 /// The lead cut into the runs the view draws differently — the numeral in SF
-/// rounded digits (never serif digits), the qualifier in the tone's colour,
-/// everything else in the serif. The runs always concatenate back to `lead`.
+/// rounded digits (never the display face's digits), the qualifier in the
+/// tone's colour, everything else in the display face. The runs always concatenate back to `lead`.
 func sentenceRuns(_ line: SentenceLine) -> [SentenceRun] {
     var runs = [SentenceRun(text: line.lead, kind: .plain)]
     func carve(_ needle: String?, as kind: SentenceRunKind) {
@@ -288,9 +288,11 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
 /// — so a longer tail, an answer or no tail at all never reflows what sits
 /// below it.
 ///
-/// Meadow's faces (Z10, Z-B12): the lead in Instrument Serif at 30 pt, shrinking
-/// only to the display floor; the tail in New York italic at 22 pt — two lines
-/// of text, which is what the quote face is optically sized for.
+/// Meadow's faces (Z10, Z-B12; F1 R-FX13): the lead in the display face — SF
+/// Pro Display semibold at 30 pt with `displayTracking`, shrinking only to the
+/// display floor; the tail in the display face's italic (SF italic) at 22 pt —
+/// the owner asked for a minimal sans, so the sentence no longer uses the
+/// quote face.
 struct RoomSentenceView: View {
     static let leadSize: CGFloat = 30
     static let tailSize: CGFloat = 22
@@ -348,6 +350,7 @@ struct RoomSentenceView: View {
             VStack(spacing: CicadaTheme.spacingXS) {
                 leadText(shown)
                     .font(CicadaTheme.displayFont(size: Self.leadSize))
+                    .tracking(CicadaTheme.displayTracking(size: Self.leadSize))
                     .lineLimit(1)
                     .minimumScaleFactor(Self.leadMinimumScale)
                 tailView(shown)
@@ -433,7 +436,7 @@ struct RoomSentenceView: View {
     @ViewBuilder
     private func tailText(_ line: SentenceLine) -> some View {
         let tail = line.tail ?? " "
-        let tailFont = CicadaTheme.quoteFont(size: Self.tailSize)
+        let tailFont = CicadaTheme.displayFont(size: Self.tailSize, italic: true)
         let tailColor = color(line.tailTone, plain: CicadaTheme.textSecondary)
         if let action = line.action, line.tail != nil {
             let link = tailLink(tail)

@@ -138,7 +138,12 @@ def _find_subject_candidates(memory_path: Path, subject: str, limit: int = 5) ->
 
 
 def _ensure_subject_page(
-    memory_path: Path, subject: str, predicate: str, source_episode: str | None
+    memory_path: Path,
+    subject: str,
+    predicate: str,
+    source_episode: str | None,
+    *,
+    summary: str = "",
 ) -> tuple[Path, str]:
     """Resolve the subject's entity page, creating a minimal v2 stub if absent.
 
@@ -146,6 +151,13 @@ def _ensure_subject_page(
     Sleep cycle's conflict_resolver uses (``layout_version: 2`` +
     ``entity_body.compose_body_v2``), so an agent-created page is
     indistinguishable in structure from a Sleep-created one.
+
+    ``summary`` is the new page's first line — ``write_claim`` passes the claim
+    being written (F1 R-FX9); the old ``— created via agentic write.``
+    placeholder left pages with nothing but that line and, under it, the claims
+    fence. It is used only when the page is created: a later claim never
+    rewrites a Summary, and Sleep's prose takes over once the subject is
+    consolidated.
     """
     entities_dir = memory_path / "entities"
     entities_dir.mkdir(parents=True, exist_ok=True)
@@ -186,7 +198,7 @@ def _ensure_subject_page(
         "layout_version": 2,
     }
     body = entity_body.compose_body_v2(
-        summary=f"{display_name} — created via agentic write.",
+        summary=summary or f"{display_name}.",
         key_facts=[],
         history_entries=[],
         related=[],
@@ -392,8 +404,13 @@ def write_claim(
                     ),
                 }
 
+        # One text for both the claim and, on a page this write creates, its
+        # first Summary line (F1 R-FX9) — so the page opens with a sentence
+        # about what the agent actually said, never a placeholder.
+        claim_text = text or f"{subject_raw} {predicate_raw} {object_raw}"
         page, entity_id = _ensure_subject_page(
-            memory_path, subject_raw, predicate_raw, source_episode
+            memory_path, subject_raw, predicate_raw, source_episode,
+            summary=entity_body.summary_line(claim_text, predicate=predicate_raw),
         )
 
         predicate_slug = sanitize_id(predicate_raw) or "relates-to"
@@ -426,7 +443,7 @@ def write_claim(
             ]
         new_claim = Claim(
             id=claim_id,
-            text=text or f"{subject_raw} {predicate_raw} {object_raw}",
+            text=claim_text,
             subject=entity_id,
             predicate=predicate_slug,
             object=object_raw,

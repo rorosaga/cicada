@@ -68,7 +68,7 @@ struct ContextLegend: View {
                     .fill(CicadaTheme.contextColor(context))
                     .frame(width: 9, height: 9)
                     .opacity(isOn ? 1 : 0.35)
-                Text(context)
+                Text(ClaimContext.displayName(context))
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(isOn ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                 Spacer()

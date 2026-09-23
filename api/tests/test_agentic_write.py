@@ -507,3 +507,24 @@ def test_write_claim_without_origin_is_unchanged(tmp_path):
     write_claim(tmp_path, "media-a-recipe", "relates-to", "cooking", observer="rodrigo")
     claims = parse_claims(markdown_parser.parse(entities / "media-a-recipe.md").body)
     assert [c.origin for c in claims if c.predicate == "relates-to"] == ["manual_edit"]
+
+
+def test_a_new_page_opens_with_a_sentence_from_the_claim_it_was_created_for(tmp_path):
+    """F1 R-FX9 — no placeholder; the fence follows the Summary as on every page."""
+    from api.services.claims import strip_claims_block
+
+    agentic_write.write_claim(tmp_path, "alpha-project", "depends-on", "sqlite-vec", observer="agent")
+    body = markdown_parser.parse(tmp_path / "entities" / "alpha-project.md").body
+    assert "created via agentic write" not in body
+    assert strip_claims_block(body) == "## Summary\nAlpha-project depends on sqlite-vec."
+    assert body.rstrip().endswith("`" * 3)
+
+
+def test_the_agents_own_claim_text_wins_and_a_later_claim_never_rewrites_it(tmp_path):
+    from api.services.claims import strip_claims_block
+
+    agentic_write.write_claim(tmp_path, "Alpha Project", "runs-on", "a Raspberry Pi", observer="agent",
+                              text="Alpha Project runs on a Raspberry Pi")
+    agentic_write.write_claim(tmp_path, "alpha-project", "uses", "sqlite-vec", observer="agent")
+    body = markdown_parser.parse(tmp_path / "entities" / "alpha-project.md").body
+    assert strip_claims_block(body) == "## Summary\nAlpha Project runs on a Raspberry Pi."

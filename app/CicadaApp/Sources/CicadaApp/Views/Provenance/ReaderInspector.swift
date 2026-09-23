@@ -98,6 +98,7 @@ struct ReaderInspector: View {
                     // conversation's name, set like a page title.
                     Text(title)
                         .font(CicadaTheme.displayFont(size: 22))
+                        .tracking(CicadaTheme.displayTracking(size: 22))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(2)
                     if !meta.isEmpty {
