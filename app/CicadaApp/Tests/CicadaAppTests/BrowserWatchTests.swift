@@ -35,9 +35,9 @@ final class BrowserWatchPolicyTests: XCTestCase {
 
     /// The light's precedence, stated as the questions it answers in order.
     func testStatePrecedence() {
-        func state(exists: Bool = true, blocked: Bool = false, syncing: Bool = false,
+        func state(exists: Bool = true, enabled: Bool = true, blocked: Bool = false, syncing: Bool = false,
                    armed: Bool = true, upToDate: Bool = true, failed: Bool = false) -> BrowserWatchState {
-            BrowserWatchPolicy.state(fileExists: exists, blocked: blocked, syncing: syncing,
+            BrowserWatchPolicy.state(fileExists: exists, enabled: enabled, blocked: blocked, syncing: syncing,
                                      armed: armed, upToDate: upToDate, lastSyncFailed: failed)
         }
         XCTAssertEqual(state(), .watching)
@@ -60,6 +60,46 @@ final class BrowserWatchPolicyTests: XCTestCase {
         XCTAssertFalse(BrowserWatcher.isWatched("safari-tabs"))
         XCTAssertFalse(BrowserWatcher.isWatched("notes"))
         XCTAssertTrue(BrowserWatcher.isWatched("chrome-bookmarks"))
+    }
+
+    /// Track I T1 (design §4.3, F1) — first launch used to read Chrome before
+    /// anyone was asked. A browser nobody turned on is never read, however old
+    /// or new its file is.
+    func testNothingSyncsBeforeTheChannelIsTurnedOn() {
+        XCTAssertFalse(BrowserWatchPolicy.shouldSync(current: a, lastSynced: nil, enabled: false),
+                       "F1: the never-synced case must not read without consent")
+        XCTAssertTrue(BrowserWatchPolicy.shouldSync(current: a, lastSynced: nil, enabled: true))
+        XCTAssertFalse(BrowserWatchPolicy.shouldSync(current: nil, lastSynced: nil, enabled: true),
+                       "a missing file is still never a sync")
+    }
+
+    /// R-IA2 — an install that already synced a browser keeps it; an explicit
+    /// off outranks that migration.
+    func testAStoredSignatureCountsAsOnAndAnExplicitOffWins() {
+        XCTAssertTrue(BrowserWatchPolicy.isEnabled(flag: nil, hasSignature: true))
+        XCTAssertFalse(BrowserWatchPolicy.isEnabled(flag: nil, hasSignature: false))
+        XCTAssertTrue(BrowserWatchPolicy.isEnabled(flag: true, hasSignature: false))
+        XCTAssertFalse(BrowserWatchPolicy.isEnabled(flag: false, hasSignature: true))
+        XCTAssertEqual(BrowserWatchPolicy.enabledKey("chrome-bookmarks"),
+                       "cicada.browserWatch.enabled.chrome-bookmarks")
+    }
+
+    /// R-IA3 — present but not turned on reads Off, never Behind.
+    func testAPresentBrowserNobodyTurnedOnReadsOff() {
+        func state(exists: Bool = true, enabled: Bool, syncing: Bool = false) -> BrowserWatchState {
+            BrowserWatchPolicy.state(fileExists: exists, enabled: enabled, blocked: false, syncing: syncing,
+                                     armed: true, upToDate: false, lastSyncFailed: false)
+        }
+        XCTAssertEqual(state(enabled: false), .off)
+        XCTAssertEqual(state(exists: false, enabled: false), .absent, "an absent browser is absent, on or off")
+        XCTAssertEqual(state(enabled: false, syncing: true), .syncing, "what is happening now wins")
+        XCTAssertEqual(state(enabled: true), .stale)
+        XCTAssertTrue(BrowserWatchState.off.isHealthy, "not turned on is not a fault")
+    }
+
+    func testEveryLightStateHasItsOwnTitle() {
+        let titles = BrowserWatchState.allCases.map(BrowserStatusLight.title(for:))
+        XCTAssertEqual(Set(titles).count, titles.count)
     }
 }
 
@@ -107,6 +147,8 @@ final class BrowserWatcherTests: XCTestCase {
         )
     }
 
+    private func turnOn() { defaults.set(true, forKey: BrowserWatchPolicy.enabledKey("chrome-bookmarks")) }
+
     /// Waits for a condition rather than sleeping a fixed time, so the test is
     /// neither flaky nor slower than it has to be.
     private func eventually(
@@ -125,6 +167,7 @@ final class BrowserWatcherTests: XCTestCase {
     /// as "works in testing, broken in life". This asserts the second and third
     /// saves are still seen.
     func testTheWatchSurvivesRepeatedAtomicReplaces() async throws {
+        turnOn()
         try atomicallyReplace(with: "{\"one\": 1}")
         var synced: [String] = []
         let watcher = makeWatcher { synced.append($0) }
@@ -144,9 +187,11 @@ final class BrowserWatcherTests: XCTestCase {
     }
 
     /// A browser that has never been synced is read on launch, even though
-    /// nothing changed while the app was running. This is the case the owner's
-    /// own machine was in: Chrome listed, never once read.
-    func testCatchUpSyncsABrowserThatWasNeverSynced() async throws {
+    /// nothing changed while the app was running — once it is turned on
+    /// (Track I T1). This is the case the owner's own machine was in: Chrome
+    /// listed, never once read.
+    func testCatchUpSyncsATurnedOnBrowserThatWasNeverSynced() async throws {
+        turnOn()
         try atomicallyReplace(with: "{}")
         var synced: [String] = []
         let watcher = makeWatcher { synced.append($0) }
@@ -159,6 +204,7 @@ final class BrowserWatcherTests: XCTestCase {
     /// The signature is only recorded after a sync succeeds, so a relaunch does
     /// not re-read a file nothing has touched — and the light says `watching`.
     func testASecondLaunchDoesNotResyncAnUnchangedFile() async throws {
+        turnOn()
         try atomicallyReplace(with: "{}")
         var first: [String] = []
         let watcher = makeWatcher { first.append($0) }
@@ -186,6 +232,74 @@ final class BrowserWatcherTests: XCTestCase {
         XCTAssertEqual(watcher.state(for: "chrome-bookmarks"), .absent)
         XCTAssertTrue(synced.isEmpty)
         XCTAssertTrue(BrowserWatchState.absent.isHealthy, "a browser you don't use is not a fault")
+        watcher.stop()
+    }
+
+    /// F1, end to end: the file exists, nobody turned the browser on, the app
+    /// launches and the file changes — nothing is read, and the light says Off.
+    func testFirstLaunchReadsNoBrowserBeforeConsent() async throws {
+        try atomicallyReplace(with: "{}")
+        var synced: [String] = []
+        let watcher = makeWatcher { synced.append($0) }
+        watcher.start(store: store)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(synced.isEmpty, "catch-up read a browser nobody turned on")
+        XCTAssertEqual(watcher.state(for: "chrome-bookmarks"), .off)
+
+        try atomicallyReplace(with: String(repeating: "x", count: 40))
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertTrue(synced.isEmpty, "the file-change path is gated too")
+        watcher.stop()
+    }
+
+    /// A Sync now is the consent: it turns the browser on, syncs ONCE through
+    /// the watcher (so the signature is recorded), and the watch is live after.
+    func testSyncNowTurnsTheBrowserOnSyncsOnceAndKeepsWatching() async throws {
+        try atomicallyReplace(with: "{}")
+        var synced: [String] = []
+        let watcher = makeWatcher { synced.append($0) }
+        watcher.start(store: store)
+        let line = try await watcher.syncNow("chrome-bookmarks")
+        XCTAssertEqual(line, "ok")
+        XCTAssertEqual(synced, ["chrome-bookmarks"])
+        XCTAssertEqual(defaults.object(forKey: BrowserWatchPolicy.enabledKey("chrome-bookmarks")) as? Bool, true)
+        try await eventually("the light to settle") { watcher.state(for: "chrome-bookmarks") == .watching }
+
+        try atomicallyReplace(with: String(repeating: "y", count: 50))
+        try await eventually("the watch to pick up the next save") { synced.count == 2 }
+        watcher.stop()
+    }
+
+    /// R-IA2's migration: an install that synced before the gate existed has a
+    /// signature and no flag, and keeps syncing.
+    func testAnInstallThatSyncedBeforeTheGateKeepsWatching() async throws {
+        try atomicallyReplace(with: "{}")
+        turnOn()
+        var first: [String] = []
+        let watcher = makeWatcher { first.append($0) }
+        watcher.start(store: store)
+        try await eventually("the first sync") { !first.isEmpty }
+        watcher.stop()
+        defaults.removeObject(forKey: BrowserWatchPolicy.enabledKey("chrome-bookmarks"))
+
+        var second: [String] = []
+        let relaunched = makeWatcher { second.append($0) }
+        relaunched.start(store: store)
+        try atomicallyReplace(with: String(repeating: "z", count: 60))
+        try await eventually("a signature alone keeps the watch on") { !second.isEmpty }
+        relaunched.stop()
+    }
+
+    /// The `+` panel's all-folders import calls `enable`, which catches up.
+    func testEnableCatchesUp() async throws {
+        try atomicallyReplace(with: "{}")
+        var synced: [String] = []
+        let watcher = makeWatcher { synced.append($0) }
+        watcher.start(store: store)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertTrue(synced.isEmpty)
+        watcher.enable("chrome-bookmarks")
+        try await eventually("enable's catch-up") { synced == ["chrome-bookmarks"] }
         watcher.stop()
     }
 }

@@ -74,6 +74,9 @@ struct SourceLiveness: Equatable {
         if watch == .syncing { return .init(state: .syncing, detail: nil) }
         if watch == .stale { return .init(state: .behind, detail: nil) }
         if watch == .watching { return .init(state: .watching, detail: nil) }
+        // R-IA3 (Track I T1): a browser present but not turned on "syncs when
+        // you ask", which is literally true — so no new liveness state.
+        if watch == .off { return .init(state: .syncsOnDemand, detail: nil) }
         // `harness` is set only for the `harness:<name>` family — hook capture.
         // A chat export is `kind: .harness` with `harness == nil`, and lands on
         // `.imported` below, which is exactly the standing-vs-one-shot line

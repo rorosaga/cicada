@@ -405,6 +405,7 @@ enum Copy {
         case .tiktok: return tiktokStepPath
         case .linkedin: return linkedinStepPath
         case .redditExport: return redditExportStepPath
+        case .gemini: return geminiStepPath
         }
     }
 

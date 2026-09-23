@@ -106,4 +106,27 @@ final class CopyConstantsTests: XCTestCase {
             }
         }
     }
+
+    /// Track I T4 — the intake and found-row labels are short, and "claim" never
+    /// reaches onboarding copy (design §7: the word means nothing to a new person).
+    func testIntakeLabelsAreShortAndNeverSayClaim() {
+        XCTAssertGreaterThan(Copy.intakeLabels.count, 20, "a lint over nothing passes vacuously")
+        for label in Copy.intakeLabels {
+            XCTAssertLessThanOrEqual(label.count, 60, label)
+            XCTAssertFalse(label.lowercased().contains("claim"), label)
+        }
+        for sentence in Copy.intakeSentences {
+            XCTAssertFalse(sentence.lowercased().contains("claim"), sentence)
+        }
+    }
+
+    /// Track I final review, findings 6 and 7: a refusal never tells the person
+    /// to run by hand what the allowlist refused, and the drop zone never
+    /// promises "nothing is read" — the sniff reads the file, and "read" is a
+    /// Sleep read a schedule runs unasked.
+    func testIntakeCopyNeverUndoesARefusalOrPromisesNoRead() {
+        XCTAssertFalse(Copy.foundRefused.localizedCaseInsensitiveContains("terminal"))
+        XCTAssertFalse(Copy.foundRefused.localizedCaseInsensitiveContains("copy them"))
+        XCTAssertFalse(Copy.intakeDropSubtitle.localizedCaseInsensitiveContains("read"))
+    }
 }

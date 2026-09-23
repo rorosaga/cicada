@@ -40,17 +40,21 @@ final class MenuBarManager: NSObject {
     private var onOpenApp: (() -> Void)?
     private var onRunSleep: (() async -> Void)?
     private var onSaveClipboardURL: (() async -> Void)?
+    /// Track I T5 (R-IA26) — "Import a file…" opens the one intake.
+    private var onImportFile: (() -> Void)?
 
     // MARK: - Setup
 
     func setup(
         onOpenApp: @escaping () -> Void,
         onRunSleep: @escaping () async -> Void,
-        onSaveClipboardURL: @escaping () async -> Void
+        onSaveClipboardURL: @escaping () async -> Void,
+        onImportFile: @escaping () -> Void
     ) {
         self.onOpenApp = onOpenApp
         self.onRunSleep = onRunSleep
         self.onSaveClipboardURL = onSaveClipboardURL
+        self.onImportFile = onImportFile
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.imagePosition = .imageOnly
@@ -227,6 +231,12 @@ final class MenuBarManager: NSObject {
         saveItem.target = self
         menu.addItem(saveItem)
 
+        // Track I T5 (R-IA26): the one intake from the menu bar; the status
+        // button as a drag target waits on design §14 item 5.
+        let importItem = NSMenuItem(title: Copy.intakeMenuBarItem, action: #selector(importFileAction), keyEquivalent: "i")
+        importItem.target = self
+        menu.addItem(importItem)
+
         let openItem = NSMenuItem(title: "Open Cicada", action: #selector(openApp), keyEquivalent: "o")
         openItem.target = self
         menu.addItem(openItem)
@@ -274,6 +284,10 @@ final class MenuBarManager: NSObject {
     @objc private func saveClipboardAction() {
         guard let onSaveClipboardURL else { return }
         Task { await onSaveClipboardURL() }
+    }
+
+    @objc private func importFileAction() {
+        onImportFile?()
     }
 
     @objc private func quitApp() {

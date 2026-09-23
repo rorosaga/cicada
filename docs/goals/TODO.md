@@ -36,8 +36,16 @@ contributors strip, `+ Add a source` in the header) · **#70** bundled marks res
 assembled app (every provider logo had been falling back to a symbol in shipped builds).
 **Per-PR detail is in git — `git log --oneline 381cfd3..dev` — not here.**
 
+**Round 3, Track I part a** (`feat/intake-onboarding`): one intake for every chat export and every way a file arrives
+(sniff → preview → import → a card that never closes itself; `UploadOverlay` and the Feed's Upload
+button retired), consent before any browser read, the Gemini channel and the export-origin
+backfill, `GET /agents/wiring`, and the tested pure logic part b's Welcome and Home consume. Part b
+(T8 Welcome, T9 Home + ⌘1–7, T10 reminders, T11 docs, T12 live pass) is next.
+
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
+**Measured on `feat/intake-onboarding` (Track I part a, 2026-09-23):** backend **2273 passed**, Swift
+**1141 executed, 0 failures**, graph node tests **7 passed**.
 
 **Round 3, Track S-back — G136 server half (2026-09-23, `feat/search-everywhere`, PR #75).** `/search`
 moved into the threadpool with `kinds`, exact lexical `totals`, spans and `mode=prefix|hybrid` over a

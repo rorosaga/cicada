@@ -7,6 +7,7 @@ import Foundation
 /// read-and-post path in `BrowserImportActions` (the app reads `~/Library`,
 /// the launchd backend never does; R-D4), and a folder or Wispr Flow row goes
 /// to the `LocalSourceWatcher` that owns its bookmark, manifest and cursor.
+/// A watched browser goes through `BrowserWatcher.syncNow` (Track I T1).
 /// `poll` is `ChannelSourceView`'s former private `pollNow`, moved here
 /// byte-for-byte: its gate message is what a user-initiated poll shows when
 /// `CICADA_ALLOW_FEED_FETCH` is off, and the card's toast and the page's
@@ -60,9 +61,19 @@ enum ChannelActions {
         }
     }
 
-    static func sync(_ channelId: String, store: Store, local: LocalSourceWatcher) async throws -> String {
+    /// Track I T1 (R-IA2): a Sync now on a watched browser IS the consent, so it
+    /// goes through `BrowserWatcher.syncNow` — one sync, recorded, watch live.
+    /// Before, it went around the watcher: the browser stayed un-consented as
+    /// far as the watch knew, and the watcher re-read the whole file on its
+    /// next event. `watcher` is optional only so a caller without one still
+    /// syncs; every view caller passes the environment's.
+    static func sync(_ channelId: String, store: Store, watcher: BrowserWatcher? = nil,
+                     local: LocalSourceWatcher) async throws -> String {
         switch syncRoute(for: channelId) {
         case .browserFile:
+            if let watcher, BrowserWatcher.isWatched(channelId) {
+                return try await watcher.syncNow(channelId)
+            }
             return try await BrowserImportActions.syncChannel(channelId, store: store)
         case .notes:
             // Notes syncs server-side: osascript runs where the backend does.

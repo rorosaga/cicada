@@ -55,7 +55,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 from api.services import bank_index, episode_ids, episode_scrub, markdown_parser
 
@@ -117,6 +117,9 @@ class StageResult:
     renamed_sources: list[tuple[str, str]] = field(default_factory=list)
     #: bank-relative paths written, for a scoped ``commit_paths``.
     paths: list[str] = field(default_factory=list)
+    #: one verb per draft, in order — ``created`` / ``updated`` / ``renamed`` /
+    #: ``skipped`` — so ``plan`` can say which draft lands where (Track I T2).
+    verdicts: list[str] = field(default_factory=list)
 
     def as_tuple(self) -> tuple[int, int, int]:
         return self.created, self.updated, self.skipped
@@ -376,25 +379,54 @@ def _tombstone(path: Path, at: str) -> None:
 
 def _mark(result: StageResult, verb: str, sid: str, entry: IndexEntry, episodes_dir: Path) -> None:
     setattr(result, verb, getattr(result, verb) + 1)
+    result.verdicts.append(verb)
     result.episode_ids[sid] = entry.id
     result.touched[sid] = entry.id
     result.paths.append(_rel(entry.path, episodes_dir))
 
 
+#: Called once per draft, after its verdict is on disk: ``progress(verb)``.
+Progress = Callable[[str], None]
+
+
 def stage(drafts: Iterable[EpisodeDraft], episodes_dir: Path, *,
-          deleted_source_ids: Iterable[str] = (), bank: str | None = None) -> StageResult:
+          deleted_source_ids: Iterable[str] = (), bank: str | None = None,
+          progress: Progress | None = None) -> StageResult:
     """Create / skip / update / rename / tombstone, delta-aware by ``source_id``.
 
     A draft WITHOUT a ``source_id`` keeps the pre-G20 content-hash behaviour
-    exactly (create or skip, never update). Runs under ``STAGE_LOCK``."""
+    exactly (create or skip, never update). Runs under ``STAGE_LOCK``.
+
+    ``progress`` is the intake job's counter (Track I T2b): a large import
+    stages in ONE call and reports per draft, instead of one call per batch —
+    each call scans the bank, and per-batch calls measured 177 s for 1,000
+    threads into a 2,000-episode bank against 9.9 s as one call (Track I final
+    review, finding 2)."""
     with STAGE_LOCK:
         return _stage_locked(list(drafts), episodes_dir,
-                             deleted_source_ids=list(deleted_source_ids), bank=bank)
+                             deleted_source_ids=list(deleted_source_ids), bank=bank,
+                             progress=progress)
+
+
+def plan(drafts: Iterable[EpisodeDraft], episodes_dir: Path) -> StageResult:
+    """What ``stage`` WOULD do, writing nothing — the intake preview's
+    new · grown · already-here (Track I T2, R-IA5).
+
+    The same loop as ``stage`` with every write skipped, not a mirror of it:
+    the branch-local mirror this replaced hashed the RAW body while the stager
+    compares the scrubbed digest or the legacy raw one, so any thread a scrub
+    rule touched previewed as "grew" and then staged as a skip (Track I final
+    review, finding 1). No lock — nothing is minted or written — no directory
+    is created and no scrub telemetry is recorded: a sniff runs on every drop."""
+    return _stage_locked(list(drafts), episodes_dir, deleted_source_ids=[], bank=None, dry_run=True)
 
 
 def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
-                  deleted_source_ids: list[str], bank: str | None) -> StageResult:
-    episodes_dir.mkdir(parents=True, exist_ok=True)
+                  deleted_source_ids: list[str], bank: str | None,
+                  dry_run: bool = False, progress: Progress | None = None) -> StageResult:
+    write = not dry_run
+    if write:
+        episodes_dir.mkdir(parents=True, exist_ok=True)
     index, known_hashes = scan(episodes_dir)
     date_counts = episode_ids.max_suffix_by_date(episodes_dir)
     result = StageResult()
@@ -422,21 +454,25 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                 if old is not None and old in index:
                     entry = index.pop(old)
                     deleted.remove(old)
-                    _repoint(entry.path, draft, old)
+                    if write:
+                        _repoint(entry.path, draft, old)
                     entry.fm.update(source_id=sid, evidence_kind=draft.extra.get("evidence_kind"))
                     entry.fm.pop("source_deleted_at", None)
                     index[sid] = entry
                     result.renamed_sources.append((old, sid))
                     _mark(result, "renamed", sid, entry, episodes_dir)
+                    _report(progress, "renamed")
                     continue
             if entry is None:
-                path = write_new(draft, episodes_dir, body, digest, stamps, date_counts)
+                path = (write_new(draft, episodes_dir, body, digest, stamps, date_counts) if write
+                        else _planned_path(episodes_dir, draft, date_counts))
                 known_hashes.add(digest)
                 entry = IndexEntry(path=path, id=path.stem, fm={
                     "content_hash": digest, "content_sha": draft.content_sha,
                     "evidence_kind": draft.extra.get("evidence_kind")})
                 index[sid] = entry
                 _mark(result, "created", sid, entry, episodes_dir)
+                _report(progress, "created")
                 continue
             same_body = entry.fm.get("content_hash") in (digest, legacy)
             same_meta = (entry.fm.get("evidence_kind") == draft.extra.get("evidence_kind")
@@ -446,39 +482,64 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     # An unchanged H2 section of an edited file: its words did not
                     # move, but the file's hash did. Restamp it (no re-queue) or a
                     # later rename could not match it by (sha, fragment) (R-LS12).
-                    _restamp(entry.path, draft)
+                    if write:
+                        _restamp(entry.path, draft)
                     entry.fm["content_sha"] = draft.content_sha
                     result.restamped += 1
                     result.paths.append(_rel(entry.path, episodes_dir))
                 result.skipped += 1
+                result.verdicts.append("skipped")
                 result.episode_ids[sid] = entry.id
+                _report(progress, "skipped")
                 continue
-            if same_body:
+            if same_body and write:
                 _refresh(entry.path, draft)
-            else:
-                update_in_place(entry.path, draft, body, digest, stamps)
+            elif not same_body:
+                if write:
+                    update_in_place(entry.path, draft, body, digest, stamps)
                 known_hashes.add(digest)
                 entry.fm["content_hash"] = digest
             entry.fm["evidence_kind"] = draft.extra.get("evidence_kind")
             entry.fm.pop("source_deleted_at", None)
             _mark(result, "updated", sid, entry, episodes_dir)
+            _report(progress, "updated")
             continue
         if digest in known_hashes or legacy in known_hashes:
             result.skipped += 1
+            result.verdicts.append("skipped")
+            _report(progress, "skipped")
             continue
-        path = write_new(draft, episodes_dir, body, digest, stamps, date_counts)
+        path = (write_new(draft, episodes_dir, body, digest, stamps, date_counts) if write
+                else _planned_path(episodes_dir, draft, date_counts))
         known_hashes.add(digest)
         result.created += 1
+        result.verdicts.append("created")
         result.paths.append(_rel(path, episodes_dir))
+        _report(progress, "created")
 
     for sid in deleted:
         entry = index.get(sid)
         if entry is None or entry.fm.get("source_deleted_at"):
             continue
-        _tombstone(entry.path, now)
+        if write:
+            _tombstone(entry.path, now)
         entry.fm["source_deleted_at"] = now
         result.tombstoned += 1
         result.tombstoned_sources[sid] = entry.id
         result.paths.append(_rel(entry.path, episodes_dir))
-    episode_scrub.record(writer, result.scrubbed, bank=bank)
+    if write:
+        episode_scrub.record(writer, result.scrubbed, bank=bank)
     return result
+
+
+def _planned_path(episodes_dir: Path, draft: EpisodeDraft, date_counts: dict[str, int]) -> Path:
+    """The file ``write_new`` would mint for ``draft`` — ``plan`` bumps the same
+    per-date counter so its ``paths`` and ids read like a real run's."""
+    ep_date = draft.original_date or datetime.now().strftime("%Y-%m-%d")
+    date_counts[ep_date] = date_counts.get(ep_date, 0) + 1
+    return episodes_dir / f"ep_{ep_date}_{date_counts[ep_date]:03d}.md"
+
+
+def _report(progress: Progress | None, verb: str) -> None:
+    if progress is not None:
+        progress(verb)

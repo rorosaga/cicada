@@ -26,6 +26,7 @@ final class ChannelMarkTests: XCTestCase {
     func testChannelOriginsMirrorTheBackendCatalog() {
         let expected: [String: String] = [
             "chat-export:claude": "claude-export", "chat-export:chatgpt": "chatgpt-export",
+            "chat-export:gemini": "gemini-export",
             "chrome-bookmarks": "chrome-bookmark", "safari-bookmarks": "safari-bookmark",
             "safari-tabs": "safari-tab", "notes": "apple-notes", "rss": "rss",
             "calendar": "calendar", "pinterest": "pinterest", "reddit": "reddit-saved",

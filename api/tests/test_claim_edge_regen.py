@@ -171,8 +171,8 @@ def test_regenerate_edges_supersedes_stale_claim_edge_on_reconsolidation(tmp_pat
 
 def test_derive_origin_table():
     assert sleep_cycle._derive_origin("mcp") == "claude-code"
-    assert sleep_cycle._derive_origin("claude") == "claude-code"
-    assert sleep_cycle._derive_origin("claude_project") == "claude-code"
+    assert sleep_cycle._derive_origin("claude") == "claude-export"
+    assert sleep_cycle._derive_origin("claude_project") == "claude-export"
     assert sleep_cycle._derive_origin("telegram") == "telegram"
     assert sleep_cycle._derive_origin("rss") == "rss"
     assert sleep_cycle._derive_origin("") == "unknown"

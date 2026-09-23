@@ -240,4 +240,23 @@ final class ThemeTokenTests: XCTestCase {
                            + "read CicadaTheme.windowBackground(for:) (G137 R-M10)")
         }
     }
+
+    /// Track I T4 (D-4) — the meadow pill's ink clears AA on the meadow in both
+    /// modes: white on the day meadow, night-meadow ink on the night meadow.
+    func testTheMeadowPillInkClearsAA() {
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            XCTAssertGreaterThanOrEqual(Self.contrast(CicadaTheme.onMeadow, CicadaTheme.meadow), 4.5, mode.rawValue)
+        }
+    }
+
+    /// The overlay scrim dims harder in dark, where 0.4 over a near-black window reads as nothing.
+    func testTheScrimDimsHarderInDark() {
+        CicadaTheme.mode = .dark
+        let dark = NSColor(CicadaTheme.scrim).alphaComponent
+        CicadaTheme.mode = .light
+        let light = NSColor(CicadaTheme.scrim).alphaComponent
+        XCTAssertGreaterThan(dark, light)
+        XCTAssertEqual(Double(light), 0.35, accuracy: 0.001)
+    }
 }

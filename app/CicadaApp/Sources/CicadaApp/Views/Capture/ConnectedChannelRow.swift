@@ -230,7 +230,7 @@ struct ConnectedChannelRow: View {
         case "safari-bookmarks", "safari-tabs": "safari"
         case "notes": "note.text"
         case "telegram": "paperplane.fill"
-        case "chat-export:claude", "chat-export:chatgpt": "bubble.left.and.bubble.right"
+        case "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini": "bubble.left.and.bubble.right"
         case "files": "link"
         case "pinterest": "pin.fill"
         case "reddit": "bubble.left.and.text.bubble.right.fill"
@@ -249,7 +249,7 @@ struct ConnectedChannelRow: View {
         case "safari-bookmarks", "safari-tabs": Color(hex: 0x00A2E8)
         case "notes": Color(hex: 0xFFCC00)
         case "telegram": Color(hex: 0x26A5E4)
-        case "chat-export:claude", "chat-export:chatgpt": CicadaTheme.accent
+        case "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini": CicadaTheme.accent
         case "files": Color(hex: 0x8896FF)
         case "pinterest": Color(hex: 0xE60023)
         case "reddit": Color(hex: 0xFF4500)
@@ -274,6 +274,7 @@ struct ConnectedChannelRow: View {
         return switch id {
         case "chat-export:claude": "claude-export"
         case "chat-export:chatgpt": "chatgpt-export"
+        case "chat-export:gemini": "gemini-export"
         case "chrome-bookmarks": "chrome-bookmark"
         case "safari-bookmarks": "safari-bookmark"
         case "safari-tabs": "safari-tab"

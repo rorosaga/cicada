@@ -52,7 +52,7 @@ struct BrowserStatusLight: View {
         case .syncing: CicadaTheme.info
         case .stale: CicadaTheme.warning
         case .blocked, .failed: CicadaTheme.danger
-        case .absent: CicadaTheme.textTertiary
+        case .absent, .off: CicadaTheme.textTertiary
         }
     }
 
@@ -64,6 +64,7 @@ struct BrowserStatusLight: View {
         case .blocked: "Can't read"
         case .failed: "Sync failed"
         case .absent: "Not installed"
+        case .off: "Off"
         }
     }
 
@@ -82,6 +83,8 @@ struct BrowserStatusLight: View {
             "The last sync didn't finish. Try Sync now — the details are below."
         case .absent:
             "This browser isn't installed on this Mac, or has no bookmarks yet."
+        case .off:
+            "Cicada reads this browser only after you turn it on. Sync now brings its bookmarks in and keeps watching."
         }
     }
 
@@ -96,6 +99,7 @@ struct BrowserStatusLight: View {
             case .blocked: return "Cicada isn't allowed to read this folder."
             case .failed: return "The last sync didn't finish. Try Sync now."
             case .absent: return "This folder isn't on this Mac."
+            case .off: return "Cicada reads this folder only after you turn it on."
             }
         }
         if channelId == LocalSourceWatcher.wisprChannel {
@@ -106,6 +110,7 @@ struct BrowserStatusLight: View {
             case .blocked: return "Cicada isn't allowed to read Wispr Flow's data."
             case .failed: return "The last sync didn't finish. Try Sync now."
             case .absent: return "Wispr Flow isn't on this Mac."
+            case .off: return "Cicada reads Wispr Flow only after you turn it on."
             }
         }
         return explanation(for: state)

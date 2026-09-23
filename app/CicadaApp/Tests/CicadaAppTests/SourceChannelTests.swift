@@ -72,7 +72,7 @@ final class AddSourceCatalogTests: XCTestCase {
     /// non-connector ids plus the three `ADAPTERS` (R4 split the combined
     /// `bookmarks` row into one per browser, and added `safari-tabs`).
     private static let backendChannelIds: Set<String> = [
-        "chat-export:claude", "chat-export:chatgpt",
+        "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini",
         "chrome-bookmarks", "safari-bookmarks", "safari-tabs", "notes",
         "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
     ]
