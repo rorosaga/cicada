@@ -17,6 +17,7 @@ from api.config import Settings
 from api.models.schemas import InboxCause, InboxItem, InboxOption, InboxResolveRequest
 from api.services import (
     decay_policy,
+    fact_sources,
     inbox_context,
     inbox_questions,
     markdown_parser,
@@ -80,8 +81,13 @@ def _item_from_file(
     allow_other = bool(fm.get("allow_other", kind in ("conflict", "clarification")))
     allow_defer = bool(fm.get("allow_defer", kind in ("conflict", "clarification", "divergence")))
 
+    hint = _opt_str(fm.get("hint"))
     extra: dict = {}
     if context is not None:
+        # G61 phase 2 S0: a conflict's hint is derived from the subject's
+        # CURRENT sources, voiced by whoever added them (fact_sources.served_hint).
+        page = context.entity(entity_id)
+        hint = fact_sources.served_hint(fm, page.frontmatter.get("sources") if page is not None else None)
         if kind == "decay" and not raw_options:
             # G115 R5: decay is SERVED as a question object and never written as
             # one — the age phrase is computed from the subject page's live
@@ -150,7 +156,7 @@ def _item_from_file(
         allow_other=allow_other,
         allow_defer=allow_defer,
         predicate=_opt_str(fm.get("predicate")),
-        hint=_opt_str(fm.get("hint")),
+        hint=hint,
         channel=_opt_str(fm.get("channel")),
         remind_after=_opt_str(fm.get("remind_after")),
         updated_date=_opt_str(fm.get("updated_date")),

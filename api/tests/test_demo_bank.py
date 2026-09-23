@@ -78,3 +78,23 @@ def test_endpoint_is_409_if_demo_already_exists(tmp_path, monkeypatch):
     client, _ = _client(tmp_path, monkeypatch)
     assert client.post("/banks/demo").status_code == 200
     assert client.post("/banks/demo").status_code == 409
+
+
+def test_populate_gives_the_works_at_conflict_a_person_added_source(tmp_path):
+    """G61 phase 2 S0 (R-AC26): a freshly generated demo shows the derived hint,
+    and the person-added source is committed as the person's — never inside a
+    model-authored Sleep commit."""
+    import subprocess
+
+    from api.services import inbox_service
+
+    bank_dir = tmp_path / "demo"
+    bank_registry.scaffold_bank(bank_dir)
+    demo_bank.populate(bank_dir)
+    bank_index.invalidate()
+    items = {i.id: i for i in inbox_service.load_inbox(bank_dir)}
+    assert items["inbox-003"].hint == "You said https://example.com/dana-example/team is where to check this"
+    log = subprocess.run(["git", "-C", str(bank_dir), "log", "-1", "--format=%B", "--",
+                          "entities/dana-example.md"], check=True, capture_output=True, text=True).stdout
+    assert log.startswith("Add fact source ") and "Cicada-Author: user" in log
+    assert "entities/dana-example.md: updated (trigger: user/companion_app)" in log

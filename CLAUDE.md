@@ -353,8 +353,12 @@ times.
   which repos; live git context (branch, ahead/behind, dirty, worktrees) is resolved **on demand,
   never cached** — `git_service` shells out fresh on every call.
 - `sources:` (G61) — *where to look a fact up*, distinct from `source_episodes` (where a belief came
-  from) and from the body's `## Links`. Conflict generation consults them for a "Source to check"
-  hint. Nothing is fetched.
+  from) and from the body's `## Links`. Keyed on `(ref, predicate)`, so one link can serve two facts.
+  A conflict card's `hint` is **derived at read** from them (`fact_sources.served_hint` — the wire,
+  the MCP render and the lexical row), never stored since G61 phase 2 S0, and its voice follows
+  `added_by`: "You said …" only when the person added it; "Claude Code added …", "Cicada found …",
+  "An agent found …" otherwise, the ref always in the sentence. An older item whose sources no longer
+  match keeps its stored hint. Nothing is fetched.
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.

@@ -1621,12 +1621,15 @@ def _agent_question(
     the single-item tests want.
     """
     try:
-        from api.services import inbox_context, inbox_questions, inbox_service
+        from api.services import fact_sources, inbox_context, inbox_questions, inbox_service
 
         fm = dict(fm)
         if ctx is None:
             ctx = inbox_context.InboxContext(memory_path, today=today)
         entity_id = str(fm.get("entity_id") or "")
+        # G61 phase 2 S0: the same derived hint the app is served (served_hint).
+        page = ctx.entity(entity_id)
+        fm["hint"] = fact_sources.served_hint(fm, page.frontmatter.get("sources") if page is not None else None)
         options = inbox_questions.normalize_options(fm.get("options"))
         if str(fm.get("kind") or "") == "decay" and not options:
             question = inbox_questions.decay_question(

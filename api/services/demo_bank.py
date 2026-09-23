@@ -33,7 +33,8 @@ import subprocess
 from datetime import date, timedelta
 from pathlib import Path
 
-from api.services import decay_policy, entity_body, episode_ids, episode_scrub, git_service, markdown_parser, owner_identity
+from api.services import (decay_policy, entity_body, episode_ids, episode_scrub, fact_sources, git_service,
+                          markdown_parser, owner_identity)
 from api.services.agentic_write import write_claim
 
 # --- Entity roster (~60 total + the owner page `ensure_owner_entity` adds) --
@@ -69,6 +70,11 @@ _CONCEPTS = [
 _ALL_ENTITIES = _PEOPLE + _PROJECTS + _TOOLS + _COMPANIES + _CONCEPTS  # 60
 
 _ORIGINS = ("claude-code", "safari-tab", "telegram", "rss")
+
+# G61 phase 2 S0 (plan R-AC26): the works-at conflict (`inbox-003`) gets one
+# person-added source, so a freshly generated demo shows the derived hint.
+_SOURCED_SUBJECT = "dana-example"
+_SOURCED_REF = "https://example.com/dana-example/team"
 
 # One sentence skeleton per episode "slot" (i % len), each naming three
 # entities by DISPLAY NAME only — episodes are raw, unlinked text per the
@@ -428,4 +434,21 @@ def _commit_history(bank_dir: Path) -> None:
             authors=["user"],
         ),
         owner_path,
+    )
+
+    # G61 phase 2 S0: a person-added fact source, committed ALONE as the person's
+    # — the shape `POST /entities/{id}/sources` commits
+    # (`routers/entities._commit_sources`) — so it never rides a model-authored
+    # "Sleep cycle" commit above.
+    fact_sources.add_source(bank_dir, _SOURCED_SUBJECT, _SOURCED_REF, kind="url",
+                            predicate="works-at", added_by="user", added_at=today)
+    sourced = [f"entities/{_SOURCED_SUBJECT}.md"]
+    _run_commit(
+        bank_dir,
+        git_service.build_commit_message(
+            f"Add fact source {today}",
+            [f"{p}: updated (trigger: user/companion_app)" for p in sourced],
+            authors=["user"],
+        ),
+        sourced,
     )
