@@ -400,6 +400,15 @@ class ResumeDescriptor(CamelModel):
     display_command: str = ""
 
 
+class VideoChapter(CamelModel):
+    """One chapter of a saved video (G140 Q-R12): seconds from the start and a
+    title — parsed from the provider's own description or recorded by an
+    agent's watch, never inferred."""
+
+    t: int
+    title: str
+
+
 class EntityMedia(CamelModel):
     """Structured media metadata for a ``type: media`` entity (G11).
 
@@ -430,6 +439,11 @@ class EntityMedia(CamelModel):
     # (R17).
     provider: Optional[str] = None
     duration_s: Optional[int] = None
+    # G140 Q-R12 — additive + defaulted, the same argument as Track V's two
+    # keys: present only on a page written after G140 (the description held a
+    # real chapter list), so an older page decodes unchanged and no ETag
+    # input moves beyond the page write itself.
+    chapters: Optional[list[VideoChapter]] = None
 
 
 class EntityResponse(CamelModel):
@@ -1764,6 +1778,7 @@ class SourceSaveResponse(CamelModel):
     media_type: str
     thumbnail: Optional[str] = None
     message: str
+    note_episode_id: Optional[str] = None  # G140 Q-R10 — the kept note's episode on a duplicate
 
 
 class SourceUploadResponse(CamelModel):

@@ -29,6 +29,7 @@ from api.models.schemas import (
     RepoContextList,
     RepoInput,
     RepoUpdateRequest,
+    VideoChapter,
 )
 from api.services import (
     decay_policy,
@@ -160,6 +161,17 @@ _SUMMARY_RE = re.compile(
 )
 
 
+def _chapters(raw) -> list[VideoChapter] | None:
+    """G140 Q-R12 — keep only well-formed rows: a hand-edited page could carry
+    anything, and absent beats a guess (R17)."""
+    if not isinstance(raw, list):
+        return None
+    out = [VideoChapter(t=c["t"], title=str(c["title"]).strip()[:120]) for c in raw
+           if isinstance(c, dict) and isinstance(c.get("t"), int) and not isinstance(c.get("t"), bool)
+           and c["t"] >= 0 and str(c.get("title") or "").strip()]
+    return out or None
+
+
 def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
     """Build the structured ``media`` block for a ``type: media`` entity.
 
@@ -201,6 +213,7 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
             media.get("duration_s") if isinstance(media.get("duration_s"), int)
             and not isinstance(media.get("duration_s"), bool) else None
         ),
+        chapters=_chapters(media.get("chapters")),
     )
 
 

@@ -39,6 +39,14 @@ from api.services import episode_ids  # noqa: E402,F401
 # rather than retyped, so `mcp/` holds no name literal of its own.
 from api.services.owner_identity import LEGACY_OBSERVER  # noqa: E402
 
+# G140 Q-R11: one pattern, not an enum — JSON Schema ANDs an `enum` with a
+# `pattern`, and the librarian skill's `external:<name>` (a named third party)
+# must be a value the schema accepts (R5 §2 defect 4, G75 R12). The legacy
+# value stays accepted and unadvertised (Track P R8), imported, never typed.
+OBSERVER_PATTERN = (
+    rf"^(owner|agent|external|{re.escape(LEGACY_OBSERVER)}|external:[a-z0-9][a-z0-9-]{{0,63}})$"
+)
+
 # G135 R-R2: every remote-capable tool body lives in `api/services/mcp_tools.py`.
 from api.services import mcp_tools  # noqa: E402
 # Re-exported for callers that CALL them (tests, back-compat). Tests that PATCH
@@ -329,7 +337,7 @@ TOOLS = [
                 },
                 "observer": {
                     "type": "string",
-                    # The legacy observer value stays in the ENUM (not just
+                    # The legacy observer value stays in the PATTERN (not just
                     # in the prose) so the schema itself keeps the
                     # compatibility promise — CLAUDE.md R12: a primer or
                     # schema naming an argument the schema itself would
@@ -344,11 +352,11 @@ TOOLS = [
                     # constant built at import, before any bank is known, and
                     # a tool description must not vary per bank (one prose
                     # source, G75 R12). It stops being ADVERTISED here — an
-                    # agent should send 'owner'; the enum keeps accepting the
-                    # legacy value for old callers, and naming it only invites
-                    # new ones.
-                    "enum": ["owner", "agent", "external", LEGACY_OBSERVER],
-                    "description": "Who holds this belief. 'owner' = the user stated this themselves (trust-protected). 'agent' = you inferred/extracted this. 'external' = attributed to a third party. Defaults to 'agent'.",
+                    # agent should send 'owner'; the pattern keeps accepting
+                    # the legacy value for old callers, and naming it only
+                    # invites new ones. G140 Q-R11: `OBSERVER_PATTERN` above.
+                    "pattern": OBSERVER_PATTERN,
+                    "description": "Who holds this belief. 'owner' = the user stated this themselves (trust-protected). 'agent' = you inferred/extracted this. 'external' = attributed to a third party — or 'external:<name>' (lowercase letters, digits, hyphens) to name them. Defaults to 'agent'.",
                 },
                 "confidence": {
                     "type": "number",

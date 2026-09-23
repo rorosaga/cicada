@@ -254,6 +254,20 @@ def _render_ask(result: dict) -> str:
     return "\n".join(lines).strip()
 
 
+def _saved_reply(status: str, title: str, media_type: str, entity_id: str, episode_id: str,
+                 note_episode_id: str | None) -> str:
+    """One reply for both save paths (G140 Q-R10, R5 §2 defect 2): the episode
+    id is what ``cicada_write_claim``'s ``evidence`` cites, and the old replies
+    never named it. A duplicate names the kept note's episode too — that note
+    is the watch-later summary G22's chain exists for."""
+    if status == "duplicate":
+        kept = (f" Your note was kept as episode {note_episode_id} — cite that id as evidence."
+                if note_episode_id else "")
+        return f"Already saved: \"{title}\" (entity {entity_id}, episode {episode_id}).{kept}"
+    return (f"Saved \"{title}\" as {media_type} media (entity {entity_id}, episode {episode_id}). "
+            "It joins the graph after the next Sleep cycle.")
+
+
 def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
     """Save a URL as media. Prefers the running backend (shared dedup index,
     background enrichment); falls back to direct ingestion via the api package."""
@@ -283,9 +297,9 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
             )
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-            return (
-                f"Saved \"{data.get('title', url)}\" as {data.get('mediaType', 'url')} media "
-                f"(entity {data.get('mediaEntityId', '?')}). {data.get('message', '')}"
+            return _saved_reply(
+                data.get("status", "created"), data.get("title", url), data.get("mediaType", "url"),
+                data.get("mediaEntityId", "?"), data.get("episodeId", "?"), data.get("noteEpisodeId"),
             )
         except Exception:
             pass
@@ -319,9 +333,13 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
             async with httpx.AsyncClient() as client:
                 result = await media_ingestor.ingest_one(item, memory_path, client, idx)
             media_ingestor.save_url_index(memory_path, idx)
-            return result
+            # G140 Q-R10: a note for an already-saved link is kept as its own
+            # episode — this is one of the two single-save paths that may.
+            note_ep = (media_ingestor.write_note_episode(memory_path, item, result)
+                       if result.status == "duplicate" else None)
+            return result, note_ep
 
-        result = asyncio.run(_save())
+        result, note_ep = asyncio.run(_save())
         if ctx.is_remote and result.status == "created":
             # R-R11: the three files this save wrote, committed on their own
             # under the app that saved them (the batch path's own path list).
@@ -333,12 +351,16 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
                        f"entities/{result.media_entity_id}.md: created (source: {result.episode_id}, trigger: {ctx.trigger})",
                        f"episodes/{result.episode_id}.md: created (trigger: {ctx.trigger})"],
                 paths=paths, author=ctx.author, session=ctx.session_id)
-        if result.status == "duplicate":
-            return f"Already saved: \"{result.title}\""
-        return (
-            f"Saved \"{result.title}\" as {result.media_type} media "
-            f"(entity {result.media_entity_id}). It joins the graph after the next Sleep cycle."
-        )
+        if ctx.is_remote and note_ep and note_ep[1]:
+            # R-R11: a kept note commits alone, under its app, like any remote
+            # write. Stdio's backend-down path leaves it uncommitted, exactly as
+            # it leaves a created save (G135's byte-identical ruling).
+            agent_commits.commit_write(
+                memory_path, subject=ctx.commit_subject,
+                lines=[f"episodes/{note_ep[0]}.md: created (trigger: {ctx.trigger})"],
+                paths=[f"episodes/{note_ep[0]}.md"], author=ctx.author, session=ctx.session_id)
+        return _saved_reply(result.status, result.title, result.media_type, result.media_entity_id,
+                            result.episode_id, note_ep[0] if note_ep else None)
     except Exception as e:
         return f"Error: could not save URL ({type(e).__name__}: {e})"
 

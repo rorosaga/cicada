@@ -18,7 +18,7 @@
   "resolve_skip": "Skipped inbox-001 — not re-asked this session (nothing written).",
   "save_episode": "Episode saved as ep_<today>_001. It will be processed during the next Sleep cycle.",
   "save_episode_dup": "Episode already exists (duplicate detected by content hash).",
-  "save_url": "Saved \"Example Post\" as url media (entity media-example-post). It joins the graph after the next Sleep cycle.",
+  "save_url": "Saved \"Example Post\" as url media (entity media-example-post, episode ep_<today>_002). It joins the graph after the next Sleep cycle.",
   "save_url_bad": "Error: URL must start with http:// or https://",
   "sources": "**Sources for `alpha-project`** (1 episode(s)):\n\n### episode ep_2026-01-05_001\nuser: we will index alpha with sqlite-vec\nassistant: noted",
   "write_claim": "Recorded: alpha-project uses sqlite-vec (entity `alpha-project`, claim `clm_alpha-project_uses_38309bd1`, observer=agent, action=written; evidence: 1 span verified).",
