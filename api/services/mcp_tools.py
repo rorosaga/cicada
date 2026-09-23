@@ -1101,6 +1101,10 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
     from api.services.id_utils import resolve_entity_file, sanitize_id
 
     memory_path = ctx.memory_path()
+    # G141 capture side (R-CS13) meets G61 S1: a source is a write like any
+    # other, so the demo refusal covers this tool too — one bank per call.
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
     ref_text = (ref or "").strip()
     if not ref_text:
         return "Nothing added — `ref` is empty."
