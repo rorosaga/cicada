@@ -758,6 +758,17 @@ def sources(ctx: ToolContext, entity_id: str) -> str:
     return "\n".join(parts)
 
 
+def timeline(ctx: ToolContext, since=None) -> str:
+    """``cicada_timeline`` (G140 Q-R4, R3 P6) — what changed, day by day, read
+    from git on demand. See ``change_timeline``: nothing is stored, ids and
+    counts only, no LLM."""
+    from api.services import change_timeline
+
+    today = date.today()
+    start = change_timeline.parse_since(since, today)
+    return change_timeline.render(change_timeline.collect(ctx.memory_path(), start, today), start, today)
+
+
 def write_claim(
     ctx: ToolContext,
     subject: str,

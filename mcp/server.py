@@ -481,6 +481,19 @@ TOOLS = [
         "description": "Return Cicada's connection primer: what Cicada is, the interaction contract (recall first, check nudges after recall, save episodes as you learn, write claims with evidence and sources, world facts are a cache), the bank's now-view (engine, current projects with live branches, pending inbox count, recent conversations with resume handles) and capability notes. Identical to the `instructions` field of the MCP initialize response — call it once at the start of a conversation if your harness does not surface server instructions. No arguments.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "cicada_timeline",
+        "description": "What changed in Cicada's memory recently, day by day, read from its git history: episodes captured per source, pages Sleep created or updated, pages that faded or were archived, facts that reached their stated end, agent writes (and withdrawals), and inbox questions answered. Ids and counts only — open a page with cicada_recall_detail. Use when the person asks what's new, what happened this week, or what you missed since you last talked.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since": {
+                    "type": "string",
+                    "description": "Optional. A date (YYYY-MM-DD) or a number of days back (e.g. '7'). Default 7 days; at most 90.",
+                },
+            },
+        },
+    },
 ]
 
 
@@ -642,6 +655,8 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_check_nudges(arguments.get("topic"), arguments.get("entity_ids"))
     elif name == "cicada_handshake":
         return handle_handshake()
+    elif name == "cicada_timeline":
+        return handle_timeline(arguments.get("since"))
     elif name == "cicada_open_hub":
         return handle_open_hub(arguments.get("hub", ""))
     elif name == "cicada_ask":
@@ -743,6 +758,10 @@ def handle_open_hub(hub: str) -> str:
 
 def handle_sources(entity_id: str) -> str:
     return mcp_tools.sources(_ctx(), entity_id)
+
+
+def handle_timeline(since=None) -> str:
+    return mcp_tools.timeline(_ctx(), since)
 
 
 def handle_write_claim(subject, predicate, object_, observer, confidence, context, source_episode,

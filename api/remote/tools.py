@@ -117,6 +117,13 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           "Return the conversation excerpts a page was built from, word for word (at most three, each cut at "
           "1,000 characters).",
           {"entity_id": {"type": "string", "description": "The page id."}}, ("entity_id",), read_only=True),
+    _tool("cicada_timeline",
+          "What changed in the person's memory recently, day by day: what was captured, the pages Cicada "
+          "created or updated overnight, pages that faded, facts that reached their stated end, and what "
+          "agents wrote. Ids and counts only — open a page with cicada_recall_detail.",
+          {"since": {"type": "string", "description": "Optional: a date (YYYY-MM-DD) or a number of days "
+                                                      "back. Default 7, at most 90."}},
+          read_only=True),
     _tool("cicada_resolve_inbox",
           "Record the person's own answer to one of Cicada's questions: the option_key they chose, defer=true "
           "to ask again later, reject=true when two names are NOT the same, or skip=true when they did not "
