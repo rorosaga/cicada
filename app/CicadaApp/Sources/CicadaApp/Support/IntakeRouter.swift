@@ -235,6 +235,11 @@ final class IntakeRouter {
     private(set) var welcomeDropError: String?
     /// ⌘⇧I and the menu bar while the Welcome shows: it opens its own file panel.
     private(set) var welcomeChooseRequest = 0
+    /// Track I part b (R-IB22) — a sniff that recognised one vendor's chat export
+    /// reports the vendor, so the app clears that vendor's export wait: the
+    /// export someone was waiting for has arrived, whatever door it came in by.
+    /// A closure, not state — nothing observes it.
+    @ObservationIgnored var onVendorSniffed: ((String) -> Void)?
 
     init(api: any IntakeAPI = APIClient.shared,
          sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
@@ -323,7 +328,10 @@ final class IntakeRouter {
             }
             guard gen == self.generation else { return }
             let next = IntakePreview.aggregate(results, capped: capped)
-            if case .preview(let p) = next { self.sniffedPreview = p }
+            if case .preview(let p) = next {
+                self.sniffedPreview = p
+                self.reportVendor(p)
+            }
             self.phase = next
         }
     }
@@ -431,11 +439,17 @@ final class IntakeRouter {
                 }
             }
             switch IntakePreview.aggregate(results, capped: expanded.capped) {
-            case .preview(let p): self.welcomeDrops.append(WelcomeDrop(id: UUID().uuidString, preview: p))
+            case .preview(let p):
+                self.welcomeDrops.append(WelcomeDrop(id: UUID().uuidString, preview: p))
+                self.reportVendor(p)
             case .failed(let reason): self.welcomeDropError = reason
             default: break
             }
         }
+    }
+
+    private func reportVendor(_ preview: IntakePreview) {
+        if let vendor = preview.vendor { onVendorSniffed?(vendor) }
     }
 
     func removeWelcomeDrop(_ id: String) { welcomeDrops.removeAll { $0.id == id } }

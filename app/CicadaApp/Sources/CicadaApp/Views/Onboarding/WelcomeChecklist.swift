@@ -22,7 +22,11 @@ struct WelcomeChecklist: View {
 
     @Environment(LocalInventory.self) private var inventory
     @Environment(IntakeRouter.self) private var intake
+    @Environment(ExportWaitStore.self) private var waits
+    @Environment(Store.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// A reminder was asked for with notifications refused (R-IB22): say where it waits.
+    @State private var reminderDenied = false
 
     var body: some View {
         let ordered = FoundPolicy.order(inventory.items)
@@ -167,6 +171,47 @@ struct WelcomeChecklist: View {
                 Text(error)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            askForOne
+        }
+    }
+
+    // MARK: No export yet (W12, design §5.5)
+
+    private var askLabel: some View {
+        Text(Copy.welcomeAskForOne)
+            .font(CicadaTheme.captionFont)
+            .foregroundStyle(CicadaTheme.textSecondary)
+    }
+
+    @ViewBuilder private var askMenus: some View {
+        ForEach(ChatVendor.allCases) { ExportAskMenu(vendor: $0) { reminderDenied = true } }
+    }
+
+    /// Three compact menus — the export page and *Remind me* per vendor — and, for
+    /// each wait already asked for, its row line: the text twin that needs no
+    /// notification permission. Nothing here is fetched or sent (R-IB22).
+    private var askForOne: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            // One line when the card is wide enough, the label above the menus when
+            // it is not (the Welcome's card narrows with the window and the zoom).
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: CicadaTheme.spacingSM) { askLabel; askMenus }
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) { askLabel; HStack(spacing: CicadaTheme.spacingSM) { askMenus } }
+            }
+            ForEach(waits.active(bank: store.bank)) { wait in
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    VendorMark(origin: ChatVendor(rawValue: wait.vendor)?.origin, size: CicadaTheme.scaled(14))
+                    Text(ExportWaits.rowLine(wait, now: Date()))
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            }
+            if reminderDenied {
+                Text(Copy.reminderNotificationsOff)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

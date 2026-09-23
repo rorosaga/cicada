@@ -70,6 +70,10 @@ struct CicadaApp: App {
     /// One inventory for the Welcome and Getting started, so a row's state is
     /// the same probe on both (the `+` strip keeps its own per appearance).
     @State private var inventory: LocalInventory
+    /// Track I part b (R-IB22) — export reminders: a per-viewer convenience in
+    /// defaults, told by the Feed, the menu bar and Getting started whether or
+    /// not notifications were allowed.
+    @State private var exportWaits = ExportWaitStore()
     /// R-IA25 — the one AppKit hook SwiftUI's `App` lacks: a Dock "Open With"
     /// or a drop on the Dock icon. Its queue holds a cold launch's URLs until
     /// `.onAppear` attaches the router.
@@ -149,6 +153,7 @@ struct CicadaApp: App {
                 .environment(intakeRouter)
                 .environment(setupRunner)
                 .environment(inventory)
+                .environment(exportWaits)
                 // R-IA24 — a Dock open reuses this window instead of opening a
                 // second one (the router, and its overlay, live in this one).
                 .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
@@ -201,6 +206,18 @@ struct CicadaApp: App {
                         intakeRouter.accept(urls: urls, from: .dock)
                     }
                     localSources.start(store: store)
+                    // R-IB22 — the export someone was waiting for arrived (a sniff
+                    // recognised its vendor): its wait, in the active memory, is done.
+                    intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in
+                        exportWaits.clear(vendor: vendor, bank: store.bank)
+                    }
+                    // A tapped reminder opens the one intake idle for that vendor —
+                    // never a cycle (G125 R10). Queued until now on a cold launch.
+                    appDelegate.reminderTaps.attach { [intakeRouter] vendor in
+                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        NSApplication.shared.windows.first(where: { $0.canBecomeKey })?.makeKeyAndOrderFront(nil)
+                        intakeRouter.present(from: .reminder(vendor))
+                    }
                     // When SleepViewModel observes a cycle finish (running ->
                     // idle, no error), refresh the graph/topics layer in
                     // place. Without this, Sleep finishes successfully but
@@ -220,6 +237,10 @@ struct CicadaApp: App {
                         syncWindowChrome(window, mode: appColorScheme)
                         enableFirstMouseAcceptance(for: window)
                         window.makeKeyAndOrderFront(nil)
+                    }
+                    // Read as the menu opens, so "requested 2 hours ago" is true then.
+                    menuBarManager.exportWaitLines = { [exportWaits, store] in
+                        exportWaits.active(bank: store.bank).map { ExportWaits.menuLine($0, now: Date()) }
                     }
                     menuBarManager.setup(
                         onOpenApp: {

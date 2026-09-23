@@ -24,6 +24,7 @@ struct GettingStartedCard: View {
     @Environment(IntakeRouter.self) private var intake
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var engineVM
+    @Environment(ExportWaitStore.self) private var waits
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @AccessibilityFocusState private var headingFocused: Bool
@@ -208,7 +209,49 @@ struct GettingStartedCard: View {
 
     /// An invitation, not a connection with a state — so a plain row, not a
     /// `FoundRow`. It opens the one intake (design §5.1), never a picker of its own.
+    /// Under it (R-IB22): each export the person is waiting on, with when it was
+    /// asked and when the reminder comes — the text twin that needs no
+    /// notification permission — or, while nothing is awaited, how to ask for one.
     private var chatHistoryRow: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            chatDropLine
+            let active = waits.active(bank: store.bank)
+            if active.isEmpty {
+                ForEach(ChatVendor.allCases) { ExportAskRow(vendor: $0, startsOpen: false) }
+                    .padding(.horizontal, CicadaTheme.spacingSM)
+            } else {
+                TimelineView(.periodic(from: .now, by: ExportWaits.refreshInterval)) { context in
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        ForEach(active) { waitRow($0, now: context.date) }
+                    }
+                }
+                .padding(.horizontal, CicadaTheme.spacingSM)
+            }
+        }
+    }
+
+    private func waitRow(_ wait: ExportWait, now: Date) -> some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            VendorMark(origin: ChatVendor(rawValue: wait.vendor)?.origin, size: CicadaTheme.scaled(18))
+            Text(ExportWaits.rowLine(wait, now: now))
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+            Spacer(minLength: CicadaTheme.spacingSM)
+            Button(Copy.intakeChooseFile) { intake.present(from: wait.intakeOrigin(fallback: .onboardingRow)) }
+                .buttonStyle(.bordered)
+            Button { waits.remove(wait) } label: {
+                Image(systemName: "xmark")
+                    .font(CicadaTheme.font(size: 10, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .iconHover()
+            }
+            .buttonStyle(.cicadaPlain)
+            .help(Copy.reminderDismiss)
+            .accessibilityLabel("\(Copy.reminderDismiss), \(ExportWaits.vendorTitle(wait.vendor))")
+        }
+    }
+
+    private var chatDropLine: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             HStack(spacing: -CicadaTheme.scaled(6)) {
                 ForEach(ChatVendor.allCases) { VendorMark(vendor: $0, size: CicadaTheme.scaled(20)) }

@@ -51,7 +51,7 @@ struct IntakePanel: View {
             dropZone
             if !compact {
                 Text(Copy.intakeNoExportYet).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
-                ForEach(vendors) { VendorExportRow(vendor: $0, startsOpen: vendor != nil) }
+                ForEach(vendors) { ExportAskRow(vendor: $0, startsOpen: vendor != nil) }
             }
             // The overlay's idle state needs its own way out for the keyboard and
             // VoiceOver (design I9); in the `+` sheet the sheet's back control is it.
@@ -264,42 +264,4 @@ struct IntakePanel: View {
     }
 
     private var creatingNew: Bool { newBankName != nil }
-}
-
-/// "Don't have one yet?" — one vendor's mark, what you get, the export page,
-/// and the steps (none of them "unzip" — the intake takes the .zip).
-private struct VendorExportRow: View {
-    let vendor: ChatVendor
-    let startsOpen: Bool
-    @State private var hovering = false
-    @State private var showSteps = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                VendorMark(vendor: vendor, size: CicadaTheme.scaled(22)).markHover(hovering: hovering)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(vendor.title).font(CicadaTheme.font(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.textPrimary)
-                    Text(vendor.walkthrough.summary).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                }
-                Spacer()
-                Button { NSWorkspace.shared.open(vendor.walkthrough.exportURL) } label: {
-                    Label(Copy.intakeOpenExportPage, systemImage: "arrow.up.right.square")
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("\(Copy.intakeOpenExportPage), \(vendor.title)")
-            }
-            DisclosureGroup(isExpanded: $showSteps) {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(vendor.walkthrough.steps.enumerated()), id: \.offset) { i, step in
-                        Text("\(i + 1). \(step)").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                    }
-                }
-            } label: {
-                Text(Copy.intakeHowToGet).font(CicadaTheme.captionFont)
-            }
-        }
-        .onHover { hovering = $0 }
-        .onAppear { showSteps = startsOpen }
-    }
 }

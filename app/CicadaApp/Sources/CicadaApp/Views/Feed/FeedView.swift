@@ -30,6 +30,10 @@ struct FeedView: View {
                     .padding(.horizontal, CicadaTheme.spacingXL)
                     .padding(.bottom, CicadaTheme.spacingMD)
 
+                // R-IB22 — who the person is waiting on for an export. It pads
+                // itself only when it shows, so an empty strip takes no room.
+                ExportWaitStrip()
+
                 searchAndSortRow
 
                 Text("\(viewModel.filteredItems.count) item\(viewModel.filteredItems.count == 1 ? "" : "s")")

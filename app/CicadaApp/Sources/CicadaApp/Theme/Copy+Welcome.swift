@@ -131,6 +131,29 @@ extension Copy {
     }
 
     /// Buttons, titles and one-line captions — ≤ 60 characters (CopyConstantsTests).
+    // MARK: Reminders (Task 5, design §5.5, R-IB22)
+    static let reminderRemindMe = "Remind me"
+    static let reminderInThreeHours = "In 3 hours"
+    static let reminderTomorrowMorning = "Tomorrow at 9:00"
+    static let reminderInTwoDays = "In 2 days"
+    static let reminderBody = "Drop the .zip on Cicada."
+    static let reminderDropHere = "Drop it here"
+    static let reminderDismiss = "Stop waiting"
+    static let welcomeAskForOne = "No export yet? Ask for one"
+    /// A denial still records the wait (R-IB22), so the line says where it waits
+    /// instead of asking the person to go and change a system setting.
+    static let reminderNotificationsOff = "Notifications are off, so the reminder waits here and in the menu bar."
+    static func reminderTitle(_ vendor: String) -> String { "Your \(vendor) export should be in your email." }
+    static func reminderStripLine(_ vendor: String, requested: String) -> String {
+        "Waiting for your \(vendor) export · requested \(requested)"
+    }
+    static func reminderMenuLine(_ vendor: String, requested: String) -> String {
+        "Waiting for \(vendor) export, requested \(requested)"
+    }
+    static func reminderRowLine(requested: String, reminder: String?) -> String {
+        reminder.map { "Requested \(requested) · reminder \($0)" } ?? "Requested \(requested)"
+    }
+
     static let welcomeHomeLabels: [String] = [
         homeHeadline, homeHeadlineItalic, homeFieldPrompt, homeToday, homeNeedsYou, homeLastRead,
         homeCapturedHelp, homeLoading, homeNothingCapturedToday, homeNothingWaiting, homeNothingNeedsYou,
@@ -147,9 +170,15 @@ extension Copy {
         welcomeSaveChanges, welcomeStarting, welcomeTryDemo, welcomeSetUpLater, welcomeSetUpLaterNeedsName,
         welcomeClose, welcomeAllowed, welcomeRemoveDrop, welcomeHello("Ada"), welcomeNotYou("Ada"),
         welcomeSettingUp(1), welcomeSettingUp(1_061),
+        reminderRemindMe, reminderInThreeHours, reminderTomorrowMorning, reminderInTwoDays, reminderBody,
+        reminderDropHere, reminderDismiss, welcomeAskForOne,
+        reminderRowLine(requested: "2 hours ago", reminder: "in 21 hours"),
     ]
     /// Longer sentences — the vocabulary rule only.
     /// `welcomeDemoFailed` carries the server's own reason, so its length is not ours.
     static let welcomeHomeSentences: [String] = [welcomeDemoFailed("the service is not running"),
-                                                 gsNothingYet, gsLeaveWhileReading, welcomeSubline]
+                                                 gsNothingYet, gsLeaveWhileReading, welcomeSubline,
+                                                 reminderNotificationsOff, reminderTitle("ChatGPT"),
+                                                 reminderStripLine("ChatGPT", requested: "2 hours ago"),
+                                                 reminderMenuLine("ChatGPT", requested: "2 hours ago")]
 }

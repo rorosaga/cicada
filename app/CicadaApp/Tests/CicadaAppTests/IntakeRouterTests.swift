@@ -294,4 +294,30 @@ final class IntakeRouterTests: XCTestCase {
         XCTAssertEqual(router.phase, .idle)
         XCTAssertTrue(api.importedBanks.isEmpty, "adopting is staging, never importing")
     }
+
+    /// R-IB22 — a sniff of the export someone was waiting for clears that wait.
+    func testASniffedExportReportsItsVendor() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("chatgpt")]
+        let router = IntakeRouter(api: api)
+        var sniffed: [String] = []
+        router.onVendorSniffed = { sniffed.append($0) }
+        router.accept(urls: [try file("conversations.json")], from: .windowDrop)
+        try await eventually("the preview") { self.isPreview(router) }
+        XCTAssertEqual(sniffed, ["chatgpt"])
+    }
+
+    /// R-IB22 — the export arriving on the Welcome clears its wait too: the
+    /// Welcome's staging is a sniff like any other.
+    func testAnExportStagedOnTheWelcomeReportsItsVendor() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("claude")]
+        let router = IntakeRouter(api: api)
+        var sniffed: [String] = []
+        router.onVendorSniffed = { sniffed.append($0) }
+        router.welcomeActive = true
+        router.accept(urls: [try file("conversations.json")], from: .welcome)
+        try await eventually("staged") { router.welcomeDrops.count == 1 }
+        XCTAssertEqual(sniffed, ["claude"])
+    }
 }
