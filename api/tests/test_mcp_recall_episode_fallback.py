@@ -26,6 +26,9 @@ def test_total_miss_falls_through_to_episode_excerpts(monkeypatch, tmp_path):
         mcp.mcp_tools, "_keyword_search_entities", lambda entities_dir, query, top_k: []
     )
     monkeypatch.setattr(
+        mcp.mcp_tools, "_claim_subject_search", lambda memory_path, query, top_k: []
+    )
+    monkeypatch.setattr(
         mcp.mcp_tools,
         "_leann_search_episodes",
         lambda memory_path, query, top_k: [

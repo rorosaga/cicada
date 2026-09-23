@@ -52,7 +52,7 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     assert "cicada_recall" in text and "cicada_check_nudges(entity_ids=" in text
     assert "at most one question per turn" in text and "cicada_resolve_inbox(id, skip=true)" in text
     assert "Recommended option when the item shows them" in text and "Cause" in text and "normalization" in text
-    assert handshake.CONTRACT_VERSION == 2, "item 2 changed — the on-disk cache key must move with it"
+    assert handshake.CONTRACT_VERSION == 3, "item 2 changed — the on-disk cache key must move with it"
     assert "cicada_write_claim" in text and "evidence" in text and "sources" in text
     assert state_dictionary.WORLD_FACTS_NOTE in text
     # the now-view
@@ -161,3 +161,95 @@ def test_get_handshake_route(api_bank):
     data = r.json()
     assert data["variant"] == "codex" and data["state_present"] is True
     assert data["text"].startswith("# Cicada") and data["hook_pointer"] == handshake.HOOK_POINTER
+
+
+# --- G140 Q-R13/Q-R14: standing and current, identity and timezone -----------
+
+from _synthetic_bank import _entity  # noqa: E402
+from api.remote import catalog  # noqa: E402
+
+
+def test_the_now_view_splits_standing_from_current(tmp_path):
+    memory = _bank(tmp_path)
+    _entity(memory, "local-first", type="concept", decay_class="durable", confidence=0.9)
+    _entity(memory, "exam-week", type="concept", decay_class="volatile", last_referenced="2026-09-02")
+    state_dictionary.refresh(memory, _settings(memory, observer_owner="bob-example"), force=True,
+                             today=TODAY, now=NOW, repo_resolver=_ok_repo)
+    state = state_dictionary.read_state(memory)
+    text = handshake.build(state, variant="generic", bank="memory", tz="Europe/Madrid")
+    standing, current = text.split("### Standing — changes rarely", 1)[1].split("### Current — in motion", 1)
+    assert "`bob-example` — Bob Example is a synthetic fixture" in standing
+    assert "Their timezone: Europe/Madrid." in standing
+    assert "How to work with me: Prefers concise summaries over long reports." in standing
+    assert "`local-first`" in standing and "`exam-week`" in current and "`alpha-project`" in current
+    assert len(text) // 4 <= handshake.MAX_TOKENS
+    remote = handshake.build_remote(state, tools=catalog.tool_names_for(catalog.DEFAULT_SCOPES), bank="memory",
+                                    tz="Europe/Madrid")
+    assert "### Standing" in remote and "Europe/Madrid" in remote and len(remote) // 4 <= handshake.MAX_TOKENS
+
+
+def test_a_v1_state_file_still_renders():
+    state = {"type": "state", "generated_at": NOW.isoformat(), "bank": "memory", "engine": {}, "sleep": {},
+             "inbox": {}, "projects": [], "people": [], "conversations": [],
+             "preferences": [{"id": "p", "name": "P", "one_liner": "Short replies."}]}
+    text = handshake.build(state, variant="generic", bank="memory")
+    assert "How to work with me: Short replies." in text and "### Current — in motion" in text
+
+
+def test_the_primer_gives_up_current_rows_before_the_working_agreements():
+    big = [{"id": f"x-{i}", "name": "N" * 60, "one_liner": "o" * 110} for i in range(80)]
+    state = {"type": "state", "generated_at": NOW.isoformat(), "bank": "memory", "engine": {}, "sleep": {},
+             "inbox": {}, "projects": [{"id": "alpha-project", "name": "Alpha Project", "one_liner": "Alpha."}],
+             "people": big, "focus": big, "standing": big,
+             "conversations": [{"id": f"c{i}", "harness": "codex", "title": "T" * 60} for i in range(80)],
+             "preferences": [{"id": "ask-first", "name": "Ask First", "one_liner": "Ask before acting."}]}
+    text = handshake.build(state, variant="generic", bank="memory")
+    assert len(text) // 4 <= handshake.MAX_TOKENS
+    assert "How to work with me: Ask before acting." in text and "`alpha-project`" in text
+    assert "People recently in play" not in text and "In focus" not in text
+
+
+def test_the_timezone_is_per_request_never_persisted_and_moves_the_cache(tmp_path, monkeypatch):
+    memory = _with_state(tmp_path)
+    monkeypatch.setattr(handshake, "local_timezone", lambda: "Europe/Madrid")
+    a, _ = handshake.load_or_build(memory, "claude-code", cache_dir=tmp_path / "c")
+    monkeypatch.setattr(handshake, "local_timezone", lambda: "America/Lima")
+    b, meta = handshake.load_or_build(memory, "claude-code", cache_dir=tmp_path / "c")
+    assert "Europe/Madrid" in a and "America/Lima" in b and meta["cached"] is False
+    assert "Madrid" not in (memory / "_state.md").read_text(encoding="utf-8")
+
+
+def test_the_contract_names_the_new_tools():
+    text = handshake.build(None, variant="generic", bank="memory")
+    for needle in ("cicada_timeline(since)", "cicada_record_watch(url, summary, excerpts=[{t, quote}])",
+                   "`expected_end`", "cicada_retract_claim(subject, claim_id, reason)",
+                   "cicada_recall_detail(entity_id)"):
+        assert needle in text, needle
+    remote = handshake.build_remote(None, tools=frozenset(catalog.TOOL_SCOPE), bank="memory")
+    assert "cicada_retract_claim" in remote and "deletes or rewrites" not in remote
+
+
+def test_a_record_only_remote_primer_carries_nothing_about_the_person():
+    """G140 final review: a connection granted only ``record`` was told "Save
+    notes, links and facts" — not the person's summary, timezone, working
+    agreements, long-standing pages or what is in focus. The owner id stays
+    (a write needs a subject); every describing row needs a ``read`` tool."""
+    state = {"type": "state", "generated_at": NOW.isoformat(), "bank": "memory", "engine": {}, "sleep": {},
+             "inbox": {}, "owner_id": "bob-example", "owner_one_liner": "Builds robots in a small lab.",
+             "projects": [{"id": "alpha-project", "name": "Alpha Project", "one_liner": "Alpha."}],
+             "people": [], "conversations": [],
+             "focus": [{"id": "focus-page", "name": "Focus Page"}],
+             "standing": [{"id": "lasting-page", "name": "Lasting Page"}],
+             "preferences": [{"id": "ask-first", "name": "Ask First", "one_liner": "Ask before acting."}]}
+    personal = ("Builds robots", "Europe/Madrid", "How to work with me", "Ask before acting",
+                "Long-standing", "lasting-page", "In focus", "focus-page")
+    record_only = catalog.tool_names_for(frozenset({"record"}))
+    for st in (state, None):
+        text = handshake.build_remote(st, tools=record_only, bank="memory", tz="Europe/Madrid")
+        for needle in personal:
+            assert needle not in text, needle
+    assert "`bob-example`" in handshake.build_remote(state, tools=record_only, bank="memory", tz="Europe/Madrid")
+    with_read = handshake.build_remote(state, tools=catalog.tool_names_for(frozenset({"record", "read"})),
+                                       bank="memory", tz="Europe/Madrid")
+    for needle in personal:
+        assert needle in with_read, needle

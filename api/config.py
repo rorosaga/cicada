@@ -232,6 +232,8 @@ class Settings(BaseSettings):
     state_people: int = 7             # CICADA_STATE_PEOPLE
     state_preferences: int = 5        # CICADA_STATE_PREFERENCES
     state_conversations: int = 5      # CICADA_STATE_CONVERSATIONS
+    state_standing: int = 5           # CICADA_STATE_STANDING
+    state_focus: int = 5              # CICADA_STATE_FOCUS
     # G53 — the owner's own entity id (e.g. `bob-example`), so `_state.md` can
     # point an agent at "the person's page" without a name in code (the
     # portability rail: no owner name anywhere). Empty = unset; the builder

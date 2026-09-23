@@ -46,6 +46,8 @@ __all__ = [
     "turn_stamps", "source_document",
     # G133 / G134 (R-LS7, R-LS2)
     "kind_for", "turn_at", "OVERRIDE_KINDS",
+    # G140 Q-R9
+    "media_time",
 ]
 
 # The longest quote a writer may cite. A longer one is clipped, not refused:
@@ -67,7 +69,18 @@ _EPISODE_PREFIX = "ep_"
 # attribute; `human`/`ai` are accepted for hand-written or third-party episodes. `system` is the person's configured context and
 # `unknown` is unattributed, so both count as `user` below — the only way a
 # span is labelled the model's is a line that says so.
-_TURN_RE = re.compile(r"^(user|human|assistant|ai|system|unknown)\s*:", re.IGNORECASE)
+#
+# G140 Q-R9: a `video`/`media` line is what a video said — a watch record's
+# cited excerpt (`video [12:34]: …`, `watch_record`). Its `[m:ss]`/`[h:mm:ss]`
+# is REQUIRED: "Video:" opens ordinary lines in a person's own messages, and
+# reading those as a video's words would be R5 §2 defect 3 in reverse. The six
+# original words keep their alternative byte for byte, so no stored episode
+# reads differently. `media_time` reads the time back at read time.
+_TURN_RE = re.compile(
+    r"^(?:(user|human|assistant|ai|system|unknown)"
+    r"|(video|media)\s*\[(?P<t>\d{1,2}(?::\d{2}){1,2})\])\s*:",
+    re.IGNORECASE,
+)
 _ASSISTANT_ROLES = frozenset({"assistant", "ai"})
 # R-N2 / R-LS7: a meeting utterance is written `speaker:<label>: text` by the
 # note-taker adapters (`wispr_flow.speaker_marker`). It is someone other than
@@ -187,32 +200,38 @@ def locate(
     return None
 
 
-def _marker(line: str) -> tuple[str, str, int] | None:
-    """``(kind, marker, marker end)`` when ``line`` opens a turn, else ``None``.
+def _marker(line: str) -> tuple[str, str, int, str | None] | None:
+    """``(kind, marker, marker end, time)`` when ``line`` opens a turn, else ``None``.
 
     The ONE marker grammar in this module (R-PB3): :func:`speaker_kind`,
-    :func:`_marker_lines`, :func:`turn_starts`, :func:`turns` and
-    :func:`span_status` all read it, so a span's kind and the Reader's turn
-    role can never disagree — including for the note-taker ``speaker:`` family
-    (R-LS7), which is ``speaker``, never ``user``. ``marker`` is the R4 role
-    word lower-cased, or ``speaker:<label>`` as written (a label is a name, not
-    a keyword); ``marker end`` is just past the marker's colon.
+    :func:`media_time`, :func:`_marker_lines`, :func:`turn_starts`,
+    :func:`turns` and :func:`span_status` all read it, so a span's kind, its
+    ``t`` and the Reader's turn role can never disagree — including for the
+    note-taker ``speaker:`` family (R-LS7), which is ``speaker``, never
+    ``user``, and a timed ``video [m:ss]:`` / ``media [h:mm:ss]:`` line
+    (G140 Q-R9), which is ``media``. ``marker`` is the R4 role word (or
+    ``video``/``media``) lower-cased, or ``speaker:<label>`` as written (a
+    label is a name, not a keyword); ``marker end`` is just past the marker's
+    colon; ``time`` is the raw ``m:ss`` of a media line, ``None`` otherwise.
     """
     m = _SPEAKER_RE.match(line)
     if m:
-        return "speaker", m.group(0)[:-1], m.end()
+        return "speaker", m.group(0)[:-1], m.end(), None
     m = _TURN_RE.match(line)
     if m:
+        if m.group(2):
+            return "media", m.group(2).lower(), m.end(), m.group("t")
         role = m.group(1).lower()
-        return ("assistant" if role in _ASSISTANT_ROLES else "user"), role, m.end()
+        return ("assistant" if role in _ASSISTANT_ROLES else "user"), role, m.end(), None
     return None
 
 
 def speaker_kind(text: str, start: int) -> str:
     """R4: ``assistant`` when the last turn marker at or before ``start`` is
     the model's, ``speaker`` when it is a note-taker's ``speaker:<label>:``
-    line (R-LS7); ``user`` otherwise — including no marker at all, because
-    every marker-less writer captures the person's own input.
+    line (R-LS7), ``media`` when it is a timed video line (G140); ``user``
+    otherwise — including no marker at all, because every marker-less writer
+    captures the person's own input.
 
     Scans through the END of the line that contains ``start`` (not just
     ``text[:start]``): a marker only ever matches at a line's first column,
@@ -232,6 +251,43 @@ def speaker_kind(text: str, start: int) -> str:
     return kind
 
 
+def _seconds(raw: str | None) -> int | None:
+    """``m:ss`` / ``h:mm:ss`` → seconds. Local on purpose: this module
+    imports only ``markdown_parser`` and ``claims`` (G80)."""
+    if not raw:
+        return None
+    total = 0
+    for part in raw.split(":"):
+        if not part.isdigit():
+            return None
+        total = total * 60 + int(part)
+    return total
+
+
+def media_time(text: str, start: int, override: str | None = None) -> int | None:
+    """Seconds into the video for a span on a ``video [m:ss]:`` line (G140
+    Q-R9) — read at read time from the marker line at or before ``start``,
+    the same line :func:`speaker_kind` reads through the same :func:`_marker`
+    grammar, and never stored on the evidence. ``None`` on any other line, and
+    ``None`` when the episode's declared ``evidence_kind`` (R-LS7) relabels
+    the span — the override wins before per-line markers, so ``t`` exists
+    exactly where :func:`kind_for` answers ``media``."""
+    if override in OVERRIDE_KINDS:
+        return None
+    text = text or ""
+    start = max(int(start), 0)
+    line_end = text.find("\n", start)
+    head = text if line_end == -1 else text[:line_end]
+    found = None
+    for line in head.splitlines():
+        hit = _marker(line)
+        if hit:
+            found = hit
+    if found is None or found[0] != "media":
+        return None
+    return _seconds(found[3])
+
+
 def kind_for(doc_id: str, text: str, start: int, override: str | None = None) -> str:
     """The one evidence-kind decision (R-LS7): ``page`` for an entity document;
     for an episode, its declared ``evidence_kind`` when it is one of
@@ -243,8 +299,10 @@ def kind_for(doc_id: str, text: str, start: int, override: str | None = None) ->
     return speaker_kind(text, start)
 
 
-def _marker_lines(text: str) -> list[tuple[int, str, str, int]]:
-    """``(line start, kind, marker, content start)`` for every turn-marker line.
+def _marker_lines(text: str) -> list[tuple[int, str, str, int, str | None]]:
+    """``(line start, kind, marker, content start, time)`` for every
+    turn-marker line — ``time`` is the raw ``m:ss`` of a timed video line
+    (G140 Q-R9), ``None`` for every other marker.
 
     The SAME lines :func:`speaker_kind` treats as turn boundaries — same
     :func:`_marker` grammar, same ``splitlines`` — so a turn's role and a
@@ -252,22 +310,22 @@ def _marker_lines(text: str) -> list[tuple[int, str, str, int]]:
     ``content start`` skips the marker and the spaces after it, so no client
     runs a regex of its own. Ascending by construction.
     """
-    out: list[tuple[int, str, str, int]] = []
+    out: list[tuple[int, str, str, int, str | None]] = []
     pos = 0
     for line in (text or "").splitlines(keepends=True):
         hit = _marker(line)
         if hit:
-            kind, marker, content = hit
+            kind, marker, content, raw_t = hit
             while content < len(line) and line[content] in " \t":
                 content += 1
-            out.append((pos, kind, marker, pos + content))
+            out.append((pos, kind, marker, pos + content, raw_t))
         pos += len(line)
     return out
 
 
 def turn_starts(text: str) -> list[int]:
     """Offsets of every turn-marker line, ascending (R-PB3)."""
-    return [start for start, _kind, _marker, _content in _marker_lines(text)]
+    return [start for start, *_ in _marker_lines(text)]
 
 
 @dataclass
@@ -279,12 +337,15 @@ class TurnSpan:
     the marker and the spaces after it; ``end`` is exclusive and stops before
     the newline that separates it from the next turn. ``role`` is exactly what
     :func:`kind_for` answers inside the turn (``user`` | ``assistant`` |
-    ``speaker``), or ``page`` for an entity page. ``marker`` is the word as
-    written, lower-cased — ``system``/``unknown`` count as the person under R4
-    and the Reader may say so — or ``speaker:<label>`` as written for a
-    note-taker line (R-LS7), and ``None`` for a block with no marker line.
+    ``speaker`` | ``media``), or ``page`` for an entity page. ``marker`` is the
+    word as written, lower-cased — ``system``/``unknown`` count as the person
+    under R4 and the Reader may say so — or ``speaker:<label>`` as written for
+    a note-taker line (R-LS7), and ``None`` for a block with no marker line.
     ``ts``/``speaker`` come only from a stored ``turns`` sidecar entry at
-    exactly ``start``: a time is never inferred (§4.4).
+    exactly ``start``: a time is never inferred (§4.4). ``t`` is the seconds
+    into the video for a ``video [m:ss]:`` turn (G140 Q-R9) — derived from the
+    marker, never stored, and ``None`` whenever the turn's role is not
+    ``media`` (so :func:`media_time` agrees at every offset).
     """
 
     index: int
@@ -295,6 +356,7 @@ class TurnSpan:
     marker: str | None = None
     ts: str | None = None
     speaker: str | None = None
+    t: int | None = None
 
 
 def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = None,
@@ -317,17 +379,19 @@ def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = Non
         return [TurnSpan(index=1, start=0, content_start=0, end=len(text), role="page")]
     stamps = stamps or {}
     forced = override if override in OVERRIDE_KINDS else None
-    blocks: list[tuple[int, str, str | None, int]] = list(_marker_lines(text))
+    blocks: list[tuple[int, str, str | None, int, str | None]] = list(_marker_lines(text))
     if not blocks or blocks[0][0] > 0:
-        blocks.insert(0, (0, "user", None, 0))
+        blocks.insert(0, (0, "user", None, 0, None))
     out: list[TurnSpan] = []
-    for i, (start, kind, marker, content_start) in enumerate(blocks):
+    for i, (start, kind, marker, content_start, raw_t) in enumerate(blocks):
         nxt = blocks[i + 1][0] if i + 1 < len(blocks) else len(text)
         end = start + len(text[start:nxt].rstrip("\r\n"))
         stamp = stamps.get(start) or {}
+        role = forced or kind
         out.append(TurnSpan(
             index=i + 1, start=start, content_start=min(content_start, end), end=end,
-            role=forced or kind, marker=marker, ts=stamp.get("ts"), speaker=stamp.get("speaker"),
+            role=role, marker=marker, ts=stamp.get("ts"), speaker=stamp.get("speaker"),
+            t=_seconds(raw_t) if role == "media" else None,
         ))
     return out
 
