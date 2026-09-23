@@ -77,7 +77,7 @@ def client_bank(tmp_path: Path, monkeypatch):
 
 def test_the_wire_carries_claim_id_and_evidence(client_bank, monkeypatch):
     ev = client_bank
-    monkeypatch.setattr(ask_service, "answer_query", lambda memory_path, query, top_k=6: {
+    monkeypatch.setattr(ask_service, "answer_query", lambda memory_path, query, top_k=6, **_kw: {
         "answer": "It uses sqlite-vec.", "confidence": 0.8, "gaps": [], "used_entities": ["alpha-project"],
         "citations": [{"entity_id": "alpha-project", "entity_name": "Alpha Project", "file_path": "",
                        "snippet": "", "source_episodes": [EP], "claim_id": "clm_1",

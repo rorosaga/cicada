@@ -109,9 +109,12 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
 3. **Markdown+git is the only source of truth.** A `.db` may exist only if deleting it costs CPU
    and never a fact, and **no derived artifact is ever tracked in a bank's git** (the 35 MB index
    was tracked and would have committed ~11 GB/yr once Sleep resumed).
-4. **Scheduled cycles cannot spend plan quota.** `user_triggered` is threaded through; a scheduled
-   cycle returns `byok` before the registry is touched. The UI copy says "never on the nightly
-   schedule" and that is now literally true.
+4. **Scheduled cycles cannot spend plan quota — Claude or ChatGPT.** `user_triggered` is threaded
+   through; a scheduled cycle returns `byok` before the registry is touched, and a Settings-chosen
+   `agent` **or `codex`** is demoted to `byok` on a schedule by one tuple,
+   `engine_select.SUBSCRIPTION_MODES`, so a third plan engine cannot forget the guard (Track E,
+   2026-09-23). Only an explicit `CICADA_LLM_MODE` in `api/.env` runs a plan on the schedule. The UI
+   copy says "never on the nightly schedule" and that is literally true for both plans.
 5. **Raw storage does not replace Sleep** (G101). Text cannot decay — only a belief can go stale or
    be contradicted — so "time as a signal" needs a belief object.
 6. **Capture is agent-judgment and that is a measured problem** (G105): 0 MCP invocations in 12

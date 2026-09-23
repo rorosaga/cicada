@@ -1,5 +1,6 @@
 import asyncio
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -54,7 +55,7 @@ class SleepState:
     questions_refreshed: int = 0
     organic_resolutions: int = 0
     # G74(a) — which engine this cycle actually ran on ("claude-cli" |
-    # "ollama" | "litellm"), and one sentence about its state. The Sleep page
+    # "codex-cli" | "ollama" | "litellm"), and one sentence about its state. The Sleep page
     # showed "check model id / API credits" on a Max plan that has no credits
     # to check; these two make the real answer visible.
     last_engine: str | None = None
@@ -419,7 +420,7 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
     gated at all.
     """
     try:
-        from api.services import engine_select, link_enrichment
+        from api.services import agent_engine, engine_select, link_enrichment
         from api.services.connectors.base import network_allowed
         from api.services.link_recon import scan_recon
 
@@ -454,12 +455,17 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
                 "Link backfill: page fetch skipped — CICADA_ALLOW_CONNECTOR_FETCH is off "
                 "(reuse + recon still run)"
             )
-        report = await link_enrichment.backfill(
-            memory_path, resolved, limit=per_cycle,
-            summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
-            fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
-            engine=engine,
-        )
+        # Final review H1: the tail runs after the cycle's own `sleep:<id>`
+        # scope has closed, so without this it would share the never-reset
+        # ``_unscoped`` bucket with Ask — one throttle there would block every
+        # later backfill until a restart. Its own scope purges on exit.
+        with agent_engine.use_scope(f"links:{uuid.uuid4().hex}"):
+            report = await link_enrichment.backfill(
+                memory_path, resolved, limit=per_cycle,
+                summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
+                fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
+                engine=engine,
+            )
         if report.selected or report.related or report.skipped:
             logger.info(
                 f"Link backfill: {report.reused} reused, {report.summarized} summarized, "
@@ -557,6 +563,15 @@ def _engine_label(settings: Settings) -> str:
     return engine_select.engine_label(settings)
 
 
+def _requeue_note(requeued: int, breaker: str | None) -> str:
+    """R-E12: when a plan stop is why episodes stayed queued, the completion
+    sentence says so in the plan's own words — "re-run to continue" was true
+    but hid the one fact that mattered (wait for the reset)."""
+    if not requeued:
+        return ""
+    return f" — {requeued} episode(s) requeued ({breaker or 're-run to continue'})"
+
+
 def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> str:
     """The user-visible reason Stage 1 produced nothing — per engine.
 
@@ -574,19 +589,25 @@ def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> st
     plan: a subscription has no credits to check, and the real fixes are
     completely different per rung.
     """
-    from api.services import agent_engine
+    from api.services import agent_engine, engine_select
 
     breaker = agent_engine.breaker_reason()
     if breaker:
         n = _state.episodes_total
-        return (
-            f"Claude plan throttled — stopped cleanly, {n} episode(s) left queued. "
-            f"({breaker})"
-        )
+        # R-E22: name the plan that actually ran — the breaker is shared by
+        # both plan engines (R-E19).
+        plan = engine_select.PLAN_NAMES.get(engine, "Claude plan")
+        return f"{plan} throttled — stopped cleanly, {n} episode(s) left queued. ({breaker})"
     if engine == "claude-cli":
         return (
             "Stage 1 extracted nothing — every episode failed on the Claude Code engine. "
             "Run `claude auth status` to check the plan is signed in. "
+            "The queue is intact; trigger Sleep again once it is."
+        )
+    if engine == "codex-cli":
+        return (
+            "Stage 1 extracted nothing — every episode failed on the ChatGPT plan engine. "
+            "Check ChatGPT is still signed in on Settings → Plans & keys. "
             "The queue is intact; trigger Sleep again once it is."
         )
     if engine == "ollama":
@@ -931,7 +952,7 @@ async def _run_stages(
     _state.engine_detail = engine_why
     logger.info(
         f"Sleep cycle {cycle_id} started — engine: {_state.last_engine}, "
-        f"model: {settings.litellm_model}"
+        f"model: {engine_select.author_model(settings)}"
     )
 
     # Sleep control — safe point: nothing has touched disk or spawned a
@@ -955,6 +976,26 @@ async def _run_stages(
             _state.error = detail
             _state.progress = f"Failed: {detail}"
             return _StageOutcome()
+    elif _state.last_engine == "codex-cli":
+        # R-E18: one read-only `codex app-server` probe (≈0.5 s, no quota)
+        # answers signed-in, plan-vs-API-key and "limit already reached"
+        # BEFORE the first spawn, and names the plan's current default model
+        # when the person never picked one (R-E17) — every call this cycle
+        # then passes an explicit `-m`, and the Cicada-Author trailer is a
+        # real id that came from model/list, never from this file.
+        from api.services import codex_engine
+
+        ok, detail, default_model = await codex_engine.preflight()
+        _state.engine_detail = detail
+        if not ok:
+            logger.error(f"Sleep cycle {cycle_id} aborted before Stage 1 — {detail}")
+            _state.error = detail
+            _state.progress = f"Failed: {detail}"
+            return _StageOutcome()
+        if default_model and not (getattr(settings, "codex_model", "") or "").strip():
+            settings = settings.model_copy(update={"codex_model": default_model})
+            # The "started" line above logged before this was known.
+            logger.info(f"Sleep cycle {cycle_id} — ChatGPT plan default model: {default_model}")
 
     # Stage 1: Entity & Relationship Extraction
     _state.progress = f"Stage 1/5: Extracting entities from {len(episodes)} episodes..."
@@ -1002,7 +1043,7 @@ async def _run_stages(
         # install that never chose an engine at all. Only the claude-cli
         # rung's detail (the pre-flight probe's own sentence, e.g. "signed
         # out — run `claude auth login`") is actually diagnostic.
-        if _state.last_engine == "claude-cli" and _state.engine_detail:
+        if _state.last_engine in engine_select.PLAN_ENGINES and _state.engine_detail:
             msg = f"{msg} ({_state.engine_detail})"
         logger.error(msg)
         _state.error = msg
@@ -1251,10 +1292,11 @@ async def _run_stages(
         _state.index_warning = "; ".join(index_warnings)
 
     # Commit
-    from api.services import agent_engine
+    from api.services import agent_engine, engine_select
 
     engine = _state.last_engine or "litellm"
     engine_models = agent_engine.models_used()
+    plan = engine_select.PLAN_ENGINES.get(engine)
     await _finalize(
         memory_path,
         cycle_id,
@@ -1263,10 +1305,10 @@ async def _run_stages(
         organic_resolution_paths=organic_resolution_paths,
         started=_state.started_monotonic,
         engine=engine,
-        # A plan cycle belongs to the claude-plan card and is billed
-        # against the subscription, not as money.
-        connection="claude-plan" if engine == "claude-cli" else None,
-        billing="subscription" if engine == "claude-cli" else None,
+        # A plan cycle belongs to its plan's card and is billed against the
+        # subscription, not as money (PLAN_ENGINES, R-E22).
+        connection=plan[0] if plan else None,
+        billing=plan[1] if plan else None,
         # The models the engine ACTUALLY used this cycle — the CLI may
         # route an internal side-call to a different model than the one we
         # asked for (V1d), and the trailer should say so.
@@ -1282,10 +1324,12 @@ async def _run_stages(
     # tail (`_run_engine_independent_tail`), which `run` executes in its
     # `finally` block on every exit path — not just this happy one.
 
-    requeue_note = (
-        f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
-        if _state.episodes_requeued else ""
-    )
+    # R-E12: a plan stop tripped mid-cycle is the cycle's engine detail and
+    # the reason in its requeue note — the plan's own sentence and reset time.
+    breaker = agent_engine.breaker_reason()
+    if breaker:
+        _state.engine_detail = breaker
+    requeue_note = _requeue_note(_state.episodes_requeued, breaker)
     # Episode cap: `episodes_queued` (the FULL unprocessed count found before
     # capping) > `episodes_total` (what this cycle actually attempted) means
     # the cap truncated this cycle. Surfaced in the progress sentence — same

@@ -156,7 +156,7 @@ Four rails hold across all of them:
   agent's final reply per turn; tool calls, thinking, file dumps and harness-injected text are
   skipped by construction. Secrets scrubbed, per-turn and per-session caps applied. **One episode
   per session** — a later Stop rewrites it in place and flips `processed: false`, never two
-  episodes for one conversation (G104). Cicada's own `claude -p` spawns run with
+  episodes for one conversation (G104). Cicada's own `claude -p` and `codex exec` spawns run with
   `CICADA_CAPTURE=off`.
 - **Transcripts under `~/.claude/` are never read anywhere else.** The MCP seam and the resume path
   only ever `isfile()` them to answer "is this session still resumable"; that answer is computed
@@ -474,12 +474,17 @@ import lives behind the `+`" (the G126 rule above) covers a chat export, but imp
 *into a chosen or newly created memory bank* has no tile, and the upload overlay is also the only
 writer of `Store.intakeInFlight` — the flag that makes the bookworm read while an import lands.
 
-**Settings → Sleep: the engine picker (G122).** A segmented picker over the connections registry's
-candidates (Claude plan, Ollama, a BYOK key; Codex stays permanently `available: false` — G49's
-half of the ladder) writes `PUT /sleep/engine`, which lands in the same bank-independent
-`~/.cicada/connections.json` prefs `use_for_sleep` already uses, never `api/.env`. The card shows
-both `preview.manual` and `preview.scheduled` lines rather than hiding **ruling 4** (a scheduled
-cycle never spends plan quota) — the asymmetry stays visible, not silently applied.
+**Settings → Sleep: the engine picker (G122, Track E).** A row of cards with real marks — Auto,
+Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
+`PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
+`use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
+in. The card shows both `preview.manual` and `preview.scheduled` lines rather than hiding **ruling
+4** (a scheduled cycle never spends Claude *or* ChatGPT plan quota — `engine_select.SUBSCRIPTION_MODES`)
+— the asymmetry stays visible, not silently applied. *Keep going on extra usage* (off) is the only
+way a Claude cycle continues past the plan's included usage; otherwise it stops with one plain
+sentence and the reset time. Ask follows the same choice. The ChatGPT plan runs as `codex exec` in
+Cicada's own Codex home (`~/.cicada/codex`), signed into in-app with a device code; Cicada never
+opens that home's files — `codex app-server` answers plan, limit and models.
 
 **Settings → Integrations (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
@@ -686,7 +691,7 @@ newest unprocessed episode is ≥ `AFTER_IMPORT_SETTLE_MINUTES` (10) old — `Sl
 (`mode != "manual"`) and always written on the wire so an older client still decodes; an old
 `PUT {enabled,hour,minute}` with no `mode` is accepted and mapped onto `daily`/`manual`. Every
 scheduled path — daily, interval, or the settle probe — passes `user_triggered=False`, so a
-scheduled cycle never spends plan quota (the standing ruling in `TODO.md`).
+scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`).
 
 ### 5. Conversation upload
 File picker for JSON/HTML exports; parses and stages into `episodes/`; dedups on timestamp +
@@ -749,6 +754,8 @@ authentication, ever.
 shared `base.forget()` removes them on disconnect, so a fields-vs-stored drift can't orphan a
 secret. Where a vendor bills per request (X's "owned reads"), the sync result carries the count so a
 cost is stated plainly rather than hidden behind a "connected" checkbox.
+Cicada's own Codex sign-in lives in `~/.cicada/codex/` — Codex's files, never opened by Cicada,
+never in a bank.
 
 **Video (Track V, 2026-09-05).** Only a provider's own player URL is ever loaded — YouTube
 (`youtube-nocookie.com/embed/…`, incl. `videoseries?list=`), Vimeo, TikTok and Loom — and an

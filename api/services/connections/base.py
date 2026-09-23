@@ -1,10 +1,12 @@
 """Shared pieces for provider connection adapters.
 
 An adapter *probes* a vendor CLI's login state and can start/stop that CLI's
-own login flow. It never holds a vendor token. All subprocesses run with the
-provider API keys stripped from the environment so ``claude`` reports its
-OAuth state rather than an API-key override, and so a child can never inherit
-a key it should not see.
+own login flow. It never holds a vendor token. Every subprocess runs with an
+environment built here (``scrubbed_env``): the provider keys Cicada manages
+are stripped, and so is every variable that would move a ``claude`` or
+``codex`` child off the person's plan (R-E1/R-E3), so a child never inherits
+a credential it should not see — and ``claude auth status`` / ``codex login
+status`` report the plan, not an override.
 """
 from __future__ import annotations
 
@@ -14,11 +16,45 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Awaitable, Callable, Protocol
 
 from api.models.schemas import ConnectionKind, ConnectionStatus, LoginSession
+from api.services.auth import cicada_home
 
-SCRUBBED_ENV_KEYS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY")
+#: Provider keys Cicada itself manages (hot-loaded from ``secrets.env`` for
+#: the BYOK rung). A CLI child must never inherit them: ``claude -p`` "always"
+#: uses ``ANTHROPIC_API_KEY`` when present, and Codex lets an env key outrank
+#: its ChatGPT sign-in — either turns a plan call into metered billing.
+MANAGED_KEY_ENV = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY")
+
+#: Variables Cicada never sets that would move a ``claude`` child off the
+#: person's plan: each outranks the ``/login`` subscription in Claude Code's
+#: auth precedence or reroutes its traffic (code.claude.com/docs/en/
+#: authentication and /env-vars, fetched 2026-09-23), and ``claude auth
+#: status`` cannot see any of them (it still reports ``claude.ai``). R-E1.
+CLAUDE_PLAN_OVERRIDE_ENV = (
+    "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_AUTH_TOKEN", "ANTHROPIC_AWS_API_KEY",
+    "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+    "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+)
+
+#: The Codex twins. An env key "takes precedence over any other auth method"
+#: on the exec path (codex-rs login/auth/manager.rs, R2 §1.4), and a base-URL
+#: override sends the call somewhere other than the ChatGPT plan. R-E3.
+CODEX_PLAN_OVERRIDE_ENV = ("CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_BASE_URL")
+
+#: Stripped from every child, never worth a warning: the retry watchdog
+#: retries a plan 429 indefinitely (defeating the capped retries that make a
+#: throttle visible, R-E1), and an inherited ``CODEX_HOME`` would point
+#: Cicada back at the person's own ~/.codex (spec Decision 2) — Cicada sets
+#: its own below.
+_ALSO_STRIPPED = ("CLAUDE_CODE_RETRY_WATCHDOG", "CODEX_HOME")
+
+#: R-E5: one list for every child. Cicada only ever spawns ``claude`` and
+#: ``codex``, so stripping the union is safe for both.
+SCRUBBED_ENV_KEYS = MANAGED_KEY_ENV + CLAUDE_PLAN_OVERRIDE_ENV + CODEX_PLAN_OVERRIDE_ENV + _ALSO_STRIPPED
 
 
 @dataclass
@@ -82,13 +118,56 @@ def _resolve_argv(argv: list[str]) -> list[str] | None:
     return [path, *argv[1:]]
 
 
-def scrubbed_env() -> dict[str, str]:
-    """Provider keys stripped, and ``CICADA_CAPTURE=off`` set: every CLI
-    Cicada spawns runs under this, and the G105 Stop hook exits on that
-    variable — otherwise Sleep's own ``claude -p`` extraction prompts would
-    be captured back into the bank as episodes (R8)."""
+def codex_home() -> Path:
+    """Cicada's own Codex home (``$CICADA_HOME/codex``, 0700) — spec Decision 2.
+
+    Signing in here instead of the person's ~/.codex keeps their skills and
+    ``AGENTS.md`` (7.7k–11.6k tokens of hidden context per call, measured in
+    R2 §2.3) out of every Sleep call and gives Cicada its own refresh chain,
+    so two processes never race one refresh token. ``CICADA_HOME`` is its only
+    override (R-E7) — no knob points it back at ~/.codex.
+    """
+    path = cicada_home() / "codex"
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return path
+
+
+def plan_overrides_present(kind: str) -> list[str]:
+    """Names (never values) of the plan-override variables set in THIS
+    process's environment. ``kind`` is ``"claude"`` or ``"codex"``."""
+    names = CLAUDE_PLAN_OVERRIDE_ENV if kind == "claude" else CODEX_PLAN_OVERRIDE_ENV
+    return [name for name in names if (os.environ.get(name) or "").strip()]
+
+
+def override_note(kind: str) -> str | None:
+    """R-E6: why the plan WOULD be bypassed outside Cicada, and that Cicada
+    removes it for its own calls — one sentence the connection card and the
+    Sleep pre-flight append, or ``None``. Names only: a base URL can carry a
+    secret path, a token is a token."""
+    names = plan_overrides_present(kind)
+    if not names:
+        return None
+    tool, plan = ("Claude Code", "Claude plan") if kind == "claude" else ("Codex", "ChatGPT plan")
+    them = "it" if len(names) == 1 else "them"
+    return (
+        f"This Mac's environment sets {', '.join(names)}, which would take {tool} off "
+        f"your {plan} — Cicada removes {them} for its own calls, so Sleep stays on your plan."
+    )
+
+
+def scrubbed_env(name: str | None = None) -> dict[str, str]:
+    """The environment every CLI Cicada spawns runs under (R-E5).
+
+    ``SCRUBBED_ENV_KEYS`` stripped, and ``CICADA_CAPTURE=off`` set: the G105
+    Stop hook exits on that variable — otherwise Sleep's own prompts would be
+    captured back into the bank as episodes (R8). ``name`` is the binary's
+    logical name (``argv[0]`` before resolution); a ``codex`` child also gets
+    ``CODEX_HOME`` = Cicada's own home, so no call site can forget it.
+    """
     env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV_KEYS}
     env["CICADA_CAPTURE"] = "off"
+    if name and os.path.basename(name) == "codex":
+        env["CODEX_HOME"] = str(codex_home())
     return env
 
 
@@ -98,6 +177,7 @@ async def run_cli(
     timeout: float = 15.0,
     stdin: str | None = None,
     cwd: str | None = None,
+    env_overrides: dict[str, str] | None = None,
 ) -> CliResult:
     """Run ``argv`` with a scrubbed env. Never raises: missing binary -> rc 127,
     timeout -> rc 124, so adapters can degrade to ``available=False``.
@@ -106,10 +186,16 @@ async def run_cli(
     what every connection adapter passes) keeps the historical
     ``stdin=DEVNULL``. ``cwd``: the child's working directory — the agent
     engine runs in a scratch dir under ``$CICADA_HOME``, never a bank and
-    never the repo.
+    never the repo. ``env_overrides``: per-call variables layered on the
+    scrubbed env — the Claude rung's ``CLAUDE_CODE_MAX_RETRIES`` (R-E1).
     """
     if not argv:
         return CliResult(127, "", "empty argv")
+    # Built from the LOGICAL name, before argv[0] becomes a resolved path, so
+    # a `codex` child always lands in Cicada's own home (R-E5/R-E7).
+    env = scrubbed_env(argv[0])
+    if env_overrides:
+        env.update(env_overrides)
     resolved = _resolve_argv(argv)
     if resolved is None:
         return CliResult(127, "", f"{argv[0]}: not found")
@@ -120,7 +206,7 @@ async def run_cli(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
-            env=scrubbed_env(),
+            env=env,
             cwd=cwd,
         )
     except OSError as exc:
@@ -143,6 +229,7 @@ def run_cli_sync(
     timeout: float = 15.0,
     stdin: str | None = None,
     cwd: str | None = None,
+    env_overrides: dict[str, str] | None = None,
 ) -> CliResult:
     """Blocking twin of :func:`run_cli`, with the identical rc contract.
 
@@ -150,10 +237,14 @@ def run_cli_sync(
     site (``dedup_sweep``, ``source_rewrite``, ``ask_service``) and an async
     one (``entity_extractor``, ``entity_resolver``). ``asyncio.run`` cannot be
     used from inside a running loop, so the core is synchronous and the async
-    seam wraps it in ``asyncio.to_thread`` instead.
+    seam wraps it in ``asyncio.to_thread`` instead. ``env_overrides`` as in
+    :func:`run_cli`.
     """
     if not argv:
         return CliResult(127, "", "empty argv")
+    env = scrubbed_env(argv[0])
+    if env_overrides:
+        env.update(env_overrides)
     resolved = _resolve_argv(argv)
     if resolved is None:
         return CliResult(127, "", f"{argv[0]}: not found")
@@ -161,7 +252,7 @@ def run_cli_sync(
     kwargs: dict = {
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
-        "env": scrubbed_env(),
+        "env": env,
         "cwd": cwd,
         "timeout": timeout,
     }
@@ -171,8 +262,13 @@ def run_cli_sync(
         kwargs["input"] = stdin.encode("utf-8")
     try:
         proc = subprocess.run(argv, **kwargs)  # noqa: S603 - argv is built, never shell
-    except subprocess.TimeoutExpired:
-        return CliResult(124, "", f"{argv[0]} timed out after {timeout}s")
+    except subprocess.TimeoutExpired as exc:
+        # R-E9: keep what the child printed before the clock ran out — a
+        # `system/api_retry` line there is what distinguishes "throttled
+        # while retrying" from "slow" (R1 gap B). POSIX `subprocess.run`
+        # populates `exc.stdout` with the output read so far.
+        partial = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else ""
+        return CliResult(124, partial, f"{argv[0]} timed out after {timeout}s")
     except OSError as exc:
         return CliResult(127, "", str(exc))
     return CliResult(

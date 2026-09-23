@@ -383,3 +383,75 @@ def test_sleep_status_exposes_the_engine():
     body = TestClient(main.app).get("/sleep/status").json()
     assert body["lastEngine"] == "claude-cli"
     assert body["engineDetail"] == "Claude Code signed in on this Mac."
+
+
+def test_the_requeue_note_names_the_plan_stop_when_there_is_one():
+    assert sleep_cycle._requeue_note(0, "anything") == ""
+    assert sleep_cycle._requeue_note(3, None) == " — 3 episode(s) requeued (re-run to continue)"
+    assert sleep_cycle._requeue_note(3, "Your Claude plan is 92% used for this 5-hour window — "
+                                        "Sleep paused to leave you room.") == (
+        " — 3 episode(s) requeued (Your Claude plan is 92% used for this 5-hour window — "
+        "Sleep paused to leave you room.)")
+
+
+def test_the_failure_copy_names_the_plan_that_actually_ran():
+    """R-E22: a ChatGPT-plan cycle's failure copy never tells the person to
+    check a Claude sign-in it never used."""
+    msg = sleep_cycle._stage1_failure_message("codex-cli")
+    assert "ChatGPT" in msg and "claude" not in msg.lower()
+    agent_engine.trip_breaker("ChatGPT plan limit reached")
+    sleep_cycle._state.episodes_total = 2
+    try:
+        assert sleep_cycle._stage1_failure_message("codex-cli").startswith("ChatGPT plan throttled")
+    finally:
+        sleep_cycle._state.episodes_total = 0
+
+
+# --------------------------------------------------------------------------- #
+# Track E Task 4 — the codex pre-flight (R-E17/R-E18)
+# --------------------------------------------------------------------------- #
+
+def test_a_codex_cycle_whose_limit_is_reached_never_starts_stage_1(tmp_path, monkeypatch, tail_spy):
+    from api.services import codex_engine
+
+    memory = _seed(tmp_path, unprocessed=2)
+    monkeypatch.setattr(Settings, "memory_path", property(lambda self: memory))
+
+    async def preflight(**_kw):
+        return False, "Your ChatGPT plan's Codex limit is used up — Sleep didn't start.", None
+
+    monkeypatch.setattr(codex_engine, "preflight", preflight)
+    called = {"extract": False}
+
+    async def extract(episodes, settings, **_kw):
+        called["extract"] = True
+        return []
+
+    monkeypatch.setattr("api.services.entity_extractor.extract", extract)
+    asyncio.run(sleep_cycle.run(Settings(llm_mode="codex"), "sleep_test_codex_limit"))
+    state = sleep_cycle.get_sleep_state()
+    assert called["extract"] is False and "Codex limit is used up" in (state.error or "")
+    assert state.last_engine == "codex-cli"
+    assert set(tail_spy) == {"logos", "connectors", "questions"}
+
+
+def test_a_codex_cycle_runs_on_the_plans_default_model_unless_one_was_picked(tmp_path, monkeypatch, tail_spy):
+    from api.services import codex_engine
+
+    memory = _seed(tmp_path, unprocessed=1)
+    monkeypatch.setattr(Settings, "memory_path", property(lambda self: memory))
+
+    async def preflight(**_kw):
+        return True, "Signed in to ChatGPT Plus.", "gpt-6-astra"
+
+    monkeypatch.setattr(codex_engine, "preflight", preflight)
+    seen = []
+
+    async def extract(episodes, settings, **_kw):
+        seen.append(settings.codex_model)
+        return []
+
+    monkeypatch.setattr("api.services.entity_extractor.extract", extract)
+    asyncio.run(sleep_cycle.run(Settings(llm_mode="codex"), "sleep_test_codex_default"))
+    asyncio.run(sleep_cycle.run(Settings(llm_mode="codex", codex_model="gpt-5.6-luna"), "sleep_test_codex_pick"))
+    assert seen == ["gpt-6-astra", "gpt-5.6-luna"]
