@@ -59,6 +59,31 @@ logging.getLogger("litellm").setLevel(logging.ERROR)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
 
+
+# G136 / K9: the person's search words are never logged. uvicorn's access log
+# writes every request line WITH its query string (to `logs/backend.*.log`
+# under launchd, and both the plist and the app's spawn leave it on), and
+# `/search?q=` fires on every keystroke of the palette; `/conversations/recent`
+# carries a title filter the same way. Strip the query string of those paths
+# at the logger, so the rail holds whatever flags uvicorn was started with.
+# uvicorn configures its loggers before it imports this module, so the
+# filter attached here is never replaced.
+_QUERY_PATHS = frozenset({"/search", "/conversations/recent"})
+
+
+class _RedactQueryString(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        # uvicorn's access record: (client, method, path?query, http_version, status)
+        if isinstance(args, tuple) and len(args) == 5 and isinstance(args[2], str):
+            path, sep, _query = args[2].partition("?")
+            if sep and path in _QUERY_PATHS:
+                record.args = (args[0], args[1], f"{path}?…", args[3], args[4])
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_RedactQueryString())
+
 # Suppress litellm's print() calls by redirecting verbose mode
 import litellm
 litellm.suppress_debug_info = True

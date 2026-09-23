@@ -794,6 +794,30 @@ class GraphResponse(CamelModel):
 
 
 class SearchHit(CamelModel):
+    """One ``GET /search`` row (G136, round-3 design §3.9).
+
+    The first seven fields are the pre-G136 shape and stay required-compatible
+    (``GraphSearchHit`` decodes them). Everything after is additive and
+    optional. Per ``kind``:
+
+    - ``entity`` / ``media``: ``id`` is the entity id; ``type``/``status``/
+      ``confidence`` are the page's; ``subtitle`` is the alias that matched
+      (entity), or the authors / site (media).
+    - ``claim``: ``id`` is the claim id and ``name`` its text; ``subject_id``
+      is the page it lives on, and ``type``/``status`` are that page's;
+      ``valid_to``/``superseded_by`` set means history ("was X until …").
+    - ``episode``: ``id`` is the episode (evidence doc) id and ``name`` its
+      title; ``start``/``end``/``hash`` are a span into the evidence text
+      (G118) around the best passage, and ``evidence_kind`` is its speaker.
+    - ``inbox``: ``id`` is the inbox item id, ``name`` the question it is
+      served as, ``type`` the item's kind, ``subject_id`` its entity.
+
+    ``matched_field`` is ``name | alias | keyword | body | claim | semantic``
+    — why this row is here. ``snippet_offsets`` are ``[start, end]`` code-point
+    (Unicode scalar) ranges into ``snippet`` to bold. ``score`` orders rows
+    within one response and is not comparable across modes.
+    """
+
     id: str
     name: str
     type: str
@@ -801,10 +825,40 @@ class SearchHit(CamelModel):
     confidence: float
     score: float = 0.0
     snippet: str = ""
+    kind: str = "entity"
+    subtitle: str | None = None
+    snippet_offsets: list[list[int]] = Field(default_factory=list)
+    matched_field: str | None = None
+    subject_id: str | None = None
+    episode_id: str | None = None
+    conversation_id: str | None = None
+    harness: str | None = None
+    origin: str | None = None
+    timestamp: str | None = None
+    start: int | None = None
+    end: int | None = None
+    hash: str | None = None
+    evidence_kind: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    superseded_by: str | None = None
 
 
 class SearchResponse(CamelModel):
+    """``totals`` is the exact number of documents per kind that match the
+    query LEXICALLY (every token a word-start prefix) — the one countable set,
+    so "Show all N" is never a guess. A hybrid response may also carry
+    semantic-only neighbours (``matched_field: semantic``), which are ranked,
+    not counted. ``mode`` is what actually ran: ``lexical`` when hybrid was
+    asked for but no vector index answered. ``index_state`` is
+    ``ready | stale | building | unavailable`` (``search_index.ensure_fresh``);
+    while it is not ready/stale, only entities and media are served, from the
+    frontmatter cache."""
+
     results: list[SearchHit]
+    totals: dict[str, int] = Field(default_factory=dict)
+    mode: str = "hybrid"
+    index_state: str = "ready"
 
 
 # --- Ask (auditable NL synthesis over memory) ---
