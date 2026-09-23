@@ -39,6 +39,14 @@ assembled app (every provider logo had been falling back to a symbol in shipped 
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
 
+**Round 3 · Track L — local sources (G133 + G134).** A watched folder the app reads and the backend
+parses (one episode per file through the shared `episode_staging` stager; agent-written globs never
+credited to the owner), papers as `media` pages with `media.kind: paper` (arXiv/Crossref details under
+the connector gate, why-it-matters from the owner's own spans, the abstract a dated world-tier cache),
+and Wispr Flow meetings and notes with their speakers (dictation opt-in). One scrub on every episode
+writer. Baselines with it: backend **≥ 2322 passed**, Swift **≥ 1039 executed** — replace these with
+the measured numbers when the PR merges.
+
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
 Do not re-derive the queue from this file.
@@ -202,7 +210,8 @@ G47 saved-content importer family · G58 sync engine
 LinkedIn/TikTok/Reddit parsers, one adapter registry) · **G105 hook-driven deterministic capture
 (2026-09-03, PR #46)** — Claude Code `Stop` hook → `POST /capture/transcript`, block-level extractor
 (person's turns + agent's final replies; tool blocks/code/secrets never), one episode per session
-updated in place, Sleep-queue source marks (`OriginMark`)
+updated in place, Sleep-queue source marks (`OriginMark`) · **G133 watched folders + papers** and
+**G134 Wispr Flow** (round 3 Track L)
 
 **Memory model** — G60 conflict resolution with time-aware questions · G61 fact sources ·
 G66 decay classes · A5 gap analysis · **G115 Phase 1 / G97 (2026-09-03)** — cause on the card,
@@ -440,7 +449,8 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     adapters in this order: YouTube subscriptions (Takeout parser, no key) → Strava (OAuth, weekly aggregates)
     → Todoist/Reminders (tasks → G13) → Garmin/Apple Health exports — S/M + S–M each
 15. **G81** contacts — identity anchors *(prerequisite for 16; absorbs G46)* — M
-16. **G95** meetings & human↔human conversations — M/L
+16. **G95** meetings & human↔human conversations — M/L — *first slice shipped as G134 (Wispr Flow
+    meetings with speakers); a consent surface and the other note-takers remain*
 17. **G101** raw-conversation evidence layer — what to keep, what to discard — M
 18. **G91** share-to-Cicada *(needs G88's signed app; absorbs G37)* — M
 19. **G94** life-data streams — aggregates, never samples — L
