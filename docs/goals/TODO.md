@@ -123,6 +123,9 @@ Pro Display — semibold titles tracked 2 % tight behind the same `displayFont`,
   placeholder reads as `agent` everywhere without rewriting history (R-B9 … R-B11). `/contributors`,
   `/entities/{id}/provenance` and `/episodes/{id}/citations` fold `git_service.AUTHOR_SHAPE` into
   their ETags, so no cache keeps the old kinds (R-B10).
+- Paper why-claims no longer carry in-document anchors (`[N50](#note-n50)`) or footnote markers;
+  the episode keeps them, ids are unchanged, a sync repairs what it re-reads, and existing banks are
+  repaired once as `cicada` (R-B12, R-B13).
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
