@@ -553,29 +553,36 @@ re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
 no `$`/token columns, no cost-per-day chart. The `/consumption/*` endpoints and the ledger are
 unchanged for future use.
 
-**Navigation.** Seven sidebar rows (⌘1–7): Home, Graph, Clusters, Feed, Sleep, Inbox, Sources
-(G108, ruled 2026-09-23). Relaunch restores the last tab: nothing stored, or a value no build knows,
-opens Home, and a stored Graph stays on Graph. Setup lives
-in a native `Settings{}` scene (⌘,): a `NavigationSplitView` whose sidebar starts with a search field
-and groups its rows as Cicada · Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General ·
-You · Privacy & data · Memory · Sleep; Customize: Integrations · Agents · From anywhere · Skills; Engines & keys:
-Engines · Plans & keys · Advanced. Privacy & data exports a bank and moves one to `<root>/.trash/`, but
-never switches banks (that stays in the Graph page's `BankSwitcher` — a second switcher in another
-window is the split-brain class); Memory has no "Look for duplicates" until the dedup endpoint stops
-blocking the event loop and commits what it merges (R-O17).
-Search is `SettingsIndex` over `QuickMatch` — the palette's one ranker, so Settings and ⌘K never rank
-one name two ways — and landing (search, `SettingsSectionLink(section:row:)`,
-an in-window pointer) always selects, scrolls, washes and announces the row (G139).
-`SettingsSection` raw values are the persisted selection and did not move when the groups arrived.
-General's appearance offers System, which follows the Mac's own light/dark through one app-scope
-observer (`ThemeStore.observeSystemAppearance`), not a per-window one.
-⌘K (Find in Memory…) opens the find palette — Find, with Ask as a mode on ⌘⏎. ⌘K and ⌘F are menu
-commands in `Support/FindCommands.swift`; `HiddenShortcutLintTests` fails the build on either
-shortcut anywhere else (G136). `AppTab` raw values are the persisted identity of a tab, and
-`AppTab.restored(from:)` maps retired ones onto the pages that inherited them, so an older selection
-never traps. A page's top-right control is the `?` alone — Track P's audit removed the global Sleep
-button, because a cycle starts from the Sleep page's one Consolidate control (G125 R10) or the
-menu-bar bookworm.
+**Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Feed,
+Sleep, Inbox, Sources at ⌘1–7 in `AppTab.allCases` order (`RailItem`; a page switch is instant), each cell's tooltip
+naming its page and shortcut (450 ms, then instant while warm), selection by brightness and one neutral fill
+(`bgSelected` — never the accent, `SelectionTintLintTests`), the Inbox count a neutral `bgBadge` numeral, a spinner on
+Sleep while a cycle runs, the gear and the sun/moon toggle at its foot, no wordmark. ⌃⌘S or the titlebar toggle swaps it
+for a 208 pt labelled sidebar, remembered per viewer (`cicada.shell.labelledSidebar`). Relaunch restores the last tab:
+nothing stored, or a value no build knows, opens Home, and a stored Graph stays on Graph; `AppTab` raw values are the
+persisted identity and `AppTab.restored(from:)` maps retired ones. **The titlebar is a SwiftUI toolbar** with the
+title hidden (AppKit keeps the drag area in every gap): the sidebar toggle after the traffic lights; the **command
+bar** centred — the memory-bank selector (`BankSwitcher`, moved from the Graph page; the only switcher view in the
+app, `SingleBankSwitcherTests` — the palette's "Switch to <bank>" row and the intake card's switch act on the same
+`BanksViewModel` in the same window) and "Search your memory ⌘K", which opens the find palette through
+`AppRouter.requestPalette()`; and the visible page's `?` at the right (`HelpContent.page`), one per window. macOS 26's
+toolbar platter is hidden (`ChromeToolbarItem`). **Settings is a panel inside this window (DR-33)**: ⌘,
+(`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
+inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
+Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Memory · Sleep;
+Customize: Integrations · Agents · From anywhere · Skills; Engines & keys: Engines · Plans & keys · Advanced — and each
+page's own header with an `esc` keycap and a close ×. It is modal: the shell under it is inert, ⌘K waits, Esc and a
+scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
+hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
+and its cross-window seeds are gone. Privacy & data exports a bank and moves one to `<root>/.trash/`, but never
+switches banks (that is the command bar's); Memory has no "Look for duplicates" until the dedup endpoint stops
+blocking the event loop and commits what it merges (R-O17). Search is `SettingsIndex` over `QuickMatch` — the
+palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
+announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
+follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). ⌘K and ⌘F are
+menu commands in `Support/FindCommands.swift` (`HiddenShortcutLintTests`); ⌘, and ⌃⌘S live in
+`Support/ShellCommands.swift`. Track P's audit removed the global Sleep button, because a cycle starts from the Sleep
+page's one Consolidate control (G125 R10) or the menu-bar bookworm.
 **One intake (Track I, spec decision 13).** Every way a file arrives — a drop anywhere on the
 window, the Dock icon, File → Import… (⌘⇧I), the menu-bar worm's *Import a file…*, an empty state,
 each `+` chat tile, the Sleep room's worm — goes through one `IntakeRouter`: sniff (`POST /intake/sniff`, stages nothing) →
@@ -741,8 +748,9 @@ every literal `.font(.system(size:))` / `Font.system(size:)` in `Sources/` now g
 
 **Find palette (G136).** ⌘K ("Find in Memory…") and ⌘F ("Find on This Page…") are menu commands in
 `Support/FindCommands.swift` — a lint (`HiddenShortcutLintTests`) keeps both shortcuts there, and ⌘F
-reaches only the visible page's field. The palette is an overlay, chrome glass around an opaque
-body, whose instant tier (`QuickIndex`) is rebuilt off the main actor from the Store's snapshots and
+reaches only the visible page's field. The palette is an overlay anchored 4 pt under the titlebar — 640
+pt, an opaque `bgMenu` floating surface over the panel scrim — that appears and leaves in one frame
+(DR-60); its instant tier (`QuickIndex`) is rebuilt off the main actor from the Store's snapshots and
 answers every keystroke with no network; ~150 ms later `GET /search` (prefix, then hybrid) appends
 conversations, beliefs (superseded ones as history) and whatever the local tier missed — a shown row
 never moves. Ask is a mode (⌘⏎) hosting the unchanged `AskPanel` body. One ranker, `QuickMatch`,
@@ -770,29 +778,32 @@ transform is an exact luminance inversion of a *monochrome* mark into its `-dark
 is the binding target for every UI change: graphite neutrals, the system accent, SF Pro only, a 56 pt icon rail, a centred
 command bar holding the bank selector and search, and progressive columns (the list alone → list + detail → list + detail +
 Reader). Rules are numbered `DR-n` and a UI PR cites the ids it applies; a departure needs a dated ruling in its §9. The owner
-chose D from three mocked directions (the Inbox and the Reader). Until the implementing track lands, the paragraphs below
-describe what ships today, not the target.
+chose D from three mocked directions (the Inbox and the Reader). DS-1 shipped the tokens, the type, the shell and the
+Settings panel; each page paragraph below describes what ships until that page's DS track lands.
 
-**Meadow (round 3, G137).** The visual system: *nature is the ground, glass is the chrome.*
-Neutrals are a warm "day meadow" (`#F4F6F1`) and a blue-green "night meadow" (`#0D1216`); the
-nature tokens (`sky`, `meadow`, `dandelion`, `cloud`, `bark`, `soil`, their washes, and procedural
-day/dusk/night skies) are for washes and art only, **never a data encoding** — entity, state and
-context hues did not move and graph.js's painted twins are held to the theme by a test. **Liquid
-Glass lives in the chrome layer only** (sidebar, toolbar, floating controls, one prominent action
-per page) through `liquidGlass(_:in:)` in `Theme/LiquidGlass.swift`, gated on macOS 26 with a
-material fallback (opaque under Reduce Transparency); a lint fails the build on any glass API
-elsewhere, and `GlassCard` stays a standard material. **Painted art** (`Resources/art/`,
-`art.manifest.json` with generator, prompt, date, licence and sha256; every file has a `-dark`
-sibling) appears only on non-data surfaces — never the graph, a list, a grid, a form or a number,
-and text never sits directly on paint — enforced by an allowlist lint. The Welcome's hero band
-(`WelcomeHero`) and Home's sky band (`HomeSkyBand`) are composed inside `Views/Meadow/`, so the
-pages that carry text and numbers never name a painted component. **Type:** SF Pro Display
-through `displayFont(size:italic:)` at ≥ 22 pt — semibold titles tracked 2 % tight
-(`displayTracking(size:)`, paired at every call site and counted by `FontLiteralLintTests`), regular
-italic for a headline's second line; no font is bundled (the owner found the serif too ornate,
-2026-09-23). New York italic through `quoteFont`, SF for everything else.
-**Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside `SleepMotion` a
-duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs.
+**Graphite and Meadow (Direction D, G137).** Working surfaces are graphite — `bgRail` · `bgBase` · `bgPane` · `bgHover`
+· `bgFocus` · `bgOption` · `bgButton` · `bgSelected` · `bgMenu` · `bgKey` · `bgBadge` (DESIGN_RULES §3.1, chroma ≤ 4,
+`ThemeTokenTests`) — with the pre-D names as aliases (`background`, `surface`, `surfaceHover`, `surfaceElevated`) and
+`border`/`borderLight` the opaque twins of the resting ring and the input border (graph.js's edges). Text is four steps
+plus `textTertiaryOnFill` (`ThemeContrastTests` holds every surface). The accent is the Mac's (`Color.accentColor`,
+six uses only); `accentText` derives from it — exactly the rules' values for the default blue, pushed to ≥ 4.5:1 for
+any other (`AccentInk`). The retired indigo survives only as a data hue (the "active" status, the heat ramp). Depth is
+an inset ring, never a shadow in dark and one soft shadow on a light floating surface (`ringed`, `floatingSurface`,
+`Theme/Elevation.swift`; `ElevationLintTests`); `GlassCard` is a `bgFocus` card with a ring. The nature tokens (`sky`,
+`meadow`, `dandelion`, `cloud`, `bark`, `soil`, their washes, the procedural skies) are for art and reward moments
+only, never a data encoding and never behind a row — `progressFill` (§3.8) is the one exception, for Projects.
+**Liquid Glass lives in the chrome layer only**, through `Theme/LiquidGlass.swift` (gated on macOS 26 with a material
+fallback, opaque under Reduce Transparency); a lint fails the build on any glass API elsewhere. **Painted art**
+(`Resources/art/`, `art.manifest.json` with generator, prompt, date, licence and sha256; every file has a `-dark`
+sibling) appears only on non-data surfaces — never the graph, a list, a grid, a form or a number, and text never sits
+directly on paint — enforced by an allowlist lint; the Welcome's hero band (`WelcomeHero`) and Home's sky band
+(`HomeSkyBand`) are composed inside `Views/Meadow/`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
+semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
+15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
+only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span
+the Reader and the Inbox adopt. **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
+`SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
+never animates.
 
 **Video (Track V).** A saved video plays where the user already is — the Feed sheet, the entity
 Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — and the provider is
