@@ -1944,13 +1944,17 @@ actor APIClient {
     /// `SleepEngineChoice.model_fields_set` (`sleep_engine_prefs.
     /// validate_and_write`'s cross-mode staleness guard), so sending a
     /// `null` here would read as "clear this field" instead of "leave it
-    /// alone".
+    /// alone". `allowOverage` (R-E13) follows the same rule: the backend's
+    /// `SleepEngineChoice.allow_overage` is `None` when omitted, which leaves
+    /// the stored opt-in untouched.
     func updateSleepEngine(
-        mode: String, model: String? = nil, disambiguationModel: String? = nil
+        mode: String, model: String? = nil, disambiguationModel: String? = nil,
+        allowOverage: Bool? = nil
     ) async throws -> SleepEngineResponse {
         var body: [String: Any] = ["mode": mode]
         if let model { body["model"] = model }
         if let disambiguationModel { body["disambiguationModel"] = disambiguationModel }
+        if let allowOverage { body["allowOverage"] = allowOverage }
         return try await put("/sleep/engine", body: body)
     }
 

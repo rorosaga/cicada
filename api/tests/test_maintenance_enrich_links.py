@@ -130,3 +130,25 @@ def test_409_while_another_enrich_links_call_is_still_running(tmp_path, monkeypa
     assert not maintenance._enrich_lock.locked()         # released for the next click
     config.get_settings.cache_clear()
 
+
+
+def test_a_throttle_during_one_backfill_never_blocks_the_next(tmp_path, monkeypatch):
+    """Final review H1: the backfill runs in its own self-purging breaker
+    scope, not the never-reset ``_unscoped`` bucket Ask used to share."""
+    from api.services import agent_engine
+
+    client, _ = _client(tmp_path, monkeypatch)
+    seen = []
+
+    async def throttling_backfill(memory_path, settings, **kwargs):
+        seen.append((agent_engine.current_scope(), agent_engine.breaker_reason()))
+        agent_engine.trip_breaker("plan throttled")
+        return link_enrichment.BackfillReport()
+
+    monkeypatch.setattr(link_enrichment, "backfill", throttling_backfill)
+    for _ in range(2):
+        assert client.post("/maintenance/enrich-links").status_code == 200
+    assert [reason for _, reason in seen] == [None, None]
+    assert all(scope.startswith("links:") for scope, _ in seen)
+    assert agent_engine.breaker_reason(scope=agent_engine.DEFAULT_SCOPE) is None
+    config.get_settings.cache_clear()

@@ -86,4 +86,18 @@ final class EngineCardTests: XCTestCase {
         XCTAssertEqual(response.preview?.manual.engine, "claude-cli")
         XCTAssertEqual(response.preview?.scheduled.model, "gpt-5.4-mini")
     }
+
+    func testTheCodexPreviewLineNamesTheChatGPTPlan() {
+        let manual = SleepEnginePreview(engine: "codex-cli", model: "gpt-5.6-luna",
+                                        why: "Sleep engine set to 'codex' in Settings")
+        XCTAssertEqual(EngineCard.previewLine(manual, label: "Next cycle you start"),
+                       "Next cycle you start: Codex (your ChatGPT plan) · gpt-5.6-luna")
+    }
+
+    func testAllowOverageDecodesTolerantly() throws {
+        let old = #"{"mode":"agent","model":"sonnet","disambiguationModel":"haiku","source":"prefs"}"#
+        XCTAssertFalse(try JSONDecoder().decode(SleepEngineResponse.self, from: Data(old.utf8)).allowOverage)
+        let new = #"{"mode":"agent","model":"sonnet","disambiguationModel":"haiku","source":"prefs","allowOverage":true}"#
+        XCTAssertTrue(try JSONDecoder().decode(SleepEngineResponse.self, from: Data(new.utf8)).allowOverage)
+    }
 }

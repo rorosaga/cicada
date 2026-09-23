@@ -7,6 +7,7 @@ import SwiftUI
 struct InboxListView: View {
     @Environment(InboxViewModel.self) private var viewModel
     @State private var kindFilter: InboxKind?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var visibleItems: [InboxItem] {
         let base = kindFilter.map { k in viewModel.items.filter { $0.kind == k } }
@@ -54,7 +55,7 @@ struct InboxListView: View {
                         }
                     }
                     .padding(CicadaTheme.spacingXL)
-                    .animation(.spring(duration: 0.3), value: viewModel.items.map(\.id))
+                    .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: viewModel.items.map(\.id))
                 }
             }
         }
@@ -201,6 +202,7 @@ private struct KindChip: View {
     let selected: Bool
     let action: () -> Void
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -228,7 +230,7 @@ private struct KindChip: View {
         }
         .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
-        .animation(.easeInOut(duration: 0.15), value: selected)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: selected)
     }
 }

@@ -37,6 +37,7 @@ struct TopBarControls: View {
     var showsUpload: Bool = false
     var help: HelpContent = .aboutCicada
     @State private var showHelpOverlay = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
@@ -46,7 +47,7 @@ struct TopBarControls: View {
             if showsSleep {
                 Button {
                     Task { @MainActor in
-                        withAnimation(.spring(duration: 0.25)) {
+                        withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) {
                             selectedTab = .sleep
                         }
                         if !sleepVM.isRunning {
@@ -77,7 +78,7 @@ struct TopBarControls: View {
             // Upload button
             if showsUpload {
                 Button {
-                    withAnimation(.spring(duration: 0.3)) {
+                    withAnimation(CicadaMotion.panel(reduceMotion: reduceMotion)) {
                         showUploadOverlay = true
                     }
                 } label: {
@@ -96,7 +97,7 @@ struct TopBarControls: View {
 
             // Help button — the same button, a different popover per `help`.
             Button {
-                withAnimation(.spring(duration: 0.25)) {
+                withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) {
                     showHelpOverlay.toggle()
                 }
             } label: {

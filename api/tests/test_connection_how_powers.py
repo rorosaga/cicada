@@ -14,6 +14,7 @@ import json
 import pytest
 
 from api.config import Settings
+from api.services.codex_app_server import CodexSnapshot
 from api.services.connections import byok, claude_cli, codex_cli, ollama, registry
 from api.services.connections.base import CliResult
 
@@ -38,8 +39,8 @@ def test_claude_how_names_the_cli_the_mac_and_the_account(monkeypatch):
     status = run(adapter.status())
     assert status.connected
     assert status.how == (
-        "Signed in to Claude Code on this Mac as `r@example.com`. Cicada runs its "
-        "memory work through the `claude` CLI on your plan — it never sees your token."
+        "Signed in to Claude Code on this Mac as `r@example.com`. When Sleep or Ask runs on "
+        "your Claude plan it goes through the `claude` CLI — Cicada never sees your token."
     )
 
 
@@ -51,19 +52,21 @@ def test_claude_how_is_absent_when_not_connected(monkeypatch):
     assert status.how is None
 
 
-def test_codex_how_names_codex_exec(monkeypatch, tmp_path):
+def test_codex_how_says_whose_sign_in_and_when_it_runs(monkeypatch):
     monkeypatch.setattr(codex_cli.shutil, "which", lambda name: "/usr/local/bin/codex")
 
     async def fake(argv):
-        return CliResult(0, "Logged in", "")
+        return CliResult(0, "Logged in using ChatGPT", "")
 
-    (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt", "tokens": {}}))
-    adapter = codex_cli.CodexPlanAdapter(runner=fake, codex_home=tmp_path)
-    status = run(adapter.status())
+    async def snap(**_kw):
+        return CodexSnapshot(signed_in=True, account_type="chatgpt", plan="plus")
+
+    status = run(codex_cli.CodexPlanAdapter(runner=fake, snapshot=snap).status())
     assert status.connected
     assert status.how == (
-        "Signed in to Codex CLI on this Mac. Cicada runs through `codex exec` "
-        "on your ChatGPT plan."
+        "Signed in to ChatGPT with Cicada's own Codex sign-in on this Mac — separate from Codex "
+        "in your terminal. When Sleep or Ask runs on your ChatGPT plan it goes through "
+        "`codex exec`; Cicada never sees your token."
     )
 
 
@@ -98,10 +101,17 @@ def test_every_adapter_defines_how_when_connected(monkeypatch, tmp_path):
     async def tags(_url):
         return [settings.ollama_model]
 
+    async def codex_run(argv):
+        return CliResult(0, "Logged in using ChatGPT", "")
+
+    async def codex_snap(**_kw):
+        return CodexSnapshot(signed_in=True, account_type="chatgpt", plan="plus")
+
     adapters = [
         claude_cli.ClaudePlanAdapter(runner=_claude_runner(
             {"loggedIn": True, "authMethod": "claude.ai", "email": "r@example.com",
              "subscriptionType": "max"})),
+        codex_cli.CodexPlanAdapter(runner=codex_run, snapshot=codex_snap),
         *[byok.ByokAdapter(p) for p in byok.BYOK_PROVIDERS],
         ollama.OllamaAdapter(settings, fetch_tags=tags),
     ]
@@ -123,7 +133,7 @@ def test_powers_go_to_the_selected_engine_and_standby_to_the_rest():
         make("chatgpt-plan", True, "subscription-cli"),
         make("byok-openai", False),
     ]
-    registry.Registry.assign_powers(statuses)
+    registry.Registry.assign_powers(statuses, "claude-plan")
     assert statuses[0].powers == registry.ENGINE_POWERS
     assert statuses[1].powers == registry.STANDBY_POWERS
     assert statuses[2].powers == []
@@ -133,7 +143,7 @@ def test_powers_are_empty_when_nothing_is_connected():
     from api.models.schemas import ConnectionKind, ConnectionStatus
 
     statuses = [ConnectionStatus(id="ollama-local", label="Ollama", kind=ConnectionKind.local)]
-    registry.Registry.assign_powers(statuses)
+    registry.Registry.assign_powers(statuses, None)
     assert statuses[0].powers == []
 
 
@@ -156,6 +166,7 @@ def test_single_connection_status_carries_the_same_powers_as_the_full_set():
     reg.adapters = lambda: [FakeAdapter("claude-plan", True),
                             FakeAdapter("chatgpt-plan", True),
                             FakeAdapter("byok-openai", False)]
+    reg.set_pref("sleep-engine", "mode", "agent")
 
     assert run(reg.status_with_powers("claude-plan")).powers == registry.ENGINE_POWERS
     assert run(reg.status_with_powers("chatgpt-plan")).powers == registry.STANDBY_POWERS
@@ -192,3 +203,30 @@ def test_fresh_single_status_probes_only_its_own_adapter():
     assert status.powers == registry.STANDBY_POWERS
     assert probes["chatgpt-plan"] == before["chatgpt-plan"] + 1
     assert probes["claude-plan"] == before["claude-plan"]  # cached, not re-probed
+
+
+def test_powers_follow_the_chosen_plan_not_the_adapter_order():
+    from api.models.schemas import ConnectionKind, ConnectionStatus
+
+    class FakeAdapter:
+        def __init__(self, cid):
+            self.id = cid
+
+        async def status(self):
+            return ConnectionStatus(id=self.id, label=self.id, kind=ConnectionKind.subscription,
+                                    available=True, connected=True)
+
+    reg = registry.Registry(Settings())
+    reg.adapters = lambda: [FakeAdapter("claude-plan"), FakeAdapter("chatgpt-plan")]
+    reg.set_pref("sleep-engine", "mode", "codex")
+    by_id = {s.id: s.powers for s in run(reg.statuses())}
+    assert by_id == {"claude-plan": registry.STANDBY_POWERS, "chatgpt-plan": registry.ENGINE_POWERS}
+
+
+def test_a_default_install_powers_its_api_key_not_the_first_plan():
+    from api.models.schemas import ConnectionKind, ConnectionStatus
+
+    statuses = [ConnectionStatus(id=cid, label=cid, kind=ConnectionKind.subscription,
+                                 available=True, connected=True) for cid in ("claude-plan", "byok-openai")]
+    reg = registry.Registry(Settings())
+    assert reg.engine_connection_id(statuses) == "byok-openai"   # litellm_model gpt-5.4-mini → OpenAI

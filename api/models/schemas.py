@@ -167,6 +167,11 @@ class EntityHistoryEntry(CamelModel):
     # diff fetch. ``diff`` is populated only when history is requested with
     # ``include_diff=true`` (kept opt-in so the default response stays small).
     author: str = "unknown"
+    # G118 slice 2 (R-PB13): the author's bucket and provider, from the one
+    # `git_service.author_identity` rule, so the History tab renders a
+    # contributor without re-deriving it. Additive; an older app ignores them.
+    author_kind: str = "unknown"
+    author_provider: Optional[str] = None
     commit_hash: str = ""
     diff: Optional[EntityDiff] = None
     # G48: the conversation(s) that produced THIS ENTITY's change at this
@@ -666,6 +671,14 @@ class ClaimModel(CamelModel):
     origin: Optional[str] = None
     # G118 slice 1 — additive; an older app build ignores the key (R10).
     evidence: list[EvidenceModel] = []
+    # G118 slice 2 (R-PB13) — additive. `session_ids` is every conversation
+    # that wrote or reinforced the claim (`Claim.all_session_ids`);
+    # `author_kind`/`author_provider` come from `git_service.author_identity`
+    # over `authored_by`, so the chip never duplicates the provider rule.
+    session_ids: list[str] = []
+    recorded_at: Optional[str] = None
+    author_kind: str = "unknown"
+    author_provider: Optional[str] = None
 
 
 class ClaimListResponse(CamelModel):
@@ -693,6 +706,11 @@ class EpisodeSpan(CamelModel):
     were minted against an earlier body and may not mean the same words.
     ``kind`` is derived at read time (speaker marker for an episode, ``page``
     for an entity document), never stored here.
+
+    ``grown`` (G118 slice 2, amendment A7) is true when the document was
+    APPENDED to after the span was minted and a turn-boundary prefix still
+    hashes to ``hash``: the offsets are exact and the span highlights.
+    ``stale`` and ``grown`` are never both true.
     """
 
     episode: str
@@ -703,7 +721,198 @@ class EpisodeSpan(CamelModel):
     end: int
     length: int
     stale: bool = False
+    grown: bool = False
     kind: str = "user"
+
+
+class EpisodeTurn(CamelModel):
+    """One turn of a document (G118 slice 2, design §4.8.1) — offsets into the
+    evidence text, never a copy of it. See ``evidence.TurnSpan``: ``role`` is
+    ``user`` | ``assistant`` | ``page``; ``marker`` is the word as written
+    (``None`` for a marker-less block); ``ts``/``speaker`` exist only where the
+    episode stores a ``turns`` sidecar entry for this turn."""
+
+    index: int
+    start: int
+    content_start: int
+    end: int
+    role: str = "user"
+    marker: Optional[str] = None
+    speaker: Optional[str] = None
+    ts: Optional[str] = None
+
+
+class EpisodeFocus(CamelModel):
+    """The span the Reader lands on (G118 slice 2). Asserted
+    (``?start&end&hash``): ``kind`` is the speaker at ``start`` and
+    ``stale``/``grown`` come from ``evidence.span_status``; a stale focus
+    carries NO offsets (R-PB2 — stale never highlights). Derived
+    (``?focus=<entity>``): ``kind == "derived"``, a name match found at read
+    and never written (G100's class, R-PB9)."""
+
+    start: Optional[int] = None
+    end: Optional[int] = None
+    kind: str = "user"
+    derived: bool = False
+    stale: bool = False
+    grown: bool = False
+
+
+class EpisodeText(CamelModel):
+    """``GET /episodes/{id}/text`` — a whole stored document for the Reader
+    (G118 slice 2, design §4.8.1). ``text`` is capped at 400,000 characters
+    (``truncated``); ``length`` and ``hash`` always describe the WHOLE
+    evidence text, so ``hash`` can be handed back to ``/span``. ``kind`` is
+    ``episode`` or ``page``. ``conversation_id`` is the stamped ``session_id``
+    or G20's ``source_id``; ``project_dir`` and ``resumable`` are deliberately
+    absent — ``GET /conversations/{id}`` is the one place a transcript is
+    ``isfile()``-d (R-PB5). Fetched on demand, not a Store domain."""
+
+    episode: str
+    kind: str = "episode"
+    text: str = ""
+    length: int = 0
+    hash: str = ""
+    truncated: bool = False
+    title: str = ""
+    timestamp: Optional[str] = None
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    conversation_id: Optional[str] = None
+    capture_kind: Optional[str] = None
+    turns: list[EpisodeTurn] = []
+    focus: Optional[EpisodeFocus] = None
+
+
+class ProvenanceSpan(CamelModel):
+    """The one quote a provenance row shows (G118 slice 2, design §4.5).
+    ``kind`` is the evidence kind (``user`` | ``assistant`` | ``page``) or
+    ``derived`` — a name match found at read, never written (R-PB9).
+    ``start``/``end`` are absolute offsets to wash, ``None`` when ``stale``
+    (R-PB2). ``excerpt`` is ±240 chars cut on word boundaries,
+    ``excerpt_start`` its absolute offset, ``mention_offsets`` relative to it
+    — the inbox cause's shape (G115)."""
+
+    episode: str
+    start: Optional[int] = None
+    end: Optional[int] = None
+    hash: str = ""
+    kind: str = "derived"
+    excerpt: str = ""
+    excerpt_start: int = 0
+    mention_offsets: list[list[int]] = []
+    stale: bool = False
+    grown: bool = False
+    derived: bool = False
+
+
+class ProvenanceContributor(CamelModel):
+    """One author of an entity (R-PB6): ``claims`` = current claims with that
+    ``authored_by``; ``commits`` = commits that touched the page with that
+    ``Cicada-Author``. ``kind``/``provider`` as on ``Contributor``."""
+
+    author: str
+    kind: str = "unknown"
+    provider: Optional[str] = None
+    claims: int = 0
+    commits: int = 0
+
+
+class ProvenanceConversation(CamelModel):
+    """A conversation that fed the entity (R-PB7): episodes grouped by
+    ``session_id``, then ``source_id``, else the episode alone
+    (``conversation_id`` null). ``episode_id`` is its newest episode;
+    ``claim_count`` counts current claims citing any of its episodes;
+    ``available`` is false when no episode file is left in the bank."""
+
+    conversation_id: Optional[str] = None
+    episode_id: str
+    episode_ids: list[str] = []
+    title: str = ""
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    timestamp: Optional[str] = None
+    claim_count: int = 0
+    available: bool = True
+    best: Optional[ProvenanceSpan] = None
+
+
+class ProvenancePage(CamelModel):
+    entity_id: str
+    name: str = ""
+    claim_count: int = 0
+
+
+class ProvenanceTotals(CamelModel):
+    """Coverage stated honestly (design §4.5 item 5): of ``claims`` current
+    beliefs, ``with_span`` carry at least one exact quote and ``legacy`` carry
+    no evidence at all (written before slice 1; there is no backfill)."""
+
+    claims: int = 0
+    with_span: int = 0
+    legacy: int = 0
+    conversations: int = 0
+
+
+class EntityProvenance(CamelModel):
+    """``GET /entities/{id}/provenance`` — "Where this came from" in one call
+    (G118 slice 2, design §4.8.4). ``conversations`` is capped at 50
+    (``totals.conversations`` is the honest total); ``inferred_count`` counts
+    current claims whose only evidence is the contributor's own reasoning.
+    Fetched on demand, not a Store domain (R-PB11)."""
+
+    entity_id: str
+    entity_name: str = ""
+    entity_type: str = ""
+    contributors: list[ProvenanceContributor] = []
+    conversations: list[ProvenanceConversation] = []
+    pages: list[ProvenancePage] = []
+    inferred_count: int = 0
+    totals: ProvenanceTotals = Field(default_factory=ProvenanceTotals)
+    commits_truncated: bool = False
+
+
+class EpisodeCitation(CamelModel):
+    """One belief a document contributed (G118 slice 2, design §4.8.3).
+    ``evidence`` is the stored entry for a span or reasoning row, ``None`` for
+    a derived one. ``start``/``end`` are what to wash — the asserted offsets,
+    a derived name match, or ``None`` (reasoning, no match, or ``stale``:
+    R-PB2). ``current`` is false for a superseded or closed claim."""
+
+    claim_id: str
+    subject_id: str
+    subject_name: str = ""
+    subject_type: str = ""
+    text: str = ""
+    current: bool = True
+    authored_by: str = "unknown"
+    observer: str = "agent"
+    evidence: Optional[EvidenceModel] = None
+    kind: str = "reasoning"
+    start: Optional[int] = None
+    end: Optional[int] = None
+    stale: bool = False
+    grown: bool = False
+    derived: bool = False
+
+
+class EpisodeCitationEntity(CamelModel):
+    entity_id: str
+    name: str = ""
+    type: str = ""
+
+
+class EpisodeCitations(CamelModel):
+    """``GET /episodes/{id}/citations`` — spans first in document order (the
+    Reader's navigator steps through them), then rows without offsets.
+    ``entities`` are the pages whose frontmatter ``source_episodes`` lists the
+    document. ``partial`` is true when more pages named it than one call
+    parses (R-PB10). Fetched on demand, not a Store domain."""
+
+    episode: str
+    citations: list[EpisodeCitation] = []
+    entities: list[EpisodeCitationEntity] = []
+    partial: bool = False
 
 
 class TransclusionPayload(CamelModel):
@@ -875,6 +1084,11 @@ class AskCitation(CamelModel):
     file_path: str
     snippet: str
     source_episodes: list[str] = []
+    # G118 slice 2 (R-PB12) — set when the retrieval hit was a claim: the
+    # claim and the spans behind it, read from the page (the source of truth),
+    # raw as stored; freshness is `/episodes/{id}/span`'s job. Additive.
+    claim_id: Optional[str] = None
+    evidence: list[EvidenceModel] = []
 
 
 class AskResponse(CamelModel):
@@ -1391,7 +1605,7 @@ class SleepEngineCandidate(CamelModel):
 
 class SleepEnginePreview(CamelModel):
     """What the NEXT cycle would actually run on, for one trigger source.
-    ``engine`` is an ``ENGINE_LABELS`` id (``claude-cli|ollama|litellm``, see
+    ``engine`` is an ``ENGINE_LABELS`` id (``claude-cli|codex-cli|ollama|litellm``, see
     ``engine_select.engine_label``), not the picker's ``mode`` — a resolved
     "auto" or a prefs "byok" both read as "litellm" here, matching what
     ``sleep_cycle`` itself would stamp as ``last_engine``."""
@@ -1422,6 +1636,7 @@ class SleepEngineResponse(CamelModel):
     source: str  # "env" | "prefs" | "default"
     candidates: list[SleepEngineCandidate]
     preview: SleepEnginePreviews
+    allow_overage: bool = False  # R-E13: Settings → Sleep "Keep going on extra usage"
 
 
 class SleepEngineChoice(CamelModel):
@@ -1432,6 +1647,8 @@ class SleepEngineChoice(CamelModel):
     mode: str
     model: Optional[str] = None
     disambiguation_model: Optional[str] = None
+    # R-E13: omitted leaves the stored opt-in alone; false clears it.
+    allow_overage: Optional[bool] = None
 
 
 class OwnerUpdateRequest(CamelModel):

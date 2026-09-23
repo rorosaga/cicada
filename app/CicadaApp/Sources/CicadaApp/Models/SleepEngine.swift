@@ -20,7 +20,7 @@ struct SleepEngineCandidate: Codable, Identifiable, Hashable {
 
 /// What the NEXT cycle would actually run on, for one trigger source
 /// (`manual` or `scheduled`). `engine` is an `ENGINE_LABELS` id
-/// (`claude-cli|ollama|litellm`) — `Copy.engineLabel(_:)` turns it into the
+/// (`claude-cli|codex-cli|ollama|litellm`) — `Copy.engineLabel(_:)` turns it into the
 /// word the rest of the app already uses.
 struct SleepEnginePreview: Codable, Hashable {
     let engine: String
@@ -49,14 +49,19 @@ struct SleepEngineResponse: Codable, Hashable {
     let source: String
     let candidates: [SleepEngineCandidate]
     let preview: SleepEnginePreviews?
+    /// R-E13 — the Settings → Sleep "Keep going on extra usage" switch;
+    /// absent on an older backend → false (off is the safe default: a Claude
+    /// plan cycle stops at the included usage rather than billing past it).
+    let allowOverage: Bool
 
     enum CodingKeys: String, CodingKey {
-        case mode, model, disambiguationModel, source, candidates, preview
+        case mode, model, disambiguationModel, source, candidates, preview, allowOverage
     }
 
     init(
         mode: String, model: String, disambiguationModel: String, source: String,
-        candidates: [SleepEngineCandidate], preview: SleepEnginePreviews?
+        candidates: [SleepEngineCandidate], preview: SleepEnginePreviews?,
+        allowOverage: Bool = false
     ) {
         self.mode = mode
         self.model = model
@@ -64,6 +69,7 @@ struct SleepEngineResponse: Codable, Hashable {
         self.source = source
         self.candidates = candidates
         self.preview = preview
+        self.allowOverage = allowOverage
     }
 
     init(from decoder: Decoder) throws {
@@ -76,6 +82,7 @@ struct SleepEngineResponse: Codable, Hashable {
         // both collapse to `[]` here, and `try?` covers a malformed value.
         candidates = ((try? c.decodeIfPresent([SleepEngineCandidate].self, forKey: .candidates)) ?? nil) ?? []
         preview = (try? c.decodeIfPresent(SleepEnginePreviews.self, forKey: .preview)) ?? nil
+        allowOverage = ((try? c.decodeIfPresent(Bool.self, forKey: .allowOverage)) ?? nil) ?? false
     }
 }
 

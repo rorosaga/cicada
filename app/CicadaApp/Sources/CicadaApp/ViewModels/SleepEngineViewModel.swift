@@ -25,10 +25,14 @@ final class SleepEngineViewModel {
         }
     }
 
-    func set(mode: String, model: String?, disambiguationModel: String?) async {
+    /// `allowOverage` (R-E13) defaults to nil — "leave the stored opt-in
+    /// alone" — so a mode or model change never touches it by accident.
+    func set(mode: String, model: String?, disambiguationModel: String?,
+             allowOverage: Bool? = nil) async {
         do {
             response = try await APIClient.shared.updateSleepEngine(
-                mode: mode, model: model, disambiguationModel: disambiguationModel
+                mode: mode, model: model, disambiguationModel: disambiguationModel,
+                allowOverage: allowOverage
             )
         } catch {
             errorMessage = error.localizedDescription

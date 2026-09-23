@@ -116,9 +116,12 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
 3. **Markdown+git is the only source of truth.** A `.db` may exist only if deleting it costs CPU
    and never a fact, and **no derived artifact is ever tracked in a bank's git** (the 35 MB index
    was tracked and would have committed ~11 GB/yr once Sleep resumed).
-4. **Scheduled cycles cannot spend plan quota.** `user_triggered` is threaded through; a scheduled
-   cycle returns `byok` before the registry is touched. The UI copy says "never on the nightly
-   schedule" and that is now literally true.
+4. **Scheduled cycles cannot spend plan quota — Claude or ChatGPT.** `user_triggered` is threaded
+   through; a scheduled cycle returns `byok` before the registry is touched, and a Settings-chosen
+   `agent` **or `codex`** is demoted to `byok` on a schedule by one tuple,
+   `engine_select.SUBSCRIPTION_MODES`, so a third plan engine cannot forget the guard (Track E,
+   2026-09-23). Only an explicit `CICADA_LLM_MODE` in `api/.env` runs a plan on the schedule. The UI
+   copy says "never on the nightly schedule" and that is literally true for both plans.
 5. **Raw storage does not replace Sleep** (G101). Text cannot decay — only a belief can go stale or
    be contradicted — so "time as a signal" needs a belief object.
 6. **Capture is agent-judgment and that is a measured problem** (G105): 0 MCP invocations in 12
@@ -162,12 +165,12 @@ Everything about *what to do next and why* lives in one place:
 > reasoning for its order. Workflow agents run on sonnet/haiku unless the owner says otherwise for a
 > session (round 2 ran on opus with that permission); the orchestrator plans, verifies and merges.
 
-The queue there, in order: **G118 slice 2** (the provenance viewer — its server half has shipped
-and nothing renders it) → **G93** (cross-stream ask). Then the bigger rocks: **G81 → G95**, **G112
-steps 2–4**, **G76**, and **G127** as a decision, not a build. Before any of them, the cheap one:
-**G90 README screenshots** — done on 2026-09-06 from the **demo** bank (Graph, Inbox, the study room,
-Sources v2; the retired Activity image is gone). Re-take them from the demo bank, never the live one,
-after the next visual change.
+The queue there, in order: **G118 slice 2** (the provenance viewer — slice 1's spans and slice 2's
+read routes are server-side; nothing renders them yet) → **G93** (cross-stream ask). Then the bigger
+rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a build. Before
+any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 from the **demo** bank
+(Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
+demo bank, never the live one, after the next visual change.
 
 **Search (G136):** the server half has shipped. Next is the ⌘K find palette (design §6 S3–S6), after
 M1; it builds against "The wire" in `docs/superpowers/plans/2026-09-23-search-backend.md`.
@@ -347,6 +350,8 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 
 | What | State | Next action |
 |---|---|---|
+| **G118 slice 2 — server half** | **Merged** from `feat/provenance-viewer` (plan `2026-09-23-provenance-backend.md`): `grown` spans, `/episodes/{id}/text`, `/entities/{id}/provenance`, `/episodes/{id}/citations`, `/ask` evidence, per-turn import times. | Next: the Swift viewer track (P1–P6 client), now that Meadow M1 has landed. |
+| **G137 Meadow (round 3)** | **M1 foundation merged** (PR #71) from `feat/meadow-foundation` — Meadow tokens, Instrument Serif, `CicadaMotion` + hover modifiers, `liquidGlass`, the art set + manifest, the glass sidebar, the empty state. Plan: `docs/superpowers/plans/2026-09-23-meadow-foundation.md`. | Live-checked by the orchestrator in both themes at 1.0×; still open: 1.4×, Reduce Motion / Transparency / Increase Contrast (both themes, 1.0×/1.4×, Reduce Motion / Transparency / Increase Contrast; the empty state's one action on 26 (`.glassProminent`) with the window key AND not key, both themes — its ink is `onAccent` only while key, measured on `.borderedProminent`, unverified on glass), merge to `dev`; then the M2 pass. Builds on a macOS 14/15 SDK: every 26/15-only call is also behind `#if canImport(SwiftUI, _version:)`. |
 | **G129 bookmarks** | **Both slices shipped** — slice 1 (PR #52): file watch, catch-up sync, six-state light. Slice 2 (PR #61): seen-set, removal proposals, Deletions subsection. | G119 (Arc/Brave/Firefox) generalizes for free once added to `CHANNEL_BY_ORIGIN`. |
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
 | **G109 graph physics** | **Phase 1 in PR #32** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |

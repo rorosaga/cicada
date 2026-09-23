@@ -152,7 +152,7 @@ enum SleepHistoryPresentation {
     /// icon.
     static func engineSymbol(_ engine: String?) -> String {
         switch engine {
-        case "claude-cli": "cpu"
+        case "claude-cli", "codex-cli": "cpu"
         case "ollama": "desktopcomputer"
         case "litellm": "key"
         default: "circle.dashed"
