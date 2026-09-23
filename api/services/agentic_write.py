@@ -504,8 +504,13 @@ RETRACT_PREDICATE = "retracts"
 MAX_REASON_CHARS = 240
 # Every stdio MCP claim written before G135 R-R11 carried this author: the
 # reconcile shim's model name, stamped by `_stamp_new`. Any local agent could
-# have written it, so any local agent may withdraw it (Q-R5).
+# have written it, so any local agent may withdraw it (Q-R5) — but ONLY when
+# its origin says stdio MCP. `_stamp_new` stamps the same placeholder on every
+# claim that arrives without `authored_by`, Telegram's user-stated
+# `saved-because` among them, so the author alone does not mean "an agent
+# wrote this" (final review, the T3 r1 M1 finding).
 _LEGACY_MCP_AUTHOR = _ReconcileSettings.litellm_model
+_LEGACY_MCP_ORIGIN = "mcp"
 
 
 def owns(claim: Claim, *, author: str, origin: str | None) -> bool:
@@ -513,7 +518,8 @@ def owns(claim: Claim, *, author: str, origin: str | None) -> bool:
 
     A remote connection owns exactly the claims stamped ``remote:<its id>``
     (R-R23); a local agent owns what its harness label authored, or the
-    pre-G135 placeholder, and never a remote app's. Nobody but the person
+    pre-G135 placeholder on a claim whose origin is ``mcp``, and never a
+    remote app's. Nobody but the person
     withdraws a human claim — ``is_human`` is the same protection Stage 3
     gives it — and a Sleep claim's author is a model id, so it never matches.
     """
@@ -524,7 +530,10 @@ def owns(claim: Claim, *, author: str, origin: str | None) -> bool:
         return claim_origin == origin
     if claim_origin.startswith("remote:"):
         return False
-    return (claim.authored_by or "") in {author, _LEGACY_MCP_AUTHOR}
+    authored_by = claim.authored_by or ""
+    return authored_by == author or (
+        authored_by == _LEGACY_MCP_AUTHOR and claim_origin == _LEGACY_MCP_ORIGIN
+    )
 
 
 def retract_claim(
@@ -565,7 +574,12 @@ def retract_claim(
         return {"action": "error", "error": f"the page's claims block is unreadable ({exc}); nothing was changed"}
     except Exception as exc:  # noqa: BLE001 — a bad page is an error reply, never a crashed tool
         return {"action": "error", "error": f"the page could not be read ({type(exc).__name__}); nothing was changed"}
-    target = next((c for c in claims if c.id == claim_id), None)
+    # An id is minted from its fact (`_claim_id`), so withdraw → restate
+    # leaves TWO claims with this id: the closed one and the open restatement.
+    # Taking the first match answered "already closed" while the fact read as
+    # current (final review) — the open copy is the one being withdrawn.
+    same = [c for c in claims if c.id == claim_id]
+    target = next((c for c in same if c.valid_to is None), same[0] if same else None)
     if target is None:
         return {"action": "not_found", "entity_id": page.stem, "error": f"no claim {claim_id!r} on {page.stem}"}
     if target.valid_to is not None:
@@ -575,8 +589,13 @@ def retract_claim(
         return {"action": "not_yours", "entity_id": page.stem, "claim_id": claim_id}
     day = (today or date.today()).isoformat()
     spans = evidence_mod.verify_many(memory_path, evidence) or [evidence_mod.reasoning("")]
+    # The record id must differ per withdrawal of the same id, or the second
+    # record would collide with the first and `superseded_by` would point at
+    # both. The first keeps the plain seed, so its id is what it always was.
+    prior = sum(1 for c in claims if c.predicate == RETRACT_PREDICATE and c.object == claim_id)
+    seed = claim_id if prior == 0 else f"{claim_id}\x00{prior}"
     record = Claim(
-        id=f"clm_retract_{hashlib.sha1(claim_id.encode('utf-8')).hexdigest()[:8]}",
+        id=f"clm_retract_{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:8]}",
         text=reason,
         subject=target.subject or page.stem,
         predicate=RETRACT_PREDICATE,

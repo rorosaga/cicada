@@ -13,7 +13,7 @@ from _synthetic_bank import _bank
 from api import config
 from api.remote import catalog
 from api.remote.runtime import RemoteRuntime
-from api.services import change_timeline, markdown_parser, mcp_tools
+from api.services import agentic_write, change_timeline, markdown_parser, mcp_tools
 from api.services.claims import Claim, parse_claims, write_claims
 
 TODAY = date.today().isoformat()
@@ -95,13 +95,51 @@ def test_twice_is_a_no_op(srv):
           valid_from="2026-09-01"),
     Claim(id="clm_other_app", text="alpha uses redis", subject="alpha-project", predicate="uses", object="redis",
           authored_by="claude-code", origin="remote:zz99zz99", valid_from="2026-09-01"),
-], ids=["sleep", "the-person", "a-remote-app"])
+    # Telegram's `saved-because` arrives without an author and `_stamp_new`
+    # gives it the pre-G135 placeholder: the placeholder alone never makes a
+    # claim an agent's (final review, T3 r1 M1).
+    Claim(id="clm_telegram", text="saved for the alpha launch", subject="alpha-project",
+          predicate="saved-because", object="alpha launch", observer="owner", source_trust="user_stated",
+          origin="telegram", authored_by="mcp-agentic-write", valid_from="2026-09-01"),
+], ids=["sleep", "the-person", "a-remote-app", "telegram-with-the-legacy-author"])
 def test_a_claim_this_agent_did_not_write_is_refused(srv, claim):
     server, memory = srv
     _add(memory, claim)
     before = (memory / "entities" / "alpha-project.md").read_text()
     assert "was not written by this agent" in _retract(server, claim.id)
     assert (memory / "entities" / "alpha-project.md").read_text() == before
+
+
+def test_the_legacy_author_is_only_an_agents_on_an_mcp_origin():
+    telegram = Claim(id="clm_t", text="t", subject="alpha-project", predicate="saved-because", object="x",
+                     observer="owner", source_trust="user_stated", origin="telegram",
+                     authored_by="mcp-agentic-write")
+    for author in ("claude-code", "codex"):
+        assert not agentic_write.owns(telegram, author=author, origin=None)
+    stdio = Claim(id="clm_s", text="s", subject="alpha-project", predicate="uses", object="x",
+                  origin="mcp", authored_by="mcp-agentic-write")
+    assert agentic_write.owns(stdio, author="codex", origin=None)
+
+
+def test_withdraw_restate_withdraw_closes_the_restatement(srv):
+    """The id is minted from the fact, so a restatement after a withdrawal
+    reuses it: the second withdrawal must close the OPEN copy, under a record
+    id of its own (final review)."""
+    server, memory = srv
+    claim_id = _write(server)
+    assert _retract(server, claim_id).startswith("Withdrew")
+    assert _write(server) == claim_id
+    assert "sqlite-vec" in server.handle_tool("cicada_get_perspective", {"subject": "alpha-project"})
+    out = _retract(server, claim_id, reason="Said wrong a second time.")
+    assert out.startswith(f"Withdrew claim `{claim_id}`"), out
+    page = parse_claims(markdown_parser.parse(memory / "entities" / "alpha-project.md").body)
+    copies = [c for c in page if c.id == claim_id]
+    records = [c for c in page if c.predicate == "retracts"]
+    assert len(copies) == 2 and all(c.valid_to == TODAY for c in copies)
+    assert len({r.id for r in records}) == 2, "each withdrawal has its own record id"
+    assert {c.superseded_by for c in copies} == {r.id for r in records}
+    assert "sqlite-vec" not in server.handle_tool("cicada_get_perspective", {"subject": "alpha-project"})
+    assert "already stopped being current" in _retract(server, claim_id)
 
 
 def test_a_pre_g135_local_claim_can_be_withdrawn_by_a_local_agent(srv):
@@ -160,3 +198,26 @@ def test_a_connection_can_only_withdraw_what_it_wrote(tmp_path, monkeypatch):
         config.get_settings.cache_clear()
     assert catalog.TOOL_SCOPE["cicada_retract_claim"] == "record"
     assert "cicada_retract_claim" in catalog.WRITE_TOOLS
+
+
+def test_the_apps_claim_endpoints_never_serve_a_withdrawal_record(srv):
+    """Two withdrawals in one context used to surface as a contested
+    `retracts` belief listing raw claim ids (final review)."""
+    import asyncio
+
+    from api.routers import claims as claims_router
+
+    server, memory = srv
+    _retract(server, _write(server, "sqlite-vec"))
+    _retract(server, _write(server, "duckdb"))
+    assert sum(c.predicate == "retracts" for c in _claims(memory).values()) == 2
+
+    class _Settings:
+        memory_path = memory
+
+    listed = asyncio.run(claims_router.get_entity_claims(
+        "alpha-project", include_superseded=True, settings=_Settings()))
+    assert listed.claims and all(c.predicate != "retracts" for c in listed.claims)
+    timeline = asyncio.run(claims_router.get_entity_timeline(
+        "alpha-project", predicate="retracts", context="general", settings=_Settings()))
+    assert timeline.claims == []

@@ -44,7 +44,13 @@ moved into the threadpool with `kinds`, exact lexical `totals`, spans and `mode=
 derived FTS5 index beside the vector index (`search_index.db`: excluded through `.git/info/exclude`,
 rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conversations/recent?q=`.
 Backend **2287 passed** on the branch. The palette (design §6 S3–S6) starts after the Meadow foundation
-(M1) merges; MCP recall adoption is Track R's — see the plan's hand-off.
+(M1) merges; MCP recall adopted the G136 helpers with G140 Q-R1 (Track Q).
+
+**Round 3, Track Q — memory quality from the Instinct comparison (2026-09-23, `feat/memory-quality`, G140).**
+Shipped so far: recall reads aliases, words and claims (the G136 hand-off) and shows bounded dated history;
+`cicada_get_perspective(history=true)`; `cicada_timeline(since)` and `cicada_retract_claim` are new; the dead
+`include_superseded` on the vector claims index is gone. Planned on the row, not shipped: the Standing/Current
+primer, stated-end expiry and the video watch record. P9 (the rubric eval) is open in G140.
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
