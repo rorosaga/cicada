@@ -83,6 +83,23 @@ enum ContributorIdentity {
         }
     }
 
+    /// A provider's product family for a sentence — "Claude (claude-sonnet-4-5)"
+    /// (G118 slice 2, §4.5: "the model family first and the raw id in
+    /// parentheses"). nil for "other" and nil: the raw id then stands alone,
+    /// because a guessed family would claim a brand the id does not carry.
+    /// For the same reason `google` is "Google", not "Gemini": the server's
+    /// rule files Gemma under it too (`git_service._PROVIDER_SUBSTRINGS`).
+    static func vendorName(provider: String?) -> String? {
+        switch provider {
+        case "anthropic": "Claude"
+        case "openai": "OpenAI"
+        case "google": "Google"
+        case "ollama": "Ollama"
+        case "openrouter": "OpenRouter"
+        default: nil
+        }
+    }
+
     /// Every mark this map can return. An array rather than a Set because
     /// `LogoAssetTests.testEveryBundledMarkIsClaimedBySomeMap` concatenates it
     /// into the claimed-names list — this is the only thing that stops a

@@ -66,6 +66,16 @@ struct EntityDetailCard: View {
     /// chip snaps back to the server's truth).
     @State private var pendingDecayClass: DecayClass?
 
+    /// G118 slice 2 — "Where this came from" (§4.5), one `/provenance` call per
+    /// card, cached in memory by `ProvenanceCache` (never a Store domain,
+    /// R-PB11). Loaded at the card level, not the Content tab's, because the
+    /// same payload names the agent on every evidence chip in Perspectives and
+    /// Timeline (`evidenceDocIndex`) and maps a history row's conversation to
+    /// an episode the Reader can open.
+    @State private var provenanceState: ProvenanceSectionState = .loading
+    @Environment(ProvenanceCache.self) private var provenanceCache: ProvenanceCache?
+    @Environment(ProvenanceRouter.self) private var provenanceRouter: ProvenanceRouter?
+
     // G67 — per-commit diffs in the History tab, fetched on demand and cached
     // per (entity, commit) — `DiffCacheKey`, not commit hash alone: one
     // Sleep-cycle commit routinely touches several entity files, so the same
@@ -166,6 +176,28 @@ struct EntityDetailCard: View {
         .sheet(item: $timelineKey) { key in
             beliefTimelineSheet(key)
         }
+        // A chip in the Belief Timeline sheet opens the Reader beside this
+        // card; the sheet steps aside so the sentence is not under a modal
+        // (the rule `ContentView` applies to the Ask sheet, R-PU20).
+        .onChange(of: provenanceRouter?.revision ?? 0) { _, _ in timelineKey = nil }
+        // Outermost on purpose: the Belief Timeline sheet's chips read it too.
+        .environment(\.evidenceDocIndex, EvidenceDocIndex.from(provenanceState.value))
+        .task(id: entity.id) { await loadProvenance() }
+    }
+
+    /// One `/provenance` per entity (ETag-revalidated by the cache). A 404 —
+    /// an older backend — hides the section rather than showing an error.
+    private func loadProvenance() async {
+        guard let provenanceCache else {
+            provenanceState = .unavailable
+            return
+        }
+        provenanceState = .loading
+        let result = await provenanceCache.provenance(entityId: entity.id)
+        // A card swapped to another entity cancels this task; a late answer
+        // for the old one must not land under the new name.
+        guard !Task.isCancelled else { return }
+        provenanceState = ProvenanceSectionState(result)
     }
 
     // MARK: - Header
@@ -360,6 +392,9 @@ struct EntityDetailCard: View {
 
             Divider().background(CicadaTheme.border)
             metadataSection
+
+            Divider().background(CicadaTheme.border)
+            WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
         }
         .padding(CicadaTheme.spacingLG)
         .task(id: entity.id) {
@@ -679,7 +714,9 @@ struct EntityDetailCard: View {
     /// a cheat-sheet for REFRESHING a fact.
     private var sourcesSection: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("Sources")
+            // G118 slice 2 (§4.5) — renamed from "Sources": this is where to
+            // REFRESH a fact; where a belief CAME FROM is the section below.
+            Text(Copy.Provenance.lookItUpAt)
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
 
@@ -1134,7 +1171,8 @@ struct EntityDetailCard: View {
                 .accessibilityLabel("Commit \(entry.date) by \(entry.author)")
             }
 
-            FromConversationButton(sessionIds: entry.sessions)
+            FromConversationButton(sessionIds: entry.sessions,
+                                   openEpisode: ProvenanceSummary.episodeByConversation(provenanceState.value))
         }
     }
 
@@ -1149,18 +1187,11 @@ struct EntityDetailCard: View {
                 Text(entry.date)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
-                // M3 (backlog A2): who authored this commit.
+                // M3 (backlog A2): who authored this commit — with the same
+                // face and name the claim footer and the contributors strip
+                // give them (G118 slice 2, §4.6).
                 if !entry.author.isEmpty {
-                    Text(entry.author)
-                        .font(CicadaTheme.captionFont)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(
-                            (entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
-                                .opacity(0.18)
-                        )
-                        .clipShape(Capsule())
-                        .foregroundStyle(entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
+                    AuthorPill(entry.author, kind: entry.authorKind, provider: entry.authorProvider)
                 }
             }
 

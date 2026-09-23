@@ -83,3 +83,32 @@ extension Copy.Provenance {
     static let fromASource = "From a source"
     static let notRecorded = "Not recorded"
 }
+
+// MARK: - "Where this came from" on the entity card (§4.5) — Task 4
+
+extension Copy.Provenance {
+    static let whereThisCameFrom = "Where this came from"
+    /// G61's "Sources" section, renamed so "where to refresh this fact" can
+    /// never be read as "where this belief came from" (§4.5, R6 §5.3.7).
+    static let lookItUpAt = "Look it up at"
+
+    static let noConversations = "Recorded before Cicada kept conversation links."
+    static let noBeliefs = "No beliefs are recorded on this page yet."
+    static let unavailable = "Couldn't load where this came from."
+    static let notInBank = "No longer in this bank"
+    static let staleCaption = "This conversation changed since, so the words may have moved"
+    static let inferredByCicada = "Inferred by Cicada"
+    static func showAllConversations(_ n: Int) -> String { "Show all \(UsageFormat.count(n))" }
+    static let showFewerConversations = "Show fewer"
+    /// A contributor chip's hover: what "N beliefs · N edits" counts.
+    static func contributorHelp(_ name: String) -> String {
+        "Beliefs on this page written by \(name), and edits \(name) made to it."
+    }
+    static let beforeProvenanceHelp = "Edits made before Cicada recorded who made them."
+
+    static func beliefs(_ n: Int) -> String { n == 1 ? "1 belief" : "\(UsageFormat.count(n)) beliefs" }
+    static func edits(_ n: Int) -> String { n == 1 ? "1 edit" : "\(UsageFormat.count(n)) edits" }
+    static func conversations(_ n: Int) -> String {
+        n == 1 ? "1 conversation" : "\(UsageFormat.count(n)) conversations"
+    }
+}
