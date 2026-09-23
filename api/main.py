@@ -37,7 +37,7 @@ from api.routers import (
     status,
     sync,
 )
-from api.services import bank_registry, sleep_scheduler
+from api.services import bank_registry, search_index, sleep_scheduler
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
 from api.services.bank_migrations import run_bank_migrations
@@ -134,6 +134,12 @@ async def lifespan(app: FastAPI):
     # `POST /banks/{name}/activate`, so a bank switched to at runtime is
     # migrated too — see api/services/bank_migrations.py.
     run_bank_migrations(settings.memory_path)
+
+    # G136: build or catch up the derived search index in the background, so
+    # the first keystroke after launch finds it warm. Never blocks startup,
+    # never raises (a cold build takes a few seconds; until it lands, /search
+    # serves the frontmatter fallback and says `indexState: building`).
+    search_index.warm_in_background(settings.memory_path)
 
     entities_count = len(list((settings.memory_path / "entities").glob("*.md")))
     episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))
