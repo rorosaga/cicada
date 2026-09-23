@@ -74,7 +74,7 @@ struct ChannelSourceView: View {
                 }
                 Spacer()
                 if channel.actions.contains("sync") {
-                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store) }
+                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher) }
                 }
                 if channel.actions.contains("poll") {
                     actionButton("Poll now") { try await ChannelActions.poll(channel.id) }

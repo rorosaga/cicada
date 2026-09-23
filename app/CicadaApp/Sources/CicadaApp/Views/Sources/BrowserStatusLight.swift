@@ -48,7 +48,7 @@ struct BrowserStatusLight: View {
         case .syncing: CicadaTheme.info
         case .stale: CicadaTheme.warning
         case .blocked, .failed: CicadaTheme.danger
-        case .absent: CicadaTheme.textTertiary
+        case .absent, .off: CicadaTheme.textTertiary
         }
     }
 
@@ -60,6 +60,7 @@ struct BrowserStatusLight: View {
         case .blocked: "Can't read"
         case .failed: "Sync failed"
         case .absent: "Not installed"
+        case .off: "Off"
         }
     }
 
@@ -78,6 +79,8 @@ struct BrowserStatusLight: View {
             "The last sync didn't finish. Try Sync now — the details are below."
         case .absent:
             "This browser isn't installed on this Mac, or has no bookmarks yet."
+        case .off:
+            "Cicada reads this browser only after you turn it on. Sync now brings its bookmarks in and keeps watching."
         }
     }
 }

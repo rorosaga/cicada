@@ -230,7 +230,7 @@ private struct SourceCardTile: View {
             // the detail page — and now, since R-S2, its first clause is on the
             // card's own status band.
             _ = try? await (title == "Poll now" ? ChannelActions.poll(channelId)
-                                                 : ChannelActions.sync(channelId, store: store))
+                                                 : ChannelActions.sync(channelId, store: store, watcher: watcher))
             await store.refresh([.channels, .sources, .sourcesOverview, .status])
             busy = false
         }

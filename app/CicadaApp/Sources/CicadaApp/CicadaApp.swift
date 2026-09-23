@@ -233,6 +233,10 @@ struct CicadaApp: App {
                 .environment(sleepEngineVM)
                 .environment(appRouter)
                 .environment(store)
+                // Track I T1: Integrations' Sync now routes a watched browser
+                // through the watcher (consent), so it reads it from here;
+                // without this the Settings window would trap on that page.
+                .environment(browserWatcher)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 // The `.id(colorSchemeRaw)` that used to be here is gone with
                 // its twin in `ContentView`: `CicadaTheme.mode` is observable
