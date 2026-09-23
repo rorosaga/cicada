@@ -52,6 +52,9 @@ enum FeedResult: Equatable {
     case busy
     /// The page is stale (R-A12): nothing was sent.
     case unreachable
+    /// The import failed while its panel was closed (final review, finding
+    /// 1): said once, then it dwells away like any other ending.
+    case failedUnseen
 
     /// Everything but a live intake ends with the moment it described (Z-B11).
     var isTerminal: Bool { self != .handedOver }
@@ -77,6 +80,9 @@ enum FeedPhase: Hashable {
     case importing
     case landed(FeedLanding)
     case failed
+    /// `.failed` with the panel closed — "the panel says why" would point at
+    /// nothing, and opening it again resets a failure (`IntakeRouter.present`).
+    case failedUnseen
 
     /// The router's own phase, as the room tells it (Z-B9). `.idle` is no line.
     init?(_ phase: IntakePhase) {
@@ -135,6 +141,8 @@ func feedLine(_ phase: FeedPhase, asleep: Bool) -> SentenceLine {
         return SentenceLine(lead: "That went to another memory.", tail: "It waits there, not on this pile.")
     case .failed:
         return SentenceLine(lead: "I couldn't take that.", tail: "The panel says why.")
+    case .failedUnseen:
+        return SentenceLine(lead: "I couldn't take that.", tail: "Drop it again to open the panel.")
     }
 }
 

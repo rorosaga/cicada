@@ -533,13 +533,17 @@ import (`POST /intake/import`; a 202 and a job counter above 10 episodes) → a 
 card that never closes on its own. `UploadOverlay` and the Feed's Upload button are gone; the router
 owns `Store.intakeInFlight` through a counter of requests in flight. The card's *Read now* is G125
 R10's first narrow amendment: a user trigger, subtitled with the manual engine like Consolidate,
-shown only when an engine can run and the import landed in the active bank. **Every door refuses
-the same roots** (`IntakeRouter.feedGuard`, Track Z): a drop that resolves under `~/.claude`,
-`~/.codex` or `~/.cicada` (or `$CLAUDE_CONFIG_DIR`, `$CODEX_HOME`, `$CICADA_HOME`) is refused before
-any folder is walked, a refused root met inside a dropped folder is never descended into and
-refuses the drop, a drop with nothing export-shaped in it is refused by name, and nothing is sent;
-`accept` answers (`IntakeAcceptance`) so the Sleep room tells a refusal in its worm's words while
-every other door shows it in the panel.
+shown only when an engine can run and the import landed in the active bank. **Every
+`IntakeRouter` door refuses the same roots** (`IntakeRouter.feedGuard`, Track Z): a drop that
+resolves under `~/.claude`, `~/.codex` or `~/.cicada` (or `$CLAUDE_CONFIG_DIR`, `$CODEX_HOME`,
+`$CICADA_HOME`) is refused before any folder is walked, a refused root met inside a dropped folder
+is never descended into and refuses the drop, a drop with nothing export-shaped in it is refused by
+name, and nothing is sent; `accept` answers (`IntakeAcceptance`) so the Sleep room tells a refusal
+in its worm's words while every other door shows it in the panel. Three pickers still sit outside
+the router — the Add-source walkthrough's drop and *Choose file…*, its saved-content picker, and
+Settings' local-folder picker — and check only the chosen file or folder
+(`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
+(open, G125).
 
 **Settings → Sleep: the engine picker (G122, Track E).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes

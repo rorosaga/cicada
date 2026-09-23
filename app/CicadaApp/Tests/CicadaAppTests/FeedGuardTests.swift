@@ -102,6 +102,36 @@ final class FeedGuardTests: XCTestCase {
         XCTAssertEqual(pruned, ["claude-config"], "the root itself is pruned; nothing under it is listed")
     }
 
+    /// Final review, finding 2 — only a link is resolved during the walk;
+    /// every other entry is placed lexically under where its dropped folder
+    /// resolves. A folder dropped through a linked parent (as `/tmp` is on
+    /// macOS — the enumerator then spells its entries by `realpath`) still
+    /// has a refused root inside it pruned, and an innocent one is admitted
+    /// whole.
+    func test_aFolderDroppedThroughALinkedParentIsJudgedWhereItResolves() throws {
+        try file("real/Documents/claude-config/projects/alpha-project/b.json")
+        try file("real/Documents/notes.json")
+        let alias = try link("alias", to: home.appendingPathComponent("real"))
+        let dropped = alias.appendingPathComponent("Documents")
+        let config = home.appendingPathComponent("real/Documents/claude-config")
+        XCTAssertEqual(refusal([dropped], env: ["CLAUDE_CONFIG_DIR": config.path]), .claudeSessions)
+        guard case .admitted(let files, false) = verdict([dropped]) else { return XCTFail("an innocent folder") }
+        XCTAssertEqual(files.map(\.lastPathComponent).sorted(), ["b.json", "notes.json"])
+    }
+
+    /// Final review, finding 3 — the pickers outside the router check the
+    /// chosen item itself, never walking it.
+    func test_refusedRootJudgesOnlyTheChoice() throws {
+        XCTAssertEqual(IntakeRouter.refusedRoot(of: [try file(".claude/projects/alpha-project/s.jsonl")],
+                                                home: home, env: [:]), .claudeSessions)
+        XCTAssertEqual(IntakeRouter.refusedRoot(of: [home.appendingPathComponent(".cicada")], home: home, env: [:]),
+                       .cicadaHome)
+        XCTAssertNil(IntakeRouter.refusedRoot(of: [try file("Downloads/cat.png", "png")], home: home, env: [:]),
+                     "not export-shaped is the backend's call here, not a refusal")
+        XCTAssertNil(IntakeRouter.refusedRoot(of: [home], home: home, env: [:]),
+                     "a folder that contains a root is not itself under one")
+    }
+
     func test_aSiblingNameIsNotTheRoot() throws {
         let near = try file(".claudette/notes.json")
         XCTAssertEqual(verdict([near]), .admitted(files: [near], capped: false))

@@ -18,7 +18,8 @@ final class RoomFeedTests: XCTestCase {
     private var everyPhase: [FeedPhase] {
         let refusals: [FeedPhase] = FeedRefusal.allCases.map(FeedPhase.refused)
         let rest: [FeedPhase] = [.busy, .unreachable, .reading, .preview, .importing,
-                                 .landed(.added), .landed(.nothingNew), .landed(.elsewhere), .failed]
+                                 .landed(.added), .landed(.nothingNew), .landed(.elsewhere), .failed,
+                                 .failedUnseen]
         return [.armed(overWorm: false), .armed(overWorm: true)] + refusals + rest
     }
 
@@ -148,7 +149,7 @@ final class RoomFeedTests: XCTestCase {
         room.fed(.handedOver, state: .happy, reduceMotion: false)
         let outcome = IntakeOutcome(created: 3)
         XCTAssertNil(room.intakeChanged(from: .reading(["a.json"]), to: .preview(IntakePreview())))
-        XCTAssertEqual(room.intakeChanged(from: .done(outcome), to: .idle), .added)
+        XCTAssertEqual(room.intakeChanged(from: .done(outcome), to: .idle), .landed(.added))
         XCTAssertEqual(room.feedResult, .landed(.added), "the landing outlives the done card")
         room.dismissSlot()
         XCTAssertNil(room.feedResult)
@@ -165,6 +166,61 @@ final class RoomFeedTests: XCTestCase {
         poked.poke(answerCount: 2, state: .happy, reduceMotion: false)
         XCTAssertNil(poked.feedResult)
         XCTAssertEqual(poked.answerIndex, 0)
+    }
+
+    /// Final review, finding 1 (Task-3 review r1's M1) — the panel closed
+    /// mid-import (`IntakeRouter.dismiss` keeps it running): the ending
+    /// nobody sees ends the room's line too, so it dwells back to the status
+    /// instead of covering it for good.
+    func test_anImportThatEndsWithThePanelClosedEndsTheLine() {
+        let outcome = IntakeOutcome(created: 3)
+        let importing = IntakePhase.importing(IntakeProgress(total: 3, staged: nil))
+        let unseen = RoomModel()
+        unseen.fed(.handedOver, state: .happy, reduceMotion: false)
+        XCTAssertNil(unseen.intakeChanged(from: .preview(IntakePreview()), to: importing, overlayPresented: false),
+                     "an import still landing is still true")
+        XCTAssertEqual(unseen.feedResult, .handedOver)
+        XCTAssertEqual(unseen.intakeChanged(from: importing, to: .done(outcome), overlayPresented: false),
+                       .landed(.added))
+        XCTAssertEqual(unseen.feedResult, .landed(.added))
+        unseen.dismissSlot()
+        XCTAssertNil(unseen.feedResult, "Esc, the dwell and a mood change end it now")
+        XCTAssertNil(unseen.intakeChanged(from: .done(outcome), to: .idle, overlayPresented: false),
+                     "the later Done says nothing twice")
+
+        let failed = RoomModel()
+        failed.fed(.handedOver, state: .happy, reduceMotion: false)
+        XCTAssertEqual(failed.intakeChanged(from: importing, to: .failed("x"), overlayPresented: false), .failedUnseen)
+        XCTAssertTrue(failed.feedResult?.isTerminal == true)
+        XCTAssertEqual(feedLine(.failedUnseen, asleep: false).tail, "Drop it again to open the panel.",
+                       "never 'the panel says why' with no panel")
+
+        let seen = RoomModel()
+        seen.fed(.handedOver, state: .happy, reduceMotion: false)
+        XCTAssertNil(seen.intakeChanged(from: importing, to: .done(outcome), overlayPresented: true),
+                     "an open done card waits for Done")
+        XCTAssertEqual(seen.feedResult, .handedOver)
+    }
+
+    /// Final review, finding 1 — the slot's ranking: a drag, then the answer
+    /// the person asked for, then the feed line, then the status.
+    func test_theSlotRanksDrag_thenAnswer_thenFeed_thenStatus() {
+        let importing = IntakePhase.importing(IntakeProgress(total: 3, staged: nil))
+        XCTAssertEqual(RoomModel.slot(drag: .overWorm, result: .handedOver, intakePhase: importing,
+                                      answerIndex: 0, answerCount: 2), .feed(.armed(overWorm: true)))
+        XCTAssertEqual(RoomModel.slot(drag: nil, result: .handedOver, intakePhase: importing,
+                                      answerIndex: 1, answerCount: 2), .rung(1), "a poke shows what it announces")
+        XCTAssertEqual(RoomModel.slot(drag: nil, result: .handedOver, intakePhase: importing,
+                                      answerIndex: 2, answerCount: 2), .feed(.importing),
+                       "an index that outlived its ladder is no rung")
+        XCTAssertEqual(RoomModel.slot(drag: nil, result: nil, intakePhase: .idle,
+                                      answerIndex: nil, answerCount: 2), .status)
+        let room = RoomModel()
+        room.poke(answerCount: 2, state: .happy, reduceMotion: false)
+        room.fed(.handedOver, state: .happy, reduceMotion: false)
+        XCTAssertEqual(RoomModel.slot(drag: room.drag, result: room.feedResult, intakePhase: importing,
+                                      answerIndex: room.answerIndex, answerCount: 2), .feed(.importing),
+                       "a new drop still wins: `fed` dismisses the answers")
     }
 
     /// I15 — a stale page never asks the router, so nothing is sent.

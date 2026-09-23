@@ -820,6 +820,14 @@ struct AddSourceSheet: View {
         panel.canChooseDirectories = false
         panel.message = "Select a bookmarks/saved-content export (HTML, JSON, CSV, or ZIP)"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        // The intake's refused roots (final review, finding 3): this picker
+        // uploads the bytes it is given, so a file under `~/.claude`,
+        // `~/.codex` or `~/.cicada` is refused before anything is read.
+        if let refusal = IntakeRouter.refusedRoot(of: panel.urls) {
+            error = refusal.panelText
+            result = nil
+            return
+        }
         runImport(files: panel.urls) { try await APIClient.shared.uploadSource(fileURL: $0) }
     }
 
@@ -850,6 +858,17 @@ struct AddSourceSheet: View {
     }
 
     private func preview(_ url: URL) {
+        // The intake's refused roots (final review, finding 3): the
+        // walkthrough's drop takes any file type and `previewSource` uploads
+        // its bytes, so a transcript under `~/.claude/projects` would have
+        // been read and sent. Refused here before anything is read — the drop
+        // and "Choose file…" both land on this one function.
+        if let refusal = IntakeRouter.refusedRoot(of: [url]) {
+            importTask?.cancel()
+            importGeneration += 1
+            stage = .failed(refusal.panelText)
+            return
+        }
         stage = .parsing(url.lastPathComponent)
         // Devin round-1, finding 4: capture the toggle's value at the moment
         // the PREVIEW is actually requested, not read live again later — the

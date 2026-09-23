@@ -160,11 +160,16 @@ struct IntakeOutcome: Equatable {
 }
 
 /// What no door may import, whatever the file is (Track Z R-Z10, design §7.4,
-/// Z-B5). Named for the worm that asked for it; enforced at every door,
-/// because the capture rail is not a Sleep-page rule: transcripts under
-/// `~/.claude/` are read by the Stop hook's endpoint and nowhere else, Codex's
-/// home is Codex's, and `~/.cicada` holds the api token, `secrets.env` and the
-/// remote connectors' database — none of it an export, all of it sniffable.
+/// Z-B5). Named for the worm that asked for it; enforced at every
+/// `IntakeRouter` door (`feedGuard`), because the capture rail is not a
+/// Sleep-page rule: transcripts under `~/.claude/` are read by the Stop hook's
+/// endpoint and nowhere else, Codex's home is Codex's, and `~/.cicada` holds
+/// the api token, `secrets.env` and the remote connectors' database — none of
+/// it an export, all of it sniffable. The three pickers outside the router
+/// (the Add-source walkthrough, its saved-content picker, Settings'
+/// local-folder picker) check only the chosen item (`refusedRoot(of:)`); a
+/// watched folder that CONTAINS a refused root is still walked — open (final
+/// review, finding 3).
 enum FeedRefusal: String, Equatable, CaseIterable {
     case claudeSessions, codexSessions, cicadaHome, unreadable
 
@@ -533,28 +538,73 @@ final class IntakeRouter {
     /// (`~/.claudette` is not `~/.claude`). Nothing is opened. `walk` is the
     /// test seam that lets `FeedGuardTests` prove a refused root is never
     /// walked; production always uses `expand`.
+    ///
+    /// Only a symlink is resolved during the walk (final review, finding 2).
+    /// This runs on the main actor inside `accept`, and resolving every entry
+    /// (a `realpath` per file) made a 20,600-entry folder walk 5.3× slower
+    /// (0.08 s → 0.42 s, `swiftc -O`); resolving only links brings it to
+    /// 0.14 s on the same tree, the rest being the prefetched link flag and
+    /// the component compare. `FileManager`'s enumerator never
+    /// descends a symlinked directory, so any other entry lives where its
+    /// dropped folder resolves plus its path inside it — compared lexically.
+    /// A symlink, an entry the walk did not spell under a dropped URL (the
+    /// `walk` seam), or one whose kind is unknown is resolved as before.
     nonisolated static func feedGuard(
         urls: [URL], home: URL, env: [String: String],
         walk: (_ urls: [URL], _ prune: (URL) -> Bool) -> (files: [URL], capped: Bool)
             = { IntakeRouter.expand($0, prune: $1) }
     ) -> IntakeAdmission {
         let roots = refusedRoots(home: home, env: env)
-        func refusal(_ url: URL) -> FeedRefusal? {
-            let path = resolved(url).pathComponents
-            return roots.first { path.starts(with: $0.components) }?.refusal
+        func refusal(components path: [String]) -> FeedRefusal? {
+            roots.first { path.starts(with: $0.components) }?.refusal
         }
+        func refusal(_ url: URL) -> FeedRefusal? { refusal(components: resolved(url).pathComponents) }
         if let why = urls.lazy.compactMap(refusal).first { return .refused(why) }
+        // Each dropped URL under every spelling the walk may use for it — as
+        // dropped, as `resolved` spells it, and as `realpath` does: the
+        // enumerator hands back `/private/tmp/…` for a drop spelled `/tmp/…`,
+        // and `resolvingSymlinksInPath` strips that `/private` again — each
+        // mapped to where it resolves. The longest spelling wins, so a dropped
+        // folder inside another dropped folder answers for its own entries.
+        let bases = urls.flatMap { url -> [(spelled: [String], resolved: [String])] in
+            let target = resolved(url).pathComponents
+            return [url.pathComponents, target, realPath(url)?.pathComponents].compactMap { spelled in
+                spelled.map { (spelled: $0, resolved: target) }
+            }
+        }.sorted { $0.spelled.count > $1.spelled.count }
+        func walkedRefusal(_ url: URL) -> FeedRefusal? {
+            let isLink = (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink ?? true
+            let path = url.pathComponents
+            guard !isLink, let base = bases.first(where: { path.starts(with: $0.spelled) }) else {
+                return refusal(url)
+            }
+            return refusal(components: base.resolved + path.dropFirst(base.spelled.count))
+        }
         var inner: FeedRefusal?
         let walked = walk(urls) { url in
-            guard let why = refusal(url) else { return false }
+            guard let why = walkedRefusal(url) else { return false }
             if inner == nil { inner = why }
             return true
         }
         // `inner` covers everything the walk met; the second look covers a
-        // custom `walk` that ignores `prune` (defence in depth, zero cost).
-        if let why = inner ?? walked.files.lazy.compactMap(refusal).first { return .refused(why) }
+        // custom `walk` that ignores `prune` (defence in depth, one cached
+        // lookup per kept file).
+        if let why = inner ?? walked.files.lazy.compactMap(walkedRefusal).first { return .refused(why) }
         guard !walked.files.isEmpty else { return .refused(.unreadable) }
         return .admitted(files: walked.files, capped: walked.capped)
+    }
+
+    /// The roots alone, for a door that takes one chosen file or folder and
+    /// never walks it (the Add-source walkthrough and saved-content picker,
+    /// the local-folder picker — final review, finding 3): refused iff the
+    /// choice itself resolves under a refused root.
+    nonisolated static func refusedRoot(of urls: [URL], home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                                        env: [String: String] = ProcessInfo.processInfo.environment) -> FeedRefusal? {
+        let roots = refusedRoots(home: home, env: env)
+        return urls.lazy.compactMap { url in
+            let path = resolved(url).pathComponents
+            return roots.first { path.starts(with: $0.components) }?.refusal
+        }.first
     }
 
     /// The three homes and their environment overrides, resolved once per call.
@@ -577,6 +627,14 @@ final class IntakeRouter {
 
     nonisolated static func resolved(_ url: URL) -> URL { url.resolvingSymlinksInPath().standardizedFileURL }
 
+    /// `realpath(3)`: the spelling `FileManager`'s enumerator uses for a
+    /// dropped folder whose path runs through a symlink (`/tmp`, `/var`).
+    nonisolated static func realPath(_ url: URL) -> URL? {
+        guard let real = realpath(url.path, nil) else { return nil }
+        defer { free(real) }
+        return URL(fileURLWithPath: String(cString: real))
+    }
+
 
     /// Folders walked, hidden files and `__MACOSX` skipped, export-shaped
     /// extensions kept, capped at `maxFiles` with a stated warning. `prune`
@@ -593,7 +651,9 @@ final class IntakeRouter {
         for url in urls {
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-                let walker = fm.enumerator(at: url, includingPropertiesForKeys: nil,
+                // `.isSymbolicLinkKey` prefetched: `feedGuard`'s prune asks it
+                // of every entry (final review, finding 2).
+                let walker = fm.enumerator(at: url, includingPropertiesForKeys: [.isSymbolicLinkKey],
                                            options: [.skipsHiddenFiles, .skipsPackageDescendants])
                 while let next = walker?.nextObject() as? URL, out.count <= maxFiles {
                     if prune(next) { walker?.skipDescendants(); continue }
