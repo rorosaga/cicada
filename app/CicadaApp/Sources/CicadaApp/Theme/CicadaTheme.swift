@@ -636,6 +636,10 @@ private extension CicadaTheme {
 }
 
 // MARK: - Glass Card Modifier
+// A standard-MATERIAL content card, despite the name (G137 R-M5): the HIG
+// keeps Liquid Glass out of the content layer, so the 43 `.glassCard()` sites
+// stay what they are. Real glass lives in `Theme/LiquidGlass.swift`, in the
+// chrome layer only.
 
 struct GlassCard: ViewModifier {
     var cornerRadius: CGFloat = CicadaTheme.cornerRadius
