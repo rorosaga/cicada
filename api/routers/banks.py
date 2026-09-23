@@ -26,7 +26,7 @@ from api.models.schemas import (
     BankRenameRequest,
 )
 from api.routers import intake
-from api.services import bank_index, bank_registry, sync_service
+from api.services import bank_index, bank_registry, search_index, sync_service
 from api.services.bank_migrations import run_bank_migrations
 from api.services.graph_builder import file_mtime
 
@@ -102,6 +102,9 @@ async def activate_bank(
     # A first activate of a big bank rewrites hundreds of pages + git — keep it
     # off the event loop like every other blocking route in this codebase.
     await run_in_threadpool(run_bank_migrations, bank_registry.bank_dir(settings.memory_root, name))
+    # G136: warm the newly active bank's search index off the request — the
+    # switch returns at once; /search serves the fallback until it lands.
+    search_index.warm_in_background(bank_registry.bank_dir(settings.memory_root, name))
     data = bank_registry.list_banks(settings.memory_root)
     return BankListResponse(
         banks=[BankInfo(**b) for b in data["banks"]],

@@ -32,7 +32,9 @@ enum BrowserImportActions {
             guard await store.perform(m), let r = m.result else { throw ImportActionError.failed(store.toast ?? "Sync failed") }
             return BrowserImportSummary.bookmarks(r)
         default:
-            throw ImportActionError.failed("Unknown channel \(id)")
+            // Only `ChannelActions.syncRoute`'s `.browserFile` ids arrive here; an
+            // internal id never belongs in the person's copy (L final review, finding 1).
+            throw ImportActionError.failed("This source can't be synced from here.")
         }
     }
 

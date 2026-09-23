@@ -144,7 +144,7 @@ Sources are many and the pipeline is **source-agnostic**: MCP-native clients, ho
 capture, chat exports, browsers (bookmarks and Safari tabs), Telegram, direct saved-content
 connectors (Pinterest/Reddit/X), RSS, calendars, files. The per-channel detail lives in
 `api/services/` and in the backlog rows that introduced each one — read the code, not a list here.
-Four rails hold across all of them:
+Six rails hold across all of them:
 
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
@@ -159,7 +159,7 @@ Four rails hold across all of them:
   agent's final reply per turn; tool calls, thinking, file dumps and harness-injected text are
   skipped by construction. Secrets scrubbed, per-turn and per-session caps applied. **One episode
   per session** — a later Stop rewrites it in place and flips `processed: false`, never two
-  episodes for one conversation (G104). Cicada's own `claude -p` spawns run with
+  episodes for one conversation (G104). Cicada's own `claude -p` and `codex exec` spawns run with
   `CICADA_CAPTURE=off`.
 - **Transcripts under `~/.claude/` are never read anywhere else.** The MCP seam and the resume path
   only ever `isfile()` them to answer "is this session still resumable"; that answer is computed
@@ -171,6 +171,24 @@ Four rails hold across all of them:
   migrated: readers accept both shapes and the queue sorts by `timestamp_sort_key`. A processed
   episode carries `processed_by` (`sleep` vs `agent`) so a flipped flag is distinguishable from a
   consolidation.
+- **Every writer scrubs, and every source-keyed writer stages through one module** (G133/G134,
+  R-N3). `api/services/episode_scrub.py` — secrets, long base64 runs, one-time codes anchored on a
+  connector word — runs before every writer's hash and write, and `test_episode_writers_scrub.py`
+  fails for any module that mints an episode id without it. `api/services/episode_staging.py` is the
+  G20 stager they share: an `EpisodeDraft` keyed by `source_id`, the hash over the scrubbed body, an
+  edit rewritten in place with `processed: false`, a rename kept by content hash, a deletion
+  tombstoned (`source_deleted_at`) and never unlinked. A multi-turn source records G118's per-turn
+  sidecar `turns: [{offset, ts, speaker}, …]` (R-PB4: an entry only for a turn with a time, the last
+  key, outside `content_hash`, capped head-stable at 500) — the one shape `evidence.turn_stamps`
+  reads; the Stop hook's `turns:` stays its integer count and reads as no stamps.
+- **A local source is read by the app and parsed by the backend** (G133/G134). A watched folder:
+  security-scoped bookmark, FSEvents, an mtime+size+sha manifest, bytes posted with relative paths to
+  `POST /sources/folders/{id}/sync`; files under an agent glob land as `evidence_kind: assistant`,
+  already processed, so an agent's sweep is never the owner's words. Wispr Flow: its SQLite opened
+  read-only by the app through a column whitelist (never audio, screenshots, accessibility or pasted
+  text); meetings and notes by default, dictation only when the person turns it on. A meeting line is
+  `speaker:<label>:` and counts as `user` evidence only when its label is one of the owner's listed
+  names.
 
 **Conversation identity (G48).** An MCP episode carries `session_id` plus `harness` and
 `project_dir` when exposed — minted once per MCP process from `CLAUDE_CODE_SESSION_ID` →
@@ -278,11 +296,36 @@ A predicate the vocabulary marks multi-valued (`predicates.cardinality`) never o
 document's *evidence text* (the body as `markdown_parser.parse` returns it, with the ```claims fence
 stripped for an entity page, so writing a claim never stales its own span); `hash` is
 `sha256[:12]` of that text, and a mismatch reads as `stale` rather than mis-highlighting. `kind` is
-`user` | `assistant` | `page` | `reasoning` (the contributor's own inference: `start == end == -1`,
-never a faked span). One module, `api/services/evidence.py`, does the work for every writer: locate
+`user` | `assistant` | `page` | `speaker` (a meeting participant who is not the owner, G134) |
+`reasoning` (the contributor's own inference: `start == end == -1`, never a faked span); an episode's
+`evidence_kind: user|assistant` (a folder's authorship rule, R-F2) overrides the line markers.
+One module, `api/services/evidence.py`, does the work for every writer: locate
 is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an unlocatable quote
 becomes `reasoning` and **the claim is still written — provenance never blocks memory**. Legacy
 claims carry no `evidence` and `to_dict` omits the empty key; there is no backfill.
+
+**Reading provenance back (G118 slice 2, server half).** Three engine-free, bank-only reads, all
+built in `api/services/provenance.py` and fetched on demand — none is a Store domain, so each ETag
+serves the client's in-memory cache and there is no `VersionVector` mapping: `GET
+/episodes/{id}/text` (the whole evidence text, capped at 400,000 chars, with `turns[]` from the
+same marker lines `speaker_kind` reads — `speaker:<label>:` included, role `speaker` — each turn's
+role the `evidence.kind_for` answer, so an `evidence_kind` override relabels every turn — and an
+asserted `start/end/hash` or derived `focus=<entity>`), `GET /entities/{id}/provenance` (contributors from claim `authored_by` plus one
+trailer-only `git log` of the page — ETag includes `git_head` — conversations grouped by
+`session_id`/`source_id`, the best quote per conversation, coverage over current claims), and `GET
+/episodes/{id}/citations` (every claim citing the document, by a raw-text prefilter over
+`entities/` — no index dependency). `/ask` citations also carry `claimId` + `evidence`, read from
+the cited page rather than the index. Every claim on the wire is built by one function,
+`transclusion_resolver.claim_to_model`, and carries `authorKind`/`authorProvider` from
+`git_service.author_identity`. **Freshness is one rule, `evidence.span_status`:** `current`,
+`grown` (an episode that was appended to after the span was minted — the Stop hook and G20 both
+rewrite that way — and a turn-boundary prefix still hashes to the stored value, so the offsets are
+exact) or `stale`. A stale span travels without wash offsets; a `derived` span (found by name,
+`inbox_context.locate_mention`) exists on read payloads only — never in `EVIDENCE_KINDS`, never
+written. The chat importer and every Local-sources draft keep each turn's time as
+`turns: [{offset, ts, speaker}]` in frontmatter, written by `episode_staging` outside
+`content_hash`; the Stop hook's `turns:` is still a count, and a reader treats any non-list as no
+times.
 
 **Optional frontmatter keys**, each with a narrow meaning — don't conflate them:
 
@@ -297,6 +340,14 @@ claims carry no `evidence` and `to_dict` omits the empty key; there is no backfi
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
   resolve_observer` is what decides which page gets it, and every user-stated claim's `observer`
   field is that resolved value.
+- `paths:` (G133) — on a `project` page a watched folder anchors: `[{path, device}]`, where that
+  folder lives on which Mac. For display and relink only; the backend never opens it.
+- `media.kind: paper` + `paper:` (G133) — a paper page: `arxiv_id`, `doi`, `authors`, `published`,
+  `venue`, `sections`, and `metadata_status` once a lookup failed. The ids are the identity
+  (`media-arxiv-<id>` / `media-doi-<hash>`); the abstract is a `describes` claim from
+  `external:arxiv` or `external:crossref`, a dated cache shown under the personal tier (G121).
+- On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
+  `source_deleted_at`, and a section's `content_sha` — see the Awake rails.
 
 ### Live state + handshake (G53 / G75)
 
@@ -328,6 +379,25 @@ argument the schema rejects is a bug** — every argument it names must exist in
 is one in-process ANN lookup. Default backend is EmbeddingGemma-300M (768-dim, on-device) with
 asymmetric query/document prompts. The index is **derived and disposable** — rebuilt by Sleep from
 markdown, safe to delete at any time.
+
+### SQLite FTS5 (lexical index, G136)
+`api/services/search_index.py`. One `search_index.db` per bank, **beside `vector_index.db` and never
+inside it**: entity names + aliases + prose, every claim (superseded ones kept as history), episode
+titles + 600-character passages that tile the evidence text exactly, media/paper metadata and inbox
+questions, in six per-kind FTS5 tables (`unicode61 remove_diacritics 2`, prefix `2 3 4`; rowid
+`doc_id << 16 | n`). `dropped` pages are never indexed. **Derived and disposable** (TODO ruling 3):
+deleting it costs a few seconds of CPU and never a fact; a missing, corrupt or schema-mismatched file is
+rebuilt, never an error. **Never tracked:** `bank_registry.ensure_derived_excluded` writes
+`.git/info/exclude` before the file first exists. It follows a worktree or submodule bank's `.git` file
+to the real git dir, and a new bank's `.gitignore` lists the file too. It never edits an existing
+`.gitignore`, which would dirty the tree and smear into the next `git add -A` commit. **Freshness:**
+Sleep rebuilds it beside the vectors; every read path calls `ensure_fresh`, a `bank_index` stamp diff
+(at most one check a second, inline up to 64 changed files, one background worker beyond); the
+lifespan and a bank switch warm it in the background. The caller always passes the active bank's path
+— the module never resolves a bank (the split-brain rule). `search_service` ranks over it (QuickMatch
+tiers 0–2), fuses it with the stored vectors in `mode=hybrid`, and **never embeds in `mode=prefix`**.
+**The query is never logged**: not by loguru, and not by uvicorn's access log (`api/main.py` strips the
+query string of `/search` and `/conversations/recent`, G136 R22).
 
 ### Telemetry ledger (`~/.cicada/telemetry/`)
 Append-only JSONL, machine-global, **never in a bank or git**. `CICADA_TELEMETRY=off` disables it.
@@ -362,13 +432,16 @@ Cicada-Session: <id>
 ```
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
-`sleep/state`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`.
+`sleep/state`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`,
+`mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135).
 
 **Three trailer families, all inert to entity-line parsing — extend them, don't break them:**
 
-- **`Cicada-Author:`** — *which agent authored this*. A model id for agent writes, the literal
-  **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits, and
-  **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
+- **`Cicada-Author:`** — *which agent authored this*. A model id for agent writes, **a harness
+  label** (`claude-code`, `claude-web`, `chatgpt`, …; `agent` when none was sent) for a write that
+  arrived through MCP, where the model is not disclosed (G135; G49 keeps the model reserved), the
+  literal **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits,
+  and **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
   migrations, the split-out decay commit, the `State snapshot` commit). Built by
   `git_service.build_commit_message(...)`, parsed by `_parse_authors`. Powers `GET /contributors`.
 - **`Cicada-Engine:`** — exactly one per main commit (`claude-cli|ollama|litellm`), **omitted
@@ -462,19 +535,26 @@ owns `Store.intakeInFlight` through a counter of requests in flight. The card's 
 R10's first narrow amendment: a user trigger, subtitled with the manual engine like Consolidate,
 shown only when an engine can run and the import landed in the active bank.
 
-**Settings → Sleep: the engine picker (G122).** A segmented picker over the connections registry's
-candidates (Claude plan, Ollama, a BYOK key; Codex stays permanently `available: false` — G49's
-half of the ladder) writes `PUT /sleep/engine`, which lands in the same bank-independent
-`~/.cicada/connections.json` prefs `use_for_sleep` already uses, never `api/.env`. The card shows
-both `preview.manual` and `preview.scheduled` lines rather than hiding **ruling 4** (a scheduled
-cycle never spends plan quota) — the asymmetry stays visible, not silently applied.
+**Settings → Sleep: the engine picker (G122, Track E).** A row of cards with real marks — Auto,
+Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
+`PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
+`use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
+in. The card shows both `preview.manual` and `preview.scheduled` lines rather than hiding **ruling
+4** (a scheduled cycle never spends Claude *or* ChatGPT plan quota — `engine_select.SUBSCRIPTION_MODES`)
+— the asymmetry stays visible, not silently applied. *Keep going on extra usage* (off) is the only
+way a Claude cycle continues past the plan's included usage; otherwise it stops with one plain
+sentence and the reset time. Ask follows the same choice. The ChatGPT plan runs as `codex exec` in
+Cicada's own Codex home (`~/.cicada/codex`), signed into in-app with a device code; Cicada never
+opens that home's files — `codex app-server` answers plan, limit and models.
 
 **Settings → Integrations (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
 *standing* connection (sign in once, polled on the Sleep tail, disconnect here) lives in
 Integrations; a *one-shot* import (drop an export, sync a folder once) stays where it already was,
 behind the Feed's `+`. Both read the same `channel_registry`, so a channel never drifts between the
-two surfaces.
+two surfaces. Round 3 added **Notes & files** (Apple Notes, every watched folder, *Add a folder* and,
+when Obsidian is installed, *Obsidian vault*) and **Voice & meetings** (Wispr Flow once it is on this
+Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
 *recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 2 s
@@ -498,25 +578,41 @@ server ships `countNoun`/`countIsDelta` instead of a pre-formatted `detail` (`Ch
 composes it back). Contributors is one chip strip over one **labelled** share-of-entities bar;
 `cicada`, `user` and `unknown` all have names, so no bucket the app can name renders as "?".
 
-**Sleep page — the study room (G125 v3).** Two columns above 1000 pt of content width, one 760 pt
-column below. Left: a pixel room (window, cushion, mug, plant, lamp) on one cell lattice at the
-worm's snapped size, whose desk lamp is **lit iff the schedule isn't manual** — art encodes **state,
-never quantity**, every art bit has a text twin, and this side's one volume encoding is the real
-`BookPileView`; a hero of count + qualifier chip (`sleepDebtBracketText` re-composed from it), a
-meter that **never renders without its noun** (`Rested n%` idle, `Read a of b` running), three
-measured tiles and one Consolidate control; the five-stage strip read from `SleepStages.all`, the
-array the `?` popover renders too (only Read carries a fill; a cancel freezes it where it stopped);
-and *In the queue* — what's `waiting` per origin, the schedule sentence, the scheduled engine named
-only when it differs. Right: memory sources (`captured`, never `waiting`) over
-`SourceOverview.activity`, and consolidations with an engine·author pill. `—` is a value with a
-hover reason, never a guess. **Refused: no clusters, no insights, no estimate, no price.**
+**Sleep page — the study room (G125 v4, Track Z).** One 760 pt column at every width: the room,
+one serif sentence under it, one Consolidate/Cancel control, one whisper line for the schedule,
+and everything else under a single **Details** disclosure (Last cycle · What's waiting · Readout ·
+Past nights), closed by default, remembered per viewer (`cicada.sleep.detailsOpen`) and not built
+while closed. The worm speaks in that one fixed slot — `roomSentence` / `wormAnswers`, pure
+`SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
+omits its rung, never shows a guess); the floating bubble is retired. **Two kinds of art (R-Z1):**
+*state art* — the mood's frames, the lamp (= the schedule), the pile, and the window's **weather**,
+a total function of the mood with a legend popover as its twin — and *response art* (gaze, perk,
+talk, cheer), transient and never contradicting state. The art layer stays inert; interaction is a
+hotspot layer derived from the pure layout (`deskHotspots`), and **no click on art changes what the
+machine does**: the lamp's popover shows the scheduled engine and its reason *before* its labelled
+toggle can flip, and Consolidate stays the one trigger. The strip appears only while running or
+frozen after a cancel or failure; the running stage is `activeStage(completed:)` = completed + 1
+everywhere (page, menu bar, onboarding, strip). A real completion cheers once and offers "See what
+changed ›"; a cancel neither chews nor cheers. Memory sources left the page (Sources v2 draws it;
+the series live in `Views/Sources/ActivitySeries.swift`). Refused: autonomous beats with no fact
+behind them, cloud drift, a storm flash, estimates, prices.
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and
 the menu bar's own precedence and sprite meaning are unchanged. `store.intakeInFlight` (set while
 the intake router has a request in flight) forces `reading` ahead of `happy`/`hungry` but never ahead of
 `sleeping`/`error`/`digesting`. Per-cycle duration *estimates* stay deferred (G107's own ruling);
-only a measured, telemetry-joined duration is ever shown.
+only a measured, telemetry-joined duration is ever shown. Track Z adds **response art** inside
+`BookwormSprites`: `BookwormPose` (idle · attentive(gaze) · expectant(gaze) · eager) and
+`BookwormReaction` (perk · talk · gulp · shake · cheer), gated by one state × response matrix
+(`BookwormState.allows`, `acceptsGaze`) so a sleeping worm's eyes stay shut and red pupils never
+look away; every beat is ≤ 3 frames × 0.12 s; a hop is a whole-cell shift (a capped state crouches
+instead — the nightcap owns the grid's headroom); and a lint bans
+`.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(` on the worm except its lattice placement. The
+renderer key gains one `look` segment, omitted for idle (every older key byte-identical); the
+page's reachable set is ≤ 256 keys per size and the wipe bound is 1024. **Feeding** — a file dropped
+on the worm imports through the one intake — is ruled (R-Z10) and lands with Track I's
+`IntakeRouter`.
 
 **View menu (G130 slice 1a).** ⌘+ / ⌘− / ⌘0 scale the whole chrome — one persisted `uiScale` behind
 every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the
@@ -563,11 +659,27 @@ Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — an
 derived from the URL at read time (`VideoRef.resolve`), never read out of the page, so a bank never
 needs rewriting to teach the app a new one.
 
+**Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
+label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
+for a legacy claim's name match found at read), hovering shows the words in the quote face — washed
+when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a trailing
+`.inspector` on the main window driven by `ProvenanceRouter` (a stack of `ReaderTarget`s), beside
+whatever is open so a belief and its sentence are on screen together. It reads `/episodes/{id}/text`
+and `/citations` through `ProvenanceCache` — in memory, ETag-revalidated, **never a Store domain**,
+so there is no `VersionVector` mapping — slices every offset as a Unicode scalar through one
+`ScalarText`, shows a time only when the episode stores one, and says stale / grown / derived /
+inferred / truncated in words — a span its rewritten document no longer reaches (the server's 422) is
+stale too, never "couldn't open". The entity card's "Where this came from" (bottom of Content) reads
+`/entities/{id}/provenance` once per card; G61's section is "Look it up at". Chips read the router
+and cache as optional environment values, so a chip outside the main window renders without a
+click-through rather than trapping; the Ask and Belief Timeline sheets step aside when the Reader
+opens, and a bank switch closes it and empties the cache (episode ids repeat across banks).
+
 ---
 
 ## API Design
 
-20 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+26 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, and an OAuth adapter's
@@ -593,7 +705,15 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
   returns nothing. `truncated` is the UNION of three caps; `linesTruncated` specifically means "the
   ordered list was cut" and is what a client renders its banner on.
 - `GET /conversations/recent` is **CAPPED** (limit ≤ 200) and is never a membership test; filters
-  apply BEFORE the cap. Use `GET /conversations/{id}` to resolve one id against the whole bank.
+  (`harness`, `origin`, and `q`, a title filter) apply BEFORE the cap. Use `GET /conversations/{id}` to
+  resolve one id against the whole bank.
+- `GET /search` runs in the threadpool. `mode=prefix` (the per-keystroke pass) is FTS only and never
+  loads the embedding model; `mode=hybrid` (the default) fuses FTS with the stored vectors and reports
+  `mode: lexical` when no vector index answered. `totals` are exact **lexical** counts — semantic
+  neighbours are ranked, never counted. An `indexState` other than `ready`/`stale` means entities and
+  media only, from the frontmatter cache. No ETag: it is never a Store domain. Its query string (and
+  `/conversations/recent`'s) is stripped from uvicorn's access log; a new query-bearing GET joins
+  `_QUERY_PATHS` in `api/main.py`.
 - `POST /conversations/{id}/resume` returns a validated descriptor — **transcripts are never read,
   `isfile()` only**.
 - `POST /maintenance/enrich-links` returns `409` both while a Sleep cycle runs and while another
@@ -688,7 +808,7 @@ newest unprocessed episode is ≥ `AFTER_IMPORT_SETTLE_MINUTES` (10) old — `Sl
 (`mode != "manual"`) and always written on the wire so an older client still decodes; an old
 `PUT {enabled,hour,minute}` with no `mode` is accepted and mapped onto `daily`/`manual`. Every
 scheduled path — daily, interval, or the settle probe — passes `user_triggered=False`, so a
-scheduled cycle never spends plan quota (the standing ruling in `TODO.md`).
+scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`).
 
 ### 5. Conversation upload
 **One chat-export pipeline (Track I).** Claude, ChatGPT and Gemini exports — a whole .zip, a
@@ -718,6 +838,7 @@ previews and stages nothing; `POST /intake/import` stages. `/conversations/uploa
 |----------|-----------|
 | Markdown over Neo4j | Same relational expressiveness at personal scale. Zero infrastructure. Portable. The LLM is the query engine. |
 | sqlite-vec over LEANN/FAISS | Stored (not recomputed) vectors give single-lookup latency with no cloud dependency; the index is derived and disposable. |
+| FTS5 beside sqlite-vec | Type-as-you-go needs words, not meanings: a derived lexical index answers a prefix in ~12.5 ms p95 at 2k entities / 1.5k episodes without an embedding call, and finds aliases, claims and conversation text by what they say. Derived and disposable, like the vectors. |
 | Batch over real-time consolidation | Conversations don't have clean endings. Batch sees patterns across a full day. Clean evaluation. |
 | Entity promotion over upfront extraction | Avoids polluting the graph with noise from single mentions. |
 | Temporal decay as an active signal | Absence of mention is informative. No other system does this. |
@@ -744,9 +865,37 @@ Three gates, and they do **not** mean the same thing — read the difference bef
 - **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely. The test suite runs that way
   and injects fetchers instead.
 
+**The remote connector (G135) — the one way in from outside this Mac.** Off by default
+(`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
+(`CICADA_REMOTE_PORT`) serves **only MCP** — none of the FastAPI routers — to cloud AI apps
+through a tunnel **the person** runs (Tailscale Funnel or ngrok); **Cicada never starts, stops or
+reconfigures a tunnel** — `GET /remote/status` only detects one. Access is a per-connector
+capability token `cic_rc_<id>_<secret>`: shown once, only its sha256 stored in
+`~/.cicada/remote/connectors.db` (0600, never in a bank), scoped (`search`/`read`/`record` default;
+`sources`/`answer`/`ask` opt-in — `sources` gates every verbatim word of the person's, recall's
+episode excerpts and the inbox `Cause:` quote alike; `pending`, `mark_processed` and `repo_context`
+never), expiring
+(7/30/90 days) and revocable. It arrives as a secret link (`/c/<token>/mcp`) or a bearer header —
+one verifier. Tools outside a connector's scopes are absent from `tools/list`; any `Origin` header
+is refused; the listener has no access log (a secret link's path IS the token). Every remote write
+commits alone as `Cicada-Author: <app harness>`, `Cicada-Session: rc_…`, trigger
+`remote/<harness>`, no engine; a remote claim is `origin: remote:<id>` and can never be the
+person's own words. Each call leaves one ids-only `remote_call` ledger row, filed beside `read` in
+`reads-*.jsonl` so it never ticks the app's consumption domain. Every server-side fetch of someone
+else's URL goes through `net_guard` (`is_global`, never `is_private`, because tailnet addresses are
+neither; the name lookup runs off the event loop).
+
 **A failed poll is recorded, not raised** (`sync_state.record_error`) and surfaces per-channel as
 `lastError`; a gate-skipped poll is recorded distinctly (`record_skip`) so a skip never reads as a
 failure or as a stale success.
+
+**Paper details (G133) ride the first gate, not a fourth.** The unattended Sleep-tail lookup is behind
+`CICADA_ALLOW_CONNECTOR_FETCH`; a folder sync the person asked for (`?resolve=true`) is not. Only two
+APIs are ever called — `export.arxiv.org/api/query` (≤ 50 ids a request, ≥ 3 s apart) and
+`api.crossref.org/works/{doi}` (public pool; no email is ever sent) — at the rail's 4 s / ≤ 512 KB;
+arxiv.org pages and PDFs are never fetched, and a 403/429 stops that API for the run. That holds for
+a paper link saved any other way too (a bookmark, `cicada_save_url`, Telegram): `papers.never_scraped`
+keeps arXiv/DOI links and every arxiv.org page out of save-time enrichment and the link backfill.
 
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a
@@ -757,6 +906,8 @@ authentication, ever.
 shared `base.forget()` removes them on disconnect, so a fields-vs-stored drift can't orphan a
 secret. Where a vendor bills per request (X's "owned reads"), the sync result carries the count so a
 cost is stated plainly rather than hidden behind a "connected" checkbox.
+Cicada's own Codex sign-in lives in `~/.cicada/codex/` — Codex's files, never opened by Cicada,
+never in a bank.
 
 **Video (Track V, 2026-09-05).** Only a provider's own player URL is ever loaded — YouTube
 (`youtube-nocookie.com/embed/…`, incl. `videoseries?list=`), Vimeo, TikTok and Loom — and an

@@ -270,7 +270,9 @@ struct FeedRow: View {
                         .lineLimit(1)
 
                     HStack(spacing: CicadaTheme.spacingSM) {
-                        Text(item.mediaType)
+                        // G133: a paper says so, and shows its byline where a
+                        // link shows its site.
+                        Text(item.isPaper ? "paper" : item.mediaType)
                             .font(CicadaTheme.font(size: 10, design: .monospaced))
                             .foregroundStyle(CicadaTheme.mediaPink)
                             .padding(.horizontal, 6)
@@ -292,7 +294,12 @@ struct FeedRow: View {
                                 .clipShape(Capsule())
                         }
 
-                        if let site = item.site, !site.isEmpty {
+                        if let byline = item.paper.flatMap(PaperCardText.feedLine) {
+                            Text(byline)
+                                .font(CicadaTheme.font(size: 10))
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                                .lineLimit(1)
+                        } else if let site = item.site, !site.isEmpty {
                             Text(site)
                                 .font(CicadaTheme.font(size: 10))
                                 .foregroundStyle(CicadaTheme.textTertiary)

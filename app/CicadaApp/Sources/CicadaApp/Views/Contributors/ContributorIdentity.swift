@@ -35,6 +35,9 @@ enum ContributorIdentity {
         if kind == "system" || author == systemAuthor { return "Cicada · maintenance" }
         if kind == "user" || author == "user" { return Copy.you }
         if kind == "unknown" || author == "unknown" { return "Before provenance" }
+        // G118 slice 2 — a remote write's author is the connector's app label
+        // (`claude-web`, R-R5); its honest name is the app's product name.
+        if kind == "harness" { return OriginIconography.label(for: author) }
         return author
     }
 
@@ -46,10 +49,18 @@ enum ContributorIdentity {
     /// against a backend that predates `kind` must classify as system, not as
     /// a model wearing the grey "?" (R-L6).
     static func kind(of contributor: Contributor) -> String {
-        if let k = contributor.kind, !k.isEmpty { return k }
-        if contributor.author == "user" { return "user" }
-        if contributor.author == systemAuthor { return "system" }
-        if contributor.author == "unknown" { return "unknown" }
+        kind(author: contributor.author, serverKind: contributor.kind)
+    }
+
+    /// The same rule for the bare `(author, authorKind)` a claim or a history
+    /// row carries (G118 slice 2, R-PB13): the server's bucket when it sent
+    /// one, else the author id's own — so an older backend's `cicada` is still
+    /// system, never a model wearing initials.
+    static func kind(author: String, serverKind: String? = nil) -> String {
+        if let k = serverKind, !k.isEmpty { return k }
+        if author == "user" { return "user" }
+        if author == systemAuthor { return "system" }
+        if author == "unknown" || author.isEmpty { return "unknown" }
         return "model"
     }
 
@@ -68,6 +79,23 @@ enum ContributorIdentity {
         case "openai": "chatgpt"
         case "google": "gemini"
         case "ollama": "ollama"
+        default: nil
+        }
+    }
+
+    /// A provider's product family for a sentence — "Claude (claude-sonnet-4-5)"
+    /// (G118 slice 2, §4.5: "the model family first and the raw id in
+    /// parentheses"). nil for "other" and nil: the raw id then stands alone,
+    /// because a guessed family would claim a brand the id does not carry.
+    /// For the same reason `google` is "Google", not "Gemini": the server's
+    /// rule files Gemma under it too (`git_service._PROVIDER_SUBSTRINGS`).
+    static func vendorName(provider: String?) -> String? {
+        switch provider {
+        case "anthropic": "Claude"
+        case "openai": "OpenAI"
+        case "google": "Google"
+        case "ollama": "Ollama"
+        case "openrouter": "OpenRouter"
         default: nil
         }
     }

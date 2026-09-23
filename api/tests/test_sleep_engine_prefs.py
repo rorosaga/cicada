@@ -59,8 +59,9 @@ def test_get_default_shape(client):
     ids = {c["id"] for c in body["candidates"]}
     assert ids == {"auto", "agent", "codex", "local", "byok"}
     codex = next(c for c in body["candidates"] if c["id"] == "codex")
-    assert codex["available"] is False
-    assert codex["detail"]  # explains Sleep can't run on it yet
+    # Track E Task 4: the ChatGPT plan is a live card now — the fixture's
+    # `which` finds `codex`, and `codex login status` is rc 1 (signed out).
+    assert codex["label"] == "ChatGPT plan" and codex["available"] is True and codex["connected"] is False
     assert "manual" in body["preview"] and "scheduled" in body["preview"]
     assert body["preview"]["manual"]["why"]
     assert body["preview"]["scheduled"]["why"]
@@ -75,9 +76,51 @@ def test_put_writes_prefs_and_get_reflects_them(client):
     assert body["model"] == "llama3.1"
 
 
-def test_put_rejects_codex_and_bogus_mode(client):
-    assert client.put("/sleep/engine", json={"mode": "codex"}).status_code == 422
+def test_put_rejects_a_bogus_mode(client):
     assert client.put("/sleep/engine", json={"mode": "sonnet"}).status_code == 422
+
+
+def test_put_accepts_codex_and_validates_its_model(client):
+    assert client.put("/sleep/engine", json={"mode": "codex", "model": "gpt-5.6-luna"}).status_code == 200
+    assert client.put("/sleep/engine", json={"mode": "codex", "model": "-oops"}).status_code == 422
+
+
+def test_a_chosen_chatgpt_plan_previews_on_your_start_and_never_on_the_schedule(client):
+    client.put("/sleep/engine", json={"mode": "codex", "model": "gpt-5.6-luna"})
+    body = client.get("/sleep/engine").json()
+    assert body["preview"]["manual"] == {"engine": "codex-cli", "model": "gpt-5.6-luna",
+                                         "why": "Sleep engine set to 'codex' in Settings"}
+    assert body["preview"]["scheduled"]["engine"] == "litellm"
+
+
+def test_a_signed_in_chatgpt_card_lists_the_plans_models_default_first(client, monkeypatch):
+    from api.services import codex_app_server
+    from api.services.codex_app_server import CodexSnapshot
+
+    async def signed_in(argv):
+        if argv[:3] == ["codex", "login", "status"]:
+            return CliResult(0, "Logged in using ChatGPT", "")
+        if argv[:3] == ["claude", "auth", "status"]:
+            return CliResult(0, json.dumps({"loggedIn": False}), "")
+        return CliResult(0, "", "")
+
+    async def snap(**_kw):
+        return CodexSnapshot(signed_in=True, account_type="chatgpt", plan="plus",
+                             models=("gpt-6-astra", "gpt-5.6-luna"), default_model="gpt-6-astra")
+
+    monkeypatch.setattr(base, "run_cli", signed_in)
+    monkeypatch.setattr(codex_app_server, "snapshot", snap)
+    reg_mod.reset_registry()
+    codex = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "codex")
+    assert codex["connected"] is True and codex["models"] == ["gpt-6-astra", "gpt-5.6-luna"]
+
+
+def test_allow_overage_round_trips(client):
+    assert client.get("/sleep/engine").json()["allowOverage"] is False
+    assert client.put("/sleep/engine", json={"mode": "agent", "allowOverage": True}).status_code == 200
+    assert client.get("/sleep/engine").json()["allowOverage"] is True
+    client.put("/sleep/engine", json={"mode": "agent", "allowOverage": False})
+    assert client.get("/sleep/engine").json()["allowOverage"] is False
 
 
 def test_put_rejects_an_invalid_agent_model(client):
@@ -109,6 +152,19 @@ def test_scheduled_preview_never_shows_the_plan_when_only_prefs_chose_it(client)
     body = client.get("/sleep/engine").json()
     assert body["preview"]["manual"]["engine"] == "claude-cli"
     assert body["preview"]["scheduled"]["engine"] == "litellm"
+
+
+@pytest.mark.parametrize("choice", [
+    {"mode": "agent", "model": "opus", "disambiguationModel": "sonnet"},
+    {"mode": "codex", "model": "gpt-5.6-luna"},
+])
+def test_the_scheduled_preview_names_the_keys_own_model_not_the_plans(client, choice):
+    """Task 4 review round 1: the schedule runs on the key (ruling 4), so the
+    preview must name `litellm_model`, never the plan model the person picked."""
+    assert client.put("/sleep/engine", json=choice).status_code == 200
+    scheduled = client.get("/sleep/engine").json()["preview"]["scheduled"]
+    assert scheduled["engine"] == "litellm"
+    assert scheduled["model"] == config.Settings().litellm_model
 
 
 def test_prefs_file_is_0600(client, tmp_path):

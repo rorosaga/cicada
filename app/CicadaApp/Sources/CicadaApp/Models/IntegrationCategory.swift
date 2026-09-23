@@ -17,7 +17,7 @@ import Foundation
 /// a newer backend degrades to "somewhere on the page" instead of taking
 /// the app down.
 enum IntegrationCategory: String, CaseIterable, Identifiable {
-    case chatAndAgents, browsers, socialAndSaved, feedsAndCalendars, messaging, filesAndImports
+    case chatAndAgents, browsers, socialAndSaved, feedsAndCalendars, messaging, notesAndFiles, voiceAndMeetings, filesAndImports
 
     var id: String { rawValue }
 
@@ -32,6 +32,9 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
         case .socialAndSaved: "Social & saved"
         case .feedsAndCalendars: "Feeds & calendars"
         case .messaging: "Messaging"
+        // G133 / G134 (R-LS25): where notes live and where voices are captured.
+        case .notesAndFiles: "Notes & files"
+        case .voiceAndMeetings: "Voice & meetings"
         case .filesAndImports: "Files & imports"
         }
     }
@@ -48,10 +51,16 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
             return .feedsAndCalendars
         case "telegram":
             return .messaging
-        case "notes", "files":
+        // R-LS25: Apple Notes moves beside the watched folders — both are notes.
+        case "notes":
+            return .notesAndFiles
+        case LocalSourceWatcher.wisprChannel:
+            return .voiceAndMeetings
+        case "files":
             return .filesAndImports
         default:
-            return .filesAndImports
+            // `folder:<id>` rows are dynamic (one per watched folder, G133).
+            return channelId.hasPrefix("folder:") ? .notesAndFiles : .filesAndImports
         }
     }
 }

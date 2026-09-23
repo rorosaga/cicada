@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from functools import lru_cache
 from api.services import markdown_parser
+from api.services.id_utils import bank_file
 
 
 @lru_cache(maxsize=4)
@@ -21,8 +22,12 @@ def _load_claude_corpus(corpus_path_str: str) -> dict:
 
 def gather_entity_sources(memory_path: Path, entity_id: str, *, mode: str = "chunks",
                           corpus_path: Path | None = None) -> dict:
-    ent = memory_path / "entities" / f"{entity_id}.md"
-    if not ent.exists():
+    # Task 5 review r1: both ids are joined onto a bank folder, so both go
+    # through the one-segment guard — the entity id comes from the caller, and
+    # an episode id from a page's frontmatter, which a remote
+    # `cicada_write_claim(source_episode=...)` can seed.
+    ent = bank_file(memory_path / "entities", entity_id)
+    if ent is None or not ent.exists():
         return {"entity_id": entity_id, "episodes": [], "degraded": True}
     par = markdown_parser.parse(ent)
     ep_ids = par.frontmatter.get("source_episodes", []) or []
@@ -31,8 +36,8 @@ def gather_entity_sources(memory_path: Path, entity_id: str, *, mode: str = "chu
 
     episodes = []
     for ep_id in ep_ids:
-        epf = memory_path / "episodes" / f"{ep_id}.md"
-        if not epf.exists():
+        epf = bank_file(memory_path / "episodes", str(ep_id))
+        if epf is None or not epf.exists():
             continue
         eppar = markdown_parser.parse(epf)
         sid = eppar.frontmatter.get("source_id")

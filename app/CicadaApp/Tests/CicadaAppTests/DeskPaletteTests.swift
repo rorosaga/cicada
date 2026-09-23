@@ -16,9 +16,11 @@ import XCTest
 /// the source file; asserting the values here says WHY they were chosen.
 final class DeskPaletteTests: XCTestCase {
 
-    func testKeySetIsExactlyTheDocumentedThirteen() {
+    /// Track Z §7.3 (R-Z11) — seven sky keys joined the room for the
+    /// window's weather pane: 13 → 20.
+    func testKeySetIsExactlyTheDocumentedTwenty() {
         XCTAssertEqual(Set(DeskPalette.colors.keys),
-                       ["d", "f", "k", "m", "n", "s", "c", "p", "t", "g", "h", "i", "u"])
+                       ["d", "f", "k", "m", "n", "s", "c", "p", "t", "g", "h", "i", "u", "y", "v", "j", "x", "K", "N", "U"])
         XCTAssertEqual(DeskPalette.transparent, ".")
         XCTAssertEqual(DeskPalette.transparent, BookwormPalette.transparent,
                        "one transparent character across every grid in the app")

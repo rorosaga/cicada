@@ -266,8 +266,20 @@ final class BrowserWatcher {
 
     // MARK: State
 
-    func state(for channel: String) -> BrowserWatchState? { states[channel] }
-    func error(for channel: String) -> BrowserFileError? { errors[channel] }
+    func state(for channel: String) -> BrowserWatchState? { states[channel] ?? externalStates[channel] }
+    func error(for channel: String) -> BrowserFileError? { errors[channel] ?? externalErrors[channel] }
+
+    /// R-LS26 — a local source the app reads (a watched folder, Wispr Flow;
+    /// `LocalSourceWatcher`) lights the same four views through the same two
+    /// lookups above, instead of every view learning a second watcher. `nil`
+    /// clears the light (a folder that is not on this Mac shows none).
+    private(set) var externalStates: [String: BrowserWatchState] = [:]
+    private var externalErrors: [String: BrowserFileError] = [:]
+
+    func publish(_ state: BrowserWatchState?, error: BrowserFileError?, for channel: String) {
+        externalStates[channel] = state
+        externalErrors[channel] = error
+    }
 
     /// Whether the person has turned this browser on (R-IA2). Read fresh from
     /// defaults on every call — the flag is written by the watcher itself and,

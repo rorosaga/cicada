@@ -243,6 +243,19 @@
       "sha256": "7693361260f450ceba9b0a5c081d752d3a6bbdbb0394168affe3380257bc03b2"
     },
     {
+      "artist": "Microsoft",
+      "commonsFile": "Visual Studio Code 1.35 icon.svg",
+      "commonsRestrictions": "trademarked",
+      "file": "vscode.png",
+      "id": "vscode",
+      "licence": "Public domain",
+      "origin": "commons",
+      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "210096bf8cf44564b1ea5d219667d038df769ceb770323cec7fbec98b5f827e2",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Visual_Studio_Code_1.35_icon.svg",
+      "svgSha256": "4c4dd46cc5892a947901fbcdc96ee4caf4c9eb341779b2b0589d8a2bbff436ba"
+    },
+    {
       "derivedFrom": "cf2c449:app/CicadaApp/Sources/CicadaApp/Resources/logos/x.png — alphakey <src> x-dark.png dark; monoflip x-dark.png x.png",
       "file": "x.png",
       "id": "x",

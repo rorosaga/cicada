@@ -14,6 +14,7 @@ struct ConnectedChannelsStrip: View {
     @Environment(Store.self) private var store
     /// Track I T1: a browser row's Sync now is consent, routed through the watcher.
     @Environment(BrowserWatcher.self) private var watcher
+    @Environment(LocalSourceWatcher.self) private var localSources
     @AppStorage("cicada.feedChannelsCollapsed") private var isCollapsed = false
     /// PR #19 round-4 review: keyed by channel id — two rows acting
     /// concurrently used to share a single `busyChannel: String?` /
@@ -135,7 +136,14 @@ struct ConnectedChannelsStrip: View {
         feedback[channel.id] = nil
         switch action {
         case "poll": Task { await run(channel) { try await Self.poll(channel) } }
-        case "sync": Task { await run(channel) { try await Self.sync(channel, store: store, watcher: watcher) } }
+        case "sync":
+            let local = localSources
+            let watcher = watcher
+            Task { await run(channel) { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: local) } }
+        // A folder or Wispr Flow row is itself the Settings → Integrations link
+        // (`ConnectedChannelRow.rowLink`); it has no Feed tile, and the generic
+        // add-source sheet is the wrong answer (L final review, finding 1).
+        case _ where ChannelActions.managesInIntegrations(channel.id): break
         default: onManage(AddSourceTile.forChannel(channel.id))
         }
     }
@@ -161,21 +169,5 @@ struct ConnectedChannelsStrip: View {
         }
         let r = try await APIClient.shared.pollFeeds()
         return r.skippedNoNetwork > 0 ? Self.fetchDisabledHint : "\(r.new) new item(s)"
-    }
-
-    /// Notes syncs server-side (osascript runs where the backend does); the
-    /// three browser rows read their files HERE and post bytes (R1) — the
-    /// old body-less `syncBookmarks()` left the launchd backend, which has
-    /// no Full Disk Access, to silently sync nothing. A read failure
-    /// surfaces as the row's feedback with the Full Disk Access fix (R9).
-    /// A watched browser goes through `ChannelActions.sync`'s watcher path, so
-    /// this Sync now is consent too (Track I T1, R-IA2).
-    @MainActor
-    private static func sync(_ channel: SourceChannel, store: Store, watcher: BrowserWatcher) async throws -> String {
-        if channel.id == "notes" {
-            let r = try await APIClient.shared.syncNotes()
-            return "\(r.new) new · \(r.skipped) unchanged"
-        }
-        return try await ChannelActions.sync(channel.id, store: store, watcher: watcher)
     }
 }

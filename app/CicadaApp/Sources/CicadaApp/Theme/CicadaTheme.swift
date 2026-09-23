@@ -219,6 +219,10 @@ enum CicadaTheme {
     static var mediaPink: Color { mode == .dark ? Dark.mediaPink : Light.mediaPink }
     static var hubGold: Color { mode == .dark ? Dark.hubGold : Light.hubGold }
     static var pendingPulse: Color { mode == .dark ? Dark.pendingPulse : Light.pendingPulse }
+    /// Text drawn ON an identity-hue fill (a Sleep book spine, Track Z Z-P19).
+    /// Mode-independent on purpose: the fill is an origin's own colour, not a
+    /// theme surface, so the text on it does not flip with the theme.
+    static var onFill: Color { .white }
 
     // MARK: - Context Colors (claim layer)
     // Contexts are an open set, so we hash unknown ones into a stable hue and

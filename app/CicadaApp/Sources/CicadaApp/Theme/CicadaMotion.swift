@@ -42,6 +42,9 @@ enum CicadaMotion {
     static let liftDuration: TimeInterval = 0.18
     static let settleDuration: TimeInterval = 0.35
     static let morphDuration: TimeInterval = 0.35
+    /// G118 slice 2 (design §1.1): the Reader's cited-span wash fading in
+    /// after it lands. Short — the eye is already moving to the words.
+    static let spanRevealDuration: TimeInterval = 0.25
 
     /// Clouds drift, grass never moves (R-M6): at most 8 pt either way over a
     /// 60–120 s period — peripheral, never noticed as movement — at no more
@@ -85,6 +88,11 @@ enum CicadaMotion {
     /// makes its last rows arrive seconds late.
     static func reveal(index: Int, reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeOut(duration: hoverDuration).delay(revealStagger * Double(min(index, revealMaxRows)))
+    }
+    /// `spanReveal` — the Reader's wash arriving on the cited sentence. nil
+    /// under Reduce Motion: the wash is simply there (a static wash, §4.3).
+    static func spanReveal(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeOut(duration: spanRevealDuration)
     }
 }
 

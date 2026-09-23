@@ -35,6 +35,11 @@ enum OriginIconography {
         "telegram", "rss", "calendar", "share-sheet", "bookmark", "saved-link",
         "instagram-saved", "youtube-playlist", "pinterest", "reddit-saved", "reddit",
         "x-bookmarks", "x", "linkedin-saved", "tiktok-saved", "tiktok-history", "unknown",
+        // G133 / G134 — a watched folder's episodes and Wispr Flow's.
+        "folder", "wispr-flow",
+        // G135 R-R26: a remote connector's app, as its episodes stamp it
+        "claude-web", "chatgpt", "perplexity", "claude-code-remote",
+        "codex-remote", "vscode", "remote-app",
     ]
 
     static func label(for origin: String) -> String {
@@ -87,10 +92,25 @@ enum OriginIconography {
         // spelled once, above: a second copy here was unreachable (Swift takes
         // the first match) and told the next editor a lie about where to edit.
         case "gemini-cli": "Gemini CLI"
+        case "folder": "Folder"
+        case "wispr-flow": "Wispr Flow"
+        // Not an origin a writer stamps: the mark of the "Obsidian vault" row
+        // (a vault is a folder, so its episodes are `folder`).
+        case "obsidian": "Obsidian"
         case "unknown": "Unknown"
         // Defensive aliases only — see the type doc above.
         case "reddit": "Reddit"
         case "x": "X"
+        // G135 R-R26 — the harness label a remote connector's episodes carry
+        // (`api/remote/catalog.APPS`). "(remote)" keeps a terminal agent's
+        // remote door distinguishable from its own local hook capture.
+        case "claude-web": "Claude"
+        case "chatgpt": "ChatGPT"
+        case "perplexity": "Perplexity"
+        case "claude-code-remote": "Claude Code (remote)"
+        case "codex-remote": "Codex (remote)"
+        case "vscode": "VS Code"
+        case "remote-app": "Other remote app"
         default: origin.capitalized
         }
     }
@@ -122,7 +142,17 @@ enum OriginIconography {
         // shadowed, and `terminal` is its live answer — narrowing the case,
         // not deleting it, is what keeps that true.
         case "gemini-cli": "terminal"
+        case "folder": "folder"
+        case "wispr-flow": "waveform"
+        case "obsidian": "doc.text"
         case "unknown": "questionmark.circle"
+        // G135 R-R26 — the fallback when no mark ships (Perplexity and "Other"
+        // by R-R34; any of them if a bundled PNG ever goes missing).
+        case "claude-web", "chatgpt": "bubble.left.and.bubble.right"
+        case "perplexity": "magnifyingglass.circle"
+        case "claude-code-remote", "codex-remote": "terminal"
+        case "vscode": "chevron.left.forwardslash.chevron.right"
+        case "remote-app": "network"
         default: "tray"
         }
     }
@@ -195,6 +225,14 @@ enum OriginIconography {
         case "tiktok-saved", "tiktok-history": "tiktok"
         case "instagram-saved": "instagram"
         case "youtube-playlist": "youtube"
+        // G135 R-R26/R-R34 — a remote app wears the same mark as its local
+        // twin. Perplexity and `remote-app` stay nil: the only Commons
+        // Perplexity file is a wordmark, and "Other" has no brand.
+        case "claude-web": "claude"
+        case "chatgpt": "chatgpt"
+        case "claude-code-remote": "claude-code"
+        case "codex-remote": "codex"
+        case "vscode": "vscode"
         default: nil
         }
     }
@@ -215,6 +253,10 @@ enum OriginIconography {
         case "safari-bookmark", "safari-tab": "com.apple.Safari"
         case "chrome-bookmark": "com.google.Chrome"
         case "apple-notes": "com.apple.Notes"
+        // R-LS27 — Cicada reads Wispr Flow's own files (so the app is here) and
+        // offers the Obsidian row only when Obsidian is installed.
+        case "wispr-flow": "com.electron.wispr-flow"
+        case "obsidian": "md.obsidian"
         default: nil
         }
     }

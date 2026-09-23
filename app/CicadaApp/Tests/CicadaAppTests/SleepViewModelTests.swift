@@ -502,4 +502,21 @@ final class SleepViewModelTests: XCTestCase {
         XCTAssertFalse((vm.errorMessage ?? "").localizedCaseInsensitiveContains("engine"),
                        "a missing engine preview must not raise a page error")
     }
+
+    /// Z-P18 — the lamp's toggle snaps back on a failed write, so the write
+    /// must say whether it landed. A failure leaves the schedule untouched.
+    func test_updateSchedule_reportsItsOutcome() async throws {
+        struct Boom: Error {}
+        let store = idleStore()
+        let failing = SleepViewModel(store: store, putSchedule: { _ in throw Boom() })
+        let before = failing.schedule
+        let failed = await failing.updateSchedule(ScheduleConfig(mode: "daily", hour: 3, minute: 0))
+        XCTAssertFalse(failed)
+        XCTAssertEqual(failing.schedule, before)
+        XCTAssertNotNil(failing.errorMessage)
+        let working = SleepViewModel(store: store, putSchedule: { $0 })
+        let landed = await working.updateSchedule(ScheduleConfig(mode: "daily", hour: 3, minute: 0))
+        XCTAssertTrue(landed)
+        XCTAssertEqual(working.schedule.mode, "daily")
+    }
 }

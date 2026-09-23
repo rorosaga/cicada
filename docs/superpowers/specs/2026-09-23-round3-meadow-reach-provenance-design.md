@@ -272,6 +272,39 @@ final documents are binding for their tracks and live beside this spec:
     came from" on every entity (contributors with marks, the conversations that fed it, coverage
     stated honestly for legacy claims without spans).
 
+### Track Z (wave 2): the mascot page
+
+The rules below are one line each; the reasoning is in
+`2026-09-23-round3-design-mascot-page.md` §3, which binds as written.
+
+- **R-Z1.** Two kinds of art: *state art* (mood frames, lamp, weather, pile) encodes a fact and has
+  a text twin; *response art* (gaze, perk, talk, gulp, shake) is transient and never contradicts it.
+- **R-Z2.** Every interaction says something true or does something real; the plant, mug, cushion
+  and wall never react, not even to hover.
+- **R-Z3.** Magnitude never scales the art — quantities live in the pile, the sentence and Details.
+- **R-Z4.** All worm motion is sprite frames on the one lattice; no offset, scale, rotation or
+  spring on the worm (a lint).
+- **R-Z5.** The worm speaks in one fixed-height slot under the room; no floating bubble.
+- **R-Z6.** The default view is the room, the sentence, one button and one whisper line; the rest
+  is one collapsed Details, one column at every width, and the strip only while running or frozen.
+- **R-Z7.** No figure twice on the default view; answers replace the sentence.
+- **R-Z8.** The art layer stays inert; interaction is a hotspot layer from the pure
+  `deskHotspots(layout)` — whole cells, disjoint, tested.
+- **R-Z9.** A click on art never changes what the machine does; the schedule flips only through a
+  labelled toggle that shows the scheduled engine first, and Consolidate stays the one trigger.
+- **R-Z10.** Feeding is import, and only import, through Track I's `IntakeRouter`.
+- **R-Z11.** The window is weather, a total function of the mood alone, with a legend as its twin.
+- **R-Z12.** Autonomous motion is limited to state: only the completion cheer and the weather
+  crossfade happen without input.
+- **R-Z13.** Sentences and answers are pure `SentenceLine` values — lead ≤ 40, tail ≤ 80, no "!",
+  no bare `%`, no guess, clock-free.
+- **R-Z14.** One stage translation: the running page shows the active stage,
+  `activeStage(completed:)`.
+
+Built by `docs/superpowers/plans/2026-09-23-mascot-page.md`, part a: Z0–Z8 plus this docs slice
+of Z12. Z9 (feeding) follows Track I, Z10 (the Meadow pass and optional sky band) follows M1, and
+Z11 (live verification and screenshots) is the orchestrator's.
+
 ## Not in scope this round
 
 G132 device sync (beyond the bearer mode serving it later), G131, G10's paid re-extraction (the

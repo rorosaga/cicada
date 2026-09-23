@@ -62,7 +62,7 @@ struct SourceCardGrid: View {
             } else {
                 // ONE `today` per body evaluation, handed down to every tile,
                 // so two cards can never straddle a UTC midnight inside one
-                // render — the same posture `MemorySourcesCard` holds.
+                // render — the posture every `ActivitySeries.swift` caller holds.
                 let today = Date()
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     ForEach(SourceSections.group(rows), id: \.kind) { section in
@@ -156,6 +156,7 @@ private struct SourceCardTile: View {
 
     @Environment(Store.self) private var store
     @Environment(BrowserWatcher.self) private var watcher
+    @Environment(LocalSourceWatcher.self) private var localSources
     @State private var hovering = false
     @State private var busy = false
     @FocusState private var actionFocused: Bool
@@ -233,7 +234,7 @@ private struct SourceCardTile: View {
             // the detail page — and now, since R-S2, its first clause is on the
             // card's own status band.
             _ = try? await (title == "Poll now" ? ChannelActions.poll(channelId)
-                                                 : ChannelActions.sync(channelId, store: store, watcher: watcher))
+                                                 : ChannelActions.sync(channelId, store: store, watcher: watcher, local: localSources))
             await store.refresh([.channels, .sources, .sourcesOverview, .status])
             busy = false
         }
@@ -309,7 +310,7 @@ struct SourceCard: View {
             // the liveness tone, never by `connected` — "has ever fed memory"
             // is why the row exists (G124 R2), not what it is doing.
             if let watchState {
-                BrowserStatusLight(state: watchState, error: watchError, compact: true)
+                BrowserStatusLight(state: watchState, error: watchError, compact: true, channelId: source.channelId)
             } else {
                 Circle().fill(liveness.tone.color).frame(width: 7, height: 7)
             }
@@ -360,8 +361,8 @@ struct SourceCard: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             // State, not quantity — the sparkline already encodes how much, so
             // a second graded mark twelve points away would ask the reader to
-            // tell two charts apart by weight (G125 R1, as `MemorySourcesCard`
-            // reads it).
+            // tell two charts apart by weight (G125 R1, as Track A's week dots
+            // first read it; the series live in `ActivitySeries.swift`).
             HStack(spacing: 3) {
                 ForEach(Array(dots.enumerated()), id: \.offset) { _, count in
                     Circle()

@@ -23,11 +23,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from loguru import logger
 
-from api.services import decay_policy, episode_ids, markdown_parser, saved_at, video_urls
+from api.services import decay_policy, episode_ids, episode_scrub, markdown_parser, net_guard, saved_at, video_urls
 from api.services.id_utils import sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
@@ -282,6 +282,13 @@ async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMet
         if media_type == "instagram":
             # Login-walled — never attempt scraping; URL-only by design.
             return fallback
+        from api.services.papers import never_scraped  # lazy: papers imports this module
+
+        if never_scraped(url):
+            # An arXiv/DOI link or any arxiv.org page (G133 rail, L final review
+            # finding 4): the paper's details come from the arXiv and Crossref
+            # APIs only, never from a page or PDF fetch.
+            return fallback
         if media_type == "linkedin":
             # ToS-walled (G69: §8.2 bans fetching the post body) — never
             # attempt scraping; URL-only by design, same as Instagram above.
@@ -369,13 +376,33 @@ async def _enrich_oembed(provider: str, url: str, client, fallback: MediaMeta) -
     )
 
 
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+_MAX_REDIRECTS = 5
+
+
 async def _enrich_opengraph(url: str, client, fallback: MediaMeta) -> MediaMeta:
-    resp = await client.get(
-        url,
-        timeout=_TIMEOUT,
-        follow_redirects=True,
-        headers={"User-Agent": USER_AGENT},
-    )
+    # G135 R-R10: every hop is checked BEFORE it is requested, so redirects are
+    # walked here rather than delegated to the client — the client is injected
+    # (tests, `ingest_batch`, the save routes), so an httpx hook cannot be
+    # relied on. A fake without `status_code` reads as 200 and never loops.
+    current = url
+    for _hop in range(_MAX_REDIRECTS + 1):
+        if not await net_guard.is_fetchable_url_async(current):
+            logger.debug("opengraph fetch refused a non-public address")
+            return fallback
+        resp = await client.get(
+            current,
+            timeout=_TIMEOUT,
+            follow_redirects=False,
+            headers={"User-Agent": USER_AGENT},
+        )
+        location = (getattr(resp, "headers", {}) or {}).get("location")
+        if getattr(resp, "status_code", 200) in _REDIRECT_STATUSES and location:
+            current = urljoin(current, location)
+            continue
+        break
+    else:
+        return fallback
     resp.raise_for_status()
 
     # R13 / R-V7: mirror ``link_enrichment.default_fetch``'s guard
@@ -1524,10 +1551,10 @@ def write_media_episode(
     # raw value into frontmatter or the body.
     validated_added = saved_at.validate(item.added)
 
-    body = _episode_body(
+    body = episode_scrub.scrub_body(_episode_body(
         meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason,
         content_saved_at=validated_added,
-    )
+    ), writer="media", bank=episodes_dir.parent.name)
     content_hash = hashlib.sha256(normalize_url(item.url).encode()).hexdigest()[:12]
 
     frontmatter = {
@@ -1891,11 +1918,15 @@ async def ingest_batch(
     return created, len(items) - len(fresh)
 
 
-async def _commit_media(memory_path: Path, count: int, paths: list[str]) -> None:
+async def _commit_media(
+    memory_path: Path, count: int, paths: list[str], *, author: str = "user",
+    sessions: list[str] | None = None, trigger: str = "user/media_save",
+) -> None:
     """Commit scoped to exactly ``paths`` — never ``git add -A`` (finding 3
     above). ``paths`` is memory-relative: ``sources/url_index.json`` plus one
     ``entities/<id>.md`` + ``episodes/<id>.md`` pair per item this batch
-    actually created.
+    actually created. ``author``/``sessions``/``trigger`` (G135 R-R12) let a
+    single save made by an agent say so; the batch importer keeps the defaults.
     """
     from api.services import git_service
 
@@ -1903,10 +1934,11 @@ async def _commit_media(memory_path: Path, count: int, paths: list[str]) -> None
     message = git_service.build_commit_message(
         f"Sources ingest {date_str}",
         [
-            "sources/url_index.json: updated (trigger: user/media_save)",
-            f"{count} media item(s) saved (trigger: user/media_save)",
+            f"sources/url_index.json: updated (trigger: {trigger})",
+            f"{count} media item(s) saved (trigger: {trigger})",
         ],
-        authors=["user"],
+        authors=[author],
+        sessions=sessions,
     )
     await git_service.commit_paths(memory_path, message, paths)
 

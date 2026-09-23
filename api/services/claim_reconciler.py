@@ -123,9 +123,10 @@ def _stamp_new(claim: Claim, settings, *, today: str, status_note: str | None = 
     if not claim.valid_from:
         claim.valid_from = today
     if not claim.authored_by:
-        claim.authored_by = (
-            "user" if is_human(claim) else (getattr(settings, "litellm_model", "") or "unknown")
-        )
+        from api.services import engine_select
+
+        # R-E22: on a plan cycle `litellm_model` never ran — stamp the plan's model.
+        claim.authored_by = "user" if is_human(claim) else engine_select.author_model(settings)
     if status_note:
         # An out-of-band marker the renderer/app can read; carried on the dataclass
         # without breaking the claims YAML round-trip (it is not a Claim field, so

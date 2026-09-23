@@ -33,6 +33,10 @@ struct ContentView: View {
     @Environment(AppRouter.self) private var router
     /// Track I T5 — the one intake: every file dropped on this window lands here.
     @Environment(IntakeRouter.self) private var intake
+    /// G118 slice 2 — drives the Reader inspector below; a bank switch
+    /// closes it and empties the cache (R-PU26).
+    @Environment(ProvenanceRouter.self) private var provenance
+    @Environment(ProvenanceCache.self) private var provenanceCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// True while a file is dragged over the window — shows the drop veil (I1).
     @State private var dropTargeted = false
@@ -54,6 +58,15 @@ struct ContentView: View {
                 // nothing on screen) posts `store.toast`; show it at the
                 // bottom of whatever page is open (§5.4).
                 .overlay(alignment: .bottom) { toastBanner }
+                // G118 slice 2 (design §4.4) — the Reader opens BESIDE whatever
+                // is showing, never over it: the entity card stays up, so a
+                // belief and the sentence it came from are on screen together.
+                // Content, not chrome, so it is never glass (R-M5).
+                .inspector(isPresented: Bindable(provenance).isPresented) {
+                    ReaderInspector()
+                        .inspectorColumnWidth(min: CicadaTheme.scaled(360), ideal: CicadaTheme.scaled(440),
+                                              max: CicadaTheme.scaled(560))
+                }
         }
         // No `.id(colorSchemeRaw)` here any more. Keying this subtree on the
         // mode string used to be what repainted it, because the tokens were
@@ -93,6 +106,23 @@ struct ContentView: View {
         // (from the on-disk cache or the network), are the two events that turn
         // an unknown input into a known one.
         .onChange(of: store.bank) { _, _ in evaluateFirstRun() }
+        // G118 slice 2 (R-PU26) — the Reader and its cache belong to no bank:
+        // episode ids restart every day in every bank, so a switch closes the
+        // Reader and forgets every cached document rather than show another
+        // bank's conversation under this one.
+        .onChange(of: store.bank) { _, _ in
+            provenance.close()
+            provenanceCache.reset()
+        }
+        // A cached hover preview has no validator, so any change to the
+        // bank's episodes or entities forgets them (final review): `/inbox`
+        // ETags over inbox + entities + episodes, so its snapshot landing a
+        // new value is the one Store signal that covers an episode rewritten
+        // in place (G104) as well as a page re-enriched; the graph covers
+        // entities on its own. A 304 leaves `loadedAt` alone, so an idle
+        // sync never empties the cache.
+        .onChange(of: store.inbox.loadedAt) { _, _ in provenanceCache.forgetSpans() }
+        .onChange(of: store.graph.loadedAt) { _, _ in provenanceCache.forgetSpans() }
         .onChange(of: store.banks.loadedAt) { _, _ in evaluateFirstRun() }
         .onChange(of: store.graph.loadedAt) { _, _ in evaluateFirstRun() }
         .onChange(of: selectedTab) { _, newValue in
@@ -133,6 +163,10 @@ struct ContentView: View {
             showFirstRun = true
             router.pendingFirstRun = false
         }
+        // G118 slice 2 (P5) — an evidence chip inside the Ask sheet opens the
+        // Reader, which lives on THIS window; the sheet steps aside so the
+        // person sees the sentence instead of a modal covering it.
+        .onChange(of: provenance.revision) { _, _ in showAskPanel = false }
         .sheet(isPresented: $showAskPanel) {
             // G123: a citation lands ON its node — the graph zooms to that
             // node's neighbourhood, not just opens its card. An answer's

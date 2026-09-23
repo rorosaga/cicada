@@ -300,7 +300,10 @@ def _asserted_span(claim, ep_id: str, body: str) -> tuple[int, int] | None:
     for e in getattr(claim, "evidence", None) or []:
         if not getattr(e, "is_span", lambda: False)() or e.episode != ep_id:
             continue
-        if e.hash and e.hash != ev.body_hash(body):
+        # G118 slice 2 (R-PB14): a conversation that continued after the
+        # span was minted keeps its exact quote (`grown`); only `stale` falls
+        # back to the derived name match.
+        if ev.span_status(body, end=e.end, hash=e.hash) == ev.SPAN_STALE:
             continue
         if 0 <= e.start < e.end <= len(body):
             return (e.start, e.end)
@@ -319,6 +322,11 @@ def cause_line(cause: Cause | dict | None, today: str) -> str:
 
     Shared by the MCP renderer and the docs so the two surfaces never phrase
     provenance differently. Tier ``none`` is the literal ``[ no source recorded ]``.
+
+    An empty excerpt drops the quote and keeps ``from "Title" · harness · age``
+    (G135 final review): a remote connector without the ``sources`` scope is
+    handed a cause with its excerpt blanked (R-R22 — the person's words, word
+    for word, are opt-in), and ``“” — from …`` would read as a quote of nothing.
     """
     if cause is None:
         return NO_SOURCE
@@ -334,4 +342,4 @@ def cause_line(cause: Cause | dict | None, today: str) -> str:
     age = inbox_questions.humanize_age(c.get("timestamp"), today)
     if age != "unknown":
         where.append(age)
-    return f"“{excerpt}” — " + " · ".join(where)
+    return (f"“{excerpt}” — " if excerpt else "") + " · ".join(where)

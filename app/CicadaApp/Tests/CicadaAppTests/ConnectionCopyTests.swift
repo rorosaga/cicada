@@ -40,4 +40,14 @@ final class ConnectionCopyTests: XCTestCase {
         XCTAssertFalse(make("chatgpt-plan", "pro").showsTierPicker)
         XCTAssertFalse(make("ollama-local", nil).showsTierPicker)
     }
+
+    /// R-E26 / the 2026-09-03 ruling: Plans & keys names the plan, never its price.
+    func testPlansAndKeysNeverShowsAPrice() {
+        let max = ConnectionStatus(id: "claude-plan", label: "Claude plan", kind: "subscription",
+                                   available: true, connected: true, plan: "max", planLabel: "Claude Max 20x",
+                                   tier: "20x", account: nil, priceUsdMonth: 200, priceNote: "verified 2026-08-28",
+                                   billing: "subscription", engineRole: "subscription-cli", detail: nil, login: nil)
+        XCTAssertEqual(max.priceLine, "Claude Max 20x")
+        XCTAssertFalse(max.priceLine.contains("$"))
+    }
 }

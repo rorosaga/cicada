@@ -1,5 +1,6 @@
 import asyncio
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -54,7 +55,7 @@ class SleepState:
     questions_refreshed: int = 0
     organic_resolutions: int = 0
     # G74(a) — which engine this cycle actually ran on ("claude-cli" |
-    # "ollama" | "litellm"), and one sentence about its state. The Sleep page
+    # "codex-cli" | "ollama" | "litellm"), and one sentence about its state. The Sleep page
     # showed "check model id / API credits" on a Max plan that has no credits
     # to check; these two make the real answer visible.
     last_engine: str | None = None
@@ -419,7 +420,7 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
     gated at all.
     """
     try:
-        from api.services import engine_select, link_enrichment
+        from api.services import agent_engine, engine_select, link_enrichment
         from api.services.connectors.base import network_allowed
         from api.services.link_recon import scan_recon
 
@@ -454,12 +455,17 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
                 "Link backfill: page fetch skipped — CICADA_ALLOW_CONNECTOR_FETCH is off "
                 "(reuse + recon still run)"
             )
-        report = await link_enrichment.backfill(
-            memory_path, resolved, limit=per_cycle,
-            summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
-            fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
-            engine=engine,
-        )
+        # Final review H1: the tail runs after the cycle's own `sleep:<id>`
+        # scope has closed, so without this it would share the never-reset
+        # ``_unscoped`` bucket with Ask — one throttle there would block every
+        # later backfill until a restart. Its own scope purges on exit.
+        with agent_engine.use_scope(f"links:{uuid.uuid4().hex}"):
+            report = await link_enrichment.backfill(
+                memory_path, resolved, limit=per_cycle,
+                summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
+                fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
+                engine=engine,
+            )
         if report.selected or report.related or report.skipped:
             logger.info(
                 f"Link backfill: {report.reused} reused, {report.summarized} summarized, "
@@ -467,6 +473,59 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
             )
     except Exception as e:
         logger.warning(f"Link backfill failed: {type(e).__name__}: {e}")
+
+
+async def _resolve_papers_safely(memory_path: Path) -> None:
+    """G133: finish the paper parses a running cycle deferred (R-LS17), then fetch
+    paper details from the arXiv and Crossref APIs (R-LS18).
+
+    Same contract as its neighbours: bounded (``TAIL_ARXIV_IDS`` /
+    ``TAIL_CROSSREF_DOIS`` per cycle), never fatal, and in the clean-tree-guarded
+    branch — both halves write entity pages, and on a half-written cycle those
+    would ride the next ``git add -A``. The deterministic half runs regardless of
+    the network gate; the fetch is the "unattended background call"
+    ``CICADA_ALLOW_CONNECTOR_FETCH`` exists to gate, and a gated skip is recorded
+    (``record_skip``) so it never reads as "nothing to fetch". No LLM, so no
+    engine is resolved (TODO.md ruling 4 is untouched)."""
+    try:
+        from api.services import folder_source, paper_metadata, papers, sync_state
+        from api.services.connectors.base import network_allowed
+
+        deferred = await asyncio.to_thread(papers.reconcile_pending, memory_path)
+        if deferred["folders"]:
+            await folder_source.commit_paths_for(memory_path, deferred["paths"], subject="Folder papers",
+                                                 trigger="folder/papers", author="cicada")
+        if not await asyncio.to_thread(paper_metadata.has_pending, memory_path):
+            return
+        if not network_allowed():
+            sync_state.record_skip(memory_path, "papers", "network fetch disabled")
+            logger.info("Paper details skipped: CICADA_ALLOW_CONNECTOR_FETCH is off")
+            return
+        report = await paper_metadata.run_locked(
+            memory_path, max_arxiv=paper_metadata.TAIL_ARXIV_IDS, max_crossref=paper_metadata.TAIL_CROSSREF_DOIS)
+        if report:
+            logger.info(f"Paper details: {report['resolved']} resolved, {report['failed']} not found, "
+                        f"{report['remaining']} remaining")
+    except Exception as e:
+        logger.warning(f"Paper details failed: {type(e).__name__}: {e}")
+
+
+async def _replay_wispr_todos_safely(memory_path: Path) -> None:
+    """G134: write the Wispr Flow to-do claims a sync deferred because this cycle
+    was running (L final review, finding 5 — the owner's page is Stage 5's to
+    rewrite). Deterministic, no LLM; its commit is scoped to what it wrote, in
+    the clean-tree-guarded branch for the same reason as the paper step. The
+    claims are Wispr Flow's, not the cycle model's, so the author is
+    ``cicada``. Never fatal."""
+    try:
+        from api.services import folder_source, wispr_flow
+
+        report = await asyncio.to_thread(wispr_flow.replay_pending_todos, memory_path)
+        if report["paths"]:
+            await folder_source.commit_paths_for(memory_path, report["paths"], subject="Wispr Flow to-dos",
+                                                 trigger="wispr-flow/todos", author="cicada")
+    except Exception as e:
+        logger.warning(f"Wispr Flow to-dos failed: {type(e).__name__}: {e}")
 
 
 async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> None:
@@ -557,6 +616,15 @@ def _engine_label(settings: Settings) -> str:
     return engine_select.engine_label(settings)
 
 
+def _requeue_note(requeued: int, breaker: str | None) -> str:
+    """R-E12: when a plan stop is why episodes stayed queued, the completion
+    sentence says so in the plan's own words — "re-run to continue" was true
+    but hid the one fact that mattered (wait for the reset)."""
+    if not requeued:
+        return ""
+    return f" — {requeued} episode(s) requeued ({breaker or 're-run to continue'})"
+
+
 def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> str:
     """The user-visible reason Stage 1 produced nothing — per engine.
 
@@ -574,19 +642,25 @@ def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> st
     plan: a subscription has no credits to check, and the real fixes are
     completely different per rung.
     """
-    from api.services import agent_engine
+    from api.services import agent_engine, engine_select
 
     breaker = agent_engine.breaker_reason()
     if breaker:
         n = _state.episodes_total
-        return (
-            f"Claude plan throttled — stopped cleanly, {n} episode(s) left queued. "
-            f"({breaker})"
-        )
+        # R-E22: name the plan that actually ran — the breaker is shared by
+        # both plan engines (R-E19).
+        plan = engine_select.PLAN_NAMES.get(engine, "Claude plan")
+        return f"{plan} throttled — stopped cleanly, {n} episode(s) left queued. ({breaker})"
     if engine == "claude-cli":
         return (
             "Stage 1 extracted nothing — every episode failed on the Claude Code engine. "
             "Run `claude auth status` to check the plan is signed in. "
+            "The queue is intact; trigger Sleep again once it is."
+        )
+    if engine == "codex-cli":
+        return (
+            "Stage 1 extracted nothing — every episode failed on the ChatGPT plan engine. "
+            "Check ChatGPT is still signed in on Settings → Plans & keys. "
             "The queue is intact; trigger Sleep again once it is."
         )
     if engine == "ollama":
@@ -712,6 +786,11 @@ async def _run_engine_independent_tail(
     backfill's lazy engine resolution (R10): a scheduled cycle must resolve
     byok without ever probing the plan — TODO.md ruling 4.
 
+    G133: ``_resolve_papers_safely`` shares this branch — it writes paper pages
+    (scoped commits), and the fetch half is gated by
+    ``CICADA_ALLOW_CONNECTOR_FETCH``. G134's ``_replay_wispr_todos_safely``
+    does too: it writes the owner's page.
+
     G53: ``_refresh_state_safely`` runs FIRST and unconditionally — it
     commits only ``_state.md`` via ``commit_paths``, so it is safe on a dirty
     tree, and running it before the polls means their ``git add -A`` can
@@ -731,9 +810,11 @@ async def _run_engine_independent_tail(
         await _poll_connectors_safely(memory_path)
         await _poll_feeds_and_calendars_safely(memory_path)
         await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
+        await _resolve_papers_safely(memory_path)
+        await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(
-            "connector, feed/calendar and link-backfill steps skipped: this cycle "
+            "connector, feed/calendar, link-backfill and paper details steps skipped: this cycle "
             "wrote entity/inbox changes but never committed them, and the polls' "
             "own `git add -A` would absorb those uncommitted writes into a "
             "media/feed/calendar commit"
@@ -931,7 +1012,7 @@ async def _run_stages(
     _state.engine_detail = engine_why
     logger.info(
         f"Sleep cycle {cycle_id} started — engine: {_state.last_engine}, "
-        f"model: {settings.litellm_model}"
+        f"model: {engine_select.author_model(settings)}"
     )
 
     # Sleep control — safe point: nothing has touched disk or spawned a
@@ -955,6 +1036,26 @@ async def _run_stages(
             _state.error = detail
             _state.progress = f"Failed: {detail}"
             return _StageOutcome()
+    elif _state.last_engine == "codex-cli":
+        # R-E18: one read-only `codex app-server` probe (≈0.5 s, no quota)
+        # answers signed-in, plan-vs-API-key and "limit already reached"
+        # BEFORE the first spawn, and names the plan's current default model
+        # when the person never picked one (R-E17) — every call this cycle
+        # then passes an explicit `-m`, and the Cicada-Author trailer is a
+        # real id that came from model/list, never from this file.
+        from api.services import codex_engine
+
+        ok, detail, default_model = await codex_engine.preflight()
+        _state.engine_detail = detail
+        if not ok:
+            logger.error(f"Sleep cycle {cycle_id} aborted before Stage 1 — {detail}")
+            _state.error = detail
+            _state.progress = f"Failed: {detail}"
+            return _StageOutcome()
+        if default_model and not (getattr(settings, "codex_model", "") or "").strip():
+            settings = settings.model_copy(update={"codex_model": default_model})
+            # The "started" line above logged before this was known.
+            logger.info(f"Sleep cycle {cycle_id} — ChatGPT plan default model: {default_model}")
 
     # Stage 1: Entity & Relationship Extraction
     _state.progress = f"Stage 1/5: Extracting entities from {len(episodes)} episodes..."
@@ -1002,7 +1103,7 @@ async def _run_stages(
         # install that never chose an engine at all. Only the claude-cli
         # rung's detail (the pre-flight probe's own sentence, e.g. "signed
         # out — run `claude auth login`") is actually diagnostic.
-        if _state.last_engine == "claude-cli" and _state.engine_detail:
+        if _state.last_engine in engine_select.PLAN_ENGINES and _state.engine_detail:
             msg = f"{msg} ({_state.engine_detail})"
         logger.error(msg)
         _state.error = msg
@@ -1247,14 +1348,30 @@ async def _run_stages(
             logger.warning(f"vector {warning}")
             index_warnings.append(warning)
 
+    # G136: the lexical index, rebuilt in full beside the vectors (round-3
+    # spec decision 7) — independent of the vector indexer, so a missing
+    # embedding model never leaves search's FTS half stale. Off the event
+    # loop: 3–6 s of CPU at 2,000 entities / 1,500 episodes, while /search
+    # keeps answering from the previous snapshot (WAL). Same contract as the
+    # vector rebuilds: a failure is a warning on a cycle that still commits.
+    try:
+        from api.services import search_index
+
+        await asyncio.to_thread(search_index.rebuild, memory_path)
+    except Exception as e:
+        warning = f"search index rebuild failed: {type(e).__name__}: {e}"
+        logger.warning(warning)
+        index_warnings.append(warning)
+
     if index_warnings:
         _state.index_warning = "; ".join(index_warnings)
 
     # Commit
-    from api.services import agent_engine
+    from api.services import agent_engine, engine_select
 
     engine = _state.last_engine or "litellm"
     engine_models = agent_engine.models_used()
+    plan = engine_select.PLAN_ENGINES.get(engine)
     await _finalize(
         memory_path,
         cycle_id,
@@ -1263,10 +1380,10 @@ async def _run_stages(
         organic_resolution_paths=organic_resolution_paths,
         started=_state.started_monotonic,
         engine=engine,
-        # A plan cycle belongs to the claude-plan card and is billed
-        # against the subscription, not as money.
-        connection="claude-plan" if engine == "claude-cli" else None,
-        billing="subscription" if engine == "claude-cli" else None,
+        # A plan cycle belongs to its plan's card and is billed against the
+        # subscription, not as money (PLAN_ENGINES, R-E22).
+        connection=plan[0] if plan else None,
+        billing=plan[1] if plan else None,
         # The models the engine ACTUALLY used this cycle — the CLI may
         # route an internal side-call to a different model than the one we
         # asked for (V1d), and the trailer should say so.
@@ -1282,10 +1399,12 @@ async def _run_stages(
     # tail (`_run_engine_independent_tail`), which `run` executes in its
     # `finally` block on every exit path — not just this happy one.
 
-    requeue_note = (
-        f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
-        if _state.episodes_requeued else ""
-    )
+    # R-E12: a plan stop tripped mid-cycle is the cycle's engine detail and
+    # the reason in its requeue note — the plan's own sentence and reset time.
+    breaker = agent_engine.breaker_reason()
+    if breaker:
+        _state.engine_detail = breaker
+    requeue_note = _requeue_note(_state.episodes_requeued, breaker)
     # Episode cap: `episodes_queued` (the FULL unprocessed count found before
     # capping) > `episodes_total` (what this cycle actually attempted) means
     # the cap truncated this cycle. Surfaced in the progress sentence — same
@@ -1354,6 +1473,8 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
             # `Cicada-Session:` trailers.
             "session_id": str(fm.get("session_id") or "") or None,
             "source_id": str(fm.get("source_id") or "") or None,
+            # R-F2 / R-LS7: whose words a folder file holds, for Stage-1 evidence.
+            "evidence_kind": str(fm.get("evidence_kind") or "") or None,
         })
     # Order by INSTANT, not by string (G114 R2): a bank holds legacy
     # naive-local stamps beside `Z` and `+00:00` UTC ones, and a lexical sort

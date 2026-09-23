@@ -132,4 +132,15 @@ final class DeskSceneLayoutTests: XCTestCase {
         let l = deskSceneLayout(pointSize: 120, uiScale: 1.0)
         XCTAssertGreaterThanOrEqual(l.pileFrame.width, 150)
     }
+
+    /// Track Z §7.3 — the pane sits exactly in the window's glass and BEHIND
+    /// the frame, so the mullions occlude it for free (occlusion is the only
+    /// depth cue a pixel window has).
+    func testThePaneSitsInTheGlassBehindTheFrame() {
+        let pane = DeskScene.plan.first { $0.prop == .pane }!
+        let window = DeskScene.plan.first { $0.prop == .window }!
+        XCTAssertLessThan(pane.z, window.z)
+        XCTAssertEqual(pane.cellX, window.cellX + DeskSceneSprites.windowGlass.cols.lowerBound)
+        XCTAssertEqual(pane.cellY, window.cellY)
+    }
 }

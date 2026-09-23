@@ -72,14 +72,14 @@ final class CopyConstantsTests: XCTestCase {
         XCTAssertFalse(Copy.aboutCicadaCapture.lowercased().contains("mcp client"))
     }
 
-    /// Track P R3/R4 — the label must name the schedule `OnboardingSchedule.
+    /// Track P R3/R4 — the label must name the schedule `ScheduleToggle.
     /// toggled(on: true, current: manual)` actually writes, or the toggle
     /// promises one thing and does another. `03:00` is
     /// `sleep_scheduler._DEFAULT`'s hour.
     func testTheOnboardingToggleLabelNamesTheScheduleItWrites() {
         XCTAssertTrue(Copy.onboardingRunNightly.contains("3:00"))
-        XCTAssertEqual(OnboardingSchedule.toggled(on: true,
-                                                  current: ScheduleConfig(mode: "manual", hour: 3, minute: 0)).hour, 3)
+        XCTAssertEqual(ScheduleToggle.toggled(on: true,
+                                              current: ScheduleConfig(mode: "manual", hour: 3, minute: 0)).hour, 3)
     }
 
     /// Track P — the empty state must say what to DO, not just that there is
