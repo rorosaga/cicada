@@ -129,3 +129,18 @@ func studyRows(
         )
     }
 }
+
+// MARK: - One source's queue (hoisted from StudyListCard, Track Z Z0)
+
+/// The queued episodes from one `origin`, newest first; a timestamp that
+/// fails every parse sorts last rather than being coerced to "now". Hoisted
+/// so the study list's disclosure and a spine's popover (Z6) show the same
+/// episodes in the same order.
+func episodesForOrigin(_ origin: String, in episodes: [EpisodeQueueItem]) -> [EpisodeQueueItem] {
+    episodes
+        .filter { $0.origin == origin }
+        .sorted {
+            (parseEpisodeTimestamp($0.timestamp) ?? .distantPast)
+                > (parseEpisodeTimestamp($1.timestamp) ?? .distantPast)
+        }
+}

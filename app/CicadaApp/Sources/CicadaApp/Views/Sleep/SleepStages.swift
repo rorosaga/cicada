@@ -11,8 +11,9 @@ import SwiftUI
 struct SleepStage: Identifiable, Equatable {
     let id: String
     /// 1…5, in pipeline order. `SleepStatusResponse.stage` counts COMPLETED
-    /// stages, so a running cycle's active stage is `stage + 1` — see
-    /// `stageStripState`, which is the one place that translation happens.
+    /// stages, so a running cycle's active stage is `activeStage(completed:)`
+    /// — the one translation (R-Z14), read by the strip, the page mood, the
+    /// menu bar and onboarding alike.
     let number: Int
     /// The strip's word: one syllable of the pipeline, no numeral.
     let shortLabel: String
@@ -136,7 +137,7 @@ func stageStripState(stage: Int, isRunning: Bool, cancelled: Bool, error: Bool,
         }
         if cancelled { return .skipped }
         guard isRunning else { return .pending }
-        guard index == done else { return .pending }
+        guard index == activeStage(completed: stage) - 1 else { return .pending }
         // Only Read carries a fill, and only once the cycle knows its totals.
         let isRead = index == 0
         guard isRead, total > 0 else { return .active(fill: nil) }

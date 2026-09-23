@@ -67,6 +67,32 @@ func scheduledEngineLine(preview: SleepEnginePreviews?) -> String? {
     return Copy.scheduledRunsOn(engine: preview.scheduled.engine)
 }
 
+/// The date half of the next-run line — `nil` when there is none to state:
+/// a manual bank, or a snapshot with no `nextSleepAt`. Hoisted from the queue
+/// card's footer (Track Z Z0) because the whisper line (Z2) and the worm's
+/// "when" answer (Z5) both need it; `locale`/`timeZone` are injected so a
+/// test never depends on the runner's.
+func nextRunWhen(_ schedule: ScheduleConfig, nextSleepAt: String?,
+                 locale: Locale = .current, timeZone: TimeZone = .current) -> String? {
+    guard schedule.mode != "manual", let date = StatusSnapshot.parseDate(nextSleepAt) else { return nil }
+    let f = DateFormatter()
+    f.dateFormat = "MMM d, h:mm a"
+    f.locale = locale
+    f.timeZone = timeZone
+    return f.string(from: date)
+}
+
+/// "Manual only" / "Next run Sep 24, 3:00 AM" / "Next run after the next
+/// import" / "Next run —" (R-A14: an unknown is a dash, never a guess).
+func nextRunSentence(_ schedule: ScheduleConfig, nextSleepAt: String?,
+                     locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+    if schedule.mode == "manual" { return Copy.nextRunManual }
+    if let when = nextRunWhen(schedule, nextSleepAt: nextSleepAt, locale: locale, timeZone: timeZone) {
+        return "Next run \(when)"
+    }
+    return schedule.mode == "after_import" ? "Next run after the next import" : "Next run —"
+}
+
 /// "What is waiting for the next cycle", grouped by source (G125 — replaces
 /// the old `SleepQueueCard` + `SleepDebtBreakdown` pair, R1/R11). One row per
 /// origin, largest pile first; a chevron discloses that origin's episodes
@@ -190,7 +216,7 @@ struct StudyListCard: View {
                         rowView(row)
                         if expandedOrigins.contains(row.origin) {
                             LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                                ForEach(episodesForOrigin(row.origin)) { ep in
+                                ForEach(episodesForOrigin(row.origin, in: episodes)) { ep in
                                     EpisodeRow(item: ep)
                                 }
                             }
@@ -322,12 +348,12 @@ struct StudyListCard: View {
         }
     }
 
-    /// `nextRunText`, plus the scheduled engine ONLY when it differs from what
+    /// `nextRunSentence`, plus the scheduled engine ONLY when it differs from what
     /// a manual run would use (R-A9) — the standing quota ruling made visible
     /// rather than applied behind the reader's back.
     private var footer: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(nextRunText)
+            Text(nextRunSentence(sleepVM.schedule, nextSleepAt: status?.nextSleepAt))
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
             if let line = scheduledEngineLine(preview: sleepVM.enginePreview) {
@@ -337,32 +363,5 @@ struct StudyListCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func episodesForOrigin(_ origin: String) -> [EpisodeQueueItem] {
-        episodes
-            .filter { $0.origin == origin }
-            .sorted {
-                (parseEpisodeTimestamp($0.timestamp) ?? .distantPast)
-                    > (parseEpisodeTimestamp($1.timestamp) ?? .distantPast)
-            }
-    }
-
-    // MARK: Footer — when the next run happens
-
-    /// "Manual only" / "Next run …" / "… after the next import". The pointer
-    /// to Settings → Sleep moved up to `scheduleRow`, where the sentence it
-    /// would change is: two links to one destination, eighteen points apart,
-    /// is a choice the reader should not have to make.
-    private var nextRunText: String {
-        if sleepVM.schedule.mode == "manual" {
-            return Copy.nextRunManual
-        }
-        guard let date = StatusSnapshot.parseDate(status?.nextSleepAt) else {
-            return sleepVM.schedule.mode == "after_import" ? "Next run after the next import" : "Next run —"
-        }
-        let f = DateFormatter()
-        f.dateFormat = "MMM d, h:mm a"
-        return "Next run \(f.string(from: date))"
     }
 }

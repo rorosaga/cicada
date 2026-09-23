@@ -33,8 +33,8 @@ func sleepBubbleText(_ state: BookwormState, _ ctx: BubbleContext) -> String {
         switch stage {
         case 1: return ctx.total > 0 ? "Reading… \(ctx.read) of \(ctx.total)." : "Reading…"
         case 2: return "Sorting out who's who."
-        case 3: return "Two of these disagree. Noting it."
-        case 4: return "I think I see a habit here."
+        case 3: return "Checking for contradictions."   // design §13.3 — what the stage DOES, not a finding
+        case 4: return "Looking for habits."
         default: return "Filing everything away."
         }
     case .digesting: return pick(["That was a good one.", "Filed. Give me a second."])
