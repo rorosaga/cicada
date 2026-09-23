@@ -261,3 +261,28 @@ def test_endpoint_requires_bearer_token(memory, monkeypatch, tmp_path):
                                                                 "transcript_path": "/x.jsonl"})
     config.get_settings.cache_clear()
     assert r.status_code == 401
+
+
+def test_session_lookup_never_parses_an_episode_that_lacks_the_id(tmp_path, monkeypatch):
+    """Final review (G141 PJ-4): with 500-stamp sidecars, YAML-parsing every
+    episode on a cache miss blew the Stop hook's 3 s budget. Only a file whose
+    bytes contain the session id is ever parsed."""
+    eps = tmp_path / "episodes"
+    eps.mkdir()
+    other = "99999999-2222-4333-8444-555555555555"
+    for n in range(1, 4):
+        markdown_parser.write(eps / f"ep_2026-09-03_00{n}.md",
+                              {"capture_kind": tc.CAPTURE_KIND, "session_id": other}, "user: hi\n")
+    markdown_parser.write(eps / "ep_2026-09-03_004.md",
+                          {"capture_kind": tc.CAPTURE_KIND, "session_id": SID}, "user: hi\n")
+    parsed: list[str] = []
+    real = markdown_parser.parse
+
+    def spy(fp):
+        parsed.append(Path(fp).name)
+        return real(fp)
+
+    monkeypatch.setattr(markdown_parser, "parse", spy)
+    found = tc._find_session_episode(eps, "claude-code", SID)
+    assert found is not None and found.name == "ep_2026-09-03_004.md"
+    assert parsed == ["ep_2026-09-03_004.md"]

@@ -182,8 +182,18 @@ def _is_session_episode(fp: Path, session_id: str) -> bool:
     """R3: only a ``capture_kind: transcript`` page for this session counts.
     An MCP ``cicada_save_episode`` from the same session carries the same
     ``session_id`` but no ``capture_kind`` — a deliberate, separate episode
-    that is never rewritten here."""
+    that is never rewritten here.
+
+    Final review (G141 PJ-4): the raw-text check comes first. PJ-4 made a
+    Stop-hook episode carry up to 500 ``turns`` stamps instead of one
+    integer, so YAML-parsing every episode on a cache miss (every new
+    session's first Stop, every session after a restart) went from 0.06 s to
+    0.86 s at 1000 episodes x 80 turns — under ``_lock``, against the hook's
+    3 s timeout. A session id is a UUID, so "not in the bytes" is an exact
+    miss and only the one real candidate pays for a parse."""
     try:
+        if session_id not in fp.read_text(encoding="utf-8", errors="replace"):
+            return False
         fm = markdown_parser.parse(fp).frontmatter
     except Exception:  # noqa: BLE001 - one malformed episode must not block capture
         return False
