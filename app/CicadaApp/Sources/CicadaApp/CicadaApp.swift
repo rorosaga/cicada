@@ -47,6 +47,10 @@ struct CicadaApp: App {
     /// G136 — the ⌘K find palette's state, one per app, so its Ask history,
     /// recents and instant index survive the palette closing.
     @State private var findModel: FindPaletteModel
+    /// Track I part b (R-IB4) — Home's field: a second palette model sharing
+    /// the palette's one Ask, keeping no recents, so a ⌘K elsewhere never wipes
+    /// what was left typed on Home.
+    @State private var homeSearch: HomeSearch
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
     /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
@@ -109,7 +113,10 @@ struct CicadaApp: App {
         _contributorsVM = State(initialValue: ContributorsViewModel(store: store))
         _connectionsVM = State(initialValue: ConnectionsViewModel(store: store))
         _usageVM = State(initialValue: UsageViewModel(store: store))
-        _findModel = State(initialValue: FindPaletteModel(store: store))
+        let find = FindPaletteModel(store: store)
+        _findModel = State(initialValue: find)
+        _homeSearch = State(initialValue: HomeSearch(model: FindPaletteModel(store: store, ask: find.ask,
+                                                                              keepsRecents: false)))
     }
 
     var body: some Scene {
@@ -129,6 +136,7 @@ struct CicadaApp: App {
                 .environment(usageVM)
                 .environment(store)
                 .environment(findModel)
+                .environment(homeSearch)
                 .environment(browserWatcher)
                 .environment(localSources)
                 .environment(intakeRouter)

@@ -26,10 +26,19 @@ final class FindPaletteModel {
     @ObservationIgnored private(set) var recents: [FindRowKey] = []
     @ObservationIgnored private var loadedBank: String?
     @ObservationIgnored private let store: Store
+    /// False for Home's field (R-IB4): recents are the palette's empty state,
+    /// Home's empty state is its cards, and two writers of `.quickRecents`
+    /// would clobber each other's list.
+    @ObservationIgnored private let keepsRecents: Bool
 
-    init(store: Store) {
+    /// Track I part b (R-IB4) — Home hosts a second instance so a ⌘K on another
+    /// page (`present` resets the query) never wipes what was left typed on
+    /// Home. It passes the palette's `ask`, so the app keeps one Ask history and
+    /// one `.askHistory` writer (R-SU7); `nil` builds the app's one Ask.
+    init(store: Store, ask: AskViewModel? = nil, keepsRecents: Bool = true) {
         self.store = store
-        self.ask = AskViewModel(store: store)
+        self.ask = ask ?? AskViewModel(store: store)
+        self.keepsRecents = keepsRecents
     }
 
     var sections: [FindSection] { results.sections(expanded: expanded) }
@@ -169,6 +178,7 @@ final class FindPaletteModel {
     }
 
     private func remember(_ key: FindRowKey) {
+        guard keepsRecents else { return }
         let next = FindRecents.push(key, into: recents)
         guard next != recents else { return }
         recents = next

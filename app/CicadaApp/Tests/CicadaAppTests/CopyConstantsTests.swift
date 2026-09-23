@@ -129,4 +129,18 @@ final class CopyConstantsTests: XCTestCase {
         XCTAssertFalse(Copy.foundRefused.localizedCaseInsensitiveContains("copy them"))
         XCTAssertFalse(Copy.intakeDropSubtitle.localizedCaseInsensitiveContains("read"))
     }
+
+    /// Track I part b — Welcome, Getting started, Home and reminder labels are short,
+    /// never say "claim", and never state a price or a token count (2026-09-03).
+    func testWelcomeAndHomeCopyIsShortPlainAndPriceless() {
+        XCTAssertGreaterThan(Copy.welcomeHomeLabels.count, 10, "a lint over nothing passes vacuously")
+        for label in Copy.welcomeHomeLabels {
+            XCTAssertLessThanOrEqual(label.count, 60, label)
+        }
+        for text in Copy.welcomeHomeLabels + Copy.welcomeHomeSentences {
+            XCTAssertFalse(text.lowercased().contains("claim"), text)
+            XCTAssertFalse(text.contains("$"), text)
+            XCTAssertFalse(text.lowercased().contains("token"), text)
+        }
+    }
 }

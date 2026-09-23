@@ -3,11 +3,12 @@ import AppKit
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @State private var selectedTab: AppTab = .graph
+    /// Home is the front door (G108, R-IB2); a stored selection still wins.
+    @State private var selectedTab: AppTab = .home
     /// Reopen where the user left off. Always read back through
     /// `AppTab.restored(from:)`: this string can name a tab that no longer
     /// exists (G68 retired five of them).
-    @AppStorage("cicada.selectedTab") private var selectedTabRaw = AppTab.graph.rawValue
+    @AppStorage("cicada.selectedTab") private var selectedTabRaw = AppTab.home.rawValue
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     // G117 — the four-step first-run sheet (identity → engine → one capture
     // channel → first Sleep), gated per-bank (`OnboardingState`, R5) rather
@@ -28,6 +29,8 @@ struct ContentView: View {
     /// "Switch to light/dark" writes the key `CicadaApp` already observes.
     @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw = AppColorScheme.dark.rawValue
     @Environment(FindPaletteModel.self) private var find
+    /// R-IB5 — ⌘K on Home focuses this field instead of opening the overlay.
+    @Environment(HomeSearch.self) private var homeSearch
     /// "Switch to <bank>" makes `BankSwitcher`'s own call (R-SU13).
     @Environment(BanksViewModel.self) private var banksVM
 
@@ -207,12 +210,15 @@ struct ContentView: View {
 
     private func consumePaletteRequest() {
         guard let request = router.consumePalette() else { return }
-        switch PaletteToggle.outcome(for: request, isOpen: paletteOpen, firstRunShowing: showFirstRun) {
+        switch PaletteToggle.outcome(for: request, isOpen: paletteOpen, firstRunShowing: showFirstRun,
+                                     homeVisible: selectedTab == .home) {
         case .open(let prefill, let mode):
             find.present(prefill: prefill, mode: mode)
             withAnimation(CicadaMotion.paletteIn(reduceMotion: reduceMotion)) { paletteOpen = true }
         case .close:
             closePalette()
+        case .focusHome(let prefill, let mode):
+            homeSearch.focus(prefill: prefill, mode: mode)
         case .ignore:
             break
         }
@@ -339,6 +345,10 @@ struct ContentView: View {
     @ViewBuilder
     private var otherTabContent: some View {
         switch selectedTab {
+        case .home:
+            // Rebuilt on a tab switch — a cheap SwiftUI tree, unlike the graph's
+            // WKWebView; its field text lives in `HomeSearch`, so it survives (R-IB3).
+            HomeView(open: openFind, selectedTab: $selectedTab)
         case .graph:
             EmptyView()
         case .clusters:
@@ -791,9 +801,14 @@ struct GraphSearchField: View {
 /// R-SU5 — keeps the palette's instant tier current. Its own view, so the
 /// inputs it watches (the graph, the inbox, Sleep's status, the theme) move
 /// this empty view when they change, never `ContentView`'s whole body.
+///
+/// Track I part b (R-IB4): one build, two readers — the palette's model builds
+/// the index and Home's field installs the same value, so Home never pays for
+/// a second build or drifts from what ⌘K finds.
 private struct FindIndexTask: View {
     @Environment(Store.self) private var store
     @Environment(FindPaletteModel.self) private var find
+    @Environment(HomeSearch.self) private var home
 
     var body: some View {
         Color.clear
@@ -801,6 +816,7 @@ private struct FindIndexTask: View {
             .accessibilityHidden(true)
             .task(id: QuickIndexInputs.token(store, askHistoryCount: find.ask.history.count)) {
                 await find.rebuildIndex()
+                home.model.install(find.index)
             }
     }
 }
