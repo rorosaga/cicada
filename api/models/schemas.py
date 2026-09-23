@@ -693,6 +693,11 @@ class EpisodeSpan(CamelModel):
     were minted against an earlier body and may not mean the same words.
     ``kind`` is derived at read time (speaker marker for an episode, ``page``
     for an entity document), never stored here.
+
+    ``grown`` (G118 slice 2, amendment A7) is true when the document was
+    APPENDED to after the span was minted and a turn-boundary prefix still
+    hashes to ``hash``: the offsets are exact and the span highlights.
+    ``stale`` and ``grown`` are never both true.
     """
 
     episode: str
@@ -703,6 +708,7 @@ class EpisodeSpan(CamelModel):
     end: int
     length: int
     stale: bool = False
+    grown: bool = False
     kind: str = "user"
 
 

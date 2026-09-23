@@ -40,6 +40,8 @@ __all__ = [
     "EVIDENCE_KINDS", "MAX_QUOTE_CHARS", "body_hash", "is_episode_id", "source_path",
     "source_text", "locate", "speaker_kind", "reasoning", "verify", "verify_many",
     "attach_relationship_evidence",
+    # G118 slice 2
+    "SPAN_CURRENT", "SPAN_GROWN", "SPAN_STALE", "turn_starts", "span_status",
 ]
 
 # The longest quote a writer may cite. A longer one is clipped, not refused:
@@ -184,6 +186,87 @@ def speaker_kind(text: str, start: int) -> str:
         if m:
             kind = "assistant" if m.group(1).lower() in _ASSISTANT_ROLES else "user"
     return kind
+
+
+def _marker_lines(text: str) -> list[tuple[int, str, int]]:
+    """``(line start, marker word, content start)`` for every turn-marker line.
+
+    The SAME lines :func:`speaker_kind` treats as turn boundaries — same
+    ``_TURN_RE``, same ``splitlines`` — so a turn's role and a span's kind can
+    never disagree (slice 2, R-PB3: one parser, server-side). ``content start``
+    skips the marker and the spaces after it, so no client runs a regex of its
+    own. Ascending by construction.
+    """
+    out: list[tuple[int, str, int]] = []
+    pos = 0
+    for line in (text or "").splitlines(keepends=True):
+        m = _TURN_RE.match(line)
+        if m:
+            content = m.end()
+            while content < len(line) and line[content] in " \t":
+                content += 1
+            out.append((pos, m.group(1).lower(), pos + content))
+        pos += len(line)
+    return out
+
+
+def turn_starts(text: str) -> list[int]:
+    """Offsets of every turn-marker line, ascending (R-PB3)."""
+    return [start for start, _marker, _content in _marker_lines(text)]
+
+
+# G118 slice 2 (design amendment A7) — what a stored span's hash says about the
+# text it is read against NOW. `grown` is exact: the offsets still index the
+# words that were cited, so it highlights; `stale` never does (§4.9).
+SPAN_CURRENT = "current"
+SPAN_GROWN = "grown"
+SPAN_STALE = "stale"
+
+
+def span_status(
+    text: str,
+    *,
+    end: int,
+    hash: str | None,  # noqa: A002 - the field's own name
+    appendable: bool = True,
+) -> str:
+    """A7 (amends slice-1 R2): is a span minted against ``hash`` still exact here?
+
+    Slice 1 compared the stored hash with the WHOLE current text, so every
+    span in a conversation that continued after Sleep read ``stale``: the Stop
+    hook rewrites a session's one episode in place with appended turns
+    (``transcript_capture.capture_transcript``), G20 rewrites a grown chat
+    export the same way, and ``transcript_extract.SESSION_CAP_CHARS`` is
+    head-stable precisely so those offsets do not move. So when the whole text
+    does not match, try every prefix that ends at the newline just before a
+    turn-marker line and still covers the span (``cut >= end``): if one hashes
+    to ``hash``, the cited text is byte-identical and the answer is ``grown``.
+
+    One incremental pass (``update`` + ``copy``), so it costs O(len) however
+    many turns there are. Exact — a 48-bit hash over a string that was once
+    the whole body — and never fuzzy. ``appendable=False`` for a ``page``
+    document: a description is rewritten, not appended, so a prefix match
+    there would be a coincidence. No ``hash`` means nothing to be stale
+    against: ``current`` (slice-1 R2).
+    """
+    if not hash:
+        return SPAN_CURRENT
+    text = text or ""
+    if body_hash(text) == hash:
+        return SPAN_CURRENT
+    if not appendable:
+        return SPAN_STALE
+    digest = hashlib.sha256()
+    pos = 0
+    for start in turn_starts(text):
+        cut = start - 1
+        if cut < 0 or text[cut] != "\n":
+            continue
+        digest.update(text[pos:cut].encode("utf-8"))
+        pos = cut
+        if cut >= end and digest.copy().hexdigest()[:12] == hash:
+            return SPAN_GROWN
+    return SPAN_STALE
 
 
 def reasoning(doc_id: str = "", *, hash: str = "") -> Evidence:  # noqa: A002 - the field's own name

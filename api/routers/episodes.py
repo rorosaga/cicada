@@ -4,9 +4,12 @@ The read half of evidence spans: a claim points at ``(episode, start, end,
 hash)``; this endpoint returns those characters with context so a viewer
 (slice 2) can highlight them inside the raw source. Engine-free by
 construction — one ``markdown_parser.parse`` and string slicing (G80) —
-and honest about drift: ``stale`` is set when the caller's ``hash`` no
-longer matches the current evidence text (R2), and the slice is still
-returned so the viewer can show *something* while saying it may have moved.
+and honest about drift: ``stale`` is set when the caller's ``hash`` matches
+neither the current evidence text (R2) nor, for an episode, any
+turn-boundary prefix of it — that case is ``grown`` (slice 2 / A7: the
+conversation continued and the offsets are still exact). The slice is
+returned either way so the viewer can show *something* while saying it may
+have moved.
 
 ``{id}`` is a source-document id (R3): ``ep_*`` resolves under ``episodes/``,
 anything else under ``entities/`` — the same resolver the writers use, so a
@@ -45,7 +48,11 @@ async def get_episode_span(
         raise HTTPException(404, f"No stored document {episode_id!r}")
     if end <= start or end > len(text):
         raise HTTPException(422, f"span [{start}, {end}) is outside the document (length {len(text)})")
-    current = evidence.body_hash(text)
+    # A7: one freshness rule for every reader (R-PB1) — a Stop-hook episode
+    # that took another turn is `grown`, not `stale`; a page never grows.
+    status = evidence.span_status(
+        text, end=end, hash=hash, appendable=evidence.is_episode_id(episode_id),
+    )
     return EpisodeSpan(
         episode=episode_id,
         text=text[start:end],
@@ -54,6 +61,7 @@ async def get_episode_span(
         start=start,
         end=end,
         length=len(text),
-        stale=bool(hash) and hash != current,
+        stale=status == evidence.SPAN_STALE,
+        grown=status == evidence.SPAN_GROWN,
         kind=evidence.speaker_kind(text, start) if evidence.is_episode_id(episode_id) else "page",
     )
