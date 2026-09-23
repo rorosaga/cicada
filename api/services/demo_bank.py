@@ -33,7 +33,7 @@ import subprocess
 from datetime import date, timedelta
 from pathlib import Path
 
-from api.services import decay_policy, entity_body, episode_ids, git_service, markdown_parser, owner_identity
+from api.services import decay_policy, entity_body, episode_ids, episode_scrub, git_service, markdown_parser, owner_identity
 from api.services.agentic_write import write_claim
 
 # --- Entity roster (~60 total + the owner page `ensure_owner_entity` adds) --
@@ -182,7 +182,7 @@ def _write_episodes(bank_dir: Path) -> list[dict]:
             fm["harness"] = "claude-code"
             fm["session_id"] = f"ses_demo_{i:03d}"
 
-        body = f"user: {sentence}"
+        body = episode_scrub.scrub_body(f"user: {sentence}", writer="demo", bank=episodes_dir.parent.name)
         markdown_parser.write(episodes_dir / f"{ep_id}.md", fm, body)
         records.append({"id": ep_id, "sentence": sentence, "entities": (a_id, b_id, c_id), "date": ep_date_str})
     return records

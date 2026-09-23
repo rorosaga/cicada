@@ -704,6 +704,12 @@ class EpisodeSpan(CamelModel):
     length: int
     stale: bool = False
     kind: str = "user"
+    # R-LS2 — which turn the span starts in, from the episode's `turn_index`
+    # sidecar; all four absent for an episode written before the sidecar existed.
+    turn_number: Optional[int] = None
+    turn_count: Optional[int] = None
+    turn_ts: Optional[str] = None
+    turn_speaker: Optional[str] = None
 
 
 class TransclusionPayload(CamelModel):

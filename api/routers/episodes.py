@@ -40,12 +40,14 @@ async def get_episode_span(
     settings: Settings = Depends(get_settings),
 ):
     """The evidence text at ``[start, end)`` with ``context`` chars either side."""
-    text = evidence.source_text(settings.memory_path, episode_id)
+    text, fm = evidence.source_document(settings.memory_path, episode_id)
     if text is None:
         raise HTTPException(404, f"No stored document {episode_id!r}")
     if end <= start or end > len(text):
         raise HTTPException(422, f"span [{start}, {end}) is outside the document (length {len(text)})")
     current = evidence.body_hash(text)
+    override = str(fm.get("evidence_kind") or "") or None
+    turn = evidence.turn_at(fm.get("turn_index"), start) if evidence.is_episode_id(episode_id) else None
     return EpisodeSpan(
         episode=episode_id,
         text=text[start:end],
@@ -55,5 +57,9 @@ async def get_episode_span(
         end=end,
         length=len(text),
         stale=bool(hash) and hash != current,
-        kind=evidence.speaker_kind(text, start) if evidence.is_episode_id(episode_id) else "page",
+        kind=evidence.kind_for(episode_id, text, start, override),
+        turn_number=turn["number"] if turn else None,
+        turn_count=turn["of"] if turn else None,
+        turn_ts=turn["ts"] if turn else None,
+        turn_speaker=turn["speaker"] if turn else None,
     )

@@ -56,7 +56,8 @@ _CLAIMS_BLOCK_RE = re.compile(
 # and carries no offsets. The set is closed on purpose: a viewer renders each
 # kind differently, and G100's derived-span class, if it ever ships, will be
 # a fifth value rather than a flag on one of these.
-EVIDENCE_KINDS = ("user", "assistant", "page", "reasoning")
+# R-N2 / R-LS7: `speaker` is a meeting utterance by someone other than the owner.
+EVIDENCE_KINDS = ("user", "assistant", "page", "reasoning", "speaker")
 
 
 @dataclass

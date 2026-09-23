@@ -39,7 +39,7 @@ from api.services.claims import EVIDENCE_KINDS, Evidence, strip_claims_block
 __all__ = [
     "EVIDENCE_KINDS", "MAX_QUOTE_CHARS", "body_hash", "is_episode_id", "source_path",
     "source_text", "locate", "speaker_kind", "reasoning", "verify", "verify_many",
-    "attach_relationship_evidence",
+    "attach_relationship_evidence", "source_document", "kind_for", "turn_at", "OVERRIDE_KINDS",
 ]
 
 # The longest quote a writer may cite. A longer one is clipped, not refused:
@@ -55,14 +55,21 @@ _DOC_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 _EPISODE_PREFIX = "ep_"
 
 # R4: the turn markers Cicada's own writers produce. Imported conversations
-# write `<role>: <text>` per message (api/routers/conversations.py:792, the
-# body at :911/:934), roles user/assistant/system and `unknown` for a message
-# the export did not attribute; `human`/`ai` are accepted for hand-written or
-# third-party episodes. `system` is the person's configured context and
+# write `<role>: <text>` per message (`episode_staging.render`, since R-F1
+# moved the G20 stager out of the conversations router), roles
+# user/assistant/system and `unknown` for a message the export did not
+# attribute; `human`/`ai` are accepted for hand-written or third-party episodes. `system` is the person's configured context and
 # `unknown` is unattributed, so both count as `user` below — the only way a
 # span is labelled the model's is a line that says so.
 _TURN_RE = re.compile(r"^(user|human|assistant|ai|system|unknown)\s*:", re.IGNORECASE)
 _ASSISTANT_ROLES = frozenset({"assistant", "ai"})
+# R-N2 / R-LS7: a meeting utterance is written `speaker:<label>: text` by the
+# note-taker adapters (`wispr_flow.speaker_marker`). It is someone other than
+# the owner — never `user`, and not `assistant` either (a colleague is not a model).
+_SPEAKER_RE = re.compile(r"^speaker:[^:\n]{1,64}:")
+# R-F2 / R-LS7: an episode may declare whose words it holds (a folder file's
+# authorship). Only these two values are honoured; anything else falls back to markers.
+OVERRIDE_KINDS = frozenset({"user", "assistant"})
 
 
 def body_hash(text: str) -> str:
@@ -91,18 +98,25 @@ def source_path(memory_path: Path | None, doc_id: str) -> Path | None:
     return path if path.is_file() else None
 
 
+def source_document(memory_path: Path | None, doc_id: str) -> tuple[str | None, dict]:
+    """``(evidence text, frontmatter)`` of a document (R1), or ``(None, {})``. The
+    frontmatter is what carries an episode's ``evidence_kind`` and ``turn_index``."""
+    path = source_path(memory_path, doc_id)
+    if path is None:
+        return None, {}
+    try:
+        parsed = markdown_parser.parse(path)
+    except Exception:
+        return None, {}
+    body = parsed.body if is_episode_id(doc_id) else strip_claims_block(parsed.body)
+    return body, dict(parsed.frontmatter or {})
+
+
 def source_text(memory_path: Path | None, doc_id: str) -> str | None:
     """The evidence text of a document (R1): the parsed body for an episode;
     for an entity page, the body with the ```claims fence stripped — so the
     claim that cites a page never stales its own span by being written."""
-    path = source_path(memory_path, doc_id)
-    if path is None:
-        return None
-    try:
-        body = markdown_parser.parse(path).body
-    except Exception:
-        return None
-    return body if is_episode_id(doc_id) else strip_claims_block(body)
+    return source_document(memory_path, doc_id)[0]
 
 
 def _pattern(quote: str, *, whole_word: bool, flags: int = 0) -> re.Pattern[str]:
@@ -180,10 +194,40 @@ def speaker_kind(text: str, start: int) -> str:
     head = text if line_end == -1 else text[:line_end]
     kind = "user"
     for line in head.splitlines():
+        if _SPEAKER_RE.match(line):
+            kind = "speaker"
+            continue
         m = _TURN_RE.match(line)
         if m:
             kind = "assistant" if m.group(1).lower() in _ASSISTANT_ROLES else "user"
     return kind
+
+
+def kind_for(doc_id: str, text: str, start: int, override: str | None = None) -> str:
+    """The one evidence-kind decision (R-LS7): ``page`` for an entity document;
+    for an episode, its declared ``evidence_kind`` when it is one of
+    :data:`OVERRIDE_KINDS`, else the turn marker at ``start``."""
+    if not is_episode_id(doc_id):
+        return "page"
+    if override in OVERRIDE_KINDS:
+        return override
+    return speaker_kind(text, start)
+
+
+def turn_at(turn_index, start: int) -> dict | None:
+    """Which turn a span starts in, from an episode's ``turn_index`` sidecar
+    (``episode_staging``, R-LS2): ``{number, of, ts, speaker}`` or ``None`` when
+    the episode has no index. Computed at read, never stored on a claim."""
+    rows = [r for r in (turn_index or [])
+            if isinstance(r, (list, tuple)) and len(r) == 3 and isinstance(r[0], int)]
+    hit, number = None, 0
+    for i, row in enumerate(rows):
+        if row[0] > start:
+            break
+        hit, number = row, i + 1
+    if hit is None:
+        return None
+    return {"number": number, "of": len(rows), "ts": hit[1], "speaker": hit[2]}
 
 
 def reasoning(doc_id: str = "", *, hash: str = "") -> Evidence:  # noqa: A002 - the field's own name
@@ -200,6 +244,7 @@ def verify(
     text: str | None = None,
     window: tuple[int, int] | None = None,
     whole_word: bool = False,
+    kind_override: str | None = None,
 ) -> Evidence:
     """Turn a cited quote into an :class:`Evidence` — a span when the quote is
     in the document, ``reasoning`` when it is not. Never raises.
@@ -207,12 +252,17 @@ def verify(
     ``text`` short-circuits the disk read when the caller already holds the
     evidence text (Stage 1 holds the body it chunked — R11). Kind is the
     speaker for an episode and ``page`` for an entity document.
+    ``kind_override`` (R-LS7) is the episode's ``evidence_kind`` when the caller
+    already holds the text (Stage 1); without ``text`` it is read from the
+    document's own frontmatter.
     """
     doc_id = (doc_id or "").strip()
     if not doc_id:
         return reasoning("")
     if text is None:
-        text = source_text(memory_path, doc_id)
+        text, fm = source_document(memory_path, doc_id)
+        if kind_override is None:
+            kind_override = str(fm.get("evidence_kind") or "") or None
     if text is None:
         return reasoning(doc_id)
     digest = body_hash(text)
@@ -220,7 +270,7 @@ def verify(
     if span is None:
         return reasoning(doc_id, hash=digest)
     start, end = span
-    kind = speaker_kind(text, start) if is_episode_id(doc_id) else "page"
+    kind = kind_for(doc_id, text, start, kind_override)
     return Evidence(episode=doc_id, start=start, end=end, kind=kind, hash=digest)
 
 
@@ -253,7 +303,8 @@ def verify_many(memory_path: Path | None, items: Iterable | None) -> list[Eviden
 
 
 def attach_relationship_evidence(
-    rel: dict, episode_id: str, body: str, *, window: tuple[int, int] | None = None
+    rel: dict, episode_id: str, body: str, *, window: tuple[int, int] | None = None,
+    kind_override: str | None = None,
 ) -> None:
     """Stage 1: consume ``rel["evidence_quote"]`` and set ``rel["evidence"]``.
 
@@ -263,5 +314,6 @@ def attach_relationship_evidence(
     hash is the stored hash without a second read. Mutates in place.
     """
     quote = rel.pop("evidence_quote", None)
-    ev = verify(None, episode_id, str(quote or ""), text=body, window=window)
+    ev = verify(None, episode_id, str(quote or ""), text=body, window=window,
+                kind_override=kind_override)
     rel["evidence"] = [ev.to_dict()]

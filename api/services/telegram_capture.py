@@ -41,7 +41,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import episode_ids, markdown_parser, owner_identity
+from api.services import episode_ids, episode_scrub, markdown_parser, owner_identity
 
 # Telegram doesn't ship its own "find URLs in free text" primitive, and
 # media_ingestor's URL handling assumes a URL is already the whole field
@@ -502,6 +502,7 @@ def _default_save_episode(
     """
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
+    text = episode_scrub.scrub_body(text, writer="telegram", bank=memory_path.name)
 
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
     for filepath in episodes_dir.glob("*.md"):

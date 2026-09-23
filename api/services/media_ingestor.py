@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 from loguru import logger
 
-from api.services import decay_policy, episode_ids, markdown_parser, saved_at, video_urls
+from api.services import decay_policy, episode_ids, episode_scrub, markdown_parser, saved_at, video_urls
 from api.services.id_utils import sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
@@ -1524,10 +1524,10 @@ def write_media_episode(
     # raw value into frontmatter or the body.
     validated_added = saved_at.validate(item.added)
 
-    body = _episode_body(
+    body = episode_scrub.scrub_body(_episode_body(
         meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason,
         content_saved_at=validated_added,
-    )
+    ), writer="media", bank=episodes_dir.parent.name)
     content_hash = hashlib.sha256(normalize_url(item.url).encode()).hexdigest()[:12]
 
     frontmatter = {

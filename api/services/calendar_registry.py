@@ -48,7 +48,7 @@ from urllib.parse import urlparse
 import yaml
 from loguru import logger
 
-from api.services import episode_ids, markdown_parser
+from api.services import episode_ids, episode_scrub, markdown_parser
 
 CALENDARS_FILENAME = "calendars.yaml"
 CALENDAR_INDEX_FILENAME = "calendar_index.json"
@@ -353,7 +353,7 @@ def _write_calendar_episode(episodes_dir: Path, event: ICSEvent, calendar_url: s
     # LOCAL time and labelled it UTC, off by the machine's offset.
     timestamp = episode_ids.utc_now_iso()
 
-    body = _episode_body(event, calendar_url)
+    body = episode_scrub.scrub_body(_episode_body(event, calendar_url), writer="calendar", bank=episodes_dir.parent.name)
     content_hash = hashlib.sha256(_event_key(event).encode()).hexdigest()[:12]
 
     frontmatter = {

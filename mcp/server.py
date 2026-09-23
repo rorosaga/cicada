@@ -27,6 +27,7 @@ if str(_REPO_ROOT) not in sys.path:
 from api.services import agentic_write  # noqa: E402
 # Pure filesystem + datetime, no bank/config state — safe to hoist alongside.
 from api.services import episode_ids  # noqa: E402
+from api.services import episode_scrub  # noqa: E402
 # Track P R8/R9 — the legacy observer value is protocol and must stay in the
 # `cicada_write_claim` schema (CLAUDE.md R12: a description naming an argument
 # the schema would reject is a bug), but it is a person's name, the repo is
@@ -2036,6 +2037,9 @@ def handle_save_episode(content: str, title: str | None) -> str:
     # One rule for every writer lives in episode_ids (G114 R1).
     episode_id = episode_ids.next_episode_id(episodes_dir, today)
 
+    # R-N3 / R-LS6: an agent-saved note is scrubbed like every other writer,
+    # before the hash so the dedup key describes the stored text.
+    content = episode_scrub.scrub_body(content, writer="mcp", bank=memory_path.name)
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
 
     # Check for duplicates

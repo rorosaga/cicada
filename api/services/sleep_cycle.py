@@ -1354,6 +1354,8 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
             # `Cicada-Session:` trailers.
             "session_id": str(fm.get("session_id") or "") or None,
             "source_id": str(fm.get("source_id") or "") or None,
+            # R-F2 / R-LS7: whose words a folder file holds, for Stage-1 evidence.
+            "evidence_kind": str(fm.get("evidence_kind") or "") or None,
         })
     # Order by INSTANT, not by string (G114 R2): a bank holds legacy
     # naive-local stamps beside `Z` and `+00:00` UTC ones, and a lexical sort
