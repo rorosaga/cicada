@@ -524,6 +524,11 @@ answers "what changed" from the commit manifests on demand — ids and counts on
 `read` scope remotely. **`cicada_record_watch`** records what an agent's own tools saw in a saved
 video — a summary and ≤ 12 timestamped quotes as `media` spans; Cicada never downloads or watches a
 video, and never keeps a transcript.
+**`cicada_add_source(subject, ref, predicate?, access?, kind?)`** (G61 phase 2 S1) records where a
+fact can be checked when there is no claim to write — only a source the person named, never one the
+agent guessed; it is not `cicada_sources` (conversations). `record` scope remotely, where a path, a
+repo or `access: local` is refused; it commits alone under the harness. `cicada_write_claim(sources=)`
+takes a string or `{ref, access}`. The primer does not name `cicada_add_source` until S3's contract.
 
 **Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
 clarification naturally in the flow when the conversation touches its entity, and offer related

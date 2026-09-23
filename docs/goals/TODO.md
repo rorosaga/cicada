@@ -515,7 +515,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     Two-witness settle (a local agent's reading + Cicada's own re-read of the same site); never a human
     claim, never the owner's page, never a remote report; `cicada`-authored, reviewable in `inbox/settled/`,
     one-tap "Ask me instead". Ships in **shadow** first — the owner flips auto with the numbers in view.
-    **S0 ✅ 2026-09-23 · S1–S2 backend-only, next:** S0 truth + fetch hygiene (Stage 5.57's ungated
+    **S0–S1 ✅ 2026-09-23 · S2 next:** S0 truth + fetch hygiene (Stage 5.57's ungated
     `default_summarize`, `add_source` on `(ref, predicate)`, the hint voiced by `added_by` and derived at
     read, the duplicate `source_episode` key, organic resolution on `is_human`), S1 checkable sources
     (`access`, `kind: app|repo`, predicate `locus`, `cicada_add_source`), S2 a read-only checkability

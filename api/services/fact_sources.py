@@ -402,3 +402,40 @@ def attach_cited_urls(memory_path: Path, subject: str, claim, locus_of) -> list[
         except InvalidSource:
             continue
     return attached
+
+
+MAX_AGENT_SOURCES = 10
+
+
+def agent_items(raw, *, remote: bool = False) -> list[tuple[str, str | None]]:
+    """``cicada_write_claim(sources=…)`` as ``(ref, access)`` pairs (G61 phase 2
+    S1, spec §5.3, plan R-AC30): a bare string — the minimal slice's form — or
+    ``{ref, access?}``.
+
+    Anything else (no ref, a number, a ref over :data:`MAX_REF_CHARS`) is
+    dropped, and an ``access`` the record does not allow for that ref falls back
+    to inference: the claim beside it is already written, and a malformed source
+    must never turn that write into an error (provenance never blocks memory). A
+    remote caller's path or repo is dropped — a cloud app never names a file on
+    this Mac (R-AC31). At most :data:`MAX_AGENT_SOURCES`.
+    """
+    out: list[tuple[str, str | None]] = []
+    for item in raw if isinstance(raw, list) else []:
+        if isinstance(item, str):
+            ref, access = item.strip(), None
+        elif isinstance(item, dict):
+            ref = str(item.get("ref") or "").strip()
+            access = str(item.get("access") or "").strip().lower() or None
+        else:
+            continue
+        if not ref or len(ref) > MAX_REF_CHARS:
+            continue
+        kind = infer_kind(ref)
+        if remote and kind in LOCAL_KINDS:
+            continue
+        if access not in ACCESS_VALUES or (access == ACCESS_LOCAL and (remote or kind not in LOCAL_KINDS)):
+            access = None
+        out.append((ref, access))
+        if len(out) >= MAX_AGENT_SOURCES:
+            break
+    return out

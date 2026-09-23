@@ -185,6 +185,9 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_retract_claim": lambda c, a: mcp_tools.retract_claim(
         c, str(a.get("subject") or ""), str(a.get("claim_id") or ""), str(a.get("reason") or ""),
         a.get("evidence")),
+    "cicada_add_source": lambda c, a: mcp_tools.add_source(
+        c, str(a.get("subject") or ""), str(a.get("ref") or ""), a.get("predicate"), a.get("access"),
+        a.get("kind")),
     "cicada_save_url": lambda c, a: mcp_tools.save_url(c, str(a.get("url") or ""), a.get("note")),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, str(a.get("url") or ""), str(a.get("summary") or ""), a.get("excerpts"), a.get("chapters")),
