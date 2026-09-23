@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient
 
 from _demo_scenario import T, d, demo
 from api import config, main
-from api.services import (bank_index, claim_expiry, followups, git_service, handshake, inbox_service, markdown_parser,
-                          mcp_tools, owner_identity, progress, sleep_cycle, telemetry)
+from api.services import (bank_index, claim_expiry, demo_guard, followups, git_service, handshake, inbox_service,
+                          markdown_parser, mcp_tools, owner_identity, progress, sleep_cycle, telemetry)
 from api.services.claims import Claim, parse_claims, write_claims
 
 CAMERA = "Bob started calibrating the gripper camera"
@@ -413,15 +413,24 @@ def _spies(monkeypatch):
     return order
 
 
-def test_the_tail_asks_after_expiry_and_before_the_poll_in_its_own_commit(bank, monkeypatch):
+_POLLS = ["_poll_connectors_safely", "_poll_feeds_and_calendars_safely", "_backfill_links_safely",
+          "_resolve_papers_safely", "_replay_wispr_todos_safely"]
+
+
+@pytest.mark.parametrize("is_demo", [False, True], ids=["real", "demo"])
+def test_the_tail_asks_after_expiry_and_before_the_poll_in_its_own_commit(bank, monkeypatch, is_demo):
+    """On a real bank the follow-up commit lands between expiry and the polls; on
+    a demo bank (the scenario fixture IS one) the proposer still runs — it
+    reads nothing from outside — while the outside-world polls are skipped
+    (G141 capture-side R-CS16)."""
     monkeypatch.setattr(sleep_cycle, "date", _T)
+    monkeypatch.setattr(demo_guard, "is_demo", lambda _path: is_demo)
     before = _git(bank, "status", "--porcelain")          # the scaffold's own untracked files, if any
     order = _spies(monkeypatch)
     asyncio.run(sleep_cycle._run_engine_independent_tail(
         bank, SimpleNamespace(), sleep_cycle._StageOutcome(committed=True, questions_refreshed=True)))
     assert order == ["_refresh_state_safely", "_expire_claims_safely", f"commit:Follow-ups {T}",
-                     "_poll_connectors_safely", "_poll_feeds_and_calendars_safely", "_backfill_links_safely",
-                     "_resolve_papers_safely", "_replay_wispr_todos_safely", "_warm_logos_safely"]
+                     *([] if is_demo else _POLLS), "_warm_logos_safely"]
     message = _git(bank, "log", "-1", "--format=%B")
     item = next(iter(_open(bank)))
     assert f"inbox/{item}: created (source: n/a, trigger: sleep/followup)" in message

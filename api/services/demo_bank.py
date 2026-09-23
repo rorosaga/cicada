@@ -36,8 +36,8 @@ import subprocess
 from datetime import date, timedelta
 from pathlib import Path
 
-from api.services import (decay_policy, demo_guard, entity_body, episode_ids, episode_scrub, fact_sources,
-                          git_service, markdown_parser, owner_identity)
+from api.services import (decay_policy, demo_guard, entity_body, episode_ids, episode_scrub, episode_staging,
+                          fact_sources, git_service, markdown_parser, owner_identity)
 from api.services.agentic_write import write_claim
 
 # --- Entity roster (~60 total + the owner page `ensure_owner_entity` adds) --
@@ -641,10 +641,12 @@ def _write_scenario(bank_dir: Path, today: date) -> dict:
             fm["harness"] = "claude-code"
         if session:
             fm["session_id"] = session
-        if stamped:   # the episode_staging sidecar shape (R-PB4), always the LAST key
-            fm["turns"] = [{"offset": 0, "ts": f"{day}T{hour:02d}:04:00+00:00", "speaker": "user"},
-                           {"offset": body.index("\nassistant: ") + 1, "ts": f"{day}T{hour:02d}:05:00+00:00",
-                            "speaker": "assistant"}]
+        if stamped:   # the episode_staging sidecar (R-PB4), through its one writer — always the LAST key
+            draft = episode_staging.EpisodeDraft(turns=[
+                episode_staging.Turn(text=user.format(**dates), speaker="user", ts=f"{day}T{hour:02d}:04:00+00:00"),
+                episode_staging.Turn(text=assistant, speaker="assistant", ts=f"{day}T{hour:02d}:05:00+00:00"),
+            ])
+            episode_staging.set_turn_stamps(fm, episode_staging.stamps_for(draft, body))
         markdown_parser.write(eps / f"{ep_id}.md", fm, body)
         ids[key] = ep_id
         paths.append(f"episodes/{ep_id}.md")

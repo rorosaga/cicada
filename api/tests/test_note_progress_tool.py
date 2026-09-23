@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from _demo_scenario import day_one, demo
+from _demo_scenario import day_one, demo, treat_as_real
 from api.remote import catalog
 from api.remote.runtime import BUSY_TEXT, RemoteRuntime
 from api.services import agent_commits, handshake, markdown_parser, mcp_tools
@@ -20,6 +20,11 @@ GUIDE = "https://example.com/guides/lab-cluster-onboarding.pdf"
 PARTICIPANTS = [{"name": "Bob", "role": "owner"}, {"name": "Hana Example", "role": "from"},
                 {"name": "lab cluster onboarding guide", "role": "document", "url": GUIDE}]
 CLAIM_ID = re.compile(r"claim `(clm_[^`]+)`")
+
+
+@pytest.fixture(autouse=True)
+def _scenario_is_not_refused_as_a_demo(monkeypatch):
+    treat_as_real(monkeypatch)
 
 
 @pytest.fixture

@@ -13,7 +13,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
-from api.services import bank_index, bank_registry, demo_bank, search_index
+from api.services import bank_index, bank_registry, demo_bank, demo_guard, search_index
 
 T = date(2026, 9, 23)
 TZ = "UTC"
@@ -48,3 +48,11 @@ def demo(tmp_path: Path, *, index: bool = True, events: bool = True, person: boo
 def day_one(tmp_path: Path, **kw) -> Path:
     """PJ-1's bank: what every bank already holds, before any event writer ran."""
     return demo(tmp_path, events=False, person=False, followups=False, **kw)
+
+
+def treat_as_real(monkeypatch) -> None:
+    """The scenario bank comes from `demo_bank.populate`, so it carries the demo
+    manifest (G141 capture-side R-CS10) and every MCP write tool refuses it
+    (R-CS13). A test of a write tool's OWN behaviour on the scenario lifts that
+    one refusal; the refusal itself is `test_demo_capture.py`'s to hold."""
+    monkeypatch.setattr(demo_guard, "is_demo", lambda _path: False)

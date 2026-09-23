@@ -149,10 +149,11 @@ def test_cicada_note_progress_is_scrubbed(tmp_path, monkeypatch):
     dropped rather than stored half-redacted."""
     from datetime import UTC, datetime
 
-    from _demo_scenario import day_one
+    from _demo_scenario import day_one, treat_as_real
     from api.services import handshake, mcp_tools
     from api.services.claims import parse_claims
 
+    treat_as_real(monkeypatch)
     monkeypatch.setattr(handshake, "local_timezone", lambda: "UTC")
     monkeypatch.setattr(mcp_tools, "_now_in", lambda tz: datetime(2026, 9, 23, 18, tzinfo=UTC))
     bank = day_one(tmp_path, index=False)

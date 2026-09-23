@@ -24,7 +24,6 @@ is removed in the same commit.
 """
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -192,9 +191,8 @@ def restore(memory_path: Path, report: Report) -> None:
     for rel in report.written:
         (memory_path / rel).unlink(missing_ok=True)
     if report.removed and (memory_path / ".git").exists():
-        try:
-            subprocess.run(["git", "checkout", "--", *report.removed], cwd=str(memory_path),
-                           capture_output=True, timeout=10, check=False)
-        except (subprocess.TimeoutExpired, OSError) as exc:
+        try:   # through the bank's one write lock, like every git write (F2-back R-B1)
+            git_service.run_git_write_sync(memory_path, "checkout", "--", *report.removed)
+        except git_service.GitError as exc:
             logger.warning(f"follow-up restore failed: {type(exc).__name__}")
     bank_index.invalidate(memory_path)

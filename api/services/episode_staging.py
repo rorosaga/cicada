@@ -264,9 +264,15 @@ def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict]) -> None:
     else:
         fm["processed"] = True
         fm["processed_by"] = draft.processed_by
-    # R-PB4: the new body's times replace the old ones, as the LAST key so the
-    # episode's identity reads first; a body that lost them drops the key
-    # rather than keeping stale offsets.
+    set_turn_stamps(fm, stamps)
+
+
+def set_turn_stamps(fm: dict, stamps: list[dict]) -> None:
+    """R-PB4: the new body's times replace the old ones, as the LAST key so the
+    episode's identity reads first; a body that lost them drops the key rather
+    than keeping stale offsets. The one writer of the key (R-CS7's lint keeps
+    it to this module, ``evidence`` and ``transcript_capture``) — a writer that
+    builds its own frontmatter, like the demo generator, sets it through here."""
     fm.pop("turns", None)
     if stamps:
         fm["turns"] = stamps
