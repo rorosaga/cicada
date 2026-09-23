@@ -31,59 +31,28 @@ CWD_SAFE_RE = re.compile(r"^[A-Za-z0-9/_.~-]+$")
 @router.post("/conversations/upload", response_model=ConversationUploadResponse)
 async def upload_conversation(
     file: UploadFile,
+    response: Response,
     settings: Settings = Depends(get_settings),
 ):
+    """Deprecated shim (Track I T2, R-IA10) — the app imports through
+    ``POST /intake/import``. Kept for external callers, now on the ONE pipeline:
+    a Claude export uploaded here is stamped ``claude-export`` (it read
+    "Unattributed" on the Sources page before, R7 §1.2 defect 1), a zip is
+    accepted, and a Gemini page reaches the Gemini parser instead of ChatGPT's
+    scraper (defect 2). Synchronous by contract — its callers expect counts."""
+    from api.routers import intake  # deferred: intake imports this module
+
+    response.headers["Deprecation"] = "true"
     content = await file.read()
-    filename = file.filename or ""
-    logger.info(f"Upload: {filename} ({len(content)} bytes)")
-
-    source = "unknown"
-    try:
-        if filename.endswith(".html"):
-            episodes = _parse_chatgpt_html(content.decode("utf-8"))
-            source = "chatgpt_html"
-            logger.info(f"  Parsed as ChatGPT HTML: {len(episodes)} episodes")
-        elif filename.endswith(".json"):
-            data = json.loads(content)
-            source = detect_source(data, filename)
-            logger.info(f"  Detected source: {source}")
-            if source == "anthropic":
-                episodes = parse_anthropic_conversations(data)
-            elif source == "anthropic_memories":
-                episodes = parse_anthropic_memories(data)
-            elif source == "anthropic_projects":
-                episodes = parse_anthropic_projects(data)
-            elif source == "chatgpt":
-                episodes = parse_chatgpt_json(data)
-            else:
-                raise HTTPException(400, "Unrecognized JSON format")
-        else:
-            raise HTTPException(400, "Unsupported file format. Use .json or .html")
-    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-        raise HTTPException(400, f"Failed to parse file: {e}")
-
-    # Map source to human-readable labels
-    source_labels = {
-        "anthropic": "Claude — Conversations",
-        "anthropic_memories": "Claude — Memories",
-        "anthropic_projects": "Claude — Projects",
-        "chatgpt": "ChatGPT — Conversations",
-        "chatgpt_html": "ChatGPT — HTML Export",
-    }
-
-    created, updated, skipped = _stage_episodes(
-        episodes, settings.memory_path / "episodes"
-    )
-    logger.info(
-        f"  Staged {created} new, {updated} updated, {skipped} unchanged"
-    )
+    logger.info(f"Upload (deprecated shim): {file.filename or ''} ({len(content)} bytes)")
+    result = await run_in_threadpool(intake.import_bytes, content, file.filename or "", settings)
     return ConversationUploadResponse(
         status="success",
-        episodes_created=created,
-        episodes_updated=updated,
-        duplicates_skipped=skipped,
-        message=f"Staged {created} new, {updated} updated, {skipped} unchanged",
-        source=source_labels.get(source, source),
+        episodes_created=result.created,
+        episodes_updated=result.updated,
+        duplicates_skipped=result.skipped,
+        message=f"Staged {result.created} new, {result.updated} updated, {result.skipped} unchanged",
+        source=intake.source_label(result.parsed),
     )
 
 
@@ -485,7 +454,13 @@ def parse_chatgpt_json(data: list) -> list[dict]:
 
 
 def _parse_chatgpt_html(html: str) -> list[dict]:
-    """Parse ChatGPT HTML export. Fallback — less structured than JSON."""
+    """Parse ChatGPT HTML export. Fallback — less structured than JSON.
+
+    Only ChatGPT's legacy export, whose threads sit in `div.conversation`
+    blocks. The old `[soup]` fallback turned any page — a bookmarks file, the
+    `chat.html` viewer — into role-less messages dated today (Track I D7); a
+    page without those blocks is not a chat export.
+    """
     from bs4 import BeautifulSoup
 
     soup = BeautifulSoup(html, "html.parser")
@@ -493,7 +468,7 @@ def _parse_chatgpt_html(html: str) -> list[dict]:
 
     conversations = soup.find_all("div", class_="conversation")
     if not conversations:
-        conversations = [soup]
+        return []
 
     for conv in conversations:
         messages: list[dict] = []
@@ -565,13 +540,32 @@ def _parse_gemini_timestamp(raw: str) -> str | None:
     return episode_ids.to_utc_iso(dt)
 
 
-def parse_gemini_myactivity(html: str) -> list[dict]:
-    """Parse a Google Takeout ``Gemini Apps/MyActivity.html`` export.
+_GEMINI_VERB = re.compile(r"^(?:Prompted|Asked|Said)[\s\u00a0]+")
+_GEMINI_TITLE_MAX = 60
 
-    Each activity entry is an ``outer-cell`` ``mdl-card`` whose body holds the
-    prompt text plus a rendered timestamp. We treat each entry as a single
-    backdated episode (``origin=gemini-export``), preserving the activity's own
-    timestamp so the Sleep cycle sees true chronology.
+
+def _gemini_title(prompt: str) -> str:
+    first = prompt.split("\n", 1)[0].strip()
+    if not first:
+        return "Gemini activity"
+    return first if len(first) <= _GEMINI_TITLE_MAX else first[: _GEMINI_TITLE_MAX - 1].rstrip() + "…"
+
+
+def parse_gemini_myactivity(html: str) -> list[dict]:
+    """Parse a Google Takeout ``Gemini Apps/MyActivity.html`` export (Track I, R-IA9).
+
+    One episode per activity cell. The first content cell reads
+    ``Prompted <prompt>``, the activity's rendered timestamp, then Gemini's
+    reply; the old parser kept all of it as ONE ``user`` message, so Gemini's
+    words were credited to the person, and titled every entry "Gemini
+    activity". Now the cell is split at its (last) timestamp line: the prompt
+    — minus Google's own verb, which is not the person's words — is ``user``,
+    what follows is ``assistant``, and the title is the prompt's first line.
+
+    Each entry also carries ``legacy_hash``: the ``content_hash`` the old
+    parser's body would have had. ``api/routers/intake.plan`` counts a legacy
+    hash already in the bank as unchanged, so a Takeout re-imported after this
+    change duplicates nothing (``_write_new_episode`` never writes the key).
     """
     from bs4 import BeautifulSoup
 
@@ -588,27 +582,35 @@ def parse_gemini_myactivity(html: str) -> list[dict]:
         text = content.get_text(separator="\n", strip=True)
         if not text:
             continue
-
-        # The timestamp is the trailing date-looking line within the cell text.
+        lines = text.split("\n")
         ts: str | None = None
-        for line in reversed(text.split("\n")):
-            parsed = _parse_gemini_timestamp(line)
+        at: int | None = None
+        for i in range(len(lines) - 1, -1, -1):
+            parsed = _parse_gemini_timestamp(lines[i])
             if parsed:
-                ts = parsed
-                # Strip the timestamp line from the prompt body.
-                text = text.replace(line, "").strip()
+                ts, at = parsed, i
                 break
-
-        if not text:
+        # Byte-for-byte what the pre-Track-I parser kept as the body.
+        legacy_text = text.replace(lines[at], "").strip() if at is not None else text
+        prompt_lines, reply_lines = (lines[:at], lines[at + 1:]) if at is not None else (lines, [])
+        prompt = _GEMINI_VERB.sub("", "\n".join(prompt_lines).strip())
+        reply = "\n".join(reply_lines).strip()
+        if not prompt and not reply:
             continue
-
+        messages = []
+        if prompt:
+            messages.append({"role": "user", "text": prompt, "timestamp": ts})
+        if reply:
+            messages.append({"role": "assistant", "text": reply, "timestamp": ts})
         episodes.append({
-            "title": "Gemini activity",
+            "title": _gemini_title(prompt),
             "source": "gemini_export",
             "origin": "gemini-export",
-            "messages": [{"role": "user", "text": text, "timestamp": ts}],
+            "messages": messages,
             "timestamp": ts,
             "original_date": _extract_date(ts),
+            "legacy_hash": (hashlib.sha256(f"user: {legacy_text}".encode()).hexdigest()[:12]
+                            if legacy_text else None),
         })
 
     episodes.sort(key=lambda e: e.get("timestamp") or "")
@@ -648,43 +650,14 @@ _IMPORT_FORMAT = {
 
 
 def parse_export_bytes(content: bytes, filename: str) -> tuple[list[dict], str]:
-    """Detect + parse a chat-export file (or .zip) into episodes + a format tag.
+    """The old 2-tuple, kept for its callers (Track I T2, R-IA7). The one parser
+    is ``api.routers.intake.parse_export`` — every zip member it knows, named
+    skips, an origin on every path — and this returns its episodes and format.
+    Deferred import: ``intake`` imports this module."""
+    from api.routers import intake
 
-    Handles a raw ``conversations.json`` (Claude / ChatGPT), ``MyActivity.html``
-    (Gemini), a ChatGPT HTML export, or a ``.zip`` wrapping any of the above
-    (Claude data export, Gemini Takeout, ChatGPT export). Returns
-    ``(episodes, format)`` where ``format`` is the wire tag. Raises
-    ``HTTPException`` on unrecognized input.
-    """
-    name = (filename or "").lower()
-
-    if name.endswith(".zip"):
-        return _parse_zip(content)
-
-    if name.endswith(".html") or name.endswith(".htm"):
-        text = content.decode("utf-8", errors="replace")
-        # Gemini Takeout MyActivity vs a generic ChatGPT HTML export.
-        if "MyActivity" in (filename or "") or "mdl-typography" in text or "outer-cell" in text:
-            return parse_gemini_myactivity(text), "gemini"
-        return _parse_chatgpt_html(text), "chatgpt"
-
-    if name.endswith(".json") or not name:
-        try:
-            data = json.loads(content)
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            raise HTTPException(400, f"Failed to parse file: {e}")
-        source = detect_source(data, filename)
-        if source == "anthropic":
-            return _stamp_origin(parse_anthropic_conversations(data), "claude-export"), "claude"
-        if source == "anthropic_memories":
-            return _stamp_origin(parse_anthropic_memories(data), "claude-export"), "claude_memories"
-        if source == "anthropic_projects":
-            return _stamp_origin(parse_anthropic_projects(data), "claude-export"), "claude_projects"
-        if source == "chatgpt":
-            return parse_chatgpt_export(data), "chatgpt"
-        raise HTTPException(400, "Unrecognized JSON export format")
-
-    raise HTTPException(400, "Unsupported file format. Use .json, .html, or .zip")
+    parsed = intake.parse_export(content, filename)
+    return parsed.episodes, parsed.format
 
 
 def _stamp_origin(episodes: list[dict], origin: str) -> list[dict]:
@@ -692,42 +665,6 @@ def _stamp_origin(episodes: list[dict], origin: str) -> list[dict]:
     for ep in episodes:
         ep["origin"] = origin
     return episodes
-
-
-def _parse_zip(content: bytes) -> tuple[list[dict], str]:
-    """Extract a chat-export .zip in a temp dir and parse the contained file.
-
-    Locates (in priority order) a Gemini ``MyActivity.html``, a Claude/ChatGPT
-    ``conversations.json``, or any ``*.html``/``*.json`` and recurses into it.
-    """
-    import io
-    import tempfile
-    import zipfile
-
-    try:
-        zf = zipfile.ZipFile(io.BytesIO(content))
-    except zipfile.BadZipFile as e:
-        raise HTTPException(400, f"Invalid zip file: {e}")
-
-    names = [n for n in zf.namelist() if not n.endswith("/")]
-
-    def _first(pred):
-        return next((n for n in names if pred(n.lower())), None)
-
-    target = (
-        _first(lambda n: n.endswith("myactivity.html"))
-        or _first(lambda n: n.endswith("conversations.json"))
-        or _first(lambda n: n.endswith(".html"))
-        or _first(lambda n: n.endswith(".json"))
-    )
-    if not target:
-        raise HTTPException(400, "Zip contains no recognizable export file")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        extracted = zf.extract(target, tmp)
-        with open(extracted, "rb") as f:
-            inner = f.read()
-    return parse_export_bytes(inner, Path(target).name)
 
 
 # --- Helpers ---
@@ -741,6 +678,56 @@ def _extract_date(timestamp: str | None) -> str | None:
 
 
 # --- Staging ---
+
+
+# G118 slice 2 / R-PB4 — per-message times, kept BESIDE the body.
+# The parsers have always read each message's own time (`created_at`,
+# `create_time`) and staging threw it away, so a span could say WHERE in a
+# thread a belief came from but never WHEN. The body cannot carry it:
+# `content_hash` is computed over the exact `role: text` lines, and a new body
+# shape would "update" every already-imported thread on the next re-import and
+# re-queue the whole corpus for Sleep (paid). So the times ride in frontmatter
+# as `turns: [{offset, ts, speaker}]` — the key and shape the Local-sources
+# track writes too — outside the hash by construction.
+#
+# Capped, head-stable, because frontmatter is parsed on every cold
+# `bank_index` scan: measured 2026-09-23 (CPython 3.12, PyYAML's pure-Python
+# SafeLoader) a sidecar costs ~2.9 ms at 50 entries, ~11.5 ms at 200 and
+# ~28 ms at 500 per parse, against ~0.14 ms for the same frontmatter without
+# it. Turns past the cap carry no time; the Reader shows a time only when one
+# is stored and never infers one.
+MAX_TURN_STAMPS = 500
+
+
+def _message_line(msg: dict) -> str:
+    """One body line — the ONLY place the importer spells its `role: text`
+    shape, so the hashed body and `_turn_stamps`' offsets cannot disagree."""
+    return f"{msg['role']}: {msg['text']}"
+
+
+def _turn_stamps(messages: list[dict], body: str) -> list[dict]:
+    """``[{offset, ts, speaker}]`` for ``body``, or ``[]`` (R-PB4).
+
+    ``offset`` is the message's ``role:`` line start in the evidence text —
+    ``markdown_parser.parse`` strips the body, and one built from stripped
+    message texts has nothing to strip — so it is a turn start
+    ``evidence.turns`` finds. ``speaker`` is the role that line is marked
+    with; ``ts`` the message's own time in the one aware-UTC shape. A message
+    without a time gets no entry (it would only repeat the marker). Returns
+    ``[]`` when ``body`` is not exactly these messages' own rendering: the
+    offsets would vouch for text they do not index.
+    """
+    lines = [_message_line(msg) for msg in messages]
+    if "\n".join(lines) != body:
+        return []
+    out: list[dict] = []
+    offset = 0
+    for msg, line in zip(messages, lines):
+        ts = _normalise_import_timestamp(msg.get("timestamp"))
+        if ts and len(out) < MAX_TURN_STAMPS:
+            out.append({"offset": offset, "ts": ts, "speaker": str(msg["role"])})
+        offset += len(line) + 1
+    return out
 
 
 def _stage_episodes(
@@ -796,10 +783,7 @@ def _stage_episodes(
 
     for episode in episodes:
         # Build content string for hashing
-        content_lines: list[str] = []
-        for msg in episode.get("messages", []):
-            content_lines.append(f"{msg['role']}: {msg['text']}")
-        content_str = "\n".join(content_lines)
+        content_str = "\n".join(_message_line(msg) for msg in episode.get("messages", []))
         content_hash = hashlib.sha256(content_str.encode()).hexdigest()[:12]
 
         source_id = episode.get("source_id")
@@ -916,6 +900,12 @@ def _write_new_episode(
         frontmatter["source_id"] = episode["source_id"]
         frontmatter["source_updated_at"] = episode.get("source_updated_at")
 
+    # G118 slice 2 (R-PB4): each message's time beside the body — outside
+    # `content_hash`, and the LAST key so the thread's identity reads first.
+    turns = _turn_stamps(episode.get("messages", []), content_str)
+    if turns:
+        frontmatter["turns"] = turns
+
     path = episodes_dir / f"{episode_id}.md"
     markdown_parser.write(path, frontmatter, content_str)
     return path
@@ -940,4 +930,10 @@ def _update_episode_in_place(
     fm["processed"] = False
     if episode.get("origin"):
         fm["origin"] = episode["origin"]
+    # G118 slice 2 (R-PB4): the grown thread's times replace the old ones; a
+    # re-export that lost them drops the key rather than keeping stale offsets.
+    turns = _turn_stamps(episode.get("messages", []), content_str)
+    fm.pop("turns", None)
+    if turns:
+        fm["turns"] = turns
     markdown_parser.write(path, fm, content_str)

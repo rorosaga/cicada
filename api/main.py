@@ -25,6 +25,7 @@ from api.routers import (
     episodes,
     graph,
     inbox,
+    intake,
     local_refs,
     maintenance,
     nudges,
@@ -167,6 +168,7 @@ app.include_router(contributors.router, tags=["contributors"])
 app.include_router(origins.router, tags=["origins"])
 app.include_router(sleep.router, tags=["sleep"])
 app.include_router(conversations.router, tags=["conversations"])
+app.include_router(intake.router, tags=["intake"])
 app.include_router(sources.router, tags=["sources"])
 app.include_router(state.router, tags=["state"])
 app.include_router(banks.router, tags=["banks"])

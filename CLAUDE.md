@@ -586,6 +586,9 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
   call is still running (a process-local lock — two overlapping clicks would stage each other's
   half-written pages under their own trailers).
 - `GET /sync/version` is the cheap change-detector (<10 ms); `GET /sync/events` is the SSE stream.
+- `POST /conversations/upload` is a deprecated shim over the one intake — new callers use
+  `POST /intake/import`; its `turns` sidecar is a list on imported episodes and an **integer
+  count** on Stop-hook episodes, so a reader checks the type.
 
 ---
 
@@ -671,8 +674,14 @@ scheduled path — daily, interval, or the settle probe — passes `user_trigger
 scheduled cycle never spends plan quota (the standing ruling in `TODO.md`).
 
 ### 5. Conversation upload
-File picker for JSON/HTML exports; parses and stages into `episodes/`; dedups on timestamp +
-content hash.
+**One chat-export pipeline (Track I).** Claude, ChatGPT and Gemini exports — a whole .zip, a
+folder, or one file — go through `api/routers/intake.py`: every member a parser knows (a Claude
+zip's conversations, memories and projects), the known extras (`user(s).json`, feedback and
+comparison files, ChatGPT's `chat.html` viewer) skipped **by name**, the vendor's `origin` stamped
+on every path, per-message times kept as `turns: [{offset, ts, speaker}]` outside `content_hash`,
+and re-imports updating grown threads in place (G20) without duplicating. `POST /intake/sniff`
+previews and stages nothing; `POST /intake/import` stages. `/conversations/upload` (deprecated,
+`Deprecation: true`) and `/banks/{name}/import` are shims over it.
 
 ---
 

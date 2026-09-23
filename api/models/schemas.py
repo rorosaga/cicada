@@ -1469,6 +1469,86 @@ class BankImportResponse(CamelModel):
     # ever process — the app branches its toast on this rather than showing a
     # plain success message that silently hides the consequence.
     active: bool = False
+    # Track I T2 (R-IA10): the shim now runs the one pipeline, which knows both.
+    vendor: Optional[str] = None
+    origin: Optional[str] = None
+
+
+# --- One intake (Track I T2/T2b) ---
+
+
+class IntakeIgnored(CamelModel):
+    """A file the export carries that is not a conversation, said by name."""
+
+    name: str
+    reason: str
+
+
+class IntakeCounts(CamelModel):
+    conversations: int = 0
+    memories: int = 0
+    projects: int = 0
+    prompts: int = 0
+    items: int = 0
+
+
+class IntakeDelta(CamelModel):
+    """What an import WOULD do, from ``intake.plan`` (G20 made visible first)."""
+
+    new: int = 0
+    grown: int = 0
+    unchanged: int = 0
+
+
+class IntakeTitle(CamelModel):
+    title: str
+    date: Optional[str] = None
+
+
+class IntakeSniffResponse(CamelModel):
+    """``POST /intake/sniff`` — what a dropped file is, staging nothing (G71 §4.3).
+
+    ``recognized`` false with ``reason`` null and ``ignored`` set is a quiet
+    skip (a lone ``user.json``); with a ``reason`` it is a file the app should
+    name as unreadable, in these words."""
+
+    recognized: bool = False
+    kind: Literal["chat", "saved", "unknown"] = "unknown"
+    vendor: Optional[str] = None
+    origin: Optional[str] = None
+    platform: Optional[str] = None
+    members: list[str] = []
+    ignored: list[IntakeIgnored] = []
+    counts: IntakeCounts = Field(default_factory=IntakeCounts)
+    date_range: Optional[BankImportDateRange] = None
+    delta: IntakeDelta = Field(default_factory=IntakeDelta)
+    titles: list[IntakeTitle] = []
+    titles_truncated: bool = False
+    reason: Optional[str] = None
+    warnings: list[str] = []
+
+
+class IntakeJobRef(CamelModel):
+    id: str
+    total: int = 0
+
+
+class IntakeImportResponse(CamelModel):
+    """``POST /intake/import``. With ``job`` set (a 202, Track I T2b) the counts
+    are what was known at acceptance; poll ``GET /intake/jobs/{id}``."""
+
+    episodes_staged: int = 0
+    episodes_updated: int = 0
+    duplicates_skipped: int = 0
+    date_range: BankImportDateRange = Field(default_factory=BankImportDateRange)
+    format: str = "unknown"
+    active: bool = True
+    bank: str = "default"
+    vendor: Optional[str] = None
+    origin: Optional[str] = None
+    members: list[str] = []
+    ignored: list[IntakeIgnored] = []
+    job: Optional[IntakeJobRef] = None
 
 
 # --- Sources (media ingestion) ---
