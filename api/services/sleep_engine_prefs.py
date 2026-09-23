@@ -229,9 +229,10 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
             raise HTTPException(status_code=422, detail="disambiguation model must not be blank")
 
     # Cross-mode staleness guard: `model`/`disambiguation_model` share ONE
-    # untyped string slot per `sleep-engine` pref entry, with no mode tag of
-    # its own — `engine_select._model_overrides` reinterprets whatever sits
-    # there as belonging to whichever mode is CURRENTLY selected. Clear a
+    # untyped string slot per `sleep-engine` pref entry, tagged only by the
+    # entry's own `mode` — `engine_select._model_overrides` applies it only
+    # when the resolved mode equals that stored mode (Task 4 review round 1),
+    # so the slot must never outlive a mode switch either. Clear a
     # field on a mode switch unless this same PUT also supplies a fresh
     # value for it, so a Local-mode Ollama tag can never survive a switch to
     # Agent mode and get misread as a Claude alias (or vice versa).

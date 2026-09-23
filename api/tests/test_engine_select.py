@@ -428,3 +428,30 @@ def test_the_overage_opt_in_reaches_the_resolved_settings_only_when_not_env_pinn
     assert resolved.agent_allow_overage is True
     pinned, _why = asyncio.run(engine_select.resolve_settings(Settings(llm_mode="agent"), reg))
     assert pinned.agent_allow_overage is False
+
+
+@pytest.mark.parametrize("mode,model,disambiguation", [
+    ("agent", "opus", "sonnet"),
+    ("codex", "gpt-5.6-luna", "gpt-5.5"),
+])
+def test_a_plans_model_never_rides_into_the_key_a_schedule_degrades_to(mode, model, disambiguation):
+    """Task 4 review round 1: ruling 4 degrades a Settings-chosen plan to byok
+    on a schedule, and the plan's stored model must stay with the plan — a
+    CLI alias or a ChatGPT-plan model id in `litellm_model` either fails every
+    night or bills the person's API key for a model they never chose for it."""
+    reg = _FakeRegistry(prefs={"sleep-engine": {"mode": mode, "model": model,
+                                                "disambiguation_model": disambiguation}})
+    base_settings = Settings()
+    resolved, _why = asyncio.run(
+        engine_select.resolve_settings(base_settings, reg, user_triggered=False))
+    assert resolved.llm_mode == "byok"
+    assert resolved.litellm_model == base_settings.litellm_model
+    assert resolved.litellm_disambiguation_model == base_settings.litellm_disambiguation_model
+
+
+def test_a_model_pref_applies_only_to_the_mode_that_wrote_it():
+    reg = _FakeRegistry(prefs={"sleep-engine": {"mode": "agent", "model": "opus"}})
+    assert engine_select._model_overrides(reg, "agent") == {"agent_model": "opus"}
+    assert engine_select._model_overrides(reg, "byok") == {}
+    assert engine_select._model_overrides(reg, "local") == {}
+    assert engine_select._model_overrides(reg, "codex") == {}

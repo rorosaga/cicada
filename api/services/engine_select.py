@@ -144,18 +144,29 @@ def _model_overrides(registry, mode: str) -> dict:
     reads (``resolve_settings``'s ``settings.model_copy`` target names).
 
     Returns ``{}`` for ``"auto"`` (no concrete mode to attach a model to yet),
-    a ``None`` registry, or an unreadable prefs file — the caller then simply
-    applies no override, identical to today's behaviour. The stored
-    ``model``/``disambiguation_model`` strings are untyped and shared by
-    whichever mode is CURRENTLY selected (see `sleep_engine_prefs`'s own
-    cross-mode staleness guard, which clears them on a mode switch) — this
-    function only ever reads them, never decides whether they're stale.
+    a ``None`` registry, an unreadable prefs file, or a ``mode`` other than
+    the one the pref entry was written for — the caller then simply applies
+    no override, identical to today's behaviour.
+
+    The stored ``model``/``disambiguation_model`` slot belongs to the mode
+    that WROTE it (the entry's own ``mode``; `sleep_engine_prefs`'s
+    cross-mode staleness guard clears it on a switch), never to whatever the
+    ladder resolved this time. Task 4 review round 1: once R-E21 handed the
+    real registry here, a scheduled cycle that ruling 4 degraded from a
+    Settings-chosen plan (agent/codex) to byok read the plan's model — a
+    Claude CLI alias or a ChatGPT-plan model id — into ``litellm_model``,
+    so every nightly cycle either failed or billed the person's API key for
+    a model they never chose for it. ``sleep_engine_prefs.
+    _resolved_model_pair`` always passes the stored pref mode, so the GET's
+    own report is unaffected.
     """
     if registry is None or mode == "auto":
         return {}
     try:
         entry = registry.prefs().get(SLEEP_ENGINE_PREF_KEY) or {}
     except Exception:
+        return {}
+    if entry.get("mode") != mode:
         return {}
     model = entry.get("model")
     disambiguation = entry.get("disambiguation_model")

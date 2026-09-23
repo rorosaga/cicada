@@ -154,6 +154,19 @@ def test_scheduled_preview_never_shows_the_plan_when_only_prefs_chose_it(client)
     assert body["preview"]["scheduled"]["engine"] == "litellm"
 
 
+@pytest.mark.parametrize("choice", [
+    {"mode": "agent", "model": "opus", "disambiguationModel": "sonnet"},
+    {"mode": "codex", "model": "gpt-5.6-luna"},
+])
+def test_the_scheduled_preview_names_the_keys_own_model_not_the_plans(client, choice):
+    """Task 4 review round 1: the schedule runs on the key (ruling 4), so the
+    preview must name `litellm_model`, never the plan model the person picked."""
+    assert client.put("/sleep/engine", json=choice).status_code == 200
+    scheduled = client.get("/sleep/engine").json()["preview"]["scheduled"]
+    assert scheduled["engine"] == "litellm"
+    assert scheduled["model"] == config.Settings().litellm_model
+
+
 def test_prefs_file_is_0600(client, tmp_path):
     resp = client.put("/sleep/engine", json={"mode": "local", "model": "llama3.1"})
     assert resp.status_code == 200, resp.text
