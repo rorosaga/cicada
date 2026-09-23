@@ -647,22 +647,25 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
   ruled); (b) whether an in-conversation resolve carries `Cicada-Session:` on its `user` commit
   (recommended no — the session ref lives in the `resolution` ledger event; not yet ruled). $0.
   — G61 phase 2 (2026-09-23) adds a second caller (a source-settled item); rule (a) once for both.
-- **G61 phase 2 owner decisions** (spec §16, $0): D-AC1 settle default (recommended: shadow first, the
-  owner flips at ≥ 20 shadow settles and ≥ 95 % agreement — never automatic); D-AC2 hosts Cicada refuses
-  to fetch (LinkedIn-class) — recommended no `Check first:` line, the person clicks through; D-AC3 a
-  seventh evidence kind `source` (a CLAUDE.md contract change; G100's derived class is read-only under
-  R-PB9, so nothing is taken from it) — recommended yes; D-AC4 = **G116(a)**
-  with a second caller — recommended `cicada` + rule in the manifest; D-AC5 contract step 2 lets an agent
-  check before asking — recommended yes. D-AC3 and D-AC5 gate S3. Choosing `auto` in D-AC1 amends
-  working-method §4's "never auto-applied" inbox ruling (G115); record the amendment there.
+- **G61 phase 2 owner decisions — ruled 2026-09-23** (owner: "i'd go with your suggestions"; he named browser
+  harnesses and computer use in the ask itself): **D-AC1** shadow first — the owner flips auto-settling on at
+  ≥ 20 shadow settles and ≥ 95 % agreement, never automatically (working-method §4's "never auto-applied"
+  stands until he flips it); **D-AC2** the alternative, because the owner asked for browser agents by name: a
+  host Cicada refuses to fetch (LinkedIn-class) gets a `Check first:` line for an agent **in the person's own
+  already-open session only — never signing in, never passing a login** — and that finding is inform-only
+  forever (it never settles); **D-AC3** yes, a seventh evidence kind `source`; **D-AC4** = G116(a): `cicada`
+  authors a rule- or check-executed write, the rule in the manifest; **D-AC5** yes, contract step 2 lets an
+  agent check before asking.
 - **G77** voice packets · **G10** bulk re-extraction *(re-filed 2026-09-01 — its D2 architecture
   gate is resolved; now purely a 💸 spend decision, read alongside G74/G80/G78)*
-- **G141 DECIDEs** — (a) a Projects rail cell (spends a rail slot and a ⌘ number; default the seventh cell,
-  ⌘7, after Sources, so no shortcut moves; this is G108's call; the fallback is "Open project ›" on the
-  card, plus a Home "In motion" section once Home exists); (b) the timeline band's colour: neutral shapes,
-  or DESIGN_RULES §10's "dots use data hues" (R-PJ21; shown to the owner on the demo bank in PJ-5, his answer
-  recorded as a §9 line); (c) whether Sleep holds an unpromoted subject's claims with the pending entity and
-  writes them on promotion (changes the pending store; split out of PJ-0 on purpose). $0.
+- **G141 DECIDEs — ruled 2026-09-23** (owner: "on the things you mention as my decision, i'd go with your
+  suggestions, and as to the timeline colors, maybe like a green bar that fills up? something that fits the
+  aesthetic. make nodes in the timeline clickable and stuff."): (a) Projects is the **eighth** rail item, ⌘8,
+  after Sources — Home took ⌘1 in #86, so no shortcut moves; (b) the band's progress is a **meadow-green fill
+  that fills up to Today**, every node on it clickable (DESIGN_RULES §9 records it; the one place a Meadow hue
+  encodes progress); (c) **yes** — Sleep holds an unpromoted subject's claims with the pending entity and
+  writes them on promotion: a new slice **PJ-0b** after PJ-0. R-PJ16 (the Stop hook writes the per-turn
+  `turns` list) is accepted.
 
 ### Parked — no near-term work
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
