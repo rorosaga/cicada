@@ -207,7 +207,8 @@ answer.
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
-refresh, the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
+refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit), the
+connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
 enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s own commit so the poll's
 `git add -A` sweeps only its own files.
 
@@ -296,19 +297,31 @@ A predicate the vocabulary marks multi-valued (`predicates.cardinality`) never o
 document's *evidence text* (the body as `markdown_parser.parse` returns it, with the ```claims fence
 stripped for an entity page, so writing a claim never stales its own span); `hash` is
 `sha256[:12]` of that text, and a mismatch reads as `stale` rather than mis-highlighting. `kind` is
-`user` | `assistant` | `page` | `speaker` (a meeting participant who is not the owner, G134) |
-`reasoning` (the contributor's own inference: `start == end == -1`, never a faked span); an episode's
-`evidence_kind: user|assistant` (a folder's authorship rule, R-F2) overrides the line markers.
-One module, `api/services/evidence.py`, does the work for every writer: locate
+one of six: `user` | `assistant` | `page` | `speaker` (a meeting participant who is not the owner,
+G134) | `media` (what a video said — a watch record's timed `video [m:ss]:` line, G140; its position
+in the video is derived at read, never stored) | `reasoning` (the contributor's own inference:
+`start == end == -1`, never a faked span); an episode's `evidence_kind: user|assistant` (a folder's
+authorship rule, R-F2) overrides the line markers. One marker grammar, `evidence._marker`, reads
+both line families. One module, `api/services/evidence.py`, does the work for every writer: locate
 is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an unlocatable quote
 becomes `reasoning` and **the claim is still written — provenance never blocks memory**. Legacy
 claims carry no `evidence` and `to_dict` omits the empty key; there is no backfill.
+
+**Stated ends (G140).** A claim may carry `expected_end` — the date the fact itself says it stops
+being true — and a G17 `due` claim's ISO-date object is its own. Never a future `valid_to`, which
+every reader takes to mean *closed*. Sleep's engine-free tail closes such a claim the day after its
+end (`claim_expiry`), in its own `Expiry <date>` commit (`Cicada-Author: cicada`, trigger
+`sleep/expiry`); a failed commit restores the pages rather than leaving them for the next
+`git add -A` writer. An agent withdraws a claim IT wrote with `cicada_retract_claim`: the claim
+closes and a born-closed `retracts` record keeps the reason and any cited words; a human or Sleep
+claim is never an agent's to withdraw.
 
 **Reading provenance back (G118 slice 2, server half).** Three engine-free, bank-only reads, all
 built in `api/services/provenance.py` and fetched on demand — none is a Store domain, so each ETag
 serves the client's in-memory cache and there is no `VersionVector` mapping: `GET
 /episodes/{id}/text` (the whole evidence text, capped at 400,000 chars, with `turns[]` from the
-same marker lines `speaker_kind` reads — `speaker:<label>:` included, role `speaker` — each turn's
+same marker lines `speaker_kind` reads — `speaker:<label>:` included, role `speaker`; a timed
+`video [m:ss]:` line is role `media` with its `t` in seconds, as a span's `t` is — each turn's
 role the `evidence.kind_for` answer, so an `evidence_kind` override relabels every turn — and an
 asserted `start/end/hash` or derived `focus=<entity>`), `GET /entities/{id}/provenance` (contributors from claim `authored_by` plus one
 trailer-only `git log` of the page — ETag includes `git_head` — conversations grouped by
@@ -366,7 +379,12 @@ every day and made every idle night commit.
 
 **The handshake** (`api/services/handshake.py`) turns `_state.md` + a fixed contract into ≤ 1,800
 tokens of primer: what Cicada is, a per-harness prelude (the contract never varies), the contract
-itself, the now-view, and capability notes. Delivered three ways — the MCP `initialize` result's
+itself, the now-view, and capability notes. The now-view is **Standing** — the person's page and
+one-liner (through G117's resolver), their timezone (per request, never in `_state.md`, part of the
+cache key), *How to work with me* (standing `skill` pages by confidence alone), long-standing
+durable/evergreen pages — then **Current** — projects, pages in focus in the last 14 days, people,
+recent conversations (G140, schema v2). A test holds R12 for every argument either primer names, for
+every remote scope set. Delivered three ways — the MCP `initialize` result's
 `instructions`, the `cicada_handshake` tool, and `GET /handshake`. **R12: a primer naming an
 argument the schema rejects is a bug** — every argument it names must exist in the tool schema.
 `SKILL.md` points at the generated text rather than restating the contract — one prose source.
@@ -432,7 +450,8 @@ Cicada-Session: <id>
 ```
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
-`sleep/state`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`,
+`sleep/state`, `sleep/expiry`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
+`user/companion_app`,
 `mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135).
 
 **Three trailer families, all inert to entity-line parsing — extend them, don't break them:**
@@ -442,7 +461,7 @@ Cicada-Session: <id>
   arrived through MCP, where the model is not disclosed (G135; G49 keeps the model reserved), the
   literal **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits,
   and **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
-  migrations, the split-out decay commit, the `State snapshot` commit). Built by
+  migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` commit). Built by
   `git_service.build_commit_message(...)`, parsed by `_parse_authors`. Powers `GET /contributors`.
 - **`Cicada-Engine:`** — exactly one per main commit (`claude-cli|ollama|litellm`), **omitted
   entirely rather than guessed** when no LLM ran. Read back via git's own
@@ -475,6 +494,16 @@ The interface between any LLM and the memory system. On `initialize` the server 
 handshake as `instructions`. On query: check `memory/inbox/` for relevant pending items → search the
 vector index → search the markdown graph → follow wikilinks for relational depth → progressive
 disclosure (cluster pages → entity pages → episodic sources).
+
+**Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
+FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
+subject — so an alias or a relationship label reaches its page. The top three pages carry a bounded
+"Changed recently" block (claims closed in the last 30 days, ≤ 5 lines);
+`cicada_get_perspective(history=true)` lists every earlier claim. **`cicada_timeline(since)`**
+answers "what changed" from the commit manifests on demand — ids and counts only, nothing stored,
+`read` scope remotely. **`cicada_record_watch`** records what an agent's own tools saw in a saved
+video — a summary and ≤ 12 timestamped quotes as `media` spans; Cicada never downloads or watches a
+video, and never keeps a transcript.
 
 **Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
 clarification naturally in the flow when the conversation touches its entity, and offer related
@@ -518,9 +547,22 @@ no `$`/token columns, no cost-per-day chart. The `/consumption/*` endpoints and 
 unchanged for future use.
 
 **Navigation.** Six sidebar rows (⌘1–6): Graph, Clusters, Feed, Sleep, Inbox, Sources. Setup lives
-in a native `Settings{}` scene (⌘,), a `NavigationSplitView` over five sections — General · Sleep ·
-Integrations · Agents · Plans & keys (`SettingsSection`, replacing the earlier four-tab `TabView`).
-⌘K opens the Ask panel. `AppTab` raw values are the persisted identity of a tab, and
+in a native `Settings{}` scene (⌘,): a `NavigationSplitView` whose sidebar starts with a search field
+and groups its rows as Cicada · Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General ·
+You · Privacy & data · Memory · Sleep; Customize: Integrations · Agents · From anywhere · Skills; Engines & keys:
+Engines · Plans & keys · Advanced. Privacy & data exports a bank and moves one to `<root>/.trash/`, but
+never switches banks (that stays in the Graph page's `BankSwitcher` — a second switcher in another
+window is the split-brain class); Memory has no "Look for duplicates" until the dedup endpoint stops
+blocking the event loop and commits what it merges (R-O17).
+Search is `SettingsIndex` over `QuickMatch` — the palette's one ranker, so Settings and ⌘K never rank
+one name two ways — and landing (search, `SettingsSectionLink(section:row:)`,
+an in-window pointer) always selects, scrolls, washes and announces the row (G139).
+`SettingsSection` raw values are the persisted selection and did not move when the groups arrived.
+General's appearance offers System, which follows the Mac's own light/dark through one app-scope
+observer (`ThemeStore.observeSystemAppearance`), not a per-window one.
+⌘K (Find in Memory…) opens the find palette — Find, with Ask as a mode on ⌘⏎. ⌘K and ⌘F are menu
+commands in `Support/FindCommands.swift`; `HiddenShortcutLintTests` fails the build on either
+shortcut anywhere else (G136). `AppTab` raw values are the persisted identity of a tab, and
 `AppTab.restored(from:)` maps retired ones onto the pages that inherited them, so an older selection
 never traps. A page's top-right control is the `?` alone — Track P's audit removed the global Sleep
 button, because a cycle starts from the Sleep page's one Consolidate control (G125 R10) or the
@@ -545,7 +587,7 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Settings → Sleep: the engine picker (G122, Track E).** A row of cards with real marks — Auto,
+**Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
 `PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
 `use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
@@ -556,6 +598,12 @@ way a Claude cycle continues past the plan's included usage; otherwise it stops 
 sentence and the reset time. Ask follows the same choice. The ChatGPT plan runs as `codex exec` in
 Cicada's own Codex home (`~/.cicada/codex`), signed into in-app with a device code; Cicada never
 opens that home's files — `codex app-server` answers plan, limit and models.
+`EngineChooser` is the component (`EngineCard` wraps it for onboarding); the Sleep page shows the two
+previews read-only with a link here. The Claude plan's old *Use for Sleep* switch moved here too —
+same `use_for_sleep` pref, same endpoint — but `engine_select.resolve_llm_mode` reads that pref only
+when the chosen mode is `byok`, so it shows only while the API key card is chosen, as *Use my Claude
+plan when I start a cycle*, and a flip reloads the chooser's preview. Plans & keys is credentials
+only: the Max-tier cost-estimate picker is gone (the no-price ruling).
 
 **Settings → Integrations (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
@@ -573,6 +621,19 @@ unparseable settings file is `invalid`, never `off`), plus the exact argv instal
 **app** runs them, only after the person's click (spec decision 14, D-1), with
 `CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout; the backend never writes a
 harness root.
+
+**Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
+licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it
+bridges; `scripts/verify-skills.sh` re-checks it) served by `GET /skills/recommended` — at most
+five not-installed entries by rank, install state derived per request from `SKILL.md` files and
+Claude Code plugin ids, never an agent's config. **The backend never installs anything.** The app
+runs only the agent's own installer (`claude`, `codex`, `npx skills` pinned to the reviewed
+commit), after a consent sheet that shows the exact command, as an argv with
+`CICADA_CAPTURE=off`; hosted MCP servers are copy-only. The app writes files only for Cicada's
+own `cicada` and `cicada-librarian` (`SkillInstaller`, a `.cicada-managed.json` marker, never
+over a changed copy). The handshake gains a capability line only for an installed, active bridge
+whose tool exists; the video and meeting bridges stay inactive until they are wired to the watch
+record (`cicada_record_watch`) and speaker-aware evidence, both of which have landed (G140, G134).
 
 **Sources page — v2 (G124).** One card system: fixed tile height, one column count derived from the
 container width in **scaled** units (`SourceGridColumns`, 2–4) and shared by every section, five
@@ -643,6 +704,18 @@ size slider) alongside Agents, Plans & keys and Schedule. Slice 1b (PR #58) fini
 every literal `.font(.system(size:))` / `Font.system(size:)` in `Sources/` now goes through
 `CicadaTheme.font(size:...)`, and `FontLiteralLintTests` fails the build on a new one.
 
+**Find palette (G136).** ⌘K ("Find in Memory…") and ⌘F ("Find on This Page…") are menu commands in
+`Support/FindCommands.swift` — a lint (`HiddenShortcutLintTests`) keeps both shortcuts there, and ⌘F
+reaches only the visible page's field. The palette is an overlay, chrome glass around an opaque
+body, whose instant tier (`QuickIndex`) is rebuilt off the main actor from the Store's snapshots and
+answers every keystroke with no network; ~150 ms later `GET /search` (prefix, then hybrid) appends
+conversations, beliefs (superseded ones as history) and whatever the local tier missed — a shown row
+never moves. Ask is a mode (⌘⏎) hosting the unchanged `AskPanel` body. One ranker, `QuickMatch`,
+folds text exactly like the server's `text_fold`; every in-page field is `CicadaSearchField`.
+Recents are `(kind, id)` pairs in the cache-only `.quickRecents` domain; the query is never stored,
+logged or sent anywhere but `/search` and `/conversations/recent?q=`. `FindPanelBody` is the hostable
+body (Home).
+
 **Brand marks (Track L).** One map, `OriginIconography.logoName(for:)`, and one precedence:
 **installed app icon → bundled PNG → SF Symbol**. Apple's marks are never committed (Safari and
 Apple Notes resolve through `NSWorkspace` by bundle id, then their own SF Symbol); every other mark
@@ -700,7 +773,7 @@ opens, and a bank switch closes it and empties the cache (episode ids repeat acr
 
 ## API Design
 
-26 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+27 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, and an OAuth adapter's
@@ -716,7 +789,8 @@ connectors registry rather than hardcoding a literal per adapter.
 `/banks` all return an `ETag` and honor `If-None-Match` with a `304`. This matters: `/graph` on the
 live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET /inbox` ETags over
 `inbox`+`entities`+`episodes`, and `VersionVector.swift` maps `entities` and `episodes` onto
-`.inbox`; change one half, change both.
+`.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
+(`graph.NODE_SHAPE`), bumped when a node gains a field a client must see.
 
 **Endpoint traps worth knowing before you touch them:**
 

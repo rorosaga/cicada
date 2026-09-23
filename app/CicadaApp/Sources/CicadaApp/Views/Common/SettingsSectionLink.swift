@@ -24,6 +24,10 @@ import SwiftUI
 ///    — the reader in `SettingsScene.swift` stays where it is; what must never
 ///    fork is the write, because a second copy-pasted writer with a typo'd key
 ///    fails silently by opening Settings on the wrong section.
+///    The row seed (`cicada.settingsRowFocus`, G139) is written here too, in
+///    the same gesture, as `<row>@<unix ms>` — the nonce lets `SettingsScene`
+///    tell a new deep link from one it already consumed without ever clearing
+///    the key (clearing would be a second writer).
 ///
 /// The label is generic so a whole row can be the link (L final review,
 /// finding 1: a folder or Wispr Flow row on the Feed strip has its settings in
@@ -31,6 +35,10 @@ import SwiftUI
 /// still has exactly one writer — this body.
 struct SettingsSectionLink<Label: View>: View {
     let section: SettingsSection
+    /// G139 (R-O15) — land on (scroll to and briefly wash) this row once
+    /// Settings opens. Written in the SAME gesture as the section seed, in this
+    /// file only, so the P5 one-writer rule covers both keys.
+    let row: SettingsRowID?
     let accessibilityText: String
     let label: Label
     /// G137 R-M18: an empty state's one action is the page's one prominent
@@ -40,9 +48,10 @@ struct SettingsSectionLink<Label: View>: View {
     /// page's schedule link, a Feed-strip row) renders exactly as before.
     var prominent: Bool = false
 
-    init(section: SettingsSection, accessibilityText: String, prominent: Bool = false,
-         @ViewBuilder label: () -> Label) {
+    init(section: SettingsSection, row: SettingsRowID? = nil, accessibilityText: String,
+         prominent: Bool = false, @ViewBuilder label: () -> Label) {
         self.section = section
+        self.row = row
         self.accessibilityText = accessibilityText
         self.prominent = prominent
         self.label = label()
@@ -60,6 +69,9 @@ struct SettingsSectionLink<Label: View>: View {
         }
         .simultaneousGesture(TapGesture().onEnded {
             UserDefaults.standard.set(section.rawValue, forKey: "cicada.settingsSection")
+            if let row {
+                UserDefaults.standard.set(SettingsRowFocusSeed.encode(row, at: Date()), forKey: "cicada.settingsRowFocus")
+            }
         })
         .accessibilityLabel("\(accessibilityText), opens \(Copy.settings) — \(section.title)")
     }
@@ -68,8 +80,8 @@ struct SettingsSectionLink<Label: View>: View {
 extension SettingsSectionLink where Label == Text {
     /// The text link every earlier call site uses: accent-coloured text, or —
     /// `prominent` — the page's one prominent action (the body inks it).
-    init(section: SettingsSection, label: String, prominent: Bool = false) {
-        self.init(section: section, accessibilityText: label, prominent: prominent) {
+    init(section: SettingsSection, row: SettingsRowID? = nil, label: String, prominent: Bool = false) {
+        self.init(section: section, row: row, accessibilityText: label, prominent: prominent) {
             prominent ? Text(label) : Text(label).foregroundStyle(CicadaTheme.accent)
         }
     }

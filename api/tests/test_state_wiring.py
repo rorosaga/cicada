@@ -147,7 +147,7 @@ def test_get_state_builds_lazily_and_serves_etag(api_bank):
         r = client.get("/state")
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["schema_version"] == 1 and data["bank"] == "memory"
+        assert data["schema_version"] == 2 and data["bank"] == "memory"
         assert data["projects"][0]["id"] == "alpha-project"
         assert data["stale"] is False and data["conversations"] == []
         assert (api_bank / "_state.md").exists()

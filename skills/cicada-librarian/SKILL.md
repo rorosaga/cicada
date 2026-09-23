@@ -25,8 +25,9 @@ server's `instructions`); this skill covers only the consolidation loop.
 - **End of a working session** — before the conversation closes, sweep it.
 - **On request** — user says "remember this", "consolidate our chat", "save
   that", etc. — do it immediately, don't wait for session end.
-- **After watching a video** — once the `claude-video` chain (below) returns
-  a transcript + summary, consolidate that content the same way.
+- **After watching a video** — once your video skill has run, record the
+  watch with `cicada_record_watch` (below): a summary and short timestamped
+  quotes, never the transcript.
 
 ## Capture tools
 
@@ -34,14 +35,20 @@ server's `instructions`); this skill covers only the consolidation loop.
   Use for anything worth remembering: decisions, facts, plans.
 - `cicada_save_url(url, note?)` — save a link (article, repo, bookmark).
   Cicada fetches and indexes it.
-- **Video**: run the `claude-video` skill's `/watch <url> <question>`
-  (github.com/bradautomates/claude-video) to get transcript + frames +
-  summary. Then:
-  1. `cicada_save_url(url, note=<your faithful summary>)` — the transcript is
-     the source of truth; the note is your summary of it, not embellishment.
-  2. `cicada_write_claim(...)` for relational facts the video establishes —
-     e.g. subject=`<video title>`, predicate=`is-about`, object=`<topic>`, or
-     predicate=`recommends`, object=`<thing recommended>`.
+- **Video**: when the person asks you to watch a video they saved, use a video
+  skill of your own (for example the `claude-video` skill's `/watch`). Cicada
+  never downloads or watches a video itself. Then call
+  `cicada_record_watch(url, summary, excerpts=[{t, quote}])`:
+  1. `summary` — your faithful account of what the video covers, one paragraph.
+  2. `excerpts` — up to 12 short quotes (at most 240 characters) with the time
+     each is said (`"12:34"`): the words the video actually says. **Never paste
+     the transcript** — Cicada keeps these quotes as cited evidence, marked as
+     the video's words, not the person's.
+  3. A local recording saved as `file://…` is a path on disk for your skill,
+     not a URL — convert it before you run the skill.
+  4. Then `cicada_write_claim(...)` for relational facts the video establishes
+     (subject = the video's entity id, e.g. predicate `is-about`), citing the
+     watch episode the reply names.
 
 ## Consolidate loop
 

@@ -73,7 +73,12 @@ struct SourcesPageView: View {
                     .padding(.bottom, CicadaTheme.spacingXL)
                 }
             case .detail(let source):
+                // G136 R-SU18 (critic) — one identity per source: a hand-off from
+                // one open source to another must rebuild the detail, or the
+                // first source's conversation list (`@State`) stays under the
+                // second one's header.
                 SourceDetailView(source: source, onBack: { route = .grid }, onSelectEntity: onSelectEntity)
+                    .id(source.id)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

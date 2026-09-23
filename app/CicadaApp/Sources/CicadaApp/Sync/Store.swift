@@ -280,8 +280,8 @@ final class Store {
             // `AskViewModel` owns its own read/write through `store.cache`
             // directly. Nothing to do here; just don't let it fall through
             // to a case that doesn't exist.
-            case .askHistory:
-                pendingDomains.remove(.askHistory)
+            case .askHistory, .quickRecents:
+                pendingDomains.remove(domain)
                 continue
             }
         }

@@ -104,7 +104,9 @@ def test_a_legacy_episode_without_markers_is_one_block(memory):
     with TestClient(main.app) as client:
         data = client.get("/episodes/ep_2026-08-01_001/text").json()
     assert data["turns"] == [{"index": 1, "start": 0, "contentStart": 0, "end": len(LEGACY),
-                              "role": "user", "marker": None, "speaker": None, "ts": None}]
+                              "role": "user", "marker": None, "speaker": None, "ts": None,
+                              # G140 Q-R9: additive, set only on a timed video turn.
+                              "t": None}]
 
 
 def test_a_page_is_one_page_block_with_the_claims_fence_excluded(memory):

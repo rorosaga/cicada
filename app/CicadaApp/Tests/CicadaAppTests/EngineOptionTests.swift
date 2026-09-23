@@ -1,7 +1,7 @@
 import XCTest
 @testable import CicadaApp
 
-/// R-E4 / R-E25 — every decision the Settings → Sleep engine row makes.
+/// R-E4 / R-E25 — every decision the Settings → Engines engine row makes.
 final class EngineOptionTests: XCTestCase {
     private func card(_ id: String, available: Bool = true, connected: Bool = true,
                       models: [String] = [], label: String? = nil) -> SleepEngineCandidate {

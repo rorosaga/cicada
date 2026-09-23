@@ -47,12 +47,27 @@ green. (`working-method.md` carries the standing notes on the order-dependent ca
 **Measured on `feat/intake-onboarding` (Track I part a, 2026-09-23):** backend **2273 passed**, Swift
 **1141 executed, 0 failures**, graph node tests **7 passed**.
 
-**Round 3, Track S-back — G136 server half (2026-09-23, `feat/search-everywhere`, PR #75).** `/search`
+**Round 3, Track S-back — G136 server half (2026-09-23, `feat/search-everywhere`, PR #74).** `/search`
 moved into the threadpool with `kinds`, exact lexical `totals`, spans and `mode=prefix|hybrid` over a
 derived FTS5 index beside the vector index (`search_index.db`: excluded through `.git/info/exclude`,
 rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conversations/recent?q=`.
 Backend **2287 passed** on the branch. The palette (design §6 S3–S6) starts after the Meadow foundation
-(M1) merges; MCP recall adoption is Track R's — see the plan's hand-off.
+(M1) merges; MCP recall adopted the G136 helpers with G140 Q-R1 (Track Q).
+
+**Round 3, Track Q — memory quality from the Instinct comparison + the video watch record (2026-09-23,
+`feat/memory-quality`, G140).** Recall reads aliases, words and claims (the G136 hand-off) and shows bounded
+dated history; `cicada_timeline`, `cicada_retract_claim` and `cicada_record_watch` are new; stated ends
+(`expected_end`, `due`) close on Sleep's tail in a `cicada` `Expiry` commit; the primer is Standing/Current
+with the person, their timezone and How to work with me (contract v3); the video chain's four defects are
+fixed and `media` is the sixth evidence kind (after Track L's `speaker`; one marker grammar reads both). Backend **2869 passed** on the branch (2714 on its base). P9
+(the rubric eval) is open in G140. Hand-offs: Track P renders `media` spans and `t`; Track O's skills
+manifest names `cicada_record_watch`; the Local-sources scrub wraps the two new episode writers
+(`write_note_episode`, `watch_record` — done in the merge of `dev`).
+
+**Round 3, Track S-ui — G136 app half (2026-09-23, `feat/find-palette`).** ⌘K is a find palette
+with Ask as a mode (⌘⏎), a server tier appended without moving a row, one `CicadaSearchField` on every
+page, and `GraphNode.aliases` on `/graph` after measuring +5.8 % on the synthetic fixture. Measured on
+the branch: backend **2906 passed**, Swift **1496 executed, 0 failures**, graph node tests **7 passed**.
 
 **Round 3 · Track L — local sources (G133 + G134).** A watched folder the app reads and the backend
 parses (one episode per file through the shared `episode_staging` stager; agent-written globs never
@@ -61,6 +76,26 @@ the connector gate, why-it-matters from the owner's own spans, the abstract a da
 and Wispr Flow meetings and notes with their speakers (dictation opt-in). One scrub on every episode
 writer. Baselines with it: backend **≥ 2322 passed**, Swift **≥ 1039 executed** — replace these with
 the measured numbers when the PR merges.
+
+**Round 3, Track O — G139 Settings v3 + G138 recommended skills (2026-09-23, `feat/settings-v3`, not yet a PR).** The
+settings kit, a sidebar grouped Cicada · Customize · Engines & keys, General with a System appearance
+(one app-scope observer), and a new Engines page that owns engine choice; Plans & keys is credentials
+only. Final-review ruling on the design doc's A3: the moved `use_for_sleep` switch shows only under the
+API key card as "Use my Claude plan when I start a cycle", because `engine_select` never reads it under
+Auto. Tasks 3–7 of `docs/superpowers/plans/2026-09-23-settings-v3.md` are built (From anywhere's own
+row, search, the Cicada-group pages, and G138's server half: the reviewed catalog, `GET /skills/recommended`,
+the handshake bridge — `CONTRACT_VERSION` 4 since the merge of `dev`, one past G140's 3), and Task 8 closes the plan: Settings → Skills — Cicada's
+own two skills written by the app with a `.cicada-managed.json` marker (never over a changed copy), at
+most five recommended cards that open a detail sub-page (breadcrumb, ⌘[ and Esc back), and a consent
+sheet that shows the exact command before the agent's own installer runs (`SkillInstaller`: argv only,
+`claude`/`codex`/`npx` only, `CICADA_CAPTURE=off`, 300 s cap, cancel terminates). Agents' pasted `cp`
+skill step is now a pointer to Skills. Baselines at Task 8: backend 2754 passed; app 1159 tests, 0 failures;
+graph JS 7/7. **Follow-ups (named, not forgotten):** R-O12 remote connectors in the
+Settings index; R-O16 ⌘F in Settings (waits for the palette's "Find on This Page"); R-O17 "Look for
+duplicates" on Memory (the dedup endpoint must stop blocking the event loop and commit its merges);
+R-O28 pending bridges (`watch` → `cicada_record_watch` with Track Q, meetings/documents with Track N);
+R-O29 pending marks (`granola`, `wispr-flow`, `arxiv`); and the O0 `openSettings` runtime result, which
+the orchestrator records in the design doc's A5 once its scratch-app spike runs.
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
@@ -219,8 +254,8 @@ any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 fr
 (Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
 demo bank, never the live one, after the next visual change.
 
-**Search (G136):** the server half has shipped. Next is the ⌘K find palette (design §6 S3–S6), after
-M1; it builds against "The wire" in `docs/superpowers/plans/2026-09-23-search-backend.md`.
+**Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
+open is on the row.
 
 **Small polish left behind, none blocking:** the Settings sidebar cannot be driven by a synthetic
 `click at` (select its rows through the accessibility API); a Sources card whose `count` comes from
@@ -270,7 +305,9 @@ G66 decay classes · A5 gap analysis · **G115 Phase 1 / G97 (2026-09-03)** — 
 Recommended, decay through the question component, the G98 informational rule
 
 **Search** — **G136 server half (2026-09-23)** — the derived FTS5 index beside the vector index, `/search`
-with kinds / lexical totals / spans / prefix and hybrid, `/conversations/recent?q=`; the palette is open
+with kinds / lexical totals / spans / prefix and hybrid, `/conversations/recent?q=`; **G136 app half** — the ⌘K find palette (local tier, server tier appended
+without moving a row, Ask as a mode on ⌘⏎), one `CicadaSearchField` on every page, `GraphNode.aliases`
+after the payload measurement
 
 **App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·
