@@ -49,7 +49,7 @@ def claim_to_model(claim: Claim) -> ClaimModel:
     (R-PB13) found the two copies drifting the moment author fields were added
     to only one. ``author_kind``/``author_provider`` come from
     ``git_service.author_identity``, the rule the contributors strip reads."""
-    author = claim.authored_by or "unknown"
+    author = git_service.canonical_author(claim.authored_by)
     author_kind, author_provider = git_service.author_identity(author)
     return ClaimModel(
         id=claim.id,

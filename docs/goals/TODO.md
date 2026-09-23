@@ -118,6 +118,11 @@ Pro Display — semibold titles tracked 2 % tight behind the same `displayFont`,
 - Saving a folder's authorship rules re-derives its existing episodes in place — same bytes, same
   hash, agent → owner re-queued, owner → agent parked unless Sleep already read it — and its papers'
   why-claims follow; the app no longer has to re-post a byte (R-B6 … R-B8).
+- Agent writes are labelled by their harness: `author_identity` has a `harness` kind, a write that
+  names no author is `agent`, deterministic writers name whose words they hold, and the pre-G135
+  placeholder reads as `agent` everywhere without rewriting history (R-B9 … R-B11). `/contributors`,
+  `/entities/{id}/provenance` and `/episodes/{id}/citations` fold `git_service.AUTHOR_SHAPE` into
+  their ETags, so no cache keeps the old kinds (R-B10).
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.

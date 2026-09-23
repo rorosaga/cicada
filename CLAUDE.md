@@ -472,7 +472,12 @@ Cicada-Session: <id>
   literal **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits,
   and **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
   migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` commit). Built by
-  `git_service.build_commit_message(...)`, parsed by `_parse_authors`. Powers `GET /contributors`.
+  `git_service.build_commit_message(...)`, parsed by `_parse_authors`.
+  `git_service.author_identity` buckets a harness label (and `agent`) as kind `harness`, which the app
+  names and marks as that app; the pre-G135 `mcp-agentic-write` claim placeholder reads as `agent`
+  through `canonical_author`, never rewritten (F2-back R-B9, R-B10). A read whose body carries an
+  author kind folds `git_service.AUTHOR_SHAPE` into its ETag; bump it when the buckets move.
+  Powers `GET /contributors`.
 - **`Cicada-Engine:`** — exactly one per main commit (`claude-cli|ollama|litellm`), **omitted
   entirely rather than guessed** when no LLM ran. Read back via git's own
   `%(trailers:key=…,valueonly)` directive, not a Python parse of `%b` — pulling the whole body to

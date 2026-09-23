@@ -6,6 +6,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 
 from loguru import logger
@@ -283,6 +284,42 @@ USER_AUTHOR = "user"
 # writers actually stamp.
 CICADA_AUTHOR = "cicada"
 
+# G135: a write that arrived through MCP is authored by its harness label, and
+# `agent` when the harness never said which it was (`agent_commits.author_for`).
+AGENT_AUTHOR = "agent"
+# The placeholder every stdio MCP claim carried before G135 R-R11 — the
+# reconcile shim's "model" name. History is never rewritten (F2-back R-B10):
+# every reader shows it as `agent` through `canonical_author`.
+LEGACY_AGENT_AUTHOR = "mcp-agentic-write"
+# R-B9: the bucket the app already names (`OriginIconography.label`) and marks
+# (`OriginMark`) — a harness label is neither a model nor a person.
+HARNESS_KIND = "harness"
+# R-B10: folded into the ETag `extra` of every read whose body carries an
+# author kind (`/contributors`, `/entities/{id}/provenance`,
+# `/episodes/{id}/citations`). Those bodies changed for the same commits and
+# claims, so an ETag over the inputs alone would 304 the old kinds — the
+# `graph.NODE_SHAPE` rule. Bump it the next time the author buckets move.
+AUTHOR_SHAPE = "harness-1"
+
+
+def canonical_author(author: str | None) -> str:
+    """The author a reader shows (R-B10): the pre-G135 placeholder is `agent`,
+    an empty author is the legacy `unknown` bucket, anything else is itself."""
+    name = (author or "").strip() or UNKNOWN_AUTHOR
+    return AGENT_AUTHOR if name == LEGACY_AGENT_AUTHOR else name
+
+
+@lru_cache(maxsize=1)
+def _harness_authors() -> frozenset[str]:
+    """Every label a harness writes as `Cicada-Author` (R-B9): the Sources page's
+    one harness table — stdio harnesses and every remote app (G135 R-R26) —
+    minus its `unknown` bucket, plus `agent`. One table, so a new remote app is a
+    harness here the day it is a card there. Imported lazily: `source_overview`
+    reaches `folder_source`, and this module must stay importable on its own."""
+    from api.services.source_overview import HARNESS_LABELS
+
+    return frozenset(k for k in HARNESS_LABELS if k != UNKNOWN_AUTHOR) | {AGENT_AUTHOR}
+
 # Routers that PROXY other vendors' models. Matched on the segment before the
 # first "/" and checked BEFORE the substring pass (R9 of Track L): the router
 # is who billed, so "openrouter/anthropic/claude-opus-4" is openrouter, not
@@ -315,13 +352,18 @@ _OPENAI_O_SERIES = ("o1", "o3")
 
 
 def _classify_author_kind(author: str) -> str:
-    """Bucket an author into "user" | "system" | "model" | "unknown" for the UI.
+    """Bucket an author into "user" | "system" | "harness" | "model" | "unknown".
 
     "system" is the literal ``cicada`` (R-L6): maintenance with no model and no
     user in the loop. It used to fall through to "model", where
     ``_provider_for_model`` answered "other" and the app drew a grey "?" — so
     the state snapshot, the split-out decay commit and the migrations all
     rendered as an anonymous unknown model in Cicada's own contributors list.
+
+    "harness" (F2-back R-B9) is an agent write's label — `claude-code`,
+    `claude-web`, `agent` — and the pre-G135 placeholder. They answered "model",
+    so `claude-code` wore Anthropic's mark by substring and the placeholder
+    showed as a raw contributor name.
     """
     if author == USER_AUTHOR:
         return "user"
@@ -329,6 +371,8 @@ def _classify_author_kind(author: str) -> str:
         return "system"
     if author == UNKNOWN_AUTHOR:
         return "unknown"
+    if author == LEGACY_AGENT_AUTHOR or author in _harness_authors():
+        return HARNESS_KIND
     return "model"
 
 
@@ -364,7 +408,7 @@ def author_identity(author: str | None) -> tuple[str, str | None]:
     strip, the claim chip, the history row and the provenance section read
     (G15 / R-L6; G118 slice 2 R-PB6). Public so no caller re-derives it; an
     empty author is the legacy ``unknown`` bucket."""
-    name = (author or "").strip() or UNKNOWN_AUTHOR
+    name = canonical_author(author)
     return _classify_author_kind(name), _provider_for_model(name)
 
 

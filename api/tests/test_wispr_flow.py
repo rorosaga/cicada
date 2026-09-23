@@ -153,6 +153,7 @@ def test_open_todos_become_committed_to_claims_on_the_owner_page_only(bank):
     assert (claim.object, claim.observer, claim.source_trust, claim.origin) == (
         "Send the deck", "agent", "agent_extracted", "wispr-flow")
     assert claim.evidence[0].kind == "assistant"
+    assert claim.authored_by == "agent"  # F2-back R-B11: Wispr Flow's model wrote the list
 
 
 def test_the_channel_row_and_the_voice_card(bank):

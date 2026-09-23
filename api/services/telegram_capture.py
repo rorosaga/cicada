@@ -310,6 +310,7 @@ def _write_saved_because_claim(
     """
     from api.config import get_settings
     from api.services import evidence as evidence_mod
+    from api.services import git_service
     from api.services.agentic_write import write_claim
 
     # G118 R13: the reason lives in the episode's `## Saved because` section
@@ -339,6 +340,8 @@ def _write_saved_because_claim(
         confidence=0.9,
         source_episode=episode_id or None,
         origin="telegram",
+        # F2-back R-B11: the person typed the reason; its commit is already `user`.
+        authored_by=git_service.USER_AUTHOR,
         evidence=(
             [{"episode": episode_id, "quote": reason, "window": window}] if episode_id else None
         ),

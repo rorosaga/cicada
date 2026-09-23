@@ -371,7 +371,8 @@ def desired_claims(*, entity_id: str, citations: list[Citation], episode_id: str
             object_kind="literal" if literal else "node", observer=observer, context=PAPER_CONTEXT,
             epistemic="explicit", source_trust=trust, confidence=_CONFIDENCE[who][predicate],
             valid_from=valid_from, recorded_at=today, source_episodes=[episode_id],
-            authored_by="user" if who == "user" else None, origin=ORIGIN,
+            authored_by=who,  # F2-back R-B11: `user` or `agent`, from the file's authorship
+            origin=ORIGIN,
             evidence=[evidence.verify(None, episode_id, quote, text=text, window=window, kind_override=kind)],
         )
         # Read by `_same_slot`; `Claim.to_dict` is `asdict`, which never
