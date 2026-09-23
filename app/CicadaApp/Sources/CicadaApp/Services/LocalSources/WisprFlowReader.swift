@@ -18,8 +18,22 @@ enum WisprFlowColumns {
 /// A cursor column's raw value, bound back as the same SQLite type — Wispr
 /// Flow's timestamp columns may be ISO text or epoch numbers, and `>` only
 /// compares meaningfully within one type.
-enum SQLiteCursor: Codable, Equatable, Sendable {
+enum SQLiteCursor: Codable, Equatable, Comparable, Sendable {
     case int(Int64), real(Double), text(String)
+
+    /// SQLite's own cross-type order (numbers before text), so a cursor picked
+    /// in Swift agrees with the `>` the next query binds it into.
+    static func < (a: SQLiteCursor, b: SQLiteCursor) -> Bool {
+        switch (a, b) {
+        case let (.int(x), .int(y)): x < y
+        case let (.real(x), .real(y)): x < y
+        case let (.int(x), .real(y)): Double(x) < y
+        case let (.real(x), .int(y)): x < Double(y)
+        case let (.text(x), .text(y)): x < y
+        case (.text, _): false
+        case (_, .text): true
+        }
+    }
 
     init?(any value: Any?) {
         if let number = value as? NSNumber {
@@ -32,9 +46,15 @@ enum SQLiteCursor: Codable, Equatable, Sendable {
     }
 }
 
+/// Meetings and notes read past a compound `(modifiedAt, id)` cursor: rows that
+/// share a `modifiedAt` across a batch boundary (a bulk import) would otherwise
+/// be skipped (review r1). The `…Id` halves are optional, so a cursor saved
+/// before them decodes and behaves as the plain `modifiedAt >` it was.
 struct WisprFlowCursor: Codable, Equatable, Sendable {
     var meetings: SQLiteCursor?
+    var meetingsId: SQLiteCursor?
     var notes: SQLiteCursor?
+    var notesId: SQLiteCursor?
     var history: SQLiteCursor?
 }
 
@@ -91,15 +111,22 @@ final class SQLiteReadOnly {
     }
 
     func query(_ sql: String, bind cursor: SQLiteCursor?) throws -> [[String: Any]] {
+        try query(sql, binds: sql.contains("?1") ? [cursor] : [])
+    }
+
+    /// Parameters bound by position (`?1`, `?2`, … or plain `?`), each as its own
+    /// SQLite type; never interpolated into the SQL.
+    func query(_ sql: String, binds: [SQLiteCursor?]) throws -> [[String: Any]] {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw SQLiteReadError.query(lastError) }
         defer { sqlite3_finalize(stmt) }
-        if sql.contains("?1") {
-            switch cursor {
-            case .int(let v): sqlite3_bind_int64(stmt, 1, v)
-            case .real(let v): sqlite3_bind_double(stmt, 1, v)
-            case .text(let v): sqlite3_bind_text(stmt, 1, v, -1, Self.transient)
-            case nil: sqlite3_bind_null(stmt, 1)
+        for (i, value) in binds.enumerated() {
+            let index = Int32(i + 1)
+            switch value {
+            case .int(let v): sqlite3_bind_int64(stmt, index, v)
+            case .real(let v): sqlite3_bind_double(stmt, index, v)
+            case .text(let v): sqlite3_bind_text(stmt, index, v, -1, Self.transient)
+            case nil: sqlite3_bind_null(stmt, index)
             }
         }
         var rows: [[String: Any]] = []
@@ -185,53 +212,57 @@ struct WisprFlowReader: Sendable {
 
         let mcols = db.columns(of: "Meetings", whitelist: WisprFlowColumns.meetings)
         if mcols.contains("id") && mcols.contains("modifiedAt") {
-            var filters = ["(?1 IS NULL OR modifiedAt > ?1)"]
+            var filters: [String] = []
             if mcols.contains("isDeleted") { filters.append("COALESCE(isDeleted, 0) = 0") }
             if mcols.contains("isTourDemo") { filters.append("COALESCE(isTourDemo, 0) = 0") }
             if mcols.contains("finalized") { filters.append("COALESCE(finalized, 0) = 1") }
-            let rows = try db.query("SELECT \(mcols.joined(separator: ", ")) FROM Meetings WHERE "
-                                    + filters.joined(separator: " AND ") + " ORDER BY modifiedAt LIMIT \(batchLimit)",
-                                    bind: cursor.meetings)
-            hasMore = hasMore || rows.count == batchLimit
-            for row in rows {
+            let page = try readPage(db, table: "Meetings", columns: mcols, filters: filters,
+                                    hasDeleted: mcols.contains("isDeleted"), after: (cursor.meetings, cursor.meetingsId))
+            hasMore = hasMore || page.full
+            for row in page.rows {
                 meetings.append(["row": row, "utterances": utterances(meetingId: Self.text(row["id"]))])
             }
-            if let last = SQLiteCursor(any: rows.last?["modifiedAt"]) { next.meetings = last }
-            if cursor.meetings != nil, mcols.contains("isDeleted") {
-                deletedMeetings = try db.query("SELECT id FROM Meetings WHERE isDeleted = 1 AND modifiedAt > ?1",
-                                               bind: cursor.meetings).map { Self.text($0["id"]) }
-            }
+            deletedMeetings = page.deletedIds
+            (next.meetings, next.meetingsId) = page.next ?? (cursor.meetings, cursor.meetingsId)
             let tcols = db.columns(of: "Todos", whitelist: WisprFlowColumns.todos)
-            let ids = Set(meetings.compactMap { ($0["row"] as? [String: Any]).map { Self.text($0["id"]) } })
+            let ids = page.rows.map { SQLiteCursor(any: $0["id"]) }
             if tcols.contains("meetingId"), !ids.isEmpty {
-                todos = try db.query("SELECT \(tcols.joined(separator: ", ")) FROM Todos", bind: nil)
-                    .filter { ids.contains(Self.text($0["meetingId"])) }
+                // Only the posted meetings' live to-dos are ever selected: a deleted
+                // to-do, or another meeting's, never leaves the file (R-LS21, review r1).
+                var conditions = ["meetingId IN (\(Array(repeating: "?", count: ids.count).joined(separator: ", ")))"]
+                if tcols.contains("isDeleted") { conditions.append("COALESCE(isDeleted, 0) = 0") }
+                todos = try db.query("SELECT \(tcols.joined(separator: ", ")) FROM Todos WHERE "
+                                     + conditions.joined(separator: " AND "), binds: ids)
             }
         }
 
         let ncols = db.columns(of: "Notes", whitelist: WisprFlowColumns.notes)
         if ncols.contains("id") && ncols.contains("modifiedAt") {
-            var filters = ["(?1 IS NULL OR modifiedAt > ?1)"]
-            if ncols.contains("isDeleted") { filters.append("COALESCE(isDeleted, 0) = 0") }
-            notes = try db.query("SELECT \(ncols.joined(separator: ", ")) FROM Notes WHERE "
-                                 + filters.joined(separator: " AND ") + " ORDER BY modifiedAt LIMIT \(batchLimit)",
-                                 bind: cursor.notes)
-            hasMore = hasMore || notes.count == batchLimit
-            if let last = SQLiteCursor(any: notes.last?["modifiedAt"]) { next.notes = last }
-            if cursor.notes != nil, ncols.contains("isDeleted") {
-                deletedNotes = try db.query("SELECT id FROM Notes WHERE isDeleted = 1 AND modifiedAt > ?1",
-                                            bind: cursor.notes).map { Self.text($0["id"]) }
-            }
+            let filters = ncols.contains("isDeleted") ? ["COALESCE(isDeleted, 0) = 0"] : []
+            let page = try readPage(db, table: "Notes", columns: ncols, filters: filters,
+                                    hasDeleted: ncols.contains("isDeleted"), after: (cursor.notes, cursor.notesId))
+            hasMore = hasMore || page.full
+            notes = page.rows
+            deletedNotes = page.deletedIds
+            (next.notes, next.notesId) = page.next ?? (cursor.notes, cursor.notesId)
         }
 
         if includeDictation {
             let hcols = db.columns(of: "History", whitelist: WisprFlowColumns.history)
             if hcols.contains("timestamp") {
-                let rows = try db.query("SELECT \(hcols.joined(separator: ", ")) FROM History WHERE "
+                var rows = try db.query("SELECT \(hcols.joined(separator: ", ")) FROM History WHERE "
                                         + "(?1 IS NULL OR timestamp > ?1) ORDER BY timestamp LIMIT \(historyLimit)",
                                         bind: cursor.history)
-                history = rows
                 hasMore = hasMore || rows.count == historyLimit
+                // History has no id to break a tie, so a full batch gives back its
+                // trailing rows that share the last timestamp; the next pass reads
+                // them whole. (A batch that is ALL one timestamp is kept — dropping it
+                // would never advance.)
+                if rows.count == historyLimit, let last = SQLiteCursor(any: rows.last?["timestamp"]),
+                   let cut = rows.firstIndex(where: { SQLiteCursor(any: $0["timestamp"]) == last }), cut > 0 {
+                    rows = Array(rows[..<cut])
+                }
+                history = rows
                 if let last = SQLiteCursor(any: rows.last?["timestamp"]) { next.history = last }
             }
         }
@@ -243,6 +274,57 @@ struct WisprFlowReader: Sendable {
             && deletedMeetings.isEmpty && deletedNotes.isEmpty
         return WisprFlowPass(json: try JSONSerialization.data(withJSONObject: body), cursor: next,
                              isEmpty: isEmpty, hasMore: hasMore)
+    }
+
+    /// One page of a table past a compound `(modifiedAt, id)` cursor, plus the ids
+    /// of rows deleted past that cursor.
+    ///
+    /// Review r1: the cursor also moves past those deletions, else deleting the
+    /// newest meeting re-posts its tombstone on every pass until a later live row
+    /// arrives. When the live page is full, deletions are bounded by its last row
+    /// so the cursor never jumps over live rows the next page still has to read.
+    private func readPage(_ db: SQLiteReadOnly, table: String, columns: [String], filters: [String],
+                          hasDeleted: Bool, after: (SQLiteCursor?, SQLiteCursor?))
+        throws -> (rows: [[String: Any]], deletedIds: [String], full: Bool, next: (SQLiteCursor?, SQLiteCursor?)?) {
+        let past = "(?1 IS NULL OR modifiedAt > ?1 OR (modifiedAt = ?1 AND id > ?2))"
+        let rows = try db.query("SELECT \(columns.joined(separator: ", ")) FROM \(table) WHERE "
+                                + ([past] + filters).joined(separator: " AND ")
+                                + " ORDER BY modifiedAt, id LIMIT \(batchLimit)",
+                                binds: [after.0, after.1])
+        let full = rows.count == batchLimit
+        var next: (SQLiteCursor?, SQLiteCursor?)?
+        if let last = rows.last, let at = SQLiteCursor(any: last["modifiedAt"]) {
+            next = (at, SQLiteCursor(any: last["id"]))
+        }
+        var deletedIds: [String] = []
+        if after.0 != nil, hasDeleted {
+            var sql = "SELECT id, modifiedAt FROM \(table) WHERE isDeleted = 1 AND " + past
+            var binds = [after.0, after.1]
+            if full, let bound = next {
+                sql += " AND (modifiedAt < ?3 OR (modifiedAt = ?3 AND id <= ?4))"
+                binds += [bound.0, bound.1]
+            }
+            let gone = try db.query(sql + " ORDER BY modifiedAt, id", binds: binds)
+            deletedIds = gone.map { Self.text($0["id"]) }
+            if let last = gone.last, let at = SQLiteCursor(any: last["modifiedAt"]) {
+                let candidate = (at, SQLiteCursor(any: last["id"]))
+                if next.map({ Self.precedes($0, candidate) }) ?? true { next = candidate }
+            }
+        }
+        return (rows, deletedIds, full, next)
+    }
+
+    /// `(modifiedAt, id)` order, a missing id first — the order the SQL reads in.
+    private static func precedes(_ a: (SQLiteCursor?, SQLiteCursor?), _ b: (SQLiteCursor?, SQLiteCursor?)) -> Bool {
+        func lt(_ x: SQLiteCursor?, _ y: SQLiteCursor?) -> Bool {
+            switch (x, y) {
+            case (nil, nil), (_, nil): false
+            case (nil, _): true
+            case let (x?, y?): x < y
+            }
+        }
+        if a.0 != b.0 { return lt(a.0, b.0) }
+        return lt(a.1, b.1)
     }
 
     /// A meeting's diarized utterances, projected to `timestamp`, `text` and

@@ -28,6 +28,22 @@ struct FolderUpload: Equatable, Sendable {
     let data: Data
 }
 
+/// Why a folder's root could not be listed at all.
+enum FolderWalkError: Equatable, Sendable {
+    /// The system refused (Files and Folders, a lost grant): the fix is a setting.
+    case permissionDenied
+    /// Gone, unmounted, or otherwise not listable.
+    case unreachable
+}
+
+/// What one walk saw, and where it could not look.
+struct FolderWalk: Sendable {
+    var files: [String: FolderFileStat] = [:]
+    /// Relative directories the walk could not list ("" is the root itself).
+    var unlisted: Set<String> = []
+    var rootError: FolderWalkError?
+}
+
 struct FolderReadResult: Sendable {
     var uploads: [FolderUpload] = []
     /// Files whose stat moved but whose bytes did not: the manifest learns the
@@ -47,18 +63,29 @@ enum FolderScanner {
     static let maxBatchFiles = 100
     static let maxBatchBytes = 6_000_000
 
-    /// Every included regular file under `root`, by relative path. Symlinks are
-    /// skipped (never followed out of the folder the person picked), and an
-    /// excluded directory is not descended into.
-    static func walk(root: URL, rules: CompiledFolderRules) -> [String: FolderFileStat] {
+    /// Every included regular file under `root`, by relative path, plus what the
+    /// walk could NOT see. Symlinks are skipped (never followed out of the folder
+    /// the person picked), and an excluded directory is not descended into.
+    ///
+    /// Task 6 review r1: an enumerator that cannot list the root (mode 000, a
+    /// Files & Folders denial, a grant lost after a re-sign, an unmounted drive)
+    /// is still non-nil and simply yields nothing. Read as "the folder is empty",
+    /// that tombstoned every episode the folder had made and proposed a removal
+    /// for every paper, committed as the person. So every error is recorded, and
+    /// the directory it names becomes `unlisted`: nothing under it may be
+    /// called deleted on this pass.
+    static func walk(root: URL, rules: CompiledFolderRules) -> FolderWalk {
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey,
                                       .fileSizeKey, .contentModificationDateKey]
         let base = root.resolvingSymlinksInPath().path
         let prefix = base.hasSuffix("/") ? base : base + "/"
+        final class Errors { var list: [(URL, Error)] = [] }
+        let errors = Errors()
         guard let walker = FileManager.default.enumerator(
-            at: root, includingPropertiesForKeys: keys, options: [], errorHandler: { _, _ in true }
-        ) else { return [:] }
-        var out: [String: FolderFileStat] = [:]
+            at: root, includingPropertiesForKeys: keys, options: [],
+            errorHandler: { url, error in errors.list.append((url, error)); return true }
+        ) else { return FolderWalk(rootError: .unreachable) }
+        var out = FolderWalk()
         while let url = walker.nextObject() as? URL {
             guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
             if values.isSymbolicLink == true { continue }
@@ -70,20 +97,48 @@ enum FolderScanner {
                 continue
             }
             guard values.isRegularFile == true, rules.included(rel) else { continue }
-            out[rel] = FolderFileStat(size: Int64(values.fileSize ?? 0),
-                                      modified: values.contentModificationDate?.timeIntervalSince1970 ?? 0)
+            out.files[rel] = FolderFileStat(size: Int64(values.fileSize ?? 0),
+                                            modified: values.contentModificationDate?.timeIntervalSince1970 ?? 0)
+        }
+        for (url, error) in errors.list {
+            let path = url.resolvingSymlinksInPath().path
+            if path == base || !path.hasPrefix(prefix) {
+                // The root itself, or a path we cannot place: nothing is known gone.
+                out.unlisted.insert("")
+                if path == base, out.rootError == nil {
+                    out.rootError = isPermissionError(error) ? .permissionDenied : .unreachable
+                }
+            } else {
+                out.unlisted.insert(String(path.dropFirst(prefix.count)))
+            }
         }
         return out
     }
 
-    /// Pure: which files need their bytes read, and which are gone.
+    /// The system refused the read: the one failure whose fix (Files and Folders)
+    /// the app can name. Cocoa wraps the POSIX code, so the underlying error is
+    /// checked too.
+    static func isPermissionError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain && ns.code == NSFileReadNoPermissionError { return true }
+        if ns.domain == NSPOSIXErrorDomain && (ns.code == Int(EPERM) || ns.code == Int(EACCES)) { return true }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error { return isPermissionError(underlying) }
+        return false
+    }
+
+    /// Pure: which files need their bytes read, and which are gone. A manifest
+    /// entry under an `unlisted` directory is neither — the walk could not look
+    /// there, so its absence from `current` proves nothing (review r1).
     static func candidates(current: [String: FolderFileStat],
-                           manifest: [String: FolderFileSignature]) -> (changed: [String], deleted: [String]) {
+                           manifest: [String: FolderFileSignature],
+                           unlisted: Set<String> = []) -> (changed: [String], deleted: [String]) {
         let changed = current.keys.filter { rel in
             guard let known = manifest[rel], let now = current[rel] else { return true }
             return known.size != now.size || known.modified != now.modified
         }.sorted()
-        let deleted = manifest.keys.filter { current[$0] == nil }.sorted()
+        let deleted = manifest.keys.filter { rel in
+            current[rel] == nil && !unlisted.contains { dir in dir.isEmpty || rel == dir || rel.hasPrefix(dir + "/") }
+        }.sorted()
         return (changed, deleted)
     }
 
@@ -110,11 +165,7 @@ enum FolderScanner {
                 result.uploads.append(FolderUpload(relpath: rel, size: stat.size, mtime: stat.modified,
                                                    sha256: digest, data: data))
             } catch {
-                let ns = error as NSError
-                if (ns.domain == NSCocoaErrorDomain && ns.code == NSFileReadNoPermissionError)
-                    || (ns.domain == NSPOSIXErrorDomain && ns.code == Int(EPERM)) {
-                    result.permissionDenied = true
-                }
+                if isPermissionError(error) { result.permissionDenied = true }
                 result.unreadable.append(rel)
             }
         }

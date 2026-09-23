@@ -17,7 +17,13 @@ protocol LocalSourcesAPI: Sendable {
 
 enum FolderWatchError: Error, LocalizedError, Equatable {
     case permissionDenied
-    var errorDescription: String? { LocalSourceCopy.folderPermissionFix }
+    case missing
+    var errorDescription: String? {
+        switch self {
+        case .permissionDenied: LocalSourceCopy.folderPermissionFix
+        case .missing: LocalSourceCopy.folderMissing
+        }
+    }
 }
 
 /// Plain, friendly copy for the two local sources (no jargon, no numbers baked in).
@@ -25,7 +31,13 @@ enum LocalSourceCopy {
     static let folderPermissionFix =
         "Cicada can't read this folder. Allow it under System Settings → Privacy & Security → Files and Folders, then try again."
     static let folderMissing = "This folder isn't on this Mac — it may live on another computer, or it moved."
+    static let folderNotWatched =
+        "Cicada couldn't start watching this folder. It will try again the next time it syncs."
 }
+
+/// A folder's watch, made by the watcher — `FSEventsWatch` in the app, a stand-in
+/// in tests (review r1: a stream that failed to start must not read "Watching").
+typealias FolderWatchFactory = @MainActor (_ path: String, _ onChange: @escaping @MainActor () -> Void) -> FSEventsWatch?
 
 /// G133 / G134 — the local sources the APP reads (R-F1, R-N1): every watched
 /// folder of the active memory and, when turned on, Wispr Flow.
@@ -67,6 +79,16 @@ final class LocalSourceWatcher {
     private var wisprStream: FSEventsWatch?
     private var pending: [String: Task<Void, Never>] = [:]
     private var lastStarted: [String: ContinuousClock.Instant] = [:]
+    /// A change that arrived while its channel was already syncing, and whether
+    /// any of those asks wanted paper details. Re-run once the sync ends (review
+    /// r1: a save that lands during a slow upload must not stay stale until the
+    /// next edit — the promise `tooSoon` already keeps inside the floor).
+    private var dirty: [String: Bool] = [:]
+    /// The bank the current `folders` were fetched for. A failed fetch after a
+    /// bank switch must not keep syncing the previous bank's folders into the new
+    /// one (review r1).
+    private var foldersBank: String?
+    private let makeWatch: FolderWatchFactory
     private let retryBase: Duration
     private var retryDelay: Duration
     private var reloadRetry: Task<Void, Never>?
@@ -81,7 +103,8 @@ final class LocalSourceWatcher {
          wisprDebounce: Duration = .seconds(30),
          wisprMinimumInterval: Duration = .seconds(300),
          retryDelay: Duration = .seconds(2),
-         resolveRoot: ((String) -> URL?)? = nil) {
+         resolveRoot: ((String) -> URL?)? = nil,
+         makeWatch: FolderWatchFactory? = nil) {
         self.lights = lights
         self.api = api
         self.defaults = defaults
@@ -96,6 +119,7 @@ final class LocalSourceWatcher {
         self.retryBase = retryDelay
         self.retryDelay = retryDelay
         self.resolveRoot = resolveRoot ?? { bookmarks.resolve($0) }
+        self.makeWatch = makeWatch ?? { path, onChange in FSEventsWatch(path: path, handler: onChange) }
     }
 
     /// Wispr Flow is on this Mac — the Integrations row only offers what exists.
@@ -114,15 +138,28 @@ final class LocalSourceWatcher {
     /// Re-read the active memory's folders and Wispr Flow settings, re-arm every
     /// watch, and catch up on anything that changed while the app was closed.
     func reload() async {
-        bank = store?.bank ?? bank
+        await reload(bank: store?.bank ?? bank)
+    }
+
+    /// `reload()` for a named bank — the seam a test switches banks through.
+    func reload(bank newBank: String) async {
+        bank = newBank
         do {
             folders = try await api.fetchFolders()
+            foldersBank = newBank
             retryDelay = retryBase
         } catch {
             // The backend may still be starting (a spawned child takes seconds) or be
             // briefly down: ask again, backing off to a minute, instead of leaving every
             // folder unwatched until the next bank switch.
             scheduleReload()
+            // Last-known-good is right for the SAME bank; after a switch it would arm
+            // the old bank's folders and post them, under a fresh manifest key, into
+            // the new one (review r1).
+            if foldersBank != newBank {
+                folders = []
+                foldersBank = nil
+            }
         }
         wisprSettings = (try? await api.fetchWisprSettings()) ?? wisprSettings
         arm()
@@ -145,6 +182,9 @@ final class LocalSourceWatcher {
         for (id, stream) in streams where !folders.contains(where: { $0.id == id }) {
             stream.stop()
             streams[id] = nil
+            // A folder that left (removed, or another bank's) takes its light with it.
+            lights.publish(nil, error: nil, for: "folder:\(id)")
+            folderErrors[id] = nil
         }
         for folder in folders where streams[folder.id] == nil {
             guard let root = resolveRoot(folder.id) else {
@@ -152,10 +192,18 @@ final class LocalSourceWatcher {
                 continue
             }
             // Held for the process: a watch needs its folder for as long as it runs.
-            _ = root.startAccessingSecurityScopedResource()
+            let scoped = root.startAccessingSecurityScopedResource()
             let id = folder.id
-            streams[id] = FSEventsWatch(path: root.path) { [weak self] in self?.folderChanged(id) }
-            lights.publish(.watching, error: nil, for: folder.channelId)
+            if let stream = makeWatch(root.path, { [weak self] in self?.folderChanged(id) }) {
+                streams[id] = stream
+                lights.publish(.watching, error: nil, for: folder.channelId)
+            } else {
+                // No stream, no "Watching" (review r1): `stale` is the light for a watch
+                // that is not armed. The next sync or reload arms it again.
+                if scoped { root.stopAccessingSecurityScopedResource() }
+                folderErrors[id] = LocalSourceCopy.folderNotWatched
+                lights.publish(.stale, error: nil, for: folder.channelId)
+            }
         }
         if wisprSettings.enabled, wisprStream == nil, FileManager.default.fileExists(atPath: wisprRoot.path) {
             wisprStream = FSEventsWatch(path: wisprRoot.path) { [weak self] in self?.wisprChanged() }
@@ -202,26 +250,62 @@ final class LocalSourceWatcher {
 
     func syncFolder(_ folder: FolderRegistration, resolve: Bool) async {
         let channel = folder.channelId
-        guard !syncing.contains(channel), let root = resolveRoot(folder.id) else { return }
+        guard let root = resolveRoot(folder.id) else { return }
+        if syncing.contains(channel) {
+            dirty[channel] = (dirty[channel] ?? false) || resolve
+            return
+        }
         if tooSoon(channel, floor: minimumInterval, retry: { [weak self] in await self?.syncFolder(folder, resolve: resolve) }) {
             return
         }
         syncing.insert(channel)
         lastStarted[channel] = .now
         lights.publish(.syncing, error: nil, for: channel)
-        defer { syncing.remove(channel) }
+        await runFolderSync(folder, root: root, resolve: resolve)
+        syncing.remove(channel)
+        guard let again = dirty.removeValue(forKey: channel),
+              let latest = folders.first(where: { $0.id == folder.id }) else { return }
+        // A "Sync now" that landed mid-sync keeps its promise to skip the floor.
+        if again { lastStarted[channel] = nil }
+        await syncFolder(latest, resolve: again)
+    }
 
+    /// The light a folder settles on after a good sync: "Watching" only while a
+    /// stream really runs (review r1).
+    private func settle(_ folder: FolderRegistration) {
+        if streams[folder.id] == nil { arm() }
+        if streams[folder.id] != nil {
+            folderErrors[folder.id] = nil
+            lights.publish(.watching, error: nil, for: folder.channelId)
+        } else if resolveRoot(folder.id) != nil {
+            folderErrors[folder.id] = LocalSourceCopy.folderNotWatched
+            lights.publish(.stale, error: nil, for: folder.channelId)
+        }
+    }
+
+    private func runFolderSync(_ folder: FolderRegistration, root: URL, resolve: Bool) async {
+        let channel = folder.channelId
         let key = "\(bank)-\(folder.id)"
         let manifest = manifests.load(key)
         let rules = CompiledFolderRules(folder)
-        let (read, deleted) = await Task.detached(priority: .utility) { () -> (FolderReadResult, [String]) in
-            let current = FolderScanner.walk(root: root, rules: rules)
-            let plan = FolderScanner.candidates(current: current, manifest: manifest)
-            return (FolderScanner.readUploads(root: root, changed: plan.changed, current: current, manifest: manifest),
+        let (walkError, read, deleted) = await Task.detached(priority: .utility)
+            { () -> (FolderWalkError?, FolderReadResult, [String]) in
+            let walk = FolderScanner.walk(root: root, rules: rules)
+            // A root the app cannot list proves nothing about its files: read and
+            // post nothing, above all no deletions (review r1).
+            if let error = walk.rootError { return (error, FolderReadResult(), []) }
+            let plan = FolderScanner.candidates(current: walk.files, manifest: manifest, unlisted: walk.unlisted)
+            return (nil, FolderScanner.readUploads(root: root, changed: plan.changed, current: walk.files,
+                                                   manifest: manifest),
                     plan.deleted)
         }.value
-        if read.permissionDenied {
+        if walkError == .permissionDenied || read.permissionDenied {
             folderErrors[folder.id] = LocalSourceCopy.folderPermissionFix
+            lights.publish(.failed, error: nil, for: channel)
+            return
+        }
+        if walkError == .unreachable {
+            folderErrors[folder.id] = LocalSourceCopy.folderMissing
             lights.publish(.failed, error: nil, for: channel)
             return
         }
@@ -242,8 +326,7 @@ final class LocalSourceWatcher {
             }
             for rel in deleted { next.removeValue(forKey: rel) }
             manifests.save(next, for: key)
-            folderErrors[folder.id] = nil
-            lights.publish(.watching, error: nil, for: channel)
+            settle(folder)
             if !read.uploads.isEmpty || !deleted.isEmpty {
                 await store?.refresh([.channels, .sourcesOverview, .sources, .status, .inbox])
             }
@@ -272,11 +355,14 @@ final class LocalSourceWatcher {
     /// What a first sync would stage — every included file, posted with `preview`.
     func preview(_ folder: FolderRegistration, root: URL) async throws -> FolderSyncResult {
         let rules = CompiledFolderRules(folder)
-        let read = await Task.detached(priority: .userInitiated) { () -> FolderReadResult in
-            let current = FolderScanner.walk(root: root, rules: rules)
-            return FolderScanner.readUploads(root: root, changed: current.keys.sorted(), current: current, manifest: [:])
+        let (walkError, read) = await Task.detached(priority: .userInitiated) { () -> (FolderWalkError?, FolderReadResult) in
+            let walk = FolderScanner.walk(root: root, rules: rules)
+            if let error = walk.rootError { return (error, FolderReadResult()) }
+            return (nil, FolderScanner.readUploads(root: root, changed: walk.files.keys.sorted(), current: walk.files,
+                                                   manifest: [:]))
         }.value
-        if read.permissionDenied { throw FolderWatchError.permissionDenied }
+        if walkError == .permissionDenied || read.permissionDenied { throw FolderWatchError.permissionDenied }
+        if walkError == .unreachable { throw FolderWatchError.missing }
         var total = FolderSyncResult()
         total.preview = true
         for batch in FolderScanner.batches(read.uploads) {
@@ -354,12 +440,24 @@ final class LocalSourceWatcher {
 
     func syncWispr() async {
         let channel = Self.wisprChannel
-        guard wisprSettings.enabled, !syncing.contains(channel) else { return }
+        guard wisprSettings.enabled else { return }
+        if syncing.contains(channel) {
+            dirty[channel] = true
+            return
+        }
         if tooSoon(channel, floor: wisprMinimumInterval, retry: { [weak self] in await self?.syncWispr() }) { return }
         syncing.insert(channel)
         lastStarted[channel] = .now
         lights.publish(.syncing, error: nil, for: channel)
-        defer { syncing.remove(channel) }
+        await runWisprSync()
+        syncing.remove(channel)
+        // A write that landed mid-pass is read now, through the floor like any other
+        // change, instead of waiting for Wispr Flow's next write (review r1).
+        if dirty.removeValue(forKey: channel) != nil { await syncWispr() }
+    }
+
+    private func runWisprSync() async {
+        let channel = Self.wisprChannel
         let reader = WisprFlowReader(root: wisprRoot)
         let includeDictation = wisprSettings.includeDictation
         var cursor = loadCursor()

@@ -22,6 +22,7 @@ final class WisprFlowReaderTests: XCTestCase {
     CREATE TABLE Todos (meetingId TEXT, title TEXT, status TEXT, isDeleted INTEGER);
     INSERT INTO Todos VALUES ('m-1','Send the deck','open',0);
     INSERT INTO Todos VALUES ('m-9','Another meeting','open',0);
+    INSERT INTO Todos VALUES ('m-1','CANARY-deleted-todo','open',1);
     CREATE TABLE History (timestamp TEXT, formattedText TEXT, editedText TEXT, app TEXT, numWords INTEGER, asrText TEXT,
       audio BLOB, screenshot BLOB, builtInAudio BLOB, axText TEXT, axHTML TEXT, textboxContents TEXT, pastedText TEXT, url TEXT);
     INSERT INTO History VALUES ('2026-09-01T09:00:00Z','Hello there','Hello there.','com.apple.mail',2,'CANARY-asrText',
@@ -87,6 +88,40 @@ final class WisprFlowReaderTests: XCTestCase {
         XCTAssertEqual((body["meetings"] as? [[String: Any]])?.count, 0)
         XCTAssertEqual(body["deletedMeetingIds"] as? [String], ["m-2"])
         XCTAssertFalse(second.isEmpty)
+        // Review r1: the cursor moved past the deletion, so it is posted once.
+        XCTAssertEqual(second.cursor.meetings, .text("2026-09-02T11:00:00Z"))
+        XCTAssertTrue(try reader.read(since: second.cursor, includeDictation: false).isEmpty)
+    }
+
+    /// Review r1: rows sharing one `modifiedAt` across a batch boundary (a bulk
+    /// import) are all read — the cursor is `(modifiedAt, id)`, not `modifiedAt`.
+    func testRowsSharingATimestampAcrossABatchAreAllRead() throws {
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(root.appendingPathComponent("flow.sqlite").path, &db), SQLITE_OK)
+        for i in 1...5 {
+            XCTAssertEqual(sqlite3_exec(db, "INSERT INTO Notes VALUES ('bulk-\(i)','Imported','text',1,1756717400000,0,NULL)",
+                                        nil, nil, nil), SQLITE_OK)
+        }
+        sqlite3_close(db)
+        var reader = WisprFlowReader(root: root)
+        reader.batchLimit = 2
+        var cursor = WisprFlowCursor()
+        var seen: [String] = []
+        for _ in 0..<10 {
+            let pass = try reader.read(since: cursor, includeDictation: false)
+            seen += (try object(pass)["notes"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+            cursor = pass.cursor
+            if !pass.hasMore { break }
+        }
+        XCTAssertEqual(seen, ["n-1", "bulk-1", "bulk-2", "bulk-3", "bulk-4", "bulk-5"])
+    }
+
+    /// A cursor saved before the `(modifiedAt, id)` halves existed still decodes.
+    func testAnOlderCursorStillDecodes() throws {
+        let old = Data(#"{"meetings":{"text":{"_0":"2026-09-01T11:00:00Z"}}}"#.utf8)
+        let cursor = try JSONDecoder().decode(WisprFlowCursor.self, from: old)
+        XCTAssertEqual(cursor.meetings, .text("2026-09-01T11:00:00Z"))
+        XCTAssertNil(cursor.meetingsId)
     }
 
     func testAMissingStoreSaysSoWithTheWisprFlowFile() {

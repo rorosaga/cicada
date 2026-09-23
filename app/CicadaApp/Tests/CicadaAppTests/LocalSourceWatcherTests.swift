@@ -10,6 +10,17 @@ actor FakeLocalSourcesAPI: LocalSourcesAPI {
     private(set) var wisprPosts = 0
     /// How many `fetchFolders` calls fail before one succeeds — a backend still starting.
     private var failingFetches: Int
+    /// When set, the next `syncFolder` waits here until `release()` — a slow upload.
+    private var holdNext = false
+    private var gate: CheckedContinuation<Void, Never>?
+    var isHolding: Bool { gate != nil }
+
+    func failNextFetches(_ n: Int) { failingFetches = n }
+    func holdNextSync() { holdNext = true }
+    func release() {
+        gate?.resume()
+        gate = nil
+    }
 
     init(folders: [FolderRegistration], failingFetches: Int = 0) {
         self.folders = folders
@@ -38,6 +49,10 @@ actor FakeLocalSourcesAPI: LocalSourcesAPI {
     func syncFolder(id: String, files: [FolderUpload], deleted: [String], preview: Bool,
                     resolve: Bool) async throws -> FolderSyncResult {
         syncCalls.append(SyncCall(files: files.map(\.relpath).sorted(), deleted: deleted, preview: preview, resolve: resolve))
+        if holdNext {
+            holdNext = false
+            await withCheckedContinuation { gate = $0 }
+        }
         var result = FolderSyncResult()
         result.preview = preview
         result.filesNew = files.count
@@ -71,16 +86,31 @@ final class LocalSourceWatcherTests: XCTestCase {
         defaults = UserDefaults(suiteName: "LocalSourceWatcherTests-\(UUID().uuidString)")
     }
 
-    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+    override func tearDownWithError() throws {
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: root.deletingLastPathComponent()
+            .appendingPathComponent(root.lastPathComponent + "-manifests"))
+    }
 
     private func make(_ api: FakeLocalSourcesAPI, lights: BrowserWatcher,
-                      retryDelay: Duration = .seconds(2)) -> LocalSourceWatcher {
+                      retryDelay: Duration = .seconds(2),
+                      makeWatch: FolderWatchFactory? = nil) -> LocalSourceWatcher {
         let root = self.root!
+        // Manifests live beside the watched folder, not in it: a mode-000 root
+        // must not also hide the manifest the test reads back.
         return LocalSourceWatcher(
             lights: lights, api: api, defaults: defaults,
-            manifests: FolderManifestStore(directory: root.appendingPathComponent(".manifests")),
+            manifests: FolderManifestStore(directory: root.deletingLastPathComponent()
+                .appendingPathComponent(root.lastPathComponent + "-manifests")),
             wisprRoot: root.appendingPathComponent("no-wispr"),
-            debounce: .seconds(60), minimumInterval: .zero, retryDelay: retryDelay, resolveRoot: { _ in root })
+            debounce: .seconds(60), minimumInterval: .zero, retryDelay: retryDelay, resolveRoot: { _ in root },
+            makeWatch: makeWatch)
+    }
+
+    private var alpha: FolderRegistration {
+        FolderRegistration(id: "alpha-1", label: "alpha-project", path: root.path,
+                           include: ["**/*.md"], exclude: ["**/.git/**"])
     }
 
     func testAFolderPostsOnlyWhatChangedAndTombstonesWhatWentAway() async throws {
@@ -146,6 +176,92 @@ final class LocalSourceWatcherTests: XCTestCase {
         XCTAssertEqual(watcher.folders.map(\.id), ["alpha-1"])
         let calls = await api.syncCalls
         XCTAssertEqual(calls.first?.files, ["README.md", "notes/idea.md"], "the retry watched and synced the folder")
+    }
+
+    /// Review r1 (blocking): a folder the app can no longer list — a Files &
+    /// Folders denial, a grant lost after a re-sign — once read as "every file
+    /// deleted", tombstoning the folder's episodes as the person. Now nothing is
+    /// posted, the manifest is kept, and the card shows the fix.
+    func testAFolderTheAppCannotListPostsNoDeletionsAndShowsTheFix() async throws {
+        let api = FakeLocalSourcesAPI(folders: [alpha])
+        let lights = BrowserWatcher(defaults: defaults, channels: [])
+        let watcher = make(api, lights: lights)
+        await watcher.reload()
+        var calls = await api.syncCalls
+        XCTAssertEqual(calls.count, 1)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: root.path)
+        await watcher.syncFolder(watcher.folders[0], resolve: false)
+        calls = await api.syncCalls
+        XCTAssertEqual(calls.count, 1, "nothing was posted, above all no deletions")
+        XCTAssertEqual(lights.state(for: "folder:alpha-1"), .failed)
+        XCTAssertEqual(watcher.folderErrors["alpha-1"], LocalSourceCopy.folderPermissionFix)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+        await watcher.syncFolder(watcher.folders[0], resolve: false)
+        calls = await api.syncCalls
+        XCTAssertEqual(calls.count, 1, "the manifest survived: a restored grant re-posts nothing")
+        XCTAssertEqual(lights.state(for: "folder:alpha-1"), .watching)
+        XCTAssertNil(watcher.folderErrors["alpha-1"])
+    }
+
+    /// Review r1: a save that lands while an upload is in flight is synced when
+    /// that upload ends, not left stale until the next edit.
+    func testASaveDuringASlowSyncIsSyncedWhenItEnds() async throws {
+        let api = FakeLocalSourcesAPI(folders: [alpha])
+        let watcher = make(api, lights: BrowserWatcher(defaults: defaults, channels: []))
+        await watcher.reload()
+        try "v2, longer".write(to: root.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+
+        await api.holdNextSync()
+        let inFlight = Task { await watcher.syncFolder(watcher.folders[0], resolve: false) }
+        for _ in 0..<150 {
+            if await api.isHolding { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let holding = await api.isHolding
+        XCTAssertTrue(holding)
+        try "an idea, revised".write(to: root.appendingPathComponent("notes/idea.md"), atomically: true, encoding: .utf8)
+        await watcher.syncFolder(watcher.folders[0], resolve: false)  // the save's event, mid-sync
+        await api.release()
+        await inFlight.value
+
+        let calls = await api.syncCalls
+        XCTAssertEqual(calls.dropFirst().map(\.files), [["README.md"], ["notes/idea.md"]])
+    }
+
+    /// Review r1: after a bank switch whose folder fetch failed, the previous
+    /// bank's folders are neither kept, armed nor synced into the new bank, and
+    /// their lights go out.
+    func testAFailedFetchAfterABankSwitchDropsThePreviousBanksFolders() async throws {
+        let api = FakeLocalSourcesAPI(folders: [alpha])
+        let lights = BrowserWatcher(defaults: defaults, channels: [])
+        let watcher = make(api, lights: lights)
+        await watcher.reload(bank: "bank-a")
+        XCTAssertEqual(lights.state(for: "folder:alpha-1"), .watching)
+
+        await api.failNextFetches(1)
+        await watcher.reload(bank: "bank-a")
+        XCTAssertEqual(watcher.folders.map(\.id), ["alpha-1"], "the same bank keeps its last-known-good list")
+
+        await api.failNextFetches(1)
+        await watcher.reload(bank: "bank-b")
+        XCTAssertTrue(watcher.folders.isEmpty)
+        XCTAssertNil(lights.state(for: "folder:alpha-1"))
+        let calls = await api.syncCalls
+        XCTAssertEqual(calls.count, 1, "nothing from bank-a was posted into bank-b")
+    }
+
+    /// Review r1: a watch that did not start never reads "Watching".
+    func testAWatchThatDidNotStartIsNotCalledWatching() async throws {
+        let api = FakeLocalSourcesAPI(folders: [alpha])
+        let lights = BrowserWatcher(defaults: defaults, channels: [])
+        let watcher = make(api, lights: lights, makeWatch: { _, _ in nil })
+        await watcher.reload()
+        let calls = await api.syncCalls
+        XCTAssertEqual(calls.count, 1, "the catch-up sync still ran")
+        XCTAssertEqual(lights.state(for: "folder:alpha-1"), .stale)
+        XCTAssertEqual(watcher.folderErrors["alpha-1"], LocalSourceCopy.folderNotWatched)
     }
 
     func testPublishedLightsReachTheExistingLookups() {
