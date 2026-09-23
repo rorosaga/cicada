@@ -41,6 +41,8 @@ from typing import Callable
 import yaml
 from loguru import logger
 
+from api.services.claims import event_cardinality
+
 # The prep seed lives at repo root (NOT inside the api package). Resolve it
 # relative to this file: api/services/predicates.py -> repo root is parents[2].
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -217,6 +219,10 @@ def cardinality(memory_path: Path | None, predicate: str) -> str:
     ``_inbox_rules.yaml``, not here. Anything in neither list is ``unknown`` —
     ask as usual, fail open.
     """
+    # G141 R-PJ5: the event predicates are multi in CODE — a bank seeded before
+    # they existed must still never ask for a winner between two happenings.
+    if event_cardinality(predicate):
+        return "multi"
     p = (predicate or "").strip().lower()
     if not p:
         return "unknown"

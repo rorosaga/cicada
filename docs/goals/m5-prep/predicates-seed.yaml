@@ -228,6 +228,10 @@ multi_valued:
   - is-a              # multiple type facets can coexist (e.g. tool + concept)
   - located-in        # an entity/event can have more than one associated place
   - depends-on        # often multi in practice (see historical note above)
+  # G141 R-PJ5: event cardinality also lives in code; spec facts coexist
+  - happened
+  - milestone
+  - spec
 
 # ---------------------------------------------------------------------------
 # uncertain_flag_for_audit: HEAD-frequency labels deliberately LEFT UNFOLDED

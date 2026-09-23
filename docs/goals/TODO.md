@@ -275,7 +275,9 @@ generated demo bank only. PJ-1's read model and demo scenario are on `feat/g141-
 served as `GET /projects` and `GET /projects/{id}/timeline` (T2; the opt-in bench, `CICADA_BENCH=1`, meets
 the detail's 150 ms p95 but not yet the list's 80 ms on its 2,500-page worst case). PJ-2 (T3) is on the
 same branch: `cicada_project` (stdio + remote `read`), `_state.md` schema v3 project `next` (`now` waits
-for PJ-3's happenings) and the handshake's Current line — contract 5, remote contract 3.
+for PJ-3's happenings) and the handshake's Current line — contract 5, remote contract 3. PJ-3a's claim
+layer (T4) is there too: event claims born closed, one writer (`progress.py`), `write_claim` refusing the
+event predicates and Stage 1's stray labels relabelled; nothing can write an event yet (T5 adds the tool).
 
 **Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
 open is on the row.
@@ -569,7 +571,9 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     Sleep happening extraction 💸 (+15–30% Stage-1 on BYOK; built only if M1–M3 say so); **PJ-8** consented
     per-project re-read 💸 — L. Open DECIDEs (rail cell, band colour, pending-store hold) are under Research /
     decisions below. PJ-1's read model and demo scenario are on `feat/g141-read-write` (T1), served over
-    `GET /projects[/{id}/timeline]` (T2); PJ-2 (`cicada_project`, `_state.md` v3, the Current line) is T3
+    `GET /projects[/{id}/timeline]` (T2); PJ-2 (`cicada_project`, `_state.md` v3, the Current line) is T3;
+    PJ-3a's claim layer (`happened`/`milestone`, `when.py`'s closed table, `progress.py`, `reconcile_events`,
+    the `is_event` readers and their grep gate) is T4 — no writer is exposed until T5.
 14. **G102** site recon — cheap slice shipped 2026-09-02 (see Shipped). Next slice: relate a link to a
     pending candidate when it promotes; fetch-side improvements stay out of scope until a measured
     need — S

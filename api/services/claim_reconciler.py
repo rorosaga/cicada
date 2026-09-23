@@ -37,7 +37,7 @@ from loguru import logger
 
 from api.models.schemas import DecayClass
 from api.services import decay_policy, inbox_questions, predicates
-from api.services.claims import Claim
+from api.services.claims import HAPPENED, MILESTONE, Claim, Evidence, event_cardinality, is_event, is_record
 
 # A cardinality oracle: predicate -> True (single-valued) | False (multi-valued).
 CardinalityFn = Callable[[str], bool]
@@ -362,6 +362,161 @@ def _normalization_audit_nudge(raw_label: str, canonical: str, claim: Claim) -> 
 
 
 # --------------------------------------------------------------------------- #
+# events (G141 §5.1) — happenings and milestones never reach the K table
+# --------------------------------------------------------------------------- #
+
+# R-PJ4 §5.1 rule 3: an equal-date tie in a milestone slot is broken by
+# lifecycle rank, never by `trust_decision`'s date test (which would turn a
+# same-day "create, then mark done" into a conflict).
+_LIFECYCLE_RANK = {"planned": 0, "ongoing": 0, "done": 1, "missed": 1, "dropped": 1}
+
+
+def _stamp_event(claim: Claim, settings, *, today: str) -> Claim:
+    """`_stamp_new`, then R-PJ3: a done or dropped happening is born closed."""
+    _stamp_new(claim, settings, today=today)
+    if claim.predicate == HAPPENED and claim.status in ("done", "dropped"):
+        claim.valid_to = claim.valid_from
+    return claim
+
+
+def _close_event(old: Claim, *, by: Claim) -> None:
+    """`_close`, never earlier than `old` opened (R-PJB27): a backdated `on`
+    must not write a window that closes before it opens — the
+    `claim_expiry.closing_date` rule."""
+    _close(old, by=by)
+    if old.valid_from and _date_key(old.valid_to) < _date_key(old.valid_from):
+        old.valid_to = old.valid_from
+
+
+def _span_list(c: Claim) -> list[Evidence]:
+    return [e for e in c.evidence if e.is_span()]
+
+
+def _overlap(a: Evidence, b: Evidence) -> int:
+    if a.episode != b.episode:
+        return 0
+    return max(0, min(a.end, b.end) - max(a.start, b.start))
+
+
+def _withdrawn(c: Claim, slot: list[Claim]) -> bool:
+    return bool(c.superseded_by) and any(r.id == c.superseded_by and is_record(r) for r in slot)
+
+
+def _auto_settle_target(new: Claim, slot: list[Claim]) -> str | None:
+    """R-PJ19 (R-PJB25): Sleep may settle only conservatively — a done happening
+    closes an OLDER open ongoing one on the same subject when they share at
+    least two linked non-owner participants. No production caller until PJ-7."""
+    mine = {p.get("entity") for p in new.participants if p.get("entity") and p.get("role") != "owner"}
+    hits = [c.id for c in slot
+            if c.predicate == HAPPENED and c.status == "ongoing" and open_(c)
+            and _date_key(c.valid_from) < _date_key(new.valid_from)
+            and len(mine & {p.get("entity") for p in c.participants if p.get("entity") and p.get("role") != "owner"}) >= 2]
+    return hits[0] if len(hits) == 1 else None
+
+
+def reconcile_events(new: Claim, slot: list[Claim], settings, *, today: str, nudges: list[dict],
+                     audit: list[dict], absorbed: set[str]) -> None:
+    """The event branch of `reconcile_stage3` (G141 §5.1). The general `K`
+    table is never reached for an event: two milestones of one project share `K`
+    and would read as a conflict. Mutates `slot`; nothing is deleted."""
+    if new.predicate == HAPPENED:
+        _reconcile_happening(new, slot, settings, today=today, audit=audit, absorbed=absorbed)
+    else:
+        _reconcile_milestone(new, slot, settings, today=today, nudges=nudges, audit=audit)
+
+
+def _reconcile_happening(new, slot, settings, *, today, audit, absorbed) -> None:
+    # A reinforce moves `recorded_at` only when the incoming claim carries one
+    # (`_reinforce`); Sleep-shaped claims arrive without it, and rule 2's
+    # "the quiet clock resets" must hold for them too.
+    new.recorded_at = new.recorded_at or today
+    winner = None
+    # 1. Span identity, same status: a G104 re-read that rewords the same
+    #    happening, or an agent's live write and that night's Sleep, fold into one.
+    best, best_ov = None, 0
+    for c in slot:
+        if c.predicate != HAPPENED or c.status != new.status or c.id in absorbed or _withdrawn(c, slot):
+            continue
+        ov = max((_overlap(a, b) for a in _span_list(c) for b in _span_list(new)), default=0)
+        if ov > best_ov:
+            best, best_ov = c, ov
+    if best is not None:
+        _reinforce(best, new)
+        absorbed.add(best.id)
+        winner = best
+    else:
+        # 2. Same day and words; an ongoing restatement whatever its day.
+        for c in slot:
+            if c.predicate == HAPPENED and c.status == new.status and same_object(c, new) \
+                    and not _withdrawn(c, slot) \
+                    and (c.valid_from == new.valid_from or (new.status == "ongoing" and open_(c))):
+                _reinforce(c, new)
+                winner = c
+                break
+    if winner is not None:
+        setattr(new, "_folded_into", winner.id)
+    else:
+        winner = _stamp_event(new, settings, today=today)
+        slot.append(winner)
+    # 4. Settles — also when `new` folded into an existing done/dropped claim
+    #    (R-PJB29): that claim is then the closer.
+    target = getattr(new, "_settles", None)
+    if not target and winner is new and getattr(settings, "auto_settle", False):
+        target = _auto_settle_target(new, slot)
+    if not target or winner.status not in ("done", "dropped"):
+        return
+    thread = next((c for c in slot if c.id == target and c.predicate == HAPPENED and c.status == "ongoing"
+                   and open_(c)), None)
+    if thread is None:
+        setattr(new, "_settle_result", "missing")
+    elif is_human(thread) and not is_human(new):
+        setattr(new, "_settle_result", "refused")          # R-PJB14
+    else:
+        _close_event(thread, by=winner)
+        setattr(new, "_settle_result", "closed")
+        audit.append({"action": "supersede", "closed": thread.id, "by": winner.id})
+
+
+def _reconcile_milestone(new, slot, settings, *, today, nudges, audit) -> None:
+    new.recorded_at = new.recorded_at or today
+    # 3. One slot per (subject, milestone, slug) ACROSS observers (R-PJ4).
+    head = next((c for c in slot if c.predicate == MILESTONE and open_(c) and same_object(c, new)), None)
+    if head is None:
+        slot.append(_stamp_event(new, settings, today=today))
+        return
+    if head.status == new.status and (head.target or None) == (new.target or None) \
+            and (head.text or "").strip() == (new.text or "").strip():
+        _reinforce(head, new)
+        setattr(new, "_folded_into", head.id)
+        return
+    if is_human(head) and not is_human(new):
+        # An agent never closes the person's milestone: coexist + a divergence
+        # item — a G113 verdict for free (§5.1 rule 3).
+        slot.append(_stamp_event(new, settings, today=today))
+        setattr(new, "_status_note", "shadowed_by_human")
+        nudges.append({**_divergence_nudge(head, new),
+                       "conflict_context": (f"You set {head.text} as {head.status}"
+                                            + (f" for {head.target}" if head.target else "")
+                                            + f"; I'm now reading {new.status}"
+                                            + (f" for {new.target}" if new.target else "") + ". Keep your statement?"),
+                       "options": [f"Keep my statement ({head.status})", f"Update to {new.status}",
+                                   "Both true — different context"]})
+        return
+    newer = _date_key(new.valid_from) > _date_key(head.valid_from)
+    same_day = _date_key(new.valid_from) == _date_key(head.valid_from)
+    # R-PJB27: the person's own edit always stands — over an agent head (as
+    # `trust_decision`'s "human corrects agent") and over their own earlier
+    # head, whatever `on` says; agent-over-agent is ordered by date, then rank.
+    if is_human(new) or newer or (same_day and _LIFECYCLE_RANK.get(new.status, 0)
+                                  >= _LIFECYCLE_RANK.get(head.status, 0)):
+        _close_event(head, by=_stamp_event(new, settings, today=today))
+        slot.append(new)
+        audit.append({"action": "supersede", "closed": head.id, "by": new.id})
+        return
+    audit.append({"action": "rejected", "kept": head.id, "dropped": new.id})
+
+
+# --------------------------------------------------------------------------- #
 # the algorithm (§2)
 # --------------------------------------------------------------------------- #
 
@@ -411,11 +566,21 @@ def reconcile_stage3(
     audit: list[dict] = []
     referenced_subjects: set[str] = set()
     audited_folds: set[tuple[str, str]] = set()
+    # G141 rule 1: an existing happening absorbs at most one incoming claim per
+    # pass, so two distinct happenings quoting one sentence never collapse.
+    absorbed: set[str] = set()
 
     for new in incoming_claims:
         sub = new.subject
         referenced_subjects.add(sub)
         slot = reconciled.setdefault(sub, [])
+
+        if is_event(new):
+            # G141 §5.1: an event has its own rules (span identity, the
+            # milestone slot, settles) — the K table would read two milestones
+            # of one project as a conflict.
+            reconcile_events(new, slot, settings, today=today, nudges=nudges, audit=audit, absorbed=absorbed)
+            continue
 
         # Mandatory normalization-audit nudge on any auto-folded predicate.
         raw_label = getattr(new, "predicate_raw", None)
@@ -509,8 +674,10 @@ def _decay_claims(
         if multiplier <= 0:
             continue  # evergreen subject: its claims are artifacts, they don't fade
         for c in claims:
-            if not open_(c):
-                continue  # closed claims don't decay; they're history
+            if not open_(c) or is_event(c):
+                # Closed claims are history; events are asked about (the G141
+                # follow-up), never faded (R-PJ12).
+                continue
             base = _DECAY_BASE.get(c.epistemic, 0.02)
             factor = _DECAY_FACTOR.get(c.source_trust, 1.0)
             # G85 §2 / Wave-1 1.1: `recorded_at`/`valid_from` never move, so
@@ -571,4 +738,7 @@ def _decay_claims(
 
 def _default_cardinality_fn(settings) -> CardinalityFn:
     memory_path = getattr(settings, "memory_path", None)
-    return predicates.build_cardinality_fn(memory_path)
+    base = predicates.build_cardinality_fn(memory_path)
+    # G141 R-PJ5: event cardinality lives in code — a bank's stale
+    # `_predicates.yaml` must never make `happened` single-valued.
+    return lambda p: False if event_cardinality(p) else base(p)

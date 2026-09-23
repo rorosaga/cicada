@@ -314,6 +314,19 @@ is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an 
 becomes `reasoning` and **the claim is still written — provenance never blocks memory**. Legacy
 claims carry no `evidence` and `to_dict` omits the empty key; there is no backfill.
 
+**Events (G141).** Two predicates, `happened` (ongoing | done | dropped) and `milestone` (planned |
+done | missed | dropped), with four optional fields omitted when empty — `status` (as of
+`valid_from`), `target` (a milestone's planned date; expiry never reads it), `participants`
+(`[{role, surface?, entity?, url?}]`, a closed role set; `surface` is an exact substring of the plain
+sentence — no wikilinks in YAML) and `date_basis` (stated | turn | episode | person | written). A
+done happening is **born closed** (`valid_to == valid_from`), so every reader that treats open as
+current stays right; the history readers call `claims.is_event` (a grep gate enforces it). Events are
+not records: they stay in FTS and citations, where they read as dated happenings, never 'no longer
+current'. A milestone's slot is `(subject, milestone, slug)` across observers — the slug is its
+`object`, never its `context`. Event cardinality is multi and lives in code. **Only `progress.py`
+writes an event**: `write_claim` refuses the predicates, `claim_pipeline` relabels a stray label.
+Dates are decided by `when.py`'s closed table; nothing relative is stored.
+
 **Stated ends (G140).** A claim may carry `expected_end` — the date the fact itself says it stops
 being true — and a G17 `due` claim's ISO-date object is its own. Never a future `valid_to`, which
 every reader takes to mean *closed*. Sleep's engine-free tail closes such a claim the day after its

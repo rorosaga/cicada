@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from api.models.schemas import ClaimModel, EvidenceModel, TransclusionPayload
+from api.models.schemas import ClaimModel, EvidenceModel, ParticipantModel, TransclusionPayload
 from api.services import git_service, markdown_parser
 from api.services.claims import Claim, parse_claims
 from api.services.hub_builder import _one_line_summary
@@ -77,6 +77,12 @@ def claim_to_model(claim: Claim) -> ClaimModel:
         recorded_at=claim.recorded_at,
         author_kind=author_kind,
         author_provider=author_provider,
+        # G141 §4.1 — additive: the event fields and the stated end.
+        status=claim.status,
+        target=claim.target,
+        participants=[ParticipantModel(**p) for p in (claim.participants or [])],
+        date_basis=claim.date_basis,
+        expected_end=claim.expected_end,
     )
 
 

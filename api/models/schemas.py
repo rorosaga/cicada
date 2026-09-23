@@ -707,6 +707,17 @@ class EvidenceModel(CamelModel):
     hash: str = ""
 
 
+class ParticipantModel(CamelModel):
+    """One event participant (G141 §4.1): a closed `role`, the exact words the
+    sentence used (`surface`), the linked page (`entity`) and, for a
+    document, its `url`."""
+
+    role: str
+    surface: Optional[str] = None
+    entity: Optional[str] = None
+    url: Optional[str] = None
+
+
 class ClaimModel(CamelModel):
     """One perspectival, bi-temporal claim, camelCase on the wire.
 
@@ -747,6 +758,13 @@ class ClaimModel(CamelModel):
     recorded_at: Optional[str] = None
     author_kind: str = "unknown"
     author_provider: Optional[str] = None
+    # G141 §4.1 — additive; `expectedEnd` finally on the wire (G140 left it
+    # off). The four event fields are set only on `happened`/`milestone`.
+    status: Optional[str] = None
+    target: Optional[str] = None
+    participants: list[ParticipantModel] = []
+    date_basis: Optional[str] = None
+    expected_end: Optional[str] = None
 
 
 class ClaimListResponse(CamelModel):
@@ -975,6 +993,10 @@ class EpisodeCitation(CamelModel):
     stale: bool = False
     grown: bool = False
     derived: bool = False
+    # G141 R-PJB11 — an event cited here is a dated happening: `current` is
+    # false only when something replaced it, never for a born-closed done one.
+    event_status: Optional[str] = None
+    event_day: Optional[str] = None
 
 
 class EpisodeCitationEntity(CamelModel):
@@ -1313,6 +1335,11 @@ class SearchHit(CamelModel):
     valid_from: str | None = None
     valid_to: str | None = None
     superseded_by: str | None = None
+    # G141 R-PJB11 — an event claim hit: its status and day. Its `valid_to` /
+    # `superseded_by` are sent only when something replaced it, so a
+    # born-closed done happening never renders as history.
+    event_status: str | None = None
+    event_day: str | None = None
 
 
 class SearchResponse(CamelModel):

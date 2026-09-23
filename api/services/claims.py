@@ -188,6 +188,15 @@ class Claim:
     # (G118 R7's reason: re-rendering a page must never diff every legacy
     # claim for a field it lacks).
     expected_end: str | None = None
+    # G141 §4.1 — event fields, omitted from the YAML when empty (R7's reason):
+    # `status` is the state AS OF `valid_from` (a new state is a new claim,
+    # R-PJ4); `target` a milestone's planned date (expiry never reads it);
+    # `participants` `[{role, surface?, entity?, url?}]` over a closed role set;
+    # `date_basis` how `valid_from` was decided (`when.resolve`).
+    status: str | None = None
+    target: str | None = None
+    participants: list[dict] = field(default_factory=list)
+    date_basis: str | None = None
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -212,6 +221,15 @@ class Claim:
         # G140 Q-R6: same rule for a stated end — absent unless one was stated.
         if data.get("expected_end") is None:
             data.pop("expected_end", None)
+        # G141 §4.1: the four event fields, absent on every non-event claim.
+        for key in ("status", "target", "date_basis"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        # Cleaned on the way OUT too, so a writer that built the list by hand
+        # can never put an unknown role or key into the fence.
+        data["participants"] = clean_participants(data.get("participants"))
+        if not data["participants"]:
+            data.pop("participants", None)
         return data
 
     @classmethod
@@ -245,6 +263,10 @@ class Claim:
                 Evidence.from_dict(e) for e in (data.get("evidence") or []) if isinstance(e, dict)
             ],
             expected_end=_opt_str(data.get("expected_end")),
+            status=_opt_str(data.get("status")),
+            target=_opt_str(data.get("target")),
+            participants=clean_participants(data.get("participants")),
+            date_basis=_opt_str(data.get("date_basis")),
         )
 
 
@@ -267,6 +289,47 @@ def is_record(claim: Claim) -> bool:
     filters through this one test, so a new surface has one thing to call.
     """
     return claim.predicate == RETRACT_PREDICATE
+
+
+# G141 R-PJ1 — happenings and milestones are claims: they inherit observer,
+# trust, G118 spans, sessions, supersede and withdrawal, the FTS index and the
+# remote scopes instead of regrowing them. `status` is the state AS OF
+# `valid_from`; a new state is a new claim (R-PJ4). Only `progress.py` writes
+# these predicates (§5.1): `agentic_write.write_claim` refuses them and
+# `claim_pipeline` relabels a stray Stage-1 label.
+HAPPENED = "happened"
+MILESTONE = "milestone"
+EVENT_PREDICATES = frozenset({HAPPENED, MILESTONE})
+EVENT_STATUSES = {HAPPENED: ("ongoing", "done", "dropped"), MILESTONE: ("planned", "done", "missed", "dropped")}
+PARTICIPANT_ROLES = ("owner", "from", "with", "for", "about", "used", "document", "project")
+PARTICIPANT_KEYS = ("role", "surface", "entity", "url")
+DATE_BASES = ("stated", "turn", "episode", "person", "written")
+
+
+def is_event(claim) -> bool:
+    """The one test the history readers call (R-PJ3), like `is_record`. An
+    event is NOT a record: it stays in FTS and in citations, where it reads as
+    a dated happening — never as a belief that is "no longer current"."""
+    return getattr(claim, "predicate", "") in EVENT_PREDICATES
+
+
+def event_cardinality(predicate: str) -> str | None:
+    """R-PJ5: `multi` for the event predicates, in CODE — an existing bank's
+    `_predicates.yaml` is stale and `build_cardinality_fn` reads only it. The
+    one-head-per-slug rule lives in `claim_reconciler.reconcile_events`."""
+    return "multi" if (predicate or "").strip().lower() in EVENT_PREDICATES else None
+
+
+def clean_participants(raw) -> list[dict]:
+    """Forgiving, like `Evidence.from_dict`: an entry with an unknown role or no
+    role is dropped, unknown keys are dropped, empty values are omitted — a
+    hand-edited fence must never make its claim unparseable."""
+    out: list[dict] = []
+    for item in raw or []:
+        if not isinstance(item, dict) or item.get("role") not in PARTICIPANT_ROLES:
+            continue
+        out.append({k: str(item[k]) for k in PARTICIPANT_KEYS if item.get(k) not in (None, "")})
+    return out
 
 
 def _opt_str(value: Any) -> str | None:

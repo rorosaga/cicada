@@ -56,14 +56,16 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import bank_index, bank_registry, episode_ids, evidence, inbox_questions, markdown_parser, text_fold
-from api.services.claims import is_record, parse_claims, strip_claims_block
+from api.services.claims import is_event, is_record, parse_claims, strip_claims_block
 from api.services.graph_builder import summarize
 
 DB_FILE = "search_index.db"
 # "2": withdrawal records (G140 Q-R5) are no longer indexed as claims. A bump
 # rebuilds every existing index on its next open, so a record indexed under
 # "1" stops surfacing without anyone deleting the file (final review).
-SCHEMA_VERSION = "2"
+# "3": G141 — `status` in the claim payload so an event hit renders as a dated
+# happening (R-PJB11); the bump rebuilds every index once (TODO ruling 3).
+SCHEMA_VERSION = "3"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -401,6 +403,8 @@ def _index_entity(conn, doc_key: str, f, fm: dict, body: str) -> None:
             "superseded_by": claim.superseded_by,
             "observer": claim.observer,
             "evidence": first.to_dict() if first else None,
+            # G141 R-PJB11: an event keeps its state beside its day.
+            "status": claim.status if is_event(claim) else None,
         }
         rowid = (doc_id << ROW_BITS) | n
         conn.execute(

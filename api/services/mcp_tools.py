@@ -1150,14 +1150,21 @@ def get_perspective(
     if context:
         claims = [c for c in claims if c.context == context]
     earlier: list = []
+    happened: list = []
     if history:
         earlier = [c for c in page_claims if (c.valid_to is not None or c.superseded_by) and not _is_record(c)]
         if observer:
             earlier = [c for c in earlier if c.observer == observer]
         if context:
             earlier = [c for c in earlier if c.context == context]
+        # G141 R-PJ3: a closed event is a dated happening, never "was X until
+        # D" — a born-closed done one closed the day it happened.
+        happened = [c for c in earlier if _is_event(c)]
+        earlier = [c for c in earlier if not _is_event(c)]
         earlier.sort(key=lambda c: (str(c.valid_to or ""), c.id), reverse=True)
         earlier = earlier[:PERSPECTIVE_HISTORY_MAX]
+        happened.sort(key=lambda c: (str(c.valid_from or ""), c.id), reverse=True)
+        happened = happened[:PERSPECTIVE_HISTORY_MAX]
 
     fm = parsed.frontmatter or {}
     title = str(fm.get("name", page.stem.replace("-", " ").title()))
@@ -1170,7 +1177,7 @@ def get_perspective(
     if perspective:
         header += f" ({', '.join(perspective)})"
 
-    if not claims and not earlier:
+    if not claims and not earlier and not happened:
         return f"{header}: no currently-valid claims match."
 
     lines = [f"{header} — {len(claims)} valid claim(s):", ""]
@@ -1179,6 +1186,11 @@ def get_perspective(
             f"{c.observer} · {c.context} · {c.source_trust} · "
             f"conf {c.confidence:.2f} · since {c.valid_from or 'undated'}"
         )
+        if _is_event(c):
+            # G141: an open thread or milestone reads as `day · status · sentence`.
+            line = f"- {c.valid_from} · {c.status} · {c.text}" + (f" (target {c.target})" if c.target else "")
+            lines.append(f"{line}\n  _({prov})_")
+            continue
         lines.append(f"- {c.text}\n  _({prov})_")
     if earlier:
         lines += ["", f"Earlier, newest first ({len(earlier)}):"]
@@ -1187,6 +1199,9 @@ def get_perspective(
                 f"- {c.text}\n  _({_how_closed(c, page_claims)} · valid {c.valid_from or 'undated'} → "
                 f"{c.valid_to or 'undated'} · {c.observer} · {c.source_trust})_"
             )
+    if happened:
+        lines += ["", f"Happened, newest first ({len(happened)}):"]
+        lines += [f"- {c.valid_from} · {c.status} · {c.text}" for c in happened]
     return "\n".join(lines)
 
 
@@ -1361,6 +1376,15 @@ def _is_record(claim) -> bool:
     return is_record(claim)
 
 
+def _is_event(claim) -> bool:
+    """A G141 happening or milestone — dated, never "no longer current"
+    (R-PJ3). The test itself is ``claims.is_event``, shared with every other
+    history reader (a grep gate holds it)."""
+    from api.services.claims import is_event
+
+    return is_event(claim)
+
+
 def _ended_at_stated_end(claim) -> bool:
     """Closed by ``claim_expiry`` (G140 Q-R7): no successor, and a ``valid_to``
     equal to what expiry writes. Nothing replaced it, so "was X until D" would
@@ -1418,7 +1442,9 @@ def _recent_changes(entities_dir: Path, hits: list[dict], today: date) -> list[s
         closed = []
         for c in page:
             age = _age_days(c.valid_to, today) if c.valid_to else None
-            if age is not None and 0 <= age <= RECENT_CHANGE_DAYS and not _is_record(c):
+            # Events are not "changes" (G141 R-PJ3): a done happening closes
+            # the day it happens and would crowd out the real edits.
+            if age is not None and 0 <= age <= RECENT_CHANGE_DAYS and not _is_record(c) and not _is_event(c):
                 closed.append(c)
         closed.sort(key=lambda c: (str(c.valid_to), c.id), reverse=True)
         for c in closed[:RECENT_CHANGES_PER_PAGE]:

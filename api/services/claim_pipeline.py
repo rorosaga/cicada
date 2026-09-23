@@ -46,7 +46,7 @@ from loguru import logger
 
 from api.services import markdown_parser, telemetry
 from api.services.claim_reconciler import reconcile_stage3
-from api.services.claims import Claim, parse_claims, write_claims
+from api.services.claims import Claim, is_event, parse_claims, write_claims
 from api.services.entity_extractor import entities_to_claims
 
 
@@ -73,6 +73,24 @@ def _load_existing_claims_by_subject(memory_path: Path) -> dict[str, list[Claim]
     return by_subject
 
 
+def _relabel_event_labels(claims: list[Claim]) -> tuple[list[Claim], int]:
+    """R-PJB12: a Stage-1 relationship labelled like an event predicate becomes
+    `relates-to` — only progress.py writes events (G141 §5.1), and a projected
+    relationship has no status and no born-closed validity. `predicate_raw` is
+    dropped so Stage 3 raises no normalization-audit card: this is a code rail,
+    not a vocabulary fold the person could confirm or undo. Counted, no text."""
+    n = 0
+    for c in claims:
+        if is_event(c):
+            c.predicate = "relates-to"
+            if hasattr(c, "predicate_raw"):
+                delattr(c, "predicate_raw")
+            n += 1
+    if n:
+        logger.info(f"Claim pipeline: {n} event-labelled relationship(s) relabelled relates-to")
+    return claims, n
+
+
 def run_claim_pipeline(
     extracted: list[dict],
     existing_entities: list[dict],
@@ -97,7 +115,8 @@ def run_claim_pipeline(
             the manual-edit / clarification (``user_stated`` + human-origin) path.
 
     Returns a dict: ``{"nudges": [...], "audit": [...], "claims_written": int,
-    "subjects_written": int, "subjects_skipped": int}``. Never raises on a
+    "subjects_written": int, "subjects_skipped": int, "relabelled_events": int}``
+    (the last G141 R-PJB12's count). Never raises on a
     missing subject page — the legacy promotion model owns page creation.
     """
     today = now_date or str(date.today())
@@ -105,6 +124,7 @@ def run_claim_pipeline(
 
     # ---- Stage 1: emit claims from extraction (+ any injected manual claims) ----
     incoming: list[Claim] = entities_to_claims(extracted, memory_path)
+    incoming, relabelled = _relabel_event_labels(incoming)
     if extra_claims:
         incoming = incoming + list(extra_claims)
 
@@ -170,4 +190,5 @@ def run_claim_pipeline(
         "claims_written": claims_written,
         "subjects_written": subjects_written,
         "subjects_skipped": subjects_skipped,
+        "relabelled_events": relabelled,
     }

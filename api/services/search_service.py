@@ -39,6 +39,7 @@ from loguru import logger
 
 from api.models.schemas import SearchHit, SearchResponse
 from api.services import bank_index, evidence, inbox_questions, inbox_service, search_index, text_fold
+from api.services.claims import EVENT_PREDICATES
 
 KINDS = ("entity", "claim", "episode", "media", "inbox")
 _KIND_ALIASES = {
@@ -369,8 +370,18 @@ class _Claim:
     sort: tuple = ()
 
 
+def _is_history(payload: dict) -> bool:
+    """R-PJB11: an event is history only when something replaced it — a
+    born-closed done happening's `valid_to` is its shape, not its end."""
+    if payload.get("predicate") in EVENT_PREDICATES:
+        return bool(payload.get("superseded_by"))
+    return payload.get("valid_to") is not None
+
+
 def _claim_hit(subject: search_index.Doc, text: str, payload: dict, tokens: list[str], score: float, label: str) -> SearchHit:
     snippet, offsets = snippet_window(text, tokens)
+    history = _is_history(payload)
+    event = payload.get("predicate") in EVENT_PREDICATES
     ev = payload.get("evidence") or {}
     is_span = ev.get("kind") not in (None, "reasoning") and int(ev.get("start", -1)) >= 0
     return SearchHit(
@@ -392,8 +403,12 @@ def _claim_hit(subject: search_index.Doc, text: str, payload: dict, tokens: list
         hash=(ev.get("hash") or None) if is_span else None,
         evidence_kind=ev.get("kind") or None,
         valid_from=payload.get("valid_from") or None,
-        valid_to=payload.get("valid_to") or None,
-        superseded_by=payload.get("superseded_by") or None,
+        # G141 R-PJB11: only history carries these, so `_claims_kind`'s sort
+        # and `claim_subject_hits` read a born-closed happening as current.
+        valid_to=(payload.get("valid_to") or None) if history else None,
+        superseded_by=(payload.get("superseded_by") or None) if history else None,
+        event_status=(payload.get("status") or None) if event else None,
+        event_day=(payload.get("valid_from") or None) if event else None,
     )
 
 
@@ -415,7 +430,7 @@ def _lexical_claims(ctx: _Ctx) -> list[_Claim]:
         ]
         score, label = quick_score(ctx.tokens, fields)
         out.append(_Claim(_claim_hit(subject, text, payload, ctx.tokens, score, label),
-                          (payload.get("valid_to") is not None, -score, bm)))
+                          (_is_history(payload), -score, bm)))
     out.sort(key=lambda c: c.sort)
     return out
 
@@ -774,5 +789,7 @@ def claim_subject_hits(memory_path: Path, query: str, top_k: int = 8) -> list[di
     """R3 P2's third recall leg: current claims matched lexically, mapped to
     the page they are about, deduplicated, best first."""
     resp = search(memory_path, query, kinds=("claim",), mode="prefix", per_kind=MAX_PER_KIND)
-    subjects = _dedupe(h.subject_id for h in resp.results if not h.valid_to)
+    # Events are admitted whatever their validity (G141 §10.2): a project with
+    # a fresh happening is what the query is about.
+    subjects = _dedupe(h.subject_id for h in resp.results if not h.valid_to or h.event_status)
     return [{"entity_id": ref, "source": "claim", "score": 0.0} for ref in subjects][:top_k]
