@@ -33,7 +33,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from api.models.schemas import ClaimModel, EvidenceModel, TransclusionPayload
-from api.services import markdown_parser
+from api.services import git_service, markdown_parser
 from api.services.claims import Claim, parse_claims
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import resolve_entity_file
@@ -42,7 +42,15 @@ from api.services.id_utils import resolve_entity_file
 MAX_DEPTH = 3
 
 
-def _to_model(claim: Claim) -> ClaimModel:
+def claim_to_model(claim: Claim) -> ClaimModel:
+    """The ONE ``Claim`` → ``ClaimModel`` builder. ``routers/claims._claim_to_model``
+    delegates here, so ``/entities/{id}/claims``, ``/timeline`` and
+    ``/transclude`` can never ship two shapes of one claim — G118 slice 2
+    (R-PB13) found the two copies drifting the moment author fields were added
+    to only one. ``author_kind``/``author_provider`` come from
+    ``git_service.author_identity``, the rule the contributors strip reads."""
+    author = claim.authored_by or "unknown"
+    author_kind, author_provider = git_service.author_identity(author)
     return ClaimModel(
         id=claim.id,
         text=claim.text,
@@ -61,9 +69,14 @@ def _to_model(claim: Claim) -> ClaimModel:
         supersedes=claim.supersedes,
         source_episodes=claim.source_episodes,
         premises=claim.premises,
-        authored_by=claim.authored_by or "unknown",
+        authored_by=author,
         origin=claim.origin,
         evidence=[EvidenceModel(**e.to_dict()) for e in (claim.evidence or [])],
+        # G118 slice 2 (R-PB13) — additive.
+        session_ids=claim.all_session_ids(),
+        recorded_at=claim.recorded_at,
+        author_kind=author_kind,
+        author_provider=author_provider,
     )
 
 
@@ -180,7 +193,7 @@ def _resolve_claim(memory_path: Path, ref: str, claim_id: str) -> TransclusionPa
                     ref=ref,
                     title=claim.subject or claim_id,
                     summary=claim.text,
-                    claims=[_to_model(claim)],
+                    claims=[claim_to_model(claim)],
                     resolved=True,
                 )
     return _stub(ref, kind="claim")
@@ -203,7 +216,7 @@ def _resolve_facet(
         ref=ref,
         title=label,
         summary=summary,
-        claims=[_to_model(c) for c in facet_claims],
+        claims=[claim_to_model(c) for c in facet_claims],
         resolved=True,
     )
 

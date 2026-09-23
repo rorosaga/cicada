@@ -353,6 +353,15 @@ def _provider_for_model(author: str) -> str | None:
     return "other"
 
 
+def author_identity(author: str | None) -> tuple[str, str | None]:
+    """``(kind, provider)`` for an author id — the ONE rule the contributors
+    strip, the claim chip, the history row and the provenance section read
+    (G15 / R-L6; G118 slice 2 R-PB6). Public so no caller re-derives it; an
+    empty author is the legacy ``unknown`` bucket."""
+    name = (author or "").strip() or UNKNOWN_AUTHOR
+    return _classify_author_kind(name), _provider_for_model(name)
+
+
 def _github_handle_from_remote_url(url: str | None) -> str | None:
     """Extract the GitHub owner handle from an origin remote URL, else None.
 
@@ -490,17 +499,61 @@ async def get_entity_history(
         # "no known sessions" — an empty list, not a guess.
         sessions = _parse_entity_sessions(body, entity_id)
 
+        author_kind, author_provider = author_identity(author)
         entries.append(EntityHistoryEntry(
             date=date,
             change_type=change_type,
             description=description,
             author=author,
+            author_kind=author_kind,
+            author_provider=author_provider,
             commit_hash=commit_hash,
             diff=diff,
             sessions=sessions,
         ))
 
     return entries
+
+
+# G118 slice 2 (R-PB6): enough history for "N changes by <author>" on the
+# entity card. A page touched by more commits than this says so
+# (`commitsTruncated`) instead of walking the whole history per card open.
+MAX_PROVENANCE_COMMITS = 500
+
+
+async def entity_commit_authors(
+    memory_path: Path, entity_id: str, *, limit: int | None = None,
+) -> tuple[dict[str, int], bool]:
+    """Commits that touched ``entities/<entity_id>.md``, counted per
+    ``Cicada-Author`` (an untrailered commit is ``unknown``), and whether the
+    walk was cut at ``limit``.
+
+    ONE ``git log`` over the path with git's own trailer directive: every
+    commit that ever changed the page (not only blame survivors — a decay pass
+    that was later overwritten still contributed), and never ``%b``, because a
+    Sleep commit's body is a manifest of every entity it touched (the M1
+    lesson). ``entity_id`` is a resolved page stem; ``--`` keeps it a path.
+    ``({}, False)`` on a non-git bank or a git failure — provenance never
+    blocks on history.
+    """
+    limit = MAX_PROVENANCE_COMMITS if limit is None else max(1, int(limit))
+    if not (Path(memory_path) / ".git").exists():
+        return {}, False
+    try:
+        out = await _run_git(
+            memory_path, "log", f"-n{limit + 1}",
+            f"--format=%x1e%(trailers:key={AUTHOR_TRAILER},valueonly,separator=%x1f)",
+            "--", f"entities/{entity_id}.md",
+        )
+    except GitError:
+        return {}, False
+    records = out.split("\x1e")[1:]
+    counts: dict[str, int] = {}
+    for record in records[:limit]:
+        authors = [a.strip() for a in record.strip("\n").split("\x1f") if a.strip()] or [UNKNOWN_AUTHOR]
+        for author in dict.fromkeys(authors):
+            counts[author] = counts.get(author, 0) + 1
+    return counts, len(records) > limit
 
 
 def _infer_change_type(subject: str, body: str, entity_id: str) -> str:

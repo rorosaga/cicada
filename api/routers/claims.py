@@ -9,8 +9,11 @@ Per ``docs/goals/d2-companion-showcase.md`` (the authoritative API contract):
   windows, newest first (the flagship belief-timeline surface).
 - ``GET /transclude?ref=<urlencoded>`` → ``TransclusionPayload`` — one resolved
   ``![[…]]`` embed, with depth-cap + cycle-guard + soft "not found" stub.
+- ``GET /entities/{id}/provenance`` → ``EntityProvenance`` (G118 slice 2) —
+  contributors, the conversations that fed the page, the best quote from
+  each, and honest coverage; built by ``provenance.entity_provenance``.
 
-All three are read-only projections over the markdown pages (the source of
+All four are read-only projections over the markdown pages (the source of
 truth); they add no write path. They reuse the same in-page ``parse_claims``
 the index derives from, so a page edit is reflected immediately.
 """
@@ -19,17 +22,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
     ClaimListResponse,
     ClaimModel,
     ClaimTimeline,
-    EvidenceModel,
+    EntityProvenance,
     TransclusionPayload,
 )
-from api.services import markdown_parser, transclusion_resolver
+from api.services import git_service, markdown_parser, provenance, sync_service, transclusion_resolver
 from api.services.claims import Claim, parse_claims
 from api.services.id_utils import resolve_entity_file
 
@@ -37,28 +41,10 @@ router = APIRouter()
 
 
 def _claim_to_model(c: Claim) -> ClaimModel:
-    return ClaimModel(
-        id=c.id,
-        text=c.text,
-        subject=c.subject,
-        predicate=c.predicate,
-        object=c.object,
-        object_kind=c.object_kind,
-        observer=c.observer,
-        context=c.context,
-        epistemic=c.epistemic,
-        source_trust=c.source_trust,
-        confidence=c.confidence,
-        valid_from=c.valid_from or "",
-        valid_to=c.valid_to,
-        superseded_by=c.superseded_by,
-        supersedes=c.supersedes,
-        source_episodes=c.source_episodes,
-        premises=c.premises,
-        authored_by=c.authored_by or "unknown",
-        origin=c.origin,
-        evidence=[EvidenceModel(**e.to_dict()) for e in (c.evidence or [])],
-    )
+    """Every claim on the wire goes through ``transclusion_resolver.claim_to_model``
+    (G118 slice 2, R-PB13): one builder, so this router and ``/transclude``
+    never disagree about a claim's author identity, sessions or evidence."""
+    return transclusion_resolver.claim_to_model(c)
 
 
 def _is_currently_valid(c: Claim) -> bool:
@@ -113,6 +99,40 @@ async def get_entity_timeline(
         predicate=predicate,
         context=context,
         claims=[_claim_to_model(c) for c in key_claims],
+    )
+
+
+@router.get("/entities/{entity_id}/provenance", response_model=EntityProvenance)
+async def get_entity_provenance(
+    entity_id: str,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """Where an entity's beliefs came from and who wrote them (G118 s2, §4.8.4).
+
+    One call for the card's "Where this came from" instead of N+2 (claims,
+    history, one ``/conversations/{id}`` per session). Engine-free: one page
+    parse, cached episode frontmatter, at most one body read per shown
+    conversation, and ONE trailer-only ``git log`` of the page. Fetched on
+    demand — not a Store domain — so the ETag serves the client's in-memory
+    cache only and there is no ``VersionVector`` mapping (R-PB11); ``git_head``
+    is in the recipe because the commit counts come from git, and a commit that
+    lands after the file write would otherwise 304 a stale count.
+    """
+    memory_path = settings.memory_path
+    page = resolve_entity_file(memory_path, entity_id)
+    if page is None or not page.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    etag = sync_service.etag_for(
+        memory_path, "entities", "episodes", "git_head", extra=f"provenance|{page.stem}",
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    commits, truncated = await git_service.entity_commit_authors(memory_path, page.stem)
+    return await run_in_threadpool(
+        provenance.entity_provenance, memory_path, page,
+        commit_authors=commits, commits_truncated=truncated,
     )
 
 

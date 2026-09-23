@@ -743,6 +743,56 @@ def _extract_date(timestamp: str | None) -> str | None:
 # --- Staging ---
 
 
+# G118 slice 2 / R-PB4 — per-message times, kept BESIDE the body.
+# The parsers have always read each message's own time (`created_at`,
+# `create_time`) and staging threw it away, so a span could say WHERE in a
+# thread a belief came from but never WHEN. The body cannot carry it:
+# `content_hash` is computed over the exact `role: text` lines, and a new body
+# shape would "update" every already-imported thread on the next re-import and
+# re-queue the whole corpus for Sleep (paid). So the times ride in frontmatter
+# as `turns: [{offset, ts, speaker}]` — the key and shape the Local-sources
+# track writes too — outside the hash by construction.
+#
+# Capped, head-stable, because frontmatter is parsed on every cold
+# `bank_index` scan: measured 2026-09-23 (CPython 3.12, PyYAML's pure-Python
+# SafeLoader) a sidecar costs ~2.9 ms at 50 entries, ~11.5 ms at 200 and
+# ~28 ms at 500 per parse, against ~0.14 ms for the same frontmatter without
+# it. Turns past the cap carry no time; the Reader shows a time only when one
+# is stored and never infers one.
+MAX_TURN_STAMPS = 500
+
+
+def _message_line(msg: dict) -> str:
+    """One body line — the ONLY place the importer spells its `role: text`
+    shape, so the hashed body and `_turn_stamps`' offsets cannot disagree."""
+    return f"{msg['role']}: {msg['text']}"
+
+
+def _turn_stamps(messages: list[dict], body: str) -> list[dict]:
+    """``[{offset, ts, speaker}]`` for ``body``, or ``[]`` (R-PB4).
+
+    ``offset`` is the message's ``role:`` line start in the evidence text —
+    ``markdown_parser.parse`` strips the body, and one built from stripped
+    message texts has nothing to strip — so it is a turn start
+    ``evidence.turns`` finds. ``speaker`` is the role that line is marked
+    with; ``ts`` the message's own time in the one aware-UTC shape. A message
+    without a time gets no entry (it would only repeat the marker). Returns
+    ``[]`` when ``body`` is not exactly these messages' own rendering: the
+    offsets would vouch for text they do not index.
+    """
+    lines = [_message_line(msg) for msg in messages]
+    if "\n".join(lines) != body:
+        return []
+    out: list[dict] = []
+    offset = 0
+    for msg, line in zip(messages, lines):
+        ts = _normalise_import_timestamp(msg.get("timestamp"))
+        if ts and len(out) < MAX_TURN_STAMPS:
+            out.append({"offset": offset, "ts": ts, "speaker": str(msg["role"])})
+        offset += len(line) + 1
+    return out
+
+
 def _stage_episodes(
     episodes: list[dict], episodes_dir: Path
 ) -> tuple[int, int, int]:
@@ -796,10 +846,7 @@ def _stage_episodes(
 
     for episode in episodes:
         # Build content string for hashing
-        content_lines: list[str] = []
-        for msg in episode.get("messages", []):
-            content_lines.append(f"{msg['role']}: {msg['text']}")
-        content_str = "\n".join(content_lines)
+        content_str = "\n".join(_message_line(msg) for msg in episode.get("messages", []))
         content_hash = hashlib.sha256(content_str.encode()).hexdigest()[:12]
 
         source_id = episode.get("source_id")
@@ -916,6 +963,12 @@ def _write_new_episode(
         frontmatter["source_id"] = episode["source_id"]
         frontmatter["source_updated_at"] = episode.get("source_updated_at")
 
+    # G118 slice 2 (R-PB4): each message's time beside the body — outside
+    # `content_hash`, and the LAST key so the thread's identity reads first.
+    turns = _turn_stamps(episode.get("messages", []), content_str)
+    if turns:
+        frontmatter["turns"] = turns
+
     path = episodes_dir / f"{episode_id}.md"
     markdown_parser.write(path, frontmatter, content_str)
     return path
@@ -940,4 +993,10 @@ def _update_episode_in_place(
     fm["processed"] = False
     if episode.get("origin"):
         fm["origin"] = episode["origin"]
+    # G118 slice 2 (R-PB4): the grown thread's times replace the old ones; a
+    # re-export that lost them drops the key rather than keeping stale offsets.
+    turns = _turn_stamps(episode.get("messages", []), content_str)
+    fm.pop("turns", None)
+    if turns:
+        fm["turns"] = turns
     markdown_parser.write(path, fm, content_str)
