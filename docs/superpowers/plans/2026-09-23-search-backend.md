@@ -12,8 +12,8 @@ questions findable by the words in them. `mode=hybrid` fuses that lexical leg wi
 by reciprocal rank. `/conversations/recent?q=` filters titles across the whole bank before its cap. The
 palette UI (design §6 S3–S6) is a later track; this plan fixes the wire it builds against.
 
-**Architecture:** Three new services, each owning one thing. `text_fold` is the one folding rule (NFKD,
-combining marks dropped, casefold — the app's QuickMatch normalisation) shared by every server matcher.
+**Architecture:** Three new services, each owning one thing. `text_fold` is the one folding rule (NFD,
+combining marks dropped, lower — the app's QuickMatch normalisation) shared by every server matcher.
 `search_index` owns the FTS5 file: schema, full build, request-time incremental refresh from
 `bank_index` stamps, one background worker per bank, and a read-only `Reader`; it never ranks.
 `search_service` owns retrieval: kinds, QuickMatch-mirrored ranking, RRF fusion with
@@ -288,8 +288,11 @@ one.
   `(evidence_episode, start, end, kind, hash)` and §4.8 item 3 says the same table answers
   `GET /episodes/{id}/citations`: `claim_evidence` stores every span of every claim, and
   `Reader.claims_citing(episode_id)` returns them. The endpoint is Track P's P4.
-- **G136 R21 — One folding rule, `text_fold`:** NFKD, combining marks dropped, `casefold` —
-  QuickMatch's normalisation and the query-side twin of `remove_diacritics 2`. Offsets are code points
+- **G136 R21 — One folding rule, `text_fold`:** NFD, combining marks dropped, `lower` —
+  QuickMatch's normalisation and the query-side twin of `remove_diacritics 2`. *(Amended at the final
+  review: the first cut used NFKD + `casefold`, which rewrote "ß" to "ss" and the "ﬁ" ligature and
+  full-width letters to ASCII while `unicode61` indexes them as written, so the exact stored spelling
+  missed the index and only the fallback found it. The Task 1 code below is the historical first cut.)* Offsets are code points
   (Unicode scalars, the app's `ScalarSlice` unit). ASCII takes a `lower()` fast path with an identity
   map (an 8,000-character page fell from ~2 ms to 0.16 ms per highlight).
 - **G136 R22 — The query never reaches a log, uvicorn's access log included.** Design §3.8 says the

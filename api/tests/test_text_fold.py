@@ -40,3 +40,28 @@ def test_match_offsets_slice_back_to_the_matched_text():
     text = "We moved the index to sqlite-vec so search is fast"
     spans = text_fold.match_offsets(text, text_fold.query_tokens("sqlite vec"))
     assert [text[s:e] for s, e in spans] == ["sqlite", "vec"]
+
+
+def test_fold_is_unicode61s_twin_not_a_full_case_fold():
+    """S-back final review: NFKD + casefold turned "ß" into "ss" and "ﬁ" into
+    "fi" while FTS5's unicode61 keeps both as written, so typing the exact
+    stored text found nothing on the indexed path. NFD + lower is the twin."""
+    assert text_fold.fold("Hauptstraße") == "hauptstraße"
+    assert text_fold.fold("ﬁle") == "ﬁle"
+    assert text_fold.fold("ＡＢＣ") == "ａｂｃ"
+    assert text_fold.fold("İstanbul") == "istanbul"
+    assert text_fold.fold("ΣΟΦΙΑ") == "σοφια"
+
+
+def test_exact_stored_text_is_found_on_the_indexed_path():
+    import sqlite3
+
+    con = sqlite3.connect(":memory:")
+    con.execute('CREATE VIRTUAL TABLE t USING fts5(x, tokenize="unicode61 remove_diacritics 2")')
+    stored = ["Hauptstraße", "ﬁle", "ＡＢＣｄｅ", "Ǆemal", "Zürich", "İstanbul", "ΣΟΦΙΑ", "naïve"]
+    con.executemany("INSERT INTO t VALUES (?)", [(w,) for w in stored])
+    for word in stored:
+        (tok,) = text_fold.query_tokens(word)
+        hits = con.execute("SELECT x FROM t WHERE t MATCH ?", (f'"{tok}"*',)).fetchall()
+        assert hits == [(word,)], f"{word!r} folded to {tok!r} missed the index"
+    con.close()

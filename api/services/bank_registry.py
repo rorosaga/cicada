@@ -99,15 +99,21 @@ def _git_dir(path: Path) -> Path | None:
     dot = Path(path) / ".git"
     if dot.is_dir():
         return dot
+    # ``surrogateescape`` + ``UnicodeError``: a path git wrote is bytes, not
+    # necessarily UTF-8, and a decode error is a ValueError that an
+    # OSError-only guard let escape into ``scaffold_bank`` — the lifespan's
+    # unguarded call — so one odd byte kept the backend from booting
+    # (S-back final review). surrogateescape round-trips through
+    # ``os.fsencode``, so the resolved path is still the real one.
     try:
-        head = dot.read_text(encoding="utf-8").strip() if dot.is_file() else ""
+        head = dot.read_text(encoding="utf-8", errors="surrogateescape").strip() if dot.is_file() else ""
         if not head.startswith("gitdir:"):
             return None
         git_dir = (dot.parent / head[len("gitdir:"):].strip()).resolve()
         common = git_dir / "commondir"
         if common.is_file():
-            git_dir = (git_dir / common.read_text(encoding="utf-8").strip()).resolve()
-    except OSError:
+            git_dir = (git_dir / common.read_text(encoding="utf-8", errors="surrogateescape").strip()).resolve()
+    except (OSError, UnicodeError, ValueError):
         return None
     return git_dir if git_dir.is_dir() else None
 
@@ -129,23 +135,30 @@ def ensure_derived_excluded(path: Path) -> bool:
 
     Idempotent, cheap (one small read), never raises; a bank with no git
     directory has nothing to protect.
+
+    The file is hand-editable and git reads it as bytes, so it is read with
+    ``surrogateescape`` and appended in binary: a Latin-1 byte someone typed
+    into it used to raise ``UnicodeDecodeError`` (a ValueError, past the
+    OSError guard) out of ``scaffold_bank`` — failing boot, ``POST /banks``
+    and every index build on that bank (S-back final review). Now an odd byte
+    can never block the exclusion, and the bytes already there are untouched.
     """
     git_dir = _git_dir(path)
     if git_dir is None:
         return False
     exclude = git_dir / "info" / "exclude"
     try:
-        text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
-        have = {line.strip() for line in text.splitlines()}
+        raw = exclude.read_bytes() if exclude.exists() else b""
+        have = {line.strip() for line in raw.decode("utf-8", errors="surrogateescape").splitlines()}
         missing = [name for name in DERIVED_ARTIFACTS if name not in have]
         if not missing:
             return False
         exclude.parent.mkdir(parents=True, exist_ok=True)
-        lead = "" if not text or text.endswith("\n") else "\n"
-        with exclude.open("a", encoding="utf-8") as fh:
-            fh.write(lead + "\n".join([_EXCLUDE_HEADER, *missing]) + "\n")
+        lead = b"" if not raw or raw.endswith(b"\n") else b"\n"
+        with exclude.open("ab") as fh:
+            fh.write(lead + "\n".join([_EXCLUDE_HEADER, *missing]).encode("utf-8") + b"\n")
         return True
-    except OSError as exc:
+    except (OSError, UnicodeError, ValueError) as exc:
         logger.warning(f"bank_registry: could not update .git/info/exclude ({exc})")
         return False
 

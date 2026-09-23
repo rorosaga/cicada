@@ -5,8 +5,27 @@ The app's ``QuickMatch`` (round-3 design §1.2) folds both sides with
 The server has three matchers that must agree with it and with each other —
 the FTS5 index (``unicode61 remove_diacritics 2`` folds the indexed side),
 the query tokens that drive it, and the ``/conversations/recent?q=`` title
-filter — so the query side is folded here, once, the same way: NFKD, drop
-combining marks, ``casefold``.
+filter — so the query side is folded here, once, the same way: NFD, drop
+combining marks, ``lower``.
+
+Why NFD + ``lower`` and not NFKD + ``casefold`` (S-back final review): the
+query side has to be the index side's twin, and ``unicode61`` only lowercases
+and strips diacritics — it never applies a compatibility mapping or a full
+case fold. NFKD turned the "ﬁ" ligature into "fi" and full-width letters into
+ASCII, ``casefold`` turned "ß" into "ss", while the index kept "ﬁ", "ｆ" and
+"ß" as written; so typing the exact stored text ("Hauptstraße", "ﬁle") found
+nothing on the indexed path while the ``bank_index`` fallback, folding both
+sides itself, did — two tiers disagreeing about one bank. NFD + ``lower``
+matches ``unicode61`` for all of those and still folds "Zürich", "İstanbul"
+and Greek capitals. The ASCII fast path in :func:`fold_with_map` was already
+``lower()``, so it is unchanged.
+
+Known residual (probed 2026-09-23, not fixed here): ``unicode61``'s diacritic
+table does not cover Greek tonos, so "Αθήνα" is indexed as "αθήνα" while this
+fold strips the accent; on the indexed tier that word is found only by a
+prefix that stops before the accent ("αθ"). Closing it means handing FTS the
+unstripped token and folding only for highlights — a change to how
+``search_service`` carries tokens, not to this rule.
 
 ``match_offsets`` returns spans in **code points** (Python ``str`` indices),
 which are Unicode scalars — the unit the app's ``ScalarSlice`` slices by
@@ -33,9 +52,10 @@ MAX_TOKENS = 8
 
 
 def fold(text: str | None) -> str:
-    """NFKD, combining marks dropped, ``casefold`` — "Zürich" → "zurich"."""
-    decomposed = unicodedata.normalize("NFKD", text or "")
-    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+    """NFD, combining marks dropped, ``lower`` — "Zürich" → "zurich", and
+    "Hauptstraße" stays "hauptstraße", as ``unicode61`` indexes it."""
+    decomposed = unicodedata.normalize("NFD", text or "")
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
 
 
 @lru_cache(maxsize=4096)

@@ -76,6 +76,19 @@ def test_names_aliases_diacritics_and_prefixes_are_found(tmp_path):
     assert _refs(memory, "ent", "alpha") == ["alpha-project"], "a dropped page is never indexed (R7)"
 
 
+def test_a_sharp_s_or_ligature_name_is_found_by_its_exact_spelling(tmp_path):
+    """S-back final review: the query fold was NFKD + casefold, so
+    "hauptstraße" became "hauptstrasse" and missed the index, which keeps
+    "ß" as written; the bank_index fallback found it — two tiers disagreeing."""
+    memory = _bank(tmp_path)
+    _entity(memory, "street-a", name="Hauptstraße Office")
+    _entity(memory, "file-a", name="ﬁle Cabinet")
+    search_index.rebuild(memory)
+    assert _refs(memory, "ent", "hauptstraße") == ["street-a"]
+    assert _refs(memory, "ent", "Hauptstraße") == ["street-a"]
+    assert _refs(memory, "ent", "ﬁle") == ["file-a"]
+
+
 def test_episode_passages_carry_exact_offsets_into_the_evidence_text(tmp_path):
     memory = _bank(tmp_path)
     filler = "\n".join(f"user: unrelated line {i}" for i in range(80))
@@ -335,3 +348,25 @@ def test_a_new_bank_gitignore_lists_the_search_index(tmp_path):
     bank_registry.scaffold_bank(tmp_path / "fresh", git_init=False)
     lines = (tmp_path / "fresh" / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert {"search_index.db", "search_index.db-wal", "search_index.db-shm"} <= set(lines)
+
+
+def test_an_odd_byte_in_the_exclude_file_never_blocks_boot_or_the_exclusion(tmp_path):
+    """S-back final review: a Latin-1 byte in a hand-edited
+    `.git/info/exclude` raised UnicodeDecodeError (a ValueError) past the
+    OSError guard, out of `scaffold_bank` — the lifespan's unguarded call —
+    and out of every index build. It must neither raise nor lose the byte."""
+    memory = _bank(tmp_path)
+    _git(memory, "init", "-q")
+    exclude = memory / ".git" / "info" / "exclude"
+    exclude.write_bytes(b"# caf\xe9 notes\nscratch/")
+    bank_registry.scaffold_bank(memory, git_init=False)
+    raw = exclude.read_bytes()
+    assert raw.startswith(b"# caf\xe9 notes\nscratch/\n"), "the bytes already there are untouched"
+    assert _git(memory, "check-ignore", "-q", search_index.DB_FILE).returncode == 0
+    assert bank_registry.ensure_derived_excluded(memory) is False, "idempotent over an odd byte"
+
+
+def test_an_odd_byte_in_a_git_file_is_not_an_error(tmp_path):
+    memory = _bank(tmp_path)
+    (memory / ".git").write_bytes(b"gitdir: /nowhere/caf\xe9\n")
+    assert bank_registry.ensure_derived_excluded(memory) is False
