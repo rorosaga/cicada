@@ -22,6 +22,7 @@ from pathlib import Path
 
 from api.config import Settings
 from api.services import markdown_parser
+from api.services.claims import strip_claims_block
 
 # type -> (hub file stem, friendly display name). Order drives _index.md listing.
 TYPE_HUBS: list[tuple[str, str, str]] = [
@@ -47,6 +48,9 @@ def _one_line_summary(body: str, limit: int = 140) -> str:
     wikilinks, strips markdown noise, collapses whitespace, takes the first
     sentence, and truncates to ``limit`` chars.
     """
+    # F1 R-FX8 — the claims fence follows the last section; unstripped, a
+    # Summary-only page's blurb (or a page with no Summary) read as YAML.
+    body = strip_claims_block(body or "")
     if body and "## Summary" in body:
         try:
             from api.services.entity_body import parse_sections

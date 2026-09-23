@@ -462,7 +462,9 @@ private struct FeedItemPreviewSheet: View {
                 return
             }
             if let entity = try? await APIClient.shared.fetchEntity(id: item.mediaEntityId) {
-                enrichedDescription = Self.firstSection(
+                // F1 R-FX8 — `EntityProse` strips the claims fence first, so a
+                // paper's Summary never carries its YAML into the sheet.
+                enrichedDescription = EntityProse.firstSection(
                     ["## Description", "## Summary"],
                     in: entity.markdownContent
                 )
@@ -480,22 +482,4 @@ private struct FeedItemPreviewSheet: View {
     /// so the size is settled on the first render and never changes when the
     /// description arrives from the fallback fetch.
     private var size: CGSize { FeedPreviewLayout.sheetSize(for: previewModel.kind) }
-
-    /// Extract the first present section body under one of the given headers.
-    private static func firstSection(_ headers: [String], in markdown: String) -> String? {
-        let lines = markdown.components(separatedBy: "\n")
-        for header in headers {
-            guard let start = lines.firstIndex(where: {
-                $0.trimmingCharacters(in: .whitespaces) == header
-            }) else { continue }
-            var body: [String] = []
-            for line in lines[(start + 1)...] {
-                if line.trimmingCharacters(in: .whitespaces).hasPrefix("## ") { break }
-                body.append(line)
-            }
-            let text = body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { return text }
-        }
-        return nil
-    }
 }

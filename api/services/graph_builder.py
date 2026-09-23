@@ -8,7 +8,7 @@ import yaml
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
 from api.services import bank_index, claim_contexts, decay_policy, logo_service, predicates
-from api.services.claims import parse_claims
+from api.services.claims import parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import parse
 
@@ -17,8 +17,13 @@ _SUMMARY_RE = re.compile(r"^##\s+Summary\s*$", re.IGNORECASE | re.MULTILINE)
 
 def summarize(body: str) -> str | None:
     """Return a short preview: the first non-empty line under a ``## Summary``
-    heading, else the first 200 chars of the body with newlines collapsed."""
-    text = (body or "").strip()
+    heading, else the first 200 chars of the body with newlines collapsed.
+
+    The ```claims fence is stripped first (F1 R-FX8): `claims.write_claims`
+    appends it after the last section, so an empty Summary previewed as the
+    fence line and a page with no heading previewed as YAML.
+    """
+    text = strip_claims_block(body or "").strip()
     if not text:
         return None
     m = _SUMMARY_RE.search(text)

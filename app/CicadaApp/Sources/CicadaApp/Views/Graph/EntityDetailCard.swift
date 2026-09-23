@@ -393,6 +393,11 @@ struct EntityDetailCard: View {
                 rawMarkdownView
             } else {
                 renderedMarkdownView
+                if showsBeliefs, !validClaims.isEmpty {
+                    WhatCicadaKnowsSection(claims: validClaims) { claim in
+                        timelineKey = TimelineKey(predicate: claim.predicate, context: claim.context)
+                    }
+                }
             }
 
             if entity.type == .location {
@@ -458,6 +463,11 @@ struct EntityDetailCard: View {
             if entity.type == .project || entity.type == .directory {
                 repoContexts = (try? await APIClient.shared.fetchEntityRepos(entityId: entity.id)) ?? []
             }
+        }
+        // R-FX11 — flips true once the full entity has replaced the stub, so
+        // the graph-node stub never fetches; `loadClaimsIfNeeded` is guarded.
+        .task(id: showsBeliefs) {
+            if showsBeliefs { await loadClaimsIfNeeded() }
         }
     }
 
@@ -836,63 +846,36 @@ struct EntityDetailCard: View {
     /// preview card's description line. Falls back to `## Summary`. Returns nil
     /// when neither is present.
     private var mediaDescription: String? {
-        for header in ["## Description", "## Summary"] {
-            if let text = section(named: header, in: entity.markdownContent), !text.isEmpty {
-                return text
-            }
-        }
-        return nil
+        EntityProse.firstSection(["## Description", "## Summary"], in: entity.markdownContent)
     }
 
-    /// Extract the text under a `## Header` up to the next `## ` header (or EOF).
-    private func section(named header: String, in markdown: String) -> String? {
-        let lines = markdown.components(separatedBy: "\n")
-        guard let start = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces) == header
-        }) else { return nil }
-        var body: [String] = []
-        for line in lines[(start + 1)...] {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("## ") { break }
-            body.append(line)
-        }
-        let text = body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
-    }
-
-    /// Inverse of `section(named:in:)`: return `markdown` with the named
-    /// `## Header` and its body (up to the next `## ` header or EOF) removed.
-    /// Used to strip sections that already have a dedicated surface — the
-    /// `## Summary` accent box, the media `## Description` card — so they don't
-    /// render a second time as a plain heading+paragraph in the body below.
-    private func stripSection(named header: String, from markdown: String) -> String {
-        let lines = markdown.components(separatedBy: "\n")
-        guard let start = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces) == header
-        }) else { return markdown }
-        var kept = Array(lines[..<start])
-        var i = start + 1
-        while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("## ") {
-            i += 1
-        }
-        kept.append(contentsOf: lines[i...])
-        return kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+    // The section readers live in `EntityProse` (F1 R-FX8): one copy of the
+    // rule that strips the claims fence before any section is read.
 
     /// The entity body with the sections that already render in their own
     /// dedicated chrome (`## Summary` → SummaryBox, `## Description` → media
     /// hero/website card) removed, so the rendered markdown view below doesn't
-    /// show them a second time.
+    /// show them a second time. The claims fence goes first (R-FX8).
     private var bodyForRendering: String {
-        var body = stripSection(named: "## Summary", from: entity.markdownContent)
-        body = stripSection(named: "## Description", from: body)
-        return body
+        let prose = EntityProse.stripClaimsFence(entity.markdownContent)
+        return EntityProse.stripSection(named: "## Description",
+                                        from: EntityProse.stripSection(named: "## Summary", from: prose))
     }
 
     /// G24: the entity's `## Summary` section text, for the summary box atop
     /// the rendered markdown preview. Nil when no Summary section is present
-    /// — the box renders nothing rather than showing empty chrome.
+    /// — the box renders nothing rather than showing empty chrome — and nil
+    /// for `agentic_write`'s old placeholder line, which says nothing (R-FX11).
     private var summaryText: String? {
-        section(named: "## Summary", in: entity.markdownContent)
+        guard let text = EntityProse.section(named: "## Summary", in: entity.markdownContent),
+              !EntityProse.isPlaceholderSummary(text) else { return nil }
+        return text
+    }
+
+    /// R-FX11 — media pages have their own card (a paper's lists its why).
+    private var showsBeliefs: Bool {
+        entity.type != .media
+            && EntityProse.showsBeliefs(markdown: entity.markdownContent, isStub: entity.rawMarkdown.isEmpty)
     }
 
     private var renderedMarkdownView: some View {
