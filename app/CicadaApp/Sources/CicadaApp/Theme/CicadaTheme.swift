@@ -301,6 +301,28 @@ enum CicadaTheme {
     static var captionFont: Font { font(size: 11) }
     static var monoFont: Font { font(size: 12, design: .monospaced) }
 
+    // MARK: - Display + quote faces (G137, spec R-M3; plan R-M15)
+    /// Instrument Serif is a display cut: its hairlines break up under ~22 pt.
+    static let displayMinimumSize: CGFloat = 22
+
+    /// Page titles, onboarding headlines, empty-state titles — never a
+    /// number, never body text. Scaled by `uiScale` like every token, and
+    /// clamped to `displayMinimumSize` so a misuse degrades to legible, not
+    /// spindly (`FontLiteralLintTests` also fails a literal below it). The
+    /// ONE custom-font call in the app: the lint bans it everywhere else, so
+    /// a second face cannot arrive unnoticed. An unregistered face falls back
+    /// to SF (see `CicadaFonts`).
+    static func displayFont(size: CGFloat, italic: Bool = false) -> Font {
+        .custom(italic ? CicadaFonts.displayItalic : CicadaFonts.displayRegular,
+                size: scaled(max(size, displayMinimumSize)))
+    }
+
+    /// The person's own words — provenance excerpts and quoted snippets. New
+    /// York italic ships with macOS (zero bundle cost) and is optically sized
+    /// for text, where Instrument Serif is not.
+    static var quoteFont: Font { quoteFont(size: 13) }
+    static func quoteFont(size: CGFloat) -> Font { font(size: size, design: .serif).italic() }
+
     // MARK: - Spacing (G130: derived from `uiScale` — the 551 call sites are untouched, R2)
     static var spacingXS: CGFloat { scaled(4) }
     static var spacingSM: CGFloat { scaled(8) }

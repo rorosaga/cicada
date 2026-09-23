@@ -68,6 +68,9 @@ struct CicadaApp: App {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
 
+        // G137 R-M3: before any view asks for `CicadaTheme.displayFont`.
+        CicadaFonts.registerBundled()
+
         // Build the Store as a plain local value first — referencing `self`
         // (which `store` would, via the property wrapper) isn't allowed yet
         // because the view-model `@State` properties below aren't

@@ -4,7 +4,10 @@ import SwiftUI
 /// subtitle, and an optional right-aligned trailing action. Promotes the
 /// ad-hoc header that SleepView established into one reusable component so every
 /// primary screen (Graph, Clusters, Feed, Sleep, Inbox, Contributors) lays out
-/// identically: `spacingXL` outer padding, `titleFont` title in `textPrimary`,
+/// identically: `spacingXL` outer padding, a display-serif title in
+/// `textPrimary` (G137 R-M16: Instrument Serif 28 pt sets the same width as
+/// the SF 20 semibold it replaced, ±6% — "Integrations" 110 → 114 pt,
+/// "Chrome bookmarks" 179 → 189 pt — so every call site keeps its line),
 /// `bodyFont` subtitle in `textSecondary`.
 struct PageHeader<Trailing: View>: View {
     let title: String
@@ -24,7 +27,7 @@ struct PageHeader<Trailing: View>: View {
             if let leading { leading }
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Text(title)
-                    .font(CicadaTheme.titleFont)
+                    .font(CicadaTheme.displayFont(size: 28))
                     .foregroundStyle(CicadaTheme.textPrimary)
                 if let subtitle {
                     Text(subtitle)
