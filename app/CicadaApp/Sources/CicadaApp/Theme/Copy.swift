@@ -258,6 +258,9 @@ enum Copy {
     /// promising *today* contradicted a number the same screen was drawing.
     /// What a cycle actually does is fold whatever is waiting, however old.
     static let sleepSubtitle = "Fold what's waiting into the graph."
+    /// The Sleep page's one disclosure (Track Z R-Z6): everything past the
+    /// room, the sentence, the button and the whisper line lives behind it.
+    static let sleepDetails = "Details"
     static let inboxSubtitle = "Questions waiting on you."
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."

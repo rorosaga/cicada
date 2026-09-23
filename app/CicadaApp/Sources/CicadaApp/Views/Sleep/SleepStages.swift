@@ -149,14 +149,12 @@ func stageStripState(stage: Int, isRunning: Bool, cancelled: Bool, error: Bool,
     }
 }
 
-/// Whether the strip ends with the `.happy` worm — the mark that says "and
-/// there is nothing waiting" (R-A8). It shows only when the hero has **no
-/// numeral to promote**, so the page never draws a count and a "caught up"
-/// worm at the same time; `heroCount` is the same function the hero itself
-/// asks, so the two can only agree.
-func stageStripShowsCaughtUpWorm(mood: BookwormState, debt: SleepDebtView?) -> Bool {
-    guard case .happy = mood else { return false }
-    return heroCount(mood, debt: debt) == nil
+/// R-Z6 — whether the strip is on the page at all. It is the live instrument
+/// while a cycle runs and the frozen record after a cancel or failure (P15);
+/// an idle page after a clean cycle has no news for it, and the design's
+/// default view is the room, one sentence, one button and one whisper line.
+func stageStripIsVisible(isRunning: Bool, cancelled: Bool, failed: Bool) -> Bool {
+    isRunning || cancelled || failed
 }
 
 // MARK: - The motion budget (R-A13)

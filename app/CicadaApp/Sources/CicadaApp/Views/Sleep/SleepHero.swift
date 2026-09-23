@@ -225,22 +225,25 @@ func heroTiles(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?) -> [H
     ]
 }
 
-// MARK: - The hero view
+// MARK: - The readout (Details › Readout)
 
-/// The readout that sits under the study room: the 24-block meter that
-/// always names its noun, and the three measured tiles. Nothing else.
+/// Details › Readout (Track Z §4.2): the meter that never renders without its
+/// noun (R-A5), the three measured tiles (R-A6), the no-baseline line, and the
+/// engine the last cycle ran on. It stays in THIS file so "Rested" is still
+/// spelled by exactly one file (`SleepNumbersLintTests`).
 ///
-/// Track Z Z2 took its other halves away: the promoted count and its
-/// qualifier chip became the room's sentence lead (`roomSentence`, which asks
-/// `heroCount`/`heroQualifier` rather than re-deriving them — parity by
-/// construction), and the one Consolidate/Cancel control became
-/// `SleepControlRow` below. Task 4 (Z3) moves what is left into Details as
-/// the Readout.
+/// It was the hero that sat under the study room. Track Z Z2 took its other
+/// halves away: the promoted count and its qualifier chip became the room's
+/// sentence lead (`roomSentence`, which asks `heroCount`/`heroQualifier`
+/// rather than re-deriving them — parity by construction), and the one
+/// Consolidate/Cancel control became `SleepControlRow` below. Z3 moved what was
+/// left into Details, and took the no-baseline line and the engine line with
+/// it, so every number the default view no longer shows lives in one card.
 ///
 /// Every input is resolved by the caller, once per body evaluation (H1), so
 /// the readout can never disagree with the book pile or the queue about
 /// which cycle's counts it is showing.
-struct SleepHeroView: View {
+struct SleepReadoutView: View {
     @Environment(Store.self) private var store
     /// R-A13: the meter's blocks ease between two readings, and Reduce Motion
     /// has to reach that easing. It did not before Task 8 — the modifier took
@@ -258,15 +261,88 @@ struct SleepHeroView: View {
     /// `history.first { $0.kind != "decay" }`, which also matched an inbox
     /// resolution commit — the person's own answer timed as "the last cycle".
     let lastDurationMs: Int?
+    let lastEngine: String?
+    let engineDetail: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            Text("READOUT")
+                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.2)
             if let meter = heroMeter(mood: mood, debt: debt, read: read, total: total) {
                 meterView(meter)
+            } else {
+                noBaselineLine
             }
             tilesRow
+            if let engine = lastEngine {
+                engineLine(engine, detail: engineDetail)
+            }
         }
+        .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    // MARK: No baseline
+
+    /// The one thing the meter CANNOT say: that there is no baseline at all.
+    /// Moved from `SleepView.moodDetailLine` (Track Z Z3).
+    ///
+    /// G125 v3 Task 5 (R-A8) deleted this line's running branch — the
+    /// `Text("Stage \(stage) of 5")` and the bare `ProgressView` the stage
+    /// strip replaced. The round-2 live check deleted its idle branch for the
+    /// same reason one step further on: it drew `Rested n% — volume v%, age
+    /// a%` directly under a meter already labelled `Rested n%`, so **the same
+    /// number was on screen twice** (R-A5 — one number, one place). The
+    /// volume/age split is the meter label's hover text now (`heroMeterHelp`).
+    ///
+    /// What is left is the branch the meter has no way to draw. `heroMeter`
+    /// returns `nil` when `restedPct` is nil, so without this line a bank
+    /// where Sleep has never run would show nothing at all where the meter
+    /// sits — and silence reads as "fine", which is the opposite of the truth.
+    ///
+    /// The `.sleeping` guard survives as an explicit empty branch: a baseline
+    /// is what the queue looks like BETWEEN cycles, so mid-cycle it would sit
+    /// stale next to a live readout.
+    @ViewBuilder
+    private var noBaselineLine: some View {
+        if case .sleeping = mood {
+            EmptyView()
+        } else if let debt, debt.restedPct == nil {
+            // No baseline: the queue is empty and Sleep has never run in
+            // this bank — an honest state, not a fabricated 100%.
+            Text("No baseline yet — Sleep hasn't run in this bank.")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        }
+    }
+
+    // MARK: Engine line
+
+    /// Which engine the last cycle ran on. Named, not implied — a Sleep page
+    /// that says "check API credits" while running on a subscription is the
+    /// exact confusion this replaces. Moved from `SleepView.engineLine`
+    /// (Track Z Z3); the engine now wears its real mark (Z-P26).
+    private func engineLine(_ engine: String, detail: String?) -> some View {
+        HStack(spacing: CicadaTheme.spacingXS) {
+            Text("ENGINE")
+                .font(CicadaTheme.font(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .tracking(1.1)
+            EngineMark(engine: engine, size: 12)
+            Text(Copy.engineLabel(engine))
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+            if let detail, !detail.isEmpty {
+                Text("· \(detail)")
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(2)
+            }
+            Spacer()
+        }
     }
 
     // MARK: The meter
@@ -337,8 +413,8 @@ struct SleepHeroView: View {
         store.banks.value?.banks.first { $0.active }?.entityCount
     }
 
-    /// The same rows the Memory sources panel projects, counted once: a
-    /// source that has captured nothing is not feeding anything.
+    /// The same `sourcesOverview` rows the Sources grid draws, counted once:
+    /// a source that has captured nothing is not feeding anything.
     private var feedingSourceCount: Int? {
         store.sourcesOverview.value.map { rows in rows.filter { $0.episodes > 0 }.count }
     }
