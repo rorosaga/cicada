@@ -2,9 +2,8 @@ import XCTest
 @testable import CicadaApp
 
 /// Track Z, Z2 — the sentence slot (R-Z5, R-Z13, design §5). Every row of the
-/// lead table (L1–L11, plus this plan's L8b) and the tail table (T1–T12,
-/// T14; T13 lands with feeding) is a case, then the rules that cut across all
-/// of them.
+/// lead table (L1–L11, plus this plan's L8b) and the tail table (T1–T14) is
+/// a case, then the rules that cut across all of them.
 final class RoomSentenceTests: XCTestCase {
 
     private let en = Locale(identifier: "en_US")
@@ -134,7 +133,8 @@ final class RoomSentenceTests: XCTestCase {
                        "My first night — nothing's been filed yet.")
         XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0, hasRunBefore: false))).tail,
                        "Nothing's been filed in this memory yet.")
-        XCTAssertNil(roomSentence(ctx(.happy, debt: nil)).tail, "an unloaded debt is never reported as a first night")
+        XCTAssertNotEqual(roomSentence(ctx(.happy, debt: nil)).tail, "Nothing's been filed in this memory yet.",
+                          "an unloaded debt is never reported as a first night")
     }
 
     func test_T10_theDaysOnlyWhenTheGapIsLong() {
@@ -146,7 +146,9 @@ final class RoomSentenceTests: XCTestCase {
         let off = roomSentence(ctx(.reading, debt: debt(5)) { $0.scheduleMode = "manual" })
         XCTAssertEqual(off.tail, "The lamp is off — I read when you ask.")
         XCTAssertEqual(off.action, .openLamp)
-        XCTAssertNil(roomSentence(ctx(.happy, debt: debt(0)) { $0.scheduleMode = "manual" }).tail)
+        XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0)) { $0.scheduleMode = "manual" }).tail,
+                       "Drop a file on me to add it to the pile.",
+                       "nothing waits, so no lamp line — T13 speaks instead")
     }
 
     func test_T12_theBigPile_orNothingWhenItWouldNotFit() {
@@ -157,9 +159,20 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertNil(roomSentence(ctx(.reading, debt: debt(5)) { $0.topOriginLabel = long }).tail)
     }
 
+    /// T13 (Z-B19) — feeding shipped, so a happy worm invites a file.
+    func test_T13_aHappyWormInvitesAFile() {
+        XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0))).tail, "Drop a file on me to add it to the pile.")
+        XCTAssertNil(roomSentence(ctx(.happy, debt: debt(0))).mark)
+        XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0, hasRunBefore: false))).tail,
+                       "Nothing's been filed in this memory yet.", "T9 before T13")
+        XCTAssertNil(roomSentence(ctx(.happy, debt: debt(0)) { $0.queueLoad = .loading }).tail,
+                     "no invitation while the queue is still loading")
+    }
+
+    /// T14 — the no-tail case moved to `.digesting` once T13 claimed `.happy`'s (Z-B19).
     func test_T14_nothingToAdd() {
-        XCTAssertNil(roomSentence(ctx(.happy, debt: debt(0))).tail)
-        XCTAssertNil(roomSentence(ctx(.happy, debt: debt(0))).mark, "no service named, no mark")
+        XCTAssertNil(roomSentence(ctx(.digesting, debt: debt(0))).tail)
+        XCTAssertNil(roomSentence(ctx(.digesting, debt: debt(0))).mark, "no service named, no mark")
     }
 
     // MARK: The rules across every row (R-Z13)

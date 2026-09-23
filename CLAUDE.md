@@ -569,13 +569,23 @@ button, because a cycle starts from the Sleep page's one Consolidate control (G1
 menu-bar bookworm.
 **One intake (Track I, spec decision 13).** Every way a file arrives — a drop anywhere on the
 window, the Dock icon, File → Import… (⌘⇧I), the menu-bar worm's *Import a file…*, an empty state,
-each `+` chat tile — goes through one `IntakeRouter`: sniff (`POST /intake/sniff`, stages nothing) →
+each `+` chat tile, the Sleep room's worm — goes through one `IntakeRouter`: sniff (`POST /intake/sniff`, stages nothing) →
 preview (counts, date range, new · grew · already here, skipped files by name, *Into* a memory) →
 import (`POST /intake/import`; a 202 and a job counter above 10 episodes) → a *what happens next*
 card that never closes on its own. `UploadOverlay` and the Feed's Upload button are gone; the router
 owns `Store.intakeInFlight` through a counter of requests in flight. The card's *Read now* is G125
 R10's first narrow amendment: a user trigger, subtitled with the manual engine like Consolidate,
-shown only when an engine can run and the import landed in the active bank.
+shown only when an engine can run and the import landed in the active bank. **Every
+`IntakeRouter` door refuses the same roots** (`IntakeRouter.feedGuard`, Track Z): a drop that
+resolves under `~/.claude`, `~/.codex` or `~/.cicada` (or `$CLAUDE_CONFIG_DIR`, `$CODEX_HOME`,
+`$CICADA_HOME`) is refused before any folder is walked, a refused root met inside a dropped folder
+is never descended into and refuses the drop, a drop with nothing export-shaped in it is refused by
+name, and nothing is sent; `accept` answers (`IntakeAcceptance`) so the Sleep room tells a refusal
+in its worm's words while every other door shows it in the panel. Three pickers still sit outside
+the router — the Add-source walkthrough's drop and *Choose file…*, its saved-content picker, and
+Settings' local-folder picker — and check only the chosen file or folder
+(`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
+(open, G125).
 
 **Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
@@ -655,8 +665,19 @@ toggle can flip, and Consolidate stays the one trigger. The strip appears only w
 frozen after a cancel or failure; the running stage is `activeStage(completed:)` = completed + 1
 everywhere (page, menu bar, onboarding, strip). A real completion cheers once and offers "See what
 changed ›"; a cancel neither chews nor cheers. Memory sources left the page (Sources v2 draws it;
-the series live in `Views/Sources/ActivitySeries.swift`). Refused: autonomous beats with no fact
-behind them, cloud drift, a storm flash, estimates, prices.
+the series live in `Views/Sources/ActivitySeries.swift`). **Feeding (Z9).** A file, files or a
+folder dropped on the room — or *Feed a file…* from the worm's context menu and VoiceOver actions,
+which open the intake's own `IntakePicker` — go to `IntakeRouter.accept(urls:from: .sleepRoom)` and
+nowhere else. While a file hovers, the worm is expectant toward it and eager over itself behind a
+dashed chrome outline, and the window's veil steps aside (`nearerDrop`); it gulps when the router
+takes the drop and shakes when it does not, and the sentence tells the router's own phase in words
+with no number — the panel has the counts. A sleeping worm takes the drop and stays asleep; a stale
+page sends nothing. **Meadow (Z10).** The sentence is Instrument Serif 30 over a New York italic
+tail, Consolidate is the page's one `PrimaryActionButton`, `SleepMotion` forwards its shared names
+to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO ruling 10). The
+pile is compressed to its column at every zoom and queue size — at most eight spines, the order and
+every count kept, never cut (`fitPile`) — and the title is `PageTitle`, the view `PageHeader` draws.
+Refused: autonomous beats with no fact behind them, cloud drift, a storm flash, estimates, prices.
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and
@@ -672,8 +693,8 @@ instead — the nightcap owns the grid's headroom); and a lint bans
 `.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(` on the worm except its lattice placement. The
 renderer key gains one `look` segment, omitted for idle (every older key byte-identical); the
 page's reachable set is ≤ 256 keys per size and the wipe bound is 1024. **Feeding** — a file dropped
-on the worm imports through the one intake — is ruled (R-Z10) and lands with Track I's
-`IntakeRouter`.
+on the worm imports through the one intake (R-Z10) — shipped in Z9; the matrix decides its gulp and
+shake like every other beat.
 
 **View menu (G130 slice 1a).** ⌘+ / ⌘− / ⌘0 scale the whole chrome — one persisted `uiScale` behind
 every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the

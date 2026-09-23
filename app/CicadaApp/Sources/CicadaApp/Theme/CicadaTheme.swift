@@ -225,6 +225,11 @@ enum CicadaTheme {
         }
     }
 
+    /// Track Z Z10 — the Sleep page's optional sky band, at this strength over
+    /// the page in both modes. `SkyBandTests` holds it to a tint (≤ 1.35:1
+    /// against the page) that keeps text ≥ 7:1 over it, for every sky.
+    static let skyBandOpacity: Double = 0.12
+
     /// The window's AppKit background for `mode` — the one place `NSWindow`
     /// gets a theme colour (R-M10). Takes the mode explicitly because
     /// `syncWindowChrome` runs for the mode being switched TO.

@@ -267,6 +267,11 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
             return SentenceTail(text: text, mark: ctx.topOrigin.map { SentenceMark.origin($0) })
         }
     }
+    // T13 (Z9, Z-B19) — only once the queue has loaded: "Checking what's
+    // waiting…" never carries an invitation.
+    if case .happy = ctx.mood, case .loaded = ctx.queueLoad {                                    // T13
+        return SentenceTail(text: "Drop a file on me to add it to the pile.")
+    }
     return nil                                                                                   // T14
 }
 
@@ -283,9 +288,16 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
 /// — so a longer tail, an answer or no tail at all never reflows what sits
 /// below it.
 ///
-/// New York through `CicadaTheme.font(size:design: .serif)` until Meadow's
-/// `displayFont` exists (design §5; Z10 swaps these two calls and nothing else).
+/// Meadow's faces (Z10, Z-B12): the lead in Instrument Serif at 30 pt, shrinking
+/// only to the display floor; the tail in New York italic at 22 pt — two lines
+/// of text, which is what the quote face is optically sized for.
 struct RoomSentenceView: View {
+    static let leadSize: CGFloat = 30
+    static let tailSize: CGFloat = 22
+    /// The lead fits one line by shrinking no further than the display
+    /// face's own floor (R-M3) — the old 0.7 would have reached 21 pt.
+    static var leadMinimumScale: CGFloat { CicadaTheme.displayMinimumSize / leadSize }
+
     /// The status sentence — what the slot shows whenever no answer is up.
     let line: SentenceLine
     /// Task 6 — the worm's answer ladder (`wormAnswers`). An answer REPLACES
@@ -294,46 +306,59 @@ struct RoomSentenceView: View {
     var answers: [SentenceLine] = []
     /// The room's interaction state; `nil` shows the status only.
     var room: RoomModel? = nil
+    /// Track Z Z9 — whether the worm is asleep: all a feed line needs besides
+    /// the router's phase (a sleeping worm reads it "after this nap").
+    var feedAsleep = false
     /// Every `SentenceAction` has a destination since Task 8 built the last
     /// one (`.whatChanged`), so a tail with an action always renders as a
     /// link — Z-P5's `canPerform` seam existed only while some did not.
     var perform: (SentenceAction) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(IntakeRouter.self) private var intake
 
-    /// The line on show: the answer rung the worm is on, else the status. An
-    /// index that outlived its ladder (the facts changed under it) falls back
-    /// to the status rather than trapping.
-    private var shown: SentenceLine {
-        shownRung.map { answers[$0] } ?? line
+    /// What the slot shows — `RoomModel.slot`'s ranking (final review,
+    /// finding 1): a drag's "Is that for me?", then the answer rung the
+    /// person asked for, then the drop's line driven by the router's own
+    /// phase (Z-B9), then the status. The cross-fade keys on THIS, never on
+    /// the line's words (Task 6 review r1): keyed on the whole line, every
+    /// status tick ("Read a of b" during a cycle) rebuilt the slot and its
+    /// tail Button, dropping keyboard focus off the link. A status change
+    /// updates in place; only a change of kind or rung fades.
+    private var slot: RoomSlot {
+        guard let room else { return .status }
+        return RoomModel.slot(drag: room.drag, result: room.feedResult, intakePhase: intake.phase,
+                              answerIndex: room.answerIndex, answerCount: answers.count)
     }
 
-    /// Which rung is on show — `nil` for the status. The cross-fade keys on
-    /// THIS, not on the line (Task 6 review r1): keyed on the whole line,
-    /// every status tick ("Read a of b" during a cycle) rebuilt the slot and
-    /// its tail Button, dropping keyboard focus off the link. A status change
-    /// now updates in place; only status ⇄ answer and rung → rung fade.
-    private var shownRung: Int? {
-        room?.answerIndex.flatMap { answers.indices.contains($0) ? $0 : nil }
+    /// The line on show. Every read is the slot's, so what VoiceOver says and
+    /// what a poke announces are what the slot shows.
+    private func line(for slot: RoomSlot) -> SentenceLine {
+        switch slot {
+        case .status: line
+        case .rung(let index): answers[index]
+        case .feed(let feed): feedLine(feed, asleep: feedAsleep)
+        }
     }
 
     var body: some View {
-        let shown = shown
+        let slot = slot
+        let shown = line(for: slot)
         ZStack {
             VStack(spacing: CicadaTheme.spacingXS) {
                 leadText(shown)
-                    .font(CicadaTheme.font(size: 30, design: .serif))
+                    .font(CicadaTheme.displayFont(size: Self.leadSize))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(Self.leadMinimumScale)
                 tailView(shown)
             }
-            // Keyed on the rung so a status ⇄ answer change cross-fades
-            // (opacity only — the slot's height is reserved, so nothing
-            // slides).
-            .id(shownRung)
+            // Keyed on the kind of line so a status ⇄ answer ⇄ feed change
+            // cross-fades (opacity only — the slot's height is reserved, so
+            // nothing slides).
+            .id(slot)
             .transition(.opacity)
         }
-        .animation(SleepMotion.sentence(reduceMotion: reduceMotion), value: shownRung)
+        .animation(SleepMotion.sentence(reduceMotion: reduceMotion), value: slot)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .onHover { room?.pointerInSentence = $0 }
@@ -347,16 +372,23 @@ struct RoomSentenceView: View {
             }
         }
         .accessibilitySortPriority(RoomA11yOrder.sentence)
-        .task(id: DwellKey(index: room?.answerIndex,
+        .task(id: DwellKey(slot: slot,
                            inside: (room?.pointerInRoom ?? false) || (room?.pointerInSentence ?? false))) {
-            // I4 — an answer returns to the status after `answerDwell` with
-            // the pointer outside the room and the sentence; any re-entry
-            // restarts this task, which is what "paused while hovered" means.
-            guard let room, room.answerIndex != nil,
+            // I4 / Z-B11 — an answer or a finished feed line returns to the
+            // status after `answerDwell` with the pointer outside the room and
+            // the sentence; any re-entry restarts this task.
+            guard let room, room.answerIndex != nil || room.feedResult?.isTerminal == true,
                   !room.pointerInRoom, !room.pointerInSentence else { return }
             try? await Task.sleep(for: SleepMotion.answerDwell)
             guard !Task.isCancelled else { return }
-            room.dismissAnswers()
+            room.dismissSlot()
+        }
+        // Z-B9 — the room's drop follows the router's phase; a landing is
+        // announced because the person pressed Done (§11).
+        .onChange(of: intake.phase) { old, new in
+            guard let ended = room?.intakeChanged(from: old, to: new,
+                                                  overlayPresented: intake.isOverlayPresented) else { return }
+            AccessibilityNotification.Announcement(feedLine(ended, asleep: feedAsleep).spoken).post()
         }
     }
 
@@ -376,7 +408,7 @@ struct RoomSentenceView: View {
                 return text + Text(verbatim: run.text).foregroundStyle(plainColor)
             case .numeral:
                 return text + Text(verbatim: run.text)
-                    .font(CicadaTheme.font(size: 30, weight: .medium, design: .rounded))
+                    .font(CicadaTheme.font(size: Self.leadSize, weight: .medium, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(plainColor)
             case .qualifier:
@@ -401,7 +433,7 @@ struct RoomSentenceView: View {
     @ViewBuilder
     private func tailText(_ line: SentenceLine) -> some View {
         let tail = line.tail ?? " "
-        let tailFont = CicadaTheme.font(size: 22, design: .serif).italic()
+        let tailFont = CicadaTheme.quoteFont(size: Self.tailSize)
         let tailColor = color(line.tailTone, plain: CicadaTheme.textSecondary)
         if let action = line.action, line.tail != nil {
             let link = tailLink(tail)
@@ -422,11 +454,10 @@ struct RoomSentenceView: View {
     }
 }
 
-/// What the dwell task restarts on: the rung on show, and whether the
-/// pointer is inside the room or the sentence. A change to either cancels the
-/// pending dismissal and starts a fresh one.
+/// What the dwell task restarts on: the line on show, and whether the pointer
+/// is inside the room or the sentence.
 private struct DwellKey: Equatable {
-    let index: Int?
+    let slot: RoomSlot
     let inside: Bool
 }
 

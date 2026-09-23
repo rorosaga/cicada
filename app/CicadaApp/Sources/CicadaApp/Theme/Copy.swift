@@ -61,10 +61,12 @@ enum Copy {
     /// above stays for the callers that have no such context.
     static let changeEllipsis = "Change…"
 
-    /// The worm's accessibility hint (Track Z §11). The design's second clause
-    /// ("Drop a file to import it.") lands with feeding — a hint must be true
-    /// the day it ships (Z-P16).
-    static let wormHint = "Click to ask what it's doing."
+    /// The worm's accessibility hint (Track Z §11) — both clauses now that
+    /// feeding shipped (Z9; Z-P16 held the second back until it was true).
+    static let wormHint = "Click to ask what it's doing. Drop a file to import it."
+    /// Z9 (I16) — the worm's named action and context-menu item: the intake's
+    /// own picker, for anyone without a file to drag.
+    static let feedAFile = "Feed a file…"
     /// The worm's named action and context-menu item: every answer at once.
     static let wormWhatAreYouDoing = "What are you doing?"
     /// Track Z §6.5 / §11 — the cheer's text twin, announced when a real
@@ -322,6 +324,8 @@ enum Copy {
     /// promising *today* contradicted a number the same screen was drawing.
     /// What a cycle actually does is fold whatever is waiting, however old.
     static let sleepSubtitle = "Fold what's waiting into the graph."
+    /// The Sleep page's title, drawn by `PageTitle` like every page's (Z-B4).
+    static let sleepPageTitle = "Sleep Cycle"
     /// The Sleep page's one disclosure (Track Z R-Z6): everything past the
     /// room, the sentence, the button and the whisper line lives behind it.
     static let sleepDetails = "Details"

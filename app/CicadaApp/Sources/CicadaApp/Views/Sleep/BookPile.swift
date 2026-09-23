@@ -26,6 +26,8 @@ struct OriginVolume: Equatable {
 struct BookSpec: Identifiable, Equatable {
     let origin: String
     let count: Int
+    /// The spine's natural height in points at the reference cell (uiScale
+    /// 1.0) — `fitPile` turns it into what is drawn.
     let height: CGFloat
     let widthFraction: Double
     let isRemainder: Bool
@@ -39,8 +41,10 @@ struct BookSpec: Identifiable, Equatable {
 /// tie) so the biggest pile always reads leftmost; anything past `maxBooks`
 /// folds into one remainder spine sized from the SUM of what it absorbed,
 /// so the pile's total visual mass never silently shrinks just because
-/// there were more than `maxBooks` sources.
-func bookPileLayout(_ buckets: [OriginVolume], maxBooks: Int = 8) -> [BookSpec] {
+/// there were more than `maxBooks` sources. `maxBooks` defaults to
+/// `PileFitting.maxBooks` (7): the eighth spine is the remainder, and eight is
+/// what the room's column holds with every count readable (Z-B1).
+func bookPileLayout(_ buckets: [OriginVolume], maxBooks: Int = PileFitting.maxBooks) -> [BookSpec] {
     let sorted = buckets.sorted { $0.chars != $1.chars ? $0.chars > $1.chars : $0.origin < $1.origin }
     func height(_ chars: Int) -> CGFloat {
         let h = 8 + 6 * log2(1 + Double(max(0, chars)) / 2000)
@@ -57,6 +61,79 @@ func bookPileLayout(_ buckets: [OriginVolume], maxBooks: Int = 8) -> [BookSpec] 
                             height: height(rest.reduce(0) { $0 + $1.chars }), widthFraction: 1, isRemainder: true))
     }
     return out
+}
+
+/// How the pile fits the room's column (live check 2026-09-23, Z-B1…Z-B3). On
+/// a bank with hundreds of items across four sources, four 40 pt spines and
+/// their gaps stood 168 pt in a 130 pt column: the pile grew out of the room
+/// and the card's clip cut its top spine. The pile is the page's one volume
+/// encoding (R1/R9), so its art may be COMPRESSED to fit — never cut, never
+/// spilled — while the quantity stays readable where it is true: the count on
+/// each spine, its tooltip, its popover and Details › What's waiting.
+enum PileFitting {
+    /// The cell `bookPileLayout`'s 8–40 pt heights were authored at
+    /// (`deskSceneLayout(pointSize: 120, uiScale: 1.0).cell`, pinned by
+    /// `PileFitTests`). The pile scales with the lattice it stands on, not with
+    /// the font: at 1.1× the room snaps to 6 pt cells, and a pile sized by
+    /// uiScale alone would be a second scale in one picture (P12, Z-B2).
+    static let referenceCell: CGFloat = 5
+    /// The shortest spine that carries its count in `captionFont` — the old
+    /// `spec.height >= 14` rule, now scaled with the font it guards (Z-B2).
+    static let labelMinPoints: CGFloat = 14
+    /// The most spines the column holds with every spine that deserves a count
+    /// still tall enough to show it, at EVERY zoom step: 8 × (floor + gap) is
+    /// 102.4 of 104 pt at 0.8× and 153.6 of 156 pt at 1.2×; nine would need
+    /// 144 pt of the 130 pt column at 1.0×. Measured per step by `PileFitTests`.
+    static let maxSpines = 8
+    /// Real books before the fold — the "+more" remainder is the eighth spine.
+    static let maxBooks = maxSpines - 1
+}
+
+/// What `fitPile` decided: each drawn spine's height, by `BookSpec.id`, and
+/// the gap, width and label floor it was decided with.
+struct PileFit: Equatable {
+    var heights: [String: CGFloat]
+    var gap: CGFloat
+    var maxWidth: CGFloat
+    var labelMinHeight: CGFloat
+
+    func height(_ spec: BookSpec) -> CGFloat { heights[spec.id] ?? 0 }
+    /// A spine carries its count only when it is tall enough to hold it.
+    func showsLabel(_ spec: BookSpec) -> Bool { height(spec) + 0.001 >= labelMinHeight }
+    /// The stack as `BookPileView` draws it: every drawn spine plus the gap above it.
+    var totalHeight: CGFloat { heights.values.reduce(0) { $0 + $1 + gap } }
+}
+
+/// Pure (Z-B1): natural heights when the stack fits the column; otherwise only
+/// what sits above the label floor is compressed, every spine by one factor,
+/// so the order survives and every spine that carried a count still does. A
+/// spine read through this cycle (`widthFraction == 0`) is not drawn and
+/// takes no height.
+func fitPile(_ books: [BookSpec], in layout: DeskSceneLayout, uiScale: Double) -> PileFit {
+    let unit = layout.cell / PileFitting.referenceCell
+    let gap = BookPileView.spineGap * unit
+    let labelMin = PileFitting.labelMinPoints * CGFloat(uiScale)
+    let drawn = books.filter { $0.widthFraction > 0 }
+    let natural = drawn.map { $0.height * unit }
+    let column = layout.pileFrame.height
+    let gaps = CGFloat(drawn.count) * gap
+    var heights = natural
+    if natural.reduce(0, +) + gaps > column {
+        let floors = natural.map { min($0, labelMin) }
+        let excess = zip(natural, floors).reduce(CGFloat(0)) { $0 + ($1.0 - $1.1) }
+        let room = column - gaps - floors.reduce(0, +)
+        let k = excess > 0 ? max(0, min(1, room / excess)) : 0
+        heights = zip(natural, floors).map { $0.1 + ($0.0 - $0.1) * k }
+        // Unreachable within `maxSpines` (tested at every step); kept so a
+        // future fold change degrades to smaller spines, never to a cut pile.
+        let total = heights.reduce(0, +)
+        if total + gaps > column, total > 0 {
+            let shrink = max(0, column - gaps) / total
+            heights = heights.map { $0 * shrink }
+        }
+    }
+    return PileFit(heights: Dictionary(zip(drawn.map(\.id), heights), uniquingKeysWith: { first, _ in first }),
+                   gap: gap, maxWidth: layout.pileFrame.width, labelMinHeight: labelMin)
 }
 
 /// Groups the cycle's queued episodes into `OriginVolume`s. Sums `chars` and
@@ -144,22 +221,28 @@ struct BookPileView: View {
     var episodes: [EpisodeQueueItem] = []
     var room: RoomModel? = nil
     var onOpenDetails: (DetailsSection) -> Void = { _ in }
+    /// The room the pile stands in, whose reserved column it must fit (Z-B1).
+    let layout: DeskSceneLayout
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The gap above each spine — part of that spine's hit target (§6.2), so
     /// an 8 pt spine is still comfortable to click (Z-P14). It replaced the
-    /// stack's own 2 pt spacing, which no spine owned.
+    /// stack's own 2 pt spacing, which no spine owned. 2 pt at the reference
+    /// cell; `fitPile` scales it with the lattice (Z-B2).
     static let spineGap: CGFloat = 2
-    static let maxSpineWidth: CGFloat = 150
 
     var body: some View {
         let byOrigin = Dictionary(rows.map { ($0.origin, $0) }, uniquingKeysWith: { first, _ in first })
+        // Z-B1 — compressed to the column, never cut. `uiScale` is read here so
+        // a zoom step refits the pile in the frame the room re-snaps.
+        let fit = fitPile(books, in: layout, uiScale: CicadaTheme.uiScale)
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Self.stacked(books)) { spec in
                 if spec.widthFraction > 0 {
                     SpineButton(spec: spec, row: byOrigin[spec.origin], episodes: episodes, room: room,
-                                onOpenDetails: onOpenDetails)
+                                onOpenDetails: onOpenDetails, height: fit.height(spec), gap: fit.gap,
+                                width: fit.maxWidth * spec.widthFraction, showsLabel: fit.showsLabel(spec))
                         // Inside the pile's own container: largest first (§11),
                         // whatever the bottom-up display order.
                         .accessibilitySortPriority(-Double(books.firstIndex(of: spec) ?? 0))
@@ -192,6 +275,13 @@ struct SpineButton: View {
     let episodes: [EpisodeQueueItem]
     let room: RoomModel?
     let onOpenDetails: (DetailsSection) -> Void
+    /// What `fitPile` gave this spine (Z-B1): its drawn height, the gap above
+    /// it (inside its hit target, Z-P14), its width, and whether it is tall
+    /// enough to carry its count.
+    let height: CGFloat
+    let gap: CGFloat
+    let width: CGFloat
+    let showsLabel: Bool
 
     @State private var hovering = false
     @State private var showPopover = false
@@ -203,7 +293,7 @@ struct SpineButton: View {
             if spec.isRemainder || row == nil { onOpenDetails(.waiting) } else { showPopover = true }
         } label: {
             shape(lifted: lifted)
-                .padding(.top, BookPileView.spineGap)
+                .padding(.top, gap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
@@ -229,10 +319,12 @@ struct SpineButton: View {
         return ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 3)
                 .fill(color)
-                .frame(width: BookPileView.maxSpineWidth * spec.widthFraction, height: spec.height)
-            if spec.height >= 14 {
+                .frame(width: width, height: height)
+            if showsLabel {
                 HStack(spacing: CicadaTheme.spacingXS) {
-                    if !spec.isRemainder { OriginMark(origin: spec.origin, size: 12) }
+                    // Z-B2 — scales with the floor it sits in: a fixed 12 pt
+                    // mark would overhang the 11.2 pt label floor at 0.8×.
+                    if !spec.isRemainder { OriginMark(origin: spec.origin, size: CicadaTheme.scaled(12)) }
                     Text("\(spec.count)")
                         .font(CicadaTheme.captionFont)
                         // Z-P19 / design defect 7 — a theme token, not a literal.

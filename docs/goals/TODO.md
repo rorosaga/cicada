@@ -203,6 +203,17 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
    Z-P13). A hand-approximated worm passed two window clouds the real frames hide (the head's
    shake uncovers a column); `WindowSpritesTests` masks with every look of every mood that shows
    that weather. Any new art near the worm gets the same test.
+10. **The Sleep page's sky band is off** (Track Z Z-B16, spec decision 16). Built behind one
+    constant, `SkyBand.ships`; gated in the build by `SkyBandTests` (a band's top composited over
+    the page stays within 1.35:1 of it and keeps text ≥ 7:1, both modes, every sky) and decided
+    by eye from the day/dusk/night × light/dark composites against a no-band control: every gate
+    passed, yet the light-mode night and dusk bands read as a neutral grey haze pressing on the
+    title — a smudge, not a sky — the dark night band was invisible and dark day a lighter slate
+    strip; only light day read as a tint, and a band that works in one of six cases is not a
+    feature. Measured tint / title ratios (: 1): light day 1.04 / 14.8, dusk 1.26 / 12.2, night
+    1.29 / 11.9; dark day 1.29 / 12.4, dusk 1.02 / 15.7, night 1.00 / 16.0 — so the gates alone
+    cannot decide it. Revisit only with new composites — flip the constant and re-run
+    `CICADA_WRITE_COMPOSITES=1 swift test --filter SkyBandTests`.
 
 ## How work is run here
 
