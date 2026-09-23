@@ -27,14 +27,27 @@ import SwiftUI
 struct SettingsSectionLink: View {
     let section: SettingsSection
     let label: String
+    /// G137 R-M18: an empty state's one action is the page's one prominent
+    /// action — same link, same seed write, drawn through
+    /// `primaryActionStyle()` instead of as accent text. Off by default, so
+    /// every other caller (the Sleep page's schedule link) renders exactly
+    /// as before.
+    var prominent: Bool = false
 
     var body: some View {
-        SettingsLink { Text(label) }
-            .buttonStyle(.cicadaPlain)
-            .foregroundStyle(CicadaTheme.accent)
-            .simultaneousGesture(TapGesture().onEnded {
-                UserDefaults.standard.set(section.rawValue, forKey: "cicada.settingsSection")
-            })
-            .accessibilityLabel("\(label), opens \(Copy.settings) — \(section.title)")
+        Group {
+            if prominent {
+                SettingsLink { Text(label).foregroundStyle(CicadaTheme.onAccent) }
+                    .primaryActionStyle()
+            } else {
+                SettingsLink { Text(label) }
+                    .buttonStyle(.cicadaPlain)
+                    .foregroundStyle(CicadaTheme.accent)
+            }
+        }
+        .simultaneousGesture(TapGesture().onEnded {
+            UserDefaults.standard.set(section.rawValue, forKey: "cicada.settingsSection")
+        })
+        .accessibilityLabel("\(label), opens \(Copy.settings) — \(section.title)")
     }
 }
