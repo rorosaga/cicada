@@ -86,6 +86,34 @@ def test_the_participant_surface_must_be_in_the_sentence(tmp_path):
     assert c.participants == [{"role": "from", "entity": "hana-example"}]
 
 
+def test_a_participant_ref_that_is_a_path_is_never_stored_or_bumped(tmp_path):
+    """Task 4 review r1 (finding 1): `entity` is an id, never a path. A
+    `../episodes/<ep>` ref, or one reaching outside the bank, is not stored on
+    the claim and the file it names keeps its bytes — `_bump` touches only a
+    page directly inside entities/."""
+    memory = _fresh(tmp_path)
+    outside = tmp_path / "outside.md"
+    markdown_parser.write(outside, {"id": "outside"}, "not a page")
+    ep_path = memory / "episodes" / f"{EP}.md"
+    ep_before, out_before = ep_path.read_bytes(), outside.read_bytes()
+    rel_out = "../" * (len(memory.relative_to(tmp_path).parts) + 1) + "outside"
+    r = progress.record_happening(
+        memory, subject="alpha-project", text="Bob met Hana Example", status="done", when="2026-09-22",
+        participants=[{"role": "with", "entity": f"../episodes/{EP}"},
+                      {"role": "with", "entity": rel_out},
+                      {"role": "with", "entity": str(outside.with_suffix(""))},
+                      {"role": "with", "entity": f"../episodes/{EP}", "surface": "Hana Example"}],
+        **AGENT)
+    assert r["action"] == "written"
+    c = next(c for c in _claims(memory) if c.id == r["claim_id"])
+    assert c.participants == [{"role": "with", "surface": "Hana Example", "entity": "hana-example"}]
+    assert ep_path.read_bytes() == ep_before and outside.read_bytes() == out_before
+    assert set(r["paths"]) == {"entities/alpha-project.md", "entities/hana-example.md"}
+    # The bump itself refuses a path, whatever a claim was carrying.
+    assert progress._bump(memory, [f"../episodes/{EP}", rel_out], "2026-09-30") == []
+    assert ep_path.read_bytes() == ep_before and outside.read_bytes() == out_before
+
+
 # 2 -------------------------------------------------------------------------
 
 def test_no_when_uses_the_turn_then_the_write_day(tmp_path):

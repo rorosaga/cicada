@@ -1200,8 +1200,9 @@ def get_perspective(
                 f"{c.valid_to or 'undated'} · {c.observer} · {c.source_trust})_"
             )
     if happened:
-        lines += ["", f"Happened, newest first ({len(happened)}):"]
-        lines += [f"- {c.valid_from} · {c.status} · {c.text}" for c in happened]
+        lines += ["", f"Happened and earlier states, newest first ({len(happened)}):"]
+        lines += [f"- {c.valid_from} · {c.status} · {c.text}{_event_closed_note(c, page_claims)}"
+                  for c in happened]
     return "\n".join(lines)
 
 
@@ -1410,6 +1411,23 @@ def _how_closed(old, page: list) -> str:
     if old.superseded_by:
         return f"superseded by `{old.superseded_by}`"
     return "closed"
+
+
+def _event_closed_note(old, page: list) -> str:
+    """How a closed event stopped standing, as a trailing phrase (Task 4
+    review r1, finding 2). A born-closed happening carries no `superseded_by`
+    and needs none. A withdrawn one MUST say so — listed bare as
+    `day · done · X`, an agent reading history would repeat as fact what was
+    taken back. A milestone state advanced by a later one reads `(then done)`,
+    so `planned · First grasp` is never mistaken for the current plan."""
+    if not old.superseded_by:
+        return ""
+    new = {c.id: c for c in page}.get(old.superseded_by)
+    if new is not None and _is_record(new):
+        return f" (withdrawn by {new.authored_by or 'an agent'}: {_clip(new.text, 160)})"
+    if new is not None and _is_event(new) and new.status:
+        return f" (then {new.status})"
+    return f" ({_how_closed(old, page)})"
 
 
 def _history_line(eid: str, old, page: list) -> str:

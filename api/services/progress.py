@@ -33,7 +33,7 @@ from api.services.claim_reconciler import is_human, reconcile_stage3
 from api.services.claims import (EVENT_STATUSES, HAPPENED, MILESTONE, PARTICIPANT_ROLES, Claim,
                                  MalformedClaimsBlockError, clean_participants, is_event, parse_claims,
                                  write_claims)
-from api.services.id_utils import resolve_entity_file, sanitize_id
+from api.services.id_utils import bank_file, resolve_entity_file, sanitize_id
 
 OBJECT_CHARS = 120
 _DUE_SLUG = re.compile(r"^due-(\d{4}-\d{2}-\d{2})(?:-\d+)?$")
@@ -198,6 +198,23 @@ def _entity_index(memory_path: Path) -> tuple[dict[str, str], str | None]:
     return index, owner_page
 
 
+def _entity_page(memory_path: Path, ref: str) -> Path | None:
+    """The `entities/<ref>.md` page for a ref that IS one bank id, else None.
+
+    Task 4 review r1 (finding 1, probe-confirmed): a bare
+    `(entities / f"{ref}.md").exists()` let `../episodes/<ep>` — or a relative
+    path to any .md outside the bank — through; the ref was stored on the
+    claim and `_bump` then rewrote that file's frontmatter. `participants`
+    reaches this from MCP, remote `record` scope included. The guard is
+    `id_utils.bank_file`, the one rule every id-to-page join already uses
+    (G135 Task 5 review): a stem with a separator is never a real id and is
+    refused lexically, with no `resolve()`, so a bank or page that is itself a
+    symlink still works — and a legacy stem `sanitize_id` would not produce
+    (upper case) is still a page, not a refusal."""
+    path = bank_file(memory_path / "entities", str(ref or "").strip())
+    return path if path is not None and path.is_file() else None
+
+
 def _participants(memory_path: Path, raw, text: str) -> list[dict]:
     """Who took part, linked where the bank already knows them.
 
@@ -212,10 +229,23 @@ def _participants(memory_path: Path, raw, text: str) -> list[dict]:
     items = [dict(p) for p in (raw or []) if isinstance(p, dict)]
     if not items:
         return []
-    index, owner_page = _entity_index(memory_path)
-    if owner_page is None:
-        oid = _owner_id(memory_path)
-        owner_page = oid if (memory_path / "entities" / f"{oid}.md").exists() else None
+    # Task 4 review r1 (finding 3): the name/alias index parses every page
+    # under entities/, so it is built only when an exact slug did not settle
+    # a participant — most calls name pages by id and never pay for it.
+    cache: dict = {}
+
+    def index_and_owner():
+        if "v" not in cache:
+            cache["v"] = _entity_index(memory_path)
+        return cache["v"]
+
+    def owner_page():
+        page = index_and_owner()[1]
+        if page is None:
+            oid = _owner_id(memory_path)
+            page = oid if _entity_page(memory_path, oid) is not None else None
+        return page
+
     out: list[dict] = []
     for item in items:
         role = str(item.get("role") or "").strip()
@@ -224,18 +254,23 @@ def _participants(memory_path: Path, raw, text: str) -> list[dict]:
         surface = str(item.get("surface") or item.get("name") or "").strip()
         entity = None
         if role == "owner":
-            entity = owner_page
+            entity = owner_page()
         else:
             for ref in (item.get("entity"), surface):
                 ref = str(ref or "").strip()
-                if not ref:
-                    continue
-                if (memory_path / "entities" / f"{ref}.md").exists():
+                if ref and _entity_page(memory_path, ref) is not None:
                     entity = ref
                     break
-                entity = index.get(ref.lower()) or index.get(sanitize_id(ref))
-                if entity:
-                    break
+            if entity is None:
+                # A name, never a path: the index maps only to stems it read
+                # off entities/ itself, so an unsafe ref cannot come back out.
+                index = index_and_owner()[0]
+                for ref in (item.get("entity"), surface):
+                    ref = str(ref or "").strip()
+                    if ref:
+                        entity = index.get(ref.lower()) or index.get(sanitize_id(ref))
+                        if entity:
+                            break
         entry = {"role": role}
         if surface and surface in text:
             entry["surface"] = surface
@@ -285,8 +320,10 @@ def _bump(memory_path: Path, ids: list[str], day: str) -> list[str]:
     as quiet to decay. Never moves a date backwards. Returns changed paths."""
     changed: list[str] = []
     for eid in dict.fromkeys(i for i in ids if i):
-        path = memory_path / "entities" / f"{eid}.md"
-        if not path.exists():
+        # Task 4 review r1: only a page directly inside entities/ is ever
+        # touched — an id read back off a claim is data, not a path.
+        path = _entity_page(memory_path, eid)
+        if path is None:
             continue
         try:
             parsed = markdown_parser.parse(path)
