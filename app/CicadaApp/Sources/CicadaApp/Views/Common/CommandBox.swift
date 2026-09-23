@@ -15,6 +15,7 @@ import AppKit
 struct CommandBox: View {
     let command: String
     @State private var copied = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
@@ -51,7 +52,7 @@ struct CommandBox: View {
             RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
                 .stroke(CicadaTheme.border, lineWidth: 1)
         )
-        .animation(.easeInOut(duration: 0.15), value: copied)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: copied)
     }
 
     private var snippet: some View {

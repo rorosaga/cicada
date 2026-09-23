@@ -56,6 +56,7 @@ struct SidebarView: View {
     var needsAttention: Bool
 
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var colorScheme: AppColorScheme { AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }
 
     /// The sidebar's minimum content width **at `uiScale == 1.0`** — the value
@@ -116,7 +117,7 @@ struct SidebarView: View {
         let label = accessibilityLabel(for: tab, count: count, isBusy: isBusy)
 
         let button = Button {
-            withAnimation(.spring(duration: 0.25)) { selectedTab = tab }
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = tab }
         } label: {
             SidebarRow(tab: tab, isSelected: isSelected, badgeCount: count, isBusy: isBusy)
         }
@@ -149,6 +150,7 @@ private struct SidebarRow: View {
     let badgeCount: Int
     let isBusy: Bool
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
@@ -186,8 +188,8 @@ private struct SidebarRow: View {
         .contentShape(Rectangle())
         .padding(.horizontal, CicadaTheme.spacingSM)
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
-        .animation(.easeInOut(duration: 0.15), value: isSelected)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isSelected)
     }
 }
 
@@ -198,6 +200,7 @@ private struct ThemeToggleButton: View {
     let colorScheme: AppColorScheme
     let action: () -> Void
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -212,7 +215,7 @@ private struct ThemeToggleButton: View {
         .buttonStyle(.cicadaPlain)
         .help(colorScheme == .dark ? "Switch to light mode" : "Switch to dark mode")
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
     }
 }
 
@@ -234,6 +237,7 @@ private struct ThemeToggleButton: View {
 private struct SettingsGearButton: View {
     let needsAttention: Bool
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         SettingsLink {
@@ -255,6 +259,6 @@ private struct SettingsGearButton: View {
         .help(needsAttention ? "Settings — a connection needs you (⌘,)" : "Settings (⌘,)")
         .accessibilityLabel(needsAttention ? "Settings, a connection needs attention" : "Settings")
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
     }
 }

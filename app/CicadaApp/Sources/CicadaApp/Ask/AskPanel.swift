@@ -16,6 +16,7 @@ struct AskPanel: View {
 
     @State private var vm: AskViewModel?
     @FocusState private var questionFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -31,7 +32,7 @@ struct AskPanel: View {
                         if let answer = vm.answer {
                             answerView(answer)
                                 .opacity(vm.isAsking ? 0.5 : 1.0)
-                                .animation(.easeInOut(duration: 0.15), value: vm.isAsking)
+                                .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: vm.isAsking)
                         } else if vm.isAsking {
                             HStack(spacing: CicadaTheme.spacingSM) {
                                 ProgressView().controlSize(.small)

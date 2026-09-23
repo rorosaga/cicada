@@ -28,6 +28,7 @@ struct InboxCardView: View {
     /// Owner defect 2 (2026-09-03): a long legacy body shows its first three
     /// lines until this is flipped.
     @State private var showAllLines = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum MergeSurvivor { case existing, mention }
 
@@ -50,8 +51,8 @@ struct InboxCardView: View {
         }
         .scaleEffect(isHovered ? 1.008 : 1.0)
         .opacity(resolving ? 0.5 : 1.0)
-        .animation(.spring(duration: 0.2), value: isHovered)
-        .animation(.spring(duration: 0.25), value: resolving)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
+        .animation(CicadaMotion.standard(reduceMotion: reduceMotion), value: resolving)
         .onHover { isHovered = $0 }
     }
 
@@ -98,7 +99,7 @@ struct InboxCardView: View {
             // tappable header and read as a control that did nothing. It is a
             // real button now, toggling the same state as the header tap.
             Button {
-                withAnimation(.spring(duration: 0.3, bounce: 0.15)) { isExpanded.toggle() }
+                withAnimation(CicadaMotion.expand(reduceMotion: reduceMotion)) { isExpanded.toggle() }
             } label: {
                 Image(systemName: "chevron.right")
                     .font(CicadaTheme.font(size: 11, weight: .medium))
@@ -109,13 +110,13 @@ struct InboxCardView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isExpanded ? "Collapse" : "Expand")
-            .animation(.spring(duration: 0.2), value: isExpanded)
+            .animation(CicadaMotion.snap(reduceMotion: reduceMotion), value: isExpanded)
         }
         .padding(CicadaTheme.spacingLG)
         .padding(.leading, CicadaTheme.spacingXS)
         .contentShape(Rectangle())
         .onTapGesture {
-            withAnimation(.spring(duration: 0.3, bounce: 0.15)) {
+            withAnimation(CicadaMotion.expand(reduceMotion: reduceMotion)) {
                 isExpanded.toggle()
             }
         }
@@ -191,7 +192,7 @@ struct InboxCardView: View {
             sourceContext(shown.joined(separator: "\n"))
             if collapsed.needsCollapse {
                 Button(showAllLines ? "Show fewer" : "Show all \(collapsed.lines.count)") {
-                    withAnimation(.spring(duration: 0.2)) { showAllLines.toggle() }
+                    withAnimation(CicadaMotion.snap(reduceMotion: reduceMotion)) { showAllLines.toggle() }
                 }
                 .buttonStyle(.plain)
                 .font(CicadaTheme.captionFont)
@@ -224,7 +225,7 @@ struct InboxCardView: View {
             // component. `decayActions` survives only for a cached pre-G115
             // decay payload that carries no options.
             QuestionView(item: item, onResolve: { fire($0) }, onCollapse: {
-                withAnimation(.spring(duration: 0.3, bounce: 0.15)) { isExpanded = false }
+                withAnimation(CicadaMotion.expand(reduceMotion: reduceMotion)) { isExpanded = false }
             })
         } else if item.kind == .decay {
             decayActions
@@ -495,12 +496,12 @@ struct InboxCardView: View {
     /// MUST be reset here or the card stays frozen at 50% opacity forever.
     private func fire(_ resolution: QuestionResolution) {
         if resolution.action != "skip" {
-            withAnimation(.spring(duration: 0.2)) { resolving = true }
+            withAnimation(CicadaMotion.snap(reduceMotion: reduceMotion)) { resolving = true }
         }
         Task {
             let succeeded = await onResolve(resolution)
             if !succeeded {
-                withAnimation(.spring(duration: 0.2)) { resolving = false }
+                withAnimation(CicadaMotion.snap(reduceMotion: reduceMotion)) { resolving = false }
             }
         }
     }
@@ -516,6 +517,7 @@ struct InboxActionButton: View {
     var disabled: Bool = false
     let action: () -> Void
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -547,6 +549,6 @@ struct InboxActionButton: View {
         .disabled(disabled)
         .opacity(disabled ? 0.4 : 1.0)
         .onHover { isHovered = $0 }
-        .animation(.spring(duration: 0.15), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
     }
 }

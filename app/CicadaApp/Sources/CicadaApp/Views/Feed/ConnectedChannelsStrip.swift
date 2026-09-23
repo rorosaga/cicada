@@ -21,6 +21,7 @@ struct ConnectedChannelsStrip: View {
     /// another's slot, regardless of which action started or finished first.
     @State private var busyChannels: Set<String> = []
     @State private var feedback: [String: ChannelFeedback] = [:]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var channels: [SourceChannel] { store.channels.value ?? [] }
     private var connected: [SourceChannel] { SourceChannel.sortedConnected(channels) }
@@ -55,7 +56,7 @@ struct ConnectedChannelsStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) { isCollapsed.toggle() }
+                withAnimation(CicadaMotion.snap(reduceMotion: reduceMotion)) { isCollapsed.toggle() }
             } label: {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     Image(systemName: "chevron.right")

@@ -665,15 +665,17 @@ struct CicadaPlainButtonStyle: ButtonStyle {
     static let pressedScale: CGFloat = 0.97
     /// Opacity applied to the label while the button is pressed.
     static let pressedOpacity: Double = 0.85
-    /// Duration of the press/release transition.
-    static let pressAnimationDuration: Double = 0.12
+
+    /// G137 R-M4: the press dip is motion, so Reduce Motion drops it to the
+    /// end state; the scale/opacity change itself still reads.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? Self.pressedScale : 1.0)
             .opacity(configuration.isPressed ? Self.pressedOpacity : 1.0)
-            .animation(.easeOut(duration: Self.pressAnimationDuration), value: configuration.isPressed)
+            .animation(CicadaMotion.press(reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 
@@ -704,13 +706,16 @@ extension ButtonStyle where Self == CicadaPlainButtonStyle {
 struct CicadaGlassButtonStyle: ButtonStyle {
     var cornerRadius: CGFloat = CicadaTheme.cornerRadius
 
+    /// G137 R-M4 — same switch as `CicadaPlainButtonStyle`.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .contentShape(Rectangle())
             .modifier(GlassCard(cornerRadius: cornerRadius))
             .scaleEffect(configuration.isPressed ? CicadaPlainButtonStyle.pressedScale : 1.0)
             .opacity(configuration.isPressed ? CicadaPlainButtonStyle.pressedOpacity : 1.0)
-            .animation(.easeOut(duration: CicadaPlainButtonStyle.pressAnimationDuration), value: configuration.isPressed)
+            .animation(CicadaMotion.press(reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 
