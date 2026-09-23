@@ -30,6 +30,7 @@ struct ContentView: View {
     /// G126 R9 — consumes a Settings → Integrations "Import in Feed →"
     /// hand-off by switching the sidebar's own selection.
     @Environment(AppRouter.self) private var router
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -108,7 +109,7 @@ struct ContentView: View {
         // instead and this view is the one that actually switches.
         .onChange(of: router.pendingTab) { _, newTab in
             guard let newTab else { return }
-            withAnimation(.spring(duration: 0.25)) { selectedTab = newTab }
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
             router.pendingTab = nil
         }
         // G117 — Settings → General's "Run setup again" hand-off. Settings
@@ -127,7 +128,7 @@ struct ContentView: View {
             // showing the card while the viewport stays wherever it was left
             // makes the reader hunt for it.
             AskPanel { entityId in
-                withAnimation(.spring(duration: 0.25)) { selectedTab = .graph }
+                withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .graph }
                 graphVM.revealEntity(id: entityId)
                 showAskPanel = false
             }
@@ -216,7 +217,7 @@ struct ContentView: View {
             // conversation row, below) does: land on the node, then show
             // its card.
             SleepView(selectedTab: $selectedTab) { entityId in
-                withAnimation(.spring(duration: 0.25)) { selectedTab = .graph }
+                withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .graph }
                 graphVM.revealEntity(id: entityId)
             }
         case .inbox:
@@ -226,7 +227,7 @@ struct ContentView: View {
             // same way an Ask citation does (G123): land on the node, then
             // show its card.
             SourcesPageView { entityId in
-                withAnimation(.spring(duration: 0.25)) { selectedTab = .graph }
+                withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .graph }
                 graphVM.revealEntity(id: entityId)
             }
         }
@@ -240,6 +241,7 @@ struct GraphContainerView: View {
     @Binding var showAskPanel: Bool
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(BanksViewModel.self) private var banksVM
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -339,7 +341,7 @@ struct GraphContainerView: View {
                     .transition(.scale(scale: 0.97).combined(with: .opacity))
             }
         }
-        .animation(.spring(duration: 0.3), value: graphVM.selectedEntity?.id)
+        .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: graphVM.selectedEntity?.id)
     }
 }
 
@@ -535,6 +537,7 @@ private struct ZoomButton: View {
     var isActive = false
     let action: () -> Void
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -546,7 +549,7 @@ private struct ZoomButton: View {
         }
         .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
     }
 }
 

@@ -40,4 +40,38 @@ final class FontLiteralLintTests: XCTestCase {
             }
         }
     }
+
+    /// G137 R-M3: `CicadaTheme.displayFont(size:italic:)` is the one custom
+    /// face. `.custom(` anywhere else would be a second one arriving
+    /// unnoticed — unscaled by ⌘+/⌘−, unregistered, unlicensed. Comment lines
+    /// are skipped so a doc may name the API.
+    func testNoCustomFontOutsideTheTheme() throws {
+        for file in try sourceFiles() {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for (index, line) in text.components(separatedBy: .newlines).enumerated() {
+                let code = line.trimmingCharacters(in: .whitespaces)
+                guard !code.hasPrefix("//"), code.contains(".custom(") else { continue }
+                XCTFail("\(file.lastPathComponent):\(index + 1) builds a custom font — "
+                        + "use CicadaTheme.displayFont(size:italic:) (G137 R-M3).")
+            }
+        }
+    }
+
+    /// Instrument Serif is a display cut; its hairlines break up under 22 pt.
+    /// `displayFont` clamps, and this keeps a call site from asking.
+    func testDisplayFontIsNeverAskedForLessThanItsFloor() throws {
+        let pattern = try NSRegularExpression(pattern: #"displayFont\(size:\s*([0-9]+(?:\.[0-9]+)?)"#)
+        var seen = 0
+        for file in try sourceFiles() {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let ns = text as NSString
+            for match in pattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+                let size = Double(ns.substring(with: match.range(at: 1))) ?? 0
+                XCTAssertGreaterThanOrEqual(size, Double(CicadaTheme.displayMinimumSize),
+                                            "\(file.lastPathComponent) asks for a \(size) pt display face")
+                seen += 1
+            }
+        }
+        XCTAssertGreaterThan(seen, 0, "no displayFont call found — the regex no longer matches and this lint is vacuous")
+    }
 }

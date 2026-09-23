@@ -524,6 +524,23 @@ unnoticed. Nominative use only — a vendor mark is never restyled or recoloured
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
 `LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
 
+**Meadow (round 3, G137).** The visual system: *nature is the ground, glass is the chrome.*
+Neutrals are a warm "day meadow" (`#F4F6F1`) and a blue-green "night meadow" (`#0D1216`); the
+nature tokens (`sky`, `meadow`, `dandelion`, `cloud`, `bark`, `soil`, their washes, and procedural
+day/dusk/night skies) are for washes and art only, **never a data encoding** — entity, state and
+context hues did not move and graph.js's painted twins are held to the theme by a test. **Liquid
+Glass lives in the chrome layer only** (sidebar, toolbar, floating controls, one prominent action
+per page) through `liquidGlass(_:in:)` in `Theme/LiquidGlass.swift`, gated on macOS 26 with a
+material fallback (opaque under Reduce Transparency); a lint fails the build on any glass API
+elsewhere, and `GlassCard` stays a standard material. **Painted art** (`Resources/art/`,
+`art.manifest.json` with generator, prompt, date, licence and sha256; every file has a `-dark`
+sibling) appears only on non-data surfaces — never the graph, a list, a grid, a form or a number,
+and text never sits directly on paint — enforced by an allowlist lint. **Type:** Instrument Serif
+(bundled OFL, registered at launch from `Bundle.cicadaResources`' bare `fonts` directory) through
+`displayFont(size:italic:)` at ≥ 22 pt, New York italic through `quoteFont`, SF for everything else.
+**Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside `SleepMotion` a
+duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs.
+
 **Video (Track V).** A saved video plays where the user already is — the Feed sheet, the entity
 Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — and the provider is
 derived from the URL at read time (`VideoRef.resolve`), never read out of the page, so a bank never

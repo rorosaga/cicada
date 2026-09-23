@@ -47,6 +47,12 @@ enum AppTab: String, CaseIterable {
     var title: String { rawValue }
 }
 
+/// G137: on macOS 26 the column paints nothing (`sidebarChromeBackground()`)
+/// so the system's Liquid Glass sidebar shows — the opaque fill it used to
+/// paint is exactly the "extra background" WWDC25-323 says breaks the effect.
+/// Each glyph acknowledges the pointer once (`iconHover`) and bounces when its
+/// tab is chosen; the inbox badge is `onAccent` on an opaque accent, the pair
+/// whose contrast is measured (R-M11).
 struct SidebarView: View {
     @Binding var selectedTab: AppTab
     var inboxCount: Int
@@ -56,6 +62,7 @@ struct SidebarView: View {
     var needsAttention: Bool
 
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var colorScheme: AppColorScheme { AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }
 
     /// The sidebar's minimum content width **at `uiScale == 1.0`** — the value
@@ -98,7 +105,7 @@ struct SidebarView: View {
         }
         .padding(.top, CicadaTheme.spacingXL)
         .frame(minWidth: CicadaTheme.scaled(Self.minWidth))
-        .background(CicadaTheme.background)
+        .sidebarChromeBackground()
     }
 
     private func badgeCount(for tab: AppTab) -> Int {
@@ -116,7 +123,7 @@ struct SidebarView: View {
         let label = accessibilityLabel(for: tab, count: count, isBusy: isBusy)
 
         let button = Button {
-            withAnimation(.spring(duration: 0.25)) { selectedTab = tab }
+            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = tab }
         } label: {
             SidebarRow(tab: tab, isSelected: isSelected, badgeCount: count, isBusy: isBusy)
         }
@@ -149,6 +156,7 @@ private struct SidebarRow: View {
     let badgeCount: Int
     let isBusy: Bool
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
@@ -159,6 +167,7 @@ private struct SidebarRow: View {
                     .font(CicadaTheme.font(size: 16))
                     .foregroundStyle(isSelected ? CicadaTheme.accent : CicadaTheme.textSecondary)
                     .frame(width: 24)
+                    .iconHover(hovering: isHovered, selected: isSelected)
             }
 
             Text(tab.title)
@@ -170,10 +179,10 @@ private struct SidebarRow: View {
             if badgeCount > 0 {
                 Text("\(badgeCount)")
                     .font(CicadaTheme.font(size: 11, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(CicadaTheme.onAccent)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(CicadaTheme.accent.opacity(0.8))
+                    .background(CicadaTheme.accent)
                     .clipShape(Capsule())
             }
         }
@@ -186,8 +195,8 @@ private struct SidebarRow: View {
         .contentShape(Rectangle())
         .padding(.horizontal, CicadaTheme.spacingSM)
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
-        .animation(.easeInOut(duration: 0.15), value: isSelected)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isSelected)
     }
 }
 
@@ -198,10 +207,12 @@ private struct ThemeToggleButton: View {
     let colorScheme: AppColorScheme
     let action: () -> Void
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
             Image(systemName: colorScheme == .dark ? "moon.fill" : "sun.max.fill")
+                .iconHover(hovering: isHovered)
                 .font(CicadaTheme.font(size: 12, weight: .medium))
                 .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                 .frame(width: 22, height: 22)
@@ -212,7 +223,7 @@ private struct ThemeToggleButton: View {
         .buttonStyle(.cicadaPlain)
         .help(colorScheme == .dark ? "Switch to light mode" : "Switch to dark mode")
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
     }
 }
 
@@ -234,10 +245,12 @@ private struct ThemeToggleButton: View {
 private struct SettingsGearButton: View {
     let needsAttention: Bool
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         SettingsLink {
             Image(systemName: "gearshape")
+                .iconHover(hovering: isHovered)
                 .font(CicadaTheme.font(size: 12, weight: .medium))
                 .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                 .frame(width: 22, height: 22)
@@ -255,6 +268,6 @@ private struct SettingsGearButton: View {
         .help(needsAttention ? "Settings — a connection needs you (⌘,)" : "Settings (⌘,)")
         .accessibilityLabel(needsAttention ? "Settings, a connection needs attention" : "Settings")
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
     }
 }
