@@ -61,6 +61,13 @@ enum Copy {
     /// above stays for the callers that have no such context.
     static let changeEllipsis = "Change…"
 
+    /// The worm's accessibility hint (Track Z §11). The design's second clause
+    /// ("Drop a file to import it.") lands with feeding — a hint must be true
+    /// the day it ships (Z-P16).
+    static let wormHint = "Click to ask what it's doing."
+    /// The worm's named action and context-menu item: every answer at once.
+    static let wormWhatAreYouDoing = "What are you doing?"
+
     /// The queue card's footer line, shown ONLY when `preview.manual` and
     /// `preview.scheduled` name different engines (R-A9). The standing ruling
     /// — a scheduled cycle never spends plan quota — makes that difference

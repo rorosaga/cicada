@@ -80,6 +80,13 @@ final class SleepNumbersLintTests: XCTestCase {
         XCTAssertLessThanOrEqual(SleepMotion.disclosureDuration, SleepMotion.maxDuration)
         XCTAssertLessThanOrEqual(SleepMotion.maxDuration, 0.4)
         XCTAssertLessThanOrEqual(SleepStages.pulsePeriod, 1.2)
+        // Track Z Z5 — the sentence cross-fade, and every beat (≤ 3 frames).
+        XCTAssertLessThanOrEqual(SleepMotion.sentenceDuration, SleepMotion.maxDuration)
+        XCTAssertLessThanOrEqual(SleepMotion.beatFrameInterval * Double(SleepMotion.maxBeatFrames),
+                                 SleepMotion.maxDuration)
+        XCTAssertEqual(SleepMotion.beatFrameInterval, BookwormSprites.reactionInterval,
+                       "one beat clock — the sprite's and the page's")
+        XCTAssertEqual(SleepMotion.answerDwell, .seconds(12))
     }
 
     /// Reduce Motion holds every animation at its terminal frame. `nil` is how
@@ -93,6 +100,67 @@ final class SleepNumbersLintTests: XCTestCase {
         XCTAssertNotNil(SleepMotion.settle(reduceMotion: false))
         XCTAssertNotNil(SleepMotion.pile(reduceMotion: false))
         XCTAssertNotNil(SleepMotion.disclosure(reduceMotion: false))
+        XCTAssertNil(SleepMotion.sentence(reduceMotion: true))
+        XCTAssertNotNil(SleepMotion.sentence(reduceMotion: false))
+    }
+
+    /// Design §10 — the pointer is read in ONE place under `Views/Sleep/`, the
+    /// room box (`StudyRoom.swift`); every other leaf observes the model.
+    func testOnlyTheRoomReadsTheContinuousPointer() throws {
+        var readers: [String] = []
+        for file in try Self.sleepSources() {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let hit = text.components(separatedBy: .newlines).contains {
+                let code = $0.trimmingCharacters(in: .whitespaces)
+                return !code.hasPrefix("//") && code.contains("onContinuousHover")
+            }
+            if hit { readers.append(file.lastPathComponent) }
+        }
+        XCTAssertEqual(readers, ["StudyRoom.swift"])
+    }
+
+    /// R-Z4 — all worm motion is sprite frames on the one lattice: no
+    /// `.offset`, `.scaleEffect`, `.rotationEffect` or `.spring(` hangs off a
+    /// `BookwormView(` or `WormStage(` under `Views/Sleep/`. The one allowed
+    /// form is the lattice placement itself — an `.offset(` built from
+    /// `wormOrigin`, which is a whole number of cells by construction.
+    func testTheWormIsNeverTransformed() throws {
+        var chains = 0
+        for file in try Self.sleepSources() {
+            let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: .newlines)
+            var i = 0
+            while i < lines.count {
+                let code = lines[i].trimmingCharacters(in: .whitespaces)
+                guard !code.hasPrefix("//"), code.contains("BookwormView(") || code.contains("WormStage(") else {
+                    i += 1; continue
+                }
+                // The call itself (to its closing paren), then every following
+                // line that is a modifier (starts with ".") or a comment.
+                var chain = [lines[i]]
+                var depth = lines[i].filter { $0 == "(" }.count - lines[i].filter { $0 == ")" }.count
+                i += 1
+                while i < lines.count, depth > 0 {
+                    chain.append(lines[i])
+                    depth += lines[i].filter { $0 == "(" }.count - lines[i].filter { $0 == ")" }.count
+                    i += 1
+                }
+                while i < lines.count {
+                    let next = lines[i].trimmingCharacters(in: .whitespaces)
+                    guard next.hasPrefix(".") || next.hasPrefix("//") else { break }
+                    chain.append(lines[i]); i += 1
+                }
+                chains += 1
+                for line in chain where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                    for needle in [".scaleEffect(", ".rotationEffect(", ".spring("] {
+                        XCTAssertFalse(line.contains(needle), "\(file.lastPathComponent): \(line)")
+                    }
+                    if line.contains(".offset(") {
+                        XCTAssertTrue(line.contains("wormOrigin"), "\(file.lastPathComponent): \(line)")
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(chains, 0, "found no worm — the lint would pass vacuously")
     }
 
     /// The two value-driven bars on this page (the hero meter's blocks and the

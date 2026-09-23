@@ -58,6 +58,13 @@ struct SleepPageModel: Equatable {
     /// The top row's origin id: T12 names `topOriginLabel` and draws this
     /// origin's mark.
     var topOrigin: String?
+    /// Task 6 — what the answer ladder names: the engine the last (or
+    /// running) cycle used and the backend's own sentence about it, and the
+    /// just-finished cycle's counts for the `.digesting` rung.
+    var lastEngine: String?
+    var engineDetail: String?
+    var cycleCreated: Int
+    var cycleUpdated: Int
 
     static func resolve(
         status: SleepStatusResponse?,
@@ -117,7 +124,11 @@ struct SleepPageModel: Equatable {
             inboxTotal: storeStatus?.inbox.total,
             oldestWait: oldestQueuedHours(queued, now: now).map(agePhrase(hours:)),
             topOriginLabel: rows.first?.label,
-            topOrigin: rows.first?.origin
+            topOrigin: rows.first?.origin,
+            lastEngine: status?.lastEngine,
+            engineDetail: status?.engineDetail,
+            cycleCreated: status?.entitiesCreated ?? 0,
+            cycleUpdated: status?.entitiesUpdated ?? 0
         )
     }
 }
@@ -131,11 +142,26 @@ func lastCycleEntry(_ history: [SleepHistoryEntry]) -> SleepHistoryEntry? {
 }
 
 extension SleepPageModel {
-    /// The sentence's inputs (Track Z §5), from this one reading.
+    /// The sentence's and the answers' inputs (Track Z §5, §6.3), from this
+    /// one reading — so the status line and every rung the worm answers with
+    /// can never read two different snapshots (H1).
     func roomContext(locale: Locale = .autoupdatingCurrent) -> RoomContext {
-        RoomContext(mood: mood, debt: debt, queueLoad: queueLoad, activeStage: runningStage,
-                    read: read, total: total, cycleError: cycleError, cancelled: cancelled,
-                    capped: capped, indexWarning: indexWarning, scheduleMode: schedule.mode,
-                    topOriginLabel: topOriginLabel, topOrigin: topOrigin, locale: locale)
+        var context = RoomContext(mood: mood, debt: debt, queueLoad: queueLoad, activeStage: runningStage,
+                                  read: read, total: total, cycleError: cycleError, cancelled: cancelled,
+                                  capped: capped, indexWarning: indexWarning, scheduleMode: schedule.mode,
+                                  topOriginLabel: topOriginLabel, topOrigin: topOrigin, locale: locale)
+        context.oldestWait = oldestWait
+        context.lampLit = lampLit
+        // After-import has no clock time until an import lands, but it does
+        // have a when — words, not a dash (R-A14).
+        context.nextRunWhen = nextRunAt ?? (schedule.mode == "after_import" ? "after the next import settles" : nil)
+        context.scheduledEngine = scheduledEngine
+        context.lastCycle = lastCycle.map { LastCycleFacts($0) }
+        context.cycleCreated = cycleCreated
+        context.cycleUpdated = cycleUpdated
+        context.lastEngine = lastEngine
+        context.engineDetail = engineDetail
+        context.inboxTotal = inboxTotal
+        return context
     }
 }

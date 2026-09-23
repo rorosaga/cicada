@@ -162,4 +162,23 @@ final class SleepPageModelTests: XCTestCase {
         XCTAssertEqual(agePhrase(hours: 72), "3 days")
         XCTAssertEqual(ageLabel(hours: 72), "3d", "the list keeps its compact label")
     }
+
+    /// Task 6 — the answer ladder's facts come from the same one reading.
+    func test_theRoomContextCarriesTheAnswerFacts() throws {
+        let json = #"{"status":"idle","lastEngine":"ollama","engineDetail":"running locally","entitiesCreated":4,"entitiesUpdated":9,"debt":{"unprocessedCount":2,"hasRunBefore":true,"volumePct":0,"agePct":0,"restedPct":80}}"#
+        let context = resolve(status: try status(json)).roomContext()
+        XCTAssertEqual(context.lastEngine, "ollama")
+        XCTAssertEqual(context.engineDetail, "running locally")
+        XCTAssertEqual(context.cycleCreated, 4)
+        XCTAssertEqual(context.cycleUpdated, 9)
+        let afterImport = resolve(status: try status(idleJSON),
+                                  schedule: ScheduleConfig(mode: "after_import", hour: 3, minute: 0))
+        XCTAssertEqual(afterImport.roomContext().nextRunWhen, "after the next import settles",
+                       "after-import with no date still has a when")
+        XCTAssertTrue(afterImport.roomContext().lampLit)
+        XCTAssertNil(resolve(status: try status(idleJSON)).roomContext().nextRunWhen, "manual has no when")
+        let previews = SleepEnginePreviews(manual: SleepEnginePreview(engine: "claude-cli", model: "m", why: "w"),
+                                           scheduled: SleepEnginePreview(engine: "ollama", model: "m", why: "w"))
+        XCTAssertEqual(resolve(status: try status(idleJSON), preview: previews).roomContext().scheduledEngine, "ollama")
+    }
 }

@@ -145,6 +145,22 @@ struct RoomContext: Equatable {
     /// The top row's origin id, for T12's mark.
     var topOrigin: String? = nil
     var locale: Locale = .autoupdatingCurrent
+
+    // Task 6 — facts only the answer ladder reads (§6.3). Each is nil when
+    // unknown, and a rung whose fact is nil is omitted (`wormAnswers`).
+    var oldestWait: String? = nil
+    var lampLit: Bool = false
+    /// "Sep 24, 3:00 AM", or "after the next import settles"; nil when unknown.
+    var nextRunWhen: String? = nil
+    /// The scheduled engine's id, only when it differs from manual (ruling 4).
+    /// An id rather than the sentence, so the rung can draw its mark.
+    var scheduledEngine: String? = nil
+    var lastCycle: LastCycleFacts? = nil
+    var cycleCreated: Int = 0
+    var cycleUpdated: Int = 0
+    var lastEngine: String? = nil
+    var engineDetail: String? = nil
+    var inboxTotal: Int? = nil
 }
 
 /// The status sentence (design §5): the first matching lead row, then the
@@ -264,27 +280,66 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
 /// New York through `CicadaTheme.font(size:design: .serif)` until Meadow's
 /// `displayFont` exists (design §5; Z10 swaps these two calls and nothing else).
 struct RoomSentenceView: View {
+    /// The status sentence — what the slot shows whenever no answer is up.
     let line: SentenceLine
+    /// Task 6 — the worm's answer ladder (`wormAnswers`). An answer REPLACES
+    /// the status in this one slot (R-Z5, R-Z7): the worm never speaks in a
+    /// second place.
+    var answers: [SentenceLine] = []
+    /// The room's interaction state; `nil` shows the status only.
+    var room: RoomModel? = nil
     /// Z-P5 — an action the page cannot perform yet renders as plain words.
     var canPerform: (SentenceAction) -> Bool = { _ in false }
     var perform: (SentenceAction) -> Void = { _ in }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The line on show: the answer rung the worm is on, else the status. An
+    /// index that outlived its ladder (the facts changed under it) falls back
+    /// to the status rather than trapping.
+    private var shown: SentenceLine {
+        room?.answerIndex.flatMap { answers.indices.contains($0) ? answers[$0] : nil } ?? line
+    }
+
     var body: some View {
-        VStack(spacing: CicadaTheme.spacingXS) {
-            leadText
-                .font(CicadaTheme.font(size: 30, design: .serif))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            tailView
+        let shown = shown
+        ZStack {
+            VStack(spacing: CicadaTheme.spacingXS) {
+                leadText(shown)
+                    .font(CicadaTheme.font(size: 30, design: .serif))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                tailView(shown)
+            }
+            // Keyed on the line so a change cross-fades (opacity only — the
+            // slot's height is reserved, so nothing slides).
+            .id(shown)
+            .transition(.opacity)
         }
+        .animation(SleepMotion.sentence(reduceMotion: reduceMotion), value: shown)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
+        .onHover { room?.pointerInSentence = $0 }
+        // Every read below is `shown`, never `line`: VoiceOver reads what is
+        // on screen, and the action follows the link that is on screen.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(line.spoken)
+        .accessibilityLabel(shown.spoken)
         .accessibilityActions {
-            if let action = line.action, let tail = line.tail, canPerform(action) {
+            if let action = shown.action, let tail = shown.tail, canPerform(action) {
                 Button(tailLink(tail)) { perform(action) }
             }
+        }
+        .accessibilitySortPriority(RoomA11yOrder.sentence)
+        .task(id: DwellKey(index: room?.answerIndex,
+                           inside: (room?.pointerInRoom ?? false) || (room?.pointerInSentence ?? false))) {
+            // I4 — an answer returns to the status after `answerDwell` with
+            // the pointer outside the room and the sentence; any re-entry
+            // restarts this task, which is what "paused while hovered" means.
+            guard let room, room.answerIndex != nil,
+                  !room.pointerInRoom, !room.pointerInSentence else { return }
+            try? await Task.sleep(for: SleepMotion.answerDwell)
+            guard !Task.isCancelled else { return }
+            room.dismissAnswers()
         }
     }
 
@@ -296,7 +351,7 @@ struct RoomSentenceView: View {
         }
     }
 
-    private var leadText: Text {
+    private func leadText(_ line: SentenceLine) -> Text {
         let plainColor = line.qualifier == nil ? color(line.tone, plain: CicadaTheme.textPrimary) : CicadaTheme.textPrimary
         return sentenceRuns(line).reduce(Text(verbatim: "")) { text, run in
             switch run.kind {
@@ -316,18 +371,18 @@ struct RoomSentenceView: View {
     /// The tail, with the mark of the service it names beside it (Z-P26). The
     /// slot is one ignored-children element, so the mark adds nothing to what
     /// VoiceOver reads. The words already name the service.
-    private var tailView: some View {
+    private func tailView(_ line: SentenceLine) -> some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingXS) {
             if let mark = line.mark {
                 SentenceMarkView(mark: mark)
                     .padding(.top, CicadaTheme.spacingXS)
             }
-            tailText
+            tailText(line)
         }
     }
 
     @ViewBuilder
-    private var tailText: some View {
+    private func tailText(_ line: SentenceLine) -> some View {
         let tail = line.tail ?? " "
         let tailFont = CicadaTheme.font(size: 22, design: .serif).italic()
         let tailColor = color(line.tailTone, plain: CicadaTheme.textSecondary)
@@ -348,6 +403,14 @@ struct RoomSentenceView: View {
                 .lineLimit(2, reservesSpace: true)
         }
     }
+}
+
+/// What the dwell task restarts on: the rung on show, and whether the
+/// pointer is inside the room or the sentence. A change to either cancels the
+/// pending dismissal and starts a fresh one.
+private struct DwellKey: Equatable {
+    let index: Int?
+    let inside: Bool
 }
 
 /// A `SentenceMark`, drawn. At 18 pt it sits beside the 22 pt italic tail

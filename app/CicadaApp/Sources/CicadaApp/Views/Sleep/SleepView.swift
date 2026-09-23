@@ -199,6 +199,10 @@ struct SleepView: View {
     /// The Details section a tail link asked for, held until Details has been
     /// built and its anchor exists (`openDetails`).
     @State private var pendingScroll: DetailsSection?
+    /// Track Z Z5 — the room's interaction state (gaze, perk, the answer
+    /// ladder). Page-local `@State`: a tab switch tears it down, so an answer
+    /// never outlives the visit it was asked in.
+    @State private var room = RoomModel()
 
     var body: some View {
         let page = resolvePage()
@@ -232,6 +236,9 @@ struct SleepView: View {
                     .padding(CicadaTheme.spacingXL)
                     .frame(maxWidth: SleepLayout.contentWidth)
                     .frame(maxWidth: .infinity, alignment: .top)
+                    // I4 — a mood change resets the ladder: an answer about
+                    // the state that just ended is no longer true.
+                    .onChange(of: page.mood.caseName) { _, _ in room.dismissAnswers() }
                 }
                 // Details is built only while open, so an anchor inside it
                 // exists one update after `detailsOpen` flips: scroll then.
@@ -564,47 +571,29 @@ struct SleepView: View {
     /// only with news, and at the card's last row (Z-P9) so neither the
     /// sentence nor the control the person just pressed moves when it appears.
     private func roomCard(_ page: SleepPageModel) -> some View {
-        let mood = page.mood
-        let debt = page.debt
-
-        let scene = deskSceneLayout(pointSize: Self.wormPointSize)
+        // One reading feeds the status line AND the answers (Task 6), so the
+        // worm can never answer from a different snapshot than it states.
+        let context = page.roomContext()
+        let status = roomSentence(context)
+        let answers = wormAnswers(context)
 
         return VStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
-            ZStack(alignment: .bottomLeading) {
-                // R-A3: lit exactly when Sleep is scheduled. `enabled` is
-                // `mode != "manual"` by definition (`ScheduleConfig`), so the
-                // lamp and the schedule sentence read the same field — the
-                // art can never disagree with the words.
-                DeskSceneView(pointSize: Self.wormPointSize, lampLit: page.lampLit)
+            // Track Z Z5 (R-Z8): the room is its own view — the inert art,
+            // the worm on its lattice, the real pile, and a hotspot layer
+            // derived from the same pure layout. The bracket line (P8) moved
+            // from this group's label onto the worm's own element as its value.
+            StudyRoom(page: page, statusLine: status, answers: answers, room: room)
+                .accessibilitySortPriority(RoomA11yOrder.room)
 
-                // The worm sits on the cushion; `caption` is dropped because
-                // the scene positions the sprite by its own box, and a
-                // VStack'd caption underneath would move it off the cushion.
-                // The bracket line survives as this group's VoiceOver label
-                // below — the sprite loses its visible caption, not its
-                // meaning (P8).
-                BookwormView(state: mood, pointSize: Self.wormPointSize, caption: nil)
-                    .offset(x: scene.wormOrigin.x, y: -scene.wormOrigin.y)
-
-                // The REAL pile, in the column the layout reserves for it —
-                // never a painted stack (P10).
-                BookPileView(books: page.books)
-                    .frame(width: scene.pileFrame.width, height: scene.pileFrame.height,
-                           alignment: .bottomLeading)
-                    .offset(x: scene.pileFrame.minX, y: -scene.pileFrame.minY)
-            }
-            .frame(width: scene.size.width, height: scene.size.height, alignment: .bottomLeading)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(sleepDebtBracketText(mood, debt: debt))
-
-            // R-Z5 — the one slot the worm speaks in. Z-P5: an action renders
-            // as a link only once its destination exists — `.retry` and, from
-            // Z3, `.openDetails`; the Inbox, the lamp and the completion link
-            // stay words until the tasks that build them land.
-            RoomSentenceView(line: roomSentence(page.roomContext()),
+            // R-Z5 — the one slot the worm speaks in; an answer replaces the
+            // status here (R-Z7). Z-P5: an action renders as a link only once
+            // its destination exists — `.retry`, `.openDetails` and, from Z5,
+            // `.openInbox`; the lamp and the completion link stay words until
+            // the tasks that build them land.
+            RoomSentenceView(line: status, answers: answers, room: room,
                              canPerform: { action in
                                  switch action {
-                                 case .retry, .openDetails: true
+                                 case .retry, .openDetails, .openInbox: true
                                  default: false
                                  }
                              },
@@ -612,12 +601,15 @@ struct SleepView: View {
                                  switch action {
                                  case .retry: Task { await store.refresh([.status]) }
                                  case .openDetails(let section): openDetails(section)
+                                 case .openInbox: selectedTab = .inbox
                                  default: break
                                  }
                              })
             SleepControlRow(consolidateEnabled: page.consolidateEnabled,
                             queuedCount: page.queuedCount, manualEngine: page.manualEngine)
+                .accessibilitySortPriority(RoomA11yOrder.control)
             whisperRow(page)
+                .accessibilitySortPriority(RoomA11yOrder.whisper)
 
             // R-A8 / R-Z6 — the five-stage strip, only while a cycle runs or
             // after one was cancelled or failed (its frozen record, P15).
@@ -626,6 +618,7 @@ struct SleepView: View {
                 SleepStageStrip(pips: page.pips)
             }
         }
+        .accessibilityElement(children: .contain)
         .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity)
         .glassCard()

@@ -38,6 +38,25 @@ enum SleepMotion {
     /// the reader asked for it and is already looking at the answer.
     static let disclosureDuration: TimeInterval = 0.15
 
+    // Track Z Z5 — the room responds. Named to mirror Meadow's `CicadaMotion`
+    // so Z10's swap is a rename, not a re-derivation.
+
+    /// One beat frame (R-Z12) — pinned equal to `BookwormSprites.reactionInterval`
+    /// by `SleepNumbersLintTests`, so the sprite and the page share one beat clock.
+    static let beatFrameInterval: TimeInterval = 0.12
+    /// Every beat is at most three frames, so ≤ 0.36 s ≤ `maxDuration`.
+    static let maxBeatFrames = 3
+    /// The status ⇄ answer cross-fade in the sentence slot (opacity only — a
+    /// slot whose height is reserved never slides).
+    static let sentenceDuration: TimeInterval = 0.18
+    /// A rate limit, not an animation: one perk per two seconds however the
+    /// pointer wanders in and out of the worm (§6.2 — a worm that twitches on
+    /// every crossing is noise, not a response).
+    static let perkCooldown: TimeInterval = 2
+    /// A dwell, not an animation (I4): an answer returns to the status sentence
+    /// after this long with the pointer outside the room and the sentence.
+    static let answerDwell: Duration = .seconds(12)
+
     static func settle(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeInOut(duration: settleDuration)
     }
@@ -48,5 +67,9 @@ enum SleepMotion {
 
     static func disclosure(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeInOut(duration: disclosureDuration)
+    }
+
+    static func sentence(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeInOut(duration: sentenceDuration)
     }
 }

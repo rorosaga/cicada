@@ -45,6 +45,12 @@ enum DeskSceneSprites {
         .mug: 17...23,
     ]
 
+    /// The window's glass, in its own grid (rows 4…19, cols 2…17 — jambs and
+    /// mullions included, the frame occludes them). Named once: the window
+    /// hotspot (Track Z §6.2) and the weather pane (§7.3) both sit on it, and
+    /// `DeskHotspotTests` checks the worked grid below agrees with it.
+    static let windowGlass = (rows: 4...19, cols: 2...17)
+
     /// The canonical grid per prop. The lamp's entry is the LIT variant; the
     /// dark one is reached through `grid(_:lampLit:)`, which is the only
     /// state-dependent lookup in the scene.
