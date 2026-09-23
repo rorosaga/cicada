@@ -42,6 +42,21 @@ async def _reach() -> tuple[reach.Reach, str | None]:
     return found, (store.load_settings().public_base_url or found.funnel_url)
 
 
+NO_ADDRESS = "no public address yet — set up a way to reach this Mac first"
+
+
+async def _base_or_409() -> str:
+    """The public base a token is about to be shown against, or a 409 BEFORE
+    anything is minted (G135 final review). With no base — the tunnel down, or
+    the 2 s tailscale detection timing out — create/rotate used to mint anyway
+    and return a null `link`/`mcpUrl`: a link app's shown-once sheet then had
+    nothing to show, and a rotate had already killed the old secret."""
+    _, base = await _reach()
+    if not base:
+        raise HTTPException(409, NO_ADDRESS)
+    return base
+
+
 def _created(connector: catalog.Connector, token: str, base: str | None) -> RemoteConnectorCreatedOut:
     return RemoteConnectorCreatedOut(
         connector=_out(connector), token=token,
@@ -89,26 +104,32 @@ def list_connectors() -> list[RemoteConnectorOut]:
 
 @router.post("/connectors", response_model=RemoteConnectorCreatedOut)
 async def create_connector(req: RemoteConnectorIn) -> RemoteConnectorCreatedOut:
+    base = await _base_or_409()
     try:
         connector, token = store.ConnectorStore().create(
             app=req.app, label=req.label, scopes=req.scopes, expires_in_days=req.expires_in_days)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     _auth_event(connector, "created")
-    _, base = await _reach()
     return _created(connector, token, base)
 
 
 @router.post("/connectors/{connector_id}/rotate", response_model=RemoteConnectorCreatedOut)
 async def rotate_connector(connector_id: str) -> RemoteConnectorCreatedOut:
+    db = store.ConnectorStore()
+    existing = db.get(connector_id)
+    if existing is None:
+        raise HTTPException(404, "no such connector")
+    if existing.state() != "active":
+        raise HTTPException(409, f"this connector is {existing.state()} — make a new one instead")
+    base = await _base_or_409()  # the old secret keeps working until a new one can be shown
     try:
-        connector, token = store.ConnectorStore().rotate(connector_id)
+        connector, token = db.rotate(connector_id)
     except KeyError as exc:
         raise HTTPException(404, "no such connector") from exc
     except ValueError as exc:
         raise HTTPException(409, f"this connector is {exc} — make a new one instead") from exc
     _auth_event(connector, "rotated")
-    _, base = await _reach()
     return _created(connector, token, base)
 
 

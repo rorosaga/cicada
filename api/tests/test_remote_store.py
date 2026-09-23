@@ -81,8 +81,10 @@ def test_expiry_choices_and_apps_are_closed(db):
         db.create(app="claude", label="", scopes=["search"], expires_in_days=365)
     with pytest.raises(ValueError):
         db.create(app="myspace", label="", scopes=["search"], expires_in_days=30)
-    forever, _ = db.create(app="claude", label="", scopes=["search"], expires_in_days=None)
-    assert forever.expires_at is None and forever.state(NOW + timedelta(days=3650)) == "active"
+    # Every connector expires (R-R3): "no expiry" is refused, not stored as forever.
+    for never in (None, 0):
+        with pytest.raises(ValueError):
+            db.create(app="claude", label="", scopes=["search"], expires_in_days=never)
 
 
 def test_rotation_keeps_everything_but_the_secret(db):

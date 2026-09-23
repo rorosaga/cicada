@@ -108,7 +108,7 @@ def test_mcp_recall_records_the_suggested_ids_with_the_recall_surface(home, tmp_
     # retrieval source but the keyword scan is stubbed, so the one suggested
     # id can only have come from the page written above.
     monkeypatch.setattr(mcp, "get_memory_path", lambda: memory)
-    monkeypatch.setattr(mcp.mcp_tools, "_relevant_inbox", lambda memory_path, query: [])
+    monkeypatch.setattr(mcp.mcp_tools, "_relevant_inbox", lambda memory_path, query, **_: [])
     monkeypatch.setattr(mcp.mcp_tools, "_match_hub", lambda memory_path, query: (None, []))
     monkeypatch.setattr(mcp.mcp_tools, "_leann_search_entities", lambda memory_path, query, top_k: [])
     monkeypatch.setattr(mcp.mcp_tools, "_leann_search_episodes", lambda memory_path, query, top_k: [])

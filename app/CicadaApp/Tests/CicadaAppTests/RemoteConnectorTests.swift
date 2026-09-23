@@ -87,8 +87,7 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertTrue(RemoteApp.chatgpt.note?.contains("Phone support") ?? false)
         XCTAssertTrue(RemoteApp.claude.steps(link: link, mcpURL: mcpURL, token: token).map(\.text).joined().contains("phone"))
         XCTAssertTrue(Copy.remoteGeminiApp.contains("Gemini CLI"))
-        XCTAssertNil(RemoteExpiry.never.days)
-        XCTAssertEqual(RemoteExpiry.allCases.map(\.days), [7, 30, 90, nil])
+        XCTAssertEqual(RemoteExpiry.allCases.map(\.days), [7, 30, 90])  // every connector expires (R-R3)
     }
 
     private func connector(state: String = "active", expiresAt: String? = nil,
@@ -164,12 +163,12 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertNotEqual(OriginIconography.symbol(for: "perplexity"), "tray")
     }
 
-    func testCreatingSendsAnExplicitNullForNoExpiry() async throws {
+    func testCreatingSendsTheChosenExpiry() async throws {
         MockURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.url?.path, "/remote/connectors")
             let body = try XCTUnwrap(Self.bodyJSON(request))
-            XCTAssertTrue(body["expiresInDays"] is NSNull)
+            XCTAssertEqual(body["expiresInDays"] as? Int, 7)
             XCTAssertEqual(body["scopes"] as? [String], ["search"])
             let out = """
             {"connector": {"id": "ab12cd34", "label": "Desk", "app": "cursor", "scopes": ["search"],
@@ -178,7 +177,7 @@ final class RemoteConnectorTests: XCTestCase {
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, out)
         }
         let api = APIClient(session: MockURLProtocol.makeSession())
-        let created = try await api.createRemoteConnector(app: "cursor", label: "Desk", scopes: ["search"], expiresInDays: nil)
+        let created = try await api.createRemoteConnector(app: "cursor", label: "Desk", scopes: ["search"], expiresInDays: 7)
         XCTAssertEqual(created.connector.id, "ab12cd34")
     }
 

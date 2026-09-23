@@ -708,7 +708,9 @@ through a tunnel **the person** runs (Tailscale Funnel or ngrok); **Cicada never
 reconfigures a tunnel** — `GET /remote/status` only detects one. Access is a per-connector
 capability token `cic_rc_<id>_<secret>`: shown once, only its sha256 stored in
 `~/.cicada/remote/connectors.db` (0600, never in a bank), scoped (`search`/`read`/`record` default;
-`sources`/`answer`/`ask` opt-in; `pending`, `mark_processed` and `repo_context` never), expiring
+`sources`/`answer`/`ask` opt-in — `sources` gates every verbatim word of the person's, recall's
+episode excerpts and the inbox `Cause:` quote alike; `pending`, `mark_processed` and `repo_context`
+never), expiring
 (7/30/90 days) and revocable. It arrives as a secret link (`/c/<token>/mcp`) or a bearer header —
 one verifier. Tools outside a connector's scopes are absent from `tools/list`; any `Origin` header
 is refused; the listener has no access log (a secret link's path IS the token). Every remote write

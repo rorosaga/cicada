@@ -113,16 +113,20 @@ class ConnectorStore:
         finally:
             conn.close()
 
-    def create(self, *, app: str, label: str | None, scopes, expires_in_days: int | None,
+    def create(self, *, app: str, label: str | None, scopes, expires_in_days: int,
                now: datetime | None = None) -> tuple[catalog.Connector, str]:
+        """Every connector expires (R-R3, spec Decision 4: 7/30/90 days). A
+        "no expiry" choice shipped in Task 7 and was taken out at the final
+        review: a leaked secret link would have worked until someone thought
+        to revoke it, which is exactly what "expiring" in the spec rules out."""
         if app not in catalog.APPS:
             raise ValueError(f"unknown app {app!r}")
         wanted = [str(s) for s in (scopes or [])]
         clean = catalog.clean_scopes(wanted)
         if not clean or len(clean) != len(set(wanted)):
             raise ValueError("scopes must be a non-empty subset of " + ", ".join(catalog.SCOPES))
-        if expires_in_days is not None and expires_in_days not in catalog.EXPIRY_CHOICES:
-            raise ValueError("expiresInDays must be 7, 30, 90 or null (no expiry)")
+        if expires_in_days not in catalog.EXPIRY_CHOICES:
+            raise ValueError("expiresInDays must be 7, 30 or 90")
         now = now or _now()
         secret = secrets.token_urlsafe(32)
         with self._db() as db:
@@ -134,7 +138,7 @@ class ConnectorStore:
                 "INSERT INTO connectors (id, label, app, scopes, token_hash, created_at, expires_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (connector_id, _clean_label(label, app), app, ",".join(sorted(clean)), _hash(secret), _iso(now),
-                 _iso(now + timedelta(days=expires_in_days)) if expires_in_days else None),
+                 _iso(now + timedelta(days=expires_in_days))),
             )
         return self.get(connector_id), f"cic_rc_{connector_id}_{secret}"
 

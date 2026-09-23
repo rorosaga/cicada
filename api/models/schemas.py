@@ -2042,7 +2042,7 @@ class RemoteConnectorIn(CamelModel):
     app: str
     label: str = ""
     scopes: list[str]
-    expires_in_days: Optional[int] = 30
+    expires_in_days: int = 30  # 7/30/90 only — never null (R-R3: every connector expires)
 
 
 class RemoteSettingsIn(CamelModel):

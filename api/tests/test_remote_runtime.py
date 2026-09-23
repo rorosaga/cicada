@@ -180,6 +180,36 @@ def test_raw_excerpts_need_the_sources_scope(runtime, monkeypatch):
     assert "word for word" not in plain and "word for word" in raw
 
 
+def _private_cause(memory):
+    """A decay item whose subject has a source episode, so `inbox_context`
+    resolves a cause with an excerpt of the person's words."""
+    markdown_parser.write(memory / "episodes" / "ep_2026-08-20_001.md",
+                          {"id": "ep_2026-08-20_001", "timestamp": "2026-08-20T10:00:00+00:00",
+                           "harness": "codex", "title": "Private notes"},
+                          "user: my private words about beta project VERBATIM-SECRET-PHRASE\n")
+    _entity(memory, "beta-project", type="project", confidence=0.4, last_referenced="2026-03-01",
+            source_episodes=["ep_2026-08-20_001"])
+
+
+@pytest.mark.parametrize("tool, args, scopes", [
+    ("cicada_check_nudges", {}, {"read"}),
+    ("cicada_recall", {"query": "beta project"}, {"search"}),
+])
+def test_the_cause_line_never_quotes_the_person_without_sources(runtime, memory, monkeypatch, tool, args, scopes):
+    """G135 final review (R-R22): the inbox `Cause:` line quoted up to 200
+    characters of the episode to every default connector. Without `sources`
+    it keeps where the item came from and drops the words; with it, the quote
+    is back."""
+    _private_cause(memory)
+    monkeypatch.setattr(mcp_tools, "_leann_search_entities", lambda *a, **k: [])
+    monkeypatch.setattr(mcp_tools, "_leann_search_episodes", lambda *a, **k: [])
+    plain, status = runtime.call(_connector(scopes=scopes), tool, args)
+    assert status == "ok" and 'Cause: from "Private notes"' in plain
+    assert "VERBATIM-SECRET-PHRASE" not in plain and "my private words" not in plain
+    raw, _ = runtime.call(_connector(scopes=scopes | {"sources"}), tool, args)
+    assert "VERBATIM-SECRET-PHRASE" in raw and 'Cause: “user: my private words' in raw
+
+
 def test_without_answer_a_reply_never_names_the_resolve_tool(runtime):
     text, _ = runtime.call(_connector(), "cicada_check_nudges", {})
     assert "inbox-001" in text

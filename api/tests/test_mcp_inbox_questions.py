@@ -185,6 +185,15 @@ def test_render_question_no_source_recorded_is_printed_not_dropped(server):
     assert "Cause: [ no source recorded ]" in out
 
 
+def test_render_question_without_raw_excerpts_keeps_where_and_drops_the_words(server):
+    """G135 final review (R-R22): a remote connector without `sources` gets the
+    cause's provenance, never its quote; stdio's default is unchanged."""
+    out = server.render_question(QUESTION_FM, "ctx", today="2026-08-30", cause=CAUSE, raw_excerpts=False)
+    [line] = [x for x in out.splitlines() if "Cause:" in x]
+    assert line.strip().startswith("Cause: from ") and "“" not in line
+    assert "“" in server.render_question(QUESTION_FM, "ctx", today="2026-08-30", cause=CAUSE)
+
+
 def test_check_nudges_renders_decay_as_a_question_with_cause(server, tmp_path, monkeypatch):
     from api.services import bank_index, markdown_parser
     bank_index.invalidate()

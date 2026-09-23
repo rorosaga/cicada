@@ -103,16 +103,17 @@ enum RemoteScope: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+/// Every connector expires (R-R3, spec Decision 4: 7/30/90 days). A "No
+/// expiry" choice shipped in Task 7 and came out at the final review.
 enum RemoteExpiry: CaseIterable, Identifiable, Hashable {
-    case sevenDays, thirtyDays, ninetyDays, never
+    case sevenDays, thirtyDays, ninetyDays
 
     var id: Self { self }
-    var days: Int? {
+    var days: Int {
         switch self {
         case .sevenDays: 7
         case .thirtyDays: 30
         case .ninetyDays: 90
-        case .never: nil
         }
     }
     var title: String {
@@ -120,7 +121,6 @@ enum RemoteExpiry: CaseIterable, Identifiable, Hashable {
         case .sevenDays: "7 days"
         case .thirtyDays: "30 days"
         case .ninetyDays: "90 days"
-        case .never: "No expiry"
         }
     }
 }

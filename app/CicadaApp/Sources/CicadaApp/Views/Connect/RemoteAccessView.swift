@@ -204,6 +204,7 @@ struct RemoteAccessView: View {
             }
             ForEach(active) { connector in
                 RemoteConnectorRow(connector: connector,
+                                   canRotate: status?.effectiveUrl != nil,
                                    onRotate: { Task { await rotate(connector) } },
                                    onRevoke: { pendingRevoke = connector })
             }
@@ -297,6 +298,11 @@ struct RemoteAccessView: View {
 /// One connector: mark · label · scope chips · expiry · last use · Rotate · Revoke (R-R35).
 struct RemoteConnectorRow: View {
     let connector: RemoteConnector
+    /// False while there is no public address (G135 final review): a rotate
+    /// kills the old secret, and with nowhere to point the new one there would
+    /// be nothing usable to show. Gated like New connector, and the backend
+    /// refuses it with a 409 too.
+    var canRotate = true
     var onRotate: (() -> Void)? = nil
     var onRevoke: (() -> Void)? = nil
 
@@ -331,8 +337,10 @@ struct RemoteConnectorRow: View {
                 if let onRotate {
                     Button("Rotate", action: onRotate)
                         .buttonStyle(.cicadaPlain)
-                        .foregroundStyle(CicadaTheme.accent)
-                        .help("Make a new link — the old one stops working")
+                        .foregroundStyle(canRotate ? CicadaTheme.accent : CicadaTheme.textTertiary)
+                        .disabled(!canRotate)
+                        .help(canRotate ? "Make a new link — the old one stops working"
+                                        : "Set up a way to reach this Mac first")
                 }
                 if let onRevoke {
                     Button("Revoke", role: .destructive, action: onRevoke)

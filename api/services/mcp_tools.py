@@ -45,6 +45,34 @@ def _loopback_post(url: str, payload: dict, headers: dict[str, str], timeout: fl
         return json.loads(resp.read().decode("utf-8"))
 
 
+SLEEP_PROBE_TIMEOUT_S = 2.0
+
+
+def _backend_sleep_running(backend_url: str, headers: dict[str, str]) -> bool:
+    """Is the backend mid-Sleep? Asked by a stdio ``write_claim`` before it
+    commits (G135 final review). A module function so the suite can pin it —
+    no test may reach a live backend on loopback.
+
+    Refused connection or any HTTP error → False: no backend means no cycle,
+    and the commit goes ahead. A timeout → True: a backend too busy to answer
+    in 2 s is the likeliest to be consolidating, and leaving the page dirty is
+    the pre-G135 behaviour, never a lost write."""
+    import socket
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(f"{backend_url}/sleep/status", headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=SLEEP_PROBE_TIMEOUT_S) as resp:
+            return json.loads(resp.read().decode("utf-8")).get("status") == "running"
+    except (TimeoutError, socket.timeout):
+        return True
+    except urllib.error.URLError as exc:
+        return isinstance(exc.reason, (TimeoutError, socket.timeout))
+    except Exception:  # noqa: BLE001 — a probe never blocks a write
+        return False
+
+
 @dataclass
 class ToolContext:
     """Who is calling a tool, for one call.
@@ -80,7 +108,7 @@ class ToolContext:
     # so `mcp/server.py::_ctx` needs no change and the golden replies hold.
     connector_id: str | None = None
     available: frozenset[str] | None = None   # None = every tool (stdio)
-    raw_excerpts: bool = True                 # recall's verbatim episode excerpts
+    raw_excerpts: bool = True                 # verbatim episode text: recall's excerpts + every Cause: quote
     sources_limit: tuple[int | None, int] = (None, 2000)
 
     @property
@@ -129,6 +157,13 @@ class ToolContext:
         if self.post is not None:
             return self.post(path, payload)
         return _loopback_post(f"{self.backend_url}{path}", payload, self.backend_headers())
+
+    def sleep_running(self) -> bool:
+        """Only a stdio caller asks: `RemoteRuntime.call` refuses every remote
+        write while Sleep runs (R-R27), so a remote body never gets here mid-cycle."""
+        if self.is_remote:
+            return False
+        return _backend_sleep_running(self.backend_url, self.backend_headers())
 
 
 def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
@@ -399,7 +434,7 @@ def recall(ctx: ToolContext, query: str) -> str:
     relevant_hub, hub_member_ids = _match_hub(memory_path, query)
 
     # === Proactive: pending inbox items related to the query ===
-    inbox_blurbs = _relevant_inbox(memory_path, query)
+    inbox_blurbs = _relevant_inbox(memory_path, query, raw_excerpts=ctx.raw_excerpts)
     if inbox_blurbs:
         output_parts.append(
             "**Pending inbox items relevant to this query:**\n"
@@ -818,7 +853,15 @@ def write_claim(
     # G135 R-R11: the page this write touched is committed on its own, under
     # the harness that wrote it — no longer swept into the next writer's
     # `git add -A` (the G85 smear).
-    if result.get("path"):
+    #
+    # Not while Sleep runs (G135 final review). Sleep does not hold
+    # `index.lock` for the cycle, only for each git command, so a stdio write
+    # landing on a page Sleep has also edited would commit Sleep's uncommitted
+    # hunks under `Cicada-Author: <harness>` and drop them out of Sleep's own
+    # commit — G85 in reverse. The remote path is gated before it gets here
+    # (R-R27); stdio asks the backend, and while a cycle runs the page stays
+    # dirty for Sleep's `git add -A` sweep, the pre-G135 behaviour.
+    if result.get("path") and not ctx.sleep_running():
         change = "created" if result.get("page_created") else "updated"
         agent_commits.commit_write(
             memory_path,
@@ -1122,18 +1165,24 @@ def _inbox_files(memory_path: Path):
 
 
 def _format_inbox_blurb(
-    fm: dict, body: str, *, cause: dict | None = None, recommended_key: str | None = None
+    fm: dict,
+    body: str,
+    *,
+    cause: dict | None = None,
+    recommended_key: str | None = None,
+    raw_excerpts: bool = True,
 ) -> str:
     """One proactive-recall line per pending item.
 
     ``cause``/``recommended_key`` are additive (G115 R9): a caller that has not
-    resolved them yet renders exactly what it rendered before.
+    resolved them yet renders exactly what it rendered before. ``raw_excerpts``
+    is :func:`render_question`'s gate, passed through.
     """
     kind = str(fm.get("kind", fm.get("type", "")) or "")
     ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
     if fm.get("question"):
         return f"- [{kind or 'item'}] **{ename}**\n" + render_question(
-            fm, body, cause=cause, recommended_key=recommended_key
+            fm, body, cause=cause, recommended_key=recommended_key, raw_excerpts=raw_excerpts
         )
     if kind in ("clarification", "merge_suggestion"):
         utype = fm.get("uncertainty_type", "unknown")
@@ -1156,6 +1205,7 @@ def render_question(
     *,
     cause: dict | None = None,
     recommended_key: str | None = None,
+    raw_excerpts: bool = True,
 ) -> str:
     """Render an inbox item's question object for an agent to ask in-flow (§2.7, v2 in G115 Phase 1).
 
@@ -1188,6 +1238,15 @@ def render_question(
     body, left the page ``decaying`` at its decayed confidence and deleted the
     item — silently inverting a "yes, still relevant". A conflict (both flags
     true) renders the identical sentence it always did.
+
+    **``raw_excerpts=False`` drops the quote from the ``Cause:`` line** (G135
+    final review, R-R22). The excerpt is up to 200 characters of the episode —
+    the person's own words, verbatim — and a remote connector on the default
+    scopes (``read``/``search``) was receiving it through this line even though
+    the app promises raw words only behind the opt-in ``sources`` scope;
+    ``ctx.raw_excerpts`` used to gate recall's episode block alone. The line
+    keeps ``from "Title" · harness · age`` so the provenance still reads. Stdio
+    passes the default and renders the quote exactly as before.
     """
     from datetime import date as _date
 
@@ -1203,6 +1262,8 @@ def render_question(
             header += f" · predicate={fm['predicate']}"
         lines.append(header)
     if cause is not None:
+        if not raw_excerpts:
+            cause = {**cause, "excerpt": ""}
         lines.append(f"  Cause: {inbox_context.cause_line(cause, now)}")
 
     for option in inbox_questions.normalize_options(fm.get("options")):
@@ -1375,7 +1436,10 @@ def resolve_inbox(
 _REMOTE_INBOX_ID_RE = re.compile(r"^inbox-\d+$")
 
 
-def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
+def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True) -> list[str]:
+    """Recall's proactive inbox block. ``raw_excerpts`` is the caller's
+    ``ctx.raw_excerpts`` — False keeps the person's words out of each item's
+    ``Cause:`` line for a remote connector without ``sources`` (R-R22)."""
     from api.services import inbox_questions
 
     q = query.lower()
@@ -1401,7 +1465,8 @@ def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
         if inbox_questions.is_deferred(fm, today):
             continue
         fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx)
-        blurbs.append(_format_inbox_blurb(fm, body, cause=cause, recommended_key=rec))
+        blurbs.append(_format_inbox_blurb(
+            fm, body, cause=cause, recommended_key=rec, raw_excerpts=raw_excerpts))
     return blurbs
 
 
@@ -1536,7 +1601,8 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
         if fm.get("question"):
             results.append(
                 f"**{(kind or 'Item').title()}** `{filepath.stem}`: {ename}\n"
-                + render_question(fm, body, cause=cause, recommended_key=rec)
+                + render_question(fm, body, cause=cause, recommended_key=rec,
+                                  raw_excerpts=ctx.raw_excerpts)
                 + f"\n  Resolve with cicada_resolve_inbox(id=\"{filepath.stem}\", option_key=…)"
             )
         elif kind in ("clarification", "merge_suggestion") or (

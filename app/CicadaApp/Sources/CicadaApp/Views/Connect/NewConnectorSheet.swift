@@ -73,12 +73,6 @@ struct NewConnectorSheet: View {
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
-                        if expiry == .never {
-                            Text(Copy.remoteNoExpiryWarning)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.warning)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
                     }
                     if let problem {
                         Text(problem)
@@ -168,7 +162,11 @@ struct ShownOnceView: View {
                             .foregroundStyle(CicadaTheme.textSecondary)
                         CommandBox(command: link)
                     }
-                    if app.usesHeader {
+                    // The token whenever there is no link to show, so a
+                    // link app is never handed a sheet with nothing usable
+                    // on it (G135 final review — the backend now refuses to
+                    // mint without an address, this is the belt to that).
+                    if app.usesHeader || created.link == nil {
                         Text("Your token")
                             .font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textSecondary)

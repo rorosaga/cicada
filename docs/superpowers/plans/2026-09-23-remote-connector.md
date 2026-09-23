@@ -197,11 +197,11 @@ green.
 
 ## Global Constraints
 
-- `<worktree>` below means `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/r` (branch
+- `<worktree>` below means `<repo>/.worktrees/r` (branch
   `feat/remote-connector`, based on `dev` @ `f2d31ef`). Work ONLY there. Every shell command is
   `cd <worktree> && <cmd>` with the ABSOLUTE path, because zoxide hijacks a relative `cd` (ignore its
   stderr warning). Never an unquoted `--include=*.ext`, because zsh globs it.
-- NEVER read `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`,
+- NEVER read `<repo>/memory` (any bank), `~/.cicada`,
   `~/Library/Safari` or `~/.claude/projects`. Fixtures are synthetic: `alpha-project`,
   `bob-example`, `example.com`, `mac.example-tailnet.ts.net`.
 - Python:

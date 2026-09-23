@@ -2015,12 +2015,10 @@ actor APIClient {
         try await get("/remote/connectors")
     }
 
-    /// `expiresInDays: nil` means "no expiry" and must reach the backend as JSON
-    /// `null` — an omitted key would mean the 30-day default. `NSNull`, never a
-    /// boxed `Optional` (see `updateOwnerSettings`' note on why that throws).
-    func createRemoteConnector(app: String, label: String, scopes: [String], expiresInDays: Int?) async throws -> RemoteConnectorCreated {
-        var body: [String: Any] = ["app": app, "label": label, "scopes": scopes]
-        body["expiresInDays"] = expiresInDays.map { $0 as Any } ?? NSNull()
+    /// `expiresInDays` is 7, 30 or 90 — every connector expires (R-R3); the
+    /// backend refuses anything else, `null` included.
+    func createRemoteConnector(app: String, label: String, scopes: [String], expiresInDays: Int) async throws -> RemoteConnectorCreated {
+        let body: [String: Any] = ["app": app, "label": label, "scopes": scopes, "expiresInDays": expiresInDays]
         return try await post("/remote/connectors", body: body)
     }
 

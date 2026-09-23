@@ -87,10 +87,14 @@ def test_a_connector_is_shown_once_and_never_again(client):
     assert token not in json.dumps(listed)
 
 
-def test_no_expiry_is_an_explicit_null(client):
+def test_every_connector_expires(client):
+    """R-R3: 7/30/90 days. An explicit null is refused (422), and an omitted
+    key is the 30-day default — never a forever link."""
     c, _, _ = client
-    body = c.post("/remote/connectors", json={"app": "cursor", "scopes": ["search"], "expiresInDays": None}).json()
-    assert body["connector"]["expiresAt"] is None
+    assert c.post("/remote/connectors", json={"app": "cursor", "scopes": ["search"],
+                                              "expiresInDays": None}).status_code == 422
+    body = c.post("/remote/connectors", json={"app": "cursor", "scopes": ["search"]}).json()
+    assert body["connector"]["expiresAt"] is not None
 
 
 def test_bad_requests_are_400_unknown_ids_404_dead_connectors_409(client):
@@ -102,6 +106,22 @@ def test_bad_requests_are_400_unknown_ids_404_dead_connectors_409(client):
     made = c.post("/remote/connectors", json={"app": "claude", "scopes": ["search"]}).json()["connector"]
     assert c.delete(f"/remote/connectors/{made['id']}").json()["state"] == "revoked"
     assert c.post(f"/remote/connectors/{made['id']}/rotate").status_code == 409
+
+
+def test_no_token_is_minted_when_there_is_no_address_to_show_it_with(client, monkeypatch):
+    """G135 final review: with no public base, create and rotate are 409s and
+    nothing changes — a rotate that went ahead would kill the old secret and
+    hand back a link-less sheet."""
+    c, _, _ = client
+    made = c.post("/remote/connectors", json={"app": "claude", "scopes": ["search"]}).json()
+    before = store.ConnectorStore().list()
+    monkeypatch.setattr(reach, "detect", lambda port, **k: reach.Reach("stopped", None, False))
+    created = c.post("/remote/connectors", json={"app": "claude", "scopes": ["search"]})
+    assert created.status_code == 409 and "reach this Mac" in created.json()["detail"]
+    assert c.post(f"/remote/connectors/{made['connector']['id']}/rotate").status_code == 409
+    assert store.ConnectorStore().list() == before
+    assert store.ConnectorStore().verify(made["token"])[1] == "ok"
+    assert c.post("/remote/connectors/zzzzzzzz/rotate").status_code == 404
 
 
 def test_rotation_hands_out_a_new_token(client):
@@ -134,6 +154,11 @@ def test_the_ledger_records_connector_lifecycle_as_ids(client, tmp_path, monkeyp
     ({**FUNNEL_ON, "Web": {"mac.example-tailnet.ts.net:443": {"Handlers": {"/api": {"Proxy": "http://127.0.0.1:8765"}}}}}, None),
     ({"Foreground": {"abc": FUNNEL_ON}}, "https://mac.example-tailnet.ts.net"),
     ({}, None),
+    # Another program's JSON: a list or a string where a map belongs is no door, never a crash.
+    ({**FUNNEL_ON, "AllowFunnel": []}, None),
+    ({**FUNNEL_ON, "Web": "x"}, None),
+    ({**FUNNEL_ON, "Web": {"mac.example-tailnet.ts.net:443": {"Handlers": ["/"]}}}, None),
+    ({"Foreground": []}, None),
 ])
 def test_funnel_status_is_read_for_our_port_only(status, want):
     assert reach.funnel_url_for_port(status, 8765) == want
@@ -162,3 +187,5 @@ def test_the_probe_checks_it_is_really_cicada():
     assert reach.probe("https://x.example", fetch=good) is True
     assert reach.probe("https://x.example", fetch=other) is False
     assert reach.probe("https://x.example", fetch=lambda u, t: (_ for _ in ()).throw(OSError())) is False
+    for body in ("[]", "null", '"x"', "3"):  # JSON, but not an object: an answer, never a 500
+        assert reach.probe("https://x.example", fetch=lambda u, t, body=body: (200, body)) is False

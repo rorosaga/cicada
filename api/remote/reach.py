@@ -40,14 +40,21 @@ def _proxies_to(proxy: str, port: int) -> bool:
         return False
 
 
+def _dict(value) -> dict:
+    """The ServeConfig is another program's JSON: a key holding a list or a
+    string where a map belongs is "no door", never an AttributeError that turns
+    `GET /remote/status` into a 500 (G135 final review)."""
+    return value if isinstance(value, dict) else {}
+
+
 def funnel_url_for_port(status: dict, port: int) -> str | None:
-    configs = [status] + [v for v in (status.get("Foreground") or {}).values() if isinstance(v, dict)]
+    configs = [status] + [v for v in _dict(status.get("Foreground")).values() if isinstance(v, dict)]
     for config in configs:
-        allowed = config.get("AllowFunnel") or {}
-        for hostport, web in (config.get("Web") or {}).items():
+        allowed = _dict(config.get("AllowFunnel"))
+        for hostport, web in _dict(config.get("Web")).items():
             if not allowed.get(hostport):
                 continue
-            root = ((web or {}).get("Handlers") or {}).get("/") or {}
+            root = _dict(_dict(_dict(web).get("Handlers")).get("/"))
             if _proxies_to(str(root.get("Proxy") or ""), port):
                 host, _, public_port = hostport.rpartition(":")
                 return f"https://{host}" if public_port in ("443", "") else f"https://{host}:{public_port}"
@@ -73,7 +80,13 @@ def detect(port: int, *, which=shutil.which, run=subprocess.run, exists=os.path.
 
 def probe(base_url: str, *, fetch=None, timeout: float = 3.0) -> bool:
     """Is Cicada really answering at ``base_url``? A GET of the public
-    protected-resource metadata: no token, no redirects, no proxy env, 3 s."""
+    protected-resource metadata: no token, no redirects, no proxy env, 3 s.
+
+    A 200 whose body is JSON but not an object (``[]``, ``null``, ``"x"``) is
+    "not Cicada", not an AttributeError: this probe is RemoteAccessView's first
+    load, and a 500 there left `status` nil — the switch disabled and the
+    connectors card hidden, so the person could not turn remote access off
+    while the listener stayed up (G135 final review)."""
     base = base_url.rstrip("/")
     url = f"{base}{catalog.PRM_PATH}/mcp"
     try:
@@ -88,4 +101,5 @@ def probe(base_url: str, *, fetch=None, timeout: float = 3.0) -> bool:
         data = json.loads(body)
     except Exception:  # noqa: BLE001 — unreachable is an answer, not an error
         return False
-    return status == 200 and data.get("resource_name") == "Cicada" and data.get("resource") == f"{base}/mcp"
+    return (status == 200 and isinstance(data, dict) and data.get("resource_name") == "Cicada"
+            and data.get("resource") == f"{base}/mcp")

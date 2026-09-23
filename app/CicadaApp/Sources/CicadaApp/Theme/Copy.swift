@@ -271,7 +271,6 @@ enum Copy {
     static let remoteNeverOpensTunnel = "Cicada never opens a tunnel on its own."
     static let remoteShownOnce = "You won't see this again. Revoke any time."
     static let remoteMachineNameWarning = "Turning on HTTPS in Tailscale writes this Mac's name into a public certificate log. Rename your Mac first if its name is personal."
-    static let remoteNoExpiryWarning = "A link with no expiry works until you revoke it — anyone who gets it can use your memory."
     static let remoteGeminiApp = "Using the Gemini app? It can't connect to outside memory yet. Use Gemini CLI, or bring your Gemini history in from the Feed."
 
     // MARK: Pointers

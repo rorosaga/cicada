@@ -15,6 +15,11 @@ from api.services import agent_commits, agentic_write, bank_index, markdown_pars
 from api.services.claims import parse_claims
 
 
+# Bound at import, before conftest's autouse fixture pins the module attribute
+# to "not running" — the probe tests below exercise the real function.
+from api.services.mcp_tools import _backend_sleep_running as _REAL_PROBE
+
+
 def _git(repo, *args):
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout
 
@@ -43,6 +48,57 @@ def test_a_stdio_claim_commits_only_its_page_under_the_harness(server):
     claim = [c for c in parse_claims(markdown_parser.parse(memory / "entities" / "alpha-project.md").body)
              if c.predicate == "uses"][0]
     assert claim.authored_by == "claude-code" and claim.origin == "mcp"
+
+
+def test_a_stdio_claim_written_mid_sleep_is_left_for_sleeps_own_commit(server, monkeypatch):
+    """G135 final review: Sleep holds `index.lock` per git command, not per
+    cycle, so a stdio commit mid-cycle would take Sleep's uncommitted hunks on
+    the same page under the harness's name (G85 in reverse). While the backend
+    says `running`, the write stands and the page stays dirty for Sleep."""
+    from api.services import mcp_tools
+
+    srv, memory = server
+    asked = []
+    monkeypatch.setattr(mcp_tools, "_backend_sleep_running",
+                        lambda url, headers: asked.append(url) or True)
+    head = _git(memory, "rev-parse", "HEAD")
+    out = srv.handle_write_claim("alpha-project", "uses", "sqlite-vec", None, None, None, None)
+    assert out.startswith("Recorded") and asked == ["http://127.0.0.1:8000"]
+    assert _git(memory, "rev-parse", "HEAD") == head
+    assert "entities/alpha-project.md" in _git(memory, "status", "--porcelain")
+
+
+@pytest.mark.parametrize("reply, running", [
+    ('{"status": "running"}', True), ('{"status": "idle"}', False), ("not json", False),
+])
+def test_the_sleep_probe_reads_the_status(monkeypatch, reply, running):
+    from api.services import mcp_tools
+
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return reply.encode()
+
+    seen = []
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout: seen.append((req.full_url, timeout)) or Resp())
+    assert _REAL_PROBE("http://127.0.0.1:8000", {}) is running
+    assert seen == [("http://127.0.0.1:8000/sleep/status", mcp_tools.SLEEP_PROBE_TIMEOUT_S)]
+
+
+def test_the_sleep_probe_treats_a_timeout_as_running_and_a_refusal_as_not(monkeypatch):
+    import socket
+    import urllib.error
+
+    def slow(req, timeout):
+        raise socket.timeout("timed out")
+
+    def refused(req, timeout):
+        raise urllib.error.URLError(ConnectionRefusedError(61, "refused"))
+
+    monkeypatch.setattr("urllib.request.urlopen", slow)
+    assert _REAL_PROBE("http://127.0.0.1:8000", {}) is True
+    monkeypatch.setattr("urllib.request.urlopen", refused)
+    assert _REAL_PROBE("http://127.0.0.1:8000", {}) is False
 
 
 def test_an_unknown_harness_is_credited_to_agent(server, monkeypatch):

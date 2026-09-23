@@ -95,7 +95,12 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   260 pt, so the scaled minimum clamps above ~1.44× zoom; the stage icons snap to 48 pt on the
   16-cell grid (the spec said 40).
 - **G135:** DNS rebinding between `net_guard`'s check and the fetch is not caught (G59's posture); a
-  Sleep cycle starting mid-remote-write can still sweep that file (R-R27); remote writes are
+  Sleep cycle starting mid-remote-write can still sweep that file (R-R27); a stdio
+  `cicada_write_claim` asks `GET /sleep/status` before its own commit and leaves the page dirty for
+  Sleep while a cycle runs (Sleep holds `index.lock` per git command, not per cycle, so committing
+  would take Sleep's hunks on that page under the agent's name) — a cycle that starts between that
+  probe and the commit is still the narrow residual window, and a probe that times out leaves the
+  page dirty (the pre-G135 behaviour); remote writes are
   serialised in-process, but a writer in another process (the app's paste, a stdio agent) can still
   race one for an episode id, which is G114's standing rule; a bookmark or pasted link to a LAN page
   is saved with its URL-derived title and never fetched (R-R10).
